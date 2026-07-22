@@ -1,6 +1,7 @@
 export {
   authorizeHabitatAccess as requireHabitatAccess,
   authorizeMissionAccess as requireMissionAccess,
+  checkHabitatAccess,
 } from "./realtimeAuth.js";
 
 import type { FastifyRequest, FastifyReply } from "fastify";

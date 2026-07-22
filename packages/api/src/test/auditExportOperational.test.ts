@@ -82,7 +82,7 @@ function seedOperationalRows(habitatId: string, taskId: string) {
     createdBy: "user-1",
   });
 
-  const automationRun = runRepo.startRuleRun({
+  const { run: automationRun } = runRepo.startRuleRun({
     ruleId: rule.id,
     habitatId,
     triggerType: "task.rejected",

@@ -139,7 +139,7 @@ describe("auditArchivalService", () => {
       actions: [{ type: "notify", recipients: [{ type: "assignee" }], template: "X" }],
       createdBy: "user-1",
     });
-    const run = runRepo.startRuleRun({
+    const { run } = runRepo.startRuleRun({
       ruleId: rule.id,
       habitatId: fixture.habitat.id,
       triggerType: "task.rejected",

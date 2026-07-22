@@ -211,6 +211,41 @@
       "when": 1783919602000,
       "tag": "0053_plugin_quarantine_kind_safe_reset",
       "breakpoints": true
+    },
+    {
+      "idx": 30,
+      "version": "6",
+      "when": 1784006002000,
+      "tag": "0054_task_publication",
+      "breakpoints": true
+    },
+    {
+      "idx": 31,
+      "version": "6",
+      "when": 1784092402000,
+      "tag": "0055_task_creation_attempt_habitat_scope",
+      "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "6",
+      "when": 1784178802000,
+      "tag": "0056_automation_run_event_dedupe_key",
+      "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "6",
+      "when": 1784265202000,
+      "tag": "0057_import_attempts",
+      "breakpoints": true
+    },
+    {
+      "idx": 34,
+      "version": "6",
+      "when": 1784351602000,
+      "tag": "0058_worker_scan_indexes",
+      "breakpoints": true
     }
   ]
 }

@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import * as taskLifecycle from "../../tools/task-lifecycle.js";
 import * as taskCrud from "../../tools/task-crud.js";
 import * as taskDetail from "../../tools/task-detail.js";
@@ -7,6 +7,10 @@ import * as subtask from "../../tools/subtask.js";
 import * as mission from "../../tools/mission.js";
 import * as audit from "../../tools/audit.js";
 import { TASK_DISPATCH_TOOL, TASK_ACTIONS } from "../../tools/task-dispatch.js";
+import { createMockClient } from "../__fixtures__/mock-client.js";
+import { ApiClientError, type Task } from "@orcy/shared";
+
+const MISSION_ID = "00000000-0000-0000-0000-000000000001";
 
 describe("TASK_DISPATCH_TOOL", () => {
   it("has the correct name", () => {
@@ -105,6 +109,73 @@ describe("TASK_ACTIONS", () => {
 
     it("routes create-in-mission to missionCreateTask", () => {
       expect(TASK_ACTIONS["create-in-mission"]).toBe(mission.missionCreateTask);
+    });
+
+    it("publishes create-in-mission and preserves the legacy task response shape", async () => {
+      const client = createMockClient();
+      const publishedTask = { id: "task-published", title: "Published task" } as Task;
+      vi.mocked(client.publishTaskInMission).mockResolvedValue({
+        outcome: "created",
+        attemptId: "attempt-1",
+        taskId: publishedTask.id,
+      });
+      vi.mocked(client.getTask).mockResolvedValue({ task: publishedTask });
+      vi.mocked(client.createTaskInMission).mockResolvedValue({
+        task: { id: "task-legacy", title: "Legacy task" } as Task,
+      });
+
+      const result = await TASK_ACTIONS["create-in-mission"](client, {
+        missionId: MISSION_ID,
+        title: publishedTask.title,
+      });
+
+      expect(client.publishTaskInMission).toHaveBeenCalledWith(
+        MISSION_ID,
+        expect.objectContaining({
+          attemptKey: expect.any(String),
+          title: publishedTask.title,
+        }),
+      );
+      expect(client.getTask).toHaveBeenCalledWith(publishedTask.id);
+      expect(client.createTaskInMission).not.toHaveBeenCalled();
+      expect(result).toEqual({ task: publishedTask });
+    });
+
+    it("does not bypass publication failures", async () => {
+      const client = createMockClient();
+      const conflict = new ApiClientError(409, "Publication vetoed");
+      vi.mocked(client.publishTaskInMission).mockRejectedValue(conflict);
+
+      await expect(
+        TASK_ACTIONS["create-in-mission"](client, {
+          missionId: MISSION_ID,
+          title: "Governed task",
+        }),
+      ).rejects.toBe(conflict);
+
+      expect(client.createTaskInMission).not.toHaveBeenCalled();
+      expect(client.getTask).not.toHaveBeenCalled();
+    });
+
+    it("does not create a duplicate when a published task cannot be reloaded", async () => {
+      const client = createMockClient();
+      const reloadError = new ApiClientError(404, "Task not observed yet");
+      vi.mocked(client.publishTaskInMission).mockResolvedValue({
+        outcome: "created",
+        attemptId: "attempt-recovering",
+        taskId: "task-recovering",
+        recovering: true,
+      });
+      vi.mocked(client.getTask).mockRejectedValue(reloadError);
+
+      await expect(
+        TASK_ACTIONS["create-in-mission"](client, {
+          missionId: MISSION_ID,
+          title: "Recovering task",
+        }),
+      ).rejects.toBe(reloadError);
+
+      expect(client.createTaskInMission).not.toHaveBeenCalled();
     });
 
     it("routes update to habitatUpdateTask", () => {

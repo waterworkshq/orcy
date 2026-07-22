@@ -3,10 +3,15 @@ import { render, screen, fireEvent, cleanup, waitFor } from "@testing-library/re
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import React from "react";
 import { CreateTaskForm } from "./CreateTaskForm.js";
+import { ApiError } from "../../api/transport.js";
 
 const mockCreateTask = vi.fn();
 const mockListTemplates = vi.fn();
 const mockRecordUsage = vi.fn();
+const mockPublishTask = vi.fn();
+const mockGetTaskCreationAttempt = vi.fn();
+const mockRetryAssignment = vi.fn();
+const mockListAgents = vi.fn();
 const mockNotifySuccess = vi.fn();
 const mockNotifyError = vi.fn();
 
@@ -19,7 +24,37 @@ vi.mock("../../api/index.js", () => ({
       list: (...args: unknown[]) => mockListTemplates(...args),
       recordUsage: (...args: unknown[]) => mockRecordUsage(...args),
     },
+    agents: {
+      list: (...args: unknown[]) => mockListAgents(...args),
+    },
   },
+}));
+
+/**
+ * The publication-route mock: T11 Phase 2 — `CreateTaskForm` calls the new
+ * publication route FIRST and falls back to the legacy `api.missions.createTask`
+ * on HTTP 404 (the cutover flag is off). The default behavior in these tests
+ * is to simulate a 404 so the legacy fallback is exercised; the
+ * "publication-route success" branch is covered by `setPublicationPathSuccess`.
+ */
+vi.mock("../../api/domains/taskPublications.js", () => ({
+  taskPublicationsApi: {
+    publishTask: (...args: unknown[]) => mockPublishTask(...args),
+    publishClone: vi.fn(),
+    getClonePreparation: vi.fn(),
+    getTaskCreationAttempt: (...args: unknown[]) => mockGetTaskCreationAttempt(...args),
+    retryAssignment: (...args: unknown[]) => mockRetryAssignment(...args),
+  },
+  parsePublishTaskResponse: (status: number, body: unknown) => {
+    // Mirror the real parser's behavior for tests that exercise the new path
+    // directly — a body with an `outcome` field is treated as a typed
+    // outcome, anything else is a generic error envelope.
+    if (typeof body === "object" && body !== null && "outcome" in body) {
+      return { kind: "outcome", outcome: body };
+    }
+    return { kind: "error", status, body: (body as Record<string, unknown>) ?? {} };
+  },
+  parseTaskPublicationsApiError: () => null,
 }));
 
 vi.mock("../../lib/toast.js", () => ({
@@ -57,9 +92,21 @@ describe("CreateTaskForm", () => {
     mockCreateTask.mockResolvedValue({ task: { id: "task-1", title: "Test" } });
     mockListTemplates.mockResolvedValue({ templates: [] });
     mockRecordUsage.mockResolvedValue(undefined);
+    mockListAgents.mockResolvedValue([{ id: "agent-1", name: "Agent One" }]);
+    mockRetryAssignment.mockResolvedValue({
+      outcome: "assigned",
+      taskId: "task-1",
+      assigneeId: "agent-1",
+    });
+    // Default: the new publication route returns 404 (the cutover flag is
+    // off, the route is not registered) → the form falls back to the
+    // legacy `api.missions.createTask` path. Tests that exercise the new
+    // path explicitly override this mock.
+    mockPublishTask.mockRejectedValue(new ApiError("Not found", 404, { error: "Not found" }));
   });
 
   afterEach(() => {
+    vi.useRealTimers();
     cleanup();
   });
 
@@ -309,6 +356,77 @@ describe("CreateTaskForm", () => {
       render(<CreateTaskForm {...defaultProps} />, { wrapper: createTestWrapper() });
 
       expect(screen.queryByText("Template")).toBeNull();
+    });
+  });
+
+  describe("publication recovery outcomes", () => {
+    it("keeps created_unassigned open with the failure reason and assignment retry", async () => {
+      mockPublishTask.mockResolvedValue({
+        outcome: "replayed",
+        attemptId: "attempt-1",
+        taskId: "task-1",
+        assignmentFailure: { category: "ineligible", reason: "dependencies_unmet" },
+      });
+
+      render(<CreateTaskForm {...defaultProps} />, { wrapper: createTestWrapper() });
+      fireEvent.change(screen.getByPlaceholderText("Task title"), {
+        target: { value: "Committed task" },
+      });
+      fireEvent.click(screen.getByRole("button", { name: "Create Task" }));
+
+      await waitFor(() => expect(screen.getByTestId("assignment-warning")).toBeTruthy());
+      expect(screen.getByText(/dependencies_unmet/)).toBeTruthy();
+      expect(defaultProps.onClose).not.toHaveBeenCalled();
+
+      fireEvent.change(screen.getByLabelText("Agent for assignment retry"), {
+        target: { value: "agent-1" },
+      });
+      fireEvent.click(screen.getByTestId("retry-assignment"));
+
+      await waitFor(() => {
+        expect(mockRetryAssignment).toHaveBeenCalledWith("task-1", "agent-1");
+      });
+    });
+
+    it("shows a neutral refresh state when a valid attempt exceeds the UI polling cap", async () => {
+      vi.useFakeTimers();
+      mockPublishTask.mockResolvedValue({
+        outcome: "created",
+        attemptId: "attempt-settling",
+        taskId: "task-settling",
+        recovering: true,
+        recoveringState: "published_pending_assignment",
+      });
+      mockGetTaskCreationAttempt.mockResolvedValue({
+        attemptId: "attempt-settling",
+        state: "published_pending_assignment",
+        habitatId: "board-1",
+        reservedAt: "2026-07-22T00:00:00Z",
+        publishedAt: "2026-07-22T00:00:01Z",
+        completedAt: null,
+        committedTaskId: "task-settling",
+        committedMissionId: "feat-1",
+        envelopeEventId: "event-1",
+        reservationId: "reservation-1",
+        terminalOutcome: null,
+        terminalResult: null,
+        leaseOwner: null,
+        leaseExpiresAt: null,
+      });
+
+      render(<CreateTaskForm {...defaultProps} />, { wrapper: createTestWrapper() });
+      fireEvent.change(screen.getByPlaceholderText("Task title"), {
+        target: { value: "Settling task" },
+      });
+      fireEvent.click(screen.getByRole("button", { name: "Create Task" }));
+      await vi.advanceTimersByTimeAsync(0);
+      expect(screen.getByTestId("polling-status")).toBeTruthy();
+      vi.setSystemTime(Date.now() + 61_000);
+      await vi.runOnlyPendingTimersAsync();
+
+      expect(screen.getByTestId("still-settling-status")).toBeTruthy();
+      expect(screen.queryByTestId("submit-error")).toBeNull();
+      expect(defaultProps.onClose).not.toHaveBeenCalled();
     });
   });
 });

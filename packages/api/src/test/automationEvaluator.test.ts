@@ -251,12 +251,22 @@ describe("automationContextBuilder", () => {
         targetType: "task",
         targetId: "t-1",
         payload: { foo: "bar" },
-        provenance: { source: "server", ruleId: "r-1", runId: "run-1" },
+        causalContext: {
+          root: { type: "automation", id: "r-1" },
+          parent: { type: "run", id: "run-1" },
+          hops: [{ type: "rule", id: "r-1", label: "test" }],
+        },
       });
       expect(tc.triggerType).toBe("task.rejected");
       expect(tc.triggerEventId).toBe("evt-1");
       expect(tc.targetType).toBe("task");
-      expect(tc.provenance?.source).toBe("server");
+      expect(tc.causalContext?.root).toEqual({ type: "automation", id: "r-1" });
+      expect(tc.causalContext?.parent).toEqual({ type: "run", id: "run-1" });
+      expect(tc.causalContext?.hops?.[0]).toEqual({
+        type: "rule",
+        id: "r-1",
+        label: "test",
+      });
     });
   });
 });

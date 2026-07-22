@@ -202,7 +202,13 @@ export interface ApplyTemplateResult {
 
 type DbHandle = ReturnType<typeof getDb>;
 
-const TERMINAL_TASK_STATUSES = ["done", "approved", "failed", "rejected"] as const;
+/**
+ * The terminal lifecycle statuses that pre-satisfy an attached workflow gate
+ * at creation time. Exported so the PURE template-aggregate preparation path
+ * ({@link prepareTemplateAggregate}) can compute the same pre-satisfaction
+ * decision without a transactional read of the just-inserted upstream task.
+ */
+export const TERMINAL_TASK_STATUSES = ["done", "approved", "failed", "rejected"] as const;
 
 /** Error thrown when workflow template validation fails during applyTemplate; surfaces with a clear message instead of being wrapped as a transaction error. */
 export class TemplateValidationError extends Error {
@@ -224,7 +230,7 @@ interface InstantiateWorkflowOpts {
 }
 
 /** Replaces `{{key}}` patterns with resolved variable values, leaving undeclared runtime tokens (e.g. `{{failedTaskTitle}}`) as-is. */
-function substituteTemplateVariables(
+export function substituteTemplateVariables(
   text: string | undefined | null,
   resolvedVars: Record<string, string>,
 ): string | undefined {
@@ -235,7 +241,7 @@ function substituteTemplateVariables(
 }
 
 /** Returns a copy of the failure handler with variable substitution applied to the recovery task template text. */
-function substituteFailureHandler(
+export function substituteFailureHandler(
   handler: WorkflowFailureHandlerConfig,
   substitute: (text: string | undefined | null) => string | undefined,
 ): WorkflowFailureHandlerConfig {

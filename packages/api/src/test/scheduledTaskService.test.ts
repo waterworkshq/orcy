@@ -226,6 +226,7 @@ describe("executeScheduledTask", () => {
       scheduleType: "once",
       missionTitle: "One-time mission",
       missionPriority: "medium" as TaskPriority,
+      tasksTemplate: [{ title: "One-time task", order: 0 }] as TaskTemplateEntry[],
       nextRunAt: new Date().toISOString(),
       createdBy: "human",
     });
@@ -265,6 +266,7 @@ describe("processDueTasks", () => {
       scheduleType: "cron",
       cronExpression: "0 9 * * *",
       missionTitle: "Past due mission",
+      tasksTemplate: [{ title: "Due task", order: 0 }] as TaskTemplateEntry[],
       nextRunAt: new Date(Date.now() - 60_000).toISOString(),
       createdBy: "human",
     });
@@ -338,6 +340,7 @@ describe("processDueTasks", () => {
       scheduleType: "cron",
       cronExpression: "0 9 * * *",
       missionTitle: "Mission 1",
+      tasksTemplate: [{ title: "Task 1", order: 0 }] as TaskTemplateEntry[],
       nextRunAt: new Date(Date.now() - 60_000).toISOString(),
       createdBy: "human",
     });
@@ -347,6 +350,7 @@ describe("processDueTasks", () => {
       scheduleType: "cron",
       cronExpression: "0 10 * * *",
       missionTitle: "Mission 2",
+      tasksTemplate: [{ title: "Task 2", order: 0 }] as TaskTemplateEntry[],
       nextRunAt: new Date(Date.now() - 120_000).toISOString(),
       createdBy: "human",
     });
@@ -565,6 +569,7 @@ describe("processDueScheduledTasks", () => {
       scheduleType: "cron",
       cronExpression: "0 9 * * *",
       missionTitle: "Mission",
+      tasksTemplate: [{ title: "Scheduled task", order: 0 }] as TaskTemplateEntry[],
       nextRunAt: new Date(Date.now() - 60_000).toISOString(),
       createdBy: "human",
     });
@@ -905,7 +910,7 @@ describe("token substitution in execution", () => {
       missionDescription: "Auto standup",
       missionPriority: "medium" as TaskPriority,
       missionLabels: [],
-      tasksTemplate: [],
+      tasksTemplate: [{ title: "Standup", order: 0 }] as TaskTemplateEntry[],
       nextRunAt: new Date().toISOString(),
       createdBy: "human",
     });

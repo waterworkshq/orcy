@@ -25,7 +25,7 @@ import {
   type RoadmapSettingsTabHandle,
 } from "./settings/RoadmapSettingsTab.js";
 import { ExportHabitatDialog } from "./ExportHabitatDialog.js";
-import { ImportHabitatDialog } from "./ImportHabitatDialog.js";
+import { ImportHabitatManifestDialog } from "./ImportHabitatManifestDialog.js";
 import { api } from "../../api/index.js";
 import { notify } from "../../lib/toast.js";
 import type { PublicHabitat } from "../../types/index.js";
@@ -335,14 +335,24 @@ export function HabitatSettingsDialog({
         open={exportOpen}
         onClose={() => setExportOpen(false)}
       />
-      <ImportHabitatDialog
+      {/*
+        T10C M4 — v3-aware import dialog (consolidated mount). The new dialog
+        dispatches on response shape (v3 closed union vs. legacy
+        {habitat, imported, warnings}) so a single mount handles both code
+        paths. The legacy `ImportHabitatDialog` component file stays in the
+        source tree byte-identical for the T11 cutover cleanup — only its
+        import + mount point are removed (its export signature is preserved).
+      */}
+      <ImportHabitatManifestDialog
         habitatId={habitat.id}
         boardName={habitat.name}
         open={importOpen}
         onClose={() => setImportOpen(false)}
-        onImport={(importedHabitatId) => {
-          if (importedHabitatId !== habitat.id) {
+        onImport={(importedHabitatId, resolvedMode) => {
+          if (resolvedMode === "new" || importedHabitatId !== habitat.id) {
             notify.success("Habitat imported as new habitat");
+          } else {
+            notify.success("Habitat replaced via import");
           }
         }}
       />

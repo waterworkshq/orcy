@@ -19,6 +19,7 @@ import { TaskActivity } from "./TaskActivity.js";
 import { TaskRetryPolicy } from "./TaskRetryPolicy.js";
 import { TaskCodeEvidence } from "./TaskCodeEvidence.js";
 import { TaskDangerZone } from "./TaskDangerZone.js";
+import { CloneTaskForm } from "./CloneTaskForm.js";
 import { TaskDescription } from "./TaskDescription.js";
 import { TaskResultCard } from "./TaskResultCard.js";
 import { TaskArtifacts } from "./TaskArtifacts.js";
@@ -272,6 +273,14 @@ export function TaskDetailPanel({ editTaskId }: { editTaskId?: string | null }) 
             onDelete={p.handleDelete}
             onDeleteDialogOpen={p.setDeleteDialogOpen}
           />
+
+          {p.task && (
+            <CloneTaskForm
+              open={p.cloneDialogOpen}
+              onClose={() => p.setCloneDialogOpen(false)}
+              sourceTask={{ id: p.task.id, title: p.task.title }}
+            />
+          )}
         </div>
       )}
     </div>

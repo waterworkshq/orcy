@@ -168,7 +168,7 @@ describe("templateRoutes — workflowTemplate passthrough", () => {
   });
 });
 
-describe("error plugin — TemplateValidationError maps to 400", () => {
+describe("template preparation validation errors map to 422", () => {
   let app: FastifyInstance;
 
   beforeEach(async () => {
@@ -179,7 +179,7 @@ describe("error plugin — TemplateValidationError maps to 400", () => {
     await app.close();
   });
 
-  it("returns 400 (not 500) when applyTemplate throws TemplateValidationError", async () => {
+  it("returns 422 (not 500) when publication preparation rejects the workflow", async () => {
     const token = makeToken({ sub: "admin-1", username: "admin", role: "admin" });
 
     const mission = missionRepo.createMission({
@@ -216,10 +216,14 @@ describe("error plugin — TemplateValidationError maps to 400", () => {
       payload: {},
     });
 
-    expect(res.statusCode).toBe(400);
+    expect(res.statusCode).toBe(422);
     const body = JSON.parse(res.body);
-    expect(body.code).toBe("VALIDATION_ERROR");
-    expect(body.error).toMatch(/ghost_key|unknown task key|invalid|missing/i);
+    expect(body.code).toBe("TEMPLATE_PREPARATION_REJECTED");
+    expect(body.details.errors).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ message: expect.stringMatching(/ghost_key|unknown task key|invalid|missing/i) }),
+      ]),
+    );
   });
 
   it("returns 201 on a valid applyTemplate (no TemplateValidationError)", async () => {

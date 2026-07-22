@@ -363,7 +363,7 @@ describe("automationRuleRun repository", () => {
       const habitat = setupHabitat();
       const rule = createRule(habitat.id);
 
-      const run = runRepo.startRuleRun({
+      const { run } = runRepo.startRuleRun({
         ruleId: rule.id,
         habitatId: habitat.id,
         triggerType: "task.rejected",
@@ -382,7 +382,7 @@ describe("automationRuleRun repository", () => {
       const habitat = setupHabitat();
       const rule = createRule(habitat.id);
 
-      const run = runRepo.startRuleRun({
+      const { run } = runRepo.startRuleRun({
         ruleId: rule.id,
         habitatId: habitat.id,
         triggerType: "task.rejected",
@@ -397,7 +397,7 @@ describe("automationRuleRun repository", () => {
       const habitat = setupHabitat();
       const rule = createRule(habitat.id);
 
-      const run = runRepo.startRuleRun({
+      const { run } = runRepo.startRuleRun({
         ruleId: rule.id,
         habitatId: habitat.id,
         triggerType: "task.rejected",
@@ -412,7 +412,7 @@ describe("automationRuleRun repository", () => {
     it("marks run as succeeded with condition and action results", () => {
       const habitat = setupHabitat();
       const rule = createRule(habitat.id);
-      const run = runRepo.startRuleRun({
+      const { run } = runRepo.startRuleRun({
         ruleId: rule.id,
         habitatId: habitat.id,
         triggerType: "task.rejected",
@@ -442,7 +442,7 @@ describe("automationRuleRun repository", () => {
     it("marks run as partial_failed when some actions fail", () => {
       const habitat = setupHabitat();
       const rule = createRule(habitat.id);
-      const run = runRepo.startRuleRun({
+      const { run } = runRepo.startRuleRun({
         ruleId: rule.id,
         habitatId: habitat.id,
         triggerType: "task.rejected",
@@ -462,7 +462,7 @@ describe("automationRuleRun repository", () => {
     it("marks run as simulated", () => {
       const habitat = setupHabitat();
       const rule = createRule(habitat.id);
-      const run = runRepo.startRuleRun({
+      const { run } = runRepo.startRuleRun({
         ruleId: rule.id,
         habitatId: habitat.id,
         triggerType: "task.rejected",
@@ -475,7 +475,7 @@ describe("automationRuleRun repository", () => {
     it("updates rule lastRunAt when run finishes", () => {
       const habitat = setupHabitat();
       const rule = createRule(habitat.id);
-      const run = runRepo.startRuleRun({
+      const { run } = runRepo.startRuleRun({
         ruleId: rule.id,
         habitatId: habitat.id,
         triggerType: "task.rejected",
@@ -492,7 +492,7 @@ describe("automationRuleRun repository", () => {
     it("marks run as skipped with reason", () => {
       const habitat = setupHabitat();
       const rule = createRule(habitat.id);
-      const run = runRepo.startRuleRun({
+      const { run } = runRepo.startRuleRun({
         ruleId: rule.id,
         habitatId: habitat.id,
         triggerType: "task.rejected",
@@ -507,7 +507,7 @@ describe("automationRuleRun repository", () => {
     it("preserves skip reason in metadata", () => {
       const habitat = setupHabitat();
       const rule = createRule(habitat.id);
-      const run = runRepo.startRuleRun({
+      const { run } = runRepo.startRuleRun({
         ruleId: rule.id,
         habitatId: habitat.id,
         triggerType: "task.rejected",
@@ -519,6 +519,117 @@ describe("automationRuleRun repository", () => {
         actual: 31,
       });
       expect(skipped.metadata).toMatchObject({ limit: 30, actual: 31 });
+    });
+  });
+
+  describe("startRuleRun — event-dedupe reservation (T4C Phase 2)", () => {
+    it("reserves on first call (created:true) and replays on collision (created:false) for same (eventDedupeKey, ruleId)", () => {
+      const habitat = setupHabitat();
+      const rule = createRule(habitat.id);
+
+      const winner = runRepo.startRuleRun({
+        ruleId: rule.id,
+        habitatId: habitat.id,
+        triggerType: "task.created",
+        triggerEventId: "evt-lifecycle-1",
+        eventDedupeKey: "evt-lifecycle-1",
+      });
+      const loser = runRepo.startRuleRun({
+        ruleId: rule.id,
+        habitatId: habitat.id,
+        triggerType: "task.created",
+        triggerEventId: "evt-lifecycle-1",
+        eventDedupeKey: "evt-lifecycle-1",
+      });
+
+      expect(winner.created).toBe(true);
+      expect(loser.created).toBe(false);
+      expect(loser.run.id).toBe(winner.run.id);
+
+      const { total } = runRepo.listRunsByRule(rule.id);
+      expect(total).toBe(1);
+    });
+
+    it("no-dedupe-key callers are unaffected: two calls, same rule → both created:true, two distinct rows", () => {
+      const habitat = setupHabitat();
+      const rule = createRule(habitat.id);
+
+      const first = runRepo.startRuleRun({
+        ruleId: rule.id,
+        habitatId: habitat.id,
+        triggerType: "task.rejected",
+        triggerEventId: "scan:abc",
+      });
+      const second = runRepo.startRuleRun({
+        ruleId: rule.id,
+        habitatId: habitat.id,
+        triggerType: "task.rejected",
+        triggerEventId: "scan:abc",
+      });
+
+      expect(first.created).toBe(true);
+      expect(second.created).toBe(true);
+      expect(first.run.id).not.toBe(second.run.id);
+
+      const { total } = runRepo.listRunsByRule(rule.id);
+      expect(total).toBe(2);
+    });
+
+    it("different eventDedupeKey → both created:true (no false collision)", () => {
+      const habitat = setupHabitat();
+      const rule = createRule(habitat.id);
+
+      const a = runRepo.startRuleRun({
+        ruleId: rule.id,
+        habitatId: habitat.id,
+        triggerType: "task.created",
+        eventDedupeKey: "evt-A",
+      });
+      const b = runRepo.startRuleRun({
+        ruleId: rule.id,
+        habitatId: habitat.id,
+        triggerType: "task.created",
+        eventDedupeKey: "evt-B",
+      });
+
+      expect(a.created).toBe(true);
+      expect(b.created).toBe(true);
+      expect(a.run.id).not.toBe(b.run.id);
+    });
+
+    it("same eventDedupeKey, different ruleId → both created:true (reservation is per-rule)", () => {
+      const habitat = setupHabitat();
+      const ruleA = createRule(habitat.id, { name: "Rule A" });
+      const ruleB = createRule(habitat.id, { name: "Rule B" });
+
+      const a = runRepo.startRuleRun({
+        ruleId: ruleA.id,
+        habitatId: habitat.id,
+        triggerType: "task.created",
+        eventDedupeKey: "evt-shared",
+      });
+      const b = runRepo.startRuleRun({
+        ruleId: ruleB.id,
+        habitatId: habitat.id,
+        triggerType: "task.created",
+        eventDedupeKey: "evt-shared",
+      });
+
+      expect(a.created).toBe(true);
+      expect(b.created).toBe(true);
+    });
+
+    it("non-unique errors still throw (FK violation on non-existent rule)", () => {
+      const habitat = setupHabitat();
+
+      expect(() =>
+        runRepo.startRuleRun({
+          ruleId: "nonexistent-rule-id",
+          habitatId: habitat.id,
+          triggerType: "task.created",
+          eventDedupeKey: "evt-fk-test",
+        }),
+      ).toThrow();
     });
   });
 
@@ -572,12 +683,12 @@ describe("automationRuleRun repository", () => {
     it("lists all runs in habitat with status filter", () => {
       const habitat = setupHabitat();
       const rule = createRule(habitat.id);
-      const r1 = runRepo.startRuleRun({
+      const { run: r1 } = runRepo.startRuleRun({
         ruleId: rule.id,
         habitatId: habitat.id,
         triggerType: "task.rejected",
       });
-      const r2 = runRepo.startRuleRun({
+      const { run: r2 } = runRepo.startRuleRun({
         ruleId: rule.id,
         habitatId: habitat.id,
         triggerType: "task.overdue",
@@ -618,12 +729,12 @@ describe("automationRuleRun repository", () => {
     it("supports array status filter", () => {
       const habitat = setupHabitat();
       const rule = createRule(habitat.id);
-      const r1 = runRepo.startRuleRun({
+      const { run: r1 } = runRepo.startRuleRun({
         ruleId: rule.id,
         habitatId: habitat.id,
         triggerType: "task.rejected",
       });
-      const r2 = runRepo.startRuleRun({
+      const { run: r2 } = runRepo.startRuleRun({
         ruleId: rule.id,
         habitatId: habitat.id,
         triggerType: "task.rejected",
@@ -643,7 +754,7 @@ describe("automationRuleRun repository", () => {
       const habitat = setupHabitat();
       const rule = createRule(habitat.id);
 
-      const r1 = runRepo.startRuleRun({
+      const { run: r1 } = runRepo.startRuleRun({
         ruleId: rule.id,
         habitatId: habitat.id,
         triggerType: "task.rejected",
@@ -654,7 +765,7 @@ describe("automationRuleRun repository", () => {
       });
       runRepo.finishRuleRun(r1.id, { status: "succeeded" });
 
-      const r2 = runRepo.startRuleRun({
+      const { run: r2 } = runRepo.startRuleRun({
         ruleId: rule.id,
         habitatId: habitat.id,
         triggerType: "task.rejected",
@@ -681,7 +792,7 @@ describe("automationRuleRun repository", () => {
     it("returns null when no successful run exists", () => {
       const habitat = setupHabitat();
       const rule = createRule(habitat.id);
-      const run = runRepo.startRuleRun({
+      const { run } = runRepo.startRuleRun({
         ruleId: rule.id,
         habitatId: habitat.id,
         triggerType: "task.rejected",
@@ -793,12 +904,12 @@ describe("automationRuleRun repository", () => {
     it("returns only skipped runs with skip reason", () => {
       const habitat = setupHabitat();
       const rule = createRule(habitat.id);
-      const r1 = runRepo.startRuleRun({
+      const { run: r1 } = runRepo.startRuleRun({
         ruleId: rule.id,
         habitatId: habitat.id,
         triggerType: "task.rejected",
       });
-      const r2 = runRepo.startRuleRun({
+      const { run: r2 } = runRepo.startRuleRun({
         ruleId: rule.id,
         habitatId: habitat.id,
         triggerType: "task.rejected",
@@ -836,7 +947,7 @@ describe("automationRuleRun repository", () => {
       const habitat = setupHabitat();
       const rule = createRule(habitat.id, { enabled: true });
 
-      const run = runRepo.startRuleRun({
+      const { run } = runRepo.startRuleRun({
         ruleId: rule.id,
         habitatId: habitat.id,
         triggerType: "task.rejected",
@@ -870,7 +981,7 @@ describe("automationRuleRun repository", () => {
       const t1 = "2025-01-01T10:00:00.000Z";
       const t2 = "2025-01-01T10:02:00.000Z";
 
-      const r1 = runRepo.startRuleRun({
+      const { run: r1 } = runRepo.startRuleRun({
         ruleId: rule.id,
         habitatId: habitat.id,
         triggerType: "task.rejected",
@@ -881,7 +992,7 @@ describe("automationRuleRun repository", () => {
       });
       runRepo.finishRuleRun(r1.id, { status: "succeeded" });
 
-      const r2 = runRepo.startRuleRun({
+      const { run: r2 } = runRepo.startRuleRun({
         ruleId: rule.id,
         habitatId: habitat.id,
         triggerType: "task.rejected",

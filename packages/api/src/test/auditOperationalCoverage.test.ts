@@ -75,7 +75,7 @@ describe("audit operational coverage", () => {
       createdBy: "user-1",
     });
 
-    const run1 = runRepo.startRuleRun({
+    const { run: run1 } = runRepo.startRuleRun({
       ruleId: rule.id,
       habitatId: habitat.id,
       triggerType: "task.rejected",
@@ -85,7 +85,7 @@ describe("audit operational coverage", () => {
     });
     runRepo.finishRuleRun(run1.id, { status: "succeeded" });
 
-    const run2 = runRepo.startRuleRun({
+    const { run: run2 } = runRepo.startRuleRun({
       ruleId: rule.id,
       habitatId: habitat.id,
       triggerType: "task.rejected",
@@ -149,7 +149,7 @@ describe("audit operational coverage", () => {
       actions: [{ type: "notify", recipients: [{ type: "assignee" }], template: "T" }],
       createdBy: "user-1",
     });
-    const run = runRepo.startRuleRun({
+    const { run } = runRepo.startRuleRun({
       ruleId: rule.id,
       habitatId: habitat.id,
       triggerType: "task.rejected",
@@ -263,7 +263,7 @@ describe("audit operational coverage", () => {
       actions: [{ type: "notify", recipients: [{ type: "assignee" }], template: "T" }],
       createdBy: "user-1",
     });
-    const run = runRepo.startRuleRun({
+    const { run } = runRepo.startRuleRun({
       ruleId: rule.id,
       habitatId: habitat.id,
       triggerType: "task.rejected",

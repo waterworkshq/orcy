@@ -65,6 +65,13 @@ import { sharedApiRoutes } from "./routes/sharedApi.js";
 import { remoteWebhookRoutes } from "./routes/remoteWebhooks.js";
 import { pluginRoutes } from "./routes/plugins.js";
 import { triageRoutes } from "./routes/triage.js";
+import { taskCreationAttemptRoutes } from "./routes/taskCreationAttempts.js";
+import { taskPublicationRoutes } from "./routes/taskPublication.js";
+import { taskClonePublicationRoutes } from "./routes/taskClonePublication.js";
+import { scheduledOccurrenceRepairRoutes } from "./routes/scheduledOccurrenceRepair.js";
+import { registerCreationDispatchAdapters } from "./services/taskCreationDispatchAdapters.js";
+import { startOccurrenceLeaseRecoveryWorker } from "./services/scheduledOccurrenceRecovery.js";
+import { startCreationDispatchWorker } from "./services/creationDispatchWorker.js";
 import {
   taskCodeEvidenceRoutes,
   missionCodeEvidenceRoutes,
@@ -97,6 +104,9 @@ const PORT = parseInt(process.env.PORT ?? "3000", 10);
 const HOST = process.env.HOST ?? "127.0.0.1";
 
 const isDev = process.env.NODE_ENV !== "production";
+
+let occurrenceRecoveryHandle: NodeJS.Timeout | undefined;
+let creationDispatchHandle: { stop: () => void } | undefined;
 
 const API_VERSION = 1;
 
@@ -224,6 +234,10 @@ async function registerApiRoutes(f: FastifyInstance) {
   await f.register(sharedInviteRoutes);
   await f.register(pluginRoutes);
   await f.register(triageRoutes);
+  await f.register(taskCreationAttemptRoutes);
+  await f.register(taskClonePublicationRoutes);
+  await f.register(taskPublicationRoutes);
+  await f.register(scheduledOccurrenceRepairRoutes);
 }
 
 await fastify.register(
@@ -263,6 +277,17 @@ await fastify.register(
   },
   { prefix: "/api" },
 );
+
+// T11 Phase 1A — boot-registration of the creation dispatch infrastructure.
+// Moved OUTSIDE registerApiRoutes to prevent double-startup (registerApiRoutes
+// is called for both /api/v1 and /api prefixes). Always started (not gated by
+// the flag) so that a rollback (flag OFF after being ON) can still drain
+// committed published_pending_observation / published_pending_assignment /
+// publishing attempts. The workers are no-ops when there are no post-cutover
+// attempts to process.
+registerCreationDispatchAdapters();
+occurrenceRecoveryHandle = startOccurrenceLeaseRecoveryWorker(60_000);
+creationDispatchHandle = startCreationDispatchWorker(5_000);
 
 await fastify.register(
   async (f) => {
@@ -365,6 +390,8 @@ process.on("SIGINT", shutdown);
 fastify.addHook("onClose", async () => {
   schedulers.stop();
   clearInterval(healthSnapshotInterval);
+  creationDispatchHandle?.stop();
+  if (occurrenceRecoveryHandle) clearInterval(occurrenceRecoveryHandle);
   const { shutdownAll } = await import("./services/daemonEngine.js");
   shutdownAll();
 });

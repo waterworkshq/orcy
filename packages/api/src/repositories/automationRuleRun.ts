@@ -3,6 +3,7 @@ import { automationRuleRuns, automationRules } from "../db/schema/index.js";
 import { eq, and, desc, gte, lte, sql, inArray } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 import { buildFingerprint } from "@orcy/shared";
+import { isSqliteError } from "../errors/sqlite.js";
 import {
   repositoryCreateError,
   repositoryNotFoundError,
@@ -25,10 +26,28 @@ export interface StartRuleRunInput {
   targetType?: AutomationTargetType | null;
   targetId?: string | null;
   metadata?: Record<string, unknown> | null;
+  eventDedupeKey?: string | null;
   now?: string;
 }
 
-export function startRuleRun(input: StartRuleRunInput): AutomationRuleRun {
+/**
+ * Outcome of {@link startRuleRun}. The reservation contract:
+ * - `created: true`  — a fresh run row was inserted (the caller owns it).
+ * - `created: false` — a concurrent same-`(eventDedupeKey, ruleId)` insert won
+ *   the reservation race; `run` is the EXISTING row owned by the other worker.
+ *   The caller MUST NOT execute actions or mutate the run's status.
+ *
+ * When `eventDedupeKey` is absent/null (all existing scan / manual / skip
+ * callers), the reservation is NOT engaged: every call inserts unconditionally
+ * and returns `created: true`. This keeps periodic-scan synthetic trigger keys
+ * (`scan:…`, `orphan:…`, `cluster:…`) completely unaffected.
+ */
+export interface StartRuleRunResult {
+  run: AutomationRuleRun;
+  created: boolean;
+}
+
+export function startRuleRun(input: StartRuleRunInput): StartRuleRunResult {
   const db = getDb();
   const id = uuid();
   const startedAt = input.now ?? new Date().toISOString();
@@ -41,6 +60,8 @@ export function startRuleRun(input: StartRuleRunInput): AutomationRuleRun {
     input.targetId ?? null,
   );
 
+  const dedupeKey = input.eventDedupeKey ?? null;
+
   try {
     db.insert(automationRuleRuns)
       .values({
@@ -52,6 +73,7 @@ export function startRuleRun(input: StartRuleRunInput): AutomationRuleRun {
         targetType: input.targetType ?? null,
         targetId: input.targetId ?? null,
         fingerprint,
+        eventDedupeKey: dedupeKey,
         status: "running",
         skipReason: null,
         conditionResult: null,
@@ -62,12 +84,27 @@ export function startRuleRun(input: StartRuleRunInput): AutomationRuleRun {
       })
       .run();
   } catch (err) {
+    if (dedupeKey && isUniqueConstraintViolation(err)) {
+      const existing = db
+        .select()
+        .from(automationRuleRuns)
+        .where(
+          and(
+            eq(automationRuleRuns.eventDedupeKey, dedupeKey),
+            eq(automationRuleRuns.ruleId, input.ruleId),
+          ),
+        )
+        .get();
+      if (existing) {
+        return { run: existing as unknown as AutomationRuleRun, created: false };
+      }
+    }
     throw repositoryCreateError("automationRuleRun", err as Error, id);
   }
 
   const created = getRuleRunById(id);
   if (!created) throw repositoryNotFoundError("automationRuleRun", id);
-  return created;
+  return { run: created, created: true };
 }
 
 export function getRuleRunById(id: string): AutomationRuleRun | null {
@@ -336,4 +373,24 @@ export function deleteRunsForRule(ruleId: string): number {
   } catch (err) {
     throw repositoryUpdateError("automationRuleRun", err as Error, ruleId);
   }
+}
+
+const UNIQUE_CONSTRAINT_RE = /UNIQUE constraint failed/i;
+
+/**
+ * Cross-backend UNIQUE-constraint detector (mirrors the pattern in
+ * `taskCreationAttempts.ts`). better-sqlite3 (production) throws a `SqliteError`
+ * with `code === "SQLITE_CONSTRAINT_UNIQUE"` (drizzle-orm may wrap it, putting
+ * the real error on `.cause`); sql.js (tests) throws a plain `Error` whose
+ * `message` contains "UNIQUE constraint failed".
+ */
+function isUniqueConstraintViolation(err: unknown): boolean {
+  if (isSqliteError(err) && err.code === "SQLITE_CONSTRAINT_UNIQUE") return true;
+  if (err instanceof Error && UNIQUE_CONSTRAINT_RE.test(err.message)) return true;
+  const cause = (err as { cause?: unknown } | null)?.cause;
+  if (cause instanceof Error) {
+    if (isSqliteError(cause) && cause.code === "SQLITE_CONSTRAINT_UNIQUE") return true;
+    if (UNIQUE_CONSTRAINT_RE.test(cause.message)) return true;
+  }
+  return false;
 }

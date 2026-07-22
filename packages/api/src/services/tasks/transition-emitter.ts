@@ -443,7 +443,7 @@ export function onTransition(hook: TransitionHook): () => void {
   };
 }
 
-function notifyTransition(opts: Parameters<TransitionHook>[0]): void {
+export function notifyTransition(opts: Parameters<TransitionHook>[0]): void {
   for (const hook of transitionHooks) {
     try {
       hook(opts);

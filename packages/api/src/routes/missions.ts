@@ -3,7 +3,6 @@ import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
 import * as missionService from "../services/featureService.js";
 import * as taskRepo from "../repositories/task.js";
-import * as taskService from "../services/tasks/index.js";
 import * as missionRepo from "../repositories/mission.js";
 import * as missionEventRepo from "../repositories/events/event-feature.js";
 import * as decompositionService from "../services/decompositionService.js";
@@ -12,7 +11,6 @@ import {
   updateMissionSchema,
   missionQuerySchema,
   moveMissionSchema,
-  createTaskInMissionSchema,
 } from "../models/schemas.js";
 import { agentOrHumanAuth, humanAuth } from "../middleware/auth.js";
 import { requireHabitatAccess, requireMissionAccess } from "../middleware/team.js";
@@ -23,7 +21,6 @@ import {
   conflict,
   internalError,
   AppError,
-  InterceptorVetoError,
 } from "../errors.js";
 
 const habitatIdParamsSchema = z.object({ habitatId: z.string() });
@@ -274,49 +271,6 @@ export async function missionRoutes(fastify: FastifyInstance): Promise<void> {
         return { tasks, total: tasks.length };
       },
     );
-
-  fastify.withTypeProvider<ZodTypeProvider>().post(
-    "/missions/:missionId/tasks",
-    {
-      schema: { params: missionIdParamsSchema, body: createTaskInMissionSchema },
-      preHandler: [agentOrHumanAuth, requireMissionAccess],
-    },
-    async (request, reply) => {
-      const parsed = request.body;
-      const mission = missionRepo.getMissionById(request.params.missionId);
-      if (!mission) {
-        throw notFound("Mission not found");
-      }
-      if (mission.isArchived) {
-        throw forbidden("Cannot add tasks to an archived mission");
-      }
-
-      const actorId = request.agent?.id ?? request.user?.id ?? "anonymous";
-
-      try {
-        const task = taskService.createTask({
-          missionId: mission.id,
-          title: parsed.title,
-          description: parsed.description,
-          priority: parsed.priority,
-          requiredDomain: parsed.requiredDomain,
-          requiredCapabilities: parsed.requiredCapabilities,
-          estimatedMinutes: parsed.estimatedMinutes,
-          order: parsed.order,
-          createdBy: actorId,
-        });
-
-        reply.code(201).send({ task });
-      } catch (err) {
-        if (err instanceof InterceptorVetoError) {
-          throw forbidden("Transition blocked by lifecycle interceptor", "INTERCEPTOR_VETO", {
-            blockedBy: { reason: err.veto.reason, details: err.veto.details },
-          });
-        }
-        throw err;
-      }
-    },
-  );
 
   fastify
     .withTypeProvider<ZodTypeProvider>()

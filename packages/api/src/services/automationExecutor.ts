@@ -5,6 +5,7 @@ import type {
   AutomationActionResult,
   AutomationRunStatus,
   AutomationTargetType,
+  CausalContext,
   NotificationEventType,
 } from "@orcy/shared";
 import type { AutomationEvaluationContext } from "./automationContextBuilder.js";
@@ -21,6 +22,7 @@ import { claimTask } from "./tasks/task-lifecycle.js";
 import { assignReviewers } from "./reviewAssignmentService.js";
 import type { AssignResult } from "./autoAssignService.js";
 import { logger } from "../lib/logger.js";
+import { executeCreateTaskViaPublication } from "./automationTaskPublication.js";
 
 const BANNED_HEADERS = new Set(["authorization", "cookie", "x-api-key", "x-token", "x-secret"]);
 
@@ -259,52 +261,10 @@ function executeCreateTask(
   action: AutomationAction & { type: "create_task" },
   index: number,
   rule: AutomationRule,
-  _run: AutomationRuleRun,
+  run: AutomationRuleRun,
   ctx: AutomationEvaluationContext,
 ): AutomationActionResult {
-  const missionId = action.missionId ?? ctx.mission?.id;
-  if (!missionId) {
-    return {
-      actionType: "create_task",
-      actionIndex: index,
-      status: "failed",
-      error:
-        "No mission available — task must be created under an explicit mission or trigger context mission",
-    };
-  }
-
-  const mission = missionRepo.getMissionById(missionId);
-  if (!mission) {
-    return {
-      actionType: "create_task",
-      actionIndex: index,
-      status: "failed",
-      error: `Mission not found: ${missionId}`,
-    };
-  }
-
-  const renderedTitle = renderTemplate(action.title ?? "Automated task", ctx);
-
-  const task = taskRepo.createTask({
-    missionId,
-    title: renderedTitle.rendered,
-    description: action.description ? renderTemplate(action.description, ctx).rendered : undefined,
-    createdBy: `automation:${rule.id}`,
-  });
-
-  if (action.assignedTo) {
-    taskRepo.updateTask(task.id, {
-      assignedAgentId:
-        action.assignedTo.recipientType === "agent" ? action.assignedTo.recipientId : undefined,
-    });
-  }
-
-  return {
-    actionType: "create_task",
-    actionIndex: index,
-    status: "succeeded",
-    result: { taskId: task.id, title: renderedTitle.rendered },
-  };
+  return executeCreateTaskViaPublication(rule, run, action, index, ctx);
 }
 
 function executeChangePriority(
@@ -671,15 +631,22 @@ export async function executeAndRecordRuleRun(
   targetType: AutomationTargetType | null,
   targetId: string | null,
   payload?: Record<string, unknown>,
+  eventDedupeKey?: string | null,
+  causalContext?: CausalContext,
 ): Promise<{ run: AutomationRuleRun; outcome: AutomationRunStatus }> {
-  const run = runRepo.startRuleRun({
+  const { run, created } = runRepo.startRuleRun({
     ruleId: rule.id,
     habitatId,
     triggerType: triggerType as AutomationRuleRun["triggerType"],
     triggerEventId,
     targetType,
     targetId,
+    eventDedupeKey,
   });
+
+  if (!created) {
+    return { run, outcome: run.status };
+  }
 
   if (!shouldExecuteActions(habitatId)) {
     runRepo.finishRuleRun(run.id, { status: "succeeded" });
@@ -696,6 +663,7 @@ export async function executeAndRecordRuleRun(
         targetType,
         targetId,
         payload,
+        causalContext,
       }),
     );
     const result = await executeActions(rule, run, ctx);

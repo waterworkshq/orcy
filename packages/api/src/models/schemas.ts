@@ -93,6 +93,74 @@ export const createTaskInMissionSchema = z.object({
   order: z.number().int().default(0),
 });
 
+/**
+ * T6 Phase 2 — body for `POST /missions/:missionId/task-publications`
+ * (the dormant REST publication route exposing {@link publishTaskCreation}).
+ *
+ * Distinct from {@link createTaskInMissionSchema} (legacy, T11 swaps it):
+ *   - carries `attemptKey` (the client-supplied retry identity; retained
+ *     across an unchanged Publish so the adapter can idempotently resume);
+ *   - has NO `order` field — the kernel allocates `max(order)+1` in
+ *     `createTaskWithClient`; the route MUST NOT force one;
+ *   - carries an explicit `assignment` intent (auto | targeted);
+ *   - `targetedAssignmentDeadline` is REQUIRED when `assignment.kind ===
+ *     "targeted"` (the adapter throws otherwise; the route surfaces the
+ *     constraint as a 422 via `.superRefine` instead of leaking the
+ *     throwable).
+ *
+ * DORMANT: the legacy `POST /missions/:missionId/tasks` +
+ * {@link createTaskInMissionSchema} stay byte-unchanged until T11 swaps
+ * them. The new route ships alongside them.
+ */
+export const taskPublicationAssignmentSchema = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("auto") }),
+  z.object({
+    kind: z.literal("targeted"),
+    agentId: z.string().min(1),
+  }),
+]);
+
+export const taskPublicationSchema = z
+  .object({
+    /** Client-supplied attempt identity — retained across unchanged Publishes. */
+    attemptKey: z.string().min(1),
+
+    /** Work-definition fields (mirror the kernel's canonical proposal). */
+    title: z.string().min(1).max(500),
+    description: z.string().max(10000).optional(),
+    priority: z.enum(["low", "medium", "high", "critical"]).optional(),
+    requiredDomain: z.string().nullable().optional(),
+    requiredCapabilities: z.array(z.string()).optional(),
+    estimatedMinutes: z.number().int().positive().nullable().optional(),
+    labels: z.array(z.string()).optional(),
+    dependsOn: z.array(z.string().uuid()).optional(),
+
+    /** Assignment intent — defaults to `{kind:"auto"}`. */
+    assignment: taskPublicationAssignmentSchema.optional().default({ kind: "auto" }),
+
+    /**
+     * Targeted-assignment reservation deadline. REQUIRED when
+     * `assignment.kind === "targeted"`; the adapter throws otherwise. ISO
+     * timestamp (e.g. `new Date(Date.now() + 24*3600_000).toISOString()`).
+     * The cross-field constraint is enforced by `.superRefine` below to
+     * surface as a typed 422 instead of leaking the adapter's throw.
+     */
+    targetedAssignmentDeadline: z.string().datetime().optional(),
+  })
+  .superRefine((value, ctx) => {
+    if (value.assignment.kind === "targeted" && value.targetedAssignmentDeadline === undefined) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["targetedAssignmentDeadline"],
+        message:
+          "targetedAssignmentDeadline is required when assignment.kind === 'targeted' " +
+          "(the adapter reserves the seat until this ISO timestamp).",
+      });
+    }
+  });
+
+export type TaskPublicationInput = z.infer<typeof taskPublicationSchema>;
+
 const importHabitatSchemaBody = z.object({
   version: z.number(),
   exportedAt: z.string().datetime(),
@@ -211,6 +279,63 @@ export const importHabitatSchema = z.preprocess((data) => {
   return data;
 }, importHabitatSchemaBody);
 
+// ---------------------------------------------------------------------------
+// T10A M4 — Strict manifest v3 schema (DORMANT alongside the legacy preprocess).
+//
+// The preflight pipeline (`services/importManifest/preflightImport.ts`)
+// consumes this schema as a defensive layer AFTER the legacy adapter
+// (`legacyAdapter.ts`) emits the v3 shape + BEFORE the M3 domain handlers
+// run their deep per-domain validation. The schema's primary job is to
+// reject gross malformations early (unknown versions, missing required
+// fields, malformed envelope shape). The M3 handlers own the deep
+// per-domain validation (column-name uniqueness, mission columnName
+// resolvability, dependency graph acyclicity, etc.) — that validation is
+// NOT duplicated here.
+//
+// The legacy `z.preprocess` above STAYS byte-identical + active until T11's
+// cutover (the legacy `importHabitat` route consumes it). The strict v3
+// schema sits ALONGSIDE it, used only by the new manifest path that is
+// itself dormant behind `ORCY_CREATION_PUBLICATION_ENABLED`.
+// ---------------------------------------------------------------------------
+
+const importManifestDomainEnvelopeSchema = z
+  .object({
+    disposition: z.enum(["replace", "preserve", "reset"]),
+    data: z.unknown(),
+  })
+  .strict();
+
+export const importManifestSchema = z
+  .object({
+    version: z.literal(3),
+    manifestId: z.string().min(1),
+    generatedAt: z.string().min(1),
+    mode: z.enum(["new", "replacement"]),
+    identityPolicy: z.enum(["remap", "restore"]),
+    lineage: z
+      .object({
+        sourceHabitatId: z.string().nullable(),
+        sourceExportedAt: z.string().nullable(),
+        sourceManifestId: z.string().nullable(),
+      })
+      .strict(),
+    domains: z
+      .object({
+        habitatSettings: importManifestDomainEnvelopeSchema.optional(),
+        columns: importManifestDomainEnvelopeSchema.optional(),
+        missions: importManifestDomainEnvelopeSchema.optional(),
+        tasks: importManifestDomainEnvelopeSchema.optional(),
+        subtasks: importManifestDomainEnvelopeSchema.optional(),
+        dependencies: importManifestDomainEnvelopeSchema.optional(),
+        comments: importManifestDomainEnvelopeSchema.optional(),
+        templates: importManifestDomainEnvelopeSchema.optional(),
+      })
+      .strict(),
+  })
+  .strict();
+
+export type ImportManifestInput = z.infer<typeof importManifestSchema>;
+
 export const createHabitatSchema = z.object({
   name: z.string().min(1).max(100),
   description: z.string().max(500).optional(),
@@ -325,6 +450,17 @@ export const updateTaskSchema = z
 
 export const claimTaskSchema = z.object({
   agentId: z.string().uuid().optional(),
+});
+
+/**
+ * T5 Phase 3 — body for `POST /tasks/:taskId/assignment-attempts`. The
+ * targeted-assignment RETRY surface (assigns an EXISTING task, post
+ * `created_unassigned`, to a SPECIFIED agent). Distinct from
+ * {@link claimTaskSchema} which lets the caller claim for themselves — this
+ * route targets an explicit identity.
+ */
+export const assignmentAttemptSchema = z.object({
+  requestedAgentId: z.string().min(1),
 });
 
 export const approveTaskSchema = z.object({
@@ -457,6 +593,7 @@ export type UpdateColumnInput = z.infer<typeof updateColumnSchema>;
 export type CreateTaskInput = z.infer<typeof createTaskSchema>;
 export type UpdateTaskInput = z.infer<typeof updateTaskSchema>;
 export type ClaimTaskInput = z.infer<typeof claimTaskSchema>;
+export type AssignmentAttemptInput = z.infer<typeof assignmentAttemptSchema>;
 export type ApproveTaskInput = z.infer<typeof approveTaskSchema>;
 export type RejectTaskInput = z.infer<typeof rejectTaskSchema>;
 export type ReleaseTaskInput = z.infer<typeof releaseTaskSchema>;
@@ -558,3 +695,114 @@ export type MissionQueryInput = z.infer<typeof missionQuerySchema>;
 export type MoveMissionInput = z.infer<typeof moveMissionSchema>;
 export type ReorderColumnsInput = z.infer<typeof reorderColumnsSchema>;
 export type CreateTaskInMissionInput = z.infer<typeof createTaskInMissionSchema>;
+export type TaskPublicationAssignment = z.infer<typeof taskPublicationAssignmentSchema>;
+
+/**
+ * T7 Phase 2 — body for `POST /tasks/:sourceTaskId/clone-publications`
+ * (the dormant REST clone publication route exposing {@link publishTaskCreation}
+ * with `cloneSourceTaskId`).
+ *
+ * Mirrors {@link taskPublicationSchema} for the publication contract (attempt
+ * key + work-definition + assignment intent + targeted deadline) but adds
+ * the CLONE-SPECIFIC knobs the legacy schema could not express:
+ *
+ *   - `subtasks[]` — the user's EDITED subtask list (added/removed/reordered/
+ *     title-edited from the RESET list returned by `GET .../clone-preparation`).
+ *     The T6 schema did not include this — interactive creation produces no
+ *     subtasks at the call site; clone MUST because the source Task has
+ *     Subtasks the user can edit.
+ *   - `selectedDependencies[]` — the user's EXPLICIT selections from the
+ *     UNSELECTED suggestions returned by the GET preparation. The kernel
+ *     revalidates the final dependency graph at publication time.
+ *   - `targetMissionId` — the explicit target Mission (the source Mission
+ *     is the default, but the user may choose another active Mission in the
+ *     same Habitat). This is REQUIRED here (unlike the T6 schema which derives
+ *     it from the path) because the path carries `:sourceTaskId`, not the
+ *     target.
+ *
+ * Retired fields (NOT present on this schema, by design — T7 removes the
+ * immediate-copy + comment-copy options from the clone path):
+ *   - `includeSubtasks` — the legacy `cloneTask` toggled subtask copying;
+ *     the new path copies subtasks by default (reset to incomplete +
+ *     unassigned) and lets the user edit in the composer.
+ *   - `includeComments` — comments are NOT copied. T7 explicitly retired
+ *     comment-copy.
+ *   - `order` — the kernel allocates `max(order)+1` in `createTaskWithClient`;
+ *     the route MUST NOT force one. Mirrored from T6.
+ *
+ * DORMANT: no production caller until T11. The new route ships alongside the
+ * legacy `POST /tasks/:id/clone` + `cloneTaskSchema`, which stay
+ * byte-unchanged.
+ */
+export const clonePublicationSchema = z
+  .object({
+    /** Client-supplied attempt identity — retained across unchanged Publishes. */
+    attemptKey: z.string().min(1),
+
+    /**
+     * Work-definition fields — the user's EDITED values from the clone
+     * composer (NOT a re-copy of the source).
+     */
+    title: z.string().min(1).max(500),
+    description: z.string().max(10000).optional(),
+    priority: z.enum(["low", "medium", "high", "critical"]).optional(),
+    requiredDomain: z.string().nullable().optional(),
+    requiredCapabilities: z.array(z.string()).optional(),
+    estimatedMinutes: z.number().int().positive().nullable().optional(),
+    labels: z.array(z.string()).optional(),
+
+    /**
+     * EDITED subtasks — the user can add/remove/reorder/edit-titles from
+     * the RESET list returned by `GET .../clone-preparation`. Re-allocated
+     * by the kernel's publication transaction (fresh IDs + execution state).
+     */
+    subtasks: z
+      .array(
+        z.object({
+          title: z.string().min(1).max(500),
+          order: z.number().int().min(0).optional(),
+          assigneeId: z.string().nullable().optional(),
+        }),
+      )
+      .optional(),
+
+    /**
+     * User-selected dependencies — the EXPLICIT selections from the
+     * UNSELECTED suggestions surfaced by the clone-preparation GET. Each
+     * entry is a Task id the new Task depends on. The kernel revalidates
+     * the final dependency graph at publication time.
+     */
+    selectedDependencies: z.array(z.string().uuid()).optional(),
+
+    /**
+     * Target Mission — client sends explicitly even though the source's
+     * Mission is the default. The route validates target habitat access
+     * AND the kernel enforces same-Habitat via `cross_habitat_mission`
+     * (a target outside the source's Habitat is rejected).
+     */
+    targetMissionId: z.string().min(1),
+
+    /** Assignment intent — defaults to `{kind:"auto"}`. */
+    assignment: taskPublicationAssignmentSchema.optional().default({ kind: "auto" }),
+
+    /**
+     * Targeted-assignment reservation deadline. REQUIRED when
+     * `assignment.kind === "targeted"`; the adapter throws otherwise.
+     * The cross-field constraint is enforced by `.superRefine` to surface
+     * as a typed 422 instead of leaking the adapter's throw.
+     */
+    targetedAssignmentDeadline: z.string().datetime().optional(),
+  })
+  .superRefine((value, ctx) => {
+    if (value.assignment.kind === "targeted" && value.targetedAssignmentDeadline === undefined) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["targetedAssignmentDeadline"],
+        message:
+          "targetedAssignmentDeadline is required when assignment.kind === 'targeted' " +
+          "(the adapter reserves the seat until this ISO timestamp).",
+      });
+    }
+  });
+
+export type ClonePublicationInput = z.infer<typeof clonePublicationSchema>;

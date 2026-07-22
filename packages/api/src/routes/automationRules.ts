@@ -181,7 +181,7 @@ export async function automationRoutes(fastify: FastifyInstance): Promise<void> 
       if (!rule.enabled) {
         throw badRequest("Rule is disabled — enable it first or simulate");
       }
-      const run = runRepo.startRuleRun({
+      const { run } = runRepo.startRuleRun({
         ruleId: rule.id,
         habitatId: rule.habitatId,
         triggerType: deriveTriggerType(rule.trigger, "manual"),

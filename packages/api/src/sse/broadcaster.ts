@@ -66,6 +66,30 @@ class SSEBroadcaster {
     this.triggerNotifications(habitatId, event);
   }
 
+  /**
+   * Pushes an event ONLY to directly-connected SSE clients subscribed to the
+   * habitat — NO domain fan-out (no `dispatchWebhooks` / `chatProcessEvent` /
+   * `ingestEvent` / `triggerNotifications`).
+   *
+   * This is the pure-SSE seam the creation-dispatch routing split needs: the
+   * `clientStreamAdapter` must reach direct clients without double-firing the
+   * generic consumers (webhook/chat/automation fire via their OWN dedicated
+   * adapters — exactly once per envelope).
+   *
+   * DORMANT until cutover: the live `createTask` / `cloneTask` /
+   * transition-emitter paths stay on `publish` (the domain bus); only the
+   * dormant `clientStreamAdapter` calls this. Additive to `publish` —
+   * `publish` is byte-identical and its ~30 callers are unaffected.
+   */
+  publishToClients(habitatId: string, event: SSEEvent): void {
+    const handlers = this.habitatStreams.get(habitatId);
+    if (handlers) {
+      for (const handler of handlers) {
+        handler(event);
+      }
+    }
+  }
+
   private notifySafe(
     eventType: NotificationEventType,
     habitatId: string,

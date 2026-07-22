@@ -19,6 +19,7 @@ import { dependenciesApi } from "./domains/dependencies.js";
 import { effortApi } from "./domains/effort.js";
 import { habitatsApi } from "./domains/habitats.js";
 import { healthApi } from "./domains/health.js";
+import { importsApi } from "./domains/imports.js";
 import { insightsApi } from "./domains/insights.js";
 import { integrationsApi } from "./domains/integrations.js";
 import { metricsApi } from "./domains/metrics.js";
@@ -63,6 +64,7 @@ export const api = {
   effort: effortApi,
   habitats: habitatsApi,
   health: healthApi,
+  imports: importsApi,
   insights: insightsApi,
   integrations: integrationsApi,
   metrics: metricsApi,

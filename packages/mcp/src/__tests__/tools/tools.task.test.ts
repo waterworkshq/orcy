@@ -274,7 +274,12 @@ describe("feature_create_task", () => {
       status: "pending" as const,
       priority: "medium" as const,
     };
-    client.createTaskInMission.mockResolvedValue({ task: mockTask });
+    client.publishTaskInMission.mockResolvedValue({
+      outcome: "created",
+      attemptId: "attempt-new",
+      taskId: mockTask.id,
+    });
+    client.getTask.mockResolvedValue({ task: mockTask });
 
     const raw = await TASK_DISPATCH_HANDLER(client, {
       action: "create-in-mission",
@@ -286,19 +291,24 @@ describe("feature_create_task", () => {
     const result = JSON.parse(raw.content[0].text);
 
     expect(result.task.id).toBe("task-new");
-    expect(client.createTaskInMission).toHaveBeenCalledWith("feat-1", {
+    expect(client.publishTaskInMission).toHaveBeenCalledWith("feat-1", {
+      attemptKey: expect.any(String),
       title: "New Task",
       description: "A description",
       priority: "medium",
-      requiredDomain: undefined,
-      requiredCapabilities: undefined,
-      estimatedMinutes: undefined,
     });
+    expect(client.getTask).toHaveBeenCalledWith(mockTask.id);
+    expect(client.createTaskInMission).not.toHaveBeenCalled();
   });
 
   it("passes all optional parameters", async () => {
     const client = createMockClient();
-    client.createTaskInMission.mockResolvedValue({ task: { id: "task-1" } });
+    client.publishTaskInMission.mockResolvedValue({
+      outcome: "created",
+      attemptId: "attempt-1",
+      taskId: "task-1",
+    });
+    client.getTask.mockResolvedValue({ task: { id: "task-1" } });
 
     await TASK_DISPATCH_HANDLER(client, {
       action: "create-in-mission",
@@ -311,7 +321,8 @@ describe("feature_create_task", () => {
       estimatedMinutes: 120,
     });
 
-    expect(client.createTaskInMission).toHaveBeenCalledWith("feat-1", {
+    expect(client.publishTaskInMission).toHaveBeenCalledWith("feat-1", {
+      attemptKey: expect.any(String),
       title: "Full Task",
       description: "Desc",
       priority: "critical",
@@ -319,6 +330,8 @@ describe("feature_create_task", () => {
       requiredCapabilities: ["typescript", "postgresql"],
       estimatedMinutes: 120,
     });
+    expect(client.getTask).toHaveBeenCalledWith("task-1");
+    expect(client.createTaskInMission).not.toHaveBeenCalled();
   });
 });
 

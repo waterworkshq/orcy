@@ -74,6 +74,9 @@ export interface UseTaskDetailPanelResult {
   reviewProgress: { approved: number; total: number };
   handleDelete: () => Promise<void>;
   handleClone: () => Promise<void>;
+  cloneDialogOpen: boolean;
+  setCloneDialogOpen: (v: boolean) => void;
+  handleLegacyClone: () => Promise<void>;
   handleDecompose: () => Promise<void>;
   handleDecomposeConfirm: (proposals: SubtaskProposal[]) => Promise<void>;
   handleDelegate: () => Promise<void>;

@@ -11,17 +11,27 @@ vi.mock("../db/index.js", () => ({
   getDb: () => ({
     transaction: (fn: (tx: any) => any) =>
       fn({
+        // select().from().where() supports BOTH .get() (the authority's row
+        // select + post-write TOCTOU re-select) and .all() (the authority's
+        // reservation-gate query — empty ⇒ no active reservation ⇒ gate open).
         select: () => ({
           from: () => ({
             where: () => ({
               get: () => mockTask,
+              all: () => [],
             }),
           }),
         }),
+        // Apply the UPDATE onto mockTask so the authority's post-write
+        // re-select (verifyAndReturn) observes the claimed assignee and
+        // status. Pre-T2 the repo returned success blindly after the UPDATE;
+        // the authority now verifies the write took effect.
         update: () => ({
-          set: () => ({
+          set: (value: Record<string, unknown>) => ({
             where: () => ({
-              run: () => {},
+              run: () => {
+                Object.assign(mockTask, value);
+              },
             }),
           }),
         }),
@@ -38,6 +48,13 @@ vi.mock("../db/schema/index.js", () => ({
     version: "version",
     claimedAt: "claimed_at",
     updatedAt: "updated_at",
+  },
+  // The claim authority queries T1's reservation table; surface the columns it
+  // reads so the (empty) reservation-gate select resolves without throwing.
+  taskCreationAssignmentReservations: {
+    taskId: "task_id",
+    state: "state",
+    requestedAgentId: "requested_agent_id",
   },
 }));
 

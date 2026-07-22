@@ -195,7 +195,7 @@ function recordScanSkip(
   reason: string,
   triggerEventId: string,
 ): void {
-  const run = runRepo.startRuleRun({
+  const { run } = runRepo.startRuleRun({
     ruleId: rule.id,
     habitatId,
     triggerType: scanType,

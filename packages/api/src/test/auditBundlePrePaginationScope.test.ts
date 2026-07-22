@@ -74,7 +74,7 @@ describe("auditBundle pre-pagination scope", () => {
       actions: [{ type: "notify", recipients: [{ type: "assignee" }], template: "X" }],
       createdBy: "user-1",
     });
-    const linkedRun = runRepo.startRuleRun({
+    const { run: linkedRun } = runRepo.startRuleRun({
       ruleId: rule.id,
       habitatId: habitat.id,
       triggerType: "task.rejected",

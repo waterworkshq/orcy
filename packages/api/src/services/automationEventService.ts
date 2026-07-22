@@ -7,9 +7,11 @@ import type {
   AutomationTriggerType,
   AutomationTriggerContext,
   AutomationTargetType,
+  CausalContext,
 } from "@orcy/shared";
 
 const EVENT_ALLOWLIST: Set<string> = new Set([
+  "task.created",
   "task.rejected",
   "task.overdue",
   "task.priority_changed",
@@ -50,6 +52,16 @@ export async function ingestEvent(
     return { eventType: event.type, matched: 0, skipped: 0, errors: [] };
   }
 
+  // Envelope-signature gate for task.created (dormancy mechanism):
+  // Process task.created ONLY when the data carries the trusted committed-
+  // envelope signature (data.causalContext). This field is set exclusively by
+  // the T4B automationAdapter (which forwards envelope.causalContext — a NOT
+  // NULL column); the legacy SSE Task DTO has no causalContext. Legacy SSE
+  // task.created events remain a no-op, preserving pre-T11 production behavior.
+  if (event.type === "task.created" && event.data?.causalContext === undefined) {
+    return { eventType: event.type, matched: 0, skipped: 0, errors: [] };
+  }
+
   const triggerType = event.type as AutomationEventType;
   const rules = ruleRepo.getEnabledRulesByHabitatAndTrigger(habitatId, triggerType);
 
@@ -59,6 +71,21 @@ export async function ingestEvent(
 
   let matched = 0;
   let skipped = 0;
+
+  // The Phase 2 (eventId, ruleId) reservation engages only for trusted-envelope
+  // task.created delivery. Other event types pass null → column stays null →
+  // every call inserts unconditionally (zero behavior change for scans/manual).
+  const eventDedupeKey =
+    event.type === "task.created" ? ((event.data?.eventId as string | null) ?? null) : null;
+
+  // The trusted-envelope causalContext (task.created only). The same value the
+  // cycle/depth guard inspects, now forwarded to action execution so producers
+  // (T8B) can read + append hops. Non-task.created events have no inherited
+  // chain → undefined.
+  const causalContext =
+    event.type === "task.created"
+      ? (event.data?.causalContext as CausalContext | undefined)
+      : undefined;
 
   for (const rule of rules) {
     try {
@@ -70,6 +97,7 @@ export async function ingestEvent(
           triggerType,
           event,
           fingerprintGuard.skipReason ?? "unknown",
+          eventDedupeKey,
         );
         skipped++;
         continue;
@@ -77,13 +105,26 @@ export async function ingestEvent(
 
       const hourlyGuard = checkHourlyCap(rule.id);
       if (hourlyGuard.shouldSkip) {
-        recordSkippedRun(rule.id, habitatId, triggerType, event, "rate_limited");
+        recordSkippedRun(rule.id, habitatId, triggerType, event, "rate_limited", eventDedupeKey);
         skipped++;
         continue;
       }
 
-      if (isSelfLoop(rule.id, event.data)) {
-        recordSkippedRun(rule.id, habitatId, triggerType, event, "loop_guard");
+      const causalGuard = checkCausalChain(rule.id, event.data);
+      if (causalGuard.cycle) {
+        recordSkippedRun(rule.id, habitatId, triggerType, event, "causal_cycle", eventDedupeKey);
+        skipped++;
+        continue;
+      }
+      if (causalGuard.depthExceeded) {
+        recordSkippedRun(
+          rule.id,
+          habitatId,
+          triggerType,
+          event,
+          "causal_depth_limit",
+          eventDedupeKey,
+        );
         skipped++;
         continue;
       }
@@ -101,6 +142,9 @@ export async function ingestEvent(
         (event.data?.eventId as string | null) ?? null,
         targetType as AutomationTargetType | null,
         targetId,
+        undefined,
+        eventDedupeKey,
+        causalContext,
       );
       matched++;
     } catch (err) {
@@ -154,10 +198,37 @@ function checkHourlyCap(ruleId: string): { shouldSkip: boolean } {
   return { shouldSkip: count >= rule.maxRunsPerHour };
 }
 
-function isSelfLoop(ruleId: string, data?: Record<string, unknown>): boolean {
-  if (!data) return false;
-  if (data.provenanceType === "automation" && data.provenanceRuleId === ruleId) return true;
-  return false;
+/** Maximum number of causal hops before the chain is considered too deep (prevents unbounded causal recursion). */
+const CAUSAL_DEPTH_LIMIT = 32;
+
+/**
+ * Causal-chain membership inspection — replaces the old `isSelfLoop` guard.
+ *
+ * A rule hop is encoded as `{type:"automation", id:ruleId}` (consistent with
+ * the legacy `provenanceType==="automation"` / `provenanceRuleId` semantics).
+ * T8B (the producer migration) will append real hops matching this encoding.
+ *
+ * Returns `{cycle:true}` if the triggering rule already appears in the chain
+ * (self-re-entry), and `{depthExceeded:true}` if the chain has reached
+ * {@link CAUSAL_DEPTH_LIMIT} hops. For events with NO causalContext (all
+ * legacy events), this is a no-op — behavior-equivalent to the old isSelfLoop
+ * returning false.
+ */
+function checkCausalChain(
+  ruleId: string,
+  data?: Record<string, unknown>,
+): { cycle: boolean; depthExceeded: boolean } {
+  if (!data) return { cycle: false, depthExceeded: false };
+  const causalContext = data.causalContext as
+    | { hops?: Array<{ type: string; id: string }> }
+    | undefined;
+  const hops = causalContext?.hops;
+  if (!hops || !Array.isArray(hops)) return { cycle: false, depthExceeded: false };
+
+  const cycle = hops.some((hop) => hop.type === "automation" && hop.id === ruleId);
+  const depthExceeded = hops.length >= CAUSAL_DEPTH_LIMIT;
+
+  return { cycle, depthExceeded };
 }
 
 function resolveTargetType(event: IncomingEvent): AutomationTargetType | null {
@@ -176,8 +247,9 @@ function recordSkippedRun(
   triggerType: AutomationTriggerType,
   event: IncomingEvent,
   reason: string,
+  eventDedupeKey?: string | null,
 ): void {
-  const run = runRepo.startRuleRun({
+  const { run, created } = runRepo.startRuleRun({
     ruleId,
     habitatId,
     triggerType,
@@ -188,7 +260,10 @@ function recordSkippedRun(
         event.data?.missionId ??
         event.data?.agentId ??
         event.data?.sprintId) as string) ?? null,
+    eventDedupeKey,
   });
+
+  if (!created) return;
 
   runRepo.skipRuleRun(run.id, reason as any, {
     eventType: event.type,

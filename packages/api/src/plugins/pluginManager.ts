@@ -1389,3 +1389,117 @@ export function clearQuarantine(pluginKey: string): boolean {
   }
   return wasQuarantined;
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// T3B Phase 2 — prospective taskCreated governance seam (ADDITIVE)
+//
+// The three functions below are the SOLE additive surface the prospective
+// governance module (`services/taskPublicationGovernance.ts`) reaches for. They
+// are DISCRIMINATED from the live hot path by being SEPARATE CODE: nothing
+// below is reachable from `runPreInterceptors`, `TransitionRef`,
+// `InterceptorHandler`, or any runtime internal (`invocationRuntime.ts`,
+// `buildRuntimeDeps`, `createInvocationRuntime`, `checkPreVeto`). The runtime
+// STAYS AUTHORITATIVE — it owns startRun, bounded fail-closed fault handling,
+// validation, quarantine accounting, and finishRun. These helpers only:
+//   - snapshot the enrolled pre-interceptor set (frozen batch admission),
+//   - build a PreInterceptorTarget from a registry entry (no re-hand-rolling),
+//   - invoke ONE target through the SAME runtime construction the private
+//     `invokePreInterceptorThroughRuntime` uses (createInvocationRuntime +
+//     buildRuntimeDeps + checkPreVeto) — the governance caller passes a real
+//     prospectiveTaskId (NOT the missionId-as-taskId hack) and a
+//     TransitionContext whose `task` is absent and whose `metadata` carries
+//     the prospective markers.
+//
+// `runPreInterceptors` is NOT modified. The 8 direct callers + the createTask
+// hack + the TransitionRef shape stay byte-identical.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Snapshots the enrolled pre-interceptor registry entries for one event +
+ * habitat in priority-sorted order (the registry list is priority-sorted at
+ * registration time per ADR-0014).
+ *
+ * T3B Phase 2 governance freezes this snapshot BEFORE evaluating any Task so a
+ * fault in one Task cannot alter admission for later Tasks in the SAME batch.
+ * The freeze is PER-BATCH: quarantine updates from a Task's runtime faults DO
+ * apply to LATER PUBLICATIONS (the runtime still increments quarantine
+ * counters), but the snapshot returned here is what gates the rest of THIS
+ * batch's evaluation.
+ *
+ * Returns a FRESH array (a per-batch copy). Each entry is the live registry
+ * object (handler/contribution/requires/canonicalKey/timeoutMs) — the
+ * governance module builds a {@link PreInterceptorTarget} via
+ * {@link makePreInterceptorTargetForGovernance} and invokes it through
+ * {@link invokePreInterceptorForGovernance}.
+ *
+ * Mirrors the enrollment + priority-order gate that `runPreInterceptors`
+ * applies per entry, but is DISCRIMINATED from it by being separate code.
+ * ADDITIVE: `runPreInterceptors` is not modified.
+ */
+export function snapshotEnrolledPreInterceptors(
+  event: InterceptorEvent,
+  habitatId: string,
+): InterceptorRegistryEntry[] {
+  const list = interceptorRegistry.pre.get(event) ?? [];
+  const enrolled: InterceptorRegistryEntry[] = [];
+  for (const entry of list) {
+    if (isEnrolled(habitatId, `${entry.pluginId}:${entry.contribution.interceptorId}`)) {
+      enrolled.push(entry);
+    }
+  }
+  return enrolled;
+}
+
+/**
+ * Builds a {@link PreInterceptorTarget} from a registry entry. Additive sibling
+ * of the private `makePreInterceptorTarget` — exported so the governance module
+ * constructs targets the SAME way `runPreInterceptors` does, without
+ * re-hand-rolling the shape (which must match what `checkPreVeto` consumes).
+ *
+ * ADDITIVE: the private `makePreInterceptorTarget` is not modified.
+ */
+export function makePreInterceptorTargetForGovernance(
+  entry: InterceptorRegistryEntry,
+): PreInterceptorTarget {
+  return makePreInterceptorTarget(entry);
+}
+
+/**
+ * Invokes ONE pre-interceptor target through the Plugin Invocation Runtime's
+ * synchronous `checkPreVeto` against a PROSPECTIVE taskCreated transition.
+ *
+ * This is the prospective-aware SIBLING of the private
+ * `invokePreInterceptorThroughRuntime`. It REUSES the SAME runtime-construction
+ * logic — `createInvocationRuntime(buildRuntimeDeps(ctxRef))` + the SAME
+ * `checkPreVeto` entry point. It does NOT re-hand-roll startRun, withTimeout,
+ * try/catch, finishRun, or quarantine accounting (ADR-0039: the runtime owns
+ * all of those).
+ *
+ * DISCRIMINATED from the live `runPreInterceptors` hot path by being SEPARATE
+ * CODE the governance module calls with a REAL prospective Task ID (not the
+ * missionId-as-taskId hack at `task-crud.ts:40`) and a `TransitionContext`
+ * whose `task` is absent (no Task exists yet) and whose `metadata` carries the
+ * prospective proposal/attemptId markers. A handler that cares about
+ * prospective reads `context.metadata`; the runtime contract is unchanged.
+ *
+ * ADDITIVE: `runPreInterceptors`, `invokePreInterceptorThroughRuntime`,
+ * `TransitionRef`, `InterceptorHandler`, and all runtime code are NOT modified.
+ */
+export function invokePreInterceptorForGovernance(
+  target: PreInterceptorTarget,
+  prospectiveTaskId: string,
+  event: InterceptorEvent,
+  habitatId: string,
+  context: import("../services/tasks/transition-emitter.js").TransitionContext,
+): PreVetoDecision {
+  const ctxRef: { ctx: ReturnType<typeof buildPluginContext> | null } = { ctx: null };
+  const runtime: InvocationRuntime = createInvocationRuntime(buildRuntimeDeps(ctxRef));
+  const request: PreVetoRequest = {
+    target,
+    taskId: prospectiveTaskId,
+    event,
+    habitatId,
+    context,
+  };
+  return runtime.checkPreVeto(request);
+}

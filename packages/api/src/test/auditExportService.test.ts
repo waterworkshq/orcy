@@ -287,7 +287,7 @@ describe("auditExportService", () => {
       createdBy: "user-1",
     });
 
-    const run1 = ruleRunRepo.startRuleRun({
+    const { run: run1 } = ruleRunRepo.startRuleRun({
       ruleId: rule.id,
       habitatId: habitat.id,
       triggerType: "mission.stale",
@@ -297,7 +297,7 @@ describe("auditExportService", () => {
     });
     ruleRunRepo.finishRuleRun(run1.id, { status: "succeeded" });
 
-    const run2 = ruleRunRepo.startRuleRun({
+    const { run: run2 } = ruleRunRepo.startRuleRun({
       ruleId: rule.id,
       habitatId: habitat.id,
       triggerType: "mission.stale",
@@ -328,7 +328,7 @@ describe("auditExportService", () => {
       actions: [{ type: "notify", recipients: [{ type: "assignee" }], template: "T" }],
       createdBy: "user-1",
     });
-    const automationRun = ruleRunRepo.startRuleRun({
+    const { run: automationRun } = ruleRunRepo.startRuleRun({
       ruleId: rule.id,
       habitatId: fixture.habitat.id,
       triggerType: "task.rejected",

@@ -320,9 +320,24 @@ function spawnAuthoringTask(
   createdBy: string,
 ): ScheduledTask {
   const now = new Date().toISOString();
+  const name = `wiki-authoring:${chunkFrom}:${chunkTo}:${habitatId}`;
+
+  // Idempotency dedupe (T9A-10 M3). The schedule name is deterministic
+  // from the coverage watermark + chunk bounds, so a re-spawn of the same
+  // chunk (handler re-dispatch with an unmoved watermark) returns the
+  // existing row. Closes the regression T9A-10 M2 + T9B + T11 introduce:
+  // a `publishing` occurrence whose lease expired gets re-driven, which
+  // re-runs the cadence handler, which without this dedupe would insert
+  // duplicate `wiki-authoring:` rows. The check lives in this domain
+  // layer (NOT in `scheduledTaskRepo.createScheduledTask`, which stays a
+  // generic primitive that other callers legitimately use without
+  // dedupe semantics).
+  const existing = scheduledTaskRepo.getScheduledTaskByHabitatIdAndName(habitatId, name);
+  if (existing) return existing;
+
   return scheduledTaskRepo.createScheduledTask({
     habitatId,
-    name: `wiki-authoring:${chunkFrom}:${chunkTo}:${habitatId}`,
+    name,
     description: `Wiki authoring run for ${chunkFrom} → ${chunkTo}.`,
     scheduleType: "once",
     scheduledAt: now,

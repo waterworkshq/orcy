@@ -1,6 +1,8 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { getDb, closeDb, initTestDb } from "../db/index.js";
 import { eq, and } from "drizzle-orm";
+import { runDispatchWorkerPass } from "../services/creationDispatchWorker.js";
+import { registerCreationDispatchAdapters } from "../services/taskCreationDispatchAdapters.js";
 import * as habitatRepo from "../repositories/habitat.js";
 import * as columnRepo from "../repositories/column.js";
 import * as missionRepo from "../repositories/mission.js";
@@ -351,7 +353,7 @@ describe("workflowService — on_fail gates + recovery spawning", () => {
       expect(ctx!.recoveryTaskId).toBe(recovery.id);
     });
 
-    it("applies assignedAgentId when the handler's agentSelector specifies one", () => {
+    it("applies assignedAgentId when the handler's agentSelector specifies one", async () => {
       const { habitat, col } = setupHabitat();
       const mission = setupMission(habitat.id, col.id);
       const recoveryAgent = setupAgent("recovery-specialist");
@@ -378,6 +380,8 @@ describe("workflowService — on_fail gates + recovery spawning", () => {
       );
 
       emitFailure(failedTask.id, "failed", habitat.id);
+      registerCreationDispatchAdapters();
+      await runDispatchWorkerPass();
 
       const recovery = getDb().select().from(tasks).where(eq(tasks.title, "Recover")).get();
       expect(recovery).toBeDefined();

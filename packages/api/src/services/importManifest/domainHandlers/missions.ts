@@ -1,0 +1,605 @@
+/**
+ * missions domain handler — the planning unit that owns Tasks.
+ *
+ * # Validation rules (accumulate, never first-error)
+ *
+ *   - Per-mission shape: `sourceId`, `title`, `description`,
+ *     `acceptanceCriteria`, `priority`, `labels`, `columnName`, `dueAt` are
+ *     well-formed.
+ *   - `columnName` resolves against the columns domain's declared name set
+ *     (the v0.31 column-resolution preflight, now per-domain — reads
+ *     `ctx.crossDomainState.columnsEnvelope` when the orchestrator has made
+ *     it available).
+ *   - `dependsOnSourceIds` / `blocksSourceIds` are well-formed sourceIds AND
+ *     reference KNOWN mission sourceIds within the missions domain. The
+ *     GRAPH acyclicity is the `dependencies` handler's concern (this handler
+ *     validates only the reference SHAPE + intra-domain resolvability).
+ *   - `priority` ∈ {low, medium, high, critical}.
+ *
+ * # prepare
+ *
+ * Allocates one prospective server ID per mission into the idMap.
+ *
+ * # resolveReferences
+ *
+ * Rewrites each mission's `columnName` → the column's server ID (via the
+ * columns envelope + idMap) and each mission's `dependsOnSourceIds` /
+ * `blocksSourceIds` → the referenced missions' server IDs (via the idMap).
+ *
+ * @see packages/api/src/services/importManifest/types.ts for MissionPortable.
+ */
+import type { TaskPriority } from "@orcy/shared";
+import type { DomainEnvelope, MissionPortable } from "../types.js";
+import type {
+  AppliedDomain,
+  ApplyContext,
+  DomainError,
+  DomainHandler,
+  DomainValidationResult,
+  IdentityMap,
+  ManifestContext,
+  ReferenceResolution,
+} from "../domainHandler.js";
+import {
+  allocateServerId,
+  domainError,
+  lookupRestoreServerId,
+  resolutionErr,
+  resolutionOk,
+  validationErr,
+  validationOk,
+} from "../domainHandler.js";
+import { missionDependencies, missions } from "../../../db/schema/habitat.js";
+import type { TaskPublicationDbClient } from "../../../repositories/taskPublication.js";
+
+// ---------------------------------------------------------------------------
+// Validated + prepared shapes
+// ---------------------------------------------------------------------------
+
+const PRIORITIES = new Set<TaskPriority>(["low", "medium", "high", "critical"]);
+
+export interface ValidatedMission {
+  sourceId: string;
+  title: string;
+  description: string;
+  acceptanceCriteria: string;
+  priority: TaskPriority;
+  labels: string[];
+  columnName: string;
+  dependsOnSourceIds: string[];
+  blocksSourceIds: string[];
+  dueAt: string | null;
+}
+
+export interface ValidatedMissions {
+  missions: ValidatedMission[];
+}
+
+export interface PreparedMission {
+  sourceId: string;
+  /** The prospective server-side mission id (allocated in prepare). */
+  missionServerId: string;
+  /** The column NAME (rewritten to a server id in resolveReferences). */
+  columnName: string;
+  /** The resolved column server id (null until resolveReferences runs). */
+  columnServerId: string | null;
+  title: string;
+  description: string;
+  acceptanceCriteria: string;
+  priority: TaskPriority;
+  labels: string[];
+  /** Structural source IDs (rewritten to server IDs in resolveReferences). */
+  dependsOnSourceIds: string[];
+  /** Resolved server IDs (null until resolveReferences runs). */
+  dependsOnServerIds: string[];
+  blocksSourceIds: string[];
+  blocksServerIds: string[];
+  dueAt: string | null;
+}
+
+export interface PreparedMissions {
+  missions: PreparedMission[];
+}
+
+// ---------------------------------------------------------------------------
+// Validate
+// ---------------------------------------------------------------------------
+
+export function validateMissions(
+  envelope: DomainEnvelope<unknown>,
+  ctx: ManifestContext,
+  _idMap: IdentityMap,
+): DomainValidationResult<ValidatedMissions> {
+  const errors: DomainError[] = [];
+  const raw = envelope.data;
+
+  if (!Array.isArray(raw)) {
+    return validationErr([
+      domainError("missions", "invalid_envelope_data", "missions envelope data must be an array", {
+        actual: typeof raw,
+      }),
+    ]);
+  }
+
+  // Build the declared column-name set from crossDomainState (when available).
+  // This is the v0.31 column-resolution preflight (now per-domain).
+  const columnNames: Set<string> | null = (() => {
+    const colsEnvelope = ctx.crossDomainState?.columnsEnvelope;
+    if (!colsEnvelope || !Array.isArray(colsEnvelope.data)) return null;
+    return new Set(
+      (colsEnvelope.data as Array<{ name?: unknown }>)
+        .map((c) => c.name)
+        .filter((n): n is string => typeof n === "string"),
+    );
+  })();
+
+  const validated: ValidatedMission[] = [];
+
+  raw.forEach((entry, i) => {
+    const fieldPathBase: readonly (string | number)[] = ["missions", i];
+    const errs: DomainError[] = [];
+
+    if (entry === null || typeof entry !== "object" || Array.isArray(entry)) {
+      errors.push(
+        domainError("missions", "invalid_mission_shape", `missions[${i}] must be a plain object`, {
+          actual: entry === null ? "null" : Array.isArray(entry) ? "array" : typeof entry,
+          fieldPath: fieldPathBase,
+        }),
+      );
+      return;
+    }
+
+    const e = entry as Record<string, unknown>;
+
+    if (typeof e.sourceId !== "string" || e.sourceId.length === 0) {
+      errs.push(
+        domainError(
+          "missions",
+          "invalid_source_id",
+          `missions[${i}].sourceId must be a non-empty string`,
+          { actual: typeof e.sourceId, fieldPath: [...fieldPathBase, "sourceId"] },
+        ),
+      );
+    }
+
+    if (typeof e.title !== "string" || e.title.length === 0) {
+      errs.push(
+        domainError(
+          "missions",
+          "invalid_title",
+          `missions[${i}].title must be a non-empty string`,
+          {
+            actual: typeof e.title,
+            fieldPath: [...fieldPathBase, "title"],
+          },
+        ),
+      );
+    }
+
+    if (typeof e.description !== "string") {
+      errs.push(
+        domainError(
+          "missions",
+          "invalid_description",
+          `missions[${i}].description must be a string`,
+          { actual: typeof e.description, fieldPath: [...fieldPathBase, "description"] },
+        ),
+      );
+    }
+
+    if (typeof e.acceptanceCriteria !== "string") {
+      errs.push(
+        domainError(
+          "missions",
+          "invalid_acceptance_criteria",
+          `missions[${i}].acceptanceCriteria must be a string`,
+          {
+            actual: typeof e.acceptanceCriteria,
+            fieldPath: [...fieldPathBase, "acceptanceCriteria"],
+          },
+        ),
+      );
+    }
+
+    if (typeof e.priority !== "string" || !PRIORITIES.has(e.priority as TaskPriority)) {
+      errs.push(
+        domainError(
+          "missions",
+          "invalid_priority",
+          `missions[${i}].priority must be one of low | medium | high | critical`,
+          {
+            actual: e.priority,
+            expected: "low | medium | high | critical",
+            fieldPath: [...fieldPathBase, "priority"],
+          },
+        ),
+      );
+    }
+
+    if (!Array.isArray(e.labels) || e.labels.some((l) => typeof l !== "string")) {
+      errs.push(
+        domainError(
+          "missions",
+          "invalid_labels",
+          `missions[${i}].labels must be an array of strings`,
+          {
+            actual: Array.isArray(e.labels) ? "array with non-string elements" : typeof e.labels,
+            fieldPath: [...fieldPathBase, "labels"],
+          },
+        ),
+      );
+    }
+
+    if (typeof e.columnName !== "string" || (e.columnName as string).length === 0) {
+      errs.push(
+        domainError(
+          "missions",
+          "invalid_column_name",
+          `missions[${i}].columnName must be a non-empty string`,
+          { actual: typeof e.columnName, fieldPath: [...fieldPathBase, "columnName"] },
+        ),
+      );
+    }
+
+    // dependsOnSourceIds + blocksSourceIds: well-formed sourceIds
+    for (const field of ["dependsOnSourceIds", "blocksSourceIds"] as const) {
+      const refs = e[field];
+      if (!Array.isArray(refs) || refs.some((r) => typeof r !== "string" || r.length === 0)) {
+        errs.push(
+          domainError(
+            "missions",
+            "invalid_dependency_source_ids",
+            `missions[${i}].${field} must be an array of non-empty strings`,
+            {
+              actual: Array.isArray(refs) ? "array with non-string/empty elements" : typeof refs,
+              fieldPath: [...fieldPathBase, field],
+            },
+          ),
+        );
+      }
+    }
+
+    if (e.dueAt !== null && typeof e.dueAt !== "string") {
+      errs.push(
+        domainError("missions", "invalid_due_at", `missions[${i}].dueAt must be a string or null`, {
+          actual: typeof e.dueAt,
+          fieldPath: [...fieldPathBase, "dueAt"],
+        }),
+      );
+    }
+
+    if (errs.length > 0) {
+      errors.push(...errs);
+      return;
+    }
+
+    validated.push({
+      sourceId: e.sourceId as string,
+      title: e.title as string,
+      description: e.description as string,
+      acceptanceCriteria: e.acceptanceCriteria as string,
+      priority: e.priority as TaskPriority,
+      labels: e.labels as string[],
+      columnName: e.columnName as string,
+      dependsOnSourceIds: e.dependsOnSourceIds as string[],
+      blocksSourceIds: e.blocksSourceIds as string[],
+      dueAt: (e.dueAt ?? null) as string | null,
+    });
+  });
+
+  if (errors.length > 0) return validationErr(errors);
+
+  // Cross-field checks (shape clean): columnName resolves against columns
+  // domain (the v0.31 preflight) + dependsOn/blocks reference KNOWN mission
+  // sourceIds within the missions domain.
+  const missionSourceIds = new Set(validated.map((m) => m.sourceId));
+  const crossFieldErrors: DomainError[] = [];
+
+  for (const m of validated) {
+    if (columnNames !== null && !columnNames.has(m.columnName)) {
+      crossFieldErrors.push(
+        domainError(
+          "missions",
+          "unresolvable_column_name",
+          `mission '${m.title}' (sourceId '${m.sourceId}') references unknown column '${m.columnName}'`,
+          { sourceId: m.sourceId, actual: m.columnName },
+        ),
+      );
+    }
+
+    for (const dep of m.dependsOnSourceIds) {
+      if (!missionSourceIds.has(dep)) {
+        crossFieldErrors.push(
+          domainError(
+            "missions",
+            "unresolved_depends_on_source_id",
+            `mission '${m.title}' (sourceId '${m.sourceId}') dependsOn unknown mission sourceId '${dep}'`,
+            { sourceId: m.sourceId, actual: dep },
+          ),
+        );
+      }
+    }
+
+    for (const blk of m.blocksSourceIds) {
+      if (!missionSourceIds.has(blk)) {
+        crossFieldErrors.push(
+          domainError(
+            "missions",
+            "unresolved_blocks_source_id",
+            `mission '${m.title}' (sourceId '${m.sourceId}') blocks unknown mission sourceId '${blk}'`,
+            { sourceId: m.sourceId, actual: blk },
+          ),
+        );
+      }
+    }
+  }
+
+  if (crossFieldErrors.length > 0) return validationErr(crossFieldErrors);
+  return validationOk({ missions: validated });
+}
+
+// ---------------------------------------------------------------------------
+// Prepare (PURE — no DB writes)
+// ---------------------------------------------------------------------------
+
+export function prepareMissions(
+  validated: ValidatedMissions,
+  ctx: ManifestContext,
+  idMap: IdentityMap,
+): PreparedMissions {
+  const missions: PreparedMission[] = validated.missions.map((m) => {
+    // F5: restore preserves the existing mission's serverId.
+    const restoreServerId = lookupRestoreServerId(ctx, m.sourceId);
+    const missionServerId = allocateServerId(idMap, m.sourceId, restoreServerId);
+    return {
+      sourceId: m.sourceId,
+      missionServerId,
+      columnName: m.columnName,
+      columnServerId: null,
+      title: m.title,
+      description: m.description,
+      acceptanceCriteria: m.acceptanceCriteria,
+      priority: m.priority,
+      labels: m.labels,
+      dependsOnSourceIds: m.dependsOnSourceIds,
+      dependsOnServerIds: [],
+      blocksSourceIds: m.blocksSourceIds,
+      blocksServerIds: [],
+      dueAt: m.dueAt,
+    };
+  });
+  return { missions };
+}
+
+// ---------------------------------------------------------------------------
+// Resolve references (PURE — rewrite columnName + dependsOn/blocks)
+// ---------------------------------------------------------------------------
+
+export function resolveMissionsReferences(
+  prepared: PreparedMissions,
+  ctx: ManifestContext,
+  idMap: IdentityMap,
+): ReferenceResolution<PreparedMissions> {
+  const errors: DomainError[] = [];
+
+  // Build a columnName → columnServerId map from the columns envelope + idMap.
+  // The columns envelope is in crossDomainState; the idMap has each column's
+  // sourceId → serverId. We compose name → sourceId → serverId.
+  const columnNameToServerId = new Map<string, string>();
+  const colsEnvelope = ctx.crossDomainState?.columnsEnvelope;
+  if (colsEnvelope && Array.isArray(colsEnvelope.data)) {
+    for (const col of colsEnvelope.data as Array<{ sourceId?: unknown; name?: unknown }>) {
+      if (typeof col.sourceId === "string" && typeof col.name === "string") {
+        const serverId = idMap.sourceToServer.get(col.sourceId);
+        if (serverId) columnNameToServerId.set(col.name, serverId);
+      }
+    }
+  }
+
+  const resolvedMissions: PreparedMission[] = prepared.missions.map((m) => {
+    let columnServerId: string | null = null;
+    const resolvedColumn = columnNameToServerId.get(m.columnName);
+    if (resolvedColumn) {
+      columnServerId = resolvedColumn;
+    } else if (idMap.sourceToServer.has(m.columnName)) {
+      // Fallback: the columnName was already a sourceId (rare; native v3 case
+      // where columns are referenced by id rather than name). Try direct lookup.
+      columnServerId = idMap.sourceToServer.get(m.columnName) ?? null;
+    } else {
+      errors.push(
+        domainError(
+          "missions",
+          "unresolved_column_name",
+          `mission '${m.title}' (sourceId '${m.sourceId}'): columnName '${m.columnName}' did not resolve to a column server id`,
+          { sourceId: m.sourceId, actual: m.columnName },
+        ),
+      );
+    }
+
+    const dependsOnServerIds: string[] = [];
+    for (const dep of m.dependsOnSourceIds) {
+      const serverId = idMap.sourceToServer.get(dep);
+      if (serverId) {
+        dependsOnServerIds.push(serverId);
+      } else {
+        errors.push(
+          domainError(
+            "missions",
+            "unresolved_depends_on_source_id",
+            `mission '${m.title}' (sourceId '${m.sourceId}'): dependsOnSourceId '${dep}' did not resolve to a mission server id`,
+            { sourceId: m.sourceId, actual: dep },
+          ),
+        );
+      }
+    }
+
+    const blocksServerIds: string[] = [];
+    for (const blk of m.blocksSourceIds) {
+      const serverId = idMap.sourceToServer.get(blk);
+      if (serverId) {
+        blocksServerIds.push(serverId);
+      } else {
+        errors.push(
+          domainError(
+            "missions",
+            "unresolved_blocks_source_id",
+            `mission '${m.title}' (sourceId '${m.sourceId}'): blocksSourceId '${blk}' did not resolve to a mission server id`,
+            { sourceId: m.sourceId, actual: blk },
+          ),
+        );
+      }
+    }
+
+    return {
+      ...m,
+      columnServerId,
+      dependsOnServerIds,
+      blocksServerIds,
+    };
+  });
+
+  if (errors.length > 0) return resolutionErr(errors);
+  return resolutionOk({ missions: resolvedMissions });
+}
+
+// ---------------------------------------------------------------------------
+// Apply (T10B M1 — caller-owned tx; `mode:"new"` INSERT path)
+// ---------------------------------------------------------------------------
+
+/**
+ * Writes the mission rows for `mode:"new"` imports. Inserts every prepared
+ * mission into the `missions` table on the caller-owned tx client. The
+ * `columnServerId` was resolved by {@link resolveMissionsReferences} via the
+ * idMap (a cross-domain lookup — drift #8 — but safe because the orchestrator
+ * runs `columns.apply` BEFORE `missions.apply`; the FK `column_id →
+ * columns.id` resolves against the just-inserted sibling row).
+ *
+ * # Two-pass INSERT (the FK-ordering fix — T10C cold-review Finding 1)
+ *
+ * The apply runs in TWO passes, not one:
+ *
+ *   - Pass 1: insert ALL mission ROWS (no edges).
+ *   - Pass 2: insert ALL `missionDependencies` EDGES.
+ *
+ * SQLite enforces FK at INSERT time (not at COMMIT) for non-DEFERRABLE
+ * constraints. The `mission_dependencies.depends_on_id → missions.id` FK at
+ * `0000_schema.sql:507` is `ON DELETE cascade` — NOT `DEFERRABLE INITIALLY
+ * DEFERRED`. The single-loop predecessor inserted each mission's
+ * `missionDependencies` edges IN THE SAME ITERATION as the mission row. The
+ * manifest's mission array follows the exporter's emission order
+ * (`getMissionsByHabitatId`: `displayOrder, priorityOrder, createdAt`), NOT
+ * dependency order. A high-priority mission (sorts early) that depends on a
+ * low-priority mission (sorts late) would emit its `dependsOnId` edge before
+ * the target row exists → `FOREIGN KEY constraint failed` under better-sqlite3
+ * (FK always ON). The M2 fixture only passed because beta (medium) depended
+ * on alpha (high), and `priorityOrderExpr` sorts high before medium —
+ * favorable fixture data, not correctness.
+ *
+ * The two-pass split mirrors the columns-handler precedent at
+ * `domainHandlers/columns.ts` (T10B-FK-FIX): rows first, then edges. The
+ * `AppliedDomain.committedServerIds` stays in the original declared order;
+ * only the INSERT order changes. Same FK-ordering bug class as the columns
+ * handler + the orchestrator's pre/post-task split (T10B-FK-FIX-2).
+ *
+ * # M1 scope (the `new` path)
+ *
+ * For `mode:"new"`, every prepared mission gets one INSERT. M2's
+ * `mode:"replacement"` in-place logic is layered here: `replace` does
+ * scoped-delete-before-INSERT, `preserve` is a no-op, `reset` clears
+ * execution state. M1 throws if it sees `mode:"replacement"`.
+ *
+ * # Mission-execution-state per C4 absorption
+ *
+ * v3 `MissionPortable` carries NO execution-state field (drift absorbed by
+ * the M1 type); the `missions` table's `status` column defaults to
+ * `not_started` so we omit it. `version` defaults to `1`. Other execution-
+ * state columns (`slaMinutes`, `completedAt`, `isArchived`, ...) inherit
+ * their table defaults.
+ *
+ * # Caller-owned tx (load-bearing)
+ *
+ * Receives a {@link TaskPublicationDbClient} from the orchestrator. NEVER
+ * calls `getDb()`, NEVER opens a nested transaction, NEVER emits effects.
+ */
+export function applyMissions(
+  tx: TaskPublicationDbClient,
+  prepared: PreparedMissions,
+  ctx: ApplyContext,
+): AppliedDomain {
+  if (ctx.mode === "replacement") {
+    throw new Error(
+      "missions.apply: mode:'replacement' in-place logic is M2's scope; M1 ships the mode:'new' INSERT path only",
+    );
+  }
+
+  const now = new Date().toISOString();
+  const committedServerIds: string[] = [];
+
+  // PASS 1 — mission ROWS only (no edges). Inserting every row first
+  // guarantees that every `dependsOnId` FK target exists by the time pass 2
+  // emits edges, regardless of the manifest's declared mission order.
+  for (const m of prepared.missions) {
+    if (m.columnServerId === null) {
+      throw new Error(
+        `missions.apply: mission '${m.title}' (sourceId '${m.sourceId}') has unresolved columnServerId — resolveReferences did not run or failed`,
+      );
+    }
+    tx.insert(missions)
+      .values({
+        id: m.missionServerId,
+        habitatId: ctx.targetHabitatId,
+        columnId: m.columnServerId,
+        title: m.title,
+        description: m.description,
+        acceptanceCriteria: m.acceptanceCriteria,
+        priority: m.priority,
+        labels: m.labels,
+        // status defaults to 'not_started' (C4 absorption: v3 drops v2 status)
+        // dependsOn + blocks are Mission-level edges — written in PASS 2
+        // for architectural locality + FK-ordering safety.
+        dueAt: m.dueAt,
+        createdBy: "import",
+        createdAt: now,
+        updatedAt: now,
+      })
+      .run();
+    committedServerIds.push(m.missionServerId);
+  }
+
+  // PASS 2 — mission-level dependency EDGES. The `mission_dependencies`
+  // table is keyed `(missionId, dependsOnId)`; one INSERT per edge. `blocks`
+  // are modeled as `dependsOn` rows in the OPPOSITE direction in v0.31 — for
+  // M1 fidelity, we write `dependsOn` rows directly. M2 may layer a separate
+  // `blocks` representation on top. All mission rows now exist, so every
+  // `dependsOnId` FK target resolves regardless of the manifest's mission
+  // ordering (the forward-FK bug class from the cold review).
+  for (const m of prepared.missions) {
+    for (const depId of m.dependsOnServerIds) {
+      tx.insert(missionDependencies)
+        .values({ missionId: m.missionServerId, dependsOnId: depId })
+        .run();
+    }
+  }
+
+  return {
+    domain: "missions",
+    mode: "new",
+    committedServerIds,
+    inserted: committedServerIds.length,
+  } satisfies AppliedDomain;
+}
+
+// ---------------------------------------------------------------------------
+// The handler object
+// ---------------------------------------------------------------------------
+
+export const missionsHandler: DomainHandler<ValidatedMissions, PreparedMissions> = {
+  domainName: "missions",
+  validate: validateMissions,
+  prepare: prepareMissions,
+  resolveReferences: resolveMissionsReferences,
+  apply: applyMissions,
+};
+
+/** Re-exported for downstream consumers that import the canonical shape. */
+export type { MissionPortable };

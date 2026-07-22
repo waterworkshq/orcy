@@ -31,6 +31,10 @@ import * as habitatRepo from "../repositories/habitat.js";
 import * as chatIntegrationRepo from "../repositories/chatIntegration.js";
 import { enqueueNotificationForRecipients } from "../services/notificationCommandService.js";
 import { isValidEventType } from "../services/notificationSubscriptionResolver.js";
+import {
+  publishPluginTask,
+  mapPluginPublicationResultToTask,
+} from "../services/pluginTaskPublication.js";
 import { badRequest } from "../errors.js";
 import { logger as rootLogger } from "../lib/logger.js";
 
@@ -72,10 +76,17 @@ export function buildPluginContext(opts: {
   if (has("pulseWriter")) ctx.pulseWriter = buildPulseWriter(pluginId, runId, habitatId);
   if (has("commentReader")) ctx.commentReader = buildCommentReader(habitatId);
   if (has("taskReader")) ctx.taskReader = buildTaskReader(habitatId);
-  if (has("taskWriter")) ctx.taskWriter = buildTaskWriter(pluginId, runId, habitatId, sharedWriteCounter);
+  if (has("taskWriter"))
+    ctx.taskWriter = buildTaskWriter(pluginId, runId, habitatId, sharedWriteCounter);
   if (has("notificationSender"))
-    ctx.notificationSender = buildNotificationSender(pluginId, runId, habitatId, sharedWriteCounter);
-  if (has("webhookCaller")) ctx.webhookCaller = buildWebhookCaller(pluginId, runId, habitatId, sharedWriteCounter);
+    ctx.notificationSender = buildNotificationSender(
+      pluginId,
+      runId,
+      habitatId,
+      sharedWriteCounter,
+    );
+  if (has("webhookCaller"))
+    ctx.webhookCaller = buildWebhookCaller(pluginId, runId, habitatId, sharedWriteCounter);
   if (has("habitatReader")) ctx.habitatReader = buildHabitatReader(habitatId);
   if (has("chatIntegrationReader"))
     ctx.chatIntegrationReader = buildChatIntegrationReader(habitatId);
@@ -262,6 +273,12 @@ function buildTaskWriter(
     return { missionId: task.missionId };
   }
 
+  // Per-run monotonic counter for createTask actions. Each call advances
+  // the stable attempt-action key reserved under (runId, actionKey).
+  // It is separate from writeCounter so interleaved mutations do not
+  // change publication idempotency keys.
+  const taskCreateSequence = { count: 0 };
+
   return {
     createTask: async (input: PluginTaskCreateInput) => {
       if (!habitatId) throw new Error("createTask requires a habitat-scoped plugin context");
@@ -271,19 +288,30 @@ function buildTaskWriter(
       if (mission.habitatId !== habitatId) {
         throw new Error(`Mission ${input.missionId} does not belong to this habitat`);
       }
-      const task = taskRepo.createTask({
+
+      const actionKey = String(taskCreateSequence.count);
+      taskCreateSequence.count++;
+      const result = publishPluginTask({
+        pluginId,
+        runId,
+        habitatId,
         missionId: input.missionId,
         title: input.title,
         description: input.description,
         labels: input.labels,
         priority: input.priority,
-        createdBy: `plugin:${pluginId}`,
+        actionKey,
       });
+      // The plugin `createTask` contract is `Promise<Task>` (success or
+      // throw) — map every non-created publication outcome to a thrown
+      // error. The `runId` is now persisted on the committed envelope's
+      // causal root (gap-audit O5), not merely logged.
+      const task = mapPluginPublicationResultToTask(result);
       rootLogger.info(
         { pluginId, runId, taskId: task.id, missionId: input.missionId, action: "task.create" },
-        "plugin.taskWriter: createTask",
+        "plugin.taskWriter: createTask (published)",
       );
-      return task;
+      return task as never;
     },
 
     assignTask: async (taskId: string, agentId: string) => {
@@ -370,7 +398,13 @@ function buildNotificationSender(
         },
       );
       rootLogger.info(
-        { pluginId, runId, eventId: result.event.id, deliveryCount: result.deliveries.length, action: "notification.send" },
+        {
+          pluginId,
+          runId,
+          eventId: result.event.id,
+          deliveryCount: result.deliveries.length,
+          action: "notification.send",
+        },
         "plugin.notificationSender: notify",
       );
       return { eventId: result.event.id, deliveryCount: result.deliveries.length };
@@ -426,7 +460,11 @@ function buildWebhookCaller(
       try {
         const response = await fetch(url, {
           method: "POST",
-          headers: { "Content-Type": "application/json", "User-Agent": `Orcy-Plugin/${pluginId}`, ...headers },
+          headers: {
+            "Content-Type": "application/json",
+            "User-Agent": `Orcy-Plugin/${pluginId}`,
+            ...headers,
+          },
           body: body ?? undefined,
         });
         const responseText = await response.text().catch(() => "");
@@ -437,7 +475,10 @@ function buildWebhookCaller(
         return { statusCode: response.status, ok: response.ok, body: responseText.slice(0, 1000) };
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
-        rootLogger.warn({ pluginId, runId, url, err: message }, "plugin.webhookCaller: call failed");
+        rootLogger.warn(
+          { pluginId, runId, url, err: message },
+          "plugin.webhookCaller: call failed",
+        );
         throw new Error(`Webhook call to ${url} failed: ${message}`);
       }
     },

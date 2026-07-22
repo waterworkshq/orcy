@@ -13,6 +13,7 @@ import * as agentRepo from "../repositories/agent.js";
 import * as failureContextService from "./failureContextService.js";
 import { enqueueNotification } from "./notificationCommandService.js";
 import { emitTaskAuditEvent, emitMissionAuditEvent } from "./auditEventEmitter.js";
+import { publishRecoveryTask } from "./taskRecoveryPublication.js";
 import type { Pulse } from "../repositories/pulse.js";
 import type {
   WorkflowTemplateDefinition,
@@ -308,63 +309,35 @@ function spawnRecoveryForGate(
     return;
   }
 
-  const recoveryTask = createRecoveryTask(failedTask, effectiveHandler, opts);
+  // Pre-fetch the failure-context id so the publication participant can
+  // link it atomically with the recovery Task and workflow gates.
+  const ctx = failureContextService.getFailureContext(failedTask.id);
+
+  const recoveryTask = createRecoveryTask(failedTask, effectiveHandler, {
+    ...opts,
+    linkage: {
+      gateId: gate.id,
+      workflowId: gate.workflowId,
+      habitatId: gate.habitatId,
+      missionId: gate.missionId,
+      downstreamTaskId: gate.downstreamTaskId,
+      recoveryDepth: gate.recoveryDepth,
+      ...(ctx ? { failureContextId: ctx.id } : {}),
+    },
+  });
   if (!recoveryTask) return;
 
-  const db = getDb();
-  try {
-    // Create the next-depth on_fail gate. The new gate's upstream is the RECOVERY task
-    // (so it only fires if the recovery itself fails, enabling recovery-of-recovery chains
-    // rather than re-firing on every repeat of the original failure event). The downstream
-    // mirrors the original gate's downstream so a successful recovery also unblocks the same
-    // downstream task (consistent with F4 redemption semantics).
-    db.insert(taskWorkflowGates)
-      .values({
-        id: crypto.randomUUID(),
-        workflowId: gate.workflowId,
-        missionId: gate.missionId,
-        habitatId: gate.habitatId,
-        upstreamTaskId: recoveryTask.id,
-        downstreamTaskId: gate.downstreamTaskId,
-        gateType: "on_fail",
-        matchConfig: null,
-        condition: null,
-        satisfied: false,
-        recoveryDepth: gate.recoveryDepth + 1,
-      })
-      .run();
-
-    // Link the original gate back to the spawned recovery task (idempotency marker).
-    db.update(taskWorkflowGates)
-      .set({ recoveryTaskId: recoveryTask.id })
-      .where(eq(taskWorkflowGates.id, gate.id))
-      .run();
-
-    // Link the failure context (if one was just built) to the recovery task.
-    const ctx = failureContextService.getFailureContext(failedTask.id);
-    if (ctx) {
-      failureContextService.linkRecoveryTask(ctx.id, recoveryTask.id);
-    }
-
-    // Emit the recovery-started notification (also projects to audit via the
-    // notification-to-audit projection with source="workflow").
-    emitRecoveryNotification(
-      gate.habitatId,
-      "workflow.recovery_started",
-      `Recovery task spawned for: ${failedTask.title}`,
-      {
-        gateId: gate.id,
-        failedTaskId: failedTask.id,
-        recoveryTaskId: recoveryTask.id,
-        recoveryDepth: gate.recoveryDepth + 1,
-      },
-    );
-  } catch (err) {
-    logger.error(
-      { err, gateId: gate.id, recoveryTaskId: recoveryTask.id },
-      "Failed to wire recovery task gate linkage",
-    );
-  }
+  emitRecoveryNotification(
+    gate.habitatId,
+    "workflow.recovery_started",
+    `Recovery task spawned for: ${failedTask.title}`,
+    {
+      gateId: gate.id,
+      failedTaskId: failedTask.id,
+      recoveryTaskId: recoveryTask.id,
+      recoveryDepth: gate.recoveryDepth + 1,
+    },
+  );
 }
 
 /** Maximum `recoveryDepth` allowed before recovery spawning is suppressed; gates at this depth fire but do not spawn deeper recoveries (two-attempts cap). */
@@ -477,34 +450,54 @@ function createRecoveryTask(
     assignedAgentId: string | null;
   },
   handler: WorkflowFailureHandlerConfig,
-  opts: { action: string; metadata?: Record<string, unknown> },
+  opts: {
+    action: string;
+    metadata?: Record<string, unknown>;
+    /** Atomic linkage written within the recovery publication transaction. */
+    linkage: import("./taskRecoveryPublication.js").RecoveryLinkage;
+  },
 ): { id: string } | null {
-  const variables = collectSubstitutionVariables(failedTask, opts);
-
-  const template = handler.recoveryTaskTemplate;
-  const title = substituteTemplate(template.title, variables);
-  const description = template.description
-    ? substituteTemplate(template.description, variables)
-    : "";
-
   try {
-    const recoveryTask = taskCrudRepo.createTask({
-      missionId: failedTask.missionId,
-      title,
-      description,
-      requiredCapabilities: handler.agentSelector?.requiredCapabilities,
+    const variables = collectSubstitutionVariables(failedTask, opts);
+    const assignedAgentId = handler.agentSelector?.assignedAgentId ?? null;
+    const result = publishRecoveryTask({
+      runId: opts.linkage.gateId,
+      actionKey: "spawn_recovery",
+      habitatId: opts.linkage.habitatId,
+      targetMissionId: failedTask.missionId,
+      title: substituteTemplate(handler.recoveryTaskTemplate.title, variables),
+      description: handler.recoveryTaskTemplate.description
+        ? substituteTemplate(handler.recoveryTaskTemplate.description, variables)
+        : "",
       requiredDomain: handler.agentSelector?.requiredDomain ?? null,
-      createdBy: "workflow-recovery",
+      requiredCapabilities: handler.agentSelector?.requiredCapabilities,
+      assignment: assignedAgentId
+        ? { kind: "targeted", agentId: assignedAgentId }
+        : { kind: "auto" },
+      linkage: opts.linkage,
     });
 
-    // Apply explicit agent assignment after creation (createTask has no assignedAgentId param).
-    if (handler.agentSelector?.assignedAgentId) {
-      taskCrudRepo.updateTask(recoveryTask.id, {
-        assignedAgentId: handler.agentSelector.assignedAgentId,
-      });
+    // Map the typed result envelope to the legacy `{ id: string } | null`
+    // contract. `created` (committed, possibly still recovering) → the
+    // published Task id.
+    if (result.outcome === "created") {
+      return { id: result.publication.task.id };
     }
-
-    return recoveryTask;
+    // `replayed` — a prior publication under the same `(runId, actionKey)`
+    // already succeeded. The stored terminal carries `taskId`; return it so
+    // the caller can proceed (mirrors the triage MINOR #3 fix).
+    if (result.outcome === "replayed" && result.terminal.taskId) {
+      return { id: result.terminal.taskId };
+    }
+    // Any other outcome (vetoed, rejected_validation, guard_mismatch,
+    // governance_denied, rejected_fingerprint) is a non-terminal or
+    // terminal failure. Match the legacy catch→null swallow + a logged
+    // warning so the spawn caller skips the post-create writes.
+    logger.warn(
+      { failedTaskId: failedTask.id, gateId: opts.linkage.gateId, outcome: result.outcome },
+      "Recovery publication non-terminal outcome",
+    );
+    return null;
   } catch (err) {
     logger.error({ err, failedTaskId: failedTask.id }, "Failed to create recovery task row");
     return null;

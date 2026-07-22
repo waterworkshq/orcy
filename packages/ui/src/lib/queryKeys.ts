@@ -256,4 +256,10 @@ export const queryKeys = {
     top: (habitatId: string, limit?: number) =>
       [...queryKeys.triage.all, "top", habitatId, limit] as const,
   },
+  imports: {
+    all: ["imports"] as const,
+    attempt: (id: string) => [...queryKeys.imports.all, "attempt", id] as const,
+    listForHabitat: (habitatId: string) =>
+      [...queryKeys.imports.all, "list", habitatId] as const,
+  },
 };
