@@ -417,12 +417,12 @@ describe("satisfyObservationCheckpointWithClient", () => {
 // ===========================================================================
 
 describe("processEnvelopeDispatchWithClient", () => {
-  it("zero-target fast path, NO reservation → dispatched + observation advanced to created", () => {
+  it("zero-target fast path, NO reservation → dispatched + observation advanced to created", async () => {
     const db = getDb();
     const attemptId = seedAttempt(db);
     seedEnvelope(db, { attemptId });
 
-    const result = processEnvelopeDispatchWithClient(db, attemptId);
+    const result = await processEnvelopeDispatchWithClient(db, attemptId);
 
     expect(result.outcome).toBe("dispatched");
     if (result.outcome !== "dispatched") return;
@@ -431,7 +431,7 @@ describe("processEnvelopeDispatchWithClient", () => {
     expect(readAttempt(db, attemptId).state).toBe("created");
   });
 
-  it("all targets accepted via a registered adapter → observation advanced", () => {
+  it("all targets accepted via a registered adapter → observation advanced", async () => {
     const db = getDb();
     const attemptId = seedAttempt(db);
     const eventId = seedEnvelope(db, { attemptId });
@@ -439,10 +439,10 @@ describe("processEnvelopeDispatchWithClient", () => {
     seedTarget(db, { eventId, targetKind: kind, state: "pending" });
     registerDispatchAdapter({
       targetKind: kind,
-      attempt: () => ({ outcome: "accepted" }),
+      attempt: async () => ({ outcome: "accepted" }),
     });
 
-    const result = processEnvelopeDispatchWithClient(db, attemptId);
+    const result = await processEnvelopeDispatchWithClient(db, attemptId);
 
     expect(result.outcome).toBe("dispatched");
     if (result.outcome !== "dispatched") return;
@@ -453,14 +453,14 @@ describe("processEnvelopeDispatchWithClient", () => {
     expect(readAttempt(db, attemptId).state).toBe("created");
   });
 
-  it("unregistered targetKind → attention; Task stays unavailable (observation not_satisfiable)", () => {
+  it("unregistered targetKind → attention; Task stays unavailable (observation not_satisfiable)", async () => {
     const db = getDb();
     const attemptId = seedAttempt(db);
     const eventId = seedEnvelope(db, { attemptId });
     const unknownKind = `unknown-${uuid()}`;
     seedTarget(db, { eventId, targetKind: unknownKind, state: "pending" });
 
-    const result = processEnvelopeDispatchWithClient(db, attemptId);
+    const result = await processEnvelopeDispatchWithClient(db, attemptId);
 
     expect(result.outcome).toBe("dispatched");
     if (result.outcome !== "dispatched") return;
@@ -474,7 +474,7 @@ describe("processEnvelopeDispatchWithClient", () => {
     expect(readAttempt(db, attemptId).state).toBe("published_pending_observation");
   });
 
-  it("registered adapter returning attention → attention recorded; observation not_satisfiable", () => {
+  it("registered adapter returning attention → attention recorded; observation not_satisfiable", async () => {
     const db = getDb();
     const attemptId = seedAttempt(db);
     const eventId = seedEnvelope(db, { attemptId });
@@ -482,10 +482,10 @@ describe("processEnvelopeDispatchWithClient", () => {
     seedTarget(db, { eventId, targetKind: kind, state: "pending" });
     registerDispatchAdapter({
       targetKind: kind,
-      attempt: () => ({ outcome: "attention", error: "downstream timeout" }),
+      attempt: async () => ({ outcome: "attention", error: "downstream timeout" }),
     });
 
-    const result = processEnvelopeDispatchWithClient(db, attemptId);
+    const result = await processEnvelopeDispatchWithClient(db, attemptId);
 
     if (result.outcome !== "dispatched") throw new Error("expected dispatched");
     expect(result.targets[0].target.state).toBe("attention");
@@ -493,7 +493,7 @@ describe("processEnvelopeDispatchWithClient", () => {
     expect(result.observation.outcome).toBe("not_satisfiable");
   });
 
-  it("idempotent: re-processing an all-accepted envelope (reservation path) is a no-op on the second pass", () => {
+  it("idempotent: re-processing an all-accepted envelope (reservation path) is a no-op on the second pass", async () => {
     const db = getDb();
     const attemptId = seedAttempt(db);
     const eventId = seedEnvelope(db, { attemptId });
@@ -503,7 +503,7 @@ describe("processEnvelopeDispatchWithClient", () => {
     let calls = 0;
     registerDispatchAdapter({
       targetKind: kind,
-      attempt: () => {
+      attempt: async () => {
         calls += 1;
         return { outcome: "accepted" };
       },
@@ -511,7 +511,7 @@ describe("processEnvelopeDispatchWithClient", () => {
 
     // First pass: adapter accepts the target → observation advances to
     // published_pending_assignment (non-terminal, reservation path).
-    const first = processEnvelopeDispatchWithClient(db, attemptId);
+    const first = await processEnvelopeDispatchWithClient(db, attemptId);
     if (first.outcome !== "dispatched") throw new Error("expected dispatched");
     expect(first.observation.outcome).toBe("advanced");
     expect(calls).toBe(1);
@@ -519,7 +519,7 @@ describe("processEnvelopeDispatchWithClient", () => {
 
     // Second pass: the target is already accepted (NOT re-attempted); the
     // attempt is no longer at observation (no re-advance).
-    const second = processEnvelopeDispatchWithClient(db, attemptId);
+    const second = await processEnvelopeDispatchWithClient(db, attemptId);
     if (second.outcome !== "dispatched") throw new Error("expected dispatched");
     expect(second.targets).toHaveLength(0);
     expect(second.observation.outcome).toBe("not_at_observation");
@@ -527,7 +527,7 @@ describe("processEnvelopeDispatchWithClient", () => {
     expect(readAttempt(db, attemptId).state).toBe("published_pending_assignment");
   });
 
-  it("lease-protected: a second worker on an active lease → lease_unavailable (held_by_other, no adapter call)", () => {
+  it("lease-protected: a second worker on an active lease → lease_unavailable (held_by_other, no adapter call)", async () => {
     const db = getDb();
     const attemptId = seedAttempt(db);
     const eventId = seedEnvelope(db, { attemptId });
@@ -536,7 +536,7 @@ describe("processEnvelopeDispatchWithClient", () => {
     let calls = 0;
     registerDispatchAdapter({
       targetKind: kind,
-      attempt: () => {
+      attempt: async () => {
         calls += 1;
         return { outcome: "accepted" };
       },
@@ -552,7 +552,7 @@ describe("processEnvelopeDispatchWithClient", () => {
       .run();
 
     // Worker B tries to process → the lease is not free → held_by_other.
-    const result = processEnvelopeDispatchWithClient(db, attemptId, { workerId: "worker-B" });
+    const result = await processEnvelopeDispatchWithClient(db, attemptId, { workerId: "worker-B" });
 
     expect(result.outcome).toBe("lease_unavailable");
     if (result.outcome !== "lease_unavailable") return;
@@ -562,7 +562,7 @@ describe("processEnvelopeDispatchWithClient", () => {
     expect(readAttempt(db, attemptId).state).toBe("published_pending_observation");
   });
 
-  it("safe takeover: an EXPIRED lease is taken over by worker B → dispatched", () => {
+  it("safe takeover: an EXPIRED lease is taken over by worker B → dispatched", async () => {
     const db = getDb();
     const attemptId = seedAttempt(db);
     const eventId = seedEnvelope(db, { attemptId });
@@ -570,7 +570,7 @@ describe("processEnvelopeDispatchWithClient", () => {
     seedTarget(db, { eventId, targetKind: kind, state: "pending" });
     registerDispatchAdapter({
       targetKind: kind,
-      attempt: () => ({ outcome: "accepted" }),
+      attempt: async () => ({ outcome: "accepted" }),
     });
 
     // Worker A held the lease but it has EXPIRED (backdate to the past).
@@ -581,7 +581,7 @@ describe("processEnvelopeDispatchWithClient", () => {
       .run();
 
     // Worker B takes over the expired lease (safe takeover).
-    const result = processEnvelopeDispatchWithClient(db, attemptId, { workerId: "worker-B" });
+    const result = await processEnvelopeDispatchWithClient(db, attemptId, { workerId: "worker-B" });
 
     expect(result.outcome).toBe("dispatched");
     if (result.outcome !== "dispatched") return;
@@ -589,7 +589,7 @@ describe("processEnvelopeDispatchWithClient", () => {
     expect(readAttempt(db, attemptId).state).toBe("created");
   });
 
-  it("crash-resumable: a target accepted before the crash is NOT re-attempted; observation advances on resume", () => {
+  it("crash-resumable: a target accepted before the crash is NOT re-attempted; observation advances on resume", async () => {
     const db = getDb();
     const attemptId = seedAttempt(db);
     const eventId = seedEnvelope(db, { attemptId });
@@ -600,14 +600,14 @@ describe("processEnvelopeDispatchWithClient", () => {
     let calls = 0;
     registerDispatchAdapter({
       targetKind: kindA,
-      attempt: () => {
+      attempt: async () => {
         calls += 1;
         return { outcome: "accepted" };
       },
     });
     registerDispatchAdapter({
       targetKind: kindB,
-      attempt: () => ({ outcome: "accepted" }),
+      attempt: async () => ({ outcome: "accepted" }),
     });
 
     // Simulate a crash AFTER target A was accepted (but before the engine ran):
@@ -618,7 +618,7 @@ describe("processEnvelopeDispatchWithClient", () => {
       .run();
 
     // Resume: the engine processes the remaining target B, then advances.
-    const result = processEnvelopeDispatchWithClient(db, attemptId);
+    const result = await processEnvelopeDispatchWithClient(db, attemptId);
 
     if (result.outcome !== "dispatched") throw new Error("expected dispatched");
     // Only target B was outstanding (A is accepted → skipped → NOT re-attempted).
@@ -629,9 +629,9 @@ describe("processEnvelopeDispatchWithClient", () => {
     expect(readAttempt(db, attemptId).state).toBe("created");
   });
 
-  it("not_found: an unknown attemptId → not_found", () => {
+  it("not_found: an unknown attemptId → not_found", async () => {
     const db = getDb();
-    const result = processEnvelopeDispatchWithClient(db, "no-such-attempt");
+    const result = await processEnvelopeDispatchWithClient(db, "no-such-attempt");
     expect(result.outcome).toBe("not_found");
   });
 });

@@ -192,7 +192,7 @@ function readAttempt(db: TaskPublicationDbClient, attemptId: string) {
 function registerAcceptedAdapter(targetKind: string): void {
   const adapter: DispatchTargetAdapter = {
     targetKind,
-    attempt: () => ({ outcome: "accepted" as const }),
+    attempt: async () => ({ outcome: "accepted" as const }),
   };
   registerDispatchAdapter(adapter);
 }
@@ -202,14 +202,14 @@ function registerAcceptedAdapter(targetKind: string): void {
 // ===========================================================================
 
 describe("runDispatchWorkerPass — observation-gate advancement", () => {
-  it("advances a published_pending_observation attempt with no reservation to created (zero-target fast path)", () => {
+  it("advances a published_pending_observation attempt with no reservation to created (zero-target fast path)", async () => {
     const db = getDb();
     const attemptId = seedAttempt(db, { state: "published_pending_observation" });
     // No envelope + no targets → the engine treats this as the zero-target
     // case (vacuously all-accepted) → advances to `created` (no reservation).
     seedEnvelope(db, { attemptId });
 
-    const result = runDispatchWorkerPass({ workerId: "test-worker-1" });
+    const result = await runDispatchWorkerPass({ workerId: "test-worker-1" });
 
     expect(result.observationScanned).toBe(1);
     expect(result.observationOutcomes).toEqual([
@@ -223,7 +223,7 @@ describe("runDispatchWorkerPass — observation-gate advancement", () => {
     expect(attempt.state).toBe("created");
   });
 
-  it("advances a published_pending_observation attempt with an active reservation to published_pending_assignment", () => {
+  it("advances a published_pending_observation attempt with an active reservation to published_pending_assignment", async () => {
     const db = getDb();
     const attemptId = seedAttempt(db, { state: "published_pending_observation" });
     const eventId = seedEnvelope(db, { attemptId });
@@ -233,7 +233,7 @@ describe("runDispatchWorkerPass — observation-gate advancement", () => {
     // Active reservation → the engine routes to `published_pending_assignment`.
     seedReservation(db, { attemptId, state: "active" });
 
-    const result = runDispatchWorkerPass({ workerId: "test-worker-2" });
+    const result = await runDispatchWorkerPass({ workerId: "test-worker-2" });
 
     expect(result.observationScanned).toBe(1);
     expect(result.observationOutcomes).toEqual([
@@ -246,7 +246,7 @@ describe("runDispatchWorkerPass — observation-gate advancement", () => {
     expect(attempt.state).toBe("published_pending_assignment");
   });
 
-  it("processes multiple observation attempts in one pass (each driven by the per-pass worker id)", () => {
+  it("processes multiple observation attempts in one pass (each driven by the per-pass worker id)", async () => {
     const db = getDb();
     const attempt1 = seedAttempt(db, { state: "published_pending_observation", suffix: "multi-1" });
     const attempt2 = seedAttempt(db, { state: "published_pending_observation", suffix: "multi-2" });
@@ -256,7 +256,7 @@ describe("runDispatchWorkerPass — observation-gate advancement", () => {
     seedEnvelope(db, { attemptId: attempt2 });
     seedEnvelope(db, { attemptId: attempt3 });
 
-    const result = runDispatchWorkerPass({ workerId: "multi-worker" });
+    const result = await runDispatchWorkerPass({ workerId: "multi-worker" });
 
     expect(result.observationScanned).toBe(3);
     expect(result.observationOutcomes.map((o) => o.outcome)).toEqual([
@@ -276,7 +276,7 @@ describe("runDispatchWorkerPass — observation-gate advancement", () => {
 // ===========================================================================
 
 describe("runDispatchWorkerPass — assignment-gate resolution", () => {
-  it("resolves a published_pending_assignment attempt with an expired deadline to created_unassigned (deadline_exceeded)", () => {
+  it("resolves a published_pending_assignment attempt with an expired deadline to created_unassigned (deadline_exceeded)", async () => {
     const db = getDb();
     const attemptId = seedAttempt(db, { state: "published_pending_assignment" });
     seedEnvelope(db, { attemptId });
@@ -292,7 +292,7 @@ describe("runDispatchWorkerPass — assignment-gate resolution", () => {
       deadline: pastDeadline,
     });
 
-    const result = runDispatchWorkerPass({ workerId: "test-worker-3" });
+    const result = await runDispatchWorkerPass({ workerId: "test-worker-3" });
 
     // No observation-gate attempts (all three are at assignment state).
     expect(result.observationScanned).toBe(0);
@@ -307,8 +307,8 @@ describe("runDispatchWorkerPass — assignment-gate resolution", () => {
     expect(attempt.state).toBe("created_unassigned");
   });
 
-  it("observes no observation-gate work + no assignment work when both scans are empty (the no-op baseline)", () => {
-    const result = runDispatchWorkerPass({ workerId: "noop-worker" });
+  it("observes no observation-gate work + no assignment work when both scans are empty (the no-op baseline)", async () => {
+    const result = await runDispatchWorkerPass({ workerId: "noop-worker" });
     expect(result).toEqual({
       observationScanned: 0,
       observationOutcomes: [],
@@ -329,7 +329,7 @@ describe("runDispatchWorkerPass — assignment-gate resolution", () => {
 // ===========================================================================
 
 describe("runDispatchWorkerPass — error isolation", () => {
-  it("a per-attempt throw is caught + logged + the pass continues (no aborted pass)", () => {
+  it("a per-attempt throw is caught + logged + the pass continues (no aborted pass)", async () => {
     const db = getDb();
     // Three attempts: the SECOND one will throw via the mock; the others run normally.
     const attempt1 = seedAttempt(db, { state: "published_pending_observation", suffix: "err-1" });
@@ -357,7 +357,7 @@ describe("runDispatchWorkerPass — error isolation", () => {
 
     let result: DispatchWorkerPassResult;
     try {
-      result = runDispatchWorkerPass({ workerId: "error-worker" });
+      result = await runDispatchWorkerPass({ workerId: "error-worker" });
     } finally {
       processSpy.mockRestore();
     }
@@ -412,7 +412,7 @@ describe("startCreationDispatchWorker — boot-registration + clean stop", () =>
     }).not.toThrow();
   });
 
-  it("the setInterval polls runDispatchWorkerPass on each tick (the wiring contract)", () => {
+  it("the setInterval polls runDispatchWorkerPass on each tick (the wiring contract)", async () => {
     // Use fake timers to verify the interval polls without waiting. The
     // engine's adapter is a no-op stub (registered above) so the pass
     // completes cleanly; we assert the observation advance happened.
@@ -426,7 +426,7 @@ describe("startCreationDispatchWorker — boot-registration + clean stop", () =>
     try {
       // 1s interval for fast testing.
       const handle = startCreationDispatchWorker(1_000, { workerId: "tick-worker" });
-      vi.advanceTimersByTime(1_000);
+      await vi.advanceTimersByTimeAsync(1_000);
 
       // The first tick fired → the pass ran → the attempt advanced.
       const attempt = readAttempt(db, attemptId);
@@ -526,7 +526,7 @@ describe("createDispatchWorkerId + startCreationDispatchWorker — unique worker
 // ===========================================================================
 
 describe("runDispatchWorkerPass — lease-fenced concurrency", () => {
-  it("when another worker holds the lease, the dispatch surfaces lease_unavailable (the fence)", () => {
+  it("when another worker holds the lease, the dispatch surfaces lease_unavailable (the fence)", async () => {
     // The deterministic fencing proof: pre-acquire the lease on behalf of
     // a "racing worker", then run the dispatch worker's pass. The pass
     // scans the attempt (state is `published_pending_observation`) but
@@ -557,7 +557,7 @@ describe("runDispatchWorkerPass — lease-fenced concurrency", () => {
     // Run the dispatch worker's pass. The scan finds the attempt (state
     // is still pending observation), but the engine's lease acquire
     // refuses → `lease_unavailable` is surfaced.
-    const result = runDispatchWorkerPass({ workerId: "pass-worker" });
+    const result = await runDispatchWorkerPass({ workerId: "pass-worker" });
 
     expect(result.observationScanned).toBe(1);
     expect(result.observationOutcomes).toEqual([
@@ -580,7 +580,7 @@ describe("runDispatchWorkerPass — lease-fenced concurrency", () => {
 // ===========================================================================
 
 describe("runDispatchWorkerPass — edge cases", () => {
-  it("a not_found attempt (vanished between scan + dispatch) is surfaced cleanly (no throw)", () => {
+  it("a not_found attempt (vanished between scan + dispatch) is surfaced cleanly (no throw)", async () => {
     // Simulate the rare vanishing case: the attempt is in the scan, but
     // is deleted BEFORE the dispatch engine's lease acquire. The engine
     // returns `{outcome:"not_found"}`; the worker surfaces it as
@@ -603,7 +603,7 @@ describe("runDispatchWorkerPass — edge cases", () => {
 
     let result: DispatchWorkerPassResult;
     try {
-      result = runDispatchWorkerPass({ workerId: "vanish-worker" });
+      result = await runDispatchWorkerPass({ workerId: "vanish-worker" });
     } finally {
       processSpy.mockRestore();
     }
@@ -614,7 +614,7 @@ describe("runDispatchWorkerPass — edge cases", () => {
     ]);
   });
 
-  it("the worker's no-spam guardrail: an empty pass returns zeros (the contract the boot-registration relies on)", () => {
+  it("the worker's no-spam guardrail: an empty pass returns zeros (the contract the boot-registration relies on)", async () => {
     // The interval only logs at `info` when the pass surfaces work — the
     // `if (passResult.observationScanned > 0 || passResult.assignmentSweep.processed > 0)`
     // guard prevents log spam on idle ticks. We verify the CONTRACT by
@@ -628,7 +628,7 @@ describe("runDispatchWorkerPass — edge cases", () => {
     // typechecked at compile time, so we don't re-test it here against
     // the logger spy: logger spies are stateful across the suite and
     // that test class is fragile.)
-    const result = runDispatchWorkerPass({ workerId: "no-spam-worker" });
+    const result = await runDispatchWorkerPass({ workerId: "no-spam-worker" });
     expect(result.observationScanned).toBe(0);
     expect(result.assignmentSweep.processed).toBe(0);
     // Both gates zero ⇒ the worker's `if (> 0)` guard prevents logging.

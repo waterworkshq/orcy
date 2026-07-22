@@ -231,8 +231,8 @@ describe("clientStreamAdapter", () => {
 
   // ----- Created single-signal (Phase 1 invariant, now via publishToClients) -----
 
-  it("returns accepted and emits task.created via publishToClients (created envelope)", () => {
-    const result = clientStreamAdapter.attempt(testEnvelope, testTarget);
+  it("returns accepted and emits task.created via publishToClients (created envelope)", async () => {
+    const result = await clientStreamAdapter.attempt(testEnvelope, testTarget);
     expectAccepted(result);
     expect(sseBroadcaster.publishToClients).toHaveBeenCalledWith(testEnvelope.habitatId, {
       type: "task.created",
@@ -242,25 +242,25 @@ describe("clientStreamAdapter", () => {
     expect(sseBroadcaster.publishToClients).toHaveBeenCalledTimes(1);
   });
 
-  it("returns attention when task not found (no silent claimability)", () => {
+  it("returns attention when task not found (no silent claimability)", async () => {
     vi.mocked(taskRepo.getTaskById).mockReturnValueOnce(null);
-    const result = clientStreamAdapter.attempt(testEnvelope, testTarget);
+    const result = await clientStreamAdapter.attempt(testEnvelope, testTarget);
     expectAttention(result, "not found");
     expect(sseBroadcaster.publishToClients).not.toHaveBeenCalled();
   });
 
-  it("returns attention when publishToClients throws", () => {
+  it("returns attention when publishToClients throws", async () => {
     vi.mocked(sseBroadcaster.publishToClients).mockImplementationOnce(() => {
       throw new Error("SSE transport down");
     });
-    const result = clientStreamAdapter.attempt(testEnvelope, testTarget);
+    const result = await clientStreamAdapter.attempt(testEnvelope, testTarget);
     expectAttention(result, "SSE transport down");
   });
 
   // ----- Clone dual-signal (Phase 2 invariant) -----
 
-  it("emits task.cloned THEN task.created for a cloned envelope (order + count + shape)", () => {
-    const result = clientStreamAdapter.attempt(clonedEnvelope, {
+  it("emits task.cloned THEN task.created for a cloned envelope (order + count + shape)", async () => {
+    const result = await clientStreamAdapter.attempt(clonedEnvelope, {
       ...testTarget,
       targetKind: "client_stream",
       eventId: clonedEnvelope.eventId,
@@ -292,9 +292,9 @@ describe("clientStreamAdapter", () => {
 
   // ----- Routing split (the load-bearing Phase 2 invariant) -----
 
-  it("routing split: client-stream adapter NEVER triggers domain fan-out (no webhook/chat/automation)", () => {
+  it("routing split: client-stream adapter NEVER triggers domain fan-out (no webhook/chat/automation)", async () => {
     // Created envelope — the single-signal case.
-    clientStreamAdapter.attempt(testEnvelope, testTarget);
+    await clientStreamAdapter.attempt(testEnvelope, testTarget);
     expect(dispatchWebhooks).not.toHaveBeenCalled();
     expect(chatProcessEvent).not.toHaveBeenCalled();
     expect(ingestEvent).not.toHaveBeenCalled();
@@ -304,7 +304,7 @@ describe("clientStreamAdapter", () => {
     // Cloned envelope — the dual-signal case. Even with TWO publishToClients
     // calls, none of the generic domain consumers fire (they have their own
     // dedicated adapters).
-    clientStreamAdapter.attempt(clonedEnvelope, testTarget);
+    await clientStreamAdapter.attempt(clonedEnvelope, testTarget);
     expect(dispatchWebhooks).not.toHaveBeenCalled();
     expect(chatProcessEvent).not.toHaveBeenCalled();
     expect(ingestEvent).not.toHaveBeenCalled();
@@ -319,8 +319,8 @@ describe("clientStreamAdapter", () => {
 describe("generic adapters — clone single-handoff (one envelope → one call each)", () => {
   beforeEach(() => vi.clearAllMocks());
 
-  it("webhookAdapter fires exactly once for a cloned envelope (task.created shape)", () => {
-    const result = webhookAdapter.attempt(clonedEnvelope, {
+  it("webhookAdapter fires exactly once for a cloned envelope (task.created shape)", async () => {
+    const result = await webhookAdapter.attempt(clonedEnvelope, {
       ...testTarget,
       targetKind: "webhook",
       eventId: clonedEnvelope.eventId,
@@ -333,8 +333,8 @@ describe("generic adapters — clone single-handoff (one envelope → one call e
     });
   });
 
-  it("chatAdapter fires exactly once for a cloned envelope (task.created shape)", () => {
-    const result = chatAdapter.attempt(clonedEnvelope, {
+  it("chatAdapter fires exactly once for a cloned envelope (task.created shape)", async () => {
+    const result = await chatAdapter.attempt(clonedEnvelope, {
       ...testTarget,
       targetKind: "chat",
       eventId: clonedEnvelope.eventId,
@@ -348,8 +348,8 @@ describe("generic adapters — clone single-handoff (one envelope → one call e
     );
   });
 
-  it("automationAdapter fires exactly once for a cloned envelope (task.created shape)", () => {
-    const result = automationAdapter.attempt(clonedEnvelope, {
+  it("automationAdapter fires exactly once for a cloned envelope (task.created shape)", async () => {
+    const result = await automationAdapter.attempt(clonedEnvelope, {
       ...testTarget,
       targetKind: "automation",
       eventId: clonedEnvelope.eventId,
@@ -370,8 +370,8 @@ describe("generic adapters — clone single-handoff (one envelope → one call e
     );
   });
 
-  it("postInterceptorAdapter fires exactly once for a cloned envelope", () => {
-    const result = postInterceptorAdapter.attempt(clonedEnvelope, {
+  it("postInterceptorAdapter fires exactly once for a cloned envelope", async () => {
+    const result = await postInterceptorAdapter.attempt(clonedEnvelope, {
       ...testTarget,
       targetKind: "post_interceptor",
       eventId: clonedEnvelope.eventId,
@@ -380,8 +380,8 @@ describe("generic adapters — clone single-handoff (one envelope → one call e
     expect(runPostInterceptors).toHaveBeenCalledTimes(1);
   });
 
-  it("transitionSubscriberAdapter fires exactly once for a cloned envelope (action 'created')", () => {
-    const result = transitionSubscriberAdapter.attempt(clonedEnvelope, {
+  it("transitionSubscriberAdapter fires exactly once for a cloned envelope (action 'created')", async () => {
+    const result = await transitionSubscriberAdapter.attempt(clonedEnvelope, {
       ...testTarget,
       targetKind: "transition_subscriber",
       eventId: clonedEnvelope.eventId,
@@ -399,8 +399,8 @@ describe("generic adapters — clone single-handoff (one envelope → one call e
 describe("webhookAdapter", () => {
   beforeEach(() => vi.clearAllMocks());
 
-  it("returns accepted and dispatches webhooks (fire-and-forget)", () => {
-    const result = webhookAdapter.attempt(testEnvelope, testTarget);
+  it("returns accepted after dispatching webhooks", async () => {
+    const result = await webhookAdapter.attempt(testEnvelope, testTarget);
     expectAccepted(result);
     expect(dispatchWebhooks).toHaveBeenCalledWith(testEnvelope.habitatId, {
       type: "task.created",
@@ -408,19 +408,27 @@ describe("webhookAdapter", () => {
     });
   });
 
-  it("returns attention when task not found", () => {
+  it("returns attention when task not found", async () => {
     vi.mocked(taskRepo.getTaskById).mockReturnValueOnce(null);
-    const result = webhookAdapter.attempt(testEnvelope, testTarget);
+    const result = await webhookAdapter.attempt(testEnvelope, testTarget);
     expectAttention(result, "not found");
     expect(dispatchWebhooks).not.toHaveBeenCalled();
   });
 
-  it("returns attention when dispatchWebhooks throws synchronously", () => {
+  it("returns attention when dispatchWebhooks throws synchronously", async () => {
     vi.mocked(dispatchWebhooks).mockImplementationOnce(() => {
       throw new Error("subscription lookup failed");
     });
-    const result = webhookAdapter.attempt(testEnvelope, testTarget);
+    const result = await webhookAdapter.attempt(testEnvelope, testTarget);
     expectAttention(result, "subscription lookup failed");
+  });
+
+  it("returns attention when the webhook handoff rejects", async () => {
+    vi.mocked(dispatchWebhooks).mockRejectedValueOnce(new Error("delivery record creation failed"));
+
+    const result = await webhookAdapter.attempt(testEnvelope, testTarget);
+
+    expectAttention(result, "delivery record creation failed");
   });
 });
 
@@ -431,8 +439,8 @@ describe("webhookAdapter", () => {
 describe("chatAdapter", () => {
   beforeEach(() => vi.clearAllMocks());
 
-  it("returns accepted and hands off to chatService.processEvent", () => {
-    const result = chatAdapter.attempt(testEnvelope, testTarget);
+  it("returns accepted after handing off to chatService.processEvent", async () => {
+    const result = await chatAdapter.attempt(testEnvelope, testTarget);
     expectAccepted(result);
     expect(chatProcessEvent).toHaveBeenCalledWith(
       "task.created",
@@ -441,19 +449,27 @@ describe("chatAdapter", () => {
     );
   });
 
-  it("returns attention when task not found", () => {
+  it("returns attention when task not found", async () => {
     vi.mocked(taskRepo.getTaskById).mockReturnValueOnce(null);
-    const result = chatAdapter.attempt(testEnvelope, testTarget);
+    const result = await chatAdapter.attempt(testEnvelope, testTarget);
     expectAttention(result, "not found");
     expect(chatProcessEvent).not.toHaveBeenCalled();
   });
 
-  it("returns attention when chatProcessEvent throws synchronously", () => {
+  it("returns attention when chatProcessEvent throws synchronously", async () => {
     vi.mocked(chatProcessEvent).mockImplementationOnce(() => {
       throw new Error("integration lookup failed");
     });
-    const result = chatAdapter.attempt(testEnvelope, testTarget);
+    const result = await chatAdapter.attempt(testEnvelope, testTarget);
     expectAttention(result, "integration lookup failed");
+  });
+
+  it("returns attention when the chat handoff rejects", async () => {
+    vi.mocked(chatProcessEvent).mockRejectedValueOnce(new Error("chat service unavailable"));
+
+    const result = await chatAdapter.attempt(testEnvelope, testTarget);
+
+    expectAttention(result, "chat service unavailable");
   });
 });
 
@@ -464,8 +480,8 @@ describe("chatAdapter", () => {
 describe("automationAdapter", () => {
   beforeEach(() => vi.clearAllMocks());
 
-  it("returns accepted and ingests event with envelope.eventId for receiver dedup", () => {
-    const result = automationAdapter.attempt(testEnvelope, testTarget);
+  it("returns accepted after ingesting event with envelope.eventId for receiver dedup", async () => {
+    const result = await automationAdapter.attempt(testEnvelope, testTarget);
     expectAccepted(result);
     expect(ingestEvent).toHaveBeenCalledWith(
       testEnvelope.habitatId,
@@ -479,8 +495,8 @@ describe("automationAdapter", () => {
     );
   });
 
-  it("forwards lifecycleAction and causalContext (trusted-envelope signature)", () => {
-    const result = automationAdapter.attempt(testEnvelope, testTarget);
+  it("forwards lifecycleAction and causalContext (trusted-envelope signature)", async () => {
+    const result = await automationAdapter.attempt(testEnvelope, testTarget);
     expectAccepted(result);
     expect(ingestEvent).toHaveBeenCalledWith(
       testEnvelope.habitatId,
@@ -494,19 +510,27 @@ describe("automationAdapter", () => {
     );
   });
 
-  it("returns accepted even when task is null (eventId + taskId still passed)", () => {
+  it("returns accepted even when task is null (eventId + taskId still passed)", async () => {
     vi.mocked(taskRepo.getTaskById).mockReturnValueOnce(null);
-    const result = automationAdapter.attempt(testEnvelope, testTarget);
+    const result = await automationAdapter.attempt(testEnvelope, testTarget);
     expectAccepted(result);
     expect(ingestEvent).toHaveBeenCalled();
   });
 
-  it("returns attention when ingestEvent throws synchronously", () => {
+  it("returns attention when ingestEvent throws synchronously", async () => {
     vi.mocked(ingestEvent).mockImplementationOnce(() => {
       throw new Error("rule repo unavailable");
     });
-    const result = automationAdapter.attempt(testEnvelope, testTarget);
+    const result = await automationAdapter.attempt(testEnvelope, testTarget);
     expectAttention(result, "rule repo unavailable");
+  });
+
+  it("returns attention when automation ingestion rejects", async () => {
+    vi.mocked(ingestEvent).mockRejectedValueOnce(new Error("automation service unavailable"));
+
+    const result = await automationAdapter.attempt(testEnvelope, testTarget);
+
+    expectAttention(result, "automation service unavailable");
   });
 });
 
@@ -517,8 +541,8 @@ describe("automationAdapter", () => {
 describe("postInterceptorAdapter", () => {
   beforeEach(() => vi.clearAllMocks());
 
-  it("returns accepted and runs post-interceptors with taskCreated event", () => {
-    const result = postInterceptorAdapter.attempt(testEnvelope, testTarget);
+  it("returns accepted and runs post-interceptors with taskCreated event", async () => {
+    const result = await postInterceptorAdapter.attempt(testEnvelope, testTarget);
     expectAccepted(result);
     expect(runPostInterceptors).toHaveBeenCalledWith(
       testEnvelope.taskId,
@@ -528,18 +552,18 @@ describe("postInterceptorAdapter", () => {
     );
   });
 
-  it("returns attention when task not found", () => {
+  it("returns attention when task not found", async () => {
     vi.mocked(taskRepo.getTaskById).mockReturnValueOnce(null);
-    const result = postInterceptorAdapter.attempt(testEnvelope, testTarget);
+    const result = await postInterceptorAdapter.attempt(testEnvelope, testTarget);
     expectAttention(result, "not found");
     expect(runPostInterceptors).not.toHaveBeenCalled();
   });
 
-  it("returns attention when runPostInterceptors throws", () => {
+  it("returns attention when runPostInterceptors throws", async () => {
     vi.mocked(runPostInterceptors).mockImplementationOnce(() => {
       throw new Error("runtime unavailable");
     });
-    const result = postInterceptorAdapter.attempt(testEnvelope, testTarget);
+    const result = await postInterceptorAdapter.attempt(testEnvelope, testTarget);
     expectAttention(result, "runtime unavailable");
   });
 });
@@ -551,8 +575,8 @@ describe("postInterceptorAdapter", () => {
 describe("transitionSubscriberAdapter", () => {
   beforeEach(() => vi.clearAllMocks());
 
-  it("returns accepted and notifies transition subscribers with action 'created'", () => {
-    const result = transitionSubscriberAdapter.attempt(testEnvelope, testTarget);
+  it("returns accepted and notifies transition subscribers with action 'created'", async () => {
+    const result = await transitionSubscriberAdapter.attempt(testEnvelope, testTarget);
     expectAccepted(result);
     expect(notifyTransition).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -563,20 +587,20 @@ describe("transitionSubscriberAdapter", () => {
     );
   });
 
-  it("returns accepted even when task is null (task field is optional)", () => {
+  it("returns accepted even when task is null (task field is optional)", async () => {
     vi.mocked(taskRepo.getTaskById).mockReturnValueOnce(null);
-    const result = transitionSubscriberAdapter.attempt(testEnvelope, testTarget);
+    const result = await transitionSubscriberAdapter.attempt(testEnvelope, testTarget);
     expectAccepted(result);
     expect(notifyTransition).toHaveBeenCalledWith(
       expect.objectContaining({ taskId: testEnvelope.taskId }),
     );
   });
 
-  it("returns attention when notifyTransition throws", () => {
+  it("returns attention when notifyTransition throws", async () => {
     vi.mocked(notifyTransition).mockImplementationOnce(() => {
       throw new Error("hook registry corrupt");
     });
-    const result = transitionSubscriberAdapter.attempt(testEnvelope, testTarget);
+    const result = await transitionSubscriberAdapter.attempt(testEnvelope, testTarget);
     expectAttention(result, "hook registry corrupt");
   });
 });
@@ -649,7 +673,7 @@ describe("Integration with processEnvelopeDispatchWithClient", () => {
       // Ensure they're registered.
       registerCreationDispatchAdapters();
 
-      const result = processEnvelopeDispatchWithClient(db, attemptId);
+      const result = await processEnvelopeDispatchWithClient(db, attemptId);
 
       expect(result.outcome).toBe("dispatched");
       if (result.outcome !== "dispatched") {
@@ -744,12 +768,12 @@ describe("Integration with processEnvelopeDispatchWithClient", () => {
       registerCreationDispatchAdapters();
 
       // First pass: adapter called, target accepted.
-      const first = processEnvelopeDispatchWithClient(db, attemptId);
+      const first = await processEnvelopeDispatchWithClient(db, attemptId);
       expect(first.outcome).toBe("dispatched");
       const firstCallCount = vi.mocked(sseBroadcaster.publishToClients).mock.calls.length;
 
       // Second pass: target is already accepted → NOT re-attempted.
-      const second = processEnvelopeDispatchWithClient(db, attemptId);
+      const second = await processEnvelopeDispatchWithClient(db, attemptId);
       expect(second.outcome).toBe("dispatched");
       if (second.outcome !== "dispatched") return;
       expect(second.targets).toHaveLength(0); // no outstanding targets

@@ -29,14 +29,12 @@
  *      the T9A-05 vetoed-path contract for the recovery-exhausted path).
  *      The no-hot-loop guardrail — a stuck occurrence eventually stops
  *      re-firing.
- *   4. RESUME the publication via {@link resumeScheduledOccurrencePublication}
- *      (the dedicated re-drive entry point that SKIPS the `reserved →
- *      publishing` CAS — the occurrence is already `publishing` under the
- *      reclaimed lease). The resume re-drives STEPS 2-8 (read schedule →
- *      pre-check guard → tokens → prepare → reserve N attempts → publish →
- *      map) under the reclaimed owner. The fenced terminalization (T9A-08)
- *      ensures the reclaimed owner is authoritative — a stale worker's
- *      terminalization returns `not_owner`.
+ *   4. RE-READ the live schedule and RESUME through the matching shape adapter:
+ *      handler first, then templateId, then inline tasks. Each dedicated
+ *      re-drive entry point SKIPS the `reserved → publishing` CAS — the
+ *      occurrence is already `publishing` under the reclaimed lease. The
+ *      fenced terminalization (T9A-08) ensures the reclaimed owner is
+ *      authoritative — a stale worker's terminalization returns `not_owner`.
  *   5. MAP the resume's outcome: terminal (`published` / `vetoed` /
  *      `rejected_validation` / `schedule_missing` / `rejected_fingerprint`)
  *      → done (the occurrence reached terminal); resumable
@@ -84,7 +82,9 @@
  * the worker pattern (`scheduledTaskService.startScheduledTaskProcessor`).
  */
 import { hostname } from "node:os";
+import { eq } from "drizzle-orm";
 import { getDb } from "../db/index.js";
+import { scheduledTasks } from "../db/schema/index.js";
 import { logger } from "../lib/logger.js";
 import {
   getOccurrenceWithClient,
@@ -99,6 +99,14 @@ import {
   terminalRejectOccurrenceWithCoordination,
   type ResumeScheduledOccurrenceOutcome,
 } from "./scheduledOccurrencePublication.js";
+import {
+  resumeInlineScheduledOccurrencePublication,
+  type ResumeInlineScheduledOccurrenceOutcome,
+} from "./inlineScheduledOccurrencePublication.js";
+import {
+  resumeHandlerScheduledOccurrenceDispatch,
+  type ResumeHandlerDispatchOutcome,
+} from "./scheduledHandlerDispatch.js";
 import { v4 as uuid } from "uuid";
 
 // ---------------------------------------------------------------------------
@@ -173,7 +181,7 @@ export interface OccurrenceLeaseRecoveryDetail {
    * Absent when the reclaim failed or the circuit-breaker terminalized
    * before the resume.
    */
-  resume?: ResumeScheduledOccurrenceOutcome["outcome"] | "infrastructure_error";
+  resume?: ResumeOccurrenceOutcome["outcome"] | "infrastructure_error";
   /**
    * The circuit-breaker terminal (when the count exceeded `maxReclaims`).
    * The occurrence was terminalized `rejected` with `recovery_exhausted`.
@@ -224,6 +232,11 @@ export interface RecoverExpiredOccurrenceLeasesResult {
 // Terminal-outcome classifier (the resume-outcome → recovery-bucket map)
 // ---------------------------------------------------------------------------
 
+type ResumeOccurrenceOutcome =
+  | ResumeScheduledOccurrenceOutcome
+  | ResumeInlineScheduledOccurrenceOutcome
+  | ResumeHandlerDispatchOutcome;
+
 /**
  * The RESUMABLE resume outcomes — the occurrence STAYS `publishing` under
  * the recovery worker's lease; the lease will expire; the next scan tick
@@ -235,7 +248,7 @@ export interface RecoverExpiredOccurrenceLeasesResult {
  * `publishing`; the recovery worker can't fully resolve this partial state,
  * so the circuit-breaker handles it).
  */
-const RESUMABLE_RESUME_OUTCOMES: ReadonlySet<ResumeScheduledOccurrenceOutcome["outcome"]> = new Set(
+const RESUMABLE_RESUME_OUTCOMES: ReadonlySet<ResumeOccurrenceOutcome["outcome"]> = new Set(
   [
     "schedule_guard_mismatch",
     "guard_mismatch",
@@ -250,12 +263,15 @@ const RESUMABLE_RESUME_OUTCOMES: ReadonlySet<ResumeScheduledOccurrenceOutcome["o
  * (`published` or `rejected`) via the resume. The occurrence is no longer
  * recoverable; the circuit-breaker is irrelevant.
  */
-const TERMINAL_RESUME_OUTCOMES: ReadonlySet<ResumeScheduledOccurrenceOutcome["outcome"]> = new Set([
+const TERMINAL_RESUME_OUTCOMES: ReadonlySet<ResumeOccurrenceOutcome["outcome"]> = new Set([
   "published",
   "vetoed",
   "rejected_validation",
   "schedule_missing",
   "rejected_fingerprint",
+  "dispatched",
+  "handler_failed",
+  "handler_not_registered",
 ]);
 
 // ---------------------------------------------------------------------------
@@ -473,19 +489,35 @@ export function recoverExpiredOccurrenceLeases(
       continue;
     }
 
-    // 2d. RESUME the publication under the reclaimed lease. The resume
-    //     SKIPS the `reserved → publishing` CAS (the occurrence is already
-    //     `publishing` post-reclaim) + re-drives STEPS 2-8 under this
-    //     worker's lease. The fused stamp (2b) already advanced the count;
-    //     a successful resume OVERWRITES `result` with the terminal detail
-    //     (erasing the counter); a resumable resume leaves the stamped
-    //     counter in place for the next scan tick.
-    let resume;
+    // 2d. RE-READ the live schedule + RESUME through the same shape adapter
+    //     precedence as initial execution: handlerKey first, then templateId,
+    //     then a non-empty inline tasksTemplate. Each resume SKIPS the
+    //     `reserved → publishing` CAS (the occurrence is already `publishing`
+    //     post-reclaim) + re-drives its publication body under this worker's
+    //     lease. A missing or malformed schedule falls back to the template
+    //     adapter so the existing terminal `schedule_missing` / validation
+    //     handling remains authoritative.
+    let resume: ResumeOccurrenceOutcome;
     try {
-      resume = resumeScheduledOccurrencePublication({
+      const schedule = db
+        .select()
+        .from(scheduledTasks)
+        .where(eq(scheduledTasks.id, reclaimed.scheduledTaskId))
+        .get();
+      const resumeInput = {
         occurrenceId: reclaimed.id,
         leaseOwner: opts.leaseOwner,
-      });
+      };
+
+      if (schedule?.handlerKey) {
+        resume = resumeHandlerScheduledOccurrenceDispatch(resumeInput);
+      } else if (schedule?.templateId) {
+        resume = resumeScheduledOccurrencePublication(resumeInput);
+      } else if (schedule && Array.isArray(schedule.tasksTemplate) && schedule.tasksTemplate.length > 0) {
+        resume = resumeInlineScheduledOccurrencePublication(resumeInput);
+      } else {
+        resume = resumeScheduledOccurrencePublication(resumeInput);
+      }
     } catch (err) {
       // Infrastructure failure during the resume — the aggregate rolled
       // back; the occurrence stays `publishing` under this worker's lease.

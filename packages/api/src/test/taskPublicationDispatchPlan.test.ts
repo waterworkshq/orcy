@@ -121,7 +121,7 @@ function seedAttempt(id: string): void {
 // ===========================================================================
 
 describe("T11 default creation dispatch plan — unregistered adapters stall (no silent claimability)", () => {
-  it("does NOT open the observation gate when adapters are unregistered (targets stall at attention)", () => {
+  it("does NOT open the observation gate when adapters are unregistered (targets stall at attention)", async () => {
     // Adapters deliberately NOT registered — simulates flag-off / boot-before-
     // registration. The engine surfaces `adapter_not_registered` per target as
     // `attention`, so all-accepted is false and the Task stays UNAVAILABLE.
@@ -155,7 +155,7 @@ describe("T11 default creation dispatch plan — unregistered adapters stall (no
     if (outcome?.outcome !== "published") throw new Error("publish failed");
     const eventId = outcome.publication.envelope.eventId;
 
-    const result = processEnvelopeDispatchWithClient(getDb(), "attempt-unregistered");
+    const result = await processEnvelopeDispatchWithClient(getDb(), "attempt-unregistered");
 
     expect(result.outcome).toBe("dispatched");
     if (result.outcome !== "dispatched") throw new Error("expected dispatched");
@@ -283,7 +283,7 @@ describe("T11 default creation dispatch plan — envelope shape", () => {
 // ===========================================================================
 
 describe("T11 default creation dispatch plan — full dispatch lifecycle", () => {
-  it("advances 6 targets to accepted via the registered adapters and opens the observation gate to created", () => {
+  it("advances 6 targets to accepted via the registered adapters and opens the observation gate to created", async () => {
     registerCreationDispatchAdapters();
 
     const prepared = prepareTaskPublication({
@@ -325,7 +325,7 @@ describe("T11 default creation dispatch plan — full dispatch lifecycle", () =>
     expect(pendingTargets.every((t) => t.state === "pending")).toBe(true);
 
     // --- Run the dispatch worker (mirrors the T4A processing loop). ---
-    const result = processEnvelopeDispatchWithClient(getDb(), "attempt-lifecycle");
+    const result = await processEnvelopeDispatchWithClient(getDb(), "attempt-lifecycle");
 
     expect(result.outcome).toBe("dispatched");
     if (result.outcome !== "dispatched") throw new Error("expected dispatched");

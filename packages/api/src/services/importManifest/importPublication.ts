@@ -125,6 +125,7 @@ import {
   markImportAttemptPublishingWithClient,
   markImportAttemptPublishedWithClient,
   markImportAttemptRejectedWithClient,
+  reacquireExpiredImportAttemptLeaseWithClient,
   type ImportAttemptRow,
 } from "../../repositories/importAttempts.js";
 import { publishTaskWithClient, type CommittedPublication } from "../taskPublicationCoordinator.js";
@@ -1387,18 +1388,38 @@ export function publishImportAggregateWithClient(
   if (publishing.outcome === "not_found") {
     return { outcome: "not_found" };
   }
+  let importAttempt: ImportAttemptRow;
   if (publishing.outcome === "already_publishing") {
-    return { outcome: "already_publishing", importAttempt: publishing.attempt };
-  }
-  if (publishing.outcome === "illegal_source_state") {
+    const reclaimed = reacquireExpiredImportAttemptLeaseWithClient(db, importAttemptId, {
+      leaseOwner,
+      leaseExpiresAt,
+    });
+    if (reclaimed.outcome === "not_found") {
+      return { outcome: "not_found" };
+    }
+    if (reclaimed.outcome === "not_expired") {
+      return { outcome: "already_publishing", importAttempt: reclaimed.attempt };
+    }
+    if (reclaimed.outcome === "illegal_source_state") {
+      return {
+        outcome: "illegal_source_state",
+        importAttempt: reclaimed.attempt,
+        fromState: reclaimed.fromState,
+      };
+    }
+    // `reclaimed` — this worker now owns the expired publishing lease and
+    // can safely re-drive the same prepared aggregate.
+    importAttempt = reclaimed.attempt;
+  } else if (publishing.outcome === "illegal_source_state") {
     return {
       outcome: "illegal_source_state",
       importAttempt: publishing.attempt,
       fromState: publishing.fromState,
     };
+  } else {
+    // `transitioned` — this worker owns the fresh lease; proceed.
+    importAttempt = publishing.attempt;
   }
-  // `transitioned` — this worker owns the lease; proceed.
-  const importAttempt = publishing.attempt;
 
   // ----- 1b. REPLAY short-circuit --------------------------------------
   // The replay was detected during per-Task reservation (a prior publication

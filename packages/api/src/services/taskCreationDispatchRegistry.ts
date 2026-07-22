@@ -51,7 +51,7 @@ export interface DispatchTargetAdapter {
    * context) and the target row (kind + key + current retry state) so the
    * adapter can route to the correct internal subsystem.
    */
-  attempt(envelope: EnvelopeRow, target: TargetRow): DispatchTargetAttemptOutcome;
+  attempt(envelope: EnvelopeRow, target: TargetRow): Promise<DispatchTargetAttemptOutcome>;
 }
 
 // ---------------------------------------------------------------------------

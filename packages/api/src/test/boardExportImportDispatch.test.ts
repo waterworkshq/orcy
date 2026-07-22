@@ -95,8 +95,14 @@ import * as dependencyRepo from "../repositories/dependency.js";
 import { createHabitat } from "../services/habitatService.js";
 import { exportHabitatManifest } from "../services/habitatManifestExporter.js";
 import type { HabitatImportManifest } from "../services/importManifest/types.js";
-import type { PrepareImportOutcome } from "../services/importManifest/preflightImport.js";
-import type { PublishImportOutcome } from "../services/importManifest/importPublication.js";
+import {
+  prepareImport,
+  type PrepareImportOutcome,
+} from "../services/importManifest/preflightImport.js";
+import {
+  publishImportAggregateWithClient,
+  type PublishImportOutcome,
+} from "../services/importManifest/importPublication.js";
 import {
   prepareImportOutcomeToHttpResponse,
   publishImportOutcomeToHttpResponse,
@@ -711,6 +717,46 @@ describe("T10C M3 — flag ON + replayed / already_exists → 200", () => {
     expect(second.statusCode).toBe(200);
     const body = JSON.parse(second.body);
     expect(["already_exists", "replayed"]).toContain(body.outcome);
+  });
+
+  it("re-submitting an expired publishing attempt reclaims the lease and completes publication", async () => {
+    app = await buildApp();
+    const manifest = v3Manifest({ manifestId: `expired-publishing-${randomUUID()}` });
+
+    const prepared = prepareImport({
+      rawManifest: manifest,
+      habitatId: null,
+      actor: { type: "human", id: "admin" },
+      auditSource: "rest_api",
+    });
+    expect(prepared.outcome).toBe("prepared");
+    if (prepared.outcome !== "prepared") return;
+
+    expect(() =>
+      publishImportAggregateWithClient(getDb(), {
+        prepared: prepared.prepared,
+        participants: () => {
+          throw new Error("simulate crash after lease acquisition");
+        },
+      }),
+    ).toThrow(/simulate crash after lease acquisition/);
+
+    getDb()
+      .update(importAttempts)
+      .set({ leaseExpiresAt: "2000-01-01T00:00:00.000Z" })
+      .where(eq(importAttempts.id, manifest.manifestId))
+      .run();
+
+    const resumed = await app.inject({
+      method: "POST",
+      url: "/api/habitats/import",
+      headers: { authorization: `Bearer ${adminToken()}` },
+      payload: manifest,
+    });
+
+    expect(resumed.statusCode).toBe(201);
+    expect(resumed.json().outcome).toBe("published");
+    expect(getDb().select().from(tasksTable).all().length).toBeGreaterThan(0);
   });
 });
 

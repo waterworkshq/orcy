@@ -136,7 +136,7 @@ function fault(kind: string, envelope: EnvelopeRow, err: unknown): DispatchTarge
  */
 export const clientStreamAdapter: DispatchTargetAdapter = {
   targetKind: "client_stream",
-  attempt(envelope: EnvelopeRow): DispatchTargetAttemptOutcome {
+  async attempt(envelope: EnvelopeRow): Promise<DispatchTargetAttemptOutcome> {
     try {
       const task = resolveTask(envelope);
       if (!task) {
@@ -170,15 +170,15 @@ export const clientStreamAdapter: DispatchTargetAdapter = {
 /**
  * Hands off to the webhook delivery path (`dispatchWebhooks`), which creates
  * durable delivery records (`createDeliveryRecord`) per subscription and
- * handles retries via the retry processor. `accepted` once the handoff is
- * invoked — external HTTP delivery completion is NOT required.
+ * handles retries via the retry processor. `accepted` once the handoff
+ * resolves — external HTTP delivery completion is NOT required.
  *
  * Wraps: `dispatchWebhooks(habitatId, { type: "task.created", data: task })`
  * — the same call `sseBroadcaster.publish` fires for webhook subscribers.
  */
 export const webhookAdapter: DispatchTargetAdapter = {
   targetKind: "webhook",
-  attempt(envelope: EnvelopeRow): DispatchTargetAttemptOutcome {
+  async attempt(envelope: EnvelopeRow): Promise<DispatchTargetAttemptOutcome> {
     try {
       const task = resolveTask(envelope);
       if (!task) {
@@ -187,9 +187,7 @@ export const webhookAdapter: DispatchTargetAdapter = {
           error: `webhook: task ${envelope.taskId} not found`,
         };
       }
-      dispatchWebhooks(envelope.habitatId, { type: "task.created", data: task }).catch((err) => {
-        logger.error({ err, eventId: envelope.eventId }, "Webhook dispatch error (adapter)");
-      });
+      await dispatchWebhooks(envelope.habitatId, { type: "task.created", data: task });
       return { outcome: "accepted" };
     } catch (err) {
       return fault("webhook", envelope, err);
@@ -204,14 +202,14 @@ export const webhookAdapter: DispatchTargetAdapter = {
 /**
  * Hands off to the chat-integration notification path (`chatService.processEvent`),
  * which maps `task.created` to `task_created` and dispatches Slack/Discord
- * messages to enabled integrations. `accepted` once the handoff is invoked.
+ * messages to enabled integrations. `accepted` once the handoff resolves.
  *
  * Wraps: `chatProcessEvent("task.created", habitatId, data)` — the same call
  * `sseBroadcaster.publish` fires for chat integrations.
  */
 export const chatAdapter: DispatchTargetAdapter = {
   targetKind: "chat",
-  attempt(envelope: EnvelopeRow): DispatchTargetAttemptOutcome {
+  async attempt(envelope: EnvelopeRow): Promise<DispatchTargetAttemptOutcome> {
     try {
       const task = resolveTask(envelope);
       if (!task) {
@@ -220,13 +218,11 @@ export const chatAdapter: DispatchTargetAdapter = {
           error: `chat: task ${envelope.taskId} not found`,
         };
       }
-      chatProcessEvent(
+      await chatProcessEvent(
         "task.created",
         envelope.habitatId,
         task as unknown as Record<string, unknown>,
-      ).catch((err) => {
-        logger.error({ err, eventId: envelope.eventId }, "Chat push error (adapter)");
-      });
+      );
       return { outcome: "accepted" };
     } catch (err) {
       return fault("chat", envelope, err);
@@ -241,7 +237,7 @@ export const chatAdapter: DispatchTargetAdapter = {
 /**
  * Hands off to the automation event service (`ingestEvent`), which matches the
  * event against the habitat's enabled automation rules. `accepted` once the
- * ingestion is invoked — rule matching / execution is the automation
+ * ingestion resolves — rule matching / execution is the automation
  * subsystem's concern.
  *
  * Forwards the trusted-envelope signature (`eventId`, `lifecycleAction`,
@@ -256,7 +252,7 @@ export const chatAdapter: DispatchTargetAdapter = {
  */
 export const automationAdapter: DispatchTargetAdapter = {
   targetKind: "automation",
-  attempt(envelope: EnvelopeRow): DispatchTargetAttemptOutcome {
+  async attempt(envelope: EnvelopeRow): Promise<DispatchTargetAttemptOutcome> {
     try {
       const task = resolveTask(envelope);
       const data: Record<string, unknown> = {
@@ -272,9 +268,7 @@ export const automationAdapter: DispatchTargetAdapter = {
         data.status = task.status;
         data.priority = task.priority;
       }
-      ingestEvent(envelope.habitatId, { type: "task.created", data }).catch((err) => {
-        logger.error({ err, eventId: envelope.eventId }, "Automation ingestion error (adapter)");
-      });
+      await ingestEvent(envelope.habitatId, { type: "task.created", data });
       return { outcome: "accepted" };
     } catch (err) {
       return fault("automation", envelope, err);
@@ -296,7 +290,7 @@ export const automationAdapter: DispatchTargetAdapter = {
  */
 export const postInterceptorAdapter: DispatchTargetAdapter = {
   targetKind: "post_interceptor",
-  attempt(envelope: EnvelopeRow): DispatchTargetAttemptOutcome {
+  async attempt(envelope: EnvelopeRow): Promise<DispatchTargetAttemptOutcome> {
     try {
       const task = resolveTask(envelope);
       if (!task) {
@@ -334,7 +328,7 @@ export const postInterceptorAdapter: DispatchTargetAdapter = {
  */
 export const transitionSubscriberAdapter: DispatchTargetAdapter = {
   targetKind: "transition_subscriber",
-  attempt(envelope: EnvelopeRow): DispatchTargetAttemptOutcome {
+  async attempt(envelope: EnvelopeRow): Promise<DispatchTargetAttemptOutcome> {
     try {
       const task = resolveTask(envelope);
       const actorType = envelopeActorType(envelope);

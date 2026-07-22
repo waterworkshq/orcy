@@ -174,9 +174,9 @@ export interface RunDispatchWorkerPassOptions {
  * worker's pattern; preserves the caller's transaction authority when one
  * wraps the pass in a test `tx`).
  */
-export function runDispatchWorkerPass(
+export async function runDispatchWorkerPass(
   opts: RunDispatchWorkerPassOptions = {},
-): DispatchWorkerPassResult {
+): Promise<DispatchWorkerPassResult> {
   const db = getDb();
   const limit = opts.limit ?? 100;
   // Default the worker id per-pass so concurrent scans on the same
@@ -224,7 +224,7 @@ export function runDispatchWorkerPass(
     for (const attempt of batch) {
       seenAttemptIds.add(attempt.id);
       try {
-        const dispatch = processEnvelopeDispatchWithClient(db, attempt.id, {
+        const dispatch = await processEnvelopeDispatchWithClient(db, attempt.id, {
           workerId: perAttemptWorkerId,
         });
         if (dispatch.outcome === "dispatched") advanced++;
@@ -383,23 +383,24 @@ export function startCreationDispatchWorker(
   const workerId = opts.workerId ?? createDispatchWorkerId();
   const limit = opts.limit;
   const handle = setInterval(() => {
-    try {
-      // Build the per-tick opts explicitly (omit `limit` when undefined so
-      // the default in `runDispatchWorkerPass` applies — passing
-      // `undefined` for `limit` would still hit the default, but the
-      // explicit-omit pattern is clearer for readers).
-      const passOpts: RunDispatchWorkerPassOptions =
-        limit !== undefined ? { workerId, limit } : { workerId };
-      const passResult = runDispatchWorkerPass(passOpts);
-      if (passResult.observationScanned > 0 || passResult.assignmentSweep.processed > 0) {
-        logger.info(passResult, "Creation dispatch worker completed a pass");
-      }
-    } catch (err) {
-      // Last-resort guard against an unforeseen throw — the per-attempt +
-      // per-sweep try/catch already handle the expected domain failures.
-      // Log + keep the interval alive; the next tick polls.
-      logger.error({ err }, "Error running creation dispatch worker pass");
-    }
+    // Build the per-tick opts explicitly (omit `limit` when undefined so
+    // the default in `runDispatchWorkerPass` applies — passing
+    // `undefined` for `limit` would still hit the default, but the
+    // explicit-omit pattern is clearer for readers).
+    const passOpts: RunDispatchWorkerPassOptions =
+      limit !== undefined ? { workerId, limit } : { workerId };
+    void runDispatchWorkerPass(passOpts)
+      .then((passResult) => {
+        if (passResult.observationScanned > 0 || passResult.assignmentSweep.processed > 0) {
+          logger.info(passResult, "Creation dispatch worker completed a pass");
+        }
+      })
+      .catch((err: unknown) => {
+        // Last-resort guard against an unforeseen rejection — the per-attempt
+        // + per-sweep try/catch already handle the expected domain failures.
+        // Log + keep the interval alive; the next tick polls.
+        logger.error({ err }, "Error running creation dispatch worker pass");
+      });
   }, intervalMs);
   return {
     stop: () => clearInterval(handle),

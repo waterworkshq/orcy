@@ -446,7 +446,7 @@ describe("DispatchTargetAdapter registry", () => {
     const kind = `test-adapter-${uuid()}`;
     const adapter: DispatchTargetAdapter = {
       targetKind: kind,
-      attempt: () => ({ outcome: "accepted" }),
+      attempt: async () => ({ outcome: "accepted" }),
     };
     registerDispatchAdapter(adapter);
 
@@ -462,11 +462,11 @@ describe("DispatchTargetAdapter registry", () => {
     const kind = `overwrite-${uuid()}`;
     const first: DispatchTargetAdapter = {
       targetKind: kind,
-      attempt: () => ({ outcome: "accepted" }),
+      attempt: async () => ({ outcome: "accepted" }),
     };
     const second: DispatchTargetAdapter = {
       targetKind: kind,
-      attempt: () => ({ outcome: "attention", error: "replaced" }),
+      attempt: async () => ({ outcome: "attention", error: "replaced" }),
     };
     registerDispatchAdapter(first);
     registerDispatchAdapter(second);
@@ -475,24 +475,24 @@ describe("DispatchTargetAdapter registry", () => {
     expect(resolved).toBe(second);
   });
 
-  it("adapter attempt outcomes carry the accepted/attention contract", () => {
+  it("adapter attempt outcomes carry the accepted/attention contract", async () => {
     const kind = `outcome-${uuid()}`;
     const acceptedAdapter: DispatchTargetAdapter = {
       targetKind: kind,
-      attempt: () => ({ outcome: "accepted" }),
+      attempt: async () => ({ outcome: "accepted" }),
     };
     registerDispatchAdapter(acceptedAdapter);
     const adapter = resolveDispatchAdapter(kind)!;
-    expect(adapter.attempt(null as never, null as never).outcome).toBe("accepted");
+    expect((await adapter.attempt(null as never, null as never)).outcome).toBe("accepted");
 
     const errKind = `err-${uuid()}`;
     const attentionAdapter: DispatchTargetAdapter = {
       targetKind: errKind,
-      attempt: () => ({ outcome: "attention", error: "timeout" }),
+      attempt: async () => ({ outcome: "attention", error: "timeout" }),
     };
     registerDispatchAdapter(attentionAdapter);
     const errAdapter = resolveDispatchAdapter(errKind)!;
-    const result = errAdapter.attempt(null as never, null as never);
+    const result = await errAdapter.attempt(null as never, null as never);
     expect(result.outcome).toBe("attention");
     if (result.outcome === "attention") {
       expect(result.error).toBe("timeout");

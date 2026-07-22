@@ -10,8 +10,14 @@ import { redactSensitiveHeaders } from "../config/integrationSecurity.js";
 import { notFound, badRequest } from "../errors.js";
 import { isCreationPublicationEnabled } from "../config/creationPublicationCutover.js";
 import { getDb } from "../db/index.js";
-import { prepareImport } from "../services/importManifest/preflightImport.js";
+import {
+  computeManifestDigest,
+  prepareImport,
+  runPreflightPipeline,
+  type PreparedImport,
+} from "../services/importManifest/preflightImport.js";
 import { publishImportAggregateWithClient } from "../services/importManifest/importPublication.js";
+import type { HabitatImportManifest } from "../services/importManifest/types.js";
 import {
   prepareImportOutcomeToHttpResponse,
   publishImportOutcomeToHttpResponse,
@@ -336,6 +342,57 @@ async function handleManifestImportRequest(
     const { statusCode, body: publishBody } = publishImportOutcomeToHttpResponse(publishResult);
     reply.code(statusCode).send(publishBody);
     return;
+  }
+
+  if (
+    version === 3 &&
+    prepareResult.outcome === "already_exists" &&
+    prepareResult.attempt.state === "publishing" &&
+    prepareResult.attempt.attemptId !== null &&
+    prepareResult.attempt.leaseExpiresAt !== null &&
+    prepareResult.attempt.leaseExpiresAt < new Date().toISOString()
+  ) {
+    const manifest = request.body as HabitatImportManifest;
+    const manifestDigest = computeManifestDigest(manifest);
+
+    // A manifest id is the import idempotency key. Only the exact manifest
+    // that reserved this attempt may reclaim it; a different payload using
+    // the same id receives the existing-attempt response below.
+    if (manifestDigest === prepareResult.attempt.manifestDigest) {
+      const pipelineResult = runPreflightPipeline(
+        manifest,
+        prepareResult.attempt.habitatId || null,
+        prepareResult.attempt.mode,
+        actor,
+        auditSource,
+        prepareResult.attempt.attemptId,
+        [],
+        false,
+      );
+
+      if (pipelineResult.outcome === "prepared") {
+        const prepared: PreparedImport = {
+          manifest: pipelineResult.manifest,
+          manifestDigest,
+          identityMap: pipelineResult.identityMap,
+          preparedDomains: pipelineResult.preparedDomains,
+          guard: pipelineResult.guard,
+          governanceDecisions: pipelineResult.governanceDecisions,
+          authority: {
+            caller: actor,
+            auditSource,
+            governingPolicy:
+              prepareResult.attempt.mode === "new" ? "installation" : "persisted_habitat",
+          },
+          prefilledAttemptId: prepareResult.attempt.attemptId,
+          existingHabitatSnapshot: pipelineResult.existingHabitatSnapshot,
+        };
+        const publishResult = publishImportAggregateWithClient(getDb(), { prepared });
+        const { statusCode, body: publishBody } = publishImportOutcomeToHttpResponse(publishResult);
+        reply.code(statusCode).send(publishBody);
+        return;
+      }
+    }
   }
 
   const { statusCode, body: prepareBody } = prepareImportOutcomeToHttpResponse(prepareResult);

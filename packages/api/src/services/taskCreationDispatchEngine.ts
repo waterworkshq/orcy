@@ -283,11 +283,11 @@ export type EnvelopeDispatchResult =
  * envelope / already-advanced attempt is a no-op (no adapter call, no
  * re-transition). At-least-once with dedup via the target CAS.
  */
-export function processEnvelopeDispatchWithClient(
+export async function processEnvelopeDispatchWithClient(
   db: TaskPublicationDbClient,
   attemptId: string,
   opts: ProcessEnvelopeDispatchOptions = {},
-): EnvelopeDispatchResult {
+): Promise<EnvelopeDispatchResult> {
   const workerId = opts.workerId ?? uuid();
   const leaseMs = opts.leaseDurationMs ?? DEFAULT_DISPATCH_LEASE_MS;
 
@@ -334,7 +334,7 @@ export function processEnvelopeDispatchWithClient(
         continue;
       }
 
-      const attemptOutcome = adapter.attempt(envelope, target);
+      const attemptOutcome = await adapter.attempt(envelope, target);
       targetResults.push(
         attemptOutcome.outcome === "accepted"
           ? advanceDispatchTargetWithClient(db, { targetId: target.id, outcome: "accepted" })
