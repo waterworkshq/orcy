@@ -198,7 +198,7 @@ Orcy pulls external tracker issues into habitat intake, where humans/orcys revie
 |---------|-------|
 | v0.30.0 | Plugin Invocation Policy — release pending. The architecture-deepening consolidates the five managed plugin contribution kinds behind one Plugin Invocation Runtime and settles 15 grilling decisions (ADR-0039). Implementation complete and reviewed; the version/tag has not yet been cut by `release-it`. |
 | v0.31.0 | Habitat State Ownership and Realtime Projection — release pending. Implementation complete and documented (ADR-0040 supersedes the pre-v0.18.3 "two caching layers" trade-off). Future seeds (Learning Loop, Integration OAuth/Webhook Extraction) remain unscheduled pending prerequisite foundations. |
-| v0.32.0 | Task Creation Centralization — release pending. Every Task-creation origin (interactive, clone, automation, plugin, blocker, recovery, scheduled, import, triage, template) now routes through a single publication kernel with governance, lifecycle events, observation gates, and assignment reservations. Legacy raw-insert paths removed. Comprehensive cold review complete (28 findings, all fixed). |
+| v0.32.0 | Task Creation Centralization — every Task-creation origin (interactive, clone, automation, plugin, blocker, recovery, scheduled, import, triage, template) now routes through a single publication kernel with governance, lifecycle events, observation gates, and assignment reservations. Legacy raw-insert paths removed. Comprehensive cold review complete (28 findings, all fixed). |
 
 Full plan: **[docs/ROADMAP.md](docs/ROADMAP.md)**
 
