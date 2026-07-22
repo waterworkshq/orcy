@@ -92,6 +92,11 @@ import { v4 as uuid } from "uuid";
  *                         The worker defers to the lease owner; the attempt
  *                         will be re-surfaced on a later tick once the lease
  *                         expires.
+ * - `lease_lost`        — the engine acquired the lease, processed some
+ *                         targets, then lost the lease mid-loop (another
+ *                         worker took over). Partial results were committed
+ *                         (CAS-protected); the checkpoint was NOT advanced.
+ *                         The new owner re-processes remaining targets.
  * - `not_found`         — no attempt row exists for this `attemptId` (the
  *                         attempt vanished between the scan + the dispatch —
  *                         data-integrity anomaly, but a no-op for the pass).
@@ -103,6 +108,7 @@ import { v4 as uuid } from "uuid";
 export type DispatchWorkerAttemptOutcome =
   | { attemptId: string; outcome: "dispatched" }
   | { attemptId: string; outcome: "lease_unavailable" }
+  | { attemptId: string; outcome: "lease_lost" }
   | { attemptId: string; outcome: "not_found" }
   | { attemptId: string; outcome: "error"; error: string };
 
@@ -137,6 +143,8 @@ export interface RunDispatchWorkerPassOptions {
   workerId?: string;
   /** Page size passed to the observation scan + the assignment sweep. Default 100. */
   limit?: number;
+  /** Maximum observation attempts processed per pass. Default 1000. */
+  maxObservationAttempts?: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -197,41 +205,72 @@ export function runDispatchWorkerPass(
   // concurrency-safe entry to per-attempt mutation. We catch per-attempt
   // so a single bad attempt cannot abort the whole pass — the interval
   // keeps polling.
-  const observationAttempts = listAttemptsPendingObservationWithClient(db, { limit });
-  result.observationScanned = observationAttempts.length;
+  //
+  // Pagination: read offset 0 repeatedly. As long as at least one attempt
+  // advances (leaves `published_pending_observation`), newer attempts shift
+  // into the result set and are processed. When a full batch yields zero
+  // advancements (all stuck in `attention`), break — those targets will be
+  // re-attempted on the next tick. This prevents non-progressing attempts
+  // from permanently monopolizing the scan page and starving newer ones.
+  const maxObservationAttempts = opts.maxObservationAttempts ?? 1_000;
+  const seenAttemptIds = new Set<string>();
+  let offset = 0;
+  for (;;) {
+    const batch = listAttemptsPendingObservationWithClient(db, { limit, offset: 0 });
+    if (batch.length === 0) break;
+    for (const attempt of batch) seenAttemptIds.add(attempt.id);
 
-  for (const attempt of observationAttempts) {
-    try {
-      const dispatch = processEnvelopeDispatchWithClient(db, attempt.id, {
-        workerId: perAttemptWorkerId,
-      });
-      switch (dispatch.outcome) {
-        case "dispatched":
-          result.observationOutcomes.push({ attemptId: attempt.id, outcome: "dispatched" });
-          break;
-        case "lease_unavailable":
-          result.observationOutcomes.push({
-            attemptId: attempt.id,
-            outcome: "lease_unavailable",
-          });
-          break;
-        case "not_found":
-          result.observationOutcomes.push({ attemptId: attempt.id, outcome: "not_found" });
-          break;
+    let advanced = 0;
+    for (const attempt of batch) {
+      seenAttemptIds.add(attempt.id);
+      try {
+        const dispatch = processEnvelopeDispatchWithClient(db, attempt.id, {
+          workerId: perAttemptWorkerId,
+        });
+        if (dispatch.outcome === "dispatched") advanced++;
+        switch (dispatch.outcome) {
+          case "dispatched":
+            result.observationOutcomes.push({ attemptId: attempt.id, outcome: "dispatched" });
+            break;
+          case "lease_unavailable":
+            result.observationOutcomes.push({
+              attemptId: attempt.id,
+              outcome: "lease_unavailable",
+            });
+            break;
+          case "lease_lost":
+            result.observationOutcomes.push({
+              attemptId: attempt.id,
+              outcome: "lease_lost",
+            });
+            break;
+          case "not_found":
+            result.observationOutcomes.push({ attemptId: attempt.id, outcome: "not_found" });
+            break;
+        }
+      } catch (err) {
+        // An infrastructure throw escaped the engine (a missing attempt row is
+        // handled internally as `not_found`; a DB-level throw is the only path
+        // that reaches here). Log + count as `error` so the pass aggregate
+        // records the failure for diagnostics; the interval keeps polling.
+        const error = err instanceof Error ? err.message : String(err);
+        logger.error(
+          { err, attemptId: attempt.id },
+          "creationDispatchWorker: error processing observation attempt",
+        );
+        result.observationOutcomes.push({ attemptId: attempt.id, outcome: "error", error });
       }
-    } catch (err) {
-      // An infrastructure throw escaped the engine (a missing attempt row is
-      // handled internally as `not_found`; a DB-level throw is the only path
-      // that reaches here). Log + count as `error` so the pass aggregate
-      // records the failure for diagnostics; the interval keeps polling.
-      const error = err instanceof Error ? err.message : String(err);
-      logger.error(
-        { err, attemptId: attempt.id },
-        "creationDispatchWorker: error processing observation attempt",
-      );
-      result.observationOutcomes.push({ attemptId: attempt.id, outcome: "error", error });
+      offset++;
+      if (offset >= maxObservationAttempts) break;
     }
+
+    // No attempt advanced (all are stuck in attention) — stop to avoid
+    // looping on the same non-progressing batch. They'll be re-attempted
+    // next tick.
+    if (advanced === 0) break;
+    if (offset >= maxObservationAttempts) break;
   }
+  result.observationScanned = seenAttemptIds.size;
 
   // 2. SWEEP assignment-gate attempts.
   //
@@ -352,10 +391,7 @@ export function startCreationDispatchWorker(
       const passOpts: RunDispatchWorkerPassOptions =
         limit !== undefined ? { workerId, limit } : { workerId };
       const passResult = runDispatchWorkerPass(passOpts);
-      if (
-        passResult.observationScanned > 0 ||
-        passResult.assignmentSweep.processed > 0
-      ) {
+      if (passResult.observationScanned > 0 || passResult.assignmentSweep.processed > 0) {
         logger.info(passResult, "Creation dispatch worker completed a pass");
       }
     } catch (err) {

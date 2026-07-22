@@ -106,6 +106,9 @@ const HOST = process.env.HOST ?? "127.0.0.1";
 
 const isDev = process.env.NODE_ENV !== "production";
 
+let occurrenceRecoveryHandle: NodeJS.Timeout | undefined;
+let creationDispatchHandle: { stop: () => void } | undefined;
+
 const API_VERSION = 1;
 
 const fastify = Fastify({
@@ -271,8 +274,8 @@ async function registerApiRoutes(f: FastifyInstance) {
     //   in-process adapters complete well under the 30s lease budget, so
     //   a 5s tick is safe.
     registerCreationDispatchAdapters();
-    startOccurrenceLeaseRecoveryWorker(60_000);
-    startCreationDispatchWorker(5_000);
+    occurrenceRecoveryHandle = startOccurrenceLeaseRecoveryWorker(60_000);
+    creationDispatchHandle = startCreationDispatchWorker(5_000);
   }
 }
 
@@ -415,6 +418,8 @@ process.on("SIGINT", shutdown);
 fastify.addHook("onClose", async () => {
   schedulers.stop();
   clearInterval(healthSnapshotInterval);
+  creationDispatchHandle?.stop();
+  if (occurrenceRecoveryHandle) clearInterval(occurrenceRecoveryHandle);
   const { shutdownAll } = await import("./services/daemonEngine.js");
   shutdownAll();
 });

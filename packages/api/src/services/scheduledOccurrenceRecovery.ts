@@ -321,7 +321,12 @@ export function recoverExpiredOccurrenceLeases(
     //     separate commits + a crash between them defeated the circuit-
     //     breaker (repeated kills kept reacquiring at the same count →
     //     never tripped → hot-loop).
-    const newLeaseExpiresAt = new Date(Date.parse(now) + leaseDurationMs).toISOString();
+    // Compute lease expiry from the CURRENT wall clock (not the pass-start
+    // `now`) so later occurrences in a slow pass don't receive an already-
+    // expired lease. When `opts.now` is injected (tests), it stays
+    // deterministic.
+    const reclaimNow = opts.now ?? new Date().toISOString();
+    const newLeaseExpiresAt = new Date(Date.parse(reclaimNow) + leaseDurationMs).toISOString();
     let fused;
     try {
       fused = reclaimAndStampOccurrenceWithClient(db, row.id, {
@@ -416,7 +421,7 @@ export function recoverExpiredOccurrenceLeases(
               ? { lastResumableOutcome: priorResult.lastResumableOutcome }
               : {}),
             message: `Occurrence "${reclaimed.id}" exhausted ${priorCount} recovery reclaims without reaching terminal (maxReclaims=${maxReclaims}).`,
-            exhaustedAt: now,
+            exhaustedAt: reclaimNow,
             perTaskAttemptsTerminalized: perTaskAttemptTerminals.length,
           } satisfies OccurrenceResultJson,
           coordinationFinalState: "batch_rejected",

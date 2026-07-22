@@ -253,6 +253,7 @@ export type EnvelopeDispatchResult =
       observation: ObservationCheckpointResult;
     }
   | { outcome: "lease_unavailable"; acquire: AttemptLeaseAcquireResult }
+  | { outcome: "lease_lost"; targets: DispatchTargetTransitionResult[] }
   | { outcome: "not_found" };
 
 /**
@@ -302,6 +303,7 @@ export function processEnvelopeDispatchWithClient(
   const envelope = envelopeForAttempt(db, attemptId);
 
   const targetResults: DispatchTargetTransitionResult[] = [];
+  let leaseLost = false;
   if (envelope) {
     const targets = listDispatchTargetsForEnvelopeWithClient(db, envelope.eventId);
     // Accepted is sticky — skip it (crash-resumable: a target accepted before a
@@ -312,7 +314,10 @@ export function processEnvelopeDispatchWithClient(
       // Renew defensively before each target (a real async adapter in T4B could
       // exceed the lease duration; losing the lease mid-process → stop).
       const renew = renewAttemptLeaseWithClient(db, attemptId, workerId, leaseMs);
-      if (renew.outcome === "not_owner") break; // lost the lease; stop.
+      if (renew.outcome === "not_owner") {
+        leaseLost = true;
+        break; // lost the lease; stop processing targets.
+      }
 
       const adapter = resolveDispatchAdapter(target.targetKind);
       if (!adapter) {
@@ -340,6 +345,13 @@ export function processEnvelopeDispatchWithClient(
             }),
       );
     }
+  }
+
+  // If the lease was lost mid-loop, another worker now owns this attempt. Do
+  // NOT advance the observation checkpoint or mutate further state — the new
+  // owner re-processes the remaining targets and advances the checkpoint.
+  if (leaseLost) {
+    return { outcome: "lease_lost", targets: targetResults };
   }
 
   // 5. Evaluate + advance the observation checkpoint.
