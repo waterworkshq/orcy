@@ -1347,8 +1347,6 @@ export interface ImportRejectionDetail {
   field: string;
   code: string;
   message: string;
-  /** Derived: leading `field` segment when it matches a domain name; null otherwise. */
-  domain: ImportManifestDomainName | null;
 }
 
 /** A decisive per-Task veto (carried on the `vetoed` publish outcome). */
@@ -1461,7 +1459,7 @@ export interface ImportManifestView {
 //   `replayed`                      → 200 (idempotent retry — carries the
 //                                              stored terminal verbatim)
 //   `rejected_validation`           → 422
-//   `vetoed`                        → 409
+//   `vetoed`                        → 403
 //   `rejected_fingerprint`          → 409
 //   `guard_mismatch` / `governance_denied` → 503 (retryable — same key)
 //
@@ -1514,6 +1512,8 @@ export type TaskPublicationOutcomeView =
       errors?: readonly TaskPublicationErrorView[];
       /** Present when the stored terminal was `vetoed`. */
       veto?: { interceptorKey: string; reason: string; pluginRunId: string | null };
+      /** Present when the stored terminal committed the Task but assignment failed. */
+      assignmentFailure?: TaskAssignmentFailureView;
     }
   | {
       outcome: "rejected_validation";
@@ -1565,6 +1565,18 @@ export type TaskCreationAttemptState =
   | "created"
   | "created_unassigned";
 
+/** Failure metadata carried by a `created_unassigned` terminal result. */
+export interface TaskAssignmentFailureView {
+  category?: string;
+  reason: string;
+}
+
+/** UI state for committed creation that still needs an assignment retry. */
+export interface TaskAssignmentWarningView {
+  taskId: string;
+  failure: TaskAssignmentFailureView;
+}
+
 /** Projection of `task_creation_attempts` returned by
  *  `GET /task-creation-attempts/:attemptId`. The route is the
  *  `getAttemptStatus` repository surface (see
@@ -1584,7 +1596,9 @@ export interface TaskCreationAttemptView {
   terminalOutcome: string | null;
   /** Structured terminal result (the same shape the adapter returns on the
    *  `replayed` branch). `null` while the attempt is non-terminal. */
-  terminalResult: Record<string, unknown> | null;
+  terminalResult: (Record<string, unknown> & {
+    assignmentFailure?: TaskAssignmentFailureView;
+  }) | null;
   leaseOwner: string | null;
   leaseExpiresAt: string | null;
 }

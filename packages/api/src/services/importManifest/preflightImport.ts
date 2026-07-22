@@ -623,6 +623,91 @@ export function checkAuthority(
     }
   }
 
+  // (b5) A replacement must delete FK-linked domains as a dependency-safe
+  // closure. Otherwise the apply phase either fails on a restrictive FK
+  // (columns -> missions) or silently cascades through a domain whose
+  // disposition promised preservation (missions -> tasks -> children).
+  errors.push(...validateCrossDomainDispositions(manifest, mode));
+
+  return errors;
+}
+
+/**
+ * Rejects replacement disposition combinations whose parent-domain delete
+ * would violate a child domain's declared preserve semantics.
+ *
+ * Omitted domains are preserve-by-default. The reverse combinations are
+ * intentionally valid: deleting subtasks/dependencies while preserving Tasks
+ * is safe because those child domains have their own scoped delete handlers.
+ * `tasks:reset` is also safe because it updates execution state in place and
+ * preserves Task identity; only `tasks:replace` deletes Task rows.
+ */
+export function validateCrossDomainDispositions(
+  manifest: HabitatImportManifest,
+  mode: "new" | "replacement",
+): ManifestDomainError[] {
+  if (mode !== "replacement") return [];
+
+  const dependencies: readonly {
+    parent: ManifestDomainName;
+    child: ManifestDomainName;
+    deletingDispositions: readonly ("replace" | "reset")[];
+    fk: string;
+  }[] = [
+    {
+      parent: "columns",
+      child: "missions",
+      deletingDispositions: ["replace", "reset"],
+      fk: "missions.column_id references columns.id (restrictive delete)",
+    },
+    {
+      parent: "missions",
+      child: "tasks",
+      deletingDispositions: ["replace", "reset"],
+      fk: "tasks.mission_id references missions.id ON DELETE CASCADE",
+    },
+    {
+      parent: "tasks",
+      child: "subtasks",
+      deletingDispositions: ["replace"],
+      fk: "task_subtasks.task_id references tasks.id ON DELETE CASCADE",
+    },
+    {
+      parent: "tasks",
+      child: "dependencies",
+      deletingDispositions: ["replace"],
+      fk: "task_dependencies task_id/depends_on_id reference tasks.id ON DELETE CASCADE",
+    },
+  ];
+
+  const errors: ManifestDomainError[] = [];
+  for (const { parent, child, deletingDispositions, fk } of dependencies) {
+    const parentDisposition = manifest.domains[parent]?.disposition ?? "preserve";
+    if (
+      parentDisposition !== "replace" &&
+      parentDisposition !== "reset"
+    ) {
+      continue;
+    }
+    if (!deletingDispositions.includes(parentDisposition)) continue;
+
+    const childEnvelope = manifest.domains[child];
+    const childDisposition = childEnvelope?.disposition ?? "preserve";
+    if (childDisposition === "replace" || childDisposition === "reset") continue;
+
+    const childDescription = childEnvelope === undefined ? "preserve (omitted)" : childDisposition;
+    errors.push({
+      domain: child,
+      kind: "incompatible_disposition",
+      message:
+        `Domain '${parent}' is '${parentDisposition}', which deletes existing ${parent}, ` +
+        `but dependent domain '${child}' is '${childDescription}'. Declare '${child}' as ` +
+        `'replace' or 'reset' so the replacement is dependency-safe (${fk}).`,
+      actual: childDescription,
+      fieldPath: ["domains", child, "disposition"],
+    });
+  }
+
   return errors;
 }
 

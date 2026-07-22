@@ -14,7 +14,7 @@ const BASE = "/api";
  *
  * Also carries the parsed response body (when available) so callers handling
  * structured error envelopes — e.g. the v3 habitat-import routes' closed
- * union (`rejected_preflight` / `vetoed` / `guard_mismatch` / etc. on 422
+ * union (`rejected_preflight` / `vetoed` / `guard_mismatch` / etc. on 4xx
  * + 409 + 404) — can recover the typed outcome from the throw site instead
  * of losing it to a generic `error: any` escape hatch.
  *

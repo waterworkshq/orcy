@@ -176,6 +176,12 @@ function v3Manifest(opts?: {
           },
         ],
       },
+      ...(opts?.mode === "replacement"
+        ? {
+            subtasks: { disposition: "replace" as const, data: [] },
+            dependencies: { disposition: "replace" as const, data: [] },
+          }
+        : {}),
     },
   };
 }
@@ -1153,6 +1159,8 @@ describe("F5 — restore identity preserves serverIds", () => {
             },
           ],
         },
+        subtasks: { disposition: "replace", data: [] },
+        dependencies: { disposition: "replace", data: [] },
       },
     };
 

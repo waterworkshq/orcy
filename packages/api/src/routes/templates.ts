@@ -434,12 +434,13 @@ export async function templateRoutes(fastify: FastifyInstance): Promise<void> {
           case "vetoed":
             // Visible blocked outcome — NET-NEW for template-application (the
             // legacy path bypasses governance entirely; this gate removes the
-            // exemption). 422 carries the full veto list (T9A-04 all-failures).
-            throw unprocessableEntity(
-              "Template application blocked by governance",
-              "GOVERNANCE_VETOED",
-              { vetoes: outcome.vetoes },
-            );
+            // exemption). Preserve the typed publication outcome instead of
+            // collapsing it into the generic AppError envelope.
+            reply.code(403).send({
+              outcome: "vetoed",
+              vetoes: outcome.vetoes,
+            });
+            return;
           case "guard_mismatch":
             throw conflict("Template application guard mismatch", {
               taskIndex: outcome.taskIndex,

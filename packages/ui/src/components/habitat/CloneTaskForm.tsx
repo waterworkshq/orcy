@@ -14,8 +14,10 @@ import { api } from "../../api/index.js";
 import {
   taskPublicationsApi,
   parsePublishTaskResponse,
+  readAssignmentFailure,
 } from "../../api/domains/taskPublications.js";
 import { ApiError } from "../../api/transport.js";
+import { useAgents } from "../../lib/useHabitatData.js";
 import {
   invalidateHabitatRepresentations,
   invalidateMissionRepresentations,
@@ -25,6 +27,7 @@ import { notify } from "../../lib/toast.js";
 import type {
   ClonePreparationView,
   ClonePreparationSubtaskView,
+  TaskAssignmentWarningView,
   TaskPublicationErrorView,
   TaskPublicationOutcomeView,
 } from "../../types/index.js";
@@ -38,10 +41,9 @@ interface CloneTaskFormProps {
   habitatId?: string;
 }
 
-/** Polling cadence + timeout (ms) for the 202 + `recovering:true` recovery
- *  surface. Mirrors {@link CreateTaskForm} — the dispatcher + assignment
- *  coordinator advance the attempt inside the configured assignment deadline
- *  (default lives in `ORCY_ASSIGNMENT_DEADLINE_MS`). */
+/** Polling cadence + UI observation window for the 202 + `recovering:true`
+ *  surface. The window is shorter than the server assignment deadline; expiry
+ *  leaves the attempt recoverable and offers an explicit refresh. */
 const POLL_INTERVAL_MS = 1500;
 const POLL_TIMEOUT_MS = 60_000;
 
@@ -82,6 +84,7 @@ function generateAttemptKey(): string {
  */
 export function CloneTaskForm({ open, onClose, sourceTask, habitatId }: CloneTaskFormProps) {
   const qc = useQueryClient();
+  const { data: agents = [] } = useAgents();
 
   // --- Preparation fetch state -------------------------------------------
   const [prepLoading, setPrepLoading] = useState(false);
@@ -108,6 +111,9 @@ export function CloneTaskForm({ open, onClose, sourceTask, habitatId }: CloneTas
     readonly TaskPublicationErrorView[] | null
   >(null);
   const [polling, setPolling] = useState(false);
+  const [stillSettlingAttemptId, setStillSettlingAttemptId] = useState<string | null>(null);
+  const [assignmentWarning, setAssignmentWarning] = useState<TaskAssignmentWarningView | null>(null);
+  const [retryAgentId, setRetryAgentId] = useState("");
   const [submitError, setSubmitError] = useState<string | null>(null);
 
   const pollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -140,6 +146,9 @@ export function CloneTaskForm({ open, onClose, sourceTask, habitatId }: CloneTas
     setOutcome(null);
     setValidationErrors(null);
     setPolling(false);
+    setStillSettlingAttemptId(null);
+    setAssignmentWarning(null);
+    setRetryAgentId("");
     setSubmitError(null);
     stopPolling();
     if (fetchAbortRef.current) {
@@ -247,6 +256,41 @@ export function CloneTaskForm({ open, onClose, sourceTask, habitatId }: CloneTas
     invalidateAfterSuccess(missionId);
   }
 
+  function showAssignmentWarning(warning: TaskAssignmentWarningView) {
+    stopPolling();
+    setPolling(false);
+    setStillSettlingAttemptId(null);
+    setAssignmentWarning(warning);
+    invalidateAfterSuccess(targetMissionId);
+    notify.success(`Task "${title.trim() || "cloned task"}" cloned, but assignment needs attention`);
+  }
+
+  async function retryAssignment() {
+    if (!assignmentWarning || !retryAgentId) return;
+    setSubmitting(true);
+    setSubmitError(null);
+    try {
+      const result = await taskPublicationsApi.retryAssignment(
+        assignmentWarning.taskId,
+        retryAgentId,
+      );
+      invalidateAfterSuccess(targetMissionId);
+      notify.success(
+        result.outcome === "assigned"
+          ? `Task "${title.trim() || "cloned task"}" assigned`
+          : `Task "${title.trim() || "cloned task"}" is already assigned`,
+      );
+      resetDialog();
+      onClose();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Failed to retry assignment";
+      setSubmitError(message);
+      notify.error(message);
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
   function schedulePoll(attemptId: string) {
     if (pollTimerRef.current) clearTimeout(pollTimerRef.current);
     pollTimerRef.current = setTimeout(() => void runPoll(attemptId), POLL_INTERVAL_MS);
@@ -256,14 +300,26 @@ export function CloneTaskForm({ open, onClose, sourceTask, habitatId }: CloneTas
     if (pollDeadlineRef.current !== null && Date.now() > pollDeadlineRef.current) {
       stopPolling();
       setPolling(false);
-      setSubmitError(
-        "Publication is taking longer than expected. The attempt is still tracked; refresh the board to see the cloned task.",
-      );
+      setStillSettlingAttemptId(attemptId);
       return;
     }
     try {
       const status = await taskPublicationsApi.getTaskCreationAttempt(attemptId);
-      if (status.state === "created" || status.state === "created_unassigned") {
+      if (status.state === "created_unassigned") {
+        const failure = readAssignmentFailure(status) ?? {
+          reason: status.terminalOutcome ?? "assignment_failed",
+        };
+        const taskId = status.committedTaskId;
+        if (!taskId) {
+          stopPolling();
+          setPolling(false);
+          setSubmitError("Cloned task committed without an assignment, but its task id is unavailable.");
+          return;
+        }
+        showAssignmentWarning({ taskId, failure });
+        return;
+      }
+      if (status.state === "created") {
         stopPolling();
         setPolling(false);
         closeOnSuccess(title.trim() || "cloned task", targetMissionId);
@@ -276,6 +332,7 @@ export function CloneTaskForm({ open, onClose, sourceTask, habitatId }: CloneTas
       ) {
         stopPolling();
         setPolling(false);
+        setAttemptKey(null);
         setSubmitError(
           status.state === "vetoed"
             ? "Governance refused the clone during recovery."
@@ -294,11 +351,22 @@ export function CloneTaskForm({ open, onClose, sourceTask, habitatId }: CloneTas
     }
   }
 
+  function refreshPublicationStatus() {
+    if (!stillSettlingAttemptId) return;
+    const attemptId = stillSettlingAttemptId;
+    setStillSettlingAttemptId(null);
+    setPolling(true);
+    pollDeadlineRef.current = Date.now() + POLL_TIMEOUT_MS;
+    void runPoll(attemptId);
+  }
+
   function handlePublicationOutcome(parsed: TaskPublicationOutcomeView, finalMissionId: string) {
     switch (parsed.outcome) {
       case "created": {
         if ("recovering" in parsed && parsed.recovering) {
           setOutcome(parsed);
+          setStillSettlingAttemptId(null);
+          setAssignmentWarning(null);
           setPolling(true);
           pollDeadlineRef.current = Date.now() + POLL_TIMEOUT_MS;
           schedulePoll(parsed.attemptId);
@@ -308,6 +376,11 @@ export function CloneTaskForm({ open, onClose, sourceTask, habitatId }: CloneTas
         return;
       }
       case "replayed": {
+        if (parsed.taskId && parsed.assignmentFailure) {
+          setOutcome(parsed);
+          showAssignmentWarning({ taskId: parsed.taskId, failure: parsed.assignmentFailure });
+          return;
+        }
         if (parsed.taskId) {
           closeOnSuccess(title.trim() || "cloned task", finalMissionId);
           return;
@@ -330,6 +403,7 @@ export function CloneTaskForm({ open, onClose, sourceTask, habitatId }: CloneTas
       }
       case "rejected_validation": {
         setValidationErrors(parsed.errors);
+        setAttemptKey(null);
         setOutcome(parsed);
         return;
       }
@@ -356,7 +430,6 @@ export function CloneTaskForm({ open, onClose, sourceTask, habitatId }: CloneTas
             ? "Guard drift detected — please retry."
             : `Governance denied: ${parsed.reason}`,
         );
-        setAttemptKey(null);
         setOutcome(parsed);
         return;
       }
@@ -413,6 +486,9 @@ export function CloneTaskForm({ open, onClose, sourceTask, habitatId }: CloneTas
     setOutcome(null);
     setValidationErrors(null);
     setPolling(false);
+    setStillSettlingAttemptId(null);
+    setAssignmentWarning(null);
+    setRetryAgentId("");
     stopPolling();
 
     const key = attemptKey ?? generateAttemptKey();
@@ -689,6 +765,71 @@ export function CloneTaskForm({ open, onClose, sourceTask, habitatId }: CloneTas
                   </div>
                 )}
 
+                {stillSettlingAttemptId && (
+                  <div
+                    className="p-3 bg-muted border border-border rounded text-sm"
+                    data-testid="still-settling-status"
+                  >
+                    <div className="font-medium">Publication is still settling</div>
+                    <div className="mt-1 text-muted-foreground">
+                      The committed clone attempt remains valid. You can check again without
+                      creating another task or changing the attempt key.
+                    </div>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="mt-3"
+                      onClick={refreshPublicationStatus}
+                      data-testid="refresh-publication-status"
+                    >
+                      Check again
+                    </Button>
+                  </div>
+                )}
+
+                {assignmentWarning && (
+                  <div
+                    className="p-3 bg-amber-100 dark:bg-amber-900/20 border border-amber-300 dark:border-amber-700 rounded text-sm"
+                    data-testid="assignment-warning"
+                  >
+                    <div className="font-medium text-amber-900 dark:text-amber-100">
+                      Task cloned; assignment needs attention
+                    </div>
+                    <div className="mt-1 text-amber-800 dark:text-amber-200">
+                      Assignment failed: {assignmentWarning.failure.reason}
+                      {assignmentWarning.failure.category
+                        ? ` (${assignmentWarning.failure.category})`
+                        : ""}
+                    </div>
+                    <div className="mt-3 flex gap-2">
+                      <select
+                        value={retryAgentId}
+                        onChange={(e) => setRetryAgentId(e.target.value)}
+                        className="min-w-0 flex-1 rounded border border-input bg-background px-3 py-2 text-sm"
+                        aria-label="Agent for assignment retry"
+                      >
+                        <option value="">Choose an agent</option>
+                        {agents.map((agent) => (
+                          <option key={agent.id} value={agent.id}>
+                            {agent.name}
+                          </option>
+                        ))}
+                      </select>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        onClick={() => void retryAssignment()}
+                        loading={submitting}
+                        disabled={submitting || !retryAgentId}
+                        data-testid="retry-assignment"
+                      >
+                        Retry assignment
+                      </Button>
+                    </div>
+                  </div>
+                )}
+
                 {/* Generic submit error. */}
                 {submitError && !validationErrors && (
                   <div
@@ -721,7 +862,15 @@ export function CloneTaskForm({ open, onClose, sourceTask, habitatId }: CloneTas
             <Button
               type="submit"
               loading={submitting || polling}
-              disabled={submitting || polling || !title.trim() || !targetMissionId || !hasFetched}
+              disabled={
+                submitting ||
+                polling ||
+                !!stillSettlingAttemptId ||
+                !!assignmentWarning ||
+                !title.trim() ||
+                !targetMissionId ||
+                !hasFetched
+              }
             >
               Publish clone
             </Button>

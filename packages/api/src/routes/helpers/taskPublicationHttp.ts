@@ -18,7 +18,7 @@
  *       `replayed`                      → 200 OK (idempotent retry — the
  *                                         stored terminal outcome).
  *       `rejected_validation`           → 422 Unprocessable Entity.
- *       `vetoed`                        → 409 Conflict (governance refusal).
+ *       `vetoed`                        → 403 Forbidden (governance refusal).
  *       `rejected_fingerprint`          → 409 Conflict (corrected payload
  *                                         needs a new key).
  *       `guard_mismatch` / `governance_denied` → 503 Service Unavailable
@@ -125,7 +125,7 @@ export function publicationResultToHttpResponse(
     }
     case "vetoed": {
       return {
-        statusCode: 409,
+        statusCode: 403,
         body: {
           outcome: "vetoed",
           attemptId: result.attemptId,

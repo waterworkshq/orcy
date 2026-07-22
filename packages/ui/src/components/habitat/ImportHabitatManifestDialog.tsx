@@ -163,12 +163,6 @@ export function ImportHabitatManifestDialog({
   const [legacyOutcome, setLegacyOutcome] = useState<LegacyImportResponse | null>(null);
   const [submitError, setSubmitError] = useState<string | null>(null);
 
-  // True when v3 is in a non-terminal state and the UI is showing the polling
-  // card. The M3 202 path does NOT include a polling endpoint; the card is
-  // a degraded UX (status text only) until the M3 follow-up ships `GET
-  // /import-attempts/:id` — flagged in M4 findings.
-  const [polling, setPolling] = useState(false);
-
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // --- Reset on open ------------------------------------------------------
@@ -189,7 +183,6 @@ export function ImportHabitatManifestDialog({
       setV3Outcome(null);
       setLegacyOutcome(null);
       setSubmitError(null);
-      setPolling(false);
     }
   }, [open, initialMode]);
 
@@ -280,11 +273,6 @@ export function ImportHabitatManifestDialog({
 
       if (parsed_.kind === "v3") {
         setV3Outcome(parsed_.outcome);
-        // Handle the 202 `already_publishing` branch by entering polling
-        // mode (degraded UX — no polling endpoint shipped by M3).
-        if (parsed_.outcome.outcome === "already_publishing") {
-          setPolling(true);
-        }
       } else if (parsed_.kind === "legacy") {
         setLegacyOutcome(parsed_.body);
       } else {
@@ -304,9 +292,6 @@ export function ImportHabitatManifestDialog({
         const recovered = parseImportApiError(err);
         if (recovered?.kind === "v3") {
           setV3Outcome(recovered.outcome);
-          if (recovered.outcome.outcome === "already_publishing") {
-            setPolling(true);
-          }
           return;
         }
         if (recovered?.kind === "legacy") {
@@ -331,7 +316,6 @@ export function ImportHabitatManifestDialog({
     setV3Outcome(null);
     setLegacyOutcome(null);
     setSubmitError(null);
-    setPolling(false);
     onClose();
   };
 
@@ -656,13 +640,20 @@ export function ImportHabitatManifestDialog({
                 Import is currently publishing
               </div>
               <div className="text-sm text-blue-800 dark:text-blue-200 mt-1">
-                Another worker holds the lease. The dialog is checking the publication status…
-                {polling && (
-                  <span className="block mt-1 text-xs">
-                    (Polling endpoint not yet shipped — please refresh once a moment passes.)
-                  </span>
-                )}
+                Another worker holds the lease. Re-submit the same manifest to check the durable
+                attempt; the request is idempotent and will not create a duplicate import.
               </div>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => void handleImport()}
+                loading={submitting}
+                disabled={submitting}
+                className="mt-3"
+                data-testid="check-import-status"
+              >
+                Check status
+              </Button>
             </div>
           </div>
         );

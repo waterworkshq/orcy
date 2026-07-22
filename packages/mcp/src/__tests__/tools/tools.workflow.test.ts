@@ -35,7 +35,12 @@ describe('Full MCP workflow - create feature → create task → claim → start
       status: 'pending' as const, priority: 'high' as const,
       assignedAgentId: null, createdBy: agentId,
     };
-    client.createTaskInMission.mockResolvedValue({ task: createdTask });
+    client.publishTaskInMission.mockResolvedValue({
+      outcome: 'created',
+      attemptId: 'attempt-1',
+      taskId: createdTask.id,
+    });
+    client.getTask.mockResolvedValue({ task: createdTask });
 
     const taskRaw = await TASK_DISPATCH_HANDLER(client, {
       action: 'create-in-mission',

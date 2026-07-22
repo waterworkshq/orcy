@@ -27,7 +27,7 @@
  *     - `published` → 201 (mirrors the HTTP-level assertion).
  *     - `already_publishing` → 202 + `status:"publishing"`.
  *     - `guard_mismatch` → 409 + `fields`.
- *     - `vetoed` → 422 + ALL decisive vetoes.
+ *     - `vetoed` → 403 + ALL decisive vetoes.
  *     - `illegal_source_state` → 409 + `fromState`.
  *     - `not_found` → 404.
  *     - `replayed` → 200 + `terminal`.
@@ -866,7 +866,7 @@ describe("T10C M3 — publishImportOutcomeToHttpResponse (every PublishImportOut
     expect(body.fields).toEqual(["targetHabitatUpdatedAt"]);
   });
 
-  it("vetoed → 422 + ALL decisive vetoes", () => {
+  it("vetoed → 403 + ALL decisive vetoes", () => {
     const result: PublishImportOutcome = {
       outcome: "vetoed",
       importAttempt: { id: "ia-4" } as never,
@@ -888,7 +888,7 @@ describe("T10C M3 — publishImportOutcomeToHttpResponse (every PublishImportOut
       ],
     };
     const { statusCode, body } = publishImportOutcomeToHttpResponse(result);
-    expect(statusCode).toBe(422);
+    expect(statusCode).toBe(403);
     expect(body.outcome).toBe("vetoed");
     const vetoes = body.vetoes as unknown[];
     expect(vetoes).toHaveLength(2);

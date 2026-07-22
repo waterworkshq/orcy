@@ -33,6 +33,7 @@
 import { request } from "../transport.js";
 import type {
   ClonePreparationView,
+  TaskAssignmentFailureView,
   TaskCreationAttemptView,
   TaskPublicationOutcomeView,
 } from "../../types/index.js";
@@ -88,6 +89,11 @@ export interface PublishCloneInput extends PublicationWorkDefinition {
   assignment?: PublicationAssignmentInput;
   targetedAssignmentDeadline?: string;
 }
+
+/** Typed 2xx response from the post-publication assignment retry route. */
+export type RetryTaskAssignmentResponse =
+  | { outcome: "assigned"; taskId: string; assigneeId: string }
+  | { outcome: "lost"; taskId: string; currentAssignee: string | null };
 
 // ---------------------------------------------------------------------------
 // Parsed dispatch union (response-shape inspection)
@@ -152,7 +158,7 @@ export function parsePublishTaskResponse(
  *
  *  The transport's `request()` helper throws `ApiError` on any non-2xx
  *  response — but the publication routes intentionally return 422
- *  (rejected_validation) + 409 (vetoed, rejected_fingerprint) + 503
+ *  (rejected_validation) + 403 (vetoed) + 409 (rejected_fingerprint) + 503
  *  (guard_mismatch, governance_denied) WITH the closed-union body intact.
  *  Without this recovery, the dialog would render a generic error for every
  *  domain-value branch.
@@ -180,6 +186,20 @@ export function parseTaskPublicationsApiError(
   const body = (error as { body?: unknown }).body;
   if (body === undefined) return null;
   return parsePublishTaskResponse(status, body);
+}
+
+/** Read the assignment failure carried by a `created_unassigned` attempt. */
+export function readAssignmentFailure(
+  attempt: TaskCreationAttemptView,
+): TaskAssignmentFailureView | null {
+  const terminal = attempt.terminalResult;
+  if (!terminal || typeof terminal !== "object") return null;
+  const failure = terminal.assignmentFailure;
+  if (!failure || typeof failure !== "object") return null;
+  const reason = (failure as { reason?: unknown }).reason;
+  if (typeof reason !== "string" || reason.length === 0) return null;
+  const category = (failure as { category?: unknown }).category;
+  return typeof category === "string" ? { category, reason } : { reason };
 }
 
 // ---------------------------------------------------------------------------
@@ -269,5 +289,18 @@ export const taskPublicationsApi = {
     request<TaskCreationAttemptView>(
       `/task-creation-attempts/${encodeURIComponent(attemptId)}`,
       signal ? { signal } : {},
+    ),
+
+  /** Retry a targeted assignment after creation settled to `created_unassigned`. */
+  retryAssignment: (
+    taskId: string,
+    requestedAgentId: string,
+  ): Promise<RetryTaskAssignmentResponse> =>
+    request<RetryTaskAssignmentResponse>(
+      `/tasks/${encodeURIComponent(taskId)}/assignment-attempts`,
+      {
+        method: "POST",
+        body: JSON.stringify({ requestedAgentId }),
+      },
     ),
 };

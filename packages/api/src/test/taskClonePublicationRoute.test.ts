@@ -21,7 +21,7 @@
  *   (b) POST:
  *     1. Outcome mapping (each branch): created-recovering → 202 +
  *        `recovering:true`; terminal created → 201; replayed → 200;
- *        rejected_validation → 422 + errors; vetoed → 409;
+ *        rejected_validation → 422 + errors; vetoed → 403;
  *        rejected_fingerprint → 409; guard_mismatch / governance_denied →
  *        503.
  *     2. Edited values: posted title/subtasks override the source's
@@ -637,7 +637,7 @@ describe("T7P2 POST clone-publications — outcome mapping (mirrors T6 P2)", () 
     // for the UI to render per-field errors.
   });
 
-  it("vetoed → 409 with `veto` details preserved (interceptorKey, reason)", async () => {
+  it("vetoed → 403 with `veto` details preserved (interceptorKey, reason)", async () => {
     const { sourceId } = seedSourceTask();
 
     // Enroll a vetoing taskCreated interceptor for this habitat.
@@ -664,7 +664,7 @@ describe("T7P2 POST clone-publications — outcome mapping (mirrors T6 P2)", () 
       payload: basePayload({ title: "Will Be Vetoed" }),
     });
 
-    expect(res.statusCode).toBe(409);
+    expect(res.statusCode).toBe(403);
     const body = JSON.parse(res.body);
     expect(body.outcome).toBe("vetoed");
     expect(body.attemptId).toBeDefined();

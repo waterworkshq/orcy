@@ -9,7 +9,7 @@
  *
  *   1. Outcome mapping (each branch): created-recovering → 202 +
  *      `recovering:true`; terminal created → 201; replayed → 200;
- *      rejected_validation → 422 + errors; vetoed → 409; rejected_fingerprint
+ *      rejected_validation → 422 + errors; vetoed → 403; rejected_fingerprint
  *      → 409 (with the "corrected payload requires a new attempt key"
  *      message); guard_mismatch / governance_denied → 503.
  *   2. Attempt-key replay: same key + unchanged payload → 200 replay (no
@@ -303,7 +303,7 @@ describe("T6P2 outcome mapping — TaskCreationPublicationResult → HTTP", () =
     // surfaces ONLY for cases the schema accepts but the kernel rejects.
   });
 
-  it("vetoed → 409 with `veto` details preserved (interceptorKey, reason)", async () => {
+  it("vetoed → 403 with `veto` details preserved (interceptorKey, reason)", async () => {
     // Enroll a vetoing taskCreated interceptor for this habitat.
     await writePlugin(
       "veto-plugin-p2",
@@ -328,7 +328,7 @@ describe("T6P2 outcome mapping — TaskCreationPublicationResult → HTTP", () =
       payload: basePayload({ title: "Will Be Vetoed" }),
     });
 
-    expect(res.statusCode).toBe(409);
+    expect(res.statusCode).toBe(403);
     const body = JSON.parse(res.body);
     expect(body.outcome).toBe("vetoed");
     expect(body.attemptId).toBeDefined();

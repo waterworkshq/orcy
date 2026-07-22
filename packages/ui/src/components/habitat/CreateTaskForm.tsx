@@ -14,16 +14,21 @@ import { api } from "../../api/index.js";
 import {
   taskPublicationsApi,
   parsePublishTaskResponse,
+  readAssignmentFailure,
 } from "../../api/domains/taskPublications.js";
 import { ApiError } from "../../api/transport.js";
-import { useTemplates, useCreateTaskInMission } from "../../lib/useHabitatData.js";
+import { useAgents, useTemplates, useCreateTaskInMission } from "../../lib/useHabitatData.js";
 import {
   invalidateHabitatRepresentations,
   invalidateMissionRepresentations,
 } from "../../lib/habitatMutations.js";
 import { queryKeys } from "../../lib/queryKeys.js";
 import { notify } from "../../lib/toast.js";
-import type { TaskPublicationErrorView, TaskPublicationOutcomeView } from "../../types/index.js";
+import type {
+  TaskAssignmentWarningView,
+  TaskPublicationErrorView,
+  TaskPublicationOutcomeView,
+} from "../../types/index.js";
 import type { TaskPriority } from "../../types/index.js";
 
 /** Props for the CreateTaskForm dialog. */
@@ -44,10 +49,9 @@ interface CreateTaskFormProps {
  */
 const POLL_INTERVAL_MS = 1500;
 
-/** Attempt-key polling cap (ms) — bail out if the attempt is still non-
- *  terminal after this window. The cap matches the default assignment deadline
- *  upper bound so a stuck attempt surfaces as an error rather than spinning
- *  forever. */
+/** Attempt-key polling cap (ms) for one UI observation window. This is shorter
+ *  than the server assignment deadline; expiry leaves the attempt recoverable
+ *  and offers an explicit refresh instead of treating it as failed. */
 const POLL_TIMEOUT_MS = 60_000;
 
 /** Generate a client-side UUID. Uses `crypto.randomUUID()` when available
@@ -83,6 +87,7 @@ export function CreateTaskForm({ open, onClose, habitatId, missionId }: CreateTa
   const qc = useQueryClient();
   const { data: templatesData } = useTemplates(habitatId);
   const templates = templatesData?.templates ?? [];
+  const { data: agents = [] } = useAgents();
   // The legacy fallback reuses `useCreateTaskInMission` so its invalidation
   // hooks (mission task lists + habitat/mission representations) fire on
   // success — same surface the new path invalidates manually below.
@@ -110,6 +115,9 @@ export function CreateTaskForm({ open, onClose, habitatId, missionId }: CreateTa
     readonly TaskPublicationErrorView[] | null
   >(null);
   const [polling, setPolling] = useState(false);
+  const [stillSettlingAttemptId, setStillSettlingAttemptId] = useState<string | null>(null);
+  const [assignmentWarning, setAssignmentWarning] = useState<TaskAssignmentWarningView | null>(null);
+  const [retryAgentId, setRetryAgentId] = useState("");
   const [submitError, setSubmitError] = useState<string | null>(null);
 
   // Polling bookkeeping — held in refs so the interval closure stays fresh
@@ -139,6 +147,9 @@ export function CreateTaskForm({ open, onClose, habitatId, missionId }: CreateTa
       setOutcome(null);
       setValidationErrors(null);
       setPolling(false);
+      setStillSettlingAttemptId(null);
+      setAssignmentWarning(null);
+      setRetryAgentId("");
       setSubmitError(null);
       stopPolling();
     }
@@ -208,6 +219,9 @@ export function CreateTaskForm({ open, onClose, habitatId, missionId }: CreateTa
     setOutcome(null);
     setValidationErrors(null);
     setPolling(false);
+    setStillSettlingAttemptId(null);
+    setAssignmentWarning(null);
+    setRetryAgentId("");
     setSubmitError(null);
     stopPolling();
   }
@@ -230,6 +244,42 @@ export function CreateTaskForm({ open, onClose, habitatId, missionId }: CreateTa
     onClose();
   }
 
+  function showAssignmentWarning(warning: TaskAssignmentWarningView) {
+    stopPolling();
+    setPolling(false);
+    setStillSettlingAttemptId(null);
+    setAssignmentWarning(warning);
+    invalidateAfterSuccess();
+    recordTemplateUsage(selectedTemplateId);
+    notify.success(`Task "${title.trim()}" created, but assignment needs attention`);
+  }
+
+  async function retryAssignment() {
+    if (!assignmentWarning || !retryAgentId) return;
+    setSubmitting(true);
+    setSubmitError(null);
+    try {
+      const result = await taskPublicationsApi.retryAssignment(
+        assignmentWarning.taskId,
+        retryAgentId,
+      );
+      invalidateAfterSuccess();
+      notify.success(
+        result.outcome === "assigned"
+          ? `Task "${title.trim()}" assigned`
+          : `Task "${title.trim()}" is already assigned`,
+      );
+      resetForm();
+      onClose();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Failed to retry assignment";
+      setSubmitError(message);
+      notify.error(message);
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
   /**
    * Walk the typed outcome after a 2xx publish response.
    *
@@ -239,7 +289,7 @@ export function CreateTaskForm({ open, onClose, habitatId, missionId }: CreateTa
    *   - `"replayed"`                     → 200; surface the stored terminal
    *     verbatim — narrow on the wrapped `taskId` field.
    *   - `"rejected_validation"`          → 422; render per-field errors.
-   *   - `"vetoed"` / `"rejected_fingerprint"` → 409; render governance refusal.
+   *   - `"vetoed"` → 403; `"rejected_fingerprint"` → 409; render refusal.
    *   - `"guard_mismatch"` / `"governance_denied"` → 503; the attempt is
    *     resumable under the same key, but for an interactive dialog we
    *     surface the refusal and let the user retry manually.
@@ -251,6 +301,8 @@ export function CreateTaskForm({ open, onClose, habitatId, missionId }: CreateTa
           // 202 path — start polling. The committed task id is captured in
           // `parsed.taskId`; the poll resolves the terminal state.
           setOutcome(parsed);
+          setStillSettlingAttemptId(null);
+          setAssignmentWarning(null);
           setPolling(true);
           pollDeadlineRef.current = Date.now() + POLL_TIMEOUT_MS;
           schedulePoll(parsed.attemptId, parsed.taskId);
@@ -268,6 +320,11 @@ export function CreateTaskForm({ open, onClose, habitatId, missionId }: CreateTa
         // HTTP mapper's `...terminalRest` spread). Close on success when a
         // Task committed; otherwise surface the stored terminal so the user
         // can see WHY the stored attempt failed.
+        if (parsed.taskId && parsed.assignmentFailure) {
+          setOutcome(parsed);
+          showAssignmentWarning({ taskId: parsed.taskId, failure: parsed.assignmentFailure });
+          return;
+        }
         if (parsed.taskId) {
           const label = title.trim();
           invalidateAfterSuccess();
@@ -293,6 +350,7 @@ export function CreateTaskForm({ open, onClose, habitatId, missionId }: CreateTa
       }
       case "rejected_validation": {
         setValidationErrors(parsed.errors);
+        setAttemptKey(null);
         setOutcome(parsed);
         return;
       }
@@ -321,7 +379,6 @@ export function CreateTaskForm({ open, onClose, habitatId, missionId }: CreateTa
             ? "Guard drift detected — please retry."
             : `Governance denied: ${parsed.reason}`,
         );
-        setAttemptKey(null);
         setOutcome(parsed);
         return;
       }
@@ -337,14 +394,26 @@ export function CreateTaskForm({ open, onClose, habitatId, missionId }: CreateTa
     if (pollDeadlineRef.current !== null && Date.now() > pollDeadlineRef.current) {
       stopPolling();
       setPolling(false);
-      setSubmitError(
-        "Publication is taking longer than expected. The attempt is still tracked; refresh the board to see the new task.",
-      );
+      setStillSettlingAttemptId(attemptId);
       return;
     }
     try {
       const status = await taskPublicationsApi.getTaskCreationAttempt(attemptId);
-      if (status.state === "created" || status.state === "created_unassigned") {
+      if (status.state === "created_unassigned") {
+        const failure = readAssignmentFailure(status) ?? {
+          reason: status.terminalOutcome ?? "assignment_failed",
+        };
+        const taskId = status.committedTaskId;
+        if (!taskId) {
+          stopPolling();
+          setPolling(false);
+          setSubmitError("Task committed without an assignment, but its task id is unavailable.");
+          return;
+        }
+        showAssignmentWarning({ taskId, failure });
+        return;
+      }
+      if (status.state === "created") {
         stopPolling();
         setPolling(false);
         const label = title.trim();
@@ -359,6 +428,7 @@ export function CreateTaskForm({ open, onClose, habitatId, missionId }: CreateTa
       ) {
         stopPolling();
         setPolling(false);
+        setAttemptKey(null);
         setSubmitError(
           status.state === "vetoed"
             ? "Governance refused the task during recovery."
@@ -375,6 +445,15 @@ export function CreateTaskForm({ open, onClose, habitatId, missionId }: CreateTa
       setSubmitError(message);
       notify.error(message);
     }
+  }
+
+  function refreshPublicationStatus() {
+    if (!stillSettlingAttemptId) return;
+    const attemptId = stillSettlingAttemptId;
+    setStillSettlingAttemptId(null);
+    setPolling(true);
+    pollDeadlineRef.current = Date.now() + POLL_TIMEOUT_MS;
+    void runPoll(attemptId);
   }
 
   async function publishViaNewRoute(key: string) {
@@ -425,6 +504,9 @@ export function CreateTaskForm({ open, onClose, habitatId, missionId }: CreateTa
     setOutcome(null);
     setValidationErrors(null);
     setPolling(false);
+    setStillSettlingAttemptId(null);
+    setAssignmentWarning(null);
+    setRetryAgentId("");
     stopPolling();
 
     const key = attemptKey ?? generateAttemptKey();
@@ -636,6 +718,71 @@ export function CreateTaskForm({ open, onClose, habitatId, missionId }: CreateTa
               </div>
             )}
 
+            {stillSettlingAttemptId && (
+              <div
+                className="p-3 bg-muted border border-border rounded text-sm"
+                data-testid="still-settling-status"
+              >
+                <div className="font-medium">Publication is still settling</div>
+                <div className="mt-1 text-muted-foreground">
+                  The committed attempt remains valid. You can check again without creating a new
+                  task or changing the attempt key.
+                </div>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="mt-3"
+                  onClick={refreshPublicationStatus}
+                  data-testid="refresh-publication-status"
+                >
+                  Check again
+                </Button>
+              </div>
+            )}
+
+            {assignmentWarning && (
+              <div
+                className="p-3 bg-amber-100 dark:bg-amber-900/20 border border-amber-300 dark:border-amber-700 rounded text-sm"
+                data-testid="assignment-warning"
+              >
+                <div className="font-medium text-amber-900 dark:text-amber-100">
+                  Task created; assignment needs attention
+                </div>
+                <div className="mt-1 text-amber-800 dark:text-amber-200">
+                  Assignment failed: {assignmentWarning.failure.reason}
+                  {assignmentWarning.failure.category
+                    ? ` (${assignmentWarning.failure.category})`
+                    : ""}
+                </div>
+                <div className="mt-3 flex gap-2">
+                  <select
+                    value={retryAgentId}
+                    onChange={(e) => setRetryAgentId(e.target.value)}
+                    className="min-w-0 flex-1 rounded border border-input bg-background px-3 py-2 text-sm"
+                    aria-label="Agent for assignment retry"
+                  >
+                    <option value="">Choose an agent</option>
+                    {agents.map((agent) => (
+                      <option key={agent.id} value={agent.id}>
+                        {agent.name}
+                      </option>
+                    ))}
+                  </select>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => void retryAssignment()}
+                    loading={submitting}
+                    disabled={submitting || !retryAgentId}
+                    data-testid="retry-assignment"
+                  >
+                    Retry assignment
+                  </Button>
+                </div>
+              </div>
+            )}
+
             {/* Generic submit error — used for vetoes, fingerprint rejections,
                 guard mismatches, and transport failures. */}
             {submitError && !validationErrors && (
@@ -656,7 +803,13 @@ export function CreateTaskForm({ open, onClose, habitatId, missionId }: CreateTa
           <Button
             type="submit"
             loading={submitting || polling}
-            disabled={submitting || polling || !title.trim()}
+            disabled={
+              submitting ||
+              polling ||
+              !!stillSettlingAttemptId ||
+              !!assignmentWarning ||
+              !title.trim()
+            }
           >
             Create Task
           </Button>

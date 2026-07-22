@@ -172,7 +172,7 @@ describe("scheduledOccurrenceRepairRoutes — handler outcome mapping", () => {
     );
   });
 
-  it("`retry_failed_vetoed` → 409 + the veto details", async () => {
+  it("`retry_failed_vetoed` → 403 + typed `vetoed` details", async () => {
     mockRepairScheduledOccurrence.mockReturnValue({
       outcome: "retry_failed_vetoed",
       retryNumber: 1,
@@ -186,10 +186,10 @@ describe("scheduledOccurrenceRepairRoutes — handler outcome mapping", () => {
       { params: { id: "occ-1" }, user: { id: "admin-1", role: "admin" } },
       reply,
     );
-    expect(reply.code).toHaveBeenCalledWith(409);
+    expect(reply.code).toHaveBeenCalledWith(403);
     expect(reply.send).toHaveBeenCalledWith(
       expect.objectContaining({
-        outcome: "retry_failed_vetoed",
+        outcome: "vetoed",
         vetoes: expect.any(Array),
       }),
     );

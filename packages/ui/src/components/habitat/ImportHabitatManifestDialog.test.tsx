@@ -17,8 +17,6 @@ vi.mock("../../api/domains/imports.js", async () => {
     ...actual,
     importsApi: {
       publish: (...args: unknown[]) => mockPublish(...args),
-      getAttempt: vi.fn(),
-      listAttempts: vi.fn(),
     },
   };
 });
@@ -115,6 +113,18 @@ const v3VetoedResponse = {
       },
     },
   ],
+};
+
+const v3AlreadyPublishingResponse = {
+  outcome: "already_publishing",
+  importAttempt: {
+    ...v3PublishedResponse.importAttempt,
+    id: "imp-publishing",
+    habitatId: null,
+    state: "publishing",
+    publishedAt: null,
+  },
+  status: "publishing",
 };
 
 const legacySuccessResponse = {
@@ -263,6 +273,23 @@ describe("ImportHabitatManifestDialog", () => {
     expect(screen.getByText(/No domain-expert/)).toBeTruthy();
     expect(screen.getByTestId("veto-task-src-2")).toBeTruthy();
     expect(screen.getByText(/Add feature X/)).toBeTruthy();
+  });
+
+  it("checks already_publishing by idempotently re-submitting the same manifest", async () => {
+    mockPublish
+      .mockResolvedValueOnce(v3AlreadyPublishingResponse)
+      .mockResolvedValueOnce(v3PublishedResponse);
+    renderDialog();
+    await loadFixture(v3Manifest);
+
+    fireEvent.click(screen.getByTestId("import-btn"));
+    await waitFor(() => expect(screen.getByTestId("outcome-already-publishing")).toBeTruthy());
+    expect(screen.queryByText(/Polling endpoint/)).toBeNull();
+
+    fireEvent.click(screen.getByTestId("check-import-status"));
+    await waitFor(() => expect(screen.getByTestId("outcome-published")).toBeTruthy());
+    expect(mockPublish).toHaveBeenCalledTimes(2);
+    expect(mockPublish.mock.calls[1]).toEqual(mockPublish.mock.calls[0]);
   });
 
   // --- Legacy fallback: response shape dispatch --------------------------
@@ -423,7 +450,7 @@ describe("ImportHabitatManifestDialog", () => {
     fetchSpy.mockRestore();
   });
 
-  it("recovers v3 outcome body from ApiError thrown by transport (vetoed → 422)", async () => {
+  it("recovers v3 outcome body from ApiError thrown by transport (vetoed → 403)", async () => {
     vi.spyOn(globalThis, "fetch").mockImplementation((async () => {
       const body = {
         outcome: "vetoed",
@@ -450,8 +477,8 @@ describe("ImportHabitatManifestDialog", () => {
         ],
       };
       return new Response(JSON.stringify(body), {
-        status: 422,
-        statusText: "Unprocessable Entity",
+        status: 403,
+        statusText: "Forbidden",
         headers: { "Content-Type": "application/json" },
       });
     }) as typeof fetch);

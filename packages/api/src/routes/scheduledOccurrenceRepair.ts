@@ -45,7 +45,7 @@
  *   | outcome                         | HTTP | rationale                              |
  *   |---------------------------------|------|----------------------------------------|
  *   | `repaired`                      | 201  | A new Mission was committed.           |
- *   | `retry_failed_vetoed`           | 409  | Governance conflict (policy refusal).  |
+ *   | `vetoed`                        | 403  | Governance refusal (typed response).   |
  *   | `retry_failed_validation`       | 422  | The rendered payload is invalid.       |
  *   | `retry_failed_schedule_missing` | 409  | The schedule is gone (data anomaly).   |
  *   | `retry_schedule_guard_mismatch` | 409  | Resumable — schedule edited mid-tx;    |
@@ -102,9 +102,9 @@ function repairOutcomeToHttpResponse(
       };
     case "retry_failed_vetoed":
       return {
-        statusCode: 409,
+        statusCode: 403,
         body: {
-          outcome: "retry_failed_vetoed",
+          outcome: "vetoed",
           retryNumber: result.retryNumber,
           occurrence: result.occurrence,
           vetoes: result.vetoes,

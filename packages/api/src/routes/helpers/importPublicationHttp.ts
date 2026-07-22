@@ -44,7 +44,7 @@
  *                                          `updatedAt` drifted mid-publish;
  *                                          the tx rolled back, the attempt
  *                                          stays `publishing`).
- *     `vetoed`                         → 422 (terminal governance refusal —
+ *     `vetoed`                         → 403 (terminal governance refusal —
  *                                          NOTHING committed; ALL decisive
  *                                          vetoes carried).
  *     `illegal_source_state`           → 409 (terminal-state refusal — the
@@ -179,7 +179,7 @@ export function publishImportOutcomeToHttpResponse(result: PublishImportOutcome)
       // attempt terminalized as `rejected`. EVERY decisive Task-level
       // veto is carried (T9A-04 all-decisive-vetoes discipline).
       return {
-        statusCode: 422,
+        statusCode: 403,
         body: {
           outcome: "vetoed",
           importAttempt: result.importAttempt,

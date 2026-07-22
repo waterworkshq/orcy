@@ -18,13 +18,13 @@
  * `packages/ui/src/types/index.ts` per MEMORY.md "view-model types live in
  * packages/ui/src/types/index.ts".
  *
- * Note: `getImportAttempt` + `listImportAttempts` are stubbed pending the M3
- * follow-up that ships the GET endpoints. They surface 404 responses as
- * typed "not_yet_available" errors so the UI can degrade gracefully.
+ * A concurrent `already_publishing` response is checked by submitting the
+ * same manifest again. The server's attempt identity makes that re-submit
+ * idempotent; no import-attempt GET surface exists.
  */
 import { request } from "../transport.js";
 import type {
-  ImportAttemptView,
+  ImportOutcomeView,
   PrepareImportOutcomeView,
   PublishImportOutcomeView,
 } from "../../types/index.js";
@@ -60,29 +60,6 @@ export const importsApi = {
       body: JSON.stringify(input.manifest),
     });
   },
-
-  /**
-   * Poll the import-attempt state. Not yet shipped by the M3 route surface
-   * (M3 returned 202 with `{outcome:"already_publishing", importAttempt, status}`
-   * and the UI surfaces the attempt id; the GET endpoint is M3-followup work).
-   *
-   * If the endpoint is unavailable, the API returns 404 — surfaced as an
-   * `unknown` outcome so the UI can render the 202 body directly without
-   * polling.
-   */
-  getAttempt: (id: string, signal?: AbortSignal): Promise<ImportAttemptView> =>
-    request<ImportAttemptView>(`/import-attempts/${encodeURIComponent(id)}`, { signal }),
-
-  /**
-   * Historical import-attempts list for a habitat. Not yet shipped by the
-   * M3 route surface (deferred to T11 per the M4 grounding). Same degraded
-   * UX as `getAttempt` — caller handles 404 by rendering an empty history.
-   */
-  listAttempts: (habitatId: string, signal?: AbortSignal): Promise<ImportAttemptView[]> =>
-    request<{ attempts: ImportAttemptView[] }>(
-      `/habitats/${encodeURIComponent(habitatId)}/import-attempts`,
-      { signal },
-    ).then((r) => r.attempts),
 };
 
 /**
@@ -90,7 +67,7 @@ export const importsApi = {
  * The closed union covers every branch the kernel can emit per
  * `routes/helpers/importPublicationHttp.ts` + `services/importManifest/*`.
  */
-export function isV3ImportResponse(body: unknown): body is PublishImportOutcomeView {
+export function isV3ImportResponse(body: unknown): body is ImportOutcomeView {
   if (typeof body !== "object" || body === null) return false;
   const outcome = (body as { outcome?: unknown }).outcome;
   return (
@@ -179,8 +156,8 @@ export function parsePublishImportResponse(
  *
  * The transport's `request()` helper (packages/ui/src/api/transport.ts)
  * throws `ApiError` on any non-2xx response — but the v3 import routes
- * intentionally return 422 (rejected_preflight, vetoed) + 409 (guard_mismatch,
- * illegal_source_state) + 404 (not_found) with the closed-union outcome body
+ * intentionally return 422 (rejected_preflight) + 403 (vetoed) + 409
+ * (guard_mismatch, illegal_source_state) + 404 (not_found) with the closed-union outcome body
  * intact. Without this recovery, the dialog would render a generic
  * "submit error" for every M4 value-prop branch.
  *

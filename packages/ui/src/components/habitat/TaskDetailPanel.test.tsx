@@ -46,6 +46,7 @@ vi.mock("@tanstack/react-query", () => ({
 // ── Query keys mock ──
 vi.mock("../../lib/queryKeys.js", () => ({
   queryKeys: {
+    agents: { list: vi.fn(() => ["agents"]) },
     tasks: { quality: vi.fn(() => ["quality"]) },
     missions: { tasks: vi.fn(() => ["mission-tasks"]) },
   },
@@ -53,7 +54,10 @@ vi.mock("../../lib/queryKeys.js", () => ({
 
 // ── API mock ──
 vi.mock("../../api/index.js", () => ({
-  api: { qualityGates: { getReport: vi.fn(), updateItem: vi.fn() } },
+  api: {
+    agents: { list: vi.fn() },
+    qualityGates: { getReport: vi.fn(), updateItem: vi.fn() },
+  },
 }));
 
 // ── Badge mock ──

@@ -247,15 +247,39 @@ export async function missionCreateTask(
     estimatedMinutes?: number;
   }
 ) {
-  const result = await client.createTaskInMission(args.missionId, {
-    title: args.title,
-    description: args.description,
-    priority: args.priority,
-    requiredDomain: args.requiredDomain,
-    requiredCapabilities: args.requiredCapabilities,
-    estimatedMinutes: args.estimatedMinutes,
-  });
-  return { task: result.task };
+  let publication: TaskPublicationOutcome;
+  try {
+    publication = await client.publishTaskInMission(args.missionId, {
+      attemptKey: randomUUID(),
+      title: args.title,
+      ...(args.description !== undefined && { description: args.description }),
+      ...(args.priority !== undefined && { priority: args.priority }),
+      ...(args.requiredDomain !== undefined && { requiredDomain: args.requiredDomain }),
+      ...(args.requiredCapabilities !== undefined && {
+        requiredCapabilities: args.requiredCapabilities,
+      }),
+      ...(args.estimatedMinutes !== undefined && { estimatedMinutes: args.estimatedMinutes }),
+    });
+  } catch (err) {
+    if (err instanceof ApiClientError && err.status === 404) {
+      const legacy = await client.createTaskInMission(args.missionId, {
+        title: args.title,
+        description: args.description,
+        priority: args.priority,
+        requiredDomain: args.requiredDomain,
+        requiredCapabilities: args.requiredCapabilities,
+        estimatedMinutes: args.estimatedMinutes,
+      });
+      return { task: legacy.task };
+    }
+    throw err;
+  }
+  if (publication.taskId === undefined) {
+    throw new Error(
+      `Task publication ${publication.attemptId} completed without a task id`,
+    );
+  }
+  return client.getTask(publication.taskId);
 }
 
 /**

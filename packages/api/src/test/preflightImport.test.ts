@@ -170,6 +170,12 @@ function v3Manifest(opts?: {
     columns: { disposition: "replace", data: columns },
     missions: { disposition: "replace", data: missions },
     tasks: { disposition: "replace", data: tasks },
+    ...(opts?.mode === "replacement"
+      ? {
+          subtasks: { disposition: "replace" as const, data: [] },
+          dependencies: { disposition: "replace" as const, data: [] },
+        }
+      : {}),
     ...opts?.domains,
   };
   if (comments.length > 0) {
@@ -1341,6 +1347,88 @@ describe("runPreflightPipeline — direct pipeline entry", () => {
       false, // wasLegacyInput=false (v3 native, NOT legacy)
     );
     // No authority errors — the manifest is valid + the flag is honored.
+    expect(result.outcome).toBe("prepared");
+  });
+
+  it.each([
+    ["columns", "missions", ["replace", "reset"]],
+    ["missions", "tasks", ["replace", "reset"]],
+    ["tasks", "subtasks", ["replace"]],
+    ["tasks", "dependencies", ["replace"]],
+  ] as const)(
+    "rejects destructive %s dispositions while the dependent %s domain is preserved",
+    (parentDomain, childDomain, destructiveDispositions) => {
+      const habitat = habitatRepo.createHabitat({ name: "Disposition Closure Target" });
+
+      for (const parentDisposition of destructiveDispositions) {
+        const manifest = v3Manifest({
+          mode: "replacement",
+          domains: {
+            columns: {
+              disposition: parentDomain === "columns" ? parentDisposition : "preserve",
+              data: [],
+            },
+            missions: {
+              disposition: parentDomain === "missions" ? parentDisposition : "preserve",
+              data: [],
+            },
+            tasks: {
+              disposition: parentDomain === "tasks" ? parentDisposition : "preserve",
+              data: [],
+            },
+            subtasks: { disposition: "preserve", data: [] },
+            dependencies: { disposition: "preserve", data: [] },
+          },
+        });
+
+        const result = runPreflightPipeline(
+          manifest,
+          habitat.id,
+          "replacement",
+          { type: "human", id: "user-1" },
+          "rest_api",
+          "fake-attempt-id",
+          [],
+          false,
+        );
+
+        expect(result.outcome).toBe("rejected");
+        if (result.outcome !== "rejected") continue;
+        expect(result.errors).toContainEqual(
+          expect.objectContaining({
+            domain: childDomain,
+            kind: "incompatible_disposition",
+            fieldPath: ["domains", childDomain, "disposition"],
+          }),
+        );
+      }
+    },
+  );
+
+  it("allows tasks:reset with preserved subtasks and dependencies because Tasks remain in place", () => {
+    const habitat = habitatRepo.createHabitat({ name: "Task Reset Target" });
+    const manifest = v3Manifest({
+      mode: "replacement",
+      domains: {
+        columns: { disposition: "preserve", data: [] },
+        missions: { disposition: "preserve", data: [] },
+        tasks: { disposition: "reset", data: [] },
+        subtasks: { disposition: "preserve", data: [] },
+        dependencies: { disposition: "preserve", data: [] },
+      },
+    });
+
+    const result = runPreflightPipeline(
+      manifest,
+      habitat.id,
+      "replacement",
+      { type: "human", id: "user-1" },
+      "rest_api",
+      "fake-attempt-id",
+      [],
+      false,
+    );
+
     expect(result.outcome).toBe("prepared");
   });
 });
