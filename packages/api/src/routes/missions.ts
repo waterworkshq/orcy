@@ -16,6 +16,7 @@ import {
 } from "../models/schemas.js";
 import { agentOrHumanAuth, humanAuth } from "../middleware/auth.js";
 import { requireHabitatAccess, requireMissionAccess } from "../middleware/team.js";
+import { isCreationPublicationEnabled } from "../config/creationPublicationCutover.js";
 import {
   badRequest,
   notFound,
@@ -282,6 +283,16 @@ export async function missionRoutes(fastify: FastifyInstance): Promise<void> {
       preHandler: [agentOrHumanAuth, requireMissionAccess],
     },
     async (request, reply) => {
+      // T11 Phase 4 — when the publication kernel is active, the legacy
+      // direct-insertion endpoint is retired. Callers must use the new
+      // publication route (POST /missions/:missionId/task-publications)
+      // which routes through the kernel (governance, observation gate,
+      // dispatch fan-out, creation-integrity marker).
+      if (isCreationPublicationEnabled()) {
+        throw notFound(
+          "POST /missions/:missionId/tasks is retired when the publication kernel is active. Use POST /missions/:missionId/task-publications instead.",
+        );
+      }
       const parsed = request.body;
       const mission = missionRepo.getMissionById(request.params.missionId);
       if (!mission) {
