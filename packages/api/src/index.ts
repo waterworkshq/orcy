@@ -254,28 +254,6 @@ async function registerApiRoutes(f: FastifyInstance) {
     // plugin (so a direct import without the gate also 404s); the outer
     // gate avoids even calling the registration function.
     await f.register(scheduledOccurrenceRepairRoutes);
-
-    // T11 Phase 1A — boot-registration of the creation dispatch
-    // infrastructure. Wires the six dormant dispatch adapters (the
-    // SSE/webhook/chat/automation/post-interceptor/transition subscribers
-    // that T4B registers with the engine registry) + the two polling
-    // workers that drive the post-commit observation + assignment gates.
-    //
-    // - `registerCreationDispatchAdapters` is idempotent (last-writer-wins
-    //   per kind); safe to call once at boot.
-    // - `startOccurrenceLeaseRecoveryWorker(60_000)` reclaims expired
-    //   `publishing` occurrence leases (T9B Phase 2). 60s mirrors the T9B
-    //   precedent default (a 30s lease + 30s slack → one scan per
-    //   lease-expiry window).
-    // - `startCreationDispatchWorker(5_000)` drives the observation +
-    //   assignment gates (T11 Phase 1A). 5s is short because the
-    //   observation gate is user-facing (Tasks can't be claimed until it
-    //   opens); a 5s max wait is acceptable UX. The dispatch engine's
-    //   in-process adapters complete well under the 30s lease budget, so
-    //   a 5s tick is safe.
-    registerCreationDispatchAdapters();
-    occurrenceRecoveryHandle = startOccurrenceLeaseRecoveryWorker(60_000);
-    creationDispatchHandle = startCreationDispatchWorker(5_000);
   }
 }
 
@@ -316,6 +294,17 @@ await fastify.register(
   },
   { prefix: "/api" },
 );
+
+// T11 Phase 1A — boot-registration of the creation dispatch infrastructure.
+// Moved OUTSIDE registerApiRoutes to prevent double-startup (registerApiRoutes
+// is called for both /api/v1 and /api prefixes). Always started (not gated by
+// the flag) so that a rollback (flag OFF after being ON) can still drain
+// committed published_pending_observation / published_pending_assignment /
+// publishing attempts. The workers are no-ops when there are no post-cutover
+// attempts to process.
+registerCreationDispatchAdapters();
+occurrenceRecoveryHandle = startOccurrenceLeaseRecoveryWorker(60_000);
+creationDispatchHandle = startCreationDispatchWorker(5_000);
 
 await fastify.register(
   async (f) => {

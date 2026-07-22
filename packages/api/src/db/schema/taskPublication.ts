@@ -208,6 +208,7 @@ export const taskCreationAttempts = sqliteTable(
       table.attemptKey,
     ),
     index("idx_task_creation_attempts_state").on(table.state),
+    index("idx_task_creation_attempts_state_reserved").on(table.state, table.reservedAt),
     index("idx_task_creation_attempts_lease").on(table.leaseOwner, table.leaseExpiresAt),
     index("idx_task_creation_attempts_committed_task").on(table.committedTaskId),
   ],
@@ -462,5 +463,6 @@ export const scheduledOccurrences = sqliteTable(
       table.scheduledFor,
     ),
     index("idx_scheduled_occurrences_state").on(table.state),
+    index("idx_scheduled_occurrences_state_lease").on(table.state, table.leaseExpiresAt),
   ],
 );

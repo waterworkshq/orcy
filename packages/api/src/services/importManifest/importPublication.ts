@@ -111,6 +111,8 @@ import {
   missionComments,
   missions,
   missionTemplates,
+  taskDependencies,
+  taskSubtasks,
   tasks as tasksTable,
 } from "../../db/schema/index.js";
 import type { TaskPublicationDbClient } from "../../repositories/taskPublication.js";
@@ -1113,10 +1115,46 @@ function scopedDeleteDomain(
       }
       return;
     case "subtasks":
+      {
+        const taskIds = tx
+          .select({ id: tasksTable.id })
+          .from(tasksTable)
+          .where(
+            inArray(
+              tasksTable.missionId,
+              tx
+                .select({ id: missions.id })
+                .from(missions)
+                .where(eq(missions.habitatId, targetHabitatId)),
+            ),
+          )
+          .all()
+          .map((r) => r.id);
+        if (taskIds.length > 0) {
+          tx.delete(taskSubtasks).where(inArray(taskSubtasks.taskId, taskIds)).run();
+        }
+      }
+      return;
     case "dependencies":
-      // Cascade from task deletion handles these when tasks are replaced.
-      // No-op for standalone reset on preserved tasks (M2 limitation; M3
-      // refinement tracks the in-tx task-id lookup).
+      {
+        const taskIds = tx
+          .select({ id: tasksTable.id })
+          .from(tasksTable)
+          .where(
+            inArray(
+              tasksTable.missionId,
+              tx
+                .select({ id: missions.id })
+                .from(missions)
+                .where(eq(missions.habitatId, targetHabitatId)),
+            ),
+          )
+          .all()
+          .map((r) => r.id);
+        if (taskIds.length > 0) {
+          tx.delete(taskDependencies).where(inArray(taskDependencies.taskId, taskIds)).run();
+        }
+      }
       return;
     case "comments":
       // missionComments.missionId is plain TEXT (no FK). Resolve via the

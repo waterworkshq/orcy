@@ -382,7 +382,13 @@ export function startCreationDispatchWorker(
   // (distinct pid/uuid) so the fenced CAS can distinguish them.
   const workerId = opts.workerId ?? createDispatchWorkerId();
   const limit = opts.limit;
+  let inFlight = false;
   const handle = setInterval(() => {
+    // Single-flight: skip if the previous pass is still running (async
+    // adapters can exceed the tick interval; overlapping passes with the
+    // same workerId would re-attempt the same pending targets).
+    if (inFlight) return;
+    inFlight = true;
     // Build the per-tick opts explicitly (omit `limit` when undefined so
     // the default in `runDispatchWorkerPass` applies — passing
     // `undefined` for `limit` would still hit the default, but the
@@ -400,6 +406,9 @@ export function startCreationDispatchWorker(
         // + per-sweep try/catch already handle the expected domain failures.
         // Log + keep the interval alive; the next tick polls.
         logger.error({ err }, "Error running creation dispatch worker pass");
+      })
+      .finally(() => {
+        inFlight = false;
       });
   }, intervalMs);
   return {
