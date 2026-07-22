@@ -62,6 +62,7 @@ import {
 } from "../repositories/taskPublication.js";
 import {
   acquireAttemptLeaseWithClient,
+  renewAttemptLeaseWithClient,
   releaseAttemptLeaseWithClient,
 } from "../repositories/taskCreationAttempts.js";
 import type {
@@ -244,7 +245,7 @@ export function resolveTargetedAssignment(
 
   // acquired → every subsequent return path must release the lease.
   try {
-    return resolveAcquired(db, attemptId);
+    return resolveAcquired(db, attemptId, workerId, leaseMs);
   } finally {
     try {
       releaseAttemptLeaseWithClient(db, attemptId, workerId);
@@ -264,6 +265,8 @@ export function resolveTargetedAssignment(
 function resolveAcquired(
   db: TaskPublicationDbClient,
   attemptId: string,
+  workerId: string,
+  leaseMs: number,
 ): TargetedAssignmentResolution {
   // 2. Load the attempt (exists — we just acquired its lease) + active reservation.
   const attempt = db
@@ -290,7 +293,16 @@ function resolveAcquired(
   const requestedAgentId = reservation.requestedAgentId;
   const taskId = reservation.taskId;
 
-  // 3. Run the resolution in ONE transaction (atomicity invariant).
+  // 3. Revalidate the lease before the resolution tx. If the lease expired
+  // during the load + guard checks (WAL contention, process suspension),
+  // another worker may have taken over. Renew; if we no longer own it,
+  // surface as resumable infrastructure failure so the sweep retries later.
+  const renew = renewAttemptLeaseWithClient(db, attemptId, workerId, leaseMs);
+  if (renew.outcome === "not_owner") {
+    return { outcome: "resumable", category: "infrastructure_failure" };
+  }
+
+  // 4. Run the resolution in ONE transaction (atomicity invariant).
   try {
     return db.transaction((tx) => {
       // Phase 2 — matching-agent reconcile (additive branch BEFORE the deadline
