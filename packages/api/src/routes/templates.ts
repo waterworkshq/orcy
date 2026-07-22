@@ -1,10 +1,21 @@
 import type { FastifyInstance, FastifyRequest, FastifyReply } from "fastify";
+import { createHash, randomUUID } from "node:crypto";
+import type { AuditActorRef, AuditSource, CausalContext } from "@orcy/shared";
 import * as templateRepo from "../repositories/template.js";
 import * as missionRepo from "../repositories/mission.js";
 import { humanAuth, agentOrHumanAuth } from "../middleware/auth.js";
 import { adminOnly } from "../middleware/rbac.js";
 import { z } from "zod";
-import { badRequest, notFound, forbidden } from "../errors.js";
+import { badRequest, notFound, forbidden, unprocessableEntity, conflict } from "../errors.js";
+import { isCreationPublicationEnabled } from "../config/creationPublicationCutover.js";
+import { getDb } from "../db/index.js";
+import {
+  prepareTemplateAggregate,
+} from "../services/templateAggregatePreparation.js";
+import {
+  publishTemplateAggregateWithClient,
+} from "../services/templateAggregatePublication.js";
+import { reserveAttemptWithClient } from "../repositories/taskCreationAttempts.js";
 
 const createTemplateSchema = z.object({
   name: z.string().min(1).max(100),
@@ -39,6 +50,75 @@ const applyTemplateSchema = z.object({
   labels: z.array(z.string()).optional(),
   variables: z.record(z.string()).optional(),
 });
+
+// ---------------------------------------------------------------------------
+// T11 Phase 1G — flag-gated template-application route
+//
+// When `ORCY_CREATION_PUBLICATION_ENABLED=true` (tests / T11), the route
+// composes the T9A aggregate kernel chain
+// (`prepareTemplateAggregate` → reserve N attempts →
+// `publishTemplateAggregateWithClient`) instead of the legacy
+// `templateRepo.applyTemplate` direct-insert path. Legacy stays byte-identical
+// when the flag is OFF (production default).
+//
+// Mirrors the precedent at:
+//   - `services/triageService.ts:38-64` (Phase 1C — triage routing)
+//   - `services/scheduledTaskService.ts:152-154` (Phase 1B — scheduler routing)
+//   - `services/automationExecutor.ts:273-275` (Phase 1 — automation routing)
+// ---------------------------------------------------------------------------
+
+/**
+ * Computes the canonical request fingerprint for a route-initiated template
+ * application. Covers the rendered payload identity (template + target mission
+ * + the override shape) so a same-key retry with the SAME fingerprint REPLAYS;
+ * a payload edit under the same key is deterministically rejected. EXCLUDES
+ * provenance (actor / source) — those are stamped server-side.
+ *
+ * Mirrors `taskCreationPublication.computeRequestFingerprint` (stable stringify
+ * + sorted keys + SHA-256 hash) so the reservation dedup contract is identical
+ * across the route-level publications.
+ */
+function computeTemplateApplicationFingerprint(input: {
+  templateId: string;
+  missionId: string;
+  overrides: z.infer<typeof applyTemplateSchema>;
+}): string {
+  const sortedOverrides = {
+    title: input.overrides.title ?? "",
+    description: input.overrides.description ?? "",
+    priority: input.overrides.priority ?? "medium",
+    labels: [...(input.overrides.labels ?? [])].sort(),
+    variables: sortRecordKeys(input.overrides.variables ?? {}),
+  };
+  const payload = {
+    templateId: input.templateId,
+    missionId: input.missionId,
+    overrides: sortedOverrides,
+  };
+  return "route_template:" + stableHash(stableStringify(payload));
+}
+
+/** Deterministic JSON serializer — sorted object keys, stable array order. */
+function stableStringify(value: unknown): string {
+  if (value === null || typeof value !== "object") return JSON.stringify(value);
+  if (Array.isArray(value)) return `[${value.map(stableStringify).join(",")}]`;
+  const keys = Object.keys(value as Record<string, unknown>).sort();
+  return `{${keys
+    .map((k) => `${JSON.stringify(k)}:${stableStringify((value as Record<string, unknown>)[k])}`)
+    .join(",")}}`;
+}
+
+/** SHA-256 hex of the canonical stable-string serialization. */
+function stableHash(s: string): string {
+  return createHash("sha256").update(s).digest("hex");
+}
+
+/** Recursively sorts a string-keyed record for deterministic fingerprinting. */
+function sortRecordKeys(record: Record<string, string>): Record<string, string> {
+  const sorted: Record<string, string> = {};
+  for (const key of Object.keys(record).sort()) sorted[key] = record[key];
+  return sorted;
+}
 
 /**
  * Task template management — create, list, update, delete, and track usage.
@@ -198,6 +278,142 @@ export async function templateRoutes(fastify: FastifyInstance): Promise<void> {
       }
 
       const userId = request.user?.id ?? "anonymous";
+
+      // T11 Phase 1G — flag-gated template-application routing. When the
+      // cutover flag is ON (tests / T11), route through the T9A aggregate
+      // kernel chain (prepare → reserve N attempts → publish). When OFF
+      // (production default), the legacy `templateRepo.applyTemplate` path
+      // runs byte-identical.
+      if (isCreationPublicationEnabled()) {
+        // The middleware guarantees `request.user?.id`; defensive fallback
+        // mirrors the taskPublication route's guard (`routes/taskPublication.ts:163-166`).
+        const actorId = request.user?.id;
+        if (!actorId) {
+          throw forbidden("Authentication required", "INSUFFICIENT_PERMISSIONS");
+        }
+
+        // Server-constructed provenance — untrusted body fields cannot assert
+        // privileged identities. The `auditSource` enum is the ORIGIN CHANNEL
+        // (REST API = `"rest_api"`); the human-vs-API surface lives in the
+        // causal-root.type (`"human"` for human via rest_api — matches
+        // `services/taskCreationPublication.ts:304-308`).
+        const actor: AuditActorRef = { type: "human", id: actorId };
+        const auditSource: AuditSource = "rest_api";
+        const causalContext: CausalContext = {
+          root: { type: "human", id: actorId },
+        };
+
+        // 1. PREPARE (PURE validation + canonicalization)
+        const prepared = prepareTemplateAggregate(
+          request.params.templateId,
+          existingMission.habitatId,
+          parsed.data,
+          { actor, auditSource, causalContext },
+        );
+
+        if (prepared.outcome === "rejected_validation") {
+          throw unprocessableEntity(
+            "Template preparation rejected",
+            "TEMPLATE_PREPARATION_REJECTED",
+            { errors: prepared.errors },
+          );
+        }
+
+        const aggregate = prepared.aggregate;
+
+        // 2. RESERVE N attempts (one per prepared Task). Each attemptKey
+        //    includes a per-click UUID nonce so distinct clicks produce
+        //    distinct reservations (interactive route — no replay surface).
+        //    The fingerprint covers the rendered payload so same-click
+        //    retries (the reservation-scoped retry case) would dedup; a
+        //    payload edit under the same attemptKey would surface as
+        //    `rejected_fingerprint` (deterministic — the caller would then
+        //    use a new attemptKey).
+        const db = getDb();
+        const requestFingerprint = computeTemplateApplicationFingerprint({
+          templateId: request.params.templateId,
+          missionId: request.params.missionId,
+          overrides: parsed.data,
+        });
+
+        const attemptIds: string[] = [];
+        for (let i = 0; i < aggregate.tasks.length; i++) {
+          const attemptKey = `${request.params.templateId}-${i}-${randomUUID()}`;
+          const reservation = reserveAttemptWithClient(db, {
+            source: auditSource,
+            sourceScopeKind: "mission",
+            sourceScopeId: request.params.missionId,
+            attemptKey,
+            requestFingerprint,
+            publicationKind: "create",
+            habitatId: existingMission.habitatId,
+            actorType: "human",
+            actorId,
+            causalContext,
+          });
+
+          // For interactive route-initiated publications, every reservation
+          // is fresh (per-click UUID nonce). A `rejected_fingerprint` here
+          // would indicate a deterministic collision — surface as an internal
+          // error so the operator notices the anomaly rather than masking it.
+          if (reservation.outcome === "rejected_fingerprint") {
+            throw new Error(
+              `templates route: per-click attempt reservation rejected on fingerprint (templateId="${request.params.templateId}", missionId="${request.params.missionId}", taskIndex=${i})`,
+            );
+          }
+          attemptIds.push(reservation.attempt.id);
+        }
+
+        // 3. PUBLISH (atomic, inside the publisher's caller-owned tx)
+        const outcome = publishTemplateAggregateWithClient(db, {
+          attemptIds,
+          prepared: aggregate,
+        });
+
+        // 4. MAP the closed outcome to HTTP. Mirrors the legacy
+        //    `{mission, tasks, workflow}` return shape (tasks flatten to Task
+        //    rows via `CommittedPublication.task`).
+        switch (outcome.outcome) {
+          case "published":
+            reply.code(201).send({
+              mission: outcome.mission,
+              tasks: outcome.tasks.map((p) => p.task),
+              workflow: outcome.workflow,
+            });
+            return;
+          case "vetoed":
+            // Visible blocked outcome — NET-NEW for template-application (the
+            // legacy path bypasses governance entirely; this gate removes the
+            // exemption). 422 carries the full veto list (T9A-04 all-failures).
+            throw unprocessableEntity(
+              "Template application blocked by governance",
+              "GOVERNANCE_VETOED",
+              { vetoes: outcome.vetoes },
+            );
+          case "guard_mismatch":
+            throw conflict("Template application guard mismatch", {
+              taskIndex: outcome.taskIndex,
+              reasons: outcome.reasons,
+            });
+          case "governance_denied":
+            throw forbidden(
+              "Template application denied by governance",
+              "GOVERNANCE_DENIED",
+              {
+                taskIndex: outcome.taskIndex,
+                kind: outcome.kind,
+                reason: outcome.reason,
+                ...(outcome.interceptorKey !== undefined
+                  ? { interceptorKey: outcome.interceptorKey }
+                  : {}),
+              },
+            );
+        }
+      }
+
+      // Flag OFF — legacy path (production default). Byte-identical to the
+      // pre-T11 behavior; preserved here so existing tests + production traffic
+      // are unaffected.
       const result = templateRepo.applyTemplate(
         request.params.templateId,
         existingMission.habitatId,
