@@ -633,12 +633,6 @@ export function publishBlockerClearanceTask(
         "publishBlockerClearanceTask: assignment.kind === 'targeted' requires a non-empty agentId",
       );
     }
-    if (input.targetedAssignmentDeadline === undefined) {
-      throw new Error(
-        "publishBlockerClearanceTask: assignment.kind === 'targeted' requires targetedAssignmentDeadline " +
-          "(the configured reservation window). Pass an ISO timestamp from app/config.",
-      );
-    }
   }
 
   // Mission-scoped — the clearance Task targets this Mission.

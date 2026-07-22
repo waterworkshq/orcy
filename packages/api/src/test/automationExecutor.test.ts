@@ -329,7 +329,7 @@ describe("automationExecutor", () => {
 
       const { status, actionResults } = await executeActions(rule, run, ctx);
       expect(status).toBe("failed");
-      expect(actionResults[0].error).toContain("Mission not found");
+      expect(actionResults[0].error).toContain('No Mission exists with id "nonexistent"');
     });
   });
 

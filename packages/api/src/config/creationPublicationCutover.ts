@@ -27,8 +27,14 @@
  * `GET /tasks/:sourceTaskId/clone-preparation`) are NOT gated — they are safe
  * to mount unconditionally (no writes, no POST_CUTOVER state creation).
  */
+/**
+ * Returns whether the creation publication kernel is active. Always true —
+ * the kernel is the sole Task-creation path as of v0.32.0. The function is
+ * retained for backward-compatible imports; the env-var gate was removed
+ * during the cutover cleanup.
+ */
 export function isCreationPublicationEnabled(): boolean {
-  return process.env.ORCY_CREATION_PUBLICATION_ENABLED === "true";
+  return true;
 }
 
 /**

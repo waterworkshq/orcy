@@ -22,7 +22,6 @@ import { claimTask } from "./tasks/task-lifecycle.js";
 import { assignReviewers } from "./reviewAssignmentService.js";
 import type { AssignResult } from "./autoAssignService.js";
 import { logger } from "../lib/logger.js";
-import { isCreationPublicationEnabled } from "../config/creationPublicationCutover.js";
 import { executeCreateTaskViaPublication } from "./automationTaskPublication.js";
 
 const BANNED_HEADERS = new Set(["authorization", "cookie", "x-api-key", "x-token", "x-secret"]);
@@ -265,58 +264,7 @@ function executeCreateTask(
   run: AutomationRuleRun,
   ctx: AutomationEvaluationContext,
 ): AutomationActionResult {
-  // T8B Phase 1 — flag-gated producer migration. When the cutover flag is ON
-  // (tests / T11), route through the dormant `publishAutomationTask` adapter
-  // (kernel chain: reserve → prepare → govern → publish) with causal-hop
-  // propagation + server-constructed provenance. When OFF (production
-  // default), the legacy raw-insert path runs byte-unchanged.
-  if (isCreationPublicationEnabled()) {
-    return executeCreateTaskViaPublication(rule, run, action, index, ctx);
-  }
-
-  const missionId = action.missionId ?? ctx.mission?.id;
-  if (!missionId) {
-    return {
-      actionType: "create_task",
-      actionIndex: index,
-      status: "failed",
-      error:
-        "No mission available — task must be created under an explicit mission or trigger context mission",
-    };
-  }
-
-  const mission = missionRepo.getMissionById(missionId);
-  if (!mission) {
-    return {
-      actionType: "create_task",
-      actionIndex: index,
-      status: "failed",
-      error: `Mission not found: ${missionId}`,
-    };
-  }
-
-  const renderedTitle = renderTemplate(action.title ?? "Automated task", ctx);
-
-  const task = taskRepo.createTask({
-    missionId,
-    title: renderedTitle.rendered,
-    description: action.description ? renderTemplate(action.description, ctx).rendered : undefined,
-    createdBy: `automation:${rule.id}`,
-  });
-
-  if (action.assignedTo) {
-    taskRepo.updateTask(task.id, {
-      assignedAgentId:
-        action.assignedTo.recipientType === "agent" ? action.assignedTo.recipientId : undefined,
-    });
-  }
-
-  return {
-    actionType: "create_task",
-    actionIndex: index,
-    status: "succeeded",
-    result: { taskId: task.id, title: renderedTitle.rendered },
-  };
+  return executeCreateTaskViaPublication(rule, run, action, index, ctx);
 }
 
 function executeChangePriority(

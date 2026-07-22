@@ -1,12 +1,9 @@
 /**
- * Scheduled Occurrence Repair-and-Retry Routes — T9B Phase 3 (DORMANT).
+ * Scheduled Occurrence Repair-and-Retry Routes.
  *
  * The authorized `POST /scheduled-occurrences/:id/retry` repair endpoint.
  * Composes the {@link repairScheduledOccurrence} adapter (T9B Phase 3) +
- * maps the closed {@link RepairScheduledOccurrenceOutcome} to HTTP. DORMANT
- * until T11 (the route is gated behind `isCreationPublicationEnabled` —
- * consistent with the other cutover-gated mutation routes that create
- * POST_CUTOVER state).
+ * maps the closed {@link RepairScheduledOccurrenceOutcome} to HTTP.
  *
  * # Why admin-only authorization
  *
@@ -17,24 +14,6 @@
  * established elevated-action pattern (mirrors `routes/webhookOutgoing.ts`
  * + `routes/agents.ts` — the route registration + the auth-chain
  * precedent). A non-admin gets 403; an unauthenticated caller gets 401.
- *
- * # Why dormant behind the cutover flag
- *
- * The retry routes through the T9A-milestone-1 publication kernel, which
- * produces POST_CUTOVER Tasks (the new creation-integrity version that
- * engages the claim gates). The 3 other POST_CUTOVER mutation routes
- * (`POST /missions/:missionId/task-publications`,
- * `POST /tasks/:sourceTaskId/clone-publications`,
- * `POST /tasks/:taskId/assignment-attempts`) are gated the same way:
- * `isCreationPublicationEnabled` defaults OFF, so the routes 404 in
- * production by default (true dormancy — the routes are NOT registered).
- * T11 (the cutover ticket) flips the flag, mounting all four routes.
- *
- * The retry's read-only companions (a future `GET
- * /scheduled-occurrences/:id` status surface + the schedule-occurrence
- * history display) are NOT gated — they expose durable state without
- * writing POST_CUTOVER rows. They land in T11 alongside the operator-
- * facing UI (deferred per the T9B ticket's out-of-scope list).
  *
  * # Outcome → HTTP mapping
  *
@@ -65,13 +44,12 @@
  *   | `not_found`                     | 404  | No occurrence row for the id.          |
  *
  * See: the {@link repairScheduledOccurrence} adapter (the retry
- * publication function); the cutover gate (`config/creationPublicationCutover`).
+ * publication function).
  */
 import type { FastifyInstance, FastifyRequest, FastifyReply } from "fastify";
 import { humanAuth } from "../middleware/auth.js";
 import { adminOnly } from "../middleware/rbac.js";
 import { notFound } from "../errors.js";
-import { isCreationPublicationEnabled } from "../config/creationPublicationCutover.js";
 import {
   repairScheduledOccurrence,
   type RepairScheduledOccurrenceOutcome,
@@ -217,23 +195,8 @@ function repairOutcomeToHttpResponse(
   }
 }
 
-/**
- * The retry route registration. The route is GATED behind
- * `isCreationPublicationEnabled` — when the flag is OFF (the production
- * default until T11), the route is NOT registered (a request 404s — true
- * dormancy, not a runtime gate). When ON (T11 / tests), the route mounts +
- * behaves as documented.
- */
+/** The retry route registration. */
 export async function scheduledOccurrenceRepairRoutes(fastify: FastifyInstance): Promise<void> {
-  // Fix-P1 (C1) discipline: the retry creates POST_CUTOVER state via the
-  // milestone-1 publisher — gated behind the disabled-by-default cutover
-  // flag, unreachable in production until T11 flips
-  // `ORCY_CREATION_PUBLICATION_ENABLED=true`. Mirrors the assignment-retry
-  // route (`routes/tasks/assignment.ts`) + the publication routes.
-  if (!isCreationPublicationEnabled()) {
-    return;
-  }
-
   fastify.post(
     "/scheduled-occurrences/:id/retry",
     { preHandler: [humanAuth, adminOnly] },

@@ -69,7 +69,6 @@ import { taskCreationAttemptRoutes } from "./routes/taskCreationAttempts.js";
 import { taskPublicationRoutes } from "./routes/taskPublication.js";
 import { taskClonePublicationRoutes } from "./routes/taskClonePublication.js";
 import { scheduledOccurrenceRepairRoutes } from "./routes/scheduledOccurrenceRepair.js";
-import { isCreationPublicationEnabled } from "./config/creationPublicationCutover.js";
 import { registerCreationDispatchAdapters } from "./services/taskCreationDispatchAdapters.js";
 import { startOccurrenceLeaseRecoveryWorker } from "./services/scheduledOccurrenceRecovery.js";
 import { startCreationDispatchWorker } from "./services/creationDispatchWorker.js";
@@ -236,25 +235,9 @@ async function registerApiRoutes(f: FastifyInstance) {
   await f.register(pluginRoutes);
   await f.register(triageRoutes);
   await f.register(taskCreationAttemptRoutes);
-  // Fix-P1 (C1): the 2 mutation publication routes are gated behind a
-  // disabled-by-default cutover flag — unreachable in production until T11
-  // (Story 3 cutover) flips `ORCY_CREATION_PUBLICATION_ENABLED=true`.
-  //
-  // `taskClonePublicationRoutes` is ALWAYS registered because it also mounts
-  // the read-only `GET /tasks/:sourceTaskId/clone-preparation` — only its
-  // POST mutation route is gated (the split is inside the plugin file). The
-  // read-only `taskCreationAttemptRoutes` above stays ungated (safe recovery
-  // surface). The assignment-retry route is gated inside `taskRoutes` (above).
   await f.register(taskClonePublicationRoutes);
-  if (isCreationPublicationEnabled()) {
-    await f.register(taskPublicationRoutes);
-    // T9B Phase 3 — the scheduled-occurrence retry route. Dormant behind
-    // the same cutover flag (the retry creates POST_CUTOVER state via the
-    // milestone-1 publisher). The gate is also enforced INSIDE the route
-    // plugin (so a direct import without the gate also 404s); the outer
-    // gate avoids even calling the registration function.
-    await f.register(scheduledOccurrenceRepairRoutes);
-  }
+  await f.register(taskPublicationRoutes);
+  await f.register(scheduledOccurrenceRepairRoutes);
 }
 
 await fastify.register(

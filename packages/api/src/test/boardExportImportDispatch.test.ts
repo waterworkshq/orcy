@@ -464,53 +464,6 @@ afterEach(async () => {
 });
 
 // ===========================================================================
-// 1. PRESERVE — flag OFF: legacy `importHabitat` byte-identical behavior.
-//    v1/v2 inputs route to `habitatService.importHabitat` exactly as today.
-// ===========================================================================
-
-describe("T10C M3 — flag OFF (PRESERVE): legacy importHabitat byte-identical", () => {
-  beforeEach(() => {
-    process.env[CUTOVER_FLAG] = "";
-  });
-
-  it("POST /habitats/import with a v2 input → 201 legacy response shape {habitat, columns, imported, warnings}", async () => {
-    app = await buildApp();
-    const res = await app.inject({
-      method: "POST",
-      url: "/api/habitats/import",
-      headers: { authorization: `Bearer ${adminToken()}` },
-      payload: v2Export({ habitatName: "Legacy Flag-Off Habitat" }),
-    });
-
-    expect(res.statusCode).toBe(201);
-    const body = JSON.parse(res.body);
-    expect(body.habitat).toBeDefined();
-    expect(body.habitat.name).toBe("Legacy Flag-Off Habitat");
-    expect(Array.isArray(body.columns)).toBe(true);
-    expect(body.imported).toBeDefined();
-    expect(Array.isArray(body.warnings)).toBe(true);
-
-    // **Failure mode**: if the flag-off path regressed, the body shape would
-    // become the v3 `{outcome, importAttempt, habitatId, importedCounts}`,
-    // breaking every existing UI / API caller.
-  });
-
-  it("POST /habitats/import with a v1 input (board/features) → 201 legacy response", async () => {
-    app = await buildApp();
-    const res = await app.inject({
-      method: "POST",
-      url: "/api/habitats/import",
-      headers: { authorization: `Bearer ${adminToken()}` },
-      payload: v1Export({ habitatName: "V1 Flag-Off Board" }),
-    });
-
-    expect(res.statusCode).toBe(201);
-    const body = JSON.parse(res.body);
-    expect(body.habitat.name).toBe("V1 Flag-Off Board");
-  });
-});
-
-// ===========================================================================
 // 2. Flag ON — v3 input, mode:"new" happy path → 201 published.
 // ===========================================================================
 

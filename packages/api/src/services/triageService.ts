@@ -1,11 +1,10 @@
+import { randomUUID } from "node:crypto";
 import type { ClusterPayload, ResolutionKind } from "@orcy/shared";
 import type { Mission } from "../models/index.js";
 import { getDb } from "../db/index.js";
 import { triageClusterMissions } from "../db/schema/index.js";
 import { eq } from "drizzle-orm";
 import { repositoryNotFoundError } from "../errors/repository.js";
-import { isCreationPublicationEnabled } from "../config/creationPublicationCutover.js";
-import { TRIAGE_MISSION_TEMPLATE_ID, applyTemplate } from "../repositories/template.js";
 import { getTaskById } from "../repositories/taskCrud.js";
 import * as triageClusterMissionsRepo from "../repositories/triageClusterMissions.js";
 import * as triageResolutionsRepo from "../repositories/triageResolutions.js";
@@ -29,67 +28,47 @@ export function createTriageMission(
   habitatId: string,
   payload: ClusterPayload,
 ): { missionId: string } {
-  // T11 Phase 1C — flag-gated triage routing. When the cutover flag is ON
-  // (tests / T11), route through `publishTriageMission` (kernel chain:
-  // reserve → prepare → govern → publish + atomic junction write — the
-  // crash-window fix). When OFF (production default), the legacy `applyTemplate`
-  // path runs byte-identical. Mirrors the precedent at
-  // `automationExecutor.ts:273-275` + `scheduledTaskService.ts:152-154`.
-  if (isCreationPublicationEnabled()) {
-    const result = publishTriageMission({ kind: "cluster", habitatId, payload });
-    if (result.outcome === "published") {
-      return { missionId: result.missionId };
+  const result = publishTriageMission({ kind: "cluster", habitatId, payload });
+  if (result.outcome === "published") {
+    return { missionId: result.missionId };
+  }
+  // A prior publication under the same key already succeeded. Re-read the
+  // Mission through the terminal Task so callers receive the existing Mission.
+  if (result.outcome === "replayed" && result.terminal?.taskId) {
+    const task = getTaskById(result.terminal.taskId);
+    if (task) {
+      return { missionId: task.missionId };
     }
-    // `replayed` — a prior publication under the same key already succeeded.
-    // The terminal carries the taskId (not missionId). Re-read the Mission
-    // via the Task row so the scan caller sees the existing Mission rather
-    // than a spurious error (the cold-review MINOR #3 fix).
-    if (result.outcome === "replayed" && result.terminal?.taskId) {
-      const task = getTaskById(result.terminal.taskId);
+  }
+  // rejected_fingerprint: same clusterKey published before with different
+  // rendered content (a new occurrence of a recurring cluster). Retry with
+  // an occurrence-specific scope suffix so the new occurrence gets a fresh
+  // attempt identity. The clusterKey is unchanged so the historical
+  // resolution lookup still finds prior resolutions.
+  if (result.outcome === "rejected_fingerprint") {
+    const retry = publishTriageMission({
+      kind: "cluster",
+      habitatId,
+      payload,
+      scopeSuffix: randomUUID(),
+    });
+    if (retry.outcome === "published") {
+      return { missionId: retry.missionId };
+    }
+    if (retry.outcome === "replayed" && retry.terminal?.taskId) {
+      const task = getTaskById(retry.terminal.taskId);
       if (task) {
         return { missionId: task.missionId };
       }
     }
-    // Any other non-published outcome (vetoed, rejected_validation,
-    // guard_mismatch, governance_denied, rejected_fingerprint) is a terminal
-    // or rolled-back publication. Logging + throwing preserves the
-    // scan-catch contract.
-    logger.warn(
-      { habitatId, clusterKey: payload.clusterKey, outcome: result.outcome },
-      "triageService.createTriageMission: triage publication non-terminal",
-    );
-    throw new Error(
-      `Triage publication failed (clusterKey="${payload.clusterKey}", outcome=${result.outcome})`,
-    );
   }
-
-  const variables: Record<string, string> = {
-    clusterSubject: payload.clusterKey,
-    signalCount: String(payload.signalCount),
-    provenanceBreakdown: JSON.stringify(payload.provenanceBreakdown),
-    crossMissionCount: String(payload.crossMissionCount),
-    agentIds: payload.agentIds.join(","),
-  };
-
-  const description = buildMissionDescription(habitatId, payload);
-
-  const result = applyTemplate(
-    TRIAGE_MISSION_TEMPLATE_ID,
-    habitatId,
-    {
-      title: `Triage: ${payload.clusterKey}`,
-      description,
-      variables,
-    },
-    "system",
+  logger.warn(
+    { habitatId, clusterKey: payload.clusterKey, outcome: result.outcome },
+    "triageService.createTriageMission: triage publication non-terminal",
   );
-  if (!result) {
-    throw repositoryNotFoundError("missionTemplate", TRIAGE_MISSION_TEMPLATE_ID);
-  }
-
-  const missionId = result.mission.id;
-  triageClusterMissionsRepo.create(habitatId, payload.clusterKey, missionId);
-  return { missionId };
+  throw new Error(
+    `Triage publication failed (clusterKey="${payload.clusterKey}", outcome=${result.outcome})`,
+  );
 }
 
 /**
@@ -106,63 +85,25 @@ export function createOrphanTriageMission(
   habitatId: string,
   orphan: Mission,
 ): { missionId: string } {
-  // T11 Phase 1C — flag-gated triage routing (orphan origin). Mirrors the
-  // cluster-origin gate above + the precedent at
-  // `automationExecutor.ts:273-275` + `scheduledTaskService.ts:152-154`.
-  if (isCreationPublicationEnabled()) {
-    const result = publishTriageMission({ kind: "orphan", habitatId, orphan });
-    if (result.outcome === "published") {
-      return { missionId: result.missionId };
-    }
-    // `replayed` — prior publication under the same key already succeeded.
-    // Re-read the Mission via the Task row (cold-review MINOR #3 fix).
-    if (result.outcome === "replayed" && result.terminal?.taskId) {
-      const task = getTaskById(result.terminal.taskId);
-      if (task) {
-        return { missionId: task.missionId };
-      }
-    }
-    logger.warn(
-      { habitatId, orphanId: orphan.id, outcome: result.outcome },
-      "triageService.createOrphanTriageMission: triage publication non-terminal",
-    );
-    throw new Error(
-      `Triage publication failed (orphan missionId="${orphan.id}", outcome=${result.outcome})`,
-    );
+  const result = publishTriageMission({ kind: "orphan", habitatId, orphan });
+  if (result.outcome === "published") {
+    return { missionId: result.missionId };
   }
-
-  const clusterKey = `orphan-mission:${orphan.id}`;
-  const description = [
-    "## Orphan mission (unmapped in the roadmap DAG)",
-    `- Mission: ${orphan.title} (${orphan.id})`,
-    `- Status: ${orphan.status}`,
-    `- Priority: ${orphan.priority}`,
-    "",
-    "This mission has no dependency edges, so it is disconnected from the habitat's",
-    "roadmap DAG. Investigate the roadmap (`roadmap` in the investigate response),",
-    "decide where this mission fits, and position it via `orcy_triage",
-    "map_orphan_mission` with the appropriate `dependsOn` (and a release-gate if",
-    "release-coupling fits).",
-    orphan.description ? `\n## Mission description\n${orphan.description}` : "",
-  ].join("\n");
-
-  const result = applyTemplate(
-    TRIAGE_MISSION_TEMPLATE_ID,
-    habitatId,
-    {
-      title: `Triage: position orphan mission — ${orphan.title}`,
-      description,
-      variables: { clusterSubject: clusterKey },
-    },
-    "system",
+  // A prior publication under the same key already succeeded. Re-read the
+  // Mission through the terminal Task so callers receive the existing Mission.
+  if (result.outcome === "replayed" && result.terminal?.taskId) {
+    const task = getTaskById(result.terminal.taskId);
+    if (task) {
+      return { missionId: task.missionId };
+    }
+  }
+  logger.warn(
+    { habitatId, orphanId: orphan.id, outcome: result.outcome },
+    "triageService.createOrphanTriageMission: triage publication non-terminal",
   );
-  if (!result) {
-    throw repositoryNotFoundError("missionTemplate", TRIAGE_MISSION_TEMPLATE_ID);
-  }
-
-  const missionId = result.mission.id;
-  triageClusterMissionsRepo.create(habitatId, clusterKey, missionId);
-  return { missionId };
+  throw new Error(
+    `Triage publication failed (orphan missionId="${orphan.id}", outcome=${result.outcome})`,
+  );
 }
 
 /**
@@ -238,53 +179,4 @@ function findClusterMissionByMissionId(
     habitatId: row.habitatId as string,
     clusterKey: row.clusterKey as string,
   };
-}
-
-/**
- * Build the triage mission description from the cluster payload, attaching a
- * proactive-resolution suggestion block when historical resolutions exist for
- * this clusterKey.
- */
-function buildMissionDescription(habitatId: string, payload: ClusterPayload): string {
-  const lines: string[] = [
-    "## Cluster",
-    payload.clusterKey,
-    "## Provenance Breakdown",
-    JSON.stringify(payload.provenanceBreakdown, null, 2),
-    "## Signal Count",
-    String(payload.signalCount),
-    "## Cross-Mission Count",
-    String(payload.crossMissionCount),
-    "## Distinct Agents",
-    String(payload.distinctAgentCount),
-    "## Affected Agents",
-    payload.agentIds.join(", ") || "—",
-    "## Affected Missions",
-    payload.affectedMissionIds.join(", ") || "—",
-    "## Time Window (days)",
-    String(payload.timeWindowDays),
-    "## First Seen",
-    payload.firstSeenAt,
-    "## Last Seen",
-    payload.lastSeenAt,
-  ];
-
-  const proactive = triageResolutionsRepo.findByClusterKey(habitatId, payload.clusterKey);
-  if (proactive.length > 0) {
-    const top = proactive[0];
-    lines.push(
-      "## Proactive Suggestion (historical resolution)",
-      `A prior resolution exists for this cluster (${top.resolvedAt}):`,
-      `- Root cause: ${top.rootCause ?? "—"}`,
-      `- Resolution: ${top.resolution ?? "—"}`,
-      `- Kind: ${top.resolutionKind ?? "—"}`,
-    );
-  }
-
-  lines.push(
-    "## Task",
-    "Investigate root cause, recommend a routing bucket, and post an analysis pulse with findings.",
-  );
-
-  return lines.join("\n");
 }

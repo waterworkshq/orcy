@@ -641,15 +641,14 @@ describe("T8A-pre P2 assignment intent — targeted reservation honored", () => 
     expect(result.publication.reservation!.requestedAgentId).toBe(agentId);
   });
 
-  it("a targeted assignment without a deadline throws (the coordinator owns no deadline config)", () => {
-    expect(() =>
-      publishBlockerClearanceTask(
-        blockerInput({
-          pulseId: freshPulseId("no-deadline"),
-          assignment: { kind: "targeted", agentId: "agent-x" },
-          targetedAssignmentDeadline: undefined,
-        }),
-      ),
-    ).toThrow(/targetedAssignmentDeadline/);
+  it("a targeted assignment without a deadline falls back to the config default", () => {
+    const result = publishBlockerClearanceTask(
+      blockerInput({
+        pulseId: freshPulseId("no-deadline"),
+        assignment: { kind: "targeted", agentId: "agent-x" },
+        targetedAssignmentDeadline: undefined,
+      }),
+    );
+    expect(result.outcome).not.toBe("rejected_validation");
   });
 });

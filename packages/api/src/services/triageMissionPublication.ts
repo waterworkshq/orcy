@@ -240,6 +240,15 @@ export type TriageMissionPublicationInput =
       habitatId: string;
       /** The cluster payload (clusterKey, signal counts, agent ids, etc.). */
       payload: ClusterPayload;
+      /**
+       * Optional occurrence discriminator appended to the attempt scope (NOT
+       * the payload clusterKey). When a same-clusterKey recurrence produces
+       * `rejected_fingerprint` (different rendered content), the caller retries
+       * with a unique suffix so the new occurrence gets a fresh attempt
+       * identity. The clusterKey in the payload is unchanged so the historical
+       * resolution lookup still finds prior resolutions.
+       */
+      scopeSuffix?: string;
     }
   | {
       /**
@@ -711,6 +720,14 @@ export function publishTriageMission(
     input.kind === "cluster"
       ? deriveClusterScope(input.habitatId, input.payload)
       : deriveOrphanScope(input.orphan);
+
+  // Apply occurrence suffix to scope identity when provided (new occurrence of
+  // a recurring cluster). The clusterKey in the scope is UNCHANGED so the
+  // historical resolution lookup still finds prior resolutions; only the
+  // attempt scope identity gets the suffix.
+  if (input.kind === "cluster" && input.scopeSuffix) {
+    scope.sourceScopeId = `${scope.sourceScopeId}:${input.scopeSuffix}`;
+  }
 
   // ----- 0a. Server-constructed provenance ----------------------------------
   // Untrusted callers cannot assert these. The actor id preserves the legacy

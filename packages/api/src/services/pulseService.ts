@@ -3,13 +3,11 @@ import * as missionRepo from "../repositories/mission.js";
 import * as habitatRepo from "../repositories/habitat.js";
 import * as agentRepo from "../repositories/agent.js";
 import * as taskRepo from "../repositories/task.js";
-import * as taskService from "./tasks/index.js";
 import { sseBroadcaster } from "../sse/broadcaster.js";
 import { logger } from "../lib/logger.js";
 import { badRequest, notFound, forbidden } from "../errors.js";
 import { findingMetadataSchema, SIGNAL_TYPES, type SignalType } from "@orcy/shared";
 import { getDb } from "../db/index.js";
-import { isCreationPublicationEnabled } from "../config/creationPublicationCutover.js";
 import { publishBlockerClearanceTask } from "./taskBlockerPublication.js";
 
 export { type SignalType };
@@ -237,113 +235,71 @@ function createBlockerClearanceTask(opts: {
   isHabitatScope: boolean;
   blockedTaskId?: string;
 }): Task | null {
-  // T11 Phase 1E — flag-gated blocker-clearance routing. When the cutover flag
-  // is ON (tests / T11), route through `publishBlockerClearanceTask` (kernel
-  // chain: reserve → prepare → govern → publish + the C1 habitat-scope boundary
-  // rejection — the gap-audit O2 / cold-critique C1 fix). When OFF (production
-  // default), the legacy `taskService.createTask` path runs byte-identical.
-  // Mirrors the precedent at `automationExecutor.ts:273-275` +
-  // `scheduledTaskService.ts:152-154` + `triageService.ts:38-40/112-114`.
-  if (isCreationPublicationEnabled()) {
-    try {
-      const result = publishBlockerClearanceTask({
-        pulseId: opts.pulse.id,
-        habitatId: opts.pulse.habitatId,
-        scope: opts.isHabitatScope
-          ? { kind: "habitat" }
-          : { kind: "mission", missionId: opts.parentId },
-        pulseSubject: opts.pulse.subject,
-        pulseBody: opts.pulse.body,
-        blockedTaskId: opts.blockedTaskId,
-        assignment: { kind: "auto" },
-      });
-
-      // Map the typed result envelope to the legacy `Task | null` contract.
-      // `created` (committed, possibly still recovering) → the published Task
-      // row; preserve the denormalized `pulse.linkedTaskId` field the legacy
-      // path stamped so UI observers see the same linkage.
-      if (result.outcome === "created") {
-        const task = result.publication.task;
-        // Stamp the pulse link idempotently. The adapter has no pulse-link
-        // participant seam (P2 design — the pulse↔Task link is durable in
-        // provenance via the causal root), so this runs AFTER the publication
-        // commit. Guard against a redundant write when the link is already
-        // correct (a recovering `created` from a prior call whose
-        // post-commit `updateLinkedTask` already succeeded).
-        if (opts.pulse.linkedTaskId !== task.id) {
-          pulseRepo.updateLinkedTask(opts.pulse.id, task.id);
-        }
-        return task as Task;
-      }
-      // `replayed` — a prior publication under the same key already succeeded.
-      // The stored terminal carries `taskId` (the originally-created Task).
-      // Re-read via the repo so the caller sees the durable Task row rather
-      // than a swallowed null (mirrors the triage MINOR #3 fix). REPAIR the
-      // pulse link idempotently: a crash after the publication commit but
-      // before the post-commit `updateLinkedTask` (the M2 crash window)
-      // leaves `linkedTaskId` unset; the replay path historically did NOT
-      // repair it, breaking provenance. Re-stamp it so a retry self-heals.
-      if (result.outcome === "replayed" && result.terminal.taskId) {
-        const task = taskRepo.getTaskById(result.terminal.taskId) ?? null;
-        if (task && opts.pulse.linkedTaskId !== task.id) {
-          pulseRepo.updateLinkedTask(opts.pulse.id, task.id);
-        }
-        return task;
-      }
-      // `rejected_no_target_mission` — the C1 habitat-scope boundary. The
-      // adapter refuses to create a Task under an invalid `missionId`; the
-      // signal remains as a visible pulse (the replacement path is an
-      // Automation Rule or manual creation under an explicit Mission).
-      if (result.outcome === "rejected_no_target_mission") {
-        logger.warn(
-          { pulseId: opts.pulse.id, habitatId: opts.pulse.habitatId },
-          "Blocker clearance publication rejected: habitat-scoped pulse has no target Mission",
-        );
-        return null;
-      }
-      // Any other outcome (vetoed, rejected_validation, guard_mismatch,
-      // governance_denied, rejected_fingerprint) is a non-terminal or
-      // terminal failure. Match the legacy catch→null swallow + a logged
-      // warning so the scan caller sees `blockerTaskCreated: false`.
-      logger.warn(
-        { pulseId: opts.pulse.id, outcome: result.outcome },
-        "Blocker clearance publication non-terminal outcome",
-      );
-      return null;
-    } catch (err) {
-      logger.error(
-        { err, parentId: opts.parentId, pulseId: opts.pulse.id },
-        "Failed to create blocker clearance task",
-      );
-      return null;
-    }
-  }
-
   try {
-    const descriptionLines = [
-      opts.isHabitatScope
-        ? "Auto-generated habitat blocker clearance task."
-        : "Auto-generated blocker clearance task.",
-      "",
-      `Blocker: ${opts.pulse.body ?? ""}`,
-      "",
-      `Source signal: ${opts.pulse.id}`,
-    ];
-    if (opts.blockedTaskId) {
-      descriptionLines.push(`Blocked task: ${opts.blockedTaskId}`);
-    }
-
-    const task = taskService.createTask({
-      missionId: opts.parentId,
-      title: `Clear Blocker: ${opts.pulse.subject}`,
-      description: descriptionLines.join("\n"),
-      priority: "high",
-      labels: ["blocker-clearance"],
-      createdBy: "system",
+    const result = publishBlockerClearanceTask({
+      pulseId: opts.pulse.id,
+      habitatId: opts.pulse.habitatId,
+      scope: opts.isHabitatScope
+        ? { kind: "habitat" }
+        : { kind: "mission", missionId: opts.parentId },
+      pulseSubject: opts.pulse.subject,
+      pulseBody: opts.pulse.body,
+      blockedTaskId: opts.blockedTaskId,
+      assignment: { kind: "auto" },
     });
 
-    pulseRepo.updateLinkedTask(opts.pulse.id, task.id);
-    return taskRepo.getTaskById(task.id) ?? null;
+    // Map the typed result envelope to the legacy `Task | null` contract.
+    // `created` (committed, possibly still recovering) → the published Task
+    // row; preserve the denormalized `pulse.linkedTaskId` field the legacy
+    // path stamped so UI observers see the same linkage.
+    if (result.outcome === "created") {
+      const task = result.publication.task;
+      // Stamp the pulse link idempotently. The adapter has no pulse-link
+      // participant seam (P2 design — the pulse↔Task link is durable in
+      // provenance via the causal root), so this runs AFTER the publication
+      // commit. Guard against a redundant write when the link is already
+      // correct (a recovering `created` from a prior call whose
+      // post-commit `updateLinkedTask` already succeeded).
+      if (opts.pulse.linkedTaskId !== task.id) {
+        pulseRepo.updateLinkedTask(opts.pulse.id, task.id);
+      }
+      return task as Task;
+    }
+    // `replayed` — a prior publication under the same key already succeeded.
+    // The stored terminal carries `taskId` (the originally-created Task).
+    // Re-read via the repo so the caller sees the durable Task row rather
+    // than a swallowed null (mirrors the triage MINOR #3 fix). REPAIR the
+    // pulse link idempotently: a crash after the publication commit but
+    // before the post-commit `updateLinkedTask` (the M2 crash window)
+    // leaves `linkedTaskId` unset; the replay path historically did NOT
+    // repair it, breaking provenance. Re-stamp it so a retry self-heals.
+    if (result.outcome === "replayed" && result.terminal.taskId) {
+      const task = taskRepo.getTaskById(result.terminal.taskId) ?? null;
+      if (task && opts.pulse.linkedTaskId !== task.id) {
+        pulseRepo.updateLinkedTask(opts.pulse.id, task.id);
+      }
+      return task;
+    }
+    // `rejected_no_target_mission` — the C1 habitat-scope boundary. The
+    // adapter refuses to create a Task under an invalid `missionId`; the
+    // signal remains as a visible pulse (the replacement path is an
+    // Automation Rule or manual creation under an explicit Mission).
+    if (result.outcome === "rejected_no_target_mission") {
+      logger.warn(
+        { pulseId: opts.pulse.id, habitatId: opts.pulse.habitatId },
+        "Blocker clearance publication rejected: habitat-scoped pulse has no target Mission",
+      );
+      return null;
+    }
+    // Any other outcome (vetoed, rejected_validation, guard_mismatch,
+    // governance_denied, rejected_fingerprint) is a non-terminal or
+    // terminal failure. Match the legacy catch→null swallow + a logged
+    // warning so the scan caller sees `blockerTaskCreated: false`.
+    logger.warn(
+      { pulseId: opts.pulse.id, outcome: result.outcome },
+      "Blocker clearance publication non-terminal outcome",
+    );
+    return null;
   } catch (err) {
     logger.error(
       { err, parentId: opts.parentId, pulseId: opts.pulse.id },

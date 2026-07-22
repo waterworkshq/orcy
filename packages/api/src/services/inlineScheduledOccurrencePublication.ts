@@ -455,7 +455,13 @@ function runInlineOccurrencePublicationBody(
   // validation failure (column-missing, invalid-actor) is collected by the
   // PURE preparation step. NO Workflow, NO usage descriptor (the inline
   // path produces neither).
-  const tasksTemplate = schedule.tasksTemplate ?? [];
+  const tasksTemplate = (schedule.tasksTemplate ?? []).map((task) => ({
+    ...task,
+    title: substituteTokens(task.title, tokenContext),
+    ...(task.description !== undefined && {
+      description: substituteTokens(task.description, tokenContext),
+    }),
+  }));
   const actor: AuditActorRef = { type: "system", id: SCHEDULE_ACTOR_ID };
   const causalContext: CausalContext = {
     root: { type: INLINE_AGGREGATE_CAUSAL_ROOT_TYPE, id: currentOccurrence.id },

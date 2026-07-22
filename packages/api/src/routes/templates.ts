@@ -9,7 +9,6 @@ import { humanAuth, agentOrHumanAuth } from "../middleware/auth.js";
 import { adminOnly } from "../middleware/rbac.js";
 import { z } from "zod";
 import { badRequest, notFound, forbidden, unprocessableEntity, conflict } from "../errors.js";
-import { isCreationPublicationEnabled } from "../config/creationPublicationCutover.js";
 import { getDb } from "../db/index.js";
 import { prepareTemplateAggregate } from "../services/templateAggregatePreparation.js";
 import { publishTemplateAggregateWithClient } from "../services/templateAggregatePublication.js";
@@ -50,19 +49,9 @@ const applyTemplateSchema = z.object({
 });
 
 // ---------------------------------------------------------------------------
-// T11 Phase 1G — flag-gated template-application route
-//
-// When `ORCY_CREATION_PUBLICATION_ENABLED=true` (tests / T11), the route
-// composes the T9A aggregate kernel chain
+// Template application composes the aggregate publication kernel chain
 // (`prepareTemplateAggregate` → reserve N attempts →
-// `publishTemplateAggregateWithClient`) instead of the legacy
-// `templateRepo.applyTemplate` direct-insert path. Legacy stays byte-identical
-// when the flag is OFF (production default).
-//
-// Mirrors the precedent at:
-//   - `services/triageService.ts:38-64` (Phase 1C — triage routing)
-//   - `services/scheduledTaskService.ts:152-154` (Phase 1B — scheduler routing)
-//   - `services/automationExecutor.ts:273-275` (Phase 1 — automation routing)
+// `publishTemplateAggregateWithClient`).
 // ---------------------------------------------------------------------------
 
 /**
@@ -275,206 +264,179 @@ export async function templateRoutes(fastify: FastifyInstance): Promise<void> {
         throw forbidden("Template does not belong to this habitat");
       }
 
-      const userId = request.user?.id ?? "anonymous";
-
-      // T11 Phase 1G — flag-gated template-application routing. When the
-      // cutover flag is ON (tests / T11), route through the T9A aggregate
-      // kernel chain (prepare → reserve N attempts → publish). When OFF
-      // (production default), the legacy `templateRepo.applyTemplate` path
-      // runs byte-identical.
-      if (isCreationPublicationEnabled()) {
-        // The middleware guarantees `request.user?.id`; defensive fallback
-        // mirrors the taskPublication route's guard (`routes/taskPublication.ts:163-166`).
-        const actorId = request.user?.id;
-        if (!actorId) {
-          throw forbidden("Authentication required", "INSUFFICIENT_PERMISSIONS");
-        }
-
-        // Server-constructed provenance — untrusted body fields cannot assert
-        // privileged identities. The `auditSource` enum is the ORIGIN CHANNEL
-        // (REST API = `"rest_api"`); the human-vs-API surface lives in the
-        // causal-root.type (`"human"` for human via rest_api — matches
-        // `services/taskCreationPublication.ts:304-308`).
-        const actor: AuditActorRef = { type: "human", id: actorId };
-        const auditSource: AuditSource = "rest_api";
-        const causalContext: CausalContext = {
-          root: { type: "human", id: actorId },
-        };
-
-        // 1. PREPARE (PURE validation + canonicalization)
-        const prepared = prepareTemplateAggregate(
-          request.params.templateId,
-          existingMission.habitatId,
-          parsed.data,
-          { actor, auditSource, causalContext },
-        );
-
-        if (prepared.outcome === "rejected_validation") {
-          throw unprocessableEntity(
-            "Template preparation rejected",
-            "TEMPLATE_PREPARATION_REJECTED",
-            { errors: prepared.errors },
-          );
-        }
-
-        const aggregate = prepared.aggregate;
-
-        // 2. RESERVE N attempts (one per prepared Task). The attemptKey is
-        //    DERIVED from `(templateId, taskIndex, requestFingerprint)` so it
-        //    is STABLE across retries of the SAME request — a response-loss
-        //    retry hits the same reservation key and replays (no duplicate
-        //    Mission/Task). A DIFFERENT overrides set produces a different
-        //    fingerprint → a different key → a fresh publication (a legitimate
-        //    distinct application). Mirrors the deterministic key derivation
-        //    in the triage adapter (`triageMissionPublication.ts:780`) and
-        //    the scheduled-occurrence path (which derives its attempt identity
-        //    from the occurrence + schedule).
-        const db = getDb();
-        const requestFingerprint = computeTemplateApplicationFingerprint({
-          templateId: request.params.templateId,
-          missionId: request.params.missionId,
-          overrides: parsed.data,
-        });
-
-        const attemptIds: string[] = [];
-        const replayAttemptIds: string[] = [];
-        for (let i = 0; i < aggregate.tasks.length; i++) {
-          const attemptKey = `${request.params.templateId}-${i}-${requestFingerprint}`;
-          const reservation = reserveAttemptWithClient(db, {
-            source: auditSource,
-            sourceScopeKind: "mission",
-            sourceScopeId: request.params.missionId,
-            attemptKey,
-            requestFingerprint,
-            publicationKind: "create",
-            habitatId: existingMission.habitatId,
-            actorType: "human",
-            actorId,
-            causalContext,
-          });
-
-          // With deterministic keys embedding the fingerprint, a
-          // `rejected_fingerprint` is a hash-collision anomaly
-          // (astronomically unlikely with SHA-256). Surface as an internal
-          // error so the operator notices rather than masking it.
-          if (reservation.outcome === "rejected_fingerprint") {
-            throw new Error(
-              `templates route: deterministic attempt reservation rejected on fingerprint (templateId="${request.params.templateId}", missionId="${request.params.missionId}", taskIndex=${i})`,
-            );
-          }
-
-          const attempt = reservation.attempt;
-
-          if (attempt.state === "pending") {
-            // Fresh or pending-resume → collect for publication.
-            attemptIds.push(attempt.id);
-          } else {
-            // Non-pending: the aggregate already committed under this key
-            // set (response-loss retry). The kernel's per-Task checkpoint
-            // protocol forbids re-publishing a non-pending attempt, so
-            // collect the attemptId for envelope-based reconstruction
-            // instead of re-publishing.
-            replayAttemptIds.push(attempt.id);
-          }
-        }
-
-        // 2a. REPLAY — the aggregate already committed (response-loss retry).
-        //     Reconstruct the published result from the durable
-        //     `task_creation_envelopes` rows (keyed by `attemptId`) — the
-        //     same pattern as the blocker adapter's
-        //     `readCommittedBlockerPublication`. Return 200 (the resource
-        //     already existed). The kernel's replay/fingerprint mechanism
-        //     ensures a same-key retry returns `replayed` (no duplicate
-        //     Mission/Task).
-        if (replayAttemptIds.length > 0) {
-          const replayedTasks = replayAttemptIds
-            .map((id) => {
-              const envelope = db
-                .select()
-                .from(taskCreationEnvelopes)
-                .where(eq(taskCreationEnvelopes.attemptId, id))
-                .get();
-              if (!envelope) return undefined;
-              return db.select().from(tasks).where(eq(tasks.id, envelope.taskId)).get();
-            })
-            .filter((t): t is typeof tasks.$inferSelect => t !== undefined);
-          const replayMissionId = replayedTasks[0]?.missionId ?? null;
-          const replayedMission = replayMissionId
-            ? missionRepo.getMissionById(replayMissionId)
-            : null;
-          const replayedWorkflow = replayMissionId
-            ? (db.select().from(workflows).where(eq(workflows.missionId, replayMissionId)).get() ??
-              null)
-            : null;
-          reply.code(200).send({
-            mission: replayedMission,
-            tasks: replayedTasks,
-            workflow: replayedWorkflow,
-          });
-          return;
-        }
-
-        // 3. PUBLISH (atomic, inside the publisher's caller-owned tx)
-        const outcome = publishTemplateAggregateWithClient(db, {
-          attemptIds,
-          prepared: aggregate,
-        });
-
-        // 4. MAP the closed outcome to HTTP. Mirrors the legacy
-        //    `{mission, tasks, workflow}` return shape (tasks flatten to Task
-        //    rows via `CommittedPublication.task`).
-        switch (outcome.outcome) {
-          case "published":
-            reply.code(201).send({
-              mission: outcome.mission,
-              tasks: outcome.tasks.map((p) => p.task),
-              workflow: outcome.workflow,
-            });
-            return;
-          case "vetoed":
-            // Visible blocked outcome — NET-NEW for template-application (the
-            // legacy path bypasses governance entirely; this gate removes the
-            // exemption). Preserve the typed publication outcome instead of
-            // collapsing it into the generic AppError envelope.
-            reply.code(403).send({
-              outcome: "vetoed",
-              vetoes: outcome.vetoes,
-            });
-            return;
-          case "guard_mismatch":
-            throw conflict("Template application guard mismatch", {
-              taskIndex: outcome.taskIndex,
-              reasons: outcome.reasons,
-            });
-          case "governance_denied":
-            throw forbidden("Template application denied by governance", "GOVERNANCE_DENIED", {
-              taskIndex: outcome.taskIndex,
-              kind: outcome.kind,
-              reason: outcome.reason,
-              ...(outcome.interceptorKey !== undefined
-                ? { interceptorKey: outcome.interceptorKey }
-                : {}),
-            });
-        }
+      // The middleware guarantees `request.user?.id`; defensive fallback
+      // mirrors the taskPublication route's guard (`routes/taskPublication.ts:163-166`).
+      const actorId = request.user?.id;
+      if (!actorId) {
+        throw forbidden("Authentication required", "INSUFFICIENT_PERMISSIONS");
       }
 
-      // Flag OFF — legacy path (production default). Byte-identical to the
-      // pre-T11 behavior; preserved here so existing tests + production traffic
-      // are unaffected.
-      const result = templateRepo.applyTemplate(
+      // Server-constructed provenance — untrusted body fields cannot assert
+      // privileged identities. The `auditSource` enum is the ORIGIN CHANNEL
+      // (REST API = `"rest_api"`); the human-vs-API surface lives in the
+      // causal-root.type (`"human"` for human via rest_api — matches
+      // `services/taskCreationPublication.ts:304-308`).
+      const actor: AuditActorRef = { type: "human", id: actorId };
+      const auditSource: AuditSource = "rest_api";
+      const causalContext: CausalContext = {
+        root: { type: "human", id: actorId },
+      };
+
+      // 1. PREPARE (PURE validation + canonicalization)
+      const prepared = prepareTemplateAggregate(
         request.params.templateId,
         existingMission.habitatId,
         parsed.data,
-        userId,
+        { actor, auditSource, causalContext },
       );
 
-      if (!result) {
-        throw notFound("Template not found");
+      if (prepared.outcome === "rejected_validation") {
+        throw unprocessableEntity(
+          "Template preparation rejected",
+          "TEMPLATE_PREPARATION_REJECTED",
+          { errors: prepared.errors },
+        );
       }
 
-      reply
-        .code(201)
-        .send({ mission: result.mission, tasks: result.tasks, workflow: result.workflow });
+      const aggregate = prepared.aggregate;
+
+      // 2. RESERVE N attempts (one per prepared Task). The attemptKey is
+      //    DERIVED from `(templateId, taskIndex, requestFingerprint)` so it
+      //    is STABLE across retries of the SAME request — a response-loss
+      //    retry hits the same reservation key and replays (no duplicate
+      //    Mission/Task). A DIFFERENT overrides set produces a different
+      //    fingerprint → a different key → a fresh publication (a legitimate
+      //    distinct application). Mirrors the deterministic key derivation
+      //    in the triage adapter (`triageMissionPublication.ts:780`) and
+      //    the scheduled-occurrence path (which derives its attempt identity
+      //    from the occurrence + schedule).
+      const db = getDb();
+      const requestFingerprint = computeTemplateApplicationFingerprint({
+        templateId: request.params.templateId,
+        missionId: request.params.missionId,
+        overrides: parsed.data,
+      });
+
+      const attemptIds: string[] = [];
+      const replayAttemptIds: string[] = [];
+      for (let i = 0; i < aggregate.tasks.length; i++) {
+        const attemptKey = `${request.params.templateId}-${i}-${requestFingerprint}`;
+        const reservation = reserveAttemptWithClient(db, {
+          source: auditSource,
+          sourceScopeKind: "mission",
+          sourceScopeId: request.params.missionId,
+          attemptKey,
+          requestFingerprint,
+          publicationKind: "create",
+          habitatId: existingMission.habitatId,
+          actorType: "human",
+          actorId,
+          causalContext,
+        });
+
+        // With deterministic keys embedding the fingerprint, a
+        // `rejected_fingerprint` is a hash-collision anomaly
+        // (astronomically unlikely with SHA-256). Surface as an internal
+        // error so the operator notices rather than masking it.
+        if (reservation.outcome === "rejected_fingerprint") {
+          throw new Error(
+            `templates route: deterministic attempt reservation rejected on fingerprint (templateId="${request.params.templateId}", missionId="${request.params.missionId}", taskIndex=${i})`,
+          );
+        }
+
+        const attempt = reservation.attempt;
+
+        if (attempt.state === "pending") {
+          // Fresh or pending-resume → collect for publication.
+          attemptIds.push(attempt.id);
+        } else {
+          // Non-pending: the aggregate already committed under this key
+          // set (response-loss retry). The kernel's per-Task checkpoint
+          // protocol forbids re-publishing a non-pending attempt, so
+          // collect the attemptId for envelope-based reconstruction
+          // instead of re-publishing.
+          replayAttemptIds.push(attempt.id);
+        }
+      }
+
+      // 2a. REPLAY — the aggregate already committed (response-loss retry).
+      //     Reconstruct the published result from the durable
+      //     `task_creation_envelopes` rows (keyed by `attemptId`) — the
+      //     same pattern as the blocker adapter's
+      //     `readCommittedBlockerPublication`. Return 200 (the resource
+      //     already existed). The kernel's replay/fingerprint mechanism
+      //     ensures a same-key retry returns `replayed` (no duplicate
+      //     Mission/Task).
+      if (replayAttemptIds.length > 0) {
+        const replayedTasks = replayAttemptIds
+          .map((id) => {
+            const envelope = db
+              .select()
+              .from(taskCreationEnvelopes)
+              .where(eq(taskCreationEnvelopes.attemptId, id))
+              .get();
+            if (!envelope) return undefined;
+            return db.select().from(tasks).where(eq(tasks.id, envelope.taskId)).get();
+          })
+          .filter((t): t is typeof tasks.$inferSelect => t !== undefined);
+        const replayMissionId = replayedTasks[0]?.missionId ?? null;
+        const replayedMission = replayMissionId
+          ? missionRepo.getMissionById(replayMissionId)
+          : null;
+        const replayedWorkflow = replayMissionId
+          ? (db.select().from(workflows).where(eq(workflows.missionId, replayMissionId)).get() ??
+            null)
+          : null;
+        reply.code(200).send({
+          mission: replayedMission,
+          tasks: replayedTasks,
+          workflow: replayedWorkflow,
+        });
+        return;
+      }
+
+      // 3. PUBLISH (atomic, inside the publisher's caller-owned tx)
+      const outcome = publishTemplateAggregateWithClient(db, {
+        attemptIds,
+        prepared: aggregate,
+      });
+
+      // 4. MAP the closed outcome to HTTP. Mirrors the legacy
+      //    `{mission, tasks, workflow}` return shape (tasks flatten to Task
+      //    rows via `CommittedPublication.task`).
+      switch (outcome.outcome) {
+        case "published":
+          reply.code(201).send({
+            mission: outcome.mission,
+            tasks: outcome.tasks.map((p) => p.task),
+            workflow: outcome.workflow,
+          });
+          return;
+        case "vetoed":
+          // Visible blocked outcome — NET-NEW for template-application (the
+          // legacy path bypasses governance entirely; this gate removes the
+          // exemption). Preserve the typed publication outcome instead of
+          // collapsing it into the generic AppError envelope.
+          reply.code(403).send({
+            outcome: "vetoed",
+            vetoes: outcome.vetoes,
+          });
+          return;
+        case "guard_mismatch":
+          throw conflict("Template application guard mismatch", {
+            taskIndex: outcome.taskIndex,
+            reasons: outcome.reasons,
+          });
+        case "governance_denied":
+          throw forbidden("Template application denied by governance", "GOVERNANCE_DENIED", {
+            taskIndex: outcome.taskIndex,
+            kind: outcome.kind,
+            reason: outcome.reason,
+            ...(outcome.interceptorKey !== undefined
+              ? { interceptorKey: outcome.interceptorKey }
+              : {}),
+          });
+      }
     },
   );
 }

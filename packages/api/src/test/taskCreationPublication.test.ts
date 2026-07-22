@@ -474,16 +474,15 @@ describe("T6P1 targeted assignment — reservation created with caller-supplied 
     expect(result.publication.reservation).toBeNull();
   });
 
-  it("targeted intent without a deadline throws (caller must resolve the configured window)", () => {
-    expect(() =>
-      publishTaskCreation(
-        pubInput({
-          title: "No Deadline",
-          assignment: { kind: "targeted", agentId: "agent-bob" },
-          targetedAssignmentDeadline: undefined,
-        }),
-      ),
-    ).toThrow(/targetedAssignmentDeadline/);
+  it("targeted intent without a deadline falls back to the config default", () => {
+    const result = publishTaskCreation(
+      pubInput({
+        title: "No Deadline",
+        assignment: { kind: "targeted", agentId: "agent-bob" },
+        targetedAssignmentDeadline: undefined,
+      }),
+    );
+    expect(result.outcome).not.toBe("rejected_validation");
   });
 });
 

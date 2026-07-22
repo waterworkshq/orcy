@@ -1,20 +1,16 @@
 import { CronExpressionParser } from "cron-parser";
 import * as scheduledTaskRepo from "../repositories/scheduledTask.js";
-import * as templateRepo from "../repositories/template.js";
-import * as missionRepo from "../repositories/mission.js";
-import * as taskRepo from "../repositories/task.js";
 import * as auditExportService from "./auditExportService.js";
 import { sseBroadcaster } from "../sse/broadcaster.js";
 import { logger } from "../lib/logger.js";
 import { getDb } from "../db/index.js";
 import { auditExportSchedules } from "../db/schema/index.js";
 import { eq, and, lte } from "drizzle-orm";
-import type { ScheduledTask, TaskTemplateEntry } from "../models/index.js";
+import type { ScheduledTask } from "../models/index.js";
 import type { AuditExportQuery } from "./auditExportService.js";
 import { writeFileSync, mkdirSync } from "fs";
 import { join } from "path";
 import { sanitizeFilename } from "./fileStorage.js";
-import { isCreationPublicationEnabled } from "../config/creationPublicationCutover.js";
 import { reserveScheduledOccurrence } from "../repositories/scheduledOccurrenceReservation.js";
 import {
   publishScheduledOccurrence,
@@ -93,42 +89,6 @@ export function calculateNextRun(
   return new Date(Date.now() + 60_000).toISOString();
 }
 
-function buildTokenContext(schedule: ScheduledTask) {
-  return { runCount: schedule.runCount + 1, timezone: schedule.timezone ?? "UTC" };
-}
-
-function createMissionFromSchedule(schedule: ScheduledTask): {
-  missionId: string;
-  missionTitle: string;
-} {
-  const ctx = buildTokenContext(schedule);
-  const resolvedTitle = substituteTokens(schedule.missionTitle, ctx);
-  const mission = missionRepo.createMission({
-    habitatId: schedule.habitatId,
-    title: resolvedTitle,
-    description: substituteTokens(schedule.missionDescription, ctx),
-    priority: schedule.missionPriority,
-    labels: schedule.missionLabels,
-    createdBy: "system",
-  });
-
-  for (const entry of (schedule.tasksTemplate ?? []) as TaskTemplateEntry[]) {
-    taskRepo.createTask({
-      missionId: mission.id,
-      title: substituteTokens(entry.title, ctx),
-      description: entry.description,
-      priority: entry.priority,
-      requiredDomain: entry.requiredDomain,
-      requiredCapabilities: entry.requiredCapabilities,
-      estimatedMinutes: entry.estimatedMinutes,
-      order: entry.order,
-      createdBy: "system",
-    });
-  }
-
-  return { missionId: mission.id, missionTitle: resolvedTitle };
-}
-
 /** Atomically claims and runs a scheduled task, creating a mission (and its tasks) from the stored template, then publishes an SSE event. Returns `skipped` when another worker already claimed the run. */
 export function executeScheduledTask(id: string): {
   success: boolean;
@@ -145,131 +105,11 @@ export function executeScheduledTask(id: string): {
     return { success: false, error: "Scheduled task is disabled" };
   }
 
-  // T11 Phase 1B — flag-gated scheduler routing. When the cutover flag is ON
-  // (tests / T11), route through the occurrence-based publication kernel
-  // (reserve occurrence → publish by shape). When OFF (production default),
-  // the legacy claim+applyTemplate path below runs byte-unchanged.
-  if (isCreationPublicationEnabled()) {
-    return executeScheduledTaskViaPublication(schedule);
-  }
-
-  const nextRunAt = calculateNextRun(
-    schedule.scheduleType,
-    schedule.cronExpression,
-    schedule.intervalMinutes,
-    schedule.timezone,
-  );
-
-  const claimed = scheduledTaskRepo.claimExecution(id, nextRunAt);
-  if (!claimed) {
-    return { success: true, skipped: true };
-  }
-
-  try {
-    // Explicit dispatch: a schedule declares `handler_key` to opt into handler-driven execution.
-    // When set, the registered handler runs instead of the default mission-from-template path.
-    // Fail-loud guard: if `handlerKey` is set but no handler is registered (e.g. a domain service
-    // forgot to register at boot), this is a configuration error — surface it via scheduled_task.failed
-    // and a logged error rather than silently falling through to mission creation (which would hide
-    // the bug and produce the wrong artifact).
-    if (schedule.handlerKey) {
-      const handler = getScheduledTaskHandler(schedule.handlerKey);
-      if (!handler) {
-        const error = `No handler registered for handlerKey "${schedule.handlerKey}" on scheduled task ${schedule.name} (id=${id}). Register it at boot via registerScheduledTaskHandler.`;
-        logger.error(
-          { scheduleId: id, handlerKey: schedule.handlerKey, name: schedule.name },
-          error,
-        );
-        scheduledTaskRepo.finalizeExecution(id, null);
-        sseBroadcaster.publish(schedule.habitatId, {
-          type: "scheduled_task.failed",
-          data: { scheduleId: id, error },
-        });
-        return { success: false, error };
-      }
-      const handlerResult = handler(schedule);
-      const missionId = handlerResult.missionId ?? null;
-      scheduledTaskRepo.finalizeExecution(id, missionId);
-
-      if (schedule.scheduleType === "once") {
-        scheduledTaskRepo.updateScheduledTask(id, { enabled: false });
-      }
-
-      if (handlerResult.success) {
-        sseBroadcaster.publish(schedule.habitatId, {
-          type: "scheduled_task.executed",
-          data: {
-            scheduleId: id,
-            ...(missionId ? { missionId } : {}),
-          },
-        });
-        return { success: true, ...(missionId ? { missionId } : {}) };
-      }
-      sseBroadcaster.publish(schedule.habitatId, {
-        type: "scheduled_task.failed",
-        data: { scheduleId: id, error: handlerResult.error ?? "handler failed" },
-      });
-      return { success: false, error: handlerResult.error ?? "handler failed" };
-    }
-
-    let missionId: string;
-    let missionTitle: string;
-
-    if (schedule.templateId) {
-      const ctx = buildTokenContext(schedule);
-      const resolvedTitle = substituteTokens(schedule.missionTitle, ctx);
-      const result = templateRepo.applyTemplate(
-        schedule.templateId,
-        schedule.habitatId,
-        {
-          title: resolvedTitle,
-          description: substituteTokens(schedule.missionDescription, ctx),
-          priority: schedule.missionPriority,
-          labels: schedule.missionLabels,
-        },
-        "system",
-      );
-
-      if (result) {
-        missionId = result.mission.id;
-        missionTitle = resolvedTitle;
-      } else {
-        const fallback = createMissionFromSchedule(schedule);
-        missionId = fallback.missionId;
-        missionTitle = fallback.missionTitle;
-      }
-    } else {
-      const direct = createMissionFromSchedule(schedule);
-      missionId = direct.missionId;
-      missionTitle = direct.missionTitle;
-    }
-
-    scheduledTaskRepo.finalizeExecution(id, missionId);
-
-    if (schedule.scheduleType === "once") {
-      scheduledTaskRepo.updateScheduledTask(id, { enabled: false });
-    }
-
-    sseBroadcaster.publish(schedule.habitatId, {
-      type: "scheduled_task.executed",
-      data: { scheduleId: id, missionId, missionTitle },
-    });
-
-    return { success: true, missionId };
-  } catch (err) {
-    logger.error({ err, scheduleId: id }, "Error executing scheduled task");
-
-    sseBroadcaster.publish(schedule.habitatId, {
-      type: "scheduled_task.failed",
-      data: { scheduleId: id, error: (err as Error).message },
-    });
-
-    return { success: false, error: (err as Error).message };
-  }
+  return executeScheduledTaskViaPublication(schedule);
 }
 
 // ---------------------------------------------------------------------------
-// T11 Phase 1B — flag-gated occurrence-based publication path.
+// T11 Phase 1B — occurrence-based publication path.
 //
 // The new path replaces the legacy `claimExecution` + `applyTemplate` /
 // `createMissionFromSchedule` / handler-key dispatch with:
@@ -281,7 +121,7 @@ export function executeScheduledTask(id: string): {
 //      reservation owns the advance (double-advancing would skip occurrences).
 //   2. ROUTE by schedule shape — preserves the legacy precedence
 //      (`handlerKey` > `templateId` > inline) so a schedule declaring both
-//      `handlerKey` + `templateId` routes the same way under both flags.
+//      `handlerKey` + `templateId` keeps the established precedence.
 //   3. MAP the publication outcome to the legacy return shape + emit the
 //      legacy SSE events (UI parity). Resumable outcomes stay `publishing`
 //      (T9B's lease-recovery worker picks up the expired lease); mapped to
@@ -295,7 +135,7 @@ const SCHEDULER_PUBLICATION_LEASE_MS = 5 * 60_000;
 /** Lease owner identity for the synchronous scheduler publication path. */
 const SCHEDULER_PUBLICATION_LEASE_OWNER = "scheduler";
 
-/** Return shape of {@link executeScheduledTask} (shared by both paths). */
+/** Return shape of {@link executeScheduledTask}. */
 type ExecuteScheduledTaskResult = {
   success: boolean;
   missionId?: string;
@@ -304,9 +144,8 @@ type ExecuteScheduledTaskResult = {
 };
 
 /**
- * Flag-gated scheduler routing through the occurrence-based publication kernel
+ * Scheduler routing through the occurrence-based publication kernel
  * (reserve → publish by shape). See the block doc above for the full flow.
- * Activated ONLY when `isCreationPublicationEnabled()` returns true.
  */
 function executeScheduledTaskViaPublication(schedule: ScheduledTask): ExecuteScheduledTaskResult {
   const id = schedule.id;

@@ -1,11 +1,8 @@
 /**
- * T7 Phase 2 — REST clone publication routes (DORMANT).
+ * REST clone publication routes.
  *
- * Exposes the T7 Phase 1 surface — {@link prepareClonePublication} (read-only
- * allowlisted DTO) and the extended {@link publishTaskCreation} adapter
- * (now accepts `cloneSourceTaskId`) — as two dormant REST routes alongside
- * the legacy `POST /tasks/:id/clone` + `cloneTaskSchema` (the production
- * path until T11 swaps them).
+ * Exposes {@link prepareClonePublication} (read-only allowlisted DTO) and the
+ * extended {@link publishTaskCreation} adapter (accepting `cloneSourceTaskId`).
  *
  * Why new paths:
  *   - The GET (`/tasks/:sourceTaskId/clone-preparation`) is a NEW verb for
@@ -60,14 +57,9 @@
  *        is forbidden until T11).
  *
  * What these routes do NOT do:
- *   - Replace the legacy `POST /tasks/:id/clone`. That swap is T11.
- *   - Wire the adapter into the production path (DORMANT — tests are the
- *     only exerciser until T11).
  *   - Accept `includeSubtasks`/`includeComments`/`order` from the body
  *     (the Zod schema does not declare them; Zod strips unknown keys by
  *     default, so the contract is structural, not just documented).
- *   - Touch the legacy `cloneTaskSchema`, `cloneTask`, or `POST /tasks/:id/clone`
- *     — they stay byte-unchanged until T11.
  *
  * Conventions matched (verified against `routes/taskPublication.ts` +
  * `routes/tasks/assignment.ts` + `routes/taskCreationAttempts.ts`):
@@ -95,7 +87,6 @@ import { clonePublicationSchema, type ClonePublicationInput } from "../models/sc
 import { publishTaskCreation } from "../services/taskCreationPublication.js";
 import { prepareClonePublication } from "../services/taskClonePreparation.js";
 import * as missionRepo from "../repositories/mission.js";
-import { isCreationPublicationEnabled } from "../config/creationPublicationCutover.js";
 import { publicationResultToHttpResponse } from "./helpers/taskPublicationHttp.js";
 
 const clonePreparationParamsSchema = z.object({ sourceTaskId: z.string() });
@@ -152,169 +143,163 @@ export async function taskClonePublicationRoutes(fastify: FastifyInstance): Prom
   // ---------------------------------------------------------------------
   // (b) POST /tasks/:sourceTaskId/clone-publications
   //
-  // The dormant publication. Receives the EDITED work-definition + the
+  // The publication receives the EDITED work-definition + the
   // target Mission + the assignment intent, calls the extended
   // `publishTaskCreation` adapter with `cloneSourceTaskId`, and maps the
   // outcome to HTTP via the shared (duplicated) mapping function.
   //
-  // Fix-P1 (C1): this POST creates POST_CUTOVER state — gated behind the
-  // disabled-by-default cutover flag (unreachable in production until T11).
-  // The read-only GET (a) above is NOT gated (safe preparation surface).
   // ---------------------------------------------------------------------
-  if (isCreationPublicationEnabled()) {
-    fastify.withTypeProvider<ZodTypeProvider>().post(
-      "/tasks/:sourceTaskId/clone-publications",
-      {
-        schema: { params: clonePublicationParamsSchema, body: clonePublicationSchema },
-        preHandler: agentOrHumanAuth,
-      },
-      async (request, reply) => {
-        const parsed: ClonePublicationInput = request.body;
-        const { sourceTaskId } = request.params;
+  fastify.withTypeProvider<ZodTypeProvider>().post(
+    "/tasks/:sourceTaskId/clone-publications",
+    {
+      schema: { params: clonePublicationParamsSchema, body: clonePublicationSchema },
+      preHandler: agentOrHumanAuth,
+    },
+    async (request, reply) => {
+      const parsed: ClonePublicationInput = request.body;
+      const { sourceTaskId } = request.params;
 
-        // Resolve the source task → habitat (for cross-habitat enforcement
-        // + same-Habitat authority). Without this, a cross-habitat clone
-        // could leak via a 202 (the kernel would reject at prepare time
-        // but the route would have already returned committed-recovering
-        // if the adapter raced past reservation).
-        const prep = prepareClonePublication(sourceTaskId);
-        if (prep.outcome === "not_found") {
-          throw notFound("Source task not found");
-        }
-        const sourceHabitatId = prep.preparation.source.habitatId;
+      // Resolve the source task → habitat (for cross-habitat enforcement
+      // + same-Habitat authority). Without this, a cross-habitat clone
+      // could leak via a 202 (the kernel would reject at prepare time
+      // but the route would have already returned committed-recovering
+      // if the adapter raced past reservation).
+      const prep = prepareClonePublication(sourceTaskId);
+      if (prep.outcome === "not_found") {
+        throw notFound("Source task not found");
+      }
+      const sourceHabitatId = prep.preparation.source.habitatId;
 
-        // Server-side mission existence + archived-mission guard. The
-        // route param is `:sourceTaskId`, not `:missionId`, so
-        // `requireMissionAccess`'s path-param lookup does not apply — we
-        // resolve + check inline (mirrors T6 P2's `missionRepo.getMissionById`
-        // + archived guard pattern).
-        const targetMission = missionRepo.getMissionById(parsed.targetMissionId);
-        if (!targetMission) {
-          // Mirror T6's requireMissionAccess: a missing mission yields
-          // not-found (no information leak about cross-habitat Missions).
-          throw notFound("Target mission not found");
-        }
-        if (targetMission.isArchived) {
-          // Mirrors the legacy create-task + T6 P2 routes' archived guard —
-          // archived Missions are frozen against new Task creation
-          // regardless of origin (REST, MCP, clone).
-          throw forbidden("Cannot add tasks to an archived mission");
-        }
+      // Server-side mission existence + archived-mission guard. The
+      // route param is `:sourceTaskId`, not `:missionId`, so
+      // `requireMissionAccess`'s path-param lookup does not apply — we
+      // resolve + check inline (mirrors T6 P2's `missionRepo.getMissionById`
+      // + archived guard pattern).
+      const targetMission = missionRepo.getMissionById(parsed.targetMissionId);
+      if (!targetMission) {
+        // Mirror T6's requireMissionAccess: a missing mission yields
+        // not-found (no information leak about cross-habitat Missions).
+        throw notFound("Target mission not found");
+      }
+      if (targetMission.isArchived) {
+        // Mirrors the legacy create-task + T6 P2 routes' archived guard —
+        // archived Missions are frozen against new Task creation
+        // regardless of origin (REST, MCP, clone).
+        throw forbidden("Cannot add tasks to an archived mission");
+      }
 
-        // Authorize against BOTH the source's Habitat (the source's Habitat
-        // is authoritative for a clone — the adapter overrides `habitatId`
-        // with it inside `publishTaskCreation`) AND the target Mission's
-        // Habitat (a caller scoped to habitat A cannot clone into habitat
-        // B's Missions; the kernel's `cross_habitat_mission` check rejects
-        // it at prepare time).
-        await checkHabitatAccess(request, sourceHabitatId);
-        await checkHabitatAccess(request, targetMission.habitatId);
+      // Authorize against BOTH the source's Habitat (the source's Habitat
+      // is authoritative for a clone — the adapter overrides `habitatId`
+      // with it inside `publishTaskCreation`) AND the target Mission's
+      // Habitat (a caller scoped to habitat A cannot clone into habitat
+      // B's Missions; the kernel's `cross_habitat_mission` check rejects
+      // it at prepare time).
+      await checkHabitatAccess(request, sourceHabitatId);
+      await checkHabitatAccess(request, targetMission.habitatId);
 
-        // Provenance is server-constructed from the authenticated caller.
-        // Untrusted body fields cannot assert privileged identities — the
-        // adapter type does not expose them.
-        //
-        // The `auditSource` enum is the ORIGIN CHANNEL (the closed set in
-        // @orcy/shared). For a REST route the value is ALWAYS `"rest_api"` —
-        // the UI/API distinction is conveyed by `actorType` (human vs agent)
-        // and surfaces in the committed envelope's causal-root.type (see
-        // `deriveCausalRootType` in services/taskCreationPublication.ts):
-        //   human  via rest_api → root.type === "human"  (the UI signal)
-        //   agent  via rest_api → root.type === "api"    (the API signal)
-        //   any    via mcp_tool  → root.type === "mcp"    (the MCP signal — P3)
-        const actorType: "human" | "agent" = request.agent ? "agent" : "human";
-        const actorId = request.agent?.id ?? request.user?.id;
-        if (!actorId) {
-          // agentOrHumanAuth always sets one of these — defensive fallback.
-          throw forbidden("Authentication required");
-        }
-        const auditSource = "rest_api" as const;
+      // Provenance is server-constructed from the authenticated caller.
+      // Untrusted body fields cannot assert privileged identities — the
+      // adapter type does not expose them.
+      //
+      // The `auditSource` enum is the ORIGIN CHANNEL (the closed set in
+      // @orcy/shared). For a REST route the value is ALWAYS `"rest_api"` —
+      // the UI/API distinction is conveyed by `actorType` (human vs agent)
+      // and surfaces in the committed envelope's causal-root.type (see
+      // `deriveCausalRootType` in services/taskCreationPublication.ts):
+      //   human  via rest_api → root.type === "human"  (the UI signal)
+      //   agent  via rest_api → root.type === "api"    (the API signal)
+      //   any    via mcp_tool  → root.type === "mcp"    (the MCP signal — P3)
+      const actorType: "human" | "agent" = request.agent ? "agent" : "human";
+      const actorId = request.agent?.id ?? request.user?.id;
+      if (!actorId) {
+        // agentOrHumanAuth always sets one of these — defensive fallback.
+        throw forbidden("Authentication required");
+      }
+      const auditSource = "rest_api" as const;
 
-        // Targeted-assignment deadline resolution. The Zod schema enforces
-        // that a targeted intent SUPPLIES a deadline (with `.superRefine`);
-        // if a caller slips past the schema, surface as 422 rather than a
-        // 500 (defensive fallback — the adapter would otherwise throw).
-        const targetedAssignmentDeadline: string | undefined = parsed.targetedAssignmentDeadline;
-        if (parsed.assignment.kind === "targeted" && targetedAssignmentDeadline === undefined) {
-          throw unprocessableEntity(
-            "targetedAssignmentDeadline is required when assignment.kind === 'targeted'",
-            "VALIDATION_ERROR",
-            { path: "targetedAssignmentDeadline" },
-          );
-        }
+      // Targeted-assignment deadline resolution. The Zod schema enforces
+      // that a targeted intent SUPPLIES a deadline (with `.superRefine`);
+      // if a caller slips past the schema, surface as 422 rather than a
+      // 500 (defensive fallback — the adapter would otherwise throw).
+      const targetedAssignmentDeadline: string | undefined = parsed.targetedAssignmentDeadline;
+      if (parsed.assignment.kind === "targeted" && targetedAssignmentDeadline === undefined) {
+        throw unprocessableEntity(
+          "targetedAssignmentDeadline is required when assignment.kind === 'targeted'",
+          "VALIDATION_ERROR",
+          { path: "targetedAssignmentDeadline" },
+        );
+      }
 
-        // Adapter call. The adapter is DORMANT (no production caller besides
-        // this route + tests until T11). It returns the result envelope
-        // synchronously; we map it to HTTP. It MAY throw for purely-internal
-        // precondition failures (empty attemptKey, missing source Task,
-        // empty agentId for targeted) — those surface as unhandled 500s via
-        // the global error handler; they are programming-error-shaped, not
-        // domain outcomes, so 500 is correct.
-        //
-        // NOTE: `habitatId` below is the SOURCE's Habitat. The adapter
-        // re-resolves the source via `getHabitatIdForTask` inside
-        // `publishTaskCreation` and OVERRIDES this value with the source's
-        // authoritative Habitat (see `isClone` branch in the adapter). The
-        // kernel's `cross_habitat_mission` check then rejects a target
-        // Mission outside that Habitat — the route surfaces the rejection
-        // as a typed 422 via `rejected_validation`.
-        const result = publishTaskCreation({
-          attemptKey: parsed.attemptKey,
-          actorId,
-          actorType,
-          auditSource,
-          habitatId: sourceHabitatId,
-          targetMissionId: parsed.targetMissionId,
-          cloneSourceTaskId: sourceTaskId,
-          title: parsed.title,
-          ...(parsed.description !== undefined ? { description: parsed.description } : {}),
-          ...(parsed.priority !== undefined ? { priority: parsed.priority } : {}),
-          ...(parsed.requiredDomain !== undefined ? { requiredDomain: parsed.requiredDomain } : {}),
-          ...(parsed.requiredCapabilities !== undefined
-            ? { requiredCapabilities: parsed.requiredCapabilities }
-            : {}),
-          ...(parsed.estimatedMinutes !== undefined
-            ? { estimatedMinutes: parsed.estimatedMinutes }
-            : {}),
-          ...(parsed.labels !== undefined ? { labels: parsed.labels } : {}),
-          ...(parsed.subtasks !== undefined
-            ? {
-                subtasks: parsed.subtasks.map((s, i) => ({
-                  title: s.title,
-                  ...(s.order !== undefined ? { order: s.order } : { order: i }),
-                  ...(s.assigneeId !== undefined ? { assigneeId: s.assigneeId } : {}),
-                })),
-              }
-            : {}),
-          ...(parsed.selectedDependencies !== undefined
-            ? {
-                selectedDependencies: parsed.selectedDependencies.map((dependsOnId) => ({
-                  dependsOnId,
-                })),
-              }
-            : {}),
-          assignment: parsed.assignment,
-          ...(targetedAssignmentDeadline !== undefined ? { targetedAssignmentDeadline } : {}),
-        });
+      // Adapter call. It returns the result envelope synchronously; we map
+      // it to HTTP. It MAY throw for purely-internal
+      // precondition failures (empty attemptKey, missing source Task,
+      // empty agentId for targeted) — those surface as unhandled 500s via
+      // the global error handler; they are programming-error-shaped, not
+      // domain outcomes, so 500 is correct.
+      //
+      // NOTE: `habitatId` below is the SOURCE's Habitat. The adapter
+      // re-resolves the source via `getHabitatIdForTask` inside
+      // `publishTaskCreation` and OVERRIDES this value with the source's
+      // authoritative Habitat (see `isClone` branch in the adapter). The
+      // kernel's `cross_habitat_mission` check then rejects a target
+      // Mission outside that Habitat — the route surfaces the rejection
+      // as a typed 422 via `rejected_validation`.
+      const result = publishTaskCreation({
+        attemptKey: parsed.attemptKey,
+        actorId,
+        actorType,
+        auditSource,
+        habitatId: sourceHabitatId,
+        targetMissionId: parsed.targetMissionId,
+        cloneSourceTaskId: sourceTaskId,
+        title: parsed.title,
+        ...(parsed.description !== undefined ? { description: parsed.description } : {}),
+        ...(parsed.priority !== undefined ? { priority: parsed.priority } : {}),
+        ...(parsed.requiredDomain !== undefined ? { requiredDomain: parsed.requiredDomain } : {}),
+        ...(parsed.requiredCapabilities !== undefined
+          ? { requiredCapabilities: parsed.requiredCapabilities }
+          : {}),
+        ...(parsed.estimatedMinutes !== undefined
+          ? { estimatedMinutes: parsed.estimatedMinutes }
+          : {}),
+        ...(parsed.labels !== undefined ? { labels: parsed.labels } : {}),
+        ...(parsed.subtasks !== undefined
+          ? {
+              subtasks: parsed.subtasks.map((s, i) => ({
+                title: s.title,
+                ...(s.order !== undefined ? { order: s.order } : { order: i }),
+                ...(s.assigneeId !== undefined ? { assigneeId: s.assigneeId } : {}),
+              })),
+            }
+          : {}),
+        ...(parsed.selectedDependencies !== undefined
+          ? {
+              selectedDependencies: parsed.selectedDependencies.map((dependsOnId) => ({
+                dependsOnId,
+              })),
+            }
+          : {}),
+        assignment: parsed.assignment,
+        ...(targetedAssignmentDeadline !== undefined ? { targetedAssignmentDeadline } : {}),
+      });
 
-        // Recover the committed envelope (if any) so the HTTP layer can
-        // include the task id even on a recovering-replay path where the
-        // adapter's inline publication is reconstructed rather than fresh.
-        const envelopeRow = getDb()
-          .select({
-            attemptId: taskCreationEnvelopes.attemptId,
-            taskId: taskCreationEnvelopes.taskId,
-          })
-          .from(taskCreationEnvelopes)
-          .where(eq(taskCreationEnvelopes.attemptId, result.attemptId))
-          .get();
-        const envelopeTaskId = envelopeRow?.taskId ?? null;
+      // Recover the committed envelope (if any) so the HTTP layer can
+      // include the task id even on a recovering-replay path where the
+      // adapter's inline publication is reconstructed rather than fresh.
+      const envelopeRow = getDb()
+        .select({
+          attemptId: taskCreationEnvelopes.attemptId,
+          taskId: taskCreationEnvelopes.taskId,
+        })
+        .from(taskCreationEnvelopes)
+        .where(eq(taskCreationEnvelopes.attemptId, result.attemptId))
+        .get();
+      const envelopeTaskId = envelopeRow?.taskId ?? null;
 
-        const { statusCode, body } = publicationResultToHttpResponse(result, envelopeTaskId);
-        reply.code(statusCode).send(body);
-      },
-    );
-  }
+      const { statusCode, body } = publicationResultToHttpResponse(result, envelopeTaskId);
+      reply.code(statusCode).send(body);
+    },
+  );
 }
 
 /**

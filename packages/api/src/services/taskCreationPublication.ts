@@ -501,12 +501,6 @@ export function publishTaskCreation(
         "publishTaskCreation: assignment.kind === 'targeted' requires a non-empty agentId",
       );
     }
-    if (input.targetedAssignmentDeadline === undefined) {
-      throw new Error(
-        "publishTaskCreation: assignment.kind === 'targeted' requires targetedAssignmentDeadline " +
-          "(the configured reservation window). Pass an ISO timestamp from app/config.",
-      );
-    }
   }
 
   const actor: AuditActorRef = { type: input.actorType, id: input.actorId };

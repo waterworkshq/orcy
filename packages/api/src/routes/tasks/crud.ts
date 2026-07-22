@@ -2,10 +2,9 @@ import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
 import * as taskService from "../../services/tasks/index.js";
-import { updateTaskSchema, cloneTaskSchema } from "../../models/schemas.js";
-import { agentAuth, humanAuth, agentOrHumanAuth } from "../../middleware/auth.js";
+import { updateTaskSchema } from "../../models/schemas.js";
+import { agentAuth, agentOrHumanAuth } from "../../middleware/auth.js";
 import { notFound, forbidden, conflict, badRequest } from "../../errors.js";
-import { isCreationPublicationEnabled } from "../../config/creationPublicationCutover.js";
 
 const taskParamsSchema = z.object({ id: z.string() });
 
@@ -69,37 +68,6 @@ export async function taskCrudRoutes(fastify: FastifyInstance): Promise<void> {
           }
         }
         return { success: true };
-      },
-    );
-
-  fastify
-    .withTypeProvider<ZodTypeProvider>()
-    .post(
-      "/tasks/:id/clone",
-      { schema: { params: taskParamsSchema, body: cloneTaskSchema }, preHandler: [humanAuth] },
-      async (request, reply) => {
-        // T11 Phase 4 — when the publication kernel is active, the legacy
-        // immediate-clone endpoint is retired. Callers must use the new
-        // clone-publication route (POST /tasks/:sourceTaskId/clone-publications)
-        // which routes through the kernel (prepare/edit/publish with
-        // governance, observation gate, clone-source linkage).
-        if (isCreationPublicationEnabled()) {
-          throw notFound(
-            "POST /tasks/:id/clone is retired when the publication kernel is active. Use POST /tasks/:sourceTaskId/clone-publications instead.",
-          );
-        }
-        const parsed = request.body;
-        const clonedBy = request.user?.id ?? "anonymous";
-        const result = taskService.cloneTask(request.params.id, clonedBy, {
-          includeSubtasks: parsed.includeSubtasks,
-          includeComments: parsed.includeComments,
-        });
-
-        if (result.success === false) {
-          throw notFound("Task not found");
-        }
-
-        reply.code(201).send({ task: result.task });
       },
     );
 }

@@ -334,12 +334,6 @@ describe("detectAndAdaptInput — version detection", () => {
 // ---------------------------------------------------------------------------
 
 describe("prepareImport — dormancy gate", () => {
-  it("returns feature_disabled when ORCY_CREATION_PUBLICATION_ENABLED is not 'true'", () => {
-    delete process.env[CUTOVER_FLAG];
-    const result = prepareImport(v3Input(v3Manifest()));
-    expect(result.outcome).toBe("feature_disabled");
-  });
-
   it("proceeds past the dormancy gate when the flag is 'true'", () => {
     process.env[CUTOVER_FLAG] = "true";
     const result = prepareImport(v3Input(v3Manifest()));

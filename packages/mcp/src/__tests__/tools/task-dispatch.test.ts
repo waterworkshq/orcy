@@ -141,33 +141,7 @@ describe("TASK_ACTIONS", () => {
       expect(result).toEqual({ task: publishedTask });
     });
 
-    it("falls back to legacy creation when the publication route is unavailable", async () => {
-      const client = createMockClient();
-      const legacyTask = { id: "task-legacy", title: "Legacy task" } as Task;
-      vi.mocked(client.publishTaskInMission).mockRejectedValue(
-        new ApiClientError(404, "Not found"),
-      );
-      vi.mocked(client.createTaskInMission).mockResolvedValue({ task: legacyTask });
-
-      const result = await TASK_ACTIONS["create-in-mission"](client, {
-        missionId: MISSION_ID,
-        title: legacyTask.title,
-      });
-
-      expect(client.publishTaskInMission).toHaveBeenCalledOnce();
-      expect(client.createTaskInMission).toHaveBeenCalledWith(MISSION_ID, {
-        title: legacyTask.title,
-        description: undefined,
-        priority: undefined,
-        requiredDomain: undefined,
-        requiredCapabilities: undefined,
-        estimatedMinutes: undefined,
-      });
-      expect(client.getTask).not.toHaveBeenCalled();
-      expect(result).toEqual({ task: legacyTask });
-    });
-
-    it("does not bypass publication failures other than a missing route", async () => {
+    it("does not bypass publication failures", async () => {
       const client = createMockClient();
       const conflict = new ApiClientError(409, "Publication vetoed");
       vi.mocked(client.publishTaskInMission).mockRejectedValue(conflict);

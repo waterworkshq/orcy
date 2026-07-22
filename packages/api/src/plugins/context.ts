@@ -31,7 +31,6 @@ import * as habitatRepo from "../repositories/habitat.js";
 import * as chatIntegrationRepo from "../repositories/chatIntegration.js";
 import { enqueueNotificationForRecipients } from "../services/notificationCommandService.js";
 import { isValidEventType } from "../services/notificationSubscriptionResolver.js";
-import { isCreationPublicationEnabled } from "../config/creationPublicationCutover.js";
 import {
   publishPluginTask,
   mapPluginPublicationResultToTask,
@@ -274,14 +273,10 @@ function buildTaskWriter(
     return { missionId: task.missionId };
   }
 
-  // Per-run monotonic counter for `createTask` actions. Each `createTask` call
-  // within a run advances this, deriving the stable attempt-action key the
-  // migrated publication path reserves under `(runId, actionKey)`. A same-run
-  // retry of the same call replays; a distinct call creates a distinct
-  // attempt. Separate from the shared `writeCounter` so the attempt key
-  // depends ONLY on the create-task call sequence, not on interleaved
-  // assign/release/notify/webhook writes. Unused by the legacy raw-insert
-  // path (flag OFF).
+  // Per-run monotonic counter for createTask actions. Each call advances
+  // the stable attempt-action key reserved under (runId, actionKey).
+  // It is separate from writeCounter so interleaved mutations do not
+  // change publication idempotency keys.
   const taskCreateSequence = { count: 0 };
 
   return {
@@ -294,52 +289,29 @@ function buildTaskWriter(
         throw new Error(`Mission ${input.missionId} does not belong to this habitat`);
       }
 
-      // T8B Phase 2 — flag-gated producer migration. When the cutover flag is
-      // ON (tests / T11), route through the dormant `publishPluginTask`
-      // adapter (kernel chain: reserve → prepare → govern → publish) with a
-      // fresh `plugin_run` causal root + server-constructed provenance. The
-      // scope/cap checks above (the plugin-contract guards) run BEFORE the
-      // publication, preserved verbatim. When OFF (production default), the
-      // legacy raw-insert path below runs byte-unchanged.
-      if (isCreationPublicationEnabled()) {
-        const actionKey = String(taskCreateSequence.count);
-        taskCreateSequence.count++;
-        const result = publishPluginTask({
-          pluginId,
-          runId,
-          habitatId,
-          missionId: input.missionId,
-          title: input.title,
-          description: input.description,
-          labels: input.labels,
-          priority: input.priority,
-          actionKey,
-        });
-        // The plugin `createTask` contract is `Promise<Task>` (success or
-        // throw) — map every non-created publication outcome to a thrown
-        // error. The `runId` is now persisted on the committed envelope's
-        // causal root (gap-audit O5), not merely logged.
-        const task = mapPluginPublicationResultToTask(result);
-        rootLogger.info(
-          { pluginId, runId, taskId: task.id, missionId: input.missionId, action: "task.create" },
-          "plugin.taskWriter: createTask (published)",
-        );
-        return task as never;
-      }
-
-      const task = taskRepo.createTask({
+      const actionKey = String(taskCreateSequence.count);
+      taskCreateSequence.count++;
+      const result = publishPluginTask({
+        pluginId,
+        runId,
+        habitatId,
         missionId: input.missionId,
         title: input.title,
         description: input.description,
         labels: input.labels,
         priority: input.priority,
-        createdBy: `plugin:${pluginId}`,
+        actionKey,
       });
+      // The plugin `createTask` contract is `Promise<Task>` (success or
+      // throw) — map every non-created publication outcome to a thrown
+      // error. The `runId` is now persisted on the committed envelope's
+      // causal root (gap-audit O5), not merely logged.
+      const task = mapPluginPublicationResultToTask(result);
       rootLogger.info(
         { pluginId, runId, taskId: task.id, missionId: input.missionId, action: "task.create" },
-        "plugin.taskWriter: createTask",
+        "plugin.taskWriter: createTask (published)",
       );
-      return task;
+      return task as never;
     },
 
     assignTask: async (taskId: string, agentId: string) => {

@@ -2,14 +2,12 @@
  * T9B Phase 3 — `scheduledOccurrenceRepairRoutes` focused tests.
  *
  * Proves the route-layer guarantees (the `POST /scheduled-occurrences/:id/retry`
- * endpoint — DORMANT behind the cutover flag):
+ * endpoint after the cutover):
  *
  *  (a) REGISTRATION — the route is registered under
  *      `/scheduled-occurrences/:id/retry` (POST) with `humanAuth + adminOnly`.
  *  (b) AUTHORIZATION — the route requires admin (non-admin → 403).
- *  (c) DORMANCY — the route is NOT registered when the cutover flag is off
- *      (a request 404s — true dormancy, not a runtime gate).
- *  (d) HANDLER — the handler maps the closed
+ *  (c) HANDLER — the handler maps the closed
  *      `RepairScheduledOccurrenceOutcome` to HTTP (201 on `repaired`, 409
  *      on retry failures, 404 on not-found).
  *
@@ -22,17 +20,12 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import type { FastifyInstance } from "fastify";
 
-// --- Mocks: the cutover flag + the repair adapter + the auth middleware ---
+// --- Mocks: the repair adapter + the auth middleware ---
 
-const { mockIsCreationPublicationEnabled, mockRepairScheduledOccurrence } = vi.hoisted(() => ({
-  mockIsCreationPublicationEnabled: vi.fn<() => boolean>(() => false),
+const { mockRepairScheduledOccurrence } = vi.hoisted(() => ({
   mockRepairScheduledOccurrence: vi.fn<(input: { occurrenceId: string; actorId: string }) => any>(
     () => ({ outcome: "not_found" }),
   ),
-}));
-
-vi.mock("../config/creationPublicationCutover.js", () => ({
-  isCreationPublicationEnabled: mockIsCreationPublicationEnabled,
 }));
 
 vi.mock("../services/scheduledOccurrenceRepair.js", () => ({
@@ -94,15 +87,14 @@ function captureScheduledOccurrenceRepairRoutes(): CapturedRoute[] {
 
 function resetMocks(): void {
   vi.clearAllMocks();
-  mockIsCreationPublicationEnabled.mockReturnValue(true);
   mockRepairScheduledOccurrence.mockReturnValue({ outcome: "not_found" });
 }
 
 // ===========================================================================
-// 1. REGISTRATION + DORMANCY.
+// 1. REGISTRATION.
 // ===========================================================================
 
-describe("scheduledOccurrenceRepairRoutes — registration + dormancy", () => {
+describe("scheduledOccurrenceRepairRoutes — registration", () => {
   beforeEach(resetMocks);
 
   it("exports a function named scheduledOccurrenceRepairRoutes", () => {
@@ -110,22 +102,14 @@ describe("scheduledOccurrenceRepairRoutes — registration + dormancy", () => {
     expect(scheduledOccurrenceRepairRoutes.name).toBe("scheduledOccurrenceRepairRoutes");
   });
 
-  it("registers POST /scheduled-occurrences/:id/retry when the cutover flag is ON", () => {
-    mockIsCreationPublicationEnabled.mockReturnValue(true);
+  it("registers POST /scheduled-occurrences/:id/retry", () => {
     const routes = captureScheduledOccurrenceRepairRoutes();
     expect(routes).toHaveLength(1);
     expect(routes[0].method).toBe("POST");
     expect(routes[0].path).toBe("/scheduled-occurrences/:id/retry");
   });
 
-  it("DORMANCY: registers ZERO routes when the cutover flag is OFF (true dormancy — the route 404s in production by default)", () => {
-    mockIsCreationPublicationEnabled.mockReturnValue(false);
-    const routes = captureScheduledOccurrenceRepairRoutes();
-    expect(routes).toHaveLength(0);
-  });
-
   it("registers humanAuth + adminOnly as the preHandler chain (admin-only authorization)", () => {
-    mockIsCreationPublicationEnabled.mockReturnValue(true);
     const routes = captureScheduledOccurrenceRepairRoutes();
     expect(routes[0].preHandler).toContain(mockHumanAuth);
     expect(routes[0].preHandler).toContain(mockAdminOnly);

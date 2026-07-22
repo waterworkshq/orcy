@@ -103,7 +103,6 @@ import {
   type ImportAttemptSourceLineageJson,
   type ImportManifestSummaryJson,
 } from "../../repositories/importAttempts.js";
-import { isCreationPublicationEnabled } from "../../config/creationPublicationCutover.js";
 import { governTaskPublication, type GovernanceBatchResult } from "../taskPublicationGovernance.js";
 import {
   PHASE1_INTERCEPTOR_FINGERPRINT_PLACEHOLDER,
@@ -683,10 +682,7 @@ export function validateCrossDomainDispositions(
   const errors: ManifestDomainError[] = [];
   for (const { parent, child, deletingDispositions, fk } of dependencies) {
     const parentDisposition = manifest.domains[parent]?.disposition ?? "preserve";
-    if (
-      parentDisposition !== "replace" &&
-      parentDisposition !== "reset"
-    ) {
+    if (parentDisposition !== "replace" && parentDisposition !== "reset") {
       continue;
     }
     if (!deletingDispositions.includes(parentDisposition)) continue;
@@ -1906,12 +1902,7 @@ export function runPreflightPipeline(
  *         expected domain decision is a closed discriminated-union branch.
  */
 export function prepareImport(input: PrepareImportInput): PrepareImportOutcome {
-  // 1. Dormancy gate.
-  if (!isCreationPublicationEnabled()) {
-    return { outcome: "feature_disabled" };
-  }
-
-  // 2-3. Version detection + adapter dispatch + strict v3 schema parse.
+  // 1. Version detection + adapter dispatch + strict v3 schema parse.
   let adapted: AdaptedInput;
   try {
     adapted = detectAndAdaptInput(input.rawManifest);

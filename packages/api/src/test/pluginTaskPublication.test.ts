@@ -2,12 +2,9 @@
  * T8B Phase 2 — Plugin `taskWriter.createTask` producer migration guardrail
  * tests.
  *
- * The migration gates the plugin `createTask` (`plugins/context.ts:buildTaskWriter`)
- * on `isCreationPublicationEnabled`. Flag ON → the dormant `publishPluginTask`
- * adapter composes the Story-1 kernel chain (reserve → prepare → govern →
- * publish) with a fresh `plugin_run` causal root + server-constructed
- * provenance. Flag OFF (production default) → the legacy raw-insert path runs
- * byte-unchanged.
+ * The plugin `createTask` (`plugins/context.ts:buildTaskWriter`) routes through
+ * the Story-1 kernel chain (reserve → prepare → govern → publish) with a fresh
+ * `plugin_run` causal root + server-constructed provenance.
  *
  * This suite is the SOLE exerciser until T11 cutover. Each test maps 1:1 to a
  * guardrail named in the T8B P2 ticket:
@@ -21,8 +18,6 @@
  *   - **Plugin Run provenance persisted:** the committed envelope carries
  *     `causalContext.root = {type:"plugin_run", id:<runId>}` (NOT just logged).
  *   - **Replay:** same-`(runId, actionKey)` → replays (no duplicate Task).
- *   - **Flag OFF → legacy:** with the flag off, the legacy raw-insert runs (no
- *     envelope, no governance, `createdBy:"plugin:<pluginId>"`).
  *   - **Vetoed → throw:** an enrolled `taskCreated` interceptor vetoing → the
  *     publication fails → the plugin `createTask` throws (the plugin contract).
  *   - **No inherited causal chain:** the plugin's envelope has a fresh root
@@ -59,19 +54,14 @@ vi.mock("../services/tasks/task-lifecycle.js", () => ({ onTaskEvent: vi.fn() }))
 vi.mock("../services/commentService.js", () => ({ onCommentCreated: vi.fn() }));
 
 // --- Shared fixtures ---
-const CUTOVER_FLAG = "ORCY_CREATION_PUBLICATION_ENABLED";
 let habitatId: string;
 let columnId: string;
 let missionId: string;
-let originalFlag: string | undefined;
 
 beforeEach(async () => {
   await initTestDb();
   pluginManager.resetPlugins();
   publishMock.mockClear();
-  originalFlag = process.env[CUTOVER_FLAG];
-  // Default: cutover flag ON — most tests exercise the migrated path.
-  process.env[CUTOVER_FLAG] = "true";
   if (!process.env.ORCY_PLUGIN_QUARANTINE_THRESHOLD) {
     process.env.ORCY_PLUGIN_QUARANTINE_THRESHOLD = "1000";
   }
@@ -94,11 +84,6 @@ beforeEach(async () => {
 
 afterEach(async () => {
   pluginManager.resetPlugins();
-  if (originalFlag !== undefined) {
-    process.env[CUTOVER_FLAG] = originalFlag;
-  } else {
-    delete process.env[CUTOVER_FLAG];
-  }
   delete process.env.ORCY_PLUGIN_QUARANTINE_THRESHOLD;
   delete process.env.ORCY_PLUGIN_WRITE_CAP;
   closeDb();
@@ -334,37 +319,6 @@ describe("T8B P2 replay — same-(runId, actionKey) does not create twice", () =
 // 5. FLAG OFF → LEGACY — createTask does the legacy raw insert (byte-
 //    unchanged behavior).
 // ===========================================================================
-
-describe("T8B P2 flag-OFF → legacy raw insert (byte-unchanged)", () => {
-  it("with flag OFF, createTask produces a Task with no envelope + no created event", async () => {
-    delete process.env[CUTOVER_FLAG];
-
-    const ctx = buildWriterCtx({ pluginId: "legacy-plugin", runId: "legacy-run" });
-    const before = missionTaskCount();
-
-    const task = await ctx.taskWriter!.createTask({
-      missionId,
-      title: "Legacy Plugin Task",
-      labels: ["legacy"],
-      priority: "medium",
-    });
-
-    expect(missionTaskCount()).toBe(before + 1);
-    expect(task.createdBy).toBe("plugin:legacy-plugin");
-
-    // No task-creation envelope row exists for the new task (legacy raw
-    // insert produces none).
-    expect(envelopeForTask(task.id)).toBeUndefined();
-
-    // No `created` Lifecycle Event (legacy raw-insert produces none).
-    const events = getDb().select().from(taskEvents).where(eq(taskEvents.taskId, task.id)).all();
-    expect(events).toHaveLength(0);
-
-    // NOT stamped POST_CUTOVER (the kernel stamps it; legacy does not).
-    const legacyRow = getDb().select().from(tasks).where(eq(tasks.id, task.id)).all()[0];
-    expect(legacyRow.creationIntegrity).not.toBe(TASK_CREATION_INTEGRITY_VERSION.POST_CUTOVER);
-  });
-});
 
 // ===========================================================================
 // 6. VETOED → THROW — an enrolled taskCreated interceptor vetoing → the

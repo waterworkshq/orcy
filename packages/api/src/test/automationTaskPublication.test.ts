@@ -3,11 +3,8 @@
  *
  * The adapter (`publishAutomationTask` + `executeCreateTaskViaPublication`)
  * composes the Story-1 kernel chain (reserve → prepare → govern → publish)
- * for the Automation `create_task` origin. It is DORMANT: no production
- * `executeCreateTask` call routes through it unless
- * `ORCY_CREATION_PUBLICATION_ENABLED=true`. The migrated `executeCreateTask`
- * gates on `isCreationPublicationEnabled` (flag ON → adapter; OFF → legacy
- * byte-unchanged).
+ * for the Automation `create_task` origin. The publication kernel is the
+ * sole production path after the T11 cutover.
  *
  * This suite is the SOLE exerciser until T11 cutover. Each test maps 1:1 to a
  * guardrail named in the T8B ticket:
@@ -22,7 +19,6 @@
  *   - **Hop propagation**: the committed envelope's `causalContext.hops`
  *     includes the appended `{type:"automation", id:ruleId}` (chain grew by 1).
  *   - **Replay**: same-`(runId, actionIndex)` replays (no duplicate Task).
- *   - **Flag OFF → legacy**: legacy raw insert (byte-unchanged behavior).
  *   - **Provenance server-constructed**: committed envelope carries `source`,
  *     `actor`, the appended causalContext.
  */
@@ -31,7 +27,6 @@ import { eq } from "drizzle-orm";
 import { closeDb, getDb, initTestDb } from "../db/index.js";
 import {
   tasks,
-  taskEvents,
   taskCreationEnvelopes,
   taskCreationDispatchTargets,
 } from "../db/schema/index.js";
@@ -50,7 +45,6 @@ import {
 } from "../services/automationTaskPublication.js";
 import { satisfyObservationCheckpointWithClient } from "../services/taskCreationDispatchEngine.js";
 import { advanceDispatchTargetWithClient } from "../repositories/taskCreationDispatch.js";
-import { TASK_CREATION_INTEGRITY_VERSION } from "../db/schema/taskPublication.js";
 import type { AutomationRuleRun, AutomationCondition, CausalContext } from "@orcy/shared";
 
 // --- Mocks: the adapter composes the kernel, which emits NO pre-commit
@@ -70,19 +64,14 @@ vi.mock("../services/tasks/task-lifecycle.js", () => ({ onTaskEvent: vi.fn() }))
 vi.mock("../services/commentService.js", () => ({ onCommentCreated: vi.fn() }));
 
 // --- Shared fixtures ---
-const CUTOVER_FLAG = "ORCY_CREATION_PUBLICATION_ENABLED";
 let habitatId: string;
 let columnId: string;
 let missionId: string;
-let originalFlag: string | undefined;
 
 beforeEach(async () => {
   await initTestDb();
   pluginManager.resetPlugins();
   publishMock.mockClear();
-  originalFlag = process.env[CUTOVER_FLAG];
-  // Default: cutover flag ON — most tests exercise the migrated path.
-  process.env[CUTOVER_FLAG] = "true";
   if (!process.env.ORCY_PLUGIN_QUARANTINE_THRESHOLD) {
     process.env.ORCY_PLUGIN_QUARANTINE_THRESHOLD = "1000";
   }
@@ -105,11 +94,6 @@ beforeEach(async () => {
 
 afterEach(async () => {
   pluginManager.resetPlugins();
-  if (originalFlag !== undefined) {
-    process.env[CUTOVER_FLAG] = originalFlag;
-  } else {
-    delete process.env[CUTOVER_FLAG];
-  }
   delete process.env.ORCY_PLUGIN_QUARANTINE_THRESHOLD;
   closeDb();
 });
@@ -738,84 +722,6 @@ describe("T8B P1 replay taskId — replay-after-terminal surfaces taskId (cold-r
 // 6. FLAG OFF → LEGACY — executeCreateTask does the legacy raw insert
 //    (byte-unchanged behavior).
 // ===========================================================================
-
-describe("T8B P1 flag-OFF → legacy raw insert (byte-unchanged)", () => {
-  it("with flag OFF, executeCreateTaskViaPublication is NOT used; legacy creates a Task with no envelope + no created event", async () => {
-    // Flip the flag OFF for this test only.
-    delete process.env[CUTOVER_FLAG];
-
-    // Re-import the executor dynamically so the flag check reads the new
-    // value (the import is cached, but the env var is read at CALL time
-    // inside executeCreateTask — so a single import works for both paths).
-    const { executeActions } = await import("../services/automationExecutor.js");
-
-    // Create a rule + run.
-    ruleRepo.createAutomationRule({
-      habitatId,
-      name: "Legacy Rule",
-      trigger: { type: "event", eventType: "task.created" },
-      condition: { type: "always" },
-      actions: [{ type: "create_task", title: "Legacy Task" }],
-      cooldownSeconds: 0,
-      maxRunsPerHour: 1000,
-      priority: 0,
-      enabled: true,
-      createdBy: "test",
-    });
-    const rule = ruleRepo
-      .getEnabledRulesByHabitatAndTrigger(habitatId, "task.created")
-      .reverse()[0];
-    const { run } = runRepo.startRuleRun({
-      ruleId: rule.id,
-      habitatId,
-      triggerType: "task.created",
-      triggerEventId: `legacy-${Date.now()}`,
-    });
-
-    const baseline = missionTaskCount();
-
-    // Drive executeActions directly (this is what executeAndRecordRuleRun calls).
-    await executeActions(
-      rule,
-      run,
-      // Minimal context — the legacy path needs mission.
-      {
-        habitat: null,
-        task: null,
-        mission: missionRepo.getMissionById(missionId),
-        agent: null,
-        sprint: null,
-        warnings: [],
-        missingFields: [],
-        raw: {},
-      } as never,
-    );
-
-    // Legacy: ONE Task created, BUT no envelope + no `created` event.
-    expect(missionTaskCount()).toBe(baseline + 1);
-
-    // No task-creation envelope row exists for the new task.
-    const newTask = getDb()
-      .select()
-      .from(tasks)
-      .where(eq(tasks.missionId, missionId))
-      .all()
-      .reverse()[0];
-    const env = envelopeForTask(newTask.id);
-    expect(env).toBeUndefined();
-
-    // No `created` Lifecycle Event (legacy raw-insert produces none).
-    const events = getDb().select().from(taskEvents).where(eq(taskEvents.taskId, newTask.id)).all();
-    expect(events).toHaveLength(0);
-
-    // The Task is NOT stamped POST_CUTOVER (the kernel stamps it; legacy
-    // does not).
-    expect(newTask.creationIntegrity).not.toBe(TASK_CREATION_INTEGRITY_VERSION.POST_CUTOVER);
-
-    // The legacy `createdBy: "automation:<ruleId>"` provenance is preserved.
-    expect(newTask.createdBy).toBe(`automation:${rule.id}`);
-  });
-});
 
 // ===========================================================================
 // 7. PROVENANCE — server-constructed; the committed envelope carries source,
