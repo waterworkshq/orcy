@@ -29,7 +29,12 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { eq } from "drizzle-orm";
 import { closeDb, getDb, initTestDb } from "../db/index.js";
-import { tasks, taskEvents, taskCreationEnvelopes } from "../db/schema/index.js";
+import {
+  tasks,
+  taskEvents,
+  taskCreationEnvelopes,
+  taskCreationDispatchTargets,
+} from "../db/schema/index.js";
 import * as habitatRepo from "../repositories/habitat.js";
 import * as columnRepo from "../repositories/column.js";
 import * as missionRepo from "../repositories/mission.js";
@@ -44,12 +49,9 @@ import {
   executeCreateTaskViaPublication,
 } from "../services/automationTaskPublication.js";
 import { satisfyObservationCheckpointWithClient } from "../services/taskCreationDispatchEngine.js";
+import { advanceDispatchTargetWithClient } from "../repositories/taskCreationDispatch.js";
 import { TASK_CREATION_INTEGRITY_VERSION } from "../db/schema/taskPublication.js";
-import type {
-  AutomationRuleRun,
-  AutomationCondition,
-  CausalContext,
-} from "@orcy/shared";
+import type { AutomationRuleRun, AutomationCondition, CausalContext } from "@orcy/shared";
 
 // --- Mocks: the adapter composes the kernel, which emits NO pre-commit
 //     effects. Assert the automation path never reaches the broadcaster. ---
@@ -400,12 +402,8 @@ describe("T8B P1 capstone — live A→B→A cycle proof (discriminating)", () =
     // classify them as 1 LOAD-BEARING (cross-cycle) + 2 PHANTOM (self-cycles
     // where the rule's condition would not have matched the trigger task).
 
-    const ruleASkips = skippedRunsForRule(ruleAId).filter(
-      (r) => r.skipReason === "causal_cycle",
-    );
-    const ruleBSkips = skippedRunsForRule(ruleBId).filter(
-      (r) => r.skipReason === "causal_cycle",
-    );
+    const ruleASkips = skippedRunsForRule(ruleAId).filter((r) => r.skipReason === "causal_cycle");
+    const ruleBSkips = skippedRunsForRule(ruleBId).filter((r) => r.skipReason === "causal_cycle");
     const allCycleSkips = [...ruleASkips, ...ruleBSkips];
 
     // Classify each skip by whether the rule's condition WOULD have matched
@@ -461,18 +459,19 @@ describe("T8B P1 capstone — live A→B→A cycle proof (discriminating)", () =
     expect(phantomRuleIds.has(ruleAId)).toBe(true); // A→A phantom
     expect(phantomRuleIds.has(ruleBId)).toBe(true); // B→B phantom
     // The phantom self-cycles target the rule's OWN output, not the other's.
-    expect(
-      phantom.find((p) => p.ruleId === ruleAId)?.run.targetId,
-    ).toBe(seed.taskA.id);
-    expect(
-      phantom.find((p) => p.ruleId === ruleBId)?.run.targetId,
-    ).toBe(taskB!.id);
+    expect(phantom.find((p) => p.ruleId === ruleAId)?.run.targetId).toBe(seed.taskA.id);
+    expect(phantom.find((p) => p.ruleId === ruleBId)?.run.targetId).toBe(taskB!.id);
 
     // Tasks: exactly 2 (Task A + Task B), no duplicates.
     expect(allTaskCount()).toBe(baselineTaskCount + 2);
-    expect(getDb().select().from(tasks).all().map((t) => t.id).sort()).toEqual(
-      [seed.taskA.id, taskB!.id].sort(),
-    );
+    expect(
+      getDb()
+        .select()
+        .from(tasks)
+        .all()
+        .map((t) => t.id)
+        .sort(),
+    ).toEqual([seed.taskA.id, taskB!.id].sort());
 
     void actionB;
     void actionA;
@@ -709,10 +708,19 @@ describe("T8B P1 replay taskId — replay-after-terminal surfaces taskId (cold-r
     const firstTaskId = r1.result!.taskId as string;
     expect(allTaskCount()).toBe(baseline + 1);
 
-    // 2. Terminalize via the observation checkpoint (zero dispatch targets,
-    //    no reservation → stamps terminalResult.taskId).
+    // 2. Terminalize via the observation checkpoint. Advance the default
+    //    dispatch targets to accepted first (mirrors the T4A dispatch worker),
+    //    then satisfy the observation gate.
     const pubResult = publishAutomationTask(rule, run, action, 0, ctx);
     if (pubResult.outcome !== "created") throw new Error("expected recovering created");
+    const pubTargets = getDb()
+      .select()
+      .from(taskCreationDispatchTargets)
+      .where(eq(taskCreationDispatchTargets.eventId, pubResult.publication.envelope.eventId))
+      .all();
+    for (const t of pubTargets) {
+      advanceDispatchTargetWithClient(getDb(), { targetId: t.id, outcome: "accepted" });
+    }
     const obs = satisfyObservationCheckpointWithClient(getDb(), pubResult.attemptId);
     expect(obs.outcome).toBe("advanced");
 

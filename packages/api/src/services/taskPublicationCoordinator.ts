@@ -24,11 +24,12 @@
  *   - **Participant seam is the ONLY domain-extension point.** Domain-specific
  *     writes go through `participants?(db, ctx)`; no other bypass. The hook
  *     runs inside the caller's tx; a throw rolls back the whole aggregate.
- *   - **Dispatch plan is caller-supplied (default empty); ALWAYS stops at
- *     `published_pending_observation`.** Does NOT advance to
+ *   - **Dispatch plan defaults to the standard 6-target creation plan; ALWAYS
+ *     stops at `published_pending_observation`.** Does NOT advance to
  *     observation-satisfied or `created` — that is T4A (dispatch processing /
- *     claim execution). An empty plan + observation checkpoint is a valid
- *     dormant state.
+ *     claim execution). A caller may override the plan via `input.dispatchPlan`
+ *     (e.g. tests, custom routing); an explicitly-empty plan + observation
+ *     checkpoint is a valid dormant state.
  *   - **`creationIntegrity` distinguishes post-cutover Tasks.** Every Task this
  *     coordinator creates carries `POST_CUTOVER`; without it the claim paths'
  *     `isLegacyPartialHistory` gate would never engage on a published Task.
@@ -76,6 +77,7 @@ import type {
   CanonicalTaskPublicationProposal,
   PublicationGuard,
 } from "./taskPublicationPreparation.js";
+import { CREATION_TARGET_KINDS } from "./taskCreationDispatchAdapters.js";
 
 // ---------------------------------------------------------------------------
 // Result + outcome types
@@ -401,7 +403,9 @@ export function publishTaskWithClient(
     input.participants(db, { task, event, attemptId, proposal });
   }
 
-  // 7. Committed envelope + dispatch plan (caller-supplied, default empty).
+  // 7. Committed envelope + dispatch plan. The default is the standard
+  //    6-target creation plan (one per consumer kind, all routing on
+  //    habitatId); a caller may override via `input.dispatchPlan`.
   //    The envelope's occurredAt mirrors the initial event's timestamp.
   const occurredAt = event.timestamp ?? new Date().toISOString();
   const { envelope, dispatchTargets } = createCommittedTaskEnvelopeWithClient(
@@ -421,7 +425,11 @@ export function publishTaskWithClient(
         ? { cloneSourceTaskId: proposal.cloneSourceTaskId }
         : {}),
     },
-    input.dispatchPlan ?? [],
+    input.dispatchPlan ??
+      CREATION_TARGET_KINDS.map((targetKind) => ({
+        targetKind,
+        targetKey: proposal.habitatId,
+      })),
   );
 
   // 8. Mission recalculation marker (coalesces duplicates per pending Mission).

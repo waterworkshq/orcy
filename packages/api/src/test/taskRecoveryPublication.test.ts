@@ -37,6 +37,7 @@ import {
   taskEvents,
   taskCreationEnvelopes,
   taskCreationAttempts,
+  taskCreationDispatchTargets,
   taskWorkflowGates,
   failureContexts,
   workflows,
@@ -59,6 +60,7 @@ import { prepareTaskPublication } from "../services/taskPublicationPreparation.j
 import { governTaskPublication } from "../services/taskPublicationGovernance.js";
 import { publishTaskWithClient as publishTaskWithClientCoord } from "../services/taskPublicationCoordinator.js";
 import { satisfyObservationCheckpointWithClient } from "../services/taskCreationDispatchEngine.js";
+import { advanceDispatchTargetWithClient } from "../repositories/taskCreationDispatch.js";
 import { TASK_CREATION_INTEGRITY_VERSION } from "../db/schema/taskPublication.js";
 import type { TaskPublicationDbClient } from "../repositories/taskPublication.js";
 import { FailingDbClient } from "./helpers/failingDbClient.js";
@@ -832,9 +834,17 @@ describe("T8A-pre P1 replay taskId — terminal carries the committed taskId (co
     const taskId = first.publication.task.id;
     expect(missionTaskCount()).toBe(baseline + 1);
 
-    // 2. Terminalize via the observation checkpoint (zero dispatch targets,
-    //    no reservation → completeAttemptWithClient stamps the terminal
-    //    result with taskId).
+    // 2. Terminalize via the observation checkpoint. Advance the default
+    //    dispatch targets to accepted first (mirrors the T4A dispatch worker),
+    //    then satisfy the observation gate.
+    const recoveryTargets = getDb()
+      .select()
+      .from(taskCreationDispatchTargets)
+      .where(eq(taskCreationDispatchTargets.eventId, first.publication.envelope.eventId))
+      .all();
+    for (const t of recoveryTargets) {
+      advanceDispatchTargetWithClient(getDb(), { targetId: t.id, outcome: "accepted" });
+    }
     const obs = satisfyObservationCheckpointWithClient(getDb(), first.attemptId);
     expect(obs.outcome).toBe("advanced");
 

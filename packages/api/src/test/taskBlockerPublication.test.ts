@@ -32,6 +32,7 @@ import {
   taskEvents,
   taskCreationEnvelopes,
   taskCreationAttempts,
+  taskCreationDispatchTargets,
   missions,
 } from "../db/schema/index.js";
 import * as habitatRepo from "../repositories/habitat.js";
@@ -46,6 +47,7 @@ import {
   type BlockerClearancePublicationResult,
 } from "../services/taskBlockerPublication.js";
 import { satisfyObservationCheckpointWithClient } from "../services/taskCreationDispatchEngine.js";
+import { advanceDispatchTargetWithClient } from "../repositories/taskCreationDispatch.js";
 import { TASK_CREATION_INTEGRITY_VERSION } from "../db/schema/taskPublication.js";
 
 // --- Mocks: the adapter composes the kernel, which emits NO pre-commit
@@ -506,8 +508,17 @@ describe("T8A-pre P2 replay taskId — terminal carries the committed taskId (co
     const taskId = first.publication.task.id;
     expect(missionTaskCount()).toBe(baseline + 1);
 
-    // 2. Terminalize via the observation checkpoint (zero dispatch targets,
-    //    no reservation → stamps terminalResult.taskId).
+    // 2. Terminalize via the observation checkpoint. Advance the default
+    //    dispatch targets to accepted first (mirrors the T4A dispatch worker),
+    //    then satisfy the observation gate.
+    const blockerTargets = getDb()
+      .select()
+      .from(taskCreationDispatchTargets)
+      .where(eq(taskCreationDispatchTargets.eventId, first.publication.envelope.eventId))
+      .all();
+    for (const t of blockerTargets) {
+      advanceDispatchTargetWithClient(getDb(), { targetId: t.id, outcome: "accepted" });
+    }
     const obs = satisfyObservationCheckpointWithClient(getDb(), first.attemptId);
     expect(obs.outcome).toBe("advanced");
 
