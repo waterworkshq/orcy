@@ -227,7 +227,8 @@ export async function runDispatchWorkerPass(
         const dispatch = await processEnvelopeDispatchWithClient(db, attempt.id, {
           workerId: perAttemptWorkerId,
         });
-        if (dispatch.outcome === "dispatched") advanced++;
+        if (dispatch.outcome === "dispatched" && dispatch.observation.outcome === "advanced")
+          advanced++;
         switch (dispatch.outcome) {
           case "dispatched":
             result.observationOutcomes.push({ attemptId: attempt.id, outcome: "dispatched" });
