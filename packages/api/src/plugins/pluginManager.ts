@@ -106,7 +106,16 @@ const interceptorRegistry: {
   post: Map<InterceptorEvent, InterceptorRegistryEntry[]>;
 } = { pre: new Map(), post: new Map() };
 
-/** Bag of the 7 module-level registries passed to the catalog factory. Also passed (by
+/**
+ * Collision-only — not the route dispatch source. Fastify's router owns
+ * dispatch; this map is read only by `detectIdCollisions`. Key format:
+ * `${method.toUpperCase()} ${path}` (method uppercased to match Fastify's
+ * case-insensitive method handling; path byte-equal as-declared).
+ * See ADR-0041 + Work Item 1 of docs/plans/v4/05-plugin-activation-design.md.
+ */
+const customHttpRouteRegistry: Map<string, string> = new Map();
+
+/** Bag of the 8 module-level registries passed to the catalog factory. Also passed (by
  * reference) to each adapter's `register` callback for downstream flexibility, even
  * though the built-in adapters close over the Maps from the factory destructure. */
 const REGISTRIES: PluginRegistries = {
@@ -117,6 +126,7 @@ const REGISTRIES: PluginRegistries = {
   conditionRegistry,
   actionRegistry,
   providerRegistry,
+  customHttpRouteRegistry,
 };
 
 /** v0.28 catalog of per-kind registration behavior (label/orphanCheck/collisionKey/register).
@@ -1348,6 +1358,7 @@ export function resetPlugins(): void {
   detectorRegistry.clear();
   interceptorRegistry.pre.clear();
   interceptorRegistry.post.clear();
+  customHttpRouteRegistry.clear();
   enrollmentCache.clear();
   quarantineSet.clear();
   errorCounters.clear();

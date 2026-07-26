@@ -159,9 +159,7 @@ describe("v0.28-T1: contributionLabel (kind→id)", () => {
       `{ manifest: { id: 'lbl-mcp', version: '1.0.0', description: 'x', contributions: [{ kind: 'customMcpTool', scope: 'system', toolName: 'lbl-mcp-id', description: 'x', inputSchema: {}, requires: ['pulseReader'] }] }, mcpHandlers: { 'lbl-mcp-id': async () => null } }`,
     );
     const entry = findEntry("lbl-mcp");
-    expect(entry?.error).toBe(
-      'customMcpTool "lbl-mcp-id" cannot require capability "pulseReader"',
-    );
+    expect(entry?.error).toBe('customMcpTool "lbl-mcp-id" cannot require capability "pulseReader"');
     await cleanup(dir);
   });
 
@@ -494,7 +492,7 @@ describe("v0.28-T1: orphanHandler (handler present?)", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Behavior 3: detectIdCollisions — 7/9 (Tier-C: no tracking).
+// Behavior 3: detectIdCollisions — 8/9 (Tier-C: customMcpTool only).
 // Within-manifest duplicate id → "duplicate X within manifest" error.
 // Cross-plugin duplicate id → "X already registered by another plugin" error.
 // For lifecycleInterceptor: NO cross-plugin check (only within compound key).
@@ -504,8 +502,12 @@ describe("v0.28-T1: orphanHandler (handler present?)", () => {
 //   unreachable through disk-based loading. We assert the no-collision
 //   behavior (same detectorId in two different plugin files loads both
 //   successfully) since the namespaced key is the design.
-// For customMcpTool/customHttpRoute: no collision tracking at all — duplicate
-//   ids in one manifest and across manifests are both allowed.
+// For customMcpTool: no collision tracking — duplicate ids in one manifest
+//   and across manifests are both allowed.
+// For customHttpRoute: structural route faults (duplicate method+path) are
+//   rejected at load (ADR-0041 + Work Item 1 of
+//   docs/plans/v4/05-plugin-activation-design.md). Method is uppercased in
+//   the key (matches Fastify); path is byte-equal as-declared.
 // ---------------------------------------------------------------------------
 describe("v0.28-T1: detectIdCollisions (within + cross-plugin)", () => {
   it("notificationChannel: within-manifest duplicate channelId → error", async () => {
@@ -532,9 +534,7 @@ describe("v0.28-T1: detectIdCollisions (within + cross-plugin)", () => {
     await pluginManager.loadPlugins();
     const errored = pluginManager.getLoadedPlugins().filter((p) => p.error);
     expect(errored).toHaveLength(1);
-    expect(errored[0].error).toBe(
-      'channelId "shared-ch" already registered by another plugin',
-    );
+    expect(errored[0].error).toBe('channelId "shared-ch" already registered by another plugin');
     const loaded = pluginManager.getLoadedPlugins().filter((p) => !p.error);
     expect(loaded).toHaveLength(1);
     // readdir order is filesystem-dependent; pin exactly one of {aa,bb} fails, the other loads (not which).
@@ -572,7 +572,12 @@ describe("v0.28-T1: detectIdCollisions (within + cross-plugin)", () => {
     expect(errors).toHaveLength(0);
     const loaded = pluginManager.getLoadedPlugins().filter((p) => !p.error);
     expect(loaded).toHaveLength(2);
-    expect(loaded.map((p) => p.id).slice().sort()).toEqual(["aa", "bb"]);
+    expect(
+      loaded
+        .map((p) => p.id)
+        .slice()
+        .sort(),
+    ).toEqual(["aa", "bb"]);
     await cleanup(tmpDir);
   });
 
@@ -583,9 +588,7 @@ describe("v0.28-T1: detectIdCollisions (within + cross-plugin)", () => {
     );
     const entry = findEntry("col-int-within");
     expect(entry?.error).toBeDefined();
-    expect(entry?.error).toBe(
-      'duplicate interceptorId "dup" (post/taskCreated) within manifest',
-    );
+    expect(entry?.error).toBe('duplicate interceptorId "dup" (post/taskCreated) within manifest');
     await cleanup(dir);
   });
 
@@ -617,7 +620,12 @@ describe("v0.28-T1: detectIdCollisions (within + cross-plugin)", () => {
     expect(errors).toHaveLength(0);
     const loaded = pluginManager.getLoadedPlugins().filter((p) => !p.error);
     expect(loaded).toHaveLength(2);
-    expect(loaded.map((p) => p.id).slice().sort()).toEqual(["aa", "bb"]);
+    expect(
+      loaded
+        .map((p) => p.id)
+        .slice()
+        .sort(),
+    ).toEqual(["aa", "bb"]);
     await cleanup(tmpDir);
   });
 
@@ -643,9 +651,7 @@ describe("v0.28-T1: detectIdCollisions (within + cross-plugin)", () => {
     await pluginManager.loadPlugins();
     const errored = pluginManager.getLoadedPlugins().filter((p) => p.error);
     expect(errored).toHaveLength(1);
-    expect(errored[0].error).toBe(
-      'formatId "shared-fmt" already registered by another plugin',
-    );
+    expect(errored[0].error).toBe('formatId "shared-fmt" already registered by another plugin');
     const loaded = pluginManager.getLoadedPlugins().filter((p) => !p.error);
     expect(loaded).toHaveLength(1);
     expect([errored[0].id, loaded[0].id].sort()).toEqual(["aa", "bb"]);
@@ -674,9 +680,7 @@ describe("v0.28-T1: detectIdCollisions (within + cross-plugin)", () => {
     await pluginManager.loadPlugins();
     const errored = pluginManager.getLoadedPlugins().filter((p) => p.error);
     expect(errored).toHaveLength(1);
-    expect(errored[0].error).toBe(
-      'conditionId "shared-cond" already registered by another plugin',
-    );
+    expect(errored[0].error).toBe('conditionId "shared-cond" already registered by another plugin');
     const loaded = pluginManager.getLoadedPlugins().filter((p) => !p.error);
     expect(loaded).toHaveLength(1);
     expect([errored[0].id, loaded[0].id].sort()).toEqual(["aa", "bb"]);
@@ -705,9 +709,7 @@ describe("v0.28-T1: detectIdCollisions (within + cross-plugin)", () => {
     await pluginManager.loadPlugins();
     const errored = pluginManager.getLoadedPlugins().filter((p) => p.error);
     expect(errored).toHaveLength(1);
-    expect(errored[0].error).toBe(
-      'actionId "shared-act" already registered by another plugin',
-    );
+    expect(errored[0].error).toBe('actionId "shared-act" already registered by another plugin');
     const loaded = pluginManager.getLoadedPlugins().filter((p) => !p.error);
     expect(loaded).toHaveLength(1);
     expect([errored[0].id, loaded[0].id].sort()).toEqual(["aa", "bb"]);
@@ -736,9 +738,7 @@ describe("v0.28-T1: detectIdCollisions (within + cross-plugin)", () => {
     await pluginManager.loadPlugins();
     const errored = pluginManager.getLoadedPlugins().filter((p) => p.error);
     expect(errored).toHaveLength(1);
-    expect(errored[0].error).toBe(
-      'provider "github" already registered by another plugin',
-    );
+    expect(errored[0].error).toBe('provider "github" already registered by another plugin');
     const loaded = pluginManager.getLoadedPlugins().filter((p) => !p.error);
     expect(loaded).toHaveLength(1);
     expect([errored[0].id, loaded[0].id].sort()).toEqual(["aa", "bb"]);
@@ -756,15 +756,68 @@ describe("v0.28-T1: detectIdCollisions (within + cross-plugin)", () => {
     await cleanup(dir);
   });
 
-  it("customHttpRoute: NO collision tracking — duplicate path in same manifest loads", async () => {
-    // Tier-C kind: no collision tracking, no error.
+  it("customHttpRoute: method-distinct routes in same manifest do not collide", async () => {
+    // `GET /dup` and `POST /dup` are distinct HTTP routes — no collision even
+    // though they share the path. The collision key prefixes the method
+    // (uppercased) so different methods on the same path register separately.
     const dir = await writePlugin(
-      "col-route-within",
-      `{ manifest: { id: 'col-route-within', version: '1.0.0', description: 'x', contributions: [{ kind: 'customHttpRoute', scope: 'system', method: 'GET', path: '/dup', requires: [] }, { kind: 'customHttpRoute', scope: 'system', method: 'POST', path: '/dup', requires: [] }] }, routeHandlers: async () => {} }`,
+      "col-route-method-distinct",
+      `{ manifest: { id: 'col-route-method-distinct', version: '1.0.0', description: 'x', contributions: [{ kind: 'customHttpRoute', scope: 'system', method: 'GET', path: '/dup', requires: [] }, { kind: 'customHttpRoute', scope: 'system', method: 'POST', path: '/dup', requires: [] }] }, routeHandlers: async () => {} }`,
     );
-    const entry = findEntry("col-route-within");
+    const entry = findEntry("col-route-method-distinct");
     expect(entry?.error).toBeUndefined();
     await cleanup(dir);
+  });
+
+  it("customHttpRoute: within-manifest duplicate (method, path) → error", async () => {
+    // Two `customHttpRoute` contributions in the same manifest that resolve to
+    // the same uppercased `(method, path)` must be rejected. Collision key is
+    // `route:${M} ${path}` so the second contribution collides on the within
+    // key. Byte-exact assertion per the design's input-state table.
+    const dir = await writePlugin(
+      "col-route-within",
+      `{ manifest: { id: 'col-route-within', version: '1.0.0', description: 'x', contributions: [{ kind: 'customHttpRoute', scope: 'system', method: 'GET', path: '/foo', requires: [] }, { kind: 'customHttpRoute', scope: 'system', method: 'GET', path: '/foo', requires: [] }] }, routeHandlers: async () => {} }`,
+    );
+    const entry = findEntry("col-route-within");
+    expect(entry?.error).toBeDefined();
+    expect(entry?.error).toBe('duplicate route "GET /foo" within manifest');
+    await cleanup(dir);
+  });
+
+  it("customHttpRoute: within-manifest method-case `get` vs `GET` → error (uppercased)", async () => {
+    // Fastify normalizes method case (`get` ≡ `GET` at mount), so the load-time
+    // collision key also uppercases the method. Two contributions declaring the
+    // same path under differing method case collide.
+    const dir = await writePlugin(
+      "col-route-method-case",
+      `{ manifest: { id: 'col-route-method-case', version: '1.0.0', description: 'x', contributions: [{ kind: 'customHttpRoute', scope: 'system', method: 'get', path: '/foo', requires: [] }, { kind: 'customHttpRoute', scope: 'system', method: 'GET', path: '/foo', requires: [] }] }, routeHandlers: async () => {} }`,
+    );
+    const entry = findEntry("col-route-method-case");
+    expect(entry?.error).toBeDefined();
+    expect(entry?.error).toBe('duplicate route "GET /foo" within manifest');
+    await cleanup(dir);
+  });
+
+  it("customHttpRoute: cross-plugin duplicate (method, path) → second plugin fails with exact 'already registered' string", async () => {
+    // Two plugins declaring the same `(method, path)` → the second is rejected
+    // with the cross-plugin byte-exact error. Order-independent assertion,
+    // mirroring notificationChannel cross-plugin: readdir order is filesystem-
+    // dependent, so we pin "exactly one fails", not which.
+    const tmpDir = `/tmp/test-char-col-route-cross-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    await mkdir(tmpDir, { recursive: true });
+    const mk = (id: string) =>
+      `export default { manifest: { id: '${id}', version: '1.0.0', description: 'x', contributions: [{ kind: 'customHttpRoute', scope: 'system', method: 'GET', path: '/shared-route', requires: [] }] }, routeHandlers: async () => {} };`;
+    await writeFile(`${tmpDir}/aa.mjs`, mk("aa"));
+    await writeFile(`${tmpDir}/bb.mjs`, mk("bb"));
+    pluginManager.setPluginDirectory(tmpDir);
+    await pluginManager.loadPlugins();
+    const errored = pluginManager.getLoadedPlugins().filter((p) => p.error);
+    expect(errored).toHaveLength(1);
+    expect(errored[0].error).toBe('route "GET /shared-route" already registered by another plugin');
+    const loaded = pluginManager.getLoadedPlugins().filter((p) => !p.error);
+    expect(loaded).toHaveLength(1);
+    expect([errored[0].id, loaded[0].id].sort()).toEqual(["aa", "bb"]);
+    await cleanup(tmpDir);
   });
 
   it("multi-contribution manifest: first-error ordering is preserved (channel wins over later duplicate channel)", async () => {
@@ -873,9 +926,7 @@ describe("v0.28-T1: validatePlugin check order (multi-violation)", () => {
       `{ manifest: { id: 'ord-unknown-cap', version: '1.0.0', description: 'x', contributions: [{ kind: 'notificationChannel', scope: 'system', channelId: 'ord-ch', label: 'l', requires: ['notACapability', 'pulseReader'] }] } }`,
     );
     const entry = findEntry("ord-unknown-cap");
-    expect(entry?.error).toBe(
-      'Unknown capability "notACapability" in contribution requires',
-    );
+    expect(entry?.error).toBe('Unknown capability "notACapability" in contribution requires');
     await cleanup(dir);
   });
 
@@ -911,7 +962,7 @@ describe("v0.28-T1: validatePlugin check order (multi-violation)", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Behavior 4: register → getter round-trip — 5/9 (Tier-A/B registry kinds).
+// Behavior 4: register → getter round-trip — 6/9 (Tier-A/B registry kinds + customMcpTool).
 // - notificationChannel → getChannelHandler
 // - signalDetector → getDetectorEntry (key is `${pluginId}:${detectorId}`)
 // - lifecycleInterceptor → registry priority sort (no exported getter;
@@ -922,8 +973,10 @@ describe("v0.28-T1: validatePlugin check order (multi-violation)", () => {
 // - automationCondition → getConditionHandler
 // - automationAction → getActionEntry
 // - integrationProvider → getProviderAdapter
-// Tier-C kinds (customMcpTool, customHttpRoute) are explicitly NOT asserted
-// here per the ticket.
+// - customMcpTool → getCustomMcpTools (Tier-C surface, no per-handler getter)
+// Kinds not asserted here: customHttpRoute (Fastify owns route dispatch — no
+// exported getter; the collision registry is collision-only and not a dispatch
+// source per docs/plans/v4/05-plugin-activation-design.md Work Item 1).
 // ---------------------------------------------------------------------------
 describe("v0.28-T1: register → getter round-trip (registry kinds)", () => {
   it("notificationChannel: getChannelHandler returns the registered handler", async () => {
@@ -933,10 +986,10 @@ describe("v0.28-T1: register → getter round-trip (registry kinds)", () => {
     );
     const handler = pluginManager.getChannelHandler("rt-ch-id");
     expect(handler).toBeTypeOf("function");
-    const result = await handler!(
-      { runId: "x" } as never,
-      { delivery: {} as never, event: {} as never },
-    );
+    const result = await handler!({ runId: "x" } as never, {
+      delivery: {} as never,
+      event: {} as never,
+    });
     expect(result).toEqual({ success: true, attemptId: "att-1" });
     await cleanup(dir);
   });
@@ -1085,9 +1138,7 @@ describe("v0.28-T1: register round-trip (lifecycleInterceptor priority sort)", (
     // Create a habitat and enroll the rt-int-prio plugin for the same event
     // so isEnrolled() returns true when runPreInterceptors iterates.
     const { createHabitat } = await import("../repositories/habitat.js");
-    const { create: createEnrollment } = await import(
-      "../repositories/pluginEnrollment.js"
-    );
+    const { create: createEnrollment } = await import("../repositories/pluginEnrollment.js");
     const habitat = createHabitat({ name: "rt-int-prio habitat" });
     createEnrollment({
       habitatId: habitat.id,
@@ -1156,9 +1207,7 @@ describe("v0.28-T1: register round-trip (lifecycleInterceptor priority sort)", (
     );
 
     const { createHabitat } = await import("../repositories/habitat.js");
-    const { create: createEnrollment } = await import(
-      "../repositories/pluginEnrollment.js"
-    );
+    const { create: createEnrollment } = await import("../repositories/pluginEnrollment.js");
     const habitat = createHabitat({ name: "rt-int-post habitat" });
     for (const cid of ["p-pri-2", "p-pri-4", "p-pri-7"]) {
       createEnrollment({

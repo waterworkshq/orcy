@@ -135,10 +135,10 @@ export function canonicalContributionKey(identity: CanonicalContributionIdentity
  * Per-kind registration-time behavior. Dispatch is NOT part of the adapter
  * — only the validation/registration callbacks below. `label` and
  * `orphanCheck` are required for all 9 kinds; `collisionKey`, `collisions`,
- * and `register` are present only for the 7 registry kinds (Tier-C
- * `customMcpTool` and `customHttpRoute` omit them — their runtime exposure
- * lives outside the catalog in `getCustomMcpTools()` and
- * `initializePlugins()` respectively).
+ * and `register` are present for 8 of 9 kinds — all except `customMcpTool`
+ * (its runtime exposure lives outside the catalog in `getCustomMcpTools()`).
+ * `customHttpRoute` uses them for collision-only registration; the route
+ * itself is mounted by `initializePlugins()` (ADR-0041).
  */
 export interface ContributionAdapter {
   /** Human-readable identifier for error messages (e.g. `detectorId`, `channelId`). */
@@ -156,7 +156,7 @@ export interface ContributionAdapter {
    * `channelRegistry`, `${manifestId}:${detectorId}` for the namespaced
    * `detectorRegistry`). `lifecycleInterceptor` has no cross key — its
    * registration is append-into-bucket, not registry-key collision-checked.
-   * Undefined for Tier-C kinds, which don't track collisions.
+   * Undefined for `customMcpTool`, which doesn't track collisions.
    */
   collisionKey?: (c: Contribution, manifestId: string) => { within: string; cross?: string };
   /**
@@ -169,7 +169,7 @@ export interface ContributionAdapter {
    * (its registration is append-into-bucket, not registry-key collision-checked)
    * and no `crossError`.
    *
-   * Undefined for Tier-C kinds, which don't track collisions.
+   * Undefined for `customMcpTool`, which doesn't track collisions.
    */
   collisions?: {
     /** Field name used in error messages (e.g. "channelId", "detectorId", "provider"). */
@@ -184,12 +184,12 @@ export interface ContributionAdapter {
   /**
    * Writes to the kind's registry Map. `lifecycleInterceptor` uniquely sorts
    * its phase/event bucket by `contribution.priority` after every insert
-   * (ADR-0014 ordering). Undefined for Tier-C kinds.
+   * (ADR-0014 ordering). Undefined for `customMcpTool`.
    *
    * The third parameter `registries` is part of the interface contract; the
    * built-in adapters close over the destructured Maps from the factory and
    * ignore it, but a downstream consumer that subclasses or composes an
-   * adapter can use it to write to any of the 7 registries uniformly.
+   * adapter can use it to write to any of the 8 registries uniformly.
    */
   register?: (c: Contribution, mod: PluginModule, registries: PluginRegistries) => void;
 }
@@ -260,10 +260,12 @@ export const CAPABILITY_MATRIX: Readonly<Record<ContributionKind, CapabilityPoli
 };
 
 /**
- * The bag of 7 module-level registries the factory receives. Value types
+ * The bag of 8 module-level registries the factory receives. Value types
  * mirror the Maps declared in `pluginManager.ts` (channel / detector /
- * interceptor{pre,post} / formatter / condition / action / provider).
- * Mutable by reference; the catalog does not own lifetime.
+ * interceptor{pre,post} / formatter / condition / action / provider /
+ * customHttpRoute). The customHttpRoute registry is collision-only — its
+ * presence here is required by `detectIdCollisions` for cross-plugin
+ * dedup; Fastify's router owns actual dispatch (see ADR-0041).
  *
  * T2 enrichment: managed-kind registries (channel/detector/interceptor/action)
  * carry their full {@link ManagedRegistryEntry} payload (contribution metadata,
@@ -281,6 +283,7 @@ export interface PluginRegistries {
   conditionRegistry: Map<string, { pluginId: string; handler: ConditionHandler }>;
   actionRegistry: Map<string, ActionRegistryEntry>;
   providerRegistry: Map<string, { pluginId: string; handler: ProviderHandler }>;
+  customHttpRouteRegistry: Map<string, string>;
 }
 
 /** Enriched detector registry entry. Uniform managed-kind shape (T2). */
@@ -357,6 +360,7 @@ export function buildContributionCatalog(
     conditionRegistry,
     actionRegistry,
     providerRegistry,
+    customHttpRouteRegistry,
   } = registries;
 
   // Collision-error template helpers. The catalog owns the per-kind error
@@ -548,17 +552,52 @@ export function buildContributionCatalog(
       },
     },
 
-    // Tier-C — validation only; the route is mounted by `initializePlugins`
-    // (pluginManager.ts:632), not registered into a Map.
+    // `customHttpRoute` joins the collision-detection surface (ADR-0041). The
+    // route itself is mounted by `initializePlugins` (Fastify.register call)
+    // — that adapter is NOT here. The registry written by `register` here is
+    // collision-only and is read only by `detectIdCollisions`; Fastify's
+    // router owns actual dispatch at runtime. Method uppercased in the key
+    // (matches Fastify's case-insensitive method handling); path byte-equal
+    // as-declared. Path-case / trailing-slash variants are a documented
+    // known hole — see `Exact-match boundary` in
+    // docs/plans/v4/05-plugin-activation-design.md.
     customHttpRoute: {
       label: (c) => (c.kind === "customHttpRoute" ? c.path : ""),
-      // Note: error string deliberately omits the path — matches the current
-      // `orphanHandler` byte-for-byte (pluginManager.ts:326–328).
+      // Error string deliberately omits the path — `routeHandlers` is a single
+      // module-level function (one per plugin), not a per-contribution handler,
+      // so the orphan doesn't carry a path identifier.
       orphanCheck: (c, mod) => {
         if (c.kind !== "customHttpRoute") return null;
         return typeof mod.routeHandlers === "function"
           ? null
           : `customHttpRoute declared but module.routeHandlers is missing or not a function`;
+      },
+      collisionKey: (c) => {
+        if (c.kind !== "customHttpRoute") return { within: "" };
+        const M = c.method.toUpperCase();
+        return { within: `route:${M} ${c.path}`, cross: `${M} ${c.path}` };
+      },
+      collisions: {
+        idFieldName: "route",
+        crossRegistry: customHttpRouteRegistry,
+        withinError: (c) => {
+          if (c.kind !== "customHttpRoute") return "";
+          const M = c.method.toUpperCase();
+          return `duplicate route "${M} ${c.path}" within manifest`;
+        },
+        crossError: (c) => {
+          if (c.kind !== "customHttpRoute") return "";
+          const M = c.method.toUpperCase();
+          return `route "${M} ${c.path}" already registered by another plugin`;
+        },
+      },
+      // Invoked AFTER `detectIdCollisions` passes (see `loadPlugins` order);
+      // writes to the cross-plugin registry only if collision detection
+      // accepted this plugin's contributions.
+      register: (c, mod) => {
+        if (c.kind !== "customHttpRoute") return;
+        const M = c.method.toUpperCase();
+        customHttpRouteRegistry.set(`${M} ${c.path}`, mod.manifest.id);
       },
     },
 
