@@ -359,6 +359,44 @@ describe("v0.28-T1: orphanHandler (handler present?)", () => {
     await cleanup(dir);
   });
 
+  it("customHttpRoute: method is a non-string (123) → rejected at validation, not crash (F1)", async () => {
+    // F1 regression pin: pre-fix, a non-string method made
+    // detectIdCollisions call `c.method.toUpperCase()` → TypeError that
+    // rejected the entire loadPlugins() promise. Now orphanCheck field-shape
+    // validation catches it → plugin rejected, pluginErrors set, scan
+    // continues (ADR-0041 structural-at-load).
+    const dir = await writePlugin(
+      "orph-route-method-num",
+      `{ manifest: { id: 'orph-route-method-num', version: '1.0.0', description: 'x', contributions: [{ kind: 'customHttpRoute', scope: 'system', method: 123, path: '/r1', requires: [] }] }, routeHandlers: async () => {} }`,
+    );
+    const entry = findEntry("orph-route-method-num");
+    expect(entry?.error).toBeDefined();
+    expect(entry?.error).toBe("customHttpRoute method must be a non-empty string");
+    await cleanup(dir);
+  });
+
+  it("customHttpRoute: path is a non-string (42) → rejected at validation (F1)", async () => {
+    const dir = await writePlugin(
+      "orph-route-path-num",
+      `{ manifest: { id: 'orph-route-path-num', version: '1.0.0', description: 'x', contributions: [{ kind: 'customHttpRoute', scope: 'system', method: 'GET', path: 42, requires: [] }] }, routeHandlers: async () => {} }`,
+    );
+    const entry = findEntry("orph-route-path-num");
+    expect(entry?.error).toBeDefined();
+    expect(entry?.error).toBe("customHttpRoute path must be a non-empty string");
+    await cleanup(dir);
+  });
+
+  it("customHttpRoute: path missing entirely → rejected at validation (F1)", async () => {
+    const dir = await writePlugin(
+      "orph-route-path-missing",
+      `{ manifest: { id: 'orph-route-path-missing', version: '1.0.0', description: 'x', contributions: [{ kind: 'customHttpRoute', scope: 'system', method: 'GET', requires: [] }] }, routeHandlers: async () => {} }`,
+    );
+    const entry = findEntry("orph-route-path-missing");
+    expect(entry?.error).toBeDefined();
+    expect(entry?.error).toBe("customHttpRoute path must be a non-empty string");
+    await cleanup(dir);
+  });
+
   it("webhookFormatter: handler present → no orphan error", async () => {
     const dir = await writePlugin(
       "orph-fmt-ok",
@@ -958,6 +996,47 @@ describe("v0.28-T1: validatePlugin check order (multi-violation)", () => {
       'lifecycleInterceptor "ord-int" is pre-phase and cannot require "pulseWriter"',
     );
     await cleanup(dir);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// F1 regression pin: malformed customHttpRoute does not abort the scan.
+// A malformed plugin (non-string method/path) followed in the directory by a
+// valid plugin → the malformed one is rejected (pluginErrors entry) AND the
+// valid one still loads. This pins ADR-0041's per-plugin isolation: one bad
+// plugin must not prevent discovery of later ones. Pre-fix, the malformed
+// method made detectIdCollisions throw TypeError → loadPlugins() rejected →
+// the valid plugin was never discovered.
+// ---------------------------------------------------------------------------
+describe("v0.28-F1: malformed customHttpRoute does not abort the scan", () => {
+  it("malformed plugin followed by a valid plugin → malformed rejected, valid still loads", async () => {
+    const tmpDir = `/tmp/test-char-f1-scan-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    await mkdir(tmpDir, { recursive: true });
+    // Malformed: method is a number — pre-fix this threw in
+    // detectIdCollisions and rejected the entire loadPlugins() promise.
+    await writeFile(
+      `${tmpDir}/aa-bad.mjs`,
+      `export default { manifest: { id: 'aa-bad', version: '1.0.0', description: 'bad', contributions: [{ kind: 'customHttpRoute', scope: 'system', method: 123, path: '/bad', requires: [] }] }, routeHandlers: async () => {} };`,
+    );
+    // Valid plugin that follows in readdir order — must still be discovered.
+    await writeFile(
+      `${tmpDir}/bb-good.mjs`,
+      `export default { manifest: { id: 'bb-good', version: '1.0.0', description: 'good', contributions: [{ kind: 'customHttpRoute', scope: 'system', method: 'GET', path: '/good', requires: [] }] }, routeHandlers: async () => {} };`,
+    );
+    pluginManager.setPluginDirectory(tmpDir);
+    await pluginManager.loadPlugins();
+
+    // The malformed plugin must have a pluginErrors entry — not a TypeError.
+    const badEntry = findEntry("aa-bad");
+    expect(badEntry?.error).toBeDefined();
+    expect(badEntry?.error).toBe("customHttpRoute method must be a non-empty string");
+
+    // The valid plugin MUST still load — the scan was not aborted.
+    const goodEntry = findEntry("bb-good");
+    expect(goodEntry).toBeDefined();
+    expect(goodEntry?.error).toBeUndefined();
+
+    await cleanup(tmpDir);
   });
 });
 

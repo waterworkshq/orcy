@@ -568,6 +568,18 @@ export function buildContributionCatalog(
       // so the orphan doesn't carry a path identifier.
       orphanCheck: (c, mod) => {
         if (c.kind !== "customHttpRoute") return null;
+        // Field-shape validation (ADR-0041): structural route faults are
+        // rejected at validation — not deferred to collision-key construction
+        // where a non-string method would throw TypeError and abort the
+        // entire plugin scan. Mirrors validatePlugin's manifest-field pattern
+        // (`typeof X !== "string" || !X`); at runtime JS/MJS plugins can
+        // bypass the TS type (`"GET" | "POST" | "PATCH" | "DELETE"`).
+        if (typeof c.method !== "string" || !c.method) {
+          return `customHttpRoute method must be a non-empty string`;
+        }
+        if (typeof c.path !== "string" || !c.path) {
+          return `customHttpRoute path must be a non-empty string`;
+        }
         return typeof mod.routeHandlers === "function"
           ? null
           : `customHttpRoute declared but module.routeHandlers is missing or not a function`;
