@@ -2,6 +2,86 @@
 
 > Older releases: see [git tags](https://github.com/waterworkshq/orcy/tags) and [GitHub Releases](https://github.com/waterworkshq/orcy/releases).
 
+## 0.33.0 — 2026-07-26
+
+### Bug Fixes
+
+#### make routeHandlers mount failure crash-loud (ADR-0041) ([`4e8df0b`](https://github.com/waterworkshq/orcy/commit/4e8df0bd2276ba9ff2c52d1043a10392e87edb4e))
+
+1. Remove the cosmetic try/catch+rollback in initializePlugins: a throwing
+2. routeHandlers now propagates as a boot-aborting error. The rollback was
+3. theater -- Fastify poisons the instance on register failure, so listen()
+4. rejects regardless; the rolled-back getLoadedPlugins() view was never
+5. observable. Delete unregisterContributions entirely (zero callers after
+6. the rollback removal).
+
+
+#### reject malformed customHttpRoute method/path at validation ([`a99e33f`](https://github.com/waterworkshq/orcy/commit/a99e33f4da7338edb883ee44cb8af5a34e8dd284))
+
+1. Cold-review blocker: validatePlugin never validated method/path, and the
+2. new collision-key construction calls c.method.toUpperCase() unwrapped in
+3. the loadPlugins loop -- so a non-string method (e.g. method: 123) threw
+4. TypeError and rejected the entire loadPlugins() scan (no pluginErrors
+5. entry; later plugins never discovered), with index.ts then logging the
+6. misleading 'continuing without plugins'.
+
+
+#### reject unsupported customHttpRoute methods at validation ([`1448ce9`](https://github.com/waterworkshq/orcy/commit/1448ce9d0694a105d8c913b6ae2d13a7520434e2))
+
+1. F1 was incomplete: it rejected non-string/empty method/path but accepted
+2. any non-empty method string. A final cold review proved
+3. orphanCheck({method:'TRACE'}) returned null -- contradicting the
+4. CustomHttpRouteContribution type union (GET|POST|PATCH|DELETE) and
+5. ADR-0041's 'invalid method rejected at load.'
+
+7. Add case-insensitive membership validation over the four supported
+8. methods (uppercase before lookup, consistent with the collision key's
+9. method normalization): get/GET pass, TRACE/BOGUS reject at validation
+10. (never reach collision-key construction or registration). Supported set
+11. declared as a module-level Set mirroring the @orcy/shared type union
+12. (no shared runtime const exists); keep-in-sync note points to the union.
+
+
+
+### Documentation
+
+#### reflect v0.33.0 Plugin Activation Contract delivery + fix plugin-runtime doc drift ([`cd90cc1`](https://github.com/waterworkshq/orcy/commit/cd90cc1f130b84dc201d294073b1420d4ea1c643))
+
+
+
+### Features
+
+#### customHttpRoute collision detection at load (ADR-0041) ([`0b7f030`](https://github.com/waterworkshq/orcy/commit/0b7f0306a15f2978cd4813ec09a1ec03d0ea6916))
+
+1. Add customHttpRoute to the load-time collision-detection surface via
+2. CATALOG: within-manifest and cross-plugin (method, path) collisions
+3. reject the whole plugin at load (mirrors notificationChannel). Method
+4. uppercased in the key (matches Fastify case-insensitive method handling);
+5. path byte-equal as-declared. customHttpRouteRegistry is collision-only
+6. -- Fastify's router owns dispatch.
+
+8. Refreshes ContributionAdapter interface docs to 8 registry kinds.
+
+10. Structural faults are now rejected at load; a later commit makes
+11. execution faults (routeHandlers throw at mount) honestly crash-loud.
+
+13. See docs/adr/0041-plugin-activation-contract-structural-at-load-execution-crashloud.md
+
+
+
+### Refactors
+
+#### extract plugin boot phase into runPluginBoot for testable crash-loud catches ([`f46f519`](https://github.com/waterworkshq/orcy/commit/f46f519e21367ea6dff10c7c3464517054725de5))
+
+1. Extract the loadPlugins (non-fatal) and initializePlugins (fatal) boot
+2. catches from index.ts into runPluginBoot(fastify) in pluginBoot.ts, so
+3. the ADR-0041 two-regime contract is unit-testable without spawning the
+4. compiled server. index.ts calls runPluginBoot at the same point in the
+5. boot sequence (after loadQuarantinesFromDb, before initDaemonWiring);
+6. boot order is unchanged.
+
+
+
 ## 0.32.0 — 2026-07-22
 
 ### Bug Fixes
@@ -1482,18 +1562,3 @@
 #### canonicalize feature to mission identifiers across UI and API ([`7623a6a`](https://github.com/waterworkshq/orcy/commit/7623a6a30cbc184e46897644d792a63122843a15))
 
 1. Rename the surviving feature-named identifiers to their canonical mission forms: FeatureCard to MissionCard, FeatureHeader to MissionHeader, onSelectFeature to onSelectMission, addFeatureDependency to addMissionDependency, featureId to missionId in API clients, topFeatures to topMissions (matching server return), makeFeature factories to makeMission, setFeature setters to setMission, ScheduledTaskForm labels and error messages, template variable feature_name to mission_name. G8 (global template name 'Feature') kept as a legitimate category label per user decision.
-
-
-
-## 0.31.9 — 2026-07-16
-
-### Refactors
-
-#### rename board method names to habitat, coordinate cache-key literals ([`2550d14`](https://github.com/waterworkshq/orcy/commit/2550d14b1265de4f473fe5d3857d0efde3416c17))
-
-1. Rename the surviving board-named UI methods to their canonical habitat forms: queryKeys.pulse.byBoard to byHabitat (including the cache-key discriminator literal), insights.byBoard to byHabitat, notificationPrefs.board to habitat, getBoardPrefs to getHabitatPrefs, updateBoardPrefs to updateHabitatPrefs, listByBoard to listByHabitat, getBoardMetrics to getHabitatMetrics. All callers updated. Cache-key discriminator literals change deliberately (one-time cache miss, not a bug).
-
-
-#### rename boardService and boardSecretCache to habitat ([`4cf75db`](https://github.com/waterworkshq/orcy/commit/4cf75db24342dbe6e25d8a1c5fec18be4c4173fc))
-
-1. Rename the two remaining board-named service modules: boardService.ts to habitatService.ts, boardSecretCache.ts to habitatSecretCache.ts. Exports already canonical; all import paths updated including webhook-secret-verification. No behavior change.
