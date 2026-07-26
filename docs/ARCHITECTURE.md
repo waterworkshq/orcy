@@ -1418,7 +1418,7 @@ A plugin is declared as a **discriminated `PluginManifest`** (declarative record
 
 ### Contribution Kinds
 
-Five contribution kinds on the manifest, each carrying its own `scope`:
+Nine contribution kinds on the manifest, each carrying its own `scope`:
 
 | Kind | Scope | Purpose |
 |------|-------|---------|
@@ -1426,21 +1426,31 @@ Five contribution kinds on the manifest, each carrying its own `scope`:
 | `notificationChannel` | system | Delivers notifications via a custom channel (e.g. Microsoft Teams) |
 | `lifecycleInterceptor` | habitat | Pre-veto or post-emit hooks on task transitions |
 | `customMcpTool` | system | Declares a custom MCP tool (v0.22.0: validated-only — dispatch not wired, ADR-0018) |
-| `customHttpRoute` | system | Registers custom HTTP routes via Fastify plugin |
+| `customHttpRoute` | system | Registers custom HTTP routes via a Fastify plugin (activation contract — ADR-0041, see below) |
+| `webhookFormatter` | system | Formats outgoing webhook payloads; plugin-first dispatch with in-tree fallback (ADR-0021) |
+| `automationCondition` | system | Synchronous leaf node in the automation condition tree; fail-safe dispatch (errors → `{matched:false}`) (ADR-0022) |
+| `automationAction` | system | Executes an action in an automation rule; activates `taskWriter`/`notificationSender`/`webhookCaller` (ADR-0023) |
+| `integrationProvider` | system | Issue-provider adapter for an external tracker (GitHub/Jira/Linear); consulted before the in-tree fallback (ADR-0028) |
 
 A Mixed Plugin ships system + habitat contributions in one bundle — each contribution enables independently (system at boot env, habitat via enrollment REST).
 
 ### Capability Whitelist (ADR-0012)
 
-`PluginContext` (constructed per handler invocation, scoped to pluginId + contributionId + habitatId + runId) exposes exactly 5 vetted capabilities:
+`PluginContext` (constructed per handler invocation, scoped to pluginId + contributionId + habitatId + runId) exposes 9 vetted capabilities:
 
 | Capability | Methods | Bounds |
 |------------|---------|--------|
 | `pulseReader` | `listByHabitatSince`, `listByHabitatBetween`, `getPulse` | Habitat-pinned, mutation-free |
 | `pulseWriter` | `createDetectedSignal(input)` | Server injects `metadata.detected:true`, `metadata.detector:<pluginId>`, `metadata.detectorRunId:<runId>`. Rejects `signalType:"experience"`. No update/delete. |
-| `commentReader` | `listByHabitatSince` | No mutation |
-| `taskReader` | `getTask`, `listTasksByHabitat` | Auth fields (`apiKeyHash`, etc.) stripped |
-| `habitatReader` | `getHabitat` | Auth fields stripped |
+| `commentReader` | `listByHabitatSince` | Habitat-pinned, no mutation |
+| `taskReader` | `getTask`, `listTasksByHabitat` | Habitat-pinned, auth fields stripped |
+| `habitatReader` | `getHabitat` | Habitat-pinned, auth fields stripped |
+| `chatIntegrationReader` | `getEnabledByHabitat` | Habitat-pinned; returns `{provider, webhookUrl, channelId}`, strips `botToken` (ADR-0019) |
+| `taskWriter` | `createTask`, `assignTask`, `releaseTask`, `updatePriority` | Habitat-pinned, provenance-stamped (`plugin:<pluginId>`), audit-logged; `createTask` routes through the Task-creation publication kernel; shares the per-run write cap (ADR-0020) |
+| `notificationSender` | `notify(input)` | Enqueues notifications to explicitly-named recipients; validates event type; shares the per-run write cap (ADR-0023) |
+| `webhookCaller` | `call(url, body?, headers?)` | Outbound POST with SSRF guard (private/internal networks blocked) + banned auth headers stripped; shares the per-run write cap (ADR-0023) |
+
+`taskWriter` + `notificationSender` + `webhookCaller` share **one** per-run write counter (`ORCY_PLUGIN_WRITE_CAP`, default 50) so a plugin requiring all three gets 50 total writes, not 150 (ADR-0020).
 
 Universal context fields (not capability-gated): `logger` (tagged with pluginId + runId) and `audit` (write-only — `auditSource:"plugin"`, cannot READ audit history). Contribution-kind-specific fields: `notificationPayload` for channels, `transition` for interceptors. The TS type of an undeclared capability is `undefined` — undeclared calls don't typecheck. See [SECURITY.md](SECURITY.md#plugin-trust-model) for the trust model.
 
@@ -1462,6 +1472,15 @@ Priority is ascending; lower-priority pre-hooks veto short-circuit. Per ADR-0039
 Trigger-based fire-and-forget-after-commit — same execution seam as post-interceptors. When a source event (`pulseCreated`, `taskEvent`, `commentCreated`, `taskSubmitted`) commits, the loader dispatches to enrolled detector handlers in a background `Promise`. Source event commits independently of detector outcome — detected signals are hints, not ground truth. Per-run atomic batching: signals from one detector invocation are written all-or-nothing in one `db.transaction`.
 
 **Rate limiting & concurrency (ADR-0039 Q12, Q14):** the error-rate `isRateLimited` gate is removed; runtime faults feed the per-contribution quarantine counter and threshold only. `rate_limited` Plugin Run status is written solely when a Detector cannot acquire habitat concurrency capacity (`ORCY_DETECTOR_MAX_CONCURRENT`, default 8) — that outcome is temporary and recovery-eligible. The concurrency slot is released when the **underlying handler Promise settles**, not when the watchdog fires; a never-settling handler intentionally holds its slot until process restart. The watchdog (`withTimeout`) is a deadline race, not cancellation — no claim is made that the handler or late side effects were cancelled. Detector manifest `rateLimitDefaults` are not activated in this release. Catch-up scan recovers events missed during outage with status-aware dedup (only `running`/`succeeded`/`failed` count as durably accounted) and per-target dispatch with durable-start watermark acknowledgement.
+
+### Custom HTTP Route Activation (ADR-0041)
+
+`customHttpRoute` contributions declare a `(method, path)` and a single module-level `routeHandlers: FastifyPluginCallback` that mounts them via `fastify.register` during `initializePlugins` (boot). The activation contract is two-tier:
+
+- **Structural faults** (duplicate `(method, path)` within a manifest or across loaded plugins; malformed/empty method or path; unsupported method outside the `"GET" | "POST" | "PATCH" | "DELETE"` union) are rejected at **load** — the offending plugin is recorded in `pluginErrors` and skipped, and the scan continues. Collision detection runs through `CATALOG` against a collision-only `customHttpRouteRegistry` (method uppercased in the key to match Fastify's case-insensitive method handling; path byte-equal as-declared — path-case and trailing-slash variants are a known accepted hole). Field-shape and method-membership validation run in the adapter's `orphanCheck`.
+- **Execution faults** (`routeHandlers` throws at mount) are **crash-loud**: the throw propagates and aborts boot — Fastify poisons the instance on a register failure, so `listen()` would reject regardless of any in-`initializePlugins` catch. The boot phase (`runPluginBoot`) separates the non-fatal `loadPlugins` catch (*"Failed to load plugins - continuing without plugins"*) from the fatal `initializePlugins` catch (*"Plugin route initialization failed - server cannot boot"* + `process.exit(1)`). Operator recovery for a fatal route-mount failure is to remove the plugin from `PLUGINS_ENABLED` and restart.
+
+**Per-contribution execution-fault isolation** — a probe instance that attempts the mount and discards only the route contribution while keeping the plugin's channel/detector/interceptor contributions live (mirroring ADR-0039's runtime quarantine) — is **deferred**. The probe's core soundness property ("probe-mount success ⇒ live-mount success") is mechanically unevaluable in JS: non-idempotent mount-time side effects (e.g., a connection opened at registration) leak resources while looking identical to the conformance harness. Reopening requires a source-auditable plugin whose mount-time behavior is audited as side-effect-free or idempotent under re-execution.
 
 ### Plugin Storage (ADR-0016)
 
