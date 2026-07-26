@@ -95,6 +95,7 @@ import {
   updateAuditProvenance,
 } from "./services/auditProvenanceContext.js";
 import * as pluginManager from "./plugins/pluginManager.js";
+import { runPluginBoot } from "./plugins/pluginBoot.js";
 import { assertSecurityConfigOrExit } from "./config/security.js";
 
 const securityConfig = assertSecurityConfigOrExit();
@@ -398,16 +399,13 @@ fastify.addHook("onClose", async () => {
 
 pluginManager.loadQuarantinesFromDb();
 
-try {
-  await pluginManager.loadPlugins();
-  await pluginManager.initializePlugins(fastify);
-  const loaded = pluginManager.getLoadedPlugins();
-  if (loaded.length > 0) {
-    fastify.log.info({ plugins: loaded }, "Plugins loaded");
-  }
-} catch (err) {
-  fastify.log.error({ err }, "Failed to load plugins - continuing without plugins");
-}
+// Crash-loud activation contract (ADR-0041): `loadPlugins` failures are
+// non-fatal while `initializePlugins` failures are fatal. The two regimes
+// live in `runPluginBoot` so they are unit-testable without spawning the
+// compiled server (see pluginBoot.test.ts). Boot order is unchanged:
+// loadQuarantinesFromDb → runPluginBoot (loadPlugins → initializePlugins)
+// → initDaemonWiring → listen.
+await runPluginBoot(fastify);
 
 const { initDaemonWiring } = await import("./daemon-wiring.js");
 await initDaemonWiring();
