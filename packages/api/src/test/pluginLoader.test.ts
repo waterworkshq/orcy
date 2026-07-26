@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import Fastify from "fastify";
 import * as pluginManager from "../plugins/pluginManager.js";
 
 vi.mock("../lib/logger.js", () => ({
@@ -150,139 +151,107 @@ describe("pluginLoader: registry construction", () => {
   });
 });
 
-describe("pluginLoader: route-mount failure rolls back contributions", () => {
+describe("pluginLoader: crash-loud activation contract (ADR-0041)", () => {
   beforeEach(() => pluginManager.resetPlugins());
   afterEach(() => pluginManager.resetPlugins());
 
-  it("removes the plugin's channel/detector/interceptor from registries when fastify.register fails", async () => {
-    // Plugin: channel + detector + interceptor + customHttpRoute — exercising
-    // every registry rollback path in one fixture.
+  it("a throwing routeHandlers causes initializePlugins to reject AND fastify.listen to reject with the same error", async () => {
+    // A plugin whose `routeHandlers` deliberately throws — emulates the
+    // exact-mount-time failure mode this contract pins. Uses a real
+    // Fastify() instance (not a mock) because the Fastify-poisoning chain
+    // (register rejects AND poisons listen) is the central empirical claim
+    // this contract rests on; pinning only the upstream rejection would
+    // under-test it.
     const dir = await writePlugin(
-      "rollback-mix",
+      "crashy",
       `{
         manifest: {
-          id: 'rollback-mix',
+          id: 'crashy',
           version: '1.0.0',
-          description: 'plugin whose routes fail',
+          description: 'plugin whose routes throw at mount',
           contributions: [
-            { kind: 'notificationChannel', scope: 'system', channelId: 'rb-ch', label: 'l', requires: [] },
-            { kind: 'signalDetector', scope: 'habitat', detectorId: 'rb-det', label: 'l', detects: 'pulseCreated', rateLimitDefaults: { maxDetectionsPerMinute: 1, maxSignalsPerHour: 1 }, requires: [] },
-            { kind: 'lifecycleInterceptor', scope: 'habitat', interceptorId: 'rb-int', phase: 'post', event: 'taskCreated', priority: 0, requires: [] },
-            { kind: 'customHttpRoute', scope: 'system', method: 'GET', path: '/rb', requires: [] },
+            { kind: 'customHttpRoute', scope: 'system', method: 'GET', path: '/crashy', requires: [] },
           ],
         },
-        channels: { 'rb-ch': async () => ({ success: true }) },
-        detectors: { 'rb-det': async () => [] },
-        interceptors: { 'rb-int': async () => ({ signals: [] }) },
-        routeHandlers: async () => {},
+        routeHandlers: async () => { throw new Error('boom-at-mount'); },
       }`,
     );
 
-    // Sanity check: registrations from loadPlugins() should be live BEFORE
-    // initializePlugins runs.
-    expect(pluginManager.getChannelHandler("rb-ch")).toBeTypeOf("function");
-    expect(pluginManager.getDetectorEntry("rollback-mix:rb-det")).not.toBeNull();
+    const fastify = Fastify({ logger: false });
 
-    // Mock fastify whose register rejects — emulates a route-mount failure.
-    const fastify = {
-      register: vi.fn().mockRejectedValue(new Error("route-mount failed")),
-    };
-    await pluginManager.initializePlugins(fastify as never);
+    // 1. initializePlugins must reject — the throw is NOT swallowed by any
+    //    rollback. The rejected error object is the exact one thrown by the
+    //    plugin's routeHandlers so the operator can see the plugin-specific
+    //    cause.
+    let initRejection: unknown;
+    try {
+      await pluginManager.initializePlugins(fastify);
+    } catch (err) {
+      initRejection = err;
+    }
+    expect(initRejection).toBeInstanceOf(Error);
+    expect((initRejection as Error).message).toBe("boom-at-mount");
 
-    // Channel/detector entries must be removed (interceptor registry has no
-    // exported getter, so we observe removal by checking the contribution is
-    // missing from the call sequence in the dedicated interceptor test below).
-    expect(pluginManager.getChannelHandler("rb-ch")).toBeUndefined();
-    expect(pluginManager.getDetectorEntry("rollback-mix:rb-det")).toBeNull();
+    // 2. fastify.listen must ALSO reject with the same error object — the
+    //    Fastify instance is poisoned by the failed register call and cannot
+    //    serve. This is the load-bearing empirical claim: a route-mount throw
+    //    is not just an upstream rejection, it permanently corrupts the
+    //    server. The operator MUST NOT see "continuing without plugins".
+    let listenRejection: unknown;
+    try {
+      await fastify.listen({ port: 0, host: "127.0.0.1" });
+    } catch (err) {
+      listenRejection = err;
+    }
+    expect(listenRejection).toBeInstanceOf(Error);
+    expect((listenRejection as Error).message).toBe("boom-at-mount");
 
-    // getPluginManifest returns null for plugins removed from loadedPlugins.
-    expect(pluginManager.getPluginManifest("rollback-mix")).toBeNull();
+    // 3. Both rejections are the SAME error object — proving the upstream
+    //    throw propagates byte-identically through to the listen call. This
+    //    is the diagnostic guarantee the operator relies on to trace the
+    //    crash back to the plugin's routeHandlers.
+    expect(listenRejection).toBe(initRejection);
 
-    // Admin surface: loadedPlugins no longer carries the id, and pluginErrors
-    // carries the route-mount failure message.
-    const errored = pluginManager
-      .getLoadedPlugins()
-      .find((p) => p.id === "rollback-mix" && p.error);
-    expect(errored).toBeDefined();
-    expect(errored!.error).toBe("Failed to register custom routes: route-mount failed");
-
-    // getLoadedPlugins should not list a non-errored entry for the failed plugin.
-    expect(
-      pluginManager.getLoadedPlugins().find((p) => p.id === "rollback-mix" && !p.error),
-    ).toBeUndefined();
-
+    await fastify.close();
     await cleanup(dir);
   });
+});
 
-  it("interceptor registry entries from a rolled-back plugin are removed (no leaked handlers)", async () => {
+describe("pluginLoader: non-fatal loadPlugins path (regression pin)", () => {
+  beforeEach(() => pluginManager.resetPlugins());
+  afterEach(() => pluginManager.resetPlugins());
+
+  it("loadPlugins failures (import/validation) are non-fatal — server can still boot", async () => {
+    // Pins the OTHER regime: loadPlugins errors must remain swallowable so
+    // a malformed plugin does not block boot. This test exists so the two
+    // regimes (load = non-fatal, initialize = fatal) don't get re-conflated
+    // by a future refactor.
+    //
+    // Validation failure: a manifest with a bad contribution kind is
+    // rejected by loadPlugins; loadPlugins itself does NOT throw — it sets
+    // pluginErrors and the server is free to boot without the bad plugin.
     const dir = await writePlugin(
-      "rollback-int",
-      `{
-        manifest: {
-          id: 'rollback-int',
-          version: '1.0.0',
-          description: 'plugin with interceptor that fails to mount',
-          contributions: [
-            { kind: 'lifecycleInterceptor', scope: 'habitat', interceptorId: 'rb-int-2', phase: 'post', event: 'taskCreated', priority: 0, requires: [] },
-            { kind: 'customHttpRoute', scope: 'system', method: 'GET', path: '/rb2', requires: [] },
-          ],
-        },
-        interceptors: { 'rb-int-2': async () => ({ signals: [] }) },
-        routeHandlers: async () => {},
-      }`,
+      "nonfatal",
+      `{ manifest: { id: 'nonfatal', version: '1.0.0', description: 'x', contributions: [{ kind: 'fake', requires: [] }] } }`,
     );
 
-    const fastify = {
-      register: vi.fn().mockRejectedValue(new Error("route-mount failed")),
-    };
-    await pluginManager.initializePlugins(fastify as never);
+    // loadPlugins resolves (does not throw on validation failures — the bad
+    // plugin is recorded in pluginErrors and skipped).
+    await expect(pluginManager.loadPlugins()).resolves.toBeUndefined();
 
-    // Build a "next plugin" with the same interceptorId+phase+event. If the
-    // rollback failed to remove the leaked entry, re-registering would either
-    // throw or — by the current contract — append and reorder. We use the
-    // public enrollment-driven surface (runPostInterceptors + a real DB) only
-    // when this is non-trivial; here we just verify pluginManifest is gone
-    // and the failed plugin's entry is no-ops for dispatch because it's been
-    // removed from loadedPlugins. The narrower invariant — leftover entries
-    // for non-loaded plugins don't fire — is covered by `getDetectorEntry`
-    // null assertion below through the same loadedPlugins invariant.
-    expect(pluginManager.getPluginManifest("rollback-int")).toBeNull();
+    // The plugin is recorded as errored, NOT loaded.
+    const entry = pluginManager.getLoadedPlugins().find((p) => p.id === "nonfatal");
+    expect(entry).toBeDefined();
+    expect(entry?.error).toBeDefined();
+    expect(pluginManager.getPluginManifest("nonfatal")).toBeNull();
 
-    // No detector was registered for this plugin, but we can still observe
-    // the contribution is gone by direct detector lookup (should be null).
-    expect(pluginManager.getDetectorEntry("rollback-int:nope")).toBeNull();
+    // initializePlugins still resolves cleanly — no plugins are loaded, so
+    // the route loop is a no-op. The fatal regime is specifically a
+    // routeHandlers throw during initializePlugins, NOT a load-time error.
+    const fastify = Fastify({ logger: false });
+    await expect(pluginManager.initializePlugins(fastify)).resolves.toBeUndefined();
 
-    await cleanup(dir);
-  });
-
-  it("does not roll back contributions when fastify.register succeeds", async () => {
-    const dir = await writePlugin(
-      "happy",
-      `{
-        manifest: {
-          id: 'happy',
-          version: '1.0.0',
-          description: 'plugin whose routes register cleanly',
-          contributions: [
-            { kind: 'notificationChannel', scope: 'system', channelId: 'happy-ch', label: 'l', requires: [] },
-            { kind: 'customHttpRoute', scope: 'system', method: 'GET', path: '/happy', requires: [] },
-          ],
-        },
-        channels: { 'happy-ch': async () => ({ success: true }) },
-        routeHandlers: async () => {},
-      }`,
-    );
-
-    // No throw — register resolves.
-    const fastify = { register: vi.fn().mockResolvedValue(undefined) };
-    await pluginManager.initializePlugins(fastify as never);
-
-    expect(pluginManager.getChannelHandler("happy-ch")).toBeTypeOf("function");
-    expect(pluginManager.getPluginManifest("happy")).not.toBeNull();
-    expect(
-      pluginManager.getLoadedPlugins().find((p) => p.id === "happy" && p.error),
-    ).toBeUndefined();
-
+    await fastify.close();
     await cleanup(dir);
   });
 });
