@@ -397,6 +397,37 @@ describe("v0.28-T1: orphanHandler (handler present?)", () => {
     await cleanup(dir);
   });
 
+  it("customHttpRoute: unsupported method (TRACE) → rejected at validation (F1b)", async () => {
+    // F1b regression pin: F1 only validated method/path were non-empty
+    // strings, so any string (e.g. "TRACE") was accepted — contradicting the
+    // `CustomHttpRouteContribution.method` union and ADR-0041's
+    // "invalid method rejected at load." Now a case-insensitive membership
+    // check over the 4 supported methods rejects anything else.
+    const dir = await writePlugin(
+      "orph-route-method-trace",
+      `{ manifest: { id: 'orph-route-method-trace', version: '1.0.0', description: 'x', contributions: [{ kind: 'customHttpRoute', scope: 'system', method: 'TRACE', path: '/r1', requires: [] }] }, routeHandlers: async () => {} }`,
+    );
+    const entry = findEntry("orph-route-method-trace");
+    expect(entry?.error).toBeDefined();
+    expect(entry?.error).toBe("customHttpRoute method must be one of: GET, POST, PATCH, DELETE");
+    await cleanup(dir);
+  });
+
+  it("customHttpRoute: lowercase method (get) → accepted, case-insensitive (F1b)", async () => {
+    // F1b: membership check uppercases the incoming method before lookup,
+    // matching the collision key's `c.method.toUpperCase()`. `get` and `GET`
+    // are equivalent — this pins that case-insensitivity at the validation
+    // layer (no orphanCheck error), so a lowercase method does not need a
+    // separate collision-key branch.
+    const dir = await writePlugin(
+      "orph-route-method-lower",
+      `{ manifest: { id: 'orph-route-method-lower', version: '1.0.0', description: 'x', contributions: [{ kind: 'customHttpRoute', scope: 'system', method: 'get', path: '/r1', requires: [] }] }, routeHandlers: async () => {} }`,
+    );
+    const entry = findEntry("orph-route-method-lower");
+    expect(entry?.error).toBeUndefined();
+    await cleanup(dir);
+  });
+
   it("webhookFormatter: handler present → no orphan error", async () => {
     const dir = await writePlugin(
       "orph-fmt-ok",
@@ -1030,6 +1061,40 @@ describe("v0.28-F1: malformed customHttpRoute does not abort the scan", () => {
     const badEntry = findEntry("aa-bad");
     expect(badEntry?.error).toBeDefined();
     expect(badEntry?.error).toBe("customHttpRoute method must be a non-empty string");
+
+    // The valid plugin MUST still load — the scan was not aborted.
+    const goodEntry = findEntry("bb-good");
+    expect(goodEntry).toBeDefined();
+    expect(goodEntry?.error).toBeUndefined();
+
+    await cleanup(tmpDir);
+  });
+
+  it("unsupported-method plugin followed by a valid plugin → unsupported rejected, valid still loads (F1b)", async () => {
+    // F1b scan-continuation pin: an unsupported-method plugin (e.g. TRACE)
+    // is rejected at validation like any malformed plugin, and a valid plugin
+    // that follows it in readdir order still loads. Mirrors the F1 pin above
+    // for the new membership-check rejection path — one bad plugin must not
+    // prevent discovery of later ones (ADR-0041 per-plugin isolation).
+    const tmpDir = `/tmp/test-char-f1b-scan-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    await mkdir(tmpDir, { recursive: true });
+    // Unsupported method — orphanCheck rejects via the membership check.
+    await writeFile(
+      `${tmpDir}/aa-bad.mjs`,
+      `export default { manifest: { id: 'aa-bad', version: '1.0.0', description: 'bad', contributions: [{ kind: 'customHttpRoute', scope: 'system', method: 'TRACE', path: '/bad', requires: [] }] }, routeHandlers: async () => {} };`,
+    );
+    // Valid plugin that follows in readdir order — must still be discovered.
+    await writeFile(
+      `${tmpDir}/bb-good.mjs`,
+      `export default { manifest: { id: 'bb-good', version: '1.0.0', description: 'good', contributions: [{ kind: 'customHttpRoute', scope: 'system', method: 'GET', path: '/good', requires: [] }] }, routeHandlers: async () => {} };`,
+    );
+    pluginManager.setPluginDirectory(tmpDir);
+    await pluginManager.loadPlugins();
+
+    // The unsupported-method plugin must have a pluginErrors entry.
+    const badEntry = findEntry("aa-bad");
+    expect(badEntry?.error).toBeDefined();
+    expect(badEntry?.error).toBe("customHttpRoute method must be one of: GET, POST, PATCH, DELETE");
 
     // The valid plugin MUST still load — the scan was not aborted.
     const goodEntry = findEntry("bb-good");

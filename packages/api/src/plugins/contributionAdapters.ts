@@ -344,6 +344,17 @@ export type ManagedRegistryEntry =
   | InterceptorRegistryEntry;
 
 /**
+ * Supported HTTP methods for `customHttpRoute`. Source of truth is the
+ * `CustomHttpRouteContribution.method` union in `@orcy/shared`
+ * (`"GET" | "POST" | "PATCH" | "DELETE"`); this runtime Set mirrors it so
+ * orphanCheck can reject unsupported method strings (e.g. "TRACE") at load
+ * (ADR-0041). Uppercase because `customHttpRoute.orphanCheck` uppercases the
+ * incoming method before the membership check, matching the collision key's
+ * `c.method.toUpperCase()`. Keep in sync with the union if it ever widens.
+ */
+const SUPPORTED_CUSTOM_HTTP_METHODS = new Set(["GET", "POST", "PATCH", "DELETE"]);
+
+/**
  * Build the per-kind adapter catalog. Each adapter's `register` closes over
  * the specific Map from the passed `registries` bag (via destructure) so
  * per-call lookup is O(1) and the adapter body stays small. Called once at
@@ -579,6 +590,14 @@ export function buildContributionCatalog(
         }
         if (typeof c.path !== "string" || !c.path) {
           return `customHttpRoute path must be a non-empty string`;
+        }
+        // Method membership (F1b): the type union is `"GET" | "POST" | "PATCH"
+        // | "DELETE"`, but JS/MJS plugins bypass TS at runtime. Case-insensitive
+        // (uppercase before lookup) to match the collision key's
+        // `c.method.toUpperCase()` — `get` and `GET` both pass, `TRACE`/`BOGUS`
+        // reject. See ADR-0041 "invalid method rejected at load."
+        if (!SUPPORTED_CUSTOM_HTTP_METHODS.has(c.method.toUpperCase())) {
+          return `customHttpRoute method must be one of: GET, POST, PATCH, DELETE`;
         }
         return typeof mod.routeHandlers === "function"
           ? null
