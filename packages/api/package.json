@@ -10,7 +10,7 @@
     "drizzle"
   ],
   "engines": {
-    "node": ">=22"
+    "node": ">=24"
   },
   "bin": {
     "orcy-api": "./dist/index.js"
@@ -59,7 +59,7 @@
     "pino-pretty": "^11.0.0",
     "sql.js": "^1.10.3",
     "tsx": "^4.21.0",
-    "typescript": "^6.0.3",
+    "typescript": "^7.0.2",
     "vitest": "^4.1.5"
   }
 }
