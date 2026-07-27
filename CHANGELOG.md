@@ -2,6 +2,29 @@
 
 > Older releases: see [git tags](https://github.com/waterworkshq/orcy/tags) and [GitHub Releases](https://github.com/waterworkshq/orcy/releases).
 
+## 0.33.4 — 2026-07-27
+
+### Bug Fixes
+
+#### broken seed import, dead dispatch function, missing safety check, test env fix ([`0c2d4a6`](https://github.com/waterworkshq/orcy/commit/0c2d4a6c4c122e0ef2c2ea6bbbd6d11e117808f7))
+
+
+
+### Documentation
+
+#### file v0.32.0 review findings + resolve TG-17 ([`21319dd`](https://github.com/waterworkshq/orcy/commit/21319dd88862ddfbf25dbd62b3456c718e9db454))
+
+1. Added 4 deferred items from the v0.32.0 release review:
+2. Roadmap: template replay idempotency (D4-4), triage replay taskId
+3. gap (D2-2), automation assignment_refused replay mapping (D2-3)
+4. Code style: handler-key schedule origin-matrix documentation
+5. clarification (CS-65)
+
+7. Resolved TG-17 — the dormancy inventory test was deleted during the
+8. cutover flag removal; the flag is gone, dormancy proof no longer needed.
+
+
+
 ## 0.33.3 — 2026-07-27
 
 ### Bug Fixes
@@ -51,26 +74,3 @@
 
 6. Node engines floor raised from >=22 to >=24 to match CI (already
 7. running Node 24). This aligns the stated minimum with reality.
-
-
-
-## 0.33.1 — 2026-07-27
-
-### Refactors
-
-#### resolve lint error and auto-fix 265 lint warnings ([`7c927b9`](https://github.com/waterworkshq/orcy/commit/7c927b9326e65dd3cbf16f41969a779f4a0a19d2))
-
-1. Fix the sole lint error (unicorn/no-useless-fallback-in-spread in
-2. importAttempts.ts:1067 — redundant ?? {} on a required field) and
-3. auto-fix 265 of 373 pre-existing lint warnings via oxlint --fix:
-
-5. 119x unicorn/no-array-sort: .sort() -> .toSorted()
-6. 136x eslint/no-unused-vars: removed unused imports and variables
-7. 5x unicorn/no-array-reverse: .reverse() -> .toReversed()
-8. 4x eslint/preserve-caught-error: added .cause to re-throws
-9. 1x unicorn/no-useless-fallback-in-spread (manual fix)
-
-11. Remaining 108 warnings are non-auto-fixable style rules
-12. (no-underscore-dangle, consistent-function-scoping, no-shadow) that
-13. require case-by-case treatment. All checks green: typecheck, build,
-14. 5612 tests, 0 lint errors.
