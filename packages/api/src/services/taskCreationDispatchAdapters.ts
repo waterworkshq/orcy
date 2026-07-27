@@ -352,21 +352,6 @@ export const transitionSubscriberAdapter: DispatchTargetAdapter = {
 // defaultCreationDispatchPlan
 // ---------------------------------------------------------------------------
 
-/**
- * The list of required dispatch targets for a creation envelope (Technical
- * Plan line 450 — the kernel-fixed set). `targetKey` is the routing key
- * (`habitatId` for all creation consumers — they all route per-habitat).
- *
- * The publication flow uses this to populate the dispatch plan without each
- * origin knowing the internal target kinds.
- */
-export function defaultCreationDispatchPlan(envelope: EnvelopeRow): DispatchTargetInput[] {
-  return CREATION_TARGET_KINDS.map((targetKind) => ({
-    targetKind,
-    targetKey: envelope.habitatId,
-  }));
-}
-
 // ---------------------------------------------------------------------------
 // registerCreationDispatchAdapters
 // ---------------------------------------------------------------------------

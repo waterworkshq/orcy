@@ -444,10 +444,19 @@ export function buildRecoveryLinkageParticipant(linkage: RecoveryLinkage): Parti
     //    logic is bypassed (the repo's `updateFailureContext` is itself a
     //    thin partial-update wrapper).
     if (linkage.failureContextId) {
-      db.update(failureContexts)
+      const result = db
+        .update(failureContexts)
         .set({ recoveryTaskId })
         .where(eq(failureContexts.id, linkage.failureContextId))
         .run();
+      if (
+        (result as { changes?: number } | undefined)?.changes !== undefined &&
+        (result as { changes?: number }).changes !== 1
+      ) {
+        throw new Error(
+          `Failure-context link update affected ${(result as { changes?: number }).changes ?? 0} rows for context ${linkage.failureContextId} — expected exactly 1`,
+        );
+      }
     }
   };
 }

@@ -10,8 +10,7 @@
  *  1. Each adapter returns `accepted` on attempt/durable-ingress.
  *  2. A faulting underlying mechanism → `{attention, error}` (no silent
  *     claimability).
- *  3. `defaultCreationDispatchPlan` lists exactly the 6 required target kinds.
- *  4. After `registerCreationDispatchAdapters()`, `resolveDispatchAdapter`
+ *  3. After `registerCreationDispatchAdapters()`, `resolveDispatchAdapter`
  *     resolves all 6; before, none.
  *  5. Integration: `processEnvelopeDispatchWithClient` invokes registered
  *     adapters; all-accepted → observation advances.
@@ -102,7 +101,6 @@ import {
   automationAdapter,
   postInterceptorAdapter,
   transitionSubscriberAdapter,
-  defaultCreationDispatchPlan,
   registerCreationDispatchAdapters,
   areCreationDispatchAdaptersRegistered,
   CREATION_TARGET_KINDS,
@@ -175,28 +173,7 @@ function expectAttention(result: DispatchTargetAttemptOutcome, substr?: string):
 }
 
 // ===========================================================================
-// 1. defaultCreationDispatchPlan
-// ===========================================================================
-
-describe("defaultCreationDispatchPlan", () => {
-  it("lists exactly the 6 required target kinds", () => {
-    const plan = defaultCreationDispatchPlan(testEnvelope);
-    expect(plan).toHaveLength(6);
-    const kinds = plan.map((t) => t.targetKind).toSorted();
-    const expected = [...CREATION_TARGET_KINDS].toSorted();
-    expect(kinds).toEqual(expected);
-  });
-
-  it("uses habitatId as targetKey for every target", () => {
-    const plan = defaultCreationDispatchPlan(testEnvelope);
-    for (const target of plan) {
-      expect(target.targetKey).toBe(testEnvelope.habitatId);
-    }
-  });
-});
-
-// ===========================================================================
-// 2. registerCreationDispatchAdapters
+// 1. registerCreationDispatchAdapters
 // ===========================================================================
 
 describe("registerCreationDispatchAdapters", () => {

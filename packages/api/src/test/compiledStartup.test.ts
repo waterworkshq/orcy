@@ -306,7 +306,7 @@ function assertNoWorkspaceAncestor(start: string): void {
 
 describe("F1 — ESM-safe compiled API startup", () => {
   beforeAll(() => {
-    execSync("pnpm --filter @orcy/api build", {
+    execSync("corepack pnpm@9.0.0 --filter @orcy/api build", {
       cwd: WORKSPACE_ROOT,
       stdio: "pipe",
       timeout: 120_000,
