@@ -103,7 +103,6 @@
  * (Plugin Run provenance not persisted); ADR-0020 (plugin write caps);
  * ADR-0039 (plugin invocation policy).
  */
-import { createHash } from "node:crypto";
 import { eq } from "drizzle-orm";
 import type { AuditActorRef, AuditSource, CausalContext, TaskPriority } from "@orcy/shared";
 import { getDb } from "../db/index.js";
@@ -130,6 +129,7 @@ import {
   type AttemptTerminalResult,
 } from "../repositories/taskPublication.js";
 import type { TaskCreationPublicationResult } from "./taskCreationPublication.js";
+import { stableStringify, stableHash } from "@orcy/shared";
 
 // ---------------------------------------------------------------------------
 // Re-exports (origin-neutral types)
@@ -279,20 +279,6 @@ function computePluginFingerprint(input: PublishPluginTaskInput): string {
 }
 
 /** Deterministic JSON serializer — sorted object keys, stable array order. */
-function stableStringify(value: unknown): string {
-  if (value === null || typeof value !== "object") return JSON.stringify(value);
-  if (Array.isArray(value)) return `[${value.map(stableStringify).join(",")}]`;
-  const keys = Object.keys(value as Record<string, unknown>).toSorted();
-  return `{${keys
-    .map((k) => `${JSON.stringify(k)}:${stableStringify((value as Record<string, unknown>)[k])}`)
-    .join(",")}}`;
-}
-
-/** SHA-256 hex of the canonical stable-string serialization. */
-function stableHash(s: string): string {
-  return createHash("sha256").update(s).digest("hex");
-}
-
 /**
  * Terminalizes a `pending` attempt with a domain rejection. Runs in its own
  * short transaction (the single CAS UPDATE is atomic on `getDb()`). Mirrors

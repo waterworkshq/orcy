@@ -66,7 +66,6 @@
 import { getDb } from "../db/index.js";
 import { scheduledTasks } from "../db/schema/index.js";
 import { eq, sql } from "drizzle-orm";
-import { createHash } from "node:crypto";
 import { v4 as uuid } from "uuid";
 import type { AuditSource, CausalContext } from "@orcy/shared";
 import type { TaskPublicationDbClient } from "./taskPublication.js";
@@ -79,6 +78,7 @@ import {
 } from "./scheduledOccurrences.js";
 import { advanceScheduleOnceWithClient, disableScheduleWithClient } from "./scheduledTask.js";
 import { reserveAttemptWithClient } from "./taskCreationAttempts.js";
+import { stableStringify, stableHash } from "@orcy/shared";
 
 // ---------------------------------------------------------------------------
 // Provenance constants (occurrence-level coordination attempt — T9A-03)
@@ -121,20 +121,6 @@ const OCCURRENCE_SCOPE_KIND = "scheduled_occurrence";
 // ---------------------------------------------------------------------------
 
 /** Stable-keyed JSON serialization (sorted keys, stable array order). */
-function stableStringify(value: unknown): string {
-  if (value === null || typeof value !== "object") return JSON.stringify(value);
-  if (Array.isArray(value)) return `[${value.map(stableStringify).join(",")}]`;
-  const keys = Object.keys(value as Record<string, unknown>).toSorted();
-  return `{${keys
-    .map((k) => `${JSON.stringify(k)}:${stableStringify((value as Record<string, unknown>)[k])}`)
-    .join(",")}}`;
-}
-
-/** SHA-256 hex of the canonical stable-string serialization. */
-function stableHash(s: string): string {
-  return createHash("sha256").update(s).digest("hex");
-}
-
 /**
  * Computes the canonical request fingerprint for the occurrence-level
  * coordination attempt (T9A-03). Covers the occurrence's identity basis —

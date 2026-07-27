@@ -247,7 +247,6 @@
  * (`triageMissionPublication` — mirror for the N-attempt reservation +
  * outcome mapping).
  */
-import { createHash } from "node:crypto";
 import { eq } from "drizzle-orm";
 import type { AuditActorRef, AuditSource, CausalContext } from "@orcy/shared";
 import { getDb } from "../db/index.js";
@@ -284,6 +283,7 @@ import type {
   CommitAuthorizationDenialKind,
 } from "./taskPublicationGuardVerify.js";
 import type { PublicationError } from "./taskPublicationPreparation.js";
+import { stableStringify, stableHash } from "@orcy/shared";
 
 // ---------------------------------------------------------------------------
 // Re-exports (origin-neutral types the envelope carries)
@@ -405,20 +405,6 @@ const SCHEDULE_CONFIG_FIELDS = [
 ] as const;
 
 /** Canonical stable-JSON serializer (sorted keys, stable array order). */
-function stableStringify(value: unknown): string {
-  if (value === null || typeof value !== "object") return JSON.stringify(value);
-  if (Array.isArray(value)) return `[${value.map(stableStringify).join(",")}]`;
-  const keys = Object.keys(value as Record<string, unknown>).toSorted();
-  return `{${keys
-    .map((k) => `${JSON.stringify(k)}:${stableStringify((value as Record<string, unknown>)[k])}`)
-    .join(",")}}`;
-}
-
-/** SHA-256 hex of the canonical stable-string serialization. */
-function stableHash(s: string): string {
-  return createHash("sha256").update(s).digest("hex");
-}
-
 /**
  * Extracts the schedule config subset from a full schedule row (live or
  * snapshot) as a stable-keyed record. Returns `undefined` for each MISSING

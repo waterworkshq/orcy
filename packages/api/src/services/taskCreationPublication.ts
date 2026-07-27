@@ -63,7 +63,6 @@
  * § "Outcome envelope"; Story-2 implementation-context § "Story 1 kernel API
  * surface" + § "Shared contracts".
  */
-import { createHash } from "node:crypto";
 import type { AuditActorRef, AuditSource, CausalContext, TaskPriority } from "@orcy/shared";
 import { getDb } from "../db/index.js";
 import {
@@ -102,6 +101,7 @@ import {
 } from "../repositories/taskPublication.js";
 import { getHabitatIdForTask } from "../repositories/taskCrud.js";
 import { getDefaultAssignmentDeadlineMs } from "../config/creationPublicationCutover.js";
+import { stableStringify, stableHash } from "@orcy/shared";
 
 // ---------------------------------------------------------------------------
 // Shared contracts (Story-2 implementation-context § "Shared contracts")
@@ -354,20 +354,6 @@ function computeRequestFingerprint(input: PublishTaskCreationInput): string {
 }
 
 /** Deterministic JSON serializer — sorted object keys, stable array order. */
-function stableStringify(value: unknown): string {
-  if (value === null || typeof value !== "object") return JSON.stringify(value);
-  if (Array.isArray(value)) return `[${value.map(stableStringify).join(",")}]`;
-  const keys = Object.keys(value as Record<string, unknown>).toSorted();
-  return `{${keys
-    .map((k) => `${JSON.stringify(k)}:${stableStringify((value as Record<string, unknown>)[k])}`)
-    .join(",")}}`;
-}
-
-/** SHA-256 hex of the canonical stable-string serialization. */
-function stableHash(s: string): string {
-  return createHash("sha256").update(s).digest("hex");
-}
-
 /**
  * Re-reads a committed publication from the durable rows tied to an attempt.
  *

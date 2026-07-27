@@ -2,6 +2,7 @@ import { createHash } from "crypto";
 import type { FastifyRequest, FastifyReply } from "fastify";
 import * as idempotencyRepo from "../repositories/remoteIdempotency.js";
 import { AppError } from "../errors.js";
+import { stableStringify } from "@orcy/shared";
 
 /**
  * Default TTL for idempotency records: 24 hours. This is the window during
@@ -23,19 +24,6 @@ declare module "fastify" {
       action: string;
     };
   }
-}
-
-function stableStringify(value: unknown): string {
-  if (value === null || typeof value !== "object") {
-    return JSON.stringify(value);
-  }
-  if (Array.isArray(value)) {
-    return `[${value.map(stableStringify).join(",")}]`;
-  }
-  const keys = Object.keys(value as Record<string, unknown>).toSorted();
-  return `{${keys
-    .map((k) => `${JSON.stringify(k)}:${stableStringify((value as Record<string, unknown>)[k])}`)
-    .join(",")}}`;
 }
 
 function hashRequest(method: string, url: string, body: unknown): string {

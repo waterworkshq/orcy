@@ -70,7 +70,6 @@
  * the M1 preparation + publication pair this composes
  * (`inlineAggregatePreparation.ts` + `inlineAggregatePublication.ts`).
  */
-import { createHash } from "node:crypto";
 import { eq } from "drizzle-orm";
 import type { AuditActorRef, AuditSource, CausalContext } from "@orcy/shared";
 import { getDb } from "../db/index.js";
@@ -109,6 +108,7 @@ import type {
   CommitAuthorizationDenialKind,
 } from "./taskPublicationGuardVerify.js";
 import type { PublicationError } from "./taskPublicationPreparation.js";
+import { stableStringify, stableHash } from "@orcy/shared";
 
 // ---------------------------------------------------------------------------
 // Re-exports (origin-neutral types the envelope carries — parallel to the
@@ -177,20 +177,6 @@ function substituteTokens(
 // ---------------------------------------------------------------------------
 
 /** Canonical stable-JSON serializer (sorted keys, stable array order). */
-function stableStringify(value: unknown): string {
-  if (value === null || typeof value !== "object") return JSON.stringify(value);
-  if (Array.isArray(value)) return `[${value.map(stableStringify).join(",")}]`;
-  const keys = Object.keys(value as Record<string, unknown>).toSorted();
-  return `{${keys
-    .map((k) => `${JSON.stringify(k)}:${stableStringify((value as Record<string, unknown>)[k])}`)
-    .join(",")}}`;
-}
-
-/** SHA-256 hex of the canonical stable-string serialization. */
-function stableHash(s: string): string {
-  return createHash("sha256").update(s).digest("hex");
-}
-
 /**
  * Computes the canonical request fingerprint for an inline-aggregate
  * scheduled-occurrence publication. Covers the RENDERED payload (token-

@@ -1,4 +1,5 @@
 import { createHmac } from "crypto";
+import { stableStringify } from "@orcy/shared";
 
 /**
  * v0.19 Phase E — Compact remote webhook payload formatter.
@@ -126,17 +127,4 @@ export function signCompactRemoteWebhookPayload(
   // remote pod re-computes.
   const stable = stableStringify(payload);
   return createHmac("sha256", secret).update(stable).digest("hex");
-}
-
-function stableStringify(value: unknown): string {
-  if (value === null || typeof value !== "object") {
-    return JSON.stringify(value);
-  }
-  if (Array.isArray(value)) {
-    return "[" + value.map(stableStringify).join(",") + "]";
-  }
-  const obj = value as Record<string, unknown>;
-  const keys = Object.keys(obj).toSorted();
-  const parts = keys.map((k) => JSON.stringify(k) + ":" + stableStringify(obj[k]));
-  return "{" + parts.join(",") + "}";
 }

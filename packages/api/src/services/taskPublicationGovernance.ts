@@ -51,7 +51,6 @@
  * ADR-0039 Q1 (bounded fail-closed), Q9 (canonical contribution identity),
  * Q13 (telemetry failure contract).
  */
-import { createHash } from "node:crypto";
 import type { InterceptorEvent, PluginCapabilityName } from "@orcy/shared";
 import type { TransitionContext } from "./tasks/transition-emitter.js";
 import type { InterceptorRegistryEntry } from "../plugins/contributionAdapters.js";
@@ -67,6 +66,7 @@ import {
   type PublicationGuard,
 } from "./taskPublicationPreparation.js";
 import type { TaskPublicationDbClient } from "../repositories/taskPublication.js";
+import { stableStringify, stableHash } from "@orcy/shared";
 import {
   findGovernanceDecisionWithClient,
   recordGovernanceDecisionWithClient,
@@ -211,33 +211,6 @@ export interface FrozenBatchAdmissionSnapshot {
 // ---------------------------------------------------------------------------
 
 /**
- * Deterministic JSON serializer — sorts object keys recursively and joins
- * arrays in given order. The output is byte-stable for the same logical
- * payload regardless of object key insertion order. Mirrors the
- * `stableStringify` approach in `middleware/idempotency.ts`.
- *
- * Callers pass already-sorted arrays for set-valued fields (labels, requires,
- * the enrolled list) so the fingerprint is stable across batch reordering too.
- */
-function stableStringify(value: unknown): string {
-  if (value === null || typeof value !== "object") {
-    return JSON.stringify(value);
-  }
-  if (Array.isArray(value)) {
-    return `[${value.map(stableStringify).join(",")}]`;
-  }
-  const keys = Object.keys(value as Record<string, unknown>).toSorted();
-  return `{${keys
-    .map((k) => `${JSON.stringify(k)}:${stableStringify((value as Record<string, unknown>)[k])}`)
-    .join(",")}}`;
-}
-
-/** SHA-256 hex of the canonical stable-string serialization. */
-function stableHash(payload: unknown): string {
-  return createHash("sha256").update(stableStringify(payload)).digest("hex");
-}
-
-/**
  * Projects a canonical proposal into the governance-relevant fields for the
  * fingerprint. Arrays of unordered items (labels, requiredCapabilities) are
  * SORTED so the fingerprint is invariant under set-reordering. Execution
@@ -305,7 +278,7 @@ export function computeEnrollmentFingerprint(snapshot: {
       }))
       .toSorted((a, b) => a.interceptorKey.localeCompare(b.interceptorKey)),
   };
-  return "enrollment:" + stableHash(payload);
+  return "enrollment:" + stableHash(stableStringify(payload));
 }
 
 /**
@@ -362,7 +335,7 @@ export function computeGovernanceFingerprint(input: {
       }))
       .toSorted((a, b) => a.interceptorKey.localeCompare(b.interceptorKey)),
   };
-  return "gov:" + stableHash(payload);
+  return "gov:" + stableHash(stableStringify(payload));
 }
 
 // ---------------------------------------------------------------------------

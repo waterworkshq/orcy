@@ -155,7 +155,6 @@
  * recovery worker (`scheduledOccurrenceRecovery.ts` — the structural
  * analog).
  */
-import { createHash } from "node:crypto";
 import { and, eq, sql } from "drizzle-orm";
 import type { AuditActorRef, AuditSource, CausalContext } from "@orcy/shared";
 import { getDb } from "../db/index.js";
@@ -205,6 +204,7 @@ import type {
   CommitAuthorizationDenialKind,
 } from "./taskPublicationGuardVerify.js";
 import type { PublicationError } from "./taskPublicationPreparation.js";
+import { stableStringify, stableHash } from "@orcy/shared";
 
 // ---------------------------------------------------------------------------
 // Re-exports (origin-neutral types the envelope carries)
@@ -291,20 +291,6 @@ function substituteTokens(
 // ---------------------------------------------------------------------------
 
 /** Canonical stable-JSON serializer (sorted keys, stable array order). */
-function stableStringify(value: unknown): string {
-  if (value === null || typeof value !== "object") return JSON.stringify(value);
-  if (Array.isArray(value)) return `[${value.map(stableStringify).join(",")}]`;
-  const keys = Object.keys(value as Record<string, unknown>).toSorted();
-  return `{${keys
-    .map((k) => `${JSON.stringify(k)}:${stableStringify((value as Record<string, unknown>)[k])}`)
-    .join(",")}}`;
-}
-
-/** SHA-256 hex of the canonical stable-string serialization. */
-function stableHash(s: string): string {
-  return createHash("sha256").update(s).digest("hex");
-}
-
 /**
  * Computes the canonical request fingerprint for a retry's per-Task
  * attempts. Covers the RENDERED payload (token-substituted mission title

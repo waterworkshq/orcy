@@ -103,7 +103,6 @@
  * Story-2 implementation-context § "Story 1 kernel API surface" + § "Shared
  * contracts"; gap-audit O3; cold-critique C2.
  */
-import { createHash } from "node:crypto";
 import { and, eq, isNull, sql } from "drizzle-orm";
 import type { AuditActorRef, AuditSource, CausalContext } from "@orcy/shared";
 import { getDb } from "../db/index.js";
@@ -137,6 +136,7 @@ import {
 } from "../repositories/taskPublication.js";
 import type { TaskCreationPublicationResult, AssignmentIntent } from "./taskCreationPublication.js";
 import { getDefaultAssignmentDeadlineMs } from "../config/creationPublicationCutover.js";
+import { stableStringify, stableHash } from "@orcy/shared";
 
 // ---------------------------------------------------------------------------
 // Re-exports (the result envelope + assignment intent are origin-neutral)
@@ -516,20 +516,6 @@ function computeRecoveryFingerprint(input: PublishRecoveryTaskInput): string {
 }
 
 /** Deterministic JSON serializer — sorted object keys, stable array order. */
-function stableStringify(value: unknown): string {
-  if (value === null || typeof value !== "object") return JSON.stringify(value);
-  if (Array.isArray(value)) return `[${value.map(stableStringify).join(",")}]`;
-  const keys = Object.keys(value as Record<string, unknown>).toSorted();
-  return `{${keys
-    .map((k) => `${JSON.stringify(k)}:${stableStringify((value as Record<string, unknown>)[k])}`)
-    .join(",")}}`;
-}
-
-/** SHA-256 hex of the canonical stable-string serialization. */
-function stableHash(s: string): string {
-  return createHash("sha256").update(s).digest("hex");
-}
-
 /**
  * Terminalizes a `pending` attempt with a domain rejection and returns the
  * matching adapter result. Runs in its own short transaction (the single CAS

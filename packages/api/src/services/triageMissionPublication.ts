@@ -113,7 +113,6 @@
  * for the closest single-Task participant-seam precedent; the T9A publisher
  * (`templateAggregatePublication`) for the aggregate-scale kernel.
  */
-import { createHash } from "node:crypto";
 import { v4 as uuid } from "uuid";
 import type { AuditActorRef, AuditSource, CausalContext, ClusterPayload } from "@orcy/shared";
 import { getDb } from "../db/index.js";
@@ -141,6 +140,7 @@ import type {
 } from "./taskPublicationGuardVerify.js";
 import type { PublicationError } from "./taskPublicationPreparation.js";
 import type { Mission } from "../models/index.js";
+import { stableStringify, stableHash } from "@orcy/shared";
 
 // ---------------------------------------------------------------------------
 // Re-exports (origin-neutral types the envelope carries)
@@ -562,20 +562,6 @@ function computeTriageFingerprint(scope: DerivedTriageScope): string {
 }
 
 /** Deterministic JSON serializer — sorted object keys, stable array order. */
-function stableStringify(value: unknown): string {
-  if (value === null || typeof value !== "object") return JSON.stringify(value);
-  if (Array.isArray(value)) return `[${value.map(stableStringify).join(",")}]`;
-  const keys = Object.keys(value as Record<string, unknown>).toSorted();
-  return `{${keys
-    .map((k) => `${JSON.stringify(k)}:${stableStringify((value as Record<string, unknown>)[k])}`)
-    .join(",")}}`;
-}
-
-/** SHA-256 hex of the canonical stable-string serialization. */
-function stableHash(s: string): string {
-  return createHash("sha256").update(s).digest("hex");
-}
-
 /** Recursively sorts an object's keys for deterministic fingerprinting. */
 function sortRecordKeys(record: Record<string, string>): Record<string, string> {
   const sorted: Record<string, string> = {};

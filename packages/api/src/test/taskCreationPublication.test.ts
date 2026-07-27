@@ -48,6 +48,7 @@ import {
 } from "../services/taskCreationPublication.js";
 import { TASK_CREATION_INTEGRITY_VERSION } from "../db/schema/taskPublication.js";
 import type { AuditSource } from "@orcy/shared";
+import { stableStringify, stableHash } from "@orcy/shared";
 
 // --- Mocks: the adapter composes the kernel, which emits NO pre-commit
 //     effects. Assert the adapter path never reaches the broadcaster. ---
@@ -250,7 +251,10 @@ describe("T6P1 happy path — interactive publication commits via the kernel cha
     expectCreatedRecovering(result);
 
     expect(result.publication.subtasks).toHaveLength(2);
-    expect(result.publication.subtasks.map((s) => s.title).toSorted()).toEqual(["child-a", "child-b"]);
+    expect(result.publication.subtasks.map((s) => s.title).toSorted()).toEqual([
+      "child-a",
+      "child-b",
+    ]);
     expect(result.publication.dependencies).toHaveLength(1);
     expect(result.publication.dependencies[0].dependsOnId).toBe(depTarget.id);
   });
@@ -613,21 +617,7 @@ describe("T6P1 dormancy — legacy createTask stays the active production path",
 // ---------------------------------------------------------------------------
 
 /** Stabilizes a JSON payload (sorted keys recursively; arrays as given). */
-function stableStringify(value: unknown): string {
-  if (value === null || typeof value !== "object") return JSON.stringify(value);
-  if (Array.isArray(value)) return `[${value.map(stableStringify).join(",")}]`;
-  const keys = Object.keys(value as Record<string, unknown>).toSorted();
-  return `{${keys
-    .map((k) => `${JSON.stringify(k)}:${stableStringify((value as Record<string, unknown>)[k])}`)
-    .join(",")}}`;
-}
-
 /** SHA-256 hex of the canonical stable-string serialization. */
-function stableHash(s: string): string {
-  const { createHash } = require("node:crypto") as typeof import("node:crypto");
-  return createHash("sha256").update(s).digest("hex");
-}
-
 /** Computes the fingerprint the adapter will use for this payload. */
 function computeFingerprintViaAdapter(input: PublishTaskCreationInput): string {
   const payload = {
