@@ -1,5 +1,5 @@
 /**
- * Inline Template Aggregate Atomic Publication (T9A-10 M1, Path A — DORMANT).
+ * Inline Template Aggregate Atomic Publication (T9A-10 M1, Path A).
  *
  * The structural analog of {@link publishTemplateAggregateWithClient} for
  * schedules that carry an inline `tasksTemplate[]` instead of a
@@ -9,7 +9,7 @@
  * scheduled-occurrence record (the same participant seam T9A's templateId
  * path uses).
  *
- * This is the dormant replacement for the legacy
+ * This is the replacement for the legacy
  * `createMissionFromSchedule` write path
  * (`scheduledTaskService.ts:103-133`). It ships ALONGSIDE the legacy path
  * and is exercised ONLY by tests until the global cutover (T11) swaps the
@@ -278,7 +278,7 @@ class InlinePublicationAbort extends Error {
 /**
  * Atomically publish the inline Mission + N Tasks aggregate inside one
  * caller-owned transaction, composing the kernel's per-Task publication
- * primitives. DORMANT.
+ * primitives.
  *
  * Mirrors `publishTemplateAggregateWithClient` MINUS the Workflow-
  * instantiation step (the inline path has no workflow) + MINUS the
@@ -288,7 +288,7 @@ class InlinePublicationAbort extends Error {
  * path — any failure at any step rolls back the entire aggregate.
  *
  * The caller (the inline occurrence publisher — `publishInlineScheduledOccurrence`,
- * DORMANT until T11) supplies:
+ *) supplies:
  *   - the pre-reserved per-Task `attemptIds` (N, one per prepared Task);
  *   - the M1 `prepared` inline aggregate;
  *   - an optional `participants` hook for the occurrence-record transition.
@@ -299,7 +299,6 @@ class InlinePublicationAbort extends Error {
  * repository throw, including the participant's own throws) propagate as
  * retryable runtime errors; the whole aggregate rolls back.
  *
- * DORMANT: no production caller switches to this path. Legacy
  * `createMissionFromSchedule` + its branch in `executeScheduledTask:236-240`
  * stay byte-identical and active.
  */
@@ -568,7 +567,6 @@ export function publishInlineAggregateWithClient(
  * reserve attempts + govern on the same client (the canonical origin-
  * adapter pattern).
  *
- * DORMANT: no production caller until T11.
  */
 export function publishInlineAggregate(
   input: PublishInlineAggregateInput,

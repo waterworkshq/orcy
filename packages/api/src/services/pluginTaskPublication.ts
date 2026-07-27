@@ -1,9 +1,9 @@
 /**
- * Plugin `taskWriter.createTask` Publication Adapter (T8B Phase 2 — DORMANT).
+ * Plugin `taskWriter.createTask` Publication Adapter (T8B Phase 2).
  *
  * Composes the Story-1 kernel chain — reserve → prepare → govern → publish —
  * for the plugin `createTask` origin (a plugin contribution's
- * `taskWriter.createTask(input)` call). This is the dormant replacement for
+ * `taskWriter.createTask(input)` call). This is the replacement for
  * the legacy raw-insert path (`plugins/context.ts:266 createTask`, which calls
  * `taskRepo.createTask` directly with only `createdBy: "plugin:<pluginId>"`
  * — no `created` Lifecycle Event, no prospective governance, no dispatch
@@ -93,7 +93,6 @@
  *      terminalize + return `vetoed`.
  *   4. PUBLISH via `db.transaction((tx) => publishTaskWithClient(tx, ...))`.
  *
- * DORMANT: no production plugin `createTask` call routes through this adapter
  * unless `ORCY_CREATION_PUBLICATION_ENABLED=true`. Legacy raw insert stays the
  * active production path until T11.
  *
@@ -328,7 +327,6 @@ function terminalizeDomainRejection(
  * in whatever non-terminal state it reached, resumable under the same
  * `(runId, actionKey)` key.
  *
- * DORMANT: no production caller until `ORCY_CREATION_PUBLICATION_ENABLED=true`
  * (T11).
  */
 export function publishPluginTask(input: PublishPluginTaskInput): PluginTaskPublicationResult {

@@ -1,5 +1,5 @@
 /**
- * Creation Dispatch Adapters — DORMANT (T4B Phase 1 + Phase 2).
+ * Creation Dispatch Adapters (T4B Phase 1 + Phase 2).
  *
  * Six {@link DispatchTargetAdapter} implementations that WRAP the existing
  * fan-out mechanisms (sseBroadcaster, webhook/chat/automation delivery,
@@ -9,7 +9,7 @@
  * attempted / durably handed-off (NOT on external completion), and
  * `{attention, error}` on a runtime fault (no silent claimability).
  *
- * **Additive + dormant** — registered with the T4A registry but NEVER called in
+ * **Active** — registered with the T4A registry and called at boot by
  * production until cutover (T11). The live `createTask` / `transition-emitter`
  * fan-out is UNTOUCHED; these adapters activate only when an origin publishes
  * via T3C and the T4A dispatcher processes the envelope.
@@ -372,7 +372,7 @@ let creationAdaptersRegistered = false;
  * Idempotent — safe to call multiple times (last-writer-wins per kind).
  *
  * After registration, `resolveDispatchAdapter` resolves each of the 6 creation
- * target kinds. Called at boot in the dormant build; NO production origin
+ * target kinds. Called at boot; production origins call through the coordinator's inline
  * publishes via T3C until cutover, so these adapters are never invoked.
  */
 export function registerCreationDispatchAdapters(): void {

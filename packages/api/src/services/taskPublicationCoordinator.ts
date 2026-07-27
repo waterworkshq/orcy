@@ -37,7 +37,6 @@
  *     entire aggregate — the caller's tx aborts. Nothing externally observable
  *     runs until commit succeeds.
  *
- * DORMANT: no production origin routes through this coordinator yet. The
  * global cutover (T11) is what wires origins in. Until then this module is
  * exercised only by its test suite.
  *
@@ -171,7 +170,7 @@ export interface ParticipantContext {
  * BEFORE the committed envelope / dispatch plan / reservation / checkpoint, all
  * inside the caller's transaction. A throw rolls back the whole aggregate.
  *
- * Current consumers (all Story-2/3, all DORMANT until their origins wire in):
+ * Current consumers (all Story-2/3, all active):
  * clone subtasks/dependencies are NOT here (they are step 5 of the core path);
  * Recovery gate/failure-context linkage (T8A), triage cluster junction (T8A),
  * schedule occurrence state (T9A), import domain-handler writes (T10B) ARE.
@@ -307,7 +306,6 @@ const DEFAULT_RECALCULATION_REASON = "task_published";
  *
  * Any failure rolls back the entire aggregate (the caller's tx aborts).
  *
- * DORMANT: no production origin calls this yet.
  */
 export function publishTaskWithClient(
   db: TaskPublicationDbClient,

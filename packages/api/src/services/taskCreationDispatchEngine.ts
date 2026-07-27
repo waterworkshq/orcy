@@ -1,5 +1,5 @@
 /**
- * Dispatch Engine — observation advancement + lease-based dispatcher (DORMANT).
+ * Dispatch Engine — observation advancement + lease-based dispatcher.
  *
  * Phase 2 of T4A. Composes the Phase 1 dispatch-target primitives
  * (`repositories/taskCreationDispatch.ts`) + the adapter registry (this
@@ -24,7 +24,6 @@
  * idempotently skips it (CAS). When a test wraps them in a `tx`, every step
  * shares that transaction.
  *
- * DORMANT: no production origin creates post-cutover Tasks until cutover, so
  * no dispatch targets exist in production and no worker drives this engine.
  * See the T4A ticket § "Phase 2 grounding".
  */

@@ -447,7 +447,6 @@ function buildResolvedGates(
  * PROSPECTIVE (snapshotting the not-yet-inserted Mission at version 1, status
  * `"not_started"`). See {@link PreparedTemplateTask.guard}.
  *
- * DORMANT: no production caller switches to this path. Legacy `applyTemplate`
  * stays byte-identical and active.
  *
  * @param templateId  The mission template to instantiate.

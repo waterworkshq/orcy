@@ -230,7 +230,6 @@ export interface TriggerWikiResult {
 
 /** Stable name for the wiki-authoring mission template. Created on first use. */
 
-
 /**
  * Queues chunked authoring tasks from the earliest captured signal forward, using the coverage
  * watermark as the starting point. If a watermark exists, resumes from the watermark; otherwise

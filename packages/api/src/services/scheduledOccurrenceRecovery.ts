@@ -1,5 +1,5 @@
 /**
- * Scheduled Occurrence Lease Recovery — T9B Phase 2 (DORMANT).
+ * Scheduled Occurrence Lease Recovery — T9B Phase 2.
  *
  * The recovery worker that reclaims expired `publishing` occurrence leases +
  * re-drives the publication under the reclaimed lease (same-attempt
@@ -67,7 +67,7 @@
  * scans `publishing` occurrences). The structural guarantee is verified by
  * test (a rejected occurrence + a subsequent reservation → both rows exist).
  *
- * # Boot-registration (dormant wiring)
+ * # Boot-registration (boot wiring)
  *
  * {@link startOccurrenceLeaseRecoveryWorker} mirrors
  * `scheduledTaskService.startScheduledTaskProcessor` (the established
@@ -281,8 +281,7 @@ const TERMINAL_RESUME_OUTCOMES: ReadonlySet<ResumeOccurrenceOutcome["outcome"]> 
 /**
  * T9B Phase 2 — scans for expired-lease `publishing` occurrences, reclaims
  * each, + re-drives the publication under the reclaimed lease. The
- * deterministic-takeover primitive. DORMANT (no production caller until T11;
- * the boot-registration {@link startOccurrenceLeaseRecoveryWorker} wires it).
+ * deterministic-takeover primitive..
  *
  * See the module header for the full recovery-loop + circuit-breaker
  * description. Never throws for an expected domain decision (every branch is
@@ -556,7 +555,7 @@ export function recoverExpiredOccurrenceLeases(
 }
 
 // ---------------------------------------------------------------------------
-// Boot-registration (dormant wiring — mirrors scheduledTaskService)
+// Boot-registration (boot wiring — mirrors scheduledTaskService)
 // ---------------------------------------------------------------------------
 
 /**
@@ -598,7 +597,6 @@ export function createRecoveryWorkerId(): string {
  * can stop it. Mirrors `scheduledTaskService.startScheduledTaskProcessor`
  * (the established setInterval + try/catch + logger pattern).
  *
- * DORMANT: T11 registers this at boot alongside
  * `registerCreationDispatchAdapters` + `startScheduledTaskProcessor`. NO
  * production caller wires it now.
  *

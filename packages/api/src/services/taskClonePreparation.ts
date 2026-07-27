@@ -1,5 +1,5 @@
 /**
- * Clone Preparation — read-only allowlisted DTO (T7 Phase 1 — DORMANT).
+ * Clone Preparation — read-only allowlisted DTO (T7 Phase 1).
  *
  * Clone is a prepare-edit-publish journey, NOT immediate Task creation (Core
  * Flows § "Editable Clone Preparation and Publication"). Opening the clone
@@ -22,7 +22,6 @@
  * existing task-read authorization. The service resolves the source's Habitat
  * read-only; it performs NO write and reserves NO attempt.
  *
- * DORMANT: no production route calls this until P2/T11. Legacy `cloneTask`
  * (`services/tasks/task-crud.ts:79`) stays the active immediate-copy path.
  *
  * See: Core Flows § "Editable Clone Preparation and Publication"; Technical

@@ -1,6 +1,6 @@
 /**
  * Targeted Assignment Coordinator — resolves one `published_pending_assignment`
- * attempt to a terminal outcome (DORMANT).
+ * attempt to a terminal outcome.
  *
  * Phase 1 of T5. Composes the shipped primitives — the T2 claim authority
  * (`claimWithAuthorityClient`), the T3A attempt lease + terminalization matrix
@@ -41,7 +41,6 @@
  *   - `sseBroadcaster.publish` / `runPreInterceptors` (the additive seams stay
  *     byte-identical behind legacy short-circuits).
  *
- * DORMANT: no production origin creates post-cutover Tasks until cutover, so no
  `published_pending_assignment` attempt exists in production and no worker drives
  * this coordinator. The P2 scheduler/scan + the boot cron (T11) will poll it.
  */

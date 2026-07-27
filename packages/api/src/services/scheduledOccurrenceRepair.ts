@@ -1,11 +1,10 @@
 /**
- * Scheduled Occurrence Repair-and-Retry — T9B Phase 3 (DORMANT).
+ * Scheduled Occurrence Repair-and-Retry — T9B Phase 3.
  *
  * The authorized retry publication path for a TERMINAL `rejected` occurrence.
  * Composes the milestone-1 aggregate publisher with a retry-history stamp
  * participant — DOES NOT transition the occurrence ROW state (the terminal
- * one-way door holds). DORMANT until T11 (the retry route is dormant behind
- * the same cutover flag as the other creation-publication mutation routes).
+ * one-way door holds). (the retry route is active since v0.32.0).
  *
  * # The load-bearing design question (terminal-state retry navigation)
  *
@@ -131,7 +130,7 @@
  * # Why a new module (the structural analog of the recovery worker)
  *
  * `scheduledOccurrenceRecovery.ts` (T9B Phase 2) is the structural
- * precedent: a DORMANT retry/recovery module that composes the publisher
+ * precedent: an active retry/recovery module that composes the publisher
  * + adds retry-specific concerns (the lease reclaim + circuit-breaker
  * there; the retryHistory stamp + the latest-schedule re-read here). The
  * retry is a distinct flow from the initial publication + the resume — it
@@ -142,7 +141,7 @@
  * # Dormancy
  *
  * The retry route (`POST /scheduled-occurrences/:id/retry`) is the sole
- * caller. The route is dormant behind `isCreationPublicationEnabled`
+ * caller. The route is active since v0.32.0 cutover
  * (consistent with the other cutover-gated surfaces — the retry creates
  * POST_CUTOVER state via the milestone-1 publisher). No production caller
  * until T11 (the cutover ticket).
@@ -769,7 +768,7 @@ function stampFailureRetryHistory(
 /**
  * The scheduled-occurrence retry publication command.
  *
- * The caller (the `POST /scheduled-occurrences/:id/retry` route, DORMANT
+ * The caller (the `POST /scheduled-occurrences/:id/retry` route, 
  * until T11) supplies the rejected occurrence id + the operator identity
  * (for the retryHistory stamp's audit trail). The adapter derives
  * everything else (templateId, title, schedule, attempts) from the
@@ -950,7 +949,7 @@ export type RepairScheduledOccurrenceOutcome =
 
 /**
  * Composes the milestone-1 aggregate kernel chain for an authorized retry
- * of a TERMINAL `rejected` scheduled occurrence (T9B Phase 3). DORMANT.
+ * of a TERMINAL `rejected` scheduled occurrence (T9B Phase 3).
  *
  * The retry DOES NOT transition the occurrence ROW state — the terminal
  * one-way door holds (option (b) of the load-bearing design question; see
@@ -965,8 +964,8 @@ export type RepairScheduledOccurrenceOutcome =
  *
  * See {@link RepairScheduledOccurrenceOutcome} for the full outcome
  * vocabulary + {@link RepairScheduledOccurrenceInput} for the input
- * shape. DORMANT: no production caller until T11 (the retry route is
- * dormant behind the cutover flag).
+ * shape. Active since v0.32.0 cutover (the retry route is
+ * active after the v0.32.0 cutover).
  */
 export function repairScheduledOccurrence(
   input: RepairScheduledOccurrenceInput,

@@ -1,10 +1,10 @@
 /**
- * Scheduled Occurrence Publication Adapter — T9A Phase 3 (DORMANT).
+ * Scheduled Occurrence Publication Adapter — T9A Phase 3.
  *
  * Composes the T9A-milestone-1 aggregate interface — prepare → reserve N
  * attempts → publish — for the scheduled-occurrence origin (the
  * scheduler-driven Mission spawned by a due `scheduledTasks` row). This is
- * the dormant replacement for the legacy
+ * the replacement for the legacy
  * `scheduledTaskService.ts:103 createMissionFromSchedule` + the template
  * branch of `:213-240 executeScheduledTask`. It ships ALONGSIDE the legacy
  * paths and is exercised ONLY by tests until the global cutover (T11) swaps
@@ -636,7 +636,7 @@ function computeOccurrenceFingerprint(input: {
 /**
  * The scheduled-occurrence publication command.
  *
- * The caller (the future T11 scheduler wiring, DORMANT until then) supplies
+ * The caller (the boot scheduler wiring) supplies
  * the reserved occurrence id + the worker-lease directive. The adapter
  * derives everything else (templateId, title, schedule snapshot, attempts)
  * from the occurrence + the live schedule — the input does NOT expose
@@ -1187,9 +1187,9 @@ export function buildOccurrenceRecordParticipant(
  * Composes the T9A-milestone-1 aggregate kernel chain for a
  * scheduled-occurrence publication (occurrence-state transition + Mission +
  * N Tasks + optional Workflow + usage mutation), all committed atomically
- * inside ONE caller-owned transaction. DORMANT.
+ * inside ONE caller-owned transaction.
  *
- * The caller (the future T11 scheduler wiring, DORMANT until then) supplies
+ * The caller (the boot scheduler wiring) supplies
  * the reserved occurrence id + the worker-lease directive. The adapter:
  *
  *   1. TRANSITIONS the occurrence `reserved → publishing` + acquires the
@@ -1234,7 +1234,6 @@ export function buildOccurrenceRecordParticipant(
  * try/catch logs any other infrastructure error; T9B's recovery worker
  * handles the retry.
  *
- * DORMANT: no production scheduler call routes through this adapter yet.
  * Legacy `executeScheduledTask` + `processDueTasks` stay byte-identical +
  * active until T11.
  */
@@ -2046,7 +2045,6 @@ export function publishScheduledOccurrence(
  * / `markOccurrenceRejectedWithClient` returns `not_owner` (the fenced CAS
  * checks `leaseOwner = expected`).
  *
- * DORMANT: no production caller until T11. The recovery worker
  * (`recoverExpiredOccurrenceLeases`) is the sole caller.
  */
 export interface ResumeScheduledOccurrenceInput {
@@ -2075,7 +2073,7 @@ export type ResumeScheduledOccurrenceOutcome =
  * T9B Phase 2 — resumes a `publishing` occurrence's publication under a
  * reclaimed lease. See {@link ResumeScheduledOccurrenceInput} + the
  * load-bearing design question on {@link resumeScheduledOccurrencePublication}
- * above. DORMANT.
+ * above.
  */
 export function resumeScheduledOccurrencePublication(
   input: ResumeScheduledOccurrenceInput,

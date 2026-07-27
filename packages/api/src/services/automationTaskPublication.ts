@@ -1,9 +1,9 @@
 /**
- * Automation `create_task` Publication Adapter (T8B Phase 1 — DORMANT).
+ * Automation `create_task` Publication Adapter (T8B Phase 1).
  *
  * Composes the Story-1 kernel chain — reserve → prepare → govern → publish —
  * for the Automation `create_task` origin (an Automation rule's
- * `action:{type:"create_task"}`). This is the dormant replacement for the
+ * `action:{type:"create_task"}`). This is the replacement for the
  * legacy raw-insert path (`automationExecutor.ts:259 executeCreateTask`, which
  * ignores its `_run` argument and raw-inserts via `taskRepo.createTask` with
  * only `createdBy: "automation:<ruleId>"` — no event, no governance, no
@@ -90,7 +90,6 @@
  *      terminalize + return `failed` (the visible reason).
  *   4. PUBLISH via `db.transaction((tx) => publishTaskWithClient(tx, ...))`.
  *
- * DORMANT: no production `executeCreateTask` call routes through this adapter
  * unless `ORCY_CREATION_PUBLICATION_ENABLED=true`. Legacy raw insert stays the
  * active production path until T11.
  *
@@ -431,7 +430,6 @@ function mapToActionResult(
  * in whatever non-terminal state it reached, resumable under the same
  * `(runId, actionIndex)` key.
  *
- * DORMANT: no production caller until `ORCY_CREATION_PUBLICATION_ENABLED=true`
  * (T11).
  */
 export function publishAutomationTask(
@@ -699,7 +697,6 @@ export function publishAutomationTask(
  *   - an infrastructure failure occurs (retryable; the attempt stays
  *     non-terminal under the same `(runId, actionIndex)` key).
  *
- * DORMANT: no production caller until `ORCY_CREATION_PUBLICATION_ENABLED=true`.
  */
 export function executeCreateTaskViaPublication(
   rule: AutomationRule,

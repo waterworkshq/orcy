@@ -10,7 +10,7 @@
  *   publication guards. MUST NOT: Write domain rows or emit observable
  *   effects.
  *
- * Phase 1 is DORMANT and PURE: no production origin calls
+ * Phase 1 is PURE: no production origin calls
  * {@link prepareTaskPublication} yet, and the function performs only read-only
  * validation against the existing mission/habitat/dependency repositories. It
  * allocates a prospective Task ID, canonicalizes the proposal, and captures a

@@ -1,5 +1,5 @@
 /**
- * T10B Milestone 2 — `publishImportAggregateWithClient` (DORMANT).
+ * T10B Milestone 2 — `publishImportAggregateWithClient`.
  *
  * The orchestrator that composes M1's per-domain `apply` handlers + the
  * kernel's `publishTaskWithClient` per Task + the import-attempt-record
@@ -1369,7 +1369,6 @@ function terminalRejectImport(
  * own throws that are NOT the guard sentinel) propagate as retryable runtime
  * errors; the whole aggregate rolls back.
  *
- * DORMANT: no production caller routes through this orchestrator yet. The
  * flag gate is `isCreationPublicationEnabled()`. Legacy `importHabitat`
  * stays byte-identical + active until T11.
  */

@@ -1,10 +1,10 @@
 /**
- * Triage-Mission Aggregate Publication Adapter (T8A — DORMANT).
+ * Triage-Mission Aggregate Publication Adapter (T8A).
  *
  * Composes the T9A decomposed template-aggregate interface — prepare →
  * reserve N attempts → publish — for the triage origin (the daemon-triggered
  * "Triage: …" Mission spawned by the cluster + orphan scans). This is the
- * dormant replacement for the legacy
+ * replacement for the legacy
  * `triageService.ts:24 createTriageMission` + `:67 createOrphanTriageMission`
  * paths. It ships ALONGSIDE the legacy paths and is exercised ONLY by tests
  * until the global cutover (T11) swaps the scan callers onto it.
@@ -653,9 +653,9 @@ export function buildTriageClusterJunctionParticipant(
 /**
  * Composes the T9A aggregate kernel chain for a triage-Mission publication
  * (Mission + N Tasks + optional Workflow + usage mutation + cluster junction),
- * all committed atomically inside ONE caller-owned transaction. DORMANT.
+ * all committed atomically inside ONE caller-owned transaction.
  *
- * The caller (the future T11 scan-caller wiring, DORMANT until then) supplies
+ * The caller (the future T11 scan-caller wiring) supplies
  * the triage origin (cluster payload or orphan Mission) + the authoritative
  * Habitat. The adapter:
  *   1. derives the triage scope (title/description/variables/clusterKey/
@@ -688,7 +688,6 @@ export function buildTriageClusterJunctionParticipant(
  * next cycle's `findActiveByClusterKey` pre-check suppresses re-firing if the
  * winner's junction committed.
  *
- * DORMANT: no production scan caller routes through this adapter yet. Legacy
  * `createTriageMission` + `createOrphanTriageMission` + their scan callers
  * (`triageScanService.ts:87`, `orphanScanService.ts:80`) stay byte-identical +
  * active until T11.

@@ -1,9 +1,9 @@
 /**
- * Blocker-Clearance Task Publication Adapter (T8A-pre Phase 2 — DORMANT).
+ * Blocker-Clearance Task Publication Adapter (T8A-pre Phase 2).
  *
  * Composes the Story-1 kernel chain — reserve → prepare → govern → publish —
  * for the blocker-clearance origin (the auto-created "Clear Blocker: …" Task
- * spawned when a `blocker` signal pulse is posted). This is the dormant
+ * spawned when a `blocker` signal pulse is posted). This is the 
  * replacement for the legacy `pulseService.ts:232 createBlockerClearanceTask`
  * path. It ships ALONGSIDE the legacy path and is exercised ONLY by tests
  * until the global cutover (T11) swaps the pulse service onto it.
@@ -107,7 +107,6 @@
  * propagate as retryable throws (the attempt stays resumable under the same
  * key).
  *
- * DORMANT: no production pulse-service call routes through this adapter yet.
  * Legacy `createBlockerClearanceTask` + its two callers
  * (`postMissionPulseSignal` / `postHabitatPulseSignal`) stay the active
  * production path until T11.
@@ -546,7 +545,7 @@ function readCommittedBlockerPublication(
 /**
  * Composes the kernel chain for a blocker-clearance Task publication.
  *
- * The caller (the future T11 pulse-service wiring, DORMANT until then) supplies
+ * The caller (the future T11 pulse-service wiring) supplies
  * the blocker pulse identity + content, the clearance scope (mission vs
  * habitat), and the assignment intent. The adapter:
  *   0. **C1 scope check** — if habitat-scoped, returns `rejected_no_target_mission`
@@ -572,7 +571,6 @@ function readCommittedBlockerPublication(
  * repository throw) propagate as retryable runtime errors; the attempt stays
  * in whatever non-terminal state it reached, resumable under the same key.
  *
- * DORMANT: no production pulse-service caller until T11.
  */
 export function publishBlockerClearanceTask(
   input: PublishBlockerClearanceTaskInput,

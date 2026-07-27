@@ -1,10 +1,10 @@
 /**
- * Inline Scheduled Occurrence Publication Adapter — T9A-10 M1 Path A (DORMANT).
+ * Inline Scheduled Occurrence Publication Adapter — T9A-10 M1 Path A.
  *
  * Composes the inline-aggregate interface ({@link prepareInlineAggregate}
  * + {@link publishInlineAggregateWithClient}) for the scheduled-occurrence
  * origin when the schedule carries an inline `tasksTemplate[]` instead of
- * a `templateId` (and no `handlerKey`). This is the dormant replacement
+ * a `templateId` (and no `handlerKey`). This is the replacement
  * for the legacy `scheduledTaskService.ts:103-133 createMissionFromSchedule`
  * + the inline branch of `:236-240 executeScheduledTask`. It ships
  * ALONGSIDE the legacy path and is exercised ONLY by tests until the
@@ -203,7 +203,7 @@ function computeInlineOccurrenceFingerprint(input: {
 /**
  * The inline scheduled-occurrence publication command.
  *
- * The caller (the future T11 scheduler wiring, DORMANT until then) supplies
+ * The caller (the boot scheduler wiring) supplies
  * the reserved occurrence id + the worker-lease directive. The adapter
  * derives everything else (inline tasks template, title, schedule snapshot,
  * attempts) from the occurrence + the live schedule — the input does NOT
@@ -776,9 +776,9 @@ function runInlineOccurrencePublicationBody(
 /**
  * Composes the inline-aggregate kernel chain for a scheduled-occurrence
  * publication (occurrence-state transition + Mission + N Tasks), all
- * committed atomically inside ONE caller-owned transaction. DORMANT.
+ * committed atomically inside ONE caller-owned transaction.
  *
- * The caller (the future T11 scheduler wiring, DORMANT until then) supplies
+ * The caller (the boot scheduler wiring) supplies
  * the reserved occurrence id + the worker-lease directive. The adapter:
  *
  *   1. TRANSITIONS the occurrence `reserved → publishing` + acquires the
@@ -794,7 +794,6 @@ function runInlineOccurrencePublicationBody(
  *      transition commits with the aggregate.
  *   7. MAPS the outcome to {@link PublishInlineScheduledOccurrenceOutcome}.
  *
- * DORMANT: no production scheduler call routes through this adapter yet.
  * Legacy `executeScheduledTask` + its inline branch stay byte-identical +
  * active until T11. The scheduler wiring that drives occurrence
  * reservation + publication is T11 (the cutover ticket).
@@ -849,7 +848,6 @@ export function publishInlineScheduledOccurrence(
  * templateId resume; inline (null templateId + non-empty tasksTemplate) →
  * THIS function. (Recovery routing is T11 / a T9B amendment.)
  *
- * DORMANT: no production caller until T11. The recovery worker is the
  * sole caller.
  */
 export interface ResumeInlineScheduledOccurrenceInput {
@@ -877,7 +875,7 @@ export type ResumeInlineScheduledOccurrenceOutcome =
 /**
  * T9B Phase 2 — resumes a `publishing` inline occurrence's publication
  * under a reclaimed lease. Mirrors `resumeScheduledOccurrencePublication`
- * 1:1 with the inline body substituted. DORMANT.
+ * 1:1 with the inline body substituted.
  */
 export function resumeInlineScheduledOccurrencePublication(
   input: ResumeInlineScheduledOccurrenceInput,

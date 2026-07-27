@@ -1,5 +1,5 @@
 /**
- * Dispatch Target Adapter Registry — DORMANT.
+ * Dispatch Target Adapter Registry.
  *
  * Phase 1 of T4A. Defines the adapter CONTRACT that Phase 2's dispatcher worker
  * composes: for each dispatch target kind (client-stream, webhook/chat/
@@ -13,7 +13,6 @@
  * An unregistered `targetKind` is a Phase-2 worker policy decision (not this
  * module's concern).
  *
- * DORMANT: no production origin creates post-cutover Tasks until cutover.
  */
 import { taskCreationEnvelopes, taskCreationDispatchTargets } from "../db/schema/index.js";
 

@@ -250,7 +250,6 @@ export interface PrepareInlineAggregateContext {
  * which means the per-Task guards are PROSPECTIVE (snapshotting the
  * not-yet-inserted Mission at version 1, status `"not_started"`).
  *
- * DORMANT: no production caller routes through this path. The legacy
  * `createMissionFromSchedule` path stays byte-identical and active.
  *
  * @param habitatId      The authoritative Habitat the aggregate is scoped to.

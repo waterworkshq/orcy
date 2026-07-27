@@ -1,9 +1,9 @@
 /**
- * Scheduled Handler Dispatch Adapter — T9A-10 M2 Path B (DORMANT).
+ * Scheduled Handler Dispatch Adapter — T9A-10 M2 Path B.
  *
  * Composes the handler-dispatch flow for the scheduled-occurrence origin
  * when the schedule carries a `handlerKey` (instead of a `templateId` or an
- * inline `tasksTemplate[]`). This is the dormant replacement for the legacy
+ * inline `tasksTemplate[]`). This is the replacement for the legacy
  * `scheduledTaskService.ts:170-208 executeScheduledTask` handlerKey branch.
  * It ships ALONGSIDE the legacy path and is exercised ONLY by tests until
  * the global cutover (T11) swaps the scheduler onto it.
@@ -147,7 +147,7 @@ export type { AttemptTerminalResult } from "../repositories/taskPublication.js";
  * and the inline path's `PublishInlineScheduledOccurrenceInput` (the entry
  * contract is shape-agnostic; the routing happens at T11 by reading the
  * schedule row's `handlerKey` / `templateId` / `tasksTemplate`). The caller
- * (the future T11 scheduler wiring, DORMANT until then) supplies the reserved
+ * (the boot scheduler wiring) supplies the reserved
  * occurrence id + the worker-lease directive. The adapter derives everything
  * else (handlerKey, handler, schedule snapshot) from the occurrence + the
  * live schedule.
@@ -664,9 +664,9 @@ function runHandlerDispatchBody(
  * (occurrence-state transition + handler invocation + coordination-attempt
  * terminalization), all committed atomically inside ONE caller-owned
  * transaction (the terminalization tx; the handler runs OUTSIDE any tx).
- * DORMANT.
  *
- * The caller (the future T11 scheduler wiring, DORMANT until then) supplies
+ *
+ * The caller (the boot scheduler wiring) supplies
  * the reserved occurrence id + the worker-lease directive. The adapter:
  *
  *   1. TRANSITIONS the occurrence `reserved → publishing` + acquires the
@@ -684,7 +684,6 @@ function runHandlerDispatchBody(
  *      (occurrence `published` + coordination attempt `created` + result
  *      `{kind: "handler_dispatched", …}`).
  *
- * DORMANT: no production scheduler call routes through this adapter yet.
  * Legacy `executeScheduledTask` + its handlerKey branch stay byte-identical
  * and active until T11. The scheduler wiring that drives occurrence
  * reservation + dispatch is T11 (the cutover ticket).
@@ -746,7 +745,6 @@ export function dispatchHandlerScheduledOccurrence(
  * ships as a separate milestone that closes the regression this dispatch
  * path introduces.
  *
- * DORMANT: no production caller until T11. The recovery worker is the
  * sole caller.
  */
 export interface ResumeHandlerDispatchInput {
@@ -774,7 +772,7 @@ export type ResumeHandlerDispatchOutcome =
 /**
  * T9B Phase 2 — resumes a `publishing` handler-dispatch occurrence under a
  * reclaimed lease. Mirrors `resumeScheduledOccurrencePublication` /
- * `resumeInlineScheduledOccurrencePublication` 1:1. DORMANT.
+ * `resumeInlineScheduledOccurrencePublication` 1:1.
  */
 export function resumeHandlerScheduledOccurrenceDispatch(
   input: ResumeHandlerDispatchInput,

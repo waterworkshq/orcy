@@ -1,5 +1,5 @@
 /**
- * Creation Dispatch Worker — T11 Phase 1A (DORMANT).
+ * Creation Dispatch Worker — T11 Phase 1A.
  *
  * The background polling loop that drives the post-commit observation +
  * assignment gates. Without this worker, Tasks stay
@@ -297,7 +297,7 @@ export async function runDispatchWorkerPass(
 }
 
 // ---------------------------------------------------------------------------
-// Boot-registration (dormant wiring — mirrors scheduledOccurrenceRecovery)
+// Boot-registration (boot wiring — mirrors scheduledOccurrenceRecovery)
 // ---------------------------------------------------------------------------
 
 /**
@@ -350,7 +350,6 @@ export interface CreationDispatchWorkerHandle {
  * surface (T11 Phase 1B). Tests + the `index.ts` boot-registration call
  * `.stop()`; `clearInterval(handle)` is the implementation.
  *
- * DORMANT: `index.ts` registers this inside the
  * `isCreationPublicationEnabled()` gate (T11 cutover concern).
  *
  * # Worker identity (T9B-01 — the unique-per-process fencing pattern)

@@ -1,8 +1,8 @@
 /**
- * Interactive Task Creation Publication Adapter (T6 Phase 1 — DORMANT).
+ * Interactive Task Creation Publication Adapter (T6 Phase 1).
  *
  * Composes the Story-1 kernel chain — reserve → prepare → govern → publish —
- * for interactive Task creation (UI / REST / MCP). This is the dormant
+ * for interactive Task creation (UI / REST / MCP). This is the 
  * replacement for legacy `createTask` (`services/tasks/task-crud.ts:21`); it
  * ships ALONGSIDE the legacy path and is exercised ONLY by tests until the
  * global cutover (T11) swaps the route/MCP callers onto it.
@@ -53,7 +53,6 @@
  * `prospectiveTaskId` fields. A fresh causal root is constructed for each
  * interactive publication (no inherited hops — runtime origins append those).
  *
- * DORMANT: no production route/MCP tool calls this adapter. Legacy
  * `createTask` stays the active production path. Do NOT wire this into any
  * route (P2) or modify `createTask` — the global cutover (T11) performs the
  * swap once every origin is proven.
@@ -269,7 +268,6 @@ export interface PublishTaskCreationInput {
    * (Technical Plan § "Publication API": "The server does not recopy source
    * fields at publication time.").
    *
-   * DORMANT: no production caller until T11.
    */
   cloneSourceTaskId?: string;
 }
@@ -451,7 +449,7 @@ function terminalizeDomainRejection(
 /**
  * Composes the kernel chain for an interactive Task-Creation publication.
  *
- * The caller (a P2 REST route or MCP tool, both DORMANT until T11) supplies
+ * The caller (a P2 REST route or MCP tool, both) supplies
  * the authenticated caller, the target scope, the work definition, and the
  * assignment intent. The adapter:
  *   1. reserves the attempt (client-supplied key + canonical fingerprint);
@@ -470,7 +468,6 @@ function terminalizeDomainRejection(
  * repository throw) propagate as retryable runtime errors; the attempt stays
  * in whatever non-terminal state it reached, resumable under the same key.
  *
- * DORMANT: no production caller until T11.
  */
 export function publishTaskCreation(
   input: PublishTaskCreationInput,

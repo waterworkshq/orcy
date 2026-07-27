@@ -10,7 +10,7 @@
  *   NOT: Require a persisted Task, rerun an identical decision, or let batch
  *   order change policy.
  *
- * Phase 2 is DORMANT: no production origin calls {@link governTaskPublication}
+ * Phase 2 is active: no production origin calls {@link governTaskPublication}
  * yet. It sits alongside the ADR-0039 managed plugin-invocation runtime (the
  * synchronous hot path every task transition uses) but reaches it ONLY through
  * the additive seam exported from `pluginManager.ts` —
@@ -576,7 +576,7 @@ function freezeBatchAdmission(habitatId: string): FrozenBatchAdmissionSnapshot {
 }
 
 /**
- * DORMANT entry point — governs one batch of prepared Task proposals through
+ 
  * the prospective `taskCreated` pre-interceptors.
  *
  * Flow (Technical Plan § "Governance-decision ledger"):
@@ -595,7 +595,6 @@ function freezeBatchAdmission(habitatId: string): FrozenBatchAdmissionSnapshot {
  * infrastructure failures (ledger read/write, runtime startRun) propagate as
  * retryable transport errors, consistent with Phase 1's contract.
  *
- * DORMANT: no production origin calls this yet. The additive seam
  * (`invokePreInterceptorForGovernance`) is the ONLY runtime touchpoint;
  * `runPreInterceptors` and all runtime internals are unmodified.
  */
@@ -775,7 +774,6 @@ export function guardCarriesPhase1Sentinel(guard: PublicationGuard): boolean {
  * decision revision (governance fingerprint computed with the CURRENT
  * enrollment) from a stale one (computed with an earlier enrollment).
  *
- * DORMANT: no production caller until Phase 3's re-verify/authorization
  * primitives are composed into the publication tx by T3C.
  */
 export function freezeCurrentBatchAdmission(habitatId: string): FrozenBatchAdmissionSnapshot {
@@ -795,7 +793,6 @@ export function freezeCurrentBatchAdmission(habitatId: string): FrozenBatchAdmis
  * delegates to {@link freezeBatchAdmission} + the private serializer — it does
  * NOT duplicate the fingerprint computation or reach into private state.
  *
- * DORMANT: no production caller until Phase 3's re-verify primitive is
  * composed into the publication tx by T3C.
  */
 export function computeCurrentEnrollmentFingerprint(habitatId: string): string {

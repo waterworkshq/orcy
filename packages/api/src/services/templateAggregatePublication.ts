@@ -1,5 +1,5 @@
 /**
- * Template Aggregate Atomic Publication (T9A Milestone 1, Phase 2 — DORMANT).
+ * Template Aggregate Atomic Publication (T9A Milestone 1, Phase 2).
  *
  * The aggregate-scale analog of the 6 single-Task origin adapters
  * (`publishTaskCreation`, `publishRecoveryTask`, `publishAutomationTask`,
@@ -10,7 +10,7 @@
  * `participants?(db, ctx)` seam for origin-specific writes (the triage cluster
  * junction in T8A, the scheduled-occurrence record in later T9A phases).
  *
- * This is the dormant replacement for the legacy `applyTemplate` write path
+ * This is the replacement for the legacy `applyTemplate` write path
  * (`repositories/template.ts:403`). It ships ALONGSIDE the legacy path and is
  * exercised ONLY by tests until the global cutover (T11) swaps the consuming
  * origins (triage, scheduler, routes/templates) onto
@@ -345,10 +345,10 @@ class AggregatePublicationAbort extends Error {
 /**
  * Atomically publish the COMPLETE template aggregate (Mission + N Tasks +
  * optional Workflow + usage mutation) inside one caller-owned transaction,
- * composing the kernel's per-Task publication primitives. DORMANT.
+ * composing the kernel's per-Task publication primitives.
  *
  * The caller (a future origin adapter — T8A-triage, later T9A occurrence
- * phases, all DORMANT until T11) supplies:
+ * phases, all) supplies:
  *   - the pre-reserved per-Task `attemptIds` (N, one per prepared Task);
  *   - the Phase-1 `prepared` aggregate;
  *   - an optional `participants` hook for origin-specific writes (triage
@@ -369,7 +369,6 @@ class AggregatePublicationAbort extends Error {
  * throw, including the participant's own throws) propagate as retryable
  * runtime errors; the whole aggregate rolls back.
  *
- * DORMANT: no production caller switches to this path. Legacy `applyTemplate`
  * stays byte-identical and active.
  */
 export function publishTemplateAggregateWithClient(
@@ -693,7 +692,6 @@ export function publishTemplateAggregateWithClient(
  * reserve attempts + govern on the same client (the canonical origin-adapter
  * pattern).
  *
- * DORMANT: no production caller until T11.
  */
 export function publishTemplateAggregate(
   input: PublishTemplateAggregateInput,

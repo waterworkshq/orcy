@@ -32,7 +32,6 @@
  * structurally (the signatures accept only `guard`/`input` + `db`) and with a
  * test that asserts no exemption seam exists.
  *
- * DORMANT: no production origin calls these yet. T3C is the sole intended
  * consumer.
  *
  * See: Task Creation and Clone Technical Plan § "Optimistic publication guard",

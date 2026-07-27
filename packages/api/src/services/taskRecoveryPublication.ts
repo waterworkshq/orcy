@@ -1,9 +1,9 @@
 /**
- * Workflow-Recovery Task Publication Adapter (T8A-pre Phase 1 — DORMANT).
+ * Workflow-Recovery Task Publication Adapter (T8A-pre Phase 1).
  *
  * Composes the Story-1 kernel chain — reserve → prepare → govern → publish —
  * for the Workflow-Recovery origin (the `on_fail` gate's spawned recovery
- * Task). This is the dormant replacement for the legacy raw-insert path
+ * Task). This is the replacement for the legacy raw-insert path
  * (`workflowService.ts:471 createRecoveryTask` + the failure-handler's
  * separate gate/linkage/failure-context writes at `spawnRecoveryForGate`
  * L262-367). It ships ALONGSIDE the legacy path and is exercised ONLY by tests
@@ -95,7 +95,6 @@
  * propagate as retryable throws (the attempt stays resumable under the same
  * key).
  *
- * DORMANT: no production failure-handler call routes through this adapter
  * yet. Legacy `createRecoveryTask` + `spawnRecoveryForGate` stay the active
  * production path until T11.
  *
@@ -540,7 +539,7 @@ function terminalizeDomainRejection(
 /**
  * Composes the kernel chain for a Workflow-Recovery Task publication.
  *
- * The caller (the future T11 failure-handler wiring, DORMANT until then)
+ * The caller (the future T11 failure-handler wiring)
  * supplies the Recovery-run identity, the target scope (the failed Task's
  * Habitat + Mission), the rendered work definition (template already
  * substituted), the assignment intent, and the C2 linkage descriptor. The
@@ -565,7 +564,6 @@ function terminalizeDomainRejection(
  * stays in whatever non-terminal state it reached, resumable under the same
  * key.
  *
- * DORMANT: no production caller until T11.
  */
 export function publishRecoveryTask(
   input: PublishRecoveryTaskInput,
