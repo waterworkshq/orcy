@@ -196,10 +196,9 @@ Orcy pulls external tracker issues into habitat intake, where humans/orcys revie
 
 | Release | Theme |
 |---------|-------|
-| v0.30.0 | Plugin Invocation Policy — release pending. The architecture-deepening consolidates the five managed plugin contribution kinds behind one Plugin Invocation Runtime and settles 15 grilling decisions (ADR-0039). Implementation complete and reviewed; the version/tag has not yet been cut by `release-it`. |
-| v0.31.0 | Habitat State Ownership and Realtime Projection — release pending. Implementation complete and documented (ADR-0040 supersedes the pre-v0.18.3 "two caching layers" trade-off). Future seeds (Learning Loop, Integration OAuth/Webhook Extraction) remain unscheduled pending prerequisite foundations. |
-| v0.32.0 | Task Creation Centralization — every Task-creation origin (interactive, clone, automation, plugin, blocker, recovery, scheduled, import, triage, template) now routes through a single publication kernel with governance, lifecycle events, observation gates, and assignment reservations. Legacy raw-insert paths removed. Comprehensive cold review complete (28 findings, all fixed). |
-| v0.33.0 | Plugin Activation Contract — release pending. The architecture-deepening makes `customHttpRoute`'s boot-time failure contract honest: structural route faults (duplicate/malformed/unsupported method or path) are rejected at plugin load, and `routeHandlers` execution faults are crash-loud with an honest boot log (ADR-0041). The cosmetic `initializePlugins` rollback is removed, `unregisterContributions` deleted, and the boot phase extracted into a testable `runPluginBoot`. Per-contribution execution-fault isolation (probe) deferred after a scope debate — its soundness property is mechanically unevaluable in JS. |
+| v0.33.0 | Plugin Activation Contract — the architecture-deepening makes `customHttpRoute`'s boot-time failure contract honest: structural route faults rejected at plugin load, execution faults crash-loud with honest boot log (ADR-0041). Per-contribution execution-fault isolation (probe) deferred — its soundness property is mechanically unevaluable in JS. |
+| v0.33.1 | Lint Cleanup — fixes the sole lint error and auto-resolves 265 of 373 pre-existing lint warnings (unused imports, `.sort()` → `.toSorted()`, caught-error `.cause`, `.reverse()` → `.toReversed()`). |
+| v0.33.2 | TypeScript 7.0 + Node 24 Floor — migrates to the native Go compiler (zero code changes, 18% faster tests) and raises `engines.node` to `>=24` to match CI. |
 
 Full plan: **[docs/ROADMAP.md](docs/ROADMAP.md)**
 
