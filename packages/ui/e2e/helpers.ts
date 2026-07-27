@@ -66,6 +66,19 @@ export async function archiveMission(
   });
 }
 
+export async function moveMission(
+  request: APIRequestContext,
+  token: string,
+  missionId: string,
+  columnId: string,
+  expectedVersion: number,
+): Promise<void> {
+  await request.post(`/api/missions/${missionId}/move`, {
+    data: { columnId, expectedVersion },
+    headers: { Authorization: `Bearer ${token}` },
+  });
+}
+
 export async function unarchiveMission(
   request: APIRequestContext,
   token: string,
