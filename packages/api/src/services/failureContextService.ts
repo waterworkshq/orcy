@@ -140,7 +140,7 @@ function collectLifecycleEvents(taskId: string): TaskEventSnapshot[] {
       timestamp: String(row.timestamp),
       metadata: (row.metadata as Record<string, unknown> | null) ?? undefined,
     }))
-    .reverse();
+    .toReversed();
 }
 
 function collectExperienceSignals(
@@ -197,7 +197,7 @@ function collectRetryHistory(taskId: string): RetryAttemptSnapshot[] {
 
   return rows
     .map((row, idx) => {
-      const meta = (row.metadata as Record<string, unknown> | null) ?? {};
+      
       const action = String(row.action);
       let result: RetryAttemptSnapshot["result"] = null;
       if (action === "retry_executed") result = "pending";
@@ -209,7 +209,7 @@ function collectRetryHistory(taskId: string): RetryAttemptSnapshot[] {
         result,
       } satisfies RetryAttemptSnapshot;
     })
-    .reverse();
+    .toReversed();
 }
 
 function summarizeCategories(

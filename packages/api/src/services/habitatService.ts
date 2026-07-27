@@ -521,7 +521,7 @@ export function importHabitat(
 
     const columnNameToId = new Map<string, string>();
 
-    for (const colData of [...habitatData.columns].sort((a, b) => a.order - b.order)) {
+    for (const colData of [...habitatData.columns].toSorted((a, b) => a.order - b.order)) {
       const col = columnRepo.createColumn({
         habitatId,
         name: colData.name,
@@ -534,7 +534,7 @@ export function importHabitat(
       columnNameToId.set(colData.name, col.id);
     }
 
-    for (const colData of [...habitatData.columns].sort((a, b) => a.order - b.order)) {
+    for (const colData of [...habitatData.columns].toSorted((a, b) => a.order - b.order)) {
       if (colData.nextColumnName) {
         const colId = columnNameToId.get(colData.name);
         const nextColId = columnNameToId.get(colData.nextColumnName);

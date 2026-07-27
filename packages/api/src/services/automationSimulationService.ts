@@ -14,7 +14,6 @@ import type {
   AutomationTriggerContext,
   AutomationAction,
   AutomationActionType,
-  AutomationConditionResult,
   AutomationSkipReason,
 } from "@orcy/shared";
 
@@ -66,7 +65,7 @@ export function simulateRule(input: SimulateRuleInput): SimulateRuleResult {
 function previewAction(
   action: AutomationAction,
   index: number,
-  context: AutomationEvaluationContext,
+  _context: AutomationEvaluationContext,
 ): { actionType: AutomationActionType; actionIndex: number; description: string } {
   switch (action.type) {
     case "notify":

@@ -7,7 +7,6 @@ import {
   repositoryUpdateError,
   repositoryNotFoundError,
 } from "../errors/repository.js";
-import type { RemoteIdempotencyStatus } from "@orcy/shared/types";
 
 export interface CreateIdempotencyKeyInput {
   habitatId: string;

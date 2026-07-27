@@ -3,7 +3,6 @@ import * as connectionRepo from "../repositories/integrationConnection.js";
 import * as linkRepo from "../repositories/externalIssueLink.js";
 import * as candidateRepo from "../repositories/externalIntakeCandidate.js";
 import * as syncRunRepo from "../repositories/integrationSyncRun.js";
-import * as missionRepo from "../repositories/mission.js";
 import { syncConnection, promoteIntakeCandidate } from "../services/integrations/syncService.js";
 import {
   startGitHubDeviceFlow,
@@ -31,7 +30,6 @@ import { requireHabitatAccess } from "../middleware/team.js";
 import { badRequest, notFound, forbidden, unauthorized } from "../errors.js";
 import { isTeamMemberByHabitatId } from "../repositories/teamMember.js";
 import { getHabitatById } from "../repositories/habitat.js";
-import { resolveImportColumn } from "../repositories/column.js";
 import { getProviderAdapter } from "../plugins/pluginManager.js";
 import type { IssueProviderAdapter } from "../services/integrations/types.js";
 import { z } from "zod";

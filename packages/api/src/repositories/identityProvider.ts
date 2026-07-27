@@ -7,7 +7,7 @@ import {
   repositoryNotFoundError,
   repositoryUpdateError,
 } from "../errors/repository.js";
-import type { IdentityProviderKind, IdentityProviderAuthStateStatus } from "@orcy/shared/types";
+import type { IdentityProviderKind } from "@orcy/shared/types";
 
 // ---------------------------------------------------------------------------
 // Identity Providers

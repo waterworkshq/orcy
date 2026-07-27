@@ -5,7 +5,7 @@ import * as habitatRepo from "../repositories/habitat.js";
 import type { NotificationDelivery, NotificationDeliveryStatus } from "@orcy/shared";
 
 const STATUS_CLEARABLE_BY_ACKNOWLEDGED = ["acknowledged"] as NotificationDeliveryStatus[];
-const STATUS_CLEARABLE_BY_RESOLVED = ["acknowledged"];
+
 const STATUS_CLEARABLE_BY_FAILED = ["failed"] as NotificationDeliveryStatus[];
 
 /** Outcome of clearing deliveries for a habitat or admin scope, including the count cleared and any errors. */
@@ -39,7 +39,7 @@ function clearHabitat(habitatId: string): ClearanceResult {
     }
 
     const now = new Date();
-    const nowIso = now.toISOString();
+    
 
     if (policy.acknowledgedClearAfterDays > 0) {
       const threshold = new Date(

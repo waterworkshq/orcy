@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback, useRef, useMemo, Suspense } from "react";
+import React, { useEffect, useState, useRef, useMemo, Suspense } from "react";
 import { useParams, Link, useNavigate, useSearchParams } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
 import { HealthScoreWidget } from "./HealthScoreWidget.js";
@@ -10,7 +10,6 @@ import { useSSE } from "../../hooks/useSSE.js";
 import { useSSENotifications } from "../../hooks/useSSENotifications.js";
 import { usePresence } from "../../hooks/usePresence.js";
 import { useIsMobile } from "../../hooks/useMediaQuery.js";
-import { api } from "../../api/index.js";
 import { Habitat } from "./Habitat.js";
 import { AgentPanel } from "./AgentPanel.js";
 import { FilterBar } from "./FilterBar.js";
@@ -57,7 +56,7 @@ const DependencyGraphModal = React.lazy(() =>
   import("./DependencyGraphModal.js").then((m) => ({ default: m.DependencyGraphModal })),
 );
 
-const PAGE_SIZE = 50;
+
 
 export function HabitatPage() {
   const { habitatId } = useParams<{ habitatId: string }>();
@@ -65,7 +64,7 @@ export function HabitatPage() {
   const [searchParams] = useSearchParams();
   const view = searchParams.get("view") ?? "board";
 
-  const { data: boardData, isLoading, error: boardError } = useHabitat(habitatId);
+  const { data: boardData, isLoading, } = useHabitat(habitatId);
   const board = boardData?.habitat ?? null;
   const columns = boardData?.columns ?? [];
   const qc = useQueryClient();
@@ -533,11 +532,11 @@ export function HabitatPage() {
           column={settingsColumn}
           open={!!settingsColumn}
           onClose={() => setSettingsColumn(null)}
-          onUpdate={(col) => {
+          onUpdate={(_col) => {
             qc.invalidateQueries({ queryKey: queryKeys.habitats.detail(habitatId!) });
             setSettingsColumn(null);
           }}
-          onDelete={(columnId) => {
+          onDelete={(_columnId) => {
             qc.invalidateQueries({ queryKey: queryKeys.habitats.detail(habitatId!) });
             setSettingsColumn(null);
           }}
@@ -549,7 +548,7 @@ export function HabitatPage() {
           habitat={board}
           open={showBoardSettings}
           onClose={() => setShowBoardSettings(false)}
-          onUpdate={(b) => {
+          onUpdate={(_b) => {
             qc.invalidateQueries({ queryKey: queryKeys.habitats.detail(habitatId!) });
             setShowBoardSettings(false);
           }}
@@ -567,7 +566,7 @@ export function HabitatPage() {
           habitatId={habitatId}
           open={showCreateColumn}
           onClose={() => setShowCreateColumn(false)}
-          onAdd={(column) => {
+          onAdd={(_column) => {
             qc.invalidateQueries({ queryKey: queryKeys.habitats.detail(habitatId!) });
             setShowCreateColumn(false);
           }}

@@ -124,10 +124,7 @@ export function useTaskEdit(
         await api.missions.update(task.missionId, featureUpdate);
       }
 
-      const updatedLabels = editForm.labels
-        .split(",")
-        .map((l) => l.trim())
-        .filter(Boolean);
+      
       queryClient.invalidateQueries({ queryKey: queryKeys.tasks.details(task.id) });
       notify.success("Task updated");
       setIsEditing(false);

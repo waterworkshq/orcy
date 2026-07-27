@@ -1,7 +1,6 @@
 import { v4 as uuid } from "uuid";
 import { sql } from "drizzle-orm";
 import { getDb } from "../db/index.js";
-import { wikiPages, pulses, habitatSkillSignals, projectInsights } from "../db/schema/index.js";
 import * as habitatRepo from "../repositories/habitat.js";
 import * as wikiCoverageRepo from "../repositories/wikiCoverage.js";
 import * as scheduledTaskRepo from "../repositories/scheduledTask.js";
@@ -230,7 +229,7 @@ export interface TriggerWikiResult {
 }
 
 /** Stable name for the wiki-authoring mission template. Created on first use. */
-const WIKI_AUTHORING_TEMPLATE_NAME = "Wiki Authoring";
+
 
 /**
  * Queues chunked authoring tasks from the earliest captured signal forward, using the coverage

@@ -1,4 +1,4 @@
-import type { FastifyInstance, FastifyRequest, FastifyReply } from "fastify";
+import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import * as ruleRepo from "../repositories/automationRule.js";
 import * as runRepo from "../repositories/automationRuleRun.js";
@@ -6,7 +6,7 @@ import * as simulationService from "../services/automationSimulationService.js";
 import { buildTriggerContext } from "../services/automationContextBuilder.js";
 import { humanAuth } from "../middleware/auth.js";
 import { requireHabitatAccess } from "../middleware/team.js";
-import { notFound, badRequest, forbidden } from "../errors.js";
+import { notFound, badRequest } from "../errors.js";
 
 const createRuleSchema = z.object({
   name: z.string().min(1).max(200),

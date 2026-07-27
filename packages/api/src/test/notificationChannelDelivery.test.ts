@@ -157,7 +157,7 @@ describe("notificationDeliveryService dispatcher", () => {
 
     const result = await deliverNotification(delivery.id);
     expect(result.results).toHaveLength(3);
-    expect(result.results.map((r) => r.channel).sort()).toEqual(["discord", "in_app", "slack"]);
+    expect(result.results.map((r) => r.channel).toSorted()).toEqual(["discord", "in_app", "slack"]);
   });
 
   it("in_app succeeds while external channels skip when absent", async () => {

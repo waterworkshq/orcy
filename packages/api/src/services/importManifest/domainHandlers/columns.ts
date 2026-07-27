@@ -33,7 +33,7 @@
  * idMap). The prepared column carries the resolved `nextColumnServerId`
  * (null when `nextColumnName` was null).
  */
-import type { ColumnPortable, DomainEnvelope } from "../types.js";
+import type { DomainEnvelope } from "../types.js";
 import type {
   AppliedDomain,
   ApplyContext,
@@ -389,7 +389,7 @@ export function prepareColumns(
 export function resolveColumnsReferences(
   prepared: PreparedColumns,
   _ctx: ManifestContext,
-  idMap: IdentityMap,
+  _idMap: IdentityMap,
 ): ReferenceResolution<PreparedColumns> {
   // Build a name → columnServerId map from the prepared array (the sourceId
   // → serverId lookup needs the sourceId of the NEXT column, which we find

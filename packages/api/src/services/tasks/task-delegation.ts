@@ -1,8 +1,5 @@
 import * as taskRepo from "../../repositories/task.js";
 import * as agentRepo from "../../repositories/agent.js";
-import { sseBroadcaster } from "../../sse/broadcaster.js";
-import * as watcherService from "../watcherService.js";
-import * as missionService from "../featureService.js";
 import * as pluginManager from "../../plugins/pluginManager.js";
 import { InterceptorVetoError } from "../../errors.js";
 import type { Task } from "../../models/index.js";

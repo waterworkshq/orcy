@@ -152,7 +152,7 @@ const releaseProximityStrategy: RoadmapScoringStrategy = {
           isReleaseGateSatisfied(mission, new Set([r.releaseType as ReleaseType]), [r.version]),
         )
         .map((r) => new Date(r.detectedAt).getTime())
-        .sort((a, b) => b - a)[0];
+        .toSorted((a, b) => b - a)[0];
       if (resolver === undefined) continue;
       const ageMs = now - resolver;
       if (ageMs > windowMs) continue;

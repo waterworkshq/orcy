@@ -3,10 +3,10 @@ import { z } from "zod";
 import { humanAuth } from "../middleware/auth.js";
 import { adminOnly } from "../middleware/rbac.js";
 import { teamHabitatAccess } from "../middleware/team.js";
-import { badRequest, notFound, forbidden } from "../errors.js";
+import { badRequest, notFound } from "../errors.js";
 import * as endpointRepo from "../repositories/remoteWebhookEndpoint.js";
 import * as podRepo from "../repositories/remotePod.js";
-import { generateRemoteSecret, hashRemoteSecret } from "../services/remoteCredentialService.js";
+import { generateRemoteSecret } from "../services/remoteCredentialService.js";
 import {
   registerEndpointPlaintextSecret,
   forgetEndpointPlaintextSecret,

@@ -363,7 +363,7 @@ function applyMigrations(testSqlite: any, migrationFolder: string): void {
   }
   const incrementalMigrations = readdirSync(migrationFolder)
     .filter((f) => /^\d{4}_.*\.sql$/.test(f) && f !== "0000_schema.sql")
-    .sort();
+    .toSorted();
   for (const migrationFile of incrementalMigrations) {
     runMigrationSql(testSqlite, readFileSync(join(migrationFolder, migrationFile), "utf-8"));
   }

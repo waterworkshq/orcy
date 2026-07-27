@@ -10,7 +10,6 @@ import type {
 } from "../../types/index.js";
 import {
   SELECTABLE_GATE_TYPES,
-  ALL_GATE_TYPES,
   GATE_TYPE_LABELS,
   SIGNAL_TYPE_OPTIONS,
   EXPERIENCE_CATEGORY_OPTIONS,

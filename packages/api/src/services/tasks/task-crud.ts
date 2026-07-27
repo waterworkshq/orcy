@@ -11,7 +11,6 @@ import * as pluginManager from "../../plugins/pluginManager.js";
 import { InterceptorVetoError } from "../../errors.js";
 import type { Task, TaskStatus } from "../../models/index.js";
 import { formatClonedTitle } from "./helpers.js";
-import { logger } from "../../lib/logger.js";
 import { emitTransition } from "./transition-emitter.js";
 
 /**
@@ -237,7 +236,7 @@ export function deleteTask(taskId: string):
   }
 
   const habitatId = taskRepo.getHabitatIdForTask(taskId) ?? "";
-  const missionId = task.missionId;
+  
 
   if (habitatId) watcherService.notifyWatchers(taskId, habitatId, "task.deleted");
   taskRepo.deleteTask(taskId);

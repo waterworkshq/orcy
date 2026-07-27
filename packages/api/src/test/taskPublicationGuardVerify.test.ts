@@ -914,7 +914,7 @@ describe("T3B Phase 3 — no-origin-exemption: no bypass seam", () => {
     // `skipGovernance`, or `bypass` parameter to the input, this assertion
     // would fail — the key count would be > 2.
     const input = { guard: {} as never, db: {} as never };
-    expect(Object.keys(input).sort()).toEqual(["db", "guard"]);
+    expect(Object.keys(input).toSorted()).toEqual(["db", "guard"]);
     // Arity 1 — the single input object. No variadic exemption args.
     expect(verifyPublicationGuard.length).toBe(1);
   });
@@ -928,7 +928,7 @@ describe("T3B Phase 3 — no-origin-exemption: no bypass seam", () => {
       db: {} as never,
     };
     // Exactly 5 keys — no origin, exempt, skip, bypass, or trustOrigin.
-    expect(Object.keys(input).sort()).toEqual([
+    expect(Object.keys(input).toSorted()).toEqual([
       "attemptId",
       "db",
       "guard",

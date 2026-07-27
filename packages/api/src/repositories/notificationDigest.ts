@@ -1,6 +1,6 @@
 import { getDb } from "../db/index.js";
 import { notificationDigestItems } from "../db/schema/index.js";
-import { eq, and } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 import { repositoryCreateError } from "../errors/repository.js";
 import type { NotificationDigestItem } from "@orcy/shared";

@@ -723,7 +723,7 @@ describe("ADR-0039 T6: atomic post-Interceptor signal batch (Q11)", () => {
       (p) => p.signalType === "detected" && p.fromId === "post-batch-ok",
     );
     expect(detected.length).toBe(3);
-    expect(detected.map((p) => p.subject).sort()).toEqual(["b1", "b2", "b3"]);
+    expect(detected.map((p) => p.subject).toSorted()).toEqual(["b1", "b2", "b3"]);
 
     // PROOF of post-commit ordering: when the first SSE event was published,
     // ALL three signals were already visible in the DB. If SSE fired inside

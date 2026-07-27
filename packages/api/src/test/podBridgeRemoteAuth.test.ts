@@ -41,12 +41,12 @@ async function expectAppError(
     if (!isAppError(err)) throw err;
     if (err.statusCode !== statusCode) {
       throw new Error(
-        `Expected status ${statusCode} but got ${err.statusCode}: ${err.message} (${err.code})`,
+        `Expected status ${statusCode} but got ${err.statusCode}: ${err.message} (${err.code})`, { cause: err },
       );
     }
     if (codeFragment && !err.message.includes(codeFragment) && !err.code?.includes(codeFragment)) {
       throw new Error(
-        `Expected error to include '${codeFragment}' but got: ${err.message} (${err.code})`,
+        `Expected error to include '${codeFragment}' but got: ${err.message} (${err.code})`, { cause: err },
       );
     }
   }

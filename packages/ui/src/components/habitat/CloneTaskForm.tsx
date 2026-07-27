@@ -106,7 +106,7 @@ export function CloneTaskForm({ open, onClose, sourceTask, habitatId }: CloneTas
   // --- Publication attempt-key lifecycle ---------------------------------
   const [attemptKey, setAttemptKey] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
-  const [outcome, setOutcome] = useState<TaskPublicationOutcomeView | null>(null);
+  const [,setOutcome] = useState<TaskPublicationOutcomeView | null>(null);
   const [validationErrors, setValidationErrors] = useState<
     readonly TaskPublicationErrorView[] | null
   >(null);

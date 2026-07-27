@@ -30,7 +30,6 @@ import * as codeEvidenceLinking from "../services/codeEvidence/linking.js";
 import * as deliveryRepo from "../repositories/notificationDelivery.js";
 import * as notificationCommandService from "../services/notificationCommandService.js";
 import * as taskEventRepo from "../repositories/events/event-crud.js";
-import * as missionEventRepo from "../repositories/events/event-feature.js";
 import * as workflowService from "../services/workflowService.js";
 import {
   dispatchCompactRemoteEvent,

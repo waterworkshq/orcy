@@ -1,6 +1,6 @@
 import { getDb } from "../db/index.js";
 import { habitatCodeRepositories, codeEvidenceLinks, tasks, missions } from "../db/schema/index.js";
-import { eq, and, gt, gte, lte, desc, sql } from "drizzle-orm";
+import { eq, and, gt, gte, lte, desc } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 import type { CodeEvidenceVerificationState } from "@orcy/shared";
 import {

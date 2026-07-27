@@ -533,7 +533,7 @@ describe("wikiSchedulerService.spawnAuthoringTask — idempotency (M3 fix)", () 
       expect(first.tasksCreated).toBe(5);
       expect(first.chunks).toHaveLength(5);
       expect(countWikiAuthoringRows(habitat.id)).toBe(5);
-      const firstIds = first.chunks.map((c) => c.scheduledTaskId).sort();
+      const firstIds = first.chunks.map((c) => c.scheduledTaskId).toSorted();
 
       // Second run with the same coverage gap (watermark UNMOVED — the
       // spawned children haven't been claimed + completed + posted a
@@ -546,7 +546,7 @@ describe("wikiSchedulerService.spawnAuthoringTask — idempotency (M3 fix)", () 
 
       // The schedule ids from the second run match the first run — the
       // dedupe returns the existing row, so the same id is surfaced.
-      const secondIds = second.chunks.map((c) => c.scheduledTaskId).sort();
+      const secondIds = second.chunks.map((c) => c.scheduledTaskId).toSorted();
       expect(secondIds).toEqual(firstIds);
 
       // The wiki-authoring row count is still 5, not 10.
@@ -637,7 +637,7 @@ describe("wikiSchedulerService — M2 dispatch path recovery idempotency (M3 fix
         .all()
         .filter((t) => t.name.startsWith("wiki-authoring:"))
         .map((t) => t.id)
-        .sort();
+        .toSorted();
 
       // --- SECOND FIRING (the recovery scenario): a publishing occurrence
       //     with an EXPIRED lease that T9B's recovery worker reclaims + re-drives.
@@ -713,7 +713,7 @@ describe("wikiSchedulerService — M2 dispatch path recovery idempotency (M3 fix
         .all()
         .filter((t) => t.name.startsWith("wiki-authoring:"))
         .map((t) => t.id)
-        .sort();
+        .toSorted();
       expect(resumeIds).toEqual(firstIds);
     } finally {
       vi.useRealTimers();

@@ -1,4 +1,4 @@
-import type { AgentType, AgentStatus } from "./agent.js";
+import type { AgentType } from "./agent.js";
 
 export type { AgentType, AgentStatus } from "./agent.js";
 

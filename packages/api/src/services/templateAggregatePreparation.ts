@@ -61,7 +61,7 @@ import type {
 } from "@orcy/shared";
 import { eq, max } from "drizzle-orm";
 import { getDb } from "../db/index.js";
-import { columns, missions, missionTemplates } from "../db/schema/index.js";
+import { columns, missions } from "../db/schema/index.js";
 import type { TaskTemplateEntry } from "../models/index.js";
 import {
   TERMINAL_TASK_STATUSES,

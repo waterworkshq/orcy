@@ -360,8 +360,8 @@ describe("T7P1 clone preparation — allowlisted DTO", () => {
     const suggestions = result.preparation.dependencySuggestions;
 
     expect(suggestions).toHaveLength(2);
-    const ids = suggestions.map((s) => s.dependsOnId).sort();
-    expect(ids).toEqual([...depTargetIds].sort());
+    const ids = suggestions.map((s) => s.dependsOnId).toSorted();
+    expect(ids).toEqual([...depTargetIds].toSorted());
   });
 
   it("returns not_found when the source Task does not exist", () => {

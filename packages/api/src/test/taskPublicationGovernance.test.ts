@@ -687,7 +687,7 @@ describe("T3B Phase 2 — governance fingerprint determinism", () => {
     const fp2 = computeEnrollmentFingerprint({
       event: GOVERNED_EVENT,
       habitatId: "h-1",
-      enrolled: [...enrolled].reverse(),
+      enrolled: [...enrolled].toReversed(),
     });
     expect(fp1).toBe(fp2);
   });

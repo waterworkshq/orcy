@@ -10,9 +10,6 @@ import {
 } from "../errors/repository.js";
 import type {
   AutomationRule,
-  AutomationTrigger,
-  AutomationCondition,
-  AutomationAction,
   CreateAutomationRuleInput,
   UpdateAutomationRuleInput,
   AutomationTriggerType,

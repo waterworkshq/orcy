@@ -337,7 +337,7 @@ export async function triageRoutes(fastify: FastifyInstance): Promise<void> {
       }
 
       const sortedClusters = [...byCluster.values()]
-        .sort((a, b) => b.signalCount - a.signalCount)
+        .toSorted((a, b) => b.signalCount - a.signalCount)
         .slice(0, limit);
 
       const activeKeys = triageClusterMissionsRepo.findActiveClusterKeys(

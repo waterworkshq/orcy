@@ -50,7 +50,6 @@ export {
   type ScheduledTaskHandler,
 } from "../repositories/scheduledHandlerRegistry.js";
 
-import { getScheduledTaskHandler } from "../repositories/scheduledHandlerRegistry.js";
 
 /** Replaces `{{date}}` and `{{counter}}` tokens in a template string using the schedule's timezone and run count. */
 export function substituteTokens(

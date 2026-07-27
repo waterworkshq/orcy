@@ -232,7 +232,7 @@ export function Habitat({
     );
   }
 
-  const sortedColumns = columns.slice().sort((a, b) => a.order - b.order);
+  const sortedColumns = columns.slice().toSorted((a, b) => a.order - b.order);
   const activeMobileColumn = sortedColumns[mobileColumnIndex];
 
   return (

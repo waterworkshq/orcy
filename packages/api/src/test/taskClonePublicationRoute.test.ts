@@ -389,7 +389,7 @@ describe("T7P2 GET clone-preparation — allowlisted read-only DTO", () => {
     const suggestionIds = body.dependencySuggestions.map(
       (s: { dependsOnId: string }) => s.dependsOnId,
     );
-    expect(suggestionIds.sort()).toEqual(depTargetIds.sort());
+    expect(suggestionIds.toSorted()).toEqual(depTargetIds.toSorted());
     for (const s of body.dependencySuggestions) {
       expect(s).not.toHaveProperty("selected");
       expect(s).not.toHaveProperty("picked");
@@ -400,7 +400,7 @@ describe("T7P2 GET clone-preparation — allowlisted read-only DTO", () => {
     // retryCount, actualMinutes, cycleTimeMinutes) — or any other
     // execution-history field — the type's allowlist would leak. The
     // response key set here is structural evidence the route respects it.
-    const keys = Object.keys(body).sort();
+    const keys = Object.keys(body).toSorted();
     expect(keys).toEqual(
       [
         "defaultTargetMissionId",
@@ -414,7 +414,7 @@ describe("T7P2 GET clone-preparation — allowlisted read-only DTO", () => {
         "source",
         "subtasks",
         "title",
-      ].sort(),
+      ].toSorted(),
     );
   });
 
@@ -768,8 +768,8 @@ describe("T7P2 POST clone-publications — edited values committed (not a re-cop
       .where(eq(taskSubtasks.taskId, taskId))
       .all();
     expect(subtasks).toHaveLength(3);
-    const titles = subtasks.map((s) => s.title).sort();
-    expect(titles).toEqual(["Brand-new subtask C", "Edited subtask A", "Edited subtask B"].sort());
+    const titles = subtasks.map((s) => s.title).toSorted();
+    expect(titles).toEqual(["Brand-new subtask C", "Edited subtask A", "Edited subtask B"].toSorted());
     for (const s of subtasks) {
       // RESET semantics: incomplete + unassigned.
       expect(s.completed).toBe(false);

@@ -262,7 +262,7 @@ describe("notificationSubscriptionResolver", () => {
       });
 
       expect(result).toHaveLength(2);
-      expect(result.map((r) => r.recipientId).sort()).toEqual(["agent-1", "user-1"]);
+      expect(result.map((r) => r.recipientId).toSorted()).toEqual(["agent-1", "user-1"]);
     });
 
     it("suppresses non-required when recipient override has active mute", () => {
@@ -499,7 +499,7 @@ describe("notificationCommandService", () => {
 
     expect(result.deliveries).toHaveLength(2);
     expect(result.deliveries[0].channels).toEqual(["in_app", "slack"]);
-    expect(result.deliveries.map((d) => d.recipientId).sort()).toEqual(["agent-1", "user-1"]);
+    expect(result.deliveries.map((d) => d.recipientId).toSorted()).toEqual(["agent-1", "user-1"]);
   });
 
   it("returns empty deliveries when no explicit recipients", () => {

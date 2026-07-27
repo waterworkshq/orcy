@@ -145,7 +145,7 @@ describe("pluginEnrollment repo", () => {
 
       const enabled = enrollmentRepo.listEnabledByHabitat(id);
       expect(enabled).toHaveLength(2);
-      expect(enabled.map((e) => e.contributionId).sort()).toEqual(["c1", "c3"]);
+      expect(enabled.map((e) => e.contributionId).toSorted()).toEqual(["c1", "c3"]);
     });
 
     it("does not leak enrollments from other habitats", () => {

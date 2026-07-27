@@ -1,6 +1,6 @@
 import { getDb } from "../db/index.js";
-import { notificationDeliveries, notificationEvents } from "../db/schema/index.js";
-import { eq, and, desc, sql, ne, inArray } from "drizzle-orm";
+import { notificationDeliveries } from "../db/schema/index.js";
+import { eq, and, desc, sql, inArray } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 import {
   repositoryCreateError,

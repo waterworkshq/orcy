@@ -1,4 +1,3 @@
-import type { MissionClient } from "../api/interfaces.js";
 import type { TaskPublicationOutcome, ClonePreparation } from "../api/interfaces.js";
 import type { Tool } from "@modelcontextprotocol/sdk/types.js";
 import type { KanbanApiClient } from "../api.js";

@@ -332,16 +332,16 @@ function computeRequestFingerprint(input: PublishTaskCreationInput): string {
     title: input.title,
     description: input.description ?? "",
     priority: input.priority ?? "medium",
-    labels: [...(input.labels ?? [])].sort(),
+    labels: [...(input.labels ?? [])].toSorted(),
     requiredDomain: input.requiredDomain ?? null,
-    requiredCapabilities: [...(input.requiredCapabilities ?? [])].sort(),
+    requiredCapabilities: [...(input.requiredCapabilities ?? [])].toSorted(),
     estimatedMinutes: input.estimatedMinutes ?? null,
     subtasks: (input.subtasks ?? []).map((s, i) => ({
       title: s.title,
       order: s.order ?? i,
       assigneeId: s.assigneeId ?? null,
     })),
-    selectedDependencies: (input.selectedDependencies ?? []).map((d) => d.dependsOnId).sort(),
+    selectedDependencies: (input.selectedDependencies ?? []).map((d) => d.dependsOnId).toSorted(),
     assignment:
       input.assignment.kind === "auto"
         ? { kind: "auto" }
@@ -357,7 +357,7 @@ function computeRequestFingerprint(input: PublishTaskCreationInput): string {
 function stableStringify(value: unknown): string {
   if (value === null || typeof value !== "object") return JSON.stringify(value);
   if (Array.isArray(value)) return `[${value.map(stableStringify).join(",")}]`;
-  const keys = Object.keys(value as Record<string, unknown>).sort();
+  const keys = Object.keys(value as Record<string, unknown>).toSorted();
   return `{${keys
     .map((k) => `${JSON.stringify(k)}:${stableStringify((value as Record<string, unknown>)[k])}`)
     .join(",")}}`;

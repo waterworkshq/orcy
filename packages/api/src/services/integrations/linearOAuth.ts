@@ -1,6 +1,5 @@
 import crypto from "crypto";
 import * as connectionRepo from "../../repositories/integrationConnection.js";
-import { badRequest } from "../../errors.js";
 
 const DEFAULT_LINEAR_OAUTH_CLIENT_ID = "9c05e7d93694e1fd091a189331fa45bd";
 

@@ -3,7 +3,7 @@ import { getDb } from "../db/index.js";
 import { columns, missions, tasks } from "../db/schema/index.js";
 import * as snapshotRepo from "../repositories/cumulativeFlowSnapshot.js";
 import type { AnalyticsWarning } from "../repositories/cumulativeFlowSnapshot.js";
-import { utcDateKey, dateRange as buildDateRange, utcNowISO } from "./analyticsDate.js";
+import { dateRange as buildDateRange, utcNowISO } from "./analyticsDate.js";
 
 /** Cumulative flow diagram payload for a habitat: per-day column/status counts over a window, plus data-quality warnings. */
 export interface CumulativeFlowResponse {

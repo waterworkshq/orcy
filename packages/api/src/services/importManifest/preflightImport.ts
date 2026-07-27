@@ -1291,7 +1291,7 @@ function canonicalStableStringify(value: unknown): string {
     return "[" + value.map(canonicalStableStringify).join(",") + "]";
   }
   const obj = value as Record<string, unknown>;
-  const keys = Object.keys(obj).sort();
+  const keys = Object.keys(obj).toSorted();
   return (
     "{" +
     keys.map((k) => JSON.stringify(k) + ":" + canonicalStableStringify(obj[k])).join(",") +

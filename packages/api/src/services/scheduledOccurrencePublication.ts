@@ -408,7 +408,7 @@ const SCHEDULE_CONFIG_FIELDS = [
 function stableStringify(value: unknown): string {
   if (value === null || typeof value !== "object") return JSON.stringify(value);
   if (Array.isArray(value)) return `[${value.map(stableStringify).join(",")}]`;
-  const keys = Object.keys(value as Record<string, unknown>).sort();
+  const keys = Object.keys(value as Record<string, unknown>).toSorted();
   return `{${keys
     .map((k) => `${JSON.stringify(k)}:${stableStringify((value as Record<string, unknown>)[k])}`)
     .join(",")}}`;
@@ -678,7 +678,7 @@ function computeOccurrenceFingerprint(input: {
     title: input.resolvedTitle,
     description: input.resolvedDescription,
     priority: input.priority,
-    labels: [...input.labels].sort(),
+    labels: [...input.labels].toSorted(),
   };
   return "scheduled_occurrence:" + stableHash(stableStringify(payload));
 }

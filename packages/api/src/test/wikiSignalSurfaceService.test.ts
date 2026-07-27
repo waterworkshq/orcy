@@ -159,7 +159,7 @@ describe("wikiSignalSurfaceService.getExperienceSurface — privacy invariant", 
 
     const result = surface.getExperienceSurface(habitat.id);
     expect(result.aggregates).toHaveLength(4);
-    const categories = result.aggregates.map((a) => a.skillCategory).sort();
+    const categories = result.aggregates.map((a) => a.skillCategory).toSorted();
     expect(categories).toEqual(["anti_patterns", "domain_knowledge", "pattern", "pitfall"]);
   });
 

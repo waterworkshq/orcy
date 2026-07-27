@@ -1547,14 +1547,14 @@ export function publishImportAggregateWithClient(
   }
 
   const vetoes: ImportTaskVeto[] = [];
-  let governedResults: readonly GovernedTaskResult[] = [];
+  let _governedResults: readonly GovernedTaskResult[] = [];
   if (governedProposals.length > 0) {
     const governance = governTaskPublication({
       attemptId: prepared.prefilledAttemptId,
       tasks: governedProposals,
       db,
     });
-    governedResults = governance.results;
+    _governedResults = governance.results;
     for (let i = 0; i < governance.results.length; i++) {
       const result = governance.results[i];
       if (result.outcome === "vetoed") {
@@ -1686,7 +1686,7 @@ export function publishImportAggregateWithClient(
       //     pass 2 (via the kernel composition loop) and the reset path
       //     runs in the dedicated tasks-reset handler.
       if (prepared.manifest.mode === "replacement") {
-        const reverseOrder = [...MANIFEST_DOMAIN_NAMES].reverse();
+        const reverseOrder = [...MANIFEST_DOMAIN_NAMES].toReversed();
         for (const domainName of reverseOrder) {
           if (domainName === "habitatSettings") continue;
           const envelope = prepared.manifest.domains[domainName];

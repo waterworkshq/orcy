@@ -69,7 +69,7 @@ export function migrateLegacyPreferences(userId: string, habitatId: string): Mig
 }
 
 /** Placeholder for scheduler-driven migration of all users in a habitat; currently a no-op returning an empty result. */
-export function migrateAllLegacyPreferencesForHabitat(habitatId: string): MigrationResult {
+export function migrateAllLegacyPreferencesForHabitat(_habitatId: string): MigrationResult {
   const total: MigrationResult = { created: 0, updated: 0, skipped: 0, errors: [] };
   // Migration is exposed for test purposes; production deployment should
   // iterate (user, habitat) pairs via the scheduler.

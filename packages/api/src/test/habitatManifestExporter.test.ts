@@ -290,8 +290,8 @@ describe("exportHabitatManifest — round-trip through prepareImport + publishIm
     expect(newColumnsResult).not.toBeNull();
     const newColumns = newColumnsResult!.columns;
     expect(newColumns).toHaveLength(4);
-    expect(newColumns.map((c) => c.name).sort()).toEqual(
-      ["Done", "In Progress", "Review", "Todo"].sort(),
+    expect(newColumns.map((c) => c.name).toSorted()).toEqual(
+      ["Done", "In Progress", "Review", "Todo"].toSorted(),
     );
     const newTodo = newColumns.find((c) => c.name === "Todo")!;
     const newDone = newColumns.find((c) => c.name === "Done")!;
@@ -541,8 +541,8 @@ describe("exportHabitatManifest — per-domain emission shape", () => {
     expect("autoAdvance" in todo).toBe(false);
     expect("requiresClaim" in todo).toBe(false);
     // Object carries exactly the ColumnPortable field set.
-    expect(Object.keys(todo).sort()).toEqual(
-      ["sourceId", "name", "order", "color", "wipLimit", "nextColumnName", "isTerminal"].sort(),
+    expect(Object.keys(todo).toSorted()).toEqual(
+      ["sourceId", "name", "order", "color", "wipLimit", "nextColumnName", "isTerminal"].toSorted(),
     );
   });
 
@@ -578,7 +578,7 @@ describe("exportHabitatManifest — per-domain emission shape", () => {
     expect("result" in alphaTask1).toBe(false);
     expect("artifacts" in alphaTask1).toBe(false);
     expect("createdBy" in alphaTask1).toBe(false);
-    expect(Object.keys(alphaTask1).sort()).toEqual(
+    expect(Object.keys(alphaTask1).toSorted()).toEqual(
       [
         "sourceId",
         "missionSourceId",
@@ -587,7 +587,7 @@ describe("exportHabitatManifest — per-domain emission shape", () => {
         "priority",
         "requiredDomain",
         "requiredCapabilities",
-      ].sort(),
+      ].toSorted(),
     );
   });
 
@@ -613,8 +613,8 @@ describe("exportHabitatManifest — per-domain emission shape", () => {
     expect(dep.dependsOnTaskSourceId).toBe(seeded.taskIds.alphaTask1);
     // Drift: task_dependencies has no kind column — defaults to "blocks".
     expect(dep.kind).toBe("blocks");
-    expect(Object.keys(dep).sort()).toEqual(
-      ["sourceId", "taskSourceId", "dependsOnTaskSourceId", "kind"].sort(),
+    expect(Object.keys(dep).toSorted()).toEqual(
+      ["sourceId", "taskSourceId", "dependsOnTaskSourceId", "kind"].toSorted(),
     );
   });
 

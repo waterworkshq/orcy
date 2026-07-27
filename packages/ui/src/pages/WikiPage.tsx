@@ -1,5 +1,5 @@
 import { useParams, useSearchParams, Link } from "react-router-dom";
-import { ArrowLeft, BookOpen, Loader2, Signal, FlaskConical, FileText, Radar } from "lucide-react";
+import { ArrowLeft, BookOpen, Signal, FlaskConical, FileText, Radar } from "lucide-react";
 import { useHabitat } from "../lib/useHabitatData.js";
 import { WikiBrowser } from "../components/wiki/WikiBrowser.js";
 import { WikiPageViewer } from "../components/wiki/WikiPageViewer.js";

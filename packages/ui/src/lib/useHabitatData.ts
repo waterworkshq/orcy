@@ -12,9 +12,7 @@ import {
 import type {
   CreateMissionInput,
   CreateTaskInMissionInput,
-  EnrichedHabitatEvent,
   Mission,
-  MissionWithProgress,
 } from "../types/index.js";
 
 export const ARCHIVED_PAGE_SIZE = 50;

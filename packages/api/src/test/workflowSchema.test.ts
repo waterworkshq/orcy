@@ -34,7 +34,7 @@ function applyAllMigrations(db: DatabaseType): void {
   const migrationDir = join(import.meta.dirname, "..", "..", "drizzle");
   const files = readdirSync(migrationDir)
     .filter((f) => /^\d{4}_.*\.sql$/.test(f))
-    .sort();
+    .toSorted();
   for (const file of files) {
     applyMigrationFile(db, file);
   }
@@ -96,7 +96,7 @@ describe("W1 migration: workflows, taskWorkflowGates, failureContexts", () => {
           "SELECT name FROM sqlite_master WHERE type = 'table' AND name IN ('workflows', 'task_workflow_gates', 'failure_contexts')",
         )
         .all() as Array<{ name: string }>;
-      expect(tables.map((t) => t.name).sort()).toEqual([
+      expect(tables.map((t) => t.name).toSorted()).toEqual([
         "failure_contexts",
         "task_workflow_gates",
         "workflows",
@@ -109,7 +109,7 @@ describe("W1 migration: workflows, taskWorkflowGates, failureContexts", () => {
           "SELECT name FROM sqlite_master WHERE type = 'index' AND name LIKE 'idx_work%' OR name LIKE 'idx_failure%' OR name LIKE 'idx_workflow_gates%'",
         )
         .all() as Array<{ name: string }>;
-      const indexNames = indexes.map((i) => i.name).sort();
+      const indexNames = indexes.map((i) => i.name).toSorted();
       expect(indexNames).toContain("idx_workflows_mission");
       expect(indexNames).toContain("idx_workflows_habitat");
       expect(indexNames).toContain("idx_workflows_status");

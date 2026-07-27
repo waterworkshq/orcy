@@ -1,11 +1,9 @@
 import * as ruleRepo from "../repositories/automationRule.js";
 import * as runRepo from "../repositories/automationRuleRun.js";
-import { buildTriggerContext } from "./automationContextBuilder.js";
 import { executeAndRecordRuleRun } from "./automationExecutor.js";
 import type {
   AutomationEventType,
   AutomationTriggerType,
-  AutomationTriggerContext,
   AutomationTargetType,
   CausalContext,
 } from "@orcy/shared";

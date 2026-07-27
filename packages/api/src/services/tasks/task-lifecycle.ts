@@ -1,10 +1,7 @@
 import * as taskRepo from "../../repositories/task.js";
 import * as agentRepo from "../../repositories/agent.js";
 import { sseBroadcaster } from "../../sse/broadcaster.js";
-import * as watcherService from "../watcherService.js";
-import * as retryService from "../retryService.js";
 import * as pluginManager from "../../plugins/pluginManager.js";
-import * as missionService from "../featureService.js";
 import * as timeTrackingService from "../timeTrackingService.js";
 import * as effortRepo from "../../repositories/effortEntry.js";
 import * as qualityGateService from "../qualityGateService.js";
@@ -13,7 +10,6 @@ import type { Task, Artifact } from "../../models/index.js";
 import { validateTransition, mergeArtifacts, validateAgentCapabilities } from "./helpers.js";
 import { logger } from "../../lib/logger.js";
 import { InterceptorVetoError } from "../../errors.js";
-import * as pulseService from "../pulseService.js";
 import * as reviewAssignment from "../reviewAssignmentService.js";
 import { emitTransition } from "./transition-emitter.js";
 

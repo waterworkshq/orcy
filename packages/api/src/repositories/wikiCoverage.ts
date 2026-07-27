@@ -101,7 +101,7 @@ export function replacePageMarkersWithNoUpdate(
   pageId: string,
   input: ReplacePageMarkersInput,
 ): WikiCoverageMarker[] {
-  const db = getDb();
+  
   const existing = getByPage(pageId);
   if (existing.length === 0) return [];
 

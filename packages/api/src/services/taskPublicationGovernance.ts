@@ -226,7 +226,7 @@ function stableStringify(value: unknown): string {
   if (Array.isArray(value)) {
     return `[${value.map(stableStringify).join(",")}]`;
   }
-  const keys = Object.keys(value as Record<string, unknown>).sort();
+  const keys = Object.keys(value as Record<string, unknown>).toSorted();
   return `{${keys
     .map((k) => `${JSON.stringify(k)}:${stableStringify((value as Record<string, unknown>)[k])}`)
     .join(",")}}`;
@@ -254,14 +254,14 @@ function proposalForFingerprint(p: CanonicalTaskPublicationProposal): unknown {
     title: p.title,
     description: p.description,
     priority: p.priority,
-    labels: [...p.labels].sort(),
+    labels: [...p.labels].toSorted(),
     requiredDomain: p.requiredDomain,
-    requiredCapabilities: [...p.requiredCapabilities].sort(),
+    requiredCapabilities: [...p.requiredCapabilities].toSorted(),
     estimatedMinutes: p.estimatedMinutes,
     subtasks: p.subtasks
       .map((s) => ({ title: s.title, order: s.order, assigneeId: s.assigneeId }))
-      .sort((a, b) => (a.order ?? 0) - (b.order ?? 0)),
-    selectedDependencies: p.selectedDependencies.map((d) => d.dependsOnId).sort(),
+      .toSorted((a, b) => (a.order ?? 0) - (b.order ?? 0)),
+    selectedDependencies: p.selectedDependencies.map((d) => d.dependsOnId).toSorted(),
     requestedAssigneeId: p.requestedAssigneeId,
     cloneSourceTaskId: p.cloneSourceTaskId,
     actor: p.actor,
@@ -303,7 +303,7 @@ export function computeEnrollmentFingerprint(snapshot: {
         contributionSnapshot: e.contributionSnapshot,
         quarantinedAtFreeze: e.quarantinedAtFreeze,
       }))
-      .sort((a, b) => a.interceptorKey.localeCompare(b.interceptorKey)),
+      .toSorted((a, b) => a.interceptorKey.localeCompare(b.interceptorKey)),
   };
   return "enrollment:" + stableHash(payload);
 }
@@ -346,7 +346,7 @@ export function computeGovernanceFingerprint(input: {
       habitatId: input.guard.habitatId,
       dependencies: input.guard.dependencies
         .map((d) => ({ taskId: d.taskId, version: d.version, status: d.status }))
-        .sort((a, b) => a.taskId.localeCompare(b.taskId)),
+        .toSorted((a, b) => a.taskId.localeCompare(b.taskId)),
     },
     interceptor: {
       interceptorKey: input.interceptor.interceptorKey,
@@ -360,7 +360,7 @@ export function computeGovernanceFingerprint(input: {
         contributionSnapshot: e.contributionSnapshot,
         quarantinedAtFreeze: e.quarantinedAtFreeze,
       }))
-      .sort((a, b) => a.interceptorKey.localeCompare(b.interceptorKey)),
+      .toSorted((a, b) => a.interceptorKey.localeCompare(b.interceptorKey)),
   };
   return "gov:" + stableHash(payload);
 }

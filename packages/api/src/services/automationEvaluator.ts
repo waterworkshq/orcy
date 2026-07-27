@@ -3,13 +3,8 @@ import type {
   AutomationConditionResult,
   AutomationRule,
   TaskPriority,
-  Task,
-  Mission,
-  Habitat,
   Agent,
-  Sprint,
   PluginEvaluationContext,
-  PluginHabitatView,
 } from "@orcy/shared";
 import type { AutomationEvaluationContext } from "./automationContextBuilder.js";
 import * as pluginManager from "../plugins/pluginManager.js";

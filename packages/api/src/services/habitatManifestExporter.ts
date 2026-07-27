@@ -51,7 +51,7 @@
  * @see packages/api/src/services/importManifest/domainHandlers/*.ts for the
  *      per-domain validate requirements the emission MUST satisfy.
  */
-import { eq, inArray } from "drizzle-orm";
+import { inArray } from "drizzle-orm";
 
 import { getDb } from "../db/index.js";
 import { taskDependencies } from "../db/schema/index.js";
@@ -126,7 +126,7 @@ export function exportHabitatManifest(
 
   // Index missions + columns by id for cross-reference resolution.
   const columnById = new Map(columns.map((c) => [c.id, c]));
-  const missionById = new Map(missionList.map((m) => [m.id, m]));
+  
 
   // Read tasks per mission; preserve mission order.
   const tasksByMission = new Map<string, Task[]>();

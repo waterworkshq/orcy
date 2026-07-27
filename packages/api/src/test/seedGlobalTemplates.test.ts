@@ -54,7 +54,7 @@ describe("seedGlobalTemplates — idempotency fix", () => {
 
     const globals = templateRepo.getGlobalTemplates();
     expect(globals).toHaveLength(9);
-    const names = globals.map((t) => t.name).sort();
+    const names = globals.map((t) => t.name).toSorted();
     expect(names).toContain("Bug Fix");
     expect(names).toContain("Feature");
     expect(names).toContain("Refactor");

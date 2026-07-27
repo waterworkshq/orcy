@@ -5,7 +5,7 @@ import type { NotificationDelivery, NotificationEvent } from "@orcy/shared";
 /** Marks an in-app notification delivery as delivered and records the attempt outcome. */
 export async function deliverInApp(
   delivery: NotificationDelivery,
-  event: NotificationEvent,
+  _event: NotificationEvent,
 ): Promise<{ success: boolean; attemptId?: string; error?: string }> {
   const attempt = attemptRepo.createDeliveryAttempt({
     deliveryId: delivery.id,

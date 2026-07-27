@@ -4,7 +4,6 @@ import {
   type RowSelectionState,
   type SortingState,
 } from "@tanstack/react-table";
-import { shallow } from "zustand/shallow";
 import { Search } from "lucide-react";
 import { DataTable } from "../ui/DataTable.js";
 import { getTaskTableColumns } from "./TaskTableColumns.js";

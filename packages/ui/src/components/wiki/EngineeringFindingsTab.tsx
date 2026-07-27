@@ -81,7 +81,7 @@ export function EngineeringFindingsTab({ habitatId }: EngineeringFindingsTabProp
       bucket.push(f);
       map.set(kind, bucket);
     });
-    return Array.from(map.entries()).sort((a, b) => a[0].localeCompare(b[0]));
+    return Array.from(map.entries()).toSorted((a, b) => a[0].localeCompare(b[0]));
   }, [structured, severityFilter]);
 
   return (

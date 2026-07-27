@@ -110,7 +110,7 @@ function prepareCurrentSchemaDatabase(dbPath: string): void {
   }
   const incremental = readdirSync(DRIZZLE_DIR)
     .filter((f) => /^\d{4}_.*\.sql$/.test(f) && f !== "0000_schema.sql")
-    .sort();
+    .toSorted();
   for (const file of incremental) {
     applyMigrationSql(db, readFileSync(join(DRIZZLE_DIR, file), "utf-8"));
   }

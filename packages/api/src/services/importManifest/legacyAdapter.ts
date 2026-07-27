@@ -1032,6 +1032,6 @@ function readField(input: unknown, field: string): unknown {
 
 function firstColumnName(columns: readonly ColumnPortable[]): string {
   // Sort by order, take the first; fallback to empty string.
-  const sorted = [...columns].sort((a, b) => a.order - b.order);
+  const sorted = [...columns].toSorted((a, b) => a.order - b.order);
   return sorted[0]?.name ?? "";
 }

@@ -1,22 +1,19 @@
-import type { FastifyInstance, FastifyRequest, FastifyReply } from "fastify";
+import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import * as deliveryRepo from "../repositories/notificationDelivery.js";
 import * as eventRepo from "../repositories/notificationEvent.js";
 import * as attemptRepo from "../repositories/notificationDeliveryAttempt.js";
 import * as subscriptionRepo from "../repositories/notificationSubscription.js";
 import * as retentionRepo from "../repositories/notificationRetentionPolicy.js";
-import * as ruleRepo from "../repositories/automationRule.js";
-import * as runRepo from "../repositories/automationRuleRun.js";
-import * as simulationService from "../services/automationSimulationService.js";
 import {
   migrateLegacyPreferences,
   isLegacyMigrationComplete,
 } from "../services/notificationMigrationService.js";
 import { adminClearDeliveries } from "../services/notificationClearanceService.js";
-import { humanAuth, agentAuth } from "../middleware/auth.js";
+import { humanAuth } from "../middleware/auth.js";
 import { requireHabitatAccess } from "../middleware/team.js";
 import { notFound, badRequest, forbidden } from "../errors.js";
-import type { NotificationChannel, NotificationRecipientType } from "@orcy/shared";
+import type { NotificationChannel } from "@orcy/shared";
 
 const recipientTypeSchema = z.enum(["human", "agent", "remote_human", "remote_orcy"]);
 

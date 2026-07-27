@@ -3,7 +3,6 @@ import { getDb } from "../db/index.js";
 import { columns, missions, taskEvents, tasks } from "../db/schema/index.js";
 import type { AnalyticsWarning } from "../repositories/cumulativeFlowSnapshot.js";
 import {
-  MS_PER_DAY,
   daysAgoISO,
   utcNowISO,
   confidenceForSample,
@@ -98,7 +97,7 @@ export function getTimeInColumnSummary(habitatId: string, requestedDays = 30): T
   const db = getDb();
   const days = Math.max(7, Math.min(90, Math.round(requestedDays)));
   const generatedAt = utcNowISO();
-  const startDate = daysAgoISO(days);
+  
   const lookbackStart = daysAgoISO(days * 2);
   const columnRows = db
     .select({ columnId: columns.id, columnName: columns.name, order: columns.order })

@@ -1012,7 +1012,7 @@ describe("T10C cold-review Finding 3 — full-shape HTTP round-trip with FK ON",
     if (!manifest) return;
 
     // Sanity: the manifest carries all 8 domains.
-    expect(Object.keys(manifest.domains).sort()).toEqual(
+    expect(Object.keys(manifest.domains).toSorted()).toEqual(
       [
         "habitatSettings",
         "columns",
@@ -1022,7 +1022,7 @@ describe("T10C cold-review Finding 3 — full-shape HTTP round-trip with FK ON",
         "dependencies",
         "comments",
         "templates",
-      ].sort(),
+      ].toSorted(),
     );
 
     // --- act (POST to the HTTP route with FK ON) ---
@@ -1046,8 +1046,8 @@ describe("T10C cold-review Finding 3 — full-shape HTTP round-trip with FK ON",
 
     // Columns: 4 default columns survive.
     const newColumns = habitatRepo.getHabitatWithColumnsAndTasks(newHabitatId)!.columns;
-    expect(newColumns.map((c) => c.name).sort()).toEqual(
-      ["Done", "In Progress", "Review", "Todo"].sort(),
+    expect(newColumns.map((c) => c.name).toSorted()).toEqual(
+      ["Done", "In Progress", "Review", "Todo"].toSorted(),
     );
 
     // Missions: 2 survive (alpha + beta). The reverse-dependency edge

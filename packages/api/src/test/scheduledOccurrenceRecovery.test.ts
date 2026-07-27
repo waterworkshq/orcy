@@ -703,7 +703,7 @@ describe("recoverExpiredOccurrenceLeases — recurring-independence", () => {
     // BOTH occurrences exist (the rejected one + the new reserved one).
     const all = getDb().select().from(scheduledOccurrences).all();
     expect(all).toHaveLength(2);
-    expect(all.map((o) => o.id).sort()).toEqual([occurrenceId1, occurrenceId2].sort());
+    expect(all.map((o) => o.id).toSorted()).toEqual([occurrenceId1, occurrenceId2].toSorted());
   });
 });
 

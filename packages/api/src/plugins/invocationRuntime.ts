@@ -721,7 +721,7 @@ export function createInvocationRuntime(deps: RuntimeDeps): InvocationRuntime {
 
   function checkPreVeto(request: PreVetoRequest): PreVetoDecision {
     const { target, taskId, event, habitatId, context } = request;
-    const policy = INVOCATION_POLICY.preInterceptor;
+    
     const baseFinishFlag = { startFailed: false, finishFailed: false };
 
     // 1. Start Plugin Run (the invocation gate — Q13).

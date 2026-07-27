@@ -8,7 +8,6 @@ import {
   Link2Off,
   Tag,
   History,
-  RotateCcw,
   ChevronDown,
   ChevronRight,
   Calendar,

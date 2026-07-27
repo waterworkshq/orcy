@@ -4,10 +4,10 @@ import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import { getDb } from "../db/index.js";
 import { users } from "../db/schema/index.js";
-import { eq, sql } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { humanAuth } from "../middleware/auth.js";
 import { getJwtSecret } from "../middleware/jwt-verification.js";
-import { badRequest, unauthorized, forbidden } from "../errors.js";
+import { badRequest, unauthorized } from "../errors.js";
 import {
   getSetupStatus,
   registerInitialAdmin,

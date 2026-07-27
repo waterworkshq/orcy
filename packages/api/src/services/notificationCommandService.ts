@@ -3,7 +3,6 @@ import * as deliveryRepo from "../repositories/notificationDelivery.js";
 import {
   validateEventType,
   resolveRecipients,
-  type SubscriptionResolutionInput,
   type ResolvedRecipient,
 } from "./notificationSubscriptionResolver.js";
 import { findRemoteRecipientsForEvent } from "./remoteNotificationResolver.js";
@@ -17,8 +16,6 @@ import type {
   NotificationSourceType,
   NotificationTargetType,
   NotificationRecipientType,
-  NotificationChannel,
-  NotificationCadence,
 } from "@orcy/shared";
 
 /** Command describing a notification to create: event type, source, severity, and optional explicit recipients. */

@@ -109,8 +109,8 @@ describe("Phase E — Remote notification resolver", () => {
         targetType: "habitat",
       });
       expect(result).toHaveLength(2);
-      const ids = result.map((r) => r.recipientId).sort();
-      expect(ids).toEqual([p1.id, p2.id].sort());
+      const ids = result.map((r) => r.recipientId).toSorted();
+      expect(ids).toEqual([p1.id, p2.id].toSorted());
     });
 
     it("returns only the specific participant for per-participant grants", () => {

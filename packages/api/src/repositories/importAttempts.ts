@@ -502,11 +502,7 @@ export function reserveImportAttemptWithClient(
       .run();
   } catch (err) {
     if (isUniqueConstraintViolation(err)) {
-      const existing = db
-        .select()
-        .from(importAttempts)
-        .where(eq(importAttempts.id, id))
-        .all()[0];
+      const existing = db.select().from(importAttempts).where(eq(importAttempts.id, id)).all()[0];
       if (existing) return { outcome: "already_exists", attempt: existing };
       // Truly unreachable: PRIMARY KEY UNIQUE fired, so a row with `id` MUST
       // exist on this client. Re-throw the original so the caller sees the
@@ -517,11 +513,7 @@ export function reserveImportAttemptWithClient(
 
   // Re-read through the SAME client so the returned row reflects anything the
   // caller's transaction has already staged.
-  const created = db
-    .select()
-    .from(importAttempts)
-    .where(eq(importAttempts.id, id))
-    .all()[0];
+  const created = db.select().from(importAttempts).where(eq(importAttempts.id, id)).all()[0];
   if (!created) throw repositoryCreateError("importAttempt", undefined, id);
   return { outcome: "created", attempt: created };
 }
@@ -1064,20 +1056,14 @@ function terminalizeWithClient(
               rejectionReason: (directive as ImportAttemptRejectedDirective).rejectionReason,
               result: {
                 reason: (directive as ImportAttemptRejectedDirective).rejectionReason,
-                ...((directive as ImportAttemptRejectedDirective).result ?? {}),
+                ...(directive as ImportAttemptRejectedDirective).result,
               },
             }
           : {}),
         ...(directive.attemptId !== undefined ? { attemptId: directive.attemptId } : {}),
         updatedAt: now,
       })
-      .where(
-        and(
-          eq(importAttempts.id, id),
-          eq(importAttempts.state, fromState),
-          ownerPredicate,
-        ),
-      )
+      .where(and(eq(importAttempts.id, id), eq(importAttempts.state, fromState), ownerPredicate))
       .run();
     affected = db.get<{ n: number }>(sql`SELECT changes() AS n`)?.n ?? 0;
   } catch (err) {

@@ -171,7 +171,6 @@ import {
   checkpointAttemptWithClient,
   completeAttemptWithClient,
   type AttemptTerminalResult,
-  type TaskPublicationDbClient,
 } from "../repositories/taskPublication.js";
 import {
   prepareTemplateAggregate,
@@ -295,7 +294,7 @@ function substituteTokens(
 function stableStringify(value: unknown): string {
   if (value === null || typeof value !== "object") return JSON.stringify(value);
   if (Array.isArray(value)) return `[${value.map(stableStringify).join(",")}]`;
-  const keys = Object.keys(value as Record<string, unknown>).sort();
+  const keys = Object.keys(value as Record<string, unknown>).toSorted();
   return `{${keys
     .map((k) => `${JSON.stringify(k)}:${stableStringify((value as Record<string, unknown>)[k])}`)
     .join(",")}}`;
@@ -332,7 +331,7 @@ function computeRetryFingerprint(input: {
     title: input.resolvedTitle,
     description: input.resolvedDescription,
     priority: input.priority,
-    labels: [...input.labels].sort(),
+    labels: [...input.labels].toSorted(),
   };
   return "scheduled_occurrence_retry:" + stableHash(stableStringify(payload));
 }
@@ -653,7 +652,7 @@ function buildRetryHistoryParticipant(
       affected = db.get<{ n: number }>(sql`SELECT changes() AS n`)?.n ?? 0;
     } catch (err) {
       throw new Error(
-        `repairScheduledOccurrence: failed to stamp retryHistory on occurrence "${occurrenceId}" inside the publication tx — the aggregate will roll back. Cause: ${(err as Error).message}`,
+        `repairScheduledOccurrence: failed to stamp retryHistory on occurrence "${occurrenceId}" inside the publication tx — the aggregate will roll back. Cause: ${(err as Error).message}`, { cause: err },
       );
     }
     if (affected !== 1) {

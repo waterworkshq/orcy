@@ -405,7 +405,7 @@ describe("HabitatImportManifest — type-narrowing assertions", () => {
     const names: readonly ManifestDomainName[] = MANIFEST_DOMAIN_NAMES;
     expect(names).toHaveLength(8);
     expect(new Set(names).size).toBe(8); // no duplicates
-    expect([...names].sort()).toEqual([
+    expect([...names].toSorted()).toEqual([
       "columns",
       "comments",
       "dependencies",

@@ -47,7 +47,7 @@ export function WikiVersionHistory({ habitatId, pageId }: WikiVersionHistoryProp
     );
   }
 
-  const sorted = [...list].sort((a, b) => b.versionNumber - a.versionNumber);
+  const sorted = [...list].toSorted((a, b) => b.versionNumber - a.versionNumber);
 
   return (
     <div className="rounded-lg border border-[var(--outline-variant)] bg-[var(--surface-container-low)] divide-y divide-[var(--outline-variant)]">

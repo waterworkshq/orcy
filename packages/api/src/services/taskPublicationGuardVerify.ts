@@ -53,7 +53,6 @@ import {
   type PublicationGuard,
 } from "./taskPublicationPreparation.js";
 import {
-  GOVERNED_EVENT,
   guardCarriesPhase1Sentinel,
   computeGovernanceFingerprint,
   freezeCurrentBatchAdmission,

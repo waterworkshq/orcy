@@ -262,7 +262,7 @@ describe("audit export operational coverage", () => {
     const parsed = JSON.parse(json) as Array<{ entity: { type: string } }>;
 
     expect(parsed.length).toBe(2);
-    const types = parsed.map((e) => e.entity.type).sort();
+    const types = parsed.map((e) => e.entity.type).toSorted();
     expect(types).toEqual(["automation_run", "plugin_run"]);
   });
 

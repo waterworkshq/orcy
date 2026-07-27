@@ -182,8 +182,8 @@ describe("defaultCreationDispatchPlan", () => {
   it("lists exactly the 6 required target kinds", () => {
     const plan = defaultCreationDispatchPlan(testEnvelope);
     expect(plan).toHaveLength(6);
-    const kinds = plan.map((t) => t.targetKind).sort();
-    const expected = [...CREATION_TARGET_KINDS].sort();
+    const kinds = plan.map((t) => t.targetKind).toSorted();
+    const expected = [...CREATION_TARGET_KINDS].toSorted();
     expect(kinds).toEqual(expected);
   });
 

@@ -24,7 +24,7 @@
  * @see packages/api/src/services/importManifest/domainHandler.ts for the
  *      shared interface contract.
  */
-import type { DomainEnvelope, HabitatSettingsPortable } from "../types.js";
+import type { DomainEnvelope } from "../types.js";
 import type {
   AppliedDomain,
   ApplyContext,
@@ -39,7 +39,6 @@ import {
   allocateServerId,
   domainError,
   lookupRestoreServerId,
-  resolutionErr,
   resolutionOk,
   validationErr,
   validationOk,

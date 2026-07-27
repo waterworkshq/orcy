@@ -85,7 +85,6 @@ import type {
 import { composeMissionContext } from "./services/mission-context.js";
 import { AsyncLocalStorage } from "node:async_hooks";
 import { randomUUID } from "crypto";
-import { logger } from "./logger.js";
 import {
   getOrcyConfig,
   getRemoteConfig,

@@ -35,7 +35,7 @@ function applyAllMigrations(db: DatabaseType): void {
   const migrationDir = join(import.meta.dirname, "..", "..", "drizzle");
   const files = readdirSync(migrationDir)
     .filter((f) => /^\d{4}_.*\.sql$/.test(f))
-    .sort();
+    .toSorted();
   for (const file of files) {
     applyMigrationFile(db, file);
   }

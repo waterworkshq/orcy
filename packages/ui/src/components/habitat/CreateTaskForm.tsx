@@ -110,7 +110,7 @@ export function CreateTaskForm({ open, onClose, habitatId, missionId }: CreateTa
   // (`rejected_fingerprint`, the user must pick a new key).
   const [attemptKey, setAttemptKey] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
-  const [outcome, setOutcome] = useState<TaskPublicationOutcomeView | null>(null);
+  const [,setOutcome] = useState<TaskPublicationOutcomeView | null>(null);
   const [validationErrors, setValidationErrors] = useState<
     readonly TaskPublicationErrorView[] | null
   >(null);

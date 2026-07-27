@@ -38,8 +38,8 @@ describe("auditProjection catalog", () => {
         "plugin_run",
       ]),
     );
-    expect(operationalOnly.map((c) => c.key).sort()).toEqual(
-      ["automation_run", "notification", "plugin_run"].sort(),
+    expect(operationalOnly.map((c) => c.key).toSorted()).toEqual(
+      ["automation_run", "notification", "plugin_run"].toSorted(),
     );
 
     const empty = selectCollectors(new Set());
@@ -71,8 +71,8 @@ describe("collectAuditProjection", () => {
         "plugin_run",
       ]),
     );
-    expect(selected.map((c) => c.key).sort()).toEqual(
-      ["automation_run", "notification", "plugin_run"].sort(),
+    expect(selected.map((c) => c.key).toSorted()).toEqual(
+      ["automation_run", "notification", "plugin_run"].toSorted(),
     );
   });
 });

@@ -63,7 +63,7 @@ import {
  */
 function repairOutcomeToHttpResponse(
   result: RepairScheduledOccurrenceOutcome,
-  actorId: string,
+  _actorId: string,
 ): { statusCode: number; body: unknown } {
   switch (result.outcome) {
     case "repaired":

@@ -607,7 +607,7 @@ describe("v0.28-T1: detectIdCollisions (within + cross-plugin)", () => {
     const loaded = pluginManager.getLoadedPlugins().filter((p) => !p.error);
     expect(loaded).toHaveLength(1);
     // readdir order is filesystem-dependent; pin exactly one of {aa,bb} fails, the other loads (not which).
-    expect([errored[0].id, loaded[0].id].sort()).toEqual(["aa", "bb"]);
+    expect([errored[0].id, loaded[0].id].toSorted()).toEqual(["aa", "bb"]);
     await cleanup(tmpDir);
   });
 
@@ -645,7 +645,7 @@ describe("v0.28-T1: detectIdCollisions (within + cross-plugin)", () => {
       loaded
         .map((p) => p.id)
         .slice()
-        .sort(),
+        .toSorted(),
     ).toEqual(["aa", "bb"]);
     await cleanup(tmpDir);
   });
@@ -693,7 +693,7 @@ describe("v0.28-T1: detectIdCollisions (within + cross-plugin)", () => {
       loaded
         .map((p) => p.id)
         .slice()
-        .sort(),
+        .toSorted(),
     ).toEqual(["aa", "bb"]);
     await cleanup(tmpDir);
   });
@@ -723,7 +723,7 @@ describe("v0.28-T1: detectIdCollisions (within + cross-plugin)", () => {
     expect(errored[0].error).toBe('formatId "shared-fmt" already registered by another plugin');
     const loaded = pluginManager.getLoadedPlugins().filter((p) => !p.error);
     expect(loaded).toHaveLength(1);
-    expect([errored[0].id, loaded[0].id].sort()).toEqual(["aa", "bb"]);
+    expect([errored[0].id, loaded[0].id].toSorted()).toEqual(["aa", "bb"]);
     await cleanup(tmpDir);
   });
 
@@ -752,7 +752,7 @@ describe("v0.28-T1: detectIdCollisions (within + cross-plugin)", () => {
     expect(errored[0].error).toBe('conditionId "shared-cond" already registered by another plugin');
     const loaded = pluginManager.getLoadedPlugins().filter((p) => !p.error);
     expect(loaded).toHaveLength(1);
-    expect([errored[0].id, loaded[0].id].sort()).toEqual(["aa", "bb"]);
+    expect([errored[0].id, loaded[0].id].toSorted()).toEqual(["aa", "bb"]);
     await cleanup(tmpDir);
   });
 
@@ -781,7 +781,7 @@ describe("v0.28-T1: detectIdCollisions (within + cross-plugin)", () => {
     expect(errored[0].error).toBe('actionId "shared-act" already registered by another plugin');
     const loaded = pluginManager.getLoadedPlugins().filter((p) => !p.error);
     expect(loaded).toHaveLength(1);
-    expect([errored[0].id, loaded[0].id].sort()).toEqual(["aa", "bb"]);
+    expect([errored[0].id, loaded[0].id].toSorted()).toEqual(["aa", "bb"]);
     await cleanup(tmpDir);
   });
 
@@ -810,7 +810,7 @@ describe("v0.28-T1: detectIdCollisions (within + cross-plugin)", () => {
     expect(errored[0].error).toBe('provider "github" already registered by another plugin');
     const loaded = pluginManager.getLoadedPlugins().filter((p) => !p.error);
     expect(loaded).toHaveLength(1);
-    expect([errored[0].id, loaded[0].id].sort()).toEqual(["aa", "bb"]);
+    expect([errored[0].id, loaded[0].id].toSorted()).toEqual(["aa", "bb"]);
     await cleanup(tmpDir);
   });
 
@@ -885,7 +885,7 @@ describe("v0.28-T1: detectIdCollisions (within + cross-plugin)", () => {
     expect(errored[0].error).toBe('route "GET /shared-route" already registered by another plugin');
     const loaded = pluginManager.getLoadedPlugins().filter((p) => !p.error);
     expect(loaded).toHaveLength(1);
-    expect([errored[0].id, loaded[0].id].sort()).toEqual(["aa", "bb"]);
+    expect([errored[0].id, loaded[0].id].toSorted()).toEqual(["aa", "bb"]);
     await cleanup(tmpDir);
   });
 

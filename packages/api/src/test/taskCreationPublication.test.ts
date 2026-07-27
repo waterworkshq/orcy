@@ -250,7 +250,7 @@ describe("T6P1 happy path — interactive publication commits via the kernel cha
     expectCreatedRecovering(result);
 
     expect(result.publication.subtasks).toHaveLength(2);
-    expect(result.publication.subtasks.map((s) => s.title).sort()).toEqual(["child-a", "child-b"]);
+    expect(result.publication.subtasks.map((s) => s.title).toSorted()).toEqual(["child-a", "child-b"]);
     expect(result.publication.dependencies).toHaveLength(1);
     expect(result.publication.dependencies[0].dependsOnId).toBe(depTarget.id);
   });
@@ -616,7 +616,7 @@ describe("T6P1 dormancy — legacy createTask stays the active production path",
 function stableStringify(value: unknown): string {
   if (value === null || typeof value !== "object") return JSON.stringify(value);
   if (Array.isArray(value)) return `[${value.map(stableStringify).join(",")}]`;
-  const keys = Object.keys(value as Record<string, unknown>).sort();
+  const keys = Object.keys(value as Record<string, unknown>).toSorted();
   return `{${keys
     .map((k) => `${JSON.stringify(k)}:${stableStringify((value as Record<string, unknown>)[k])}`)
     .join(",")}}`;
@@ -635,16 +635,16 @@ function computeFingerprintViaAdapter(input: PublishTaskCreationInput): string {
     title: input.title,
     description: input.description ?? "",
     priority: input.priority ?? "medium",
-    labels: [...(input.labels ?? [])].sort(),
+    labels: [...(input.labels ?? [])].toSorted(),
     requiredDomain: input.requiredDomain ?? null,
-    requiredCapabilities: [...(input.requiredCapabilities ?? [])].sort(),
+    requiredCapabilities: [...(input.requiredCapabilities ?? [])].toSorted(),
     estimatedMinutes: input.estimatedMinutes ?? null,
     subtasks: (input.subtasks ?? []).map((s, i) => ({
       title: s.title,
       order: s.order ?? i,
       assigneeId: s.assigneeId ?? null,
     })),
-    selectedDependencies: (input.selectedDependencies ?? []).map((d) => d.dependsOnId).sort(),
+    selectedDependencies: (input.selectedDependencies ?? []).map((d) => d.dependsOnId).toSorted(),
     assignment:
       input.assignment.kind === "auto"
         ? { kind: "auto" }

@@ -134,7 +134,7 @@ function createChainedCreateTaskRule(
     enabled: true,
     createdBy: "test",
   });
-  const rule = ruleRepo.getEnabledRulesByHabitatAndTrigger(habitatId, "task.created").reverse()[0];
+  const rule = ruleRepo.getEnabledRulesByHabitatAndTrigger(habitatId, "task.created").toReversed()[0];
   return { ruleId: rule.id, action: rule.actions[0] as { type: "create_task"; title: string } };
 }
 
@@ -454,8 +454,8 @@ describe("T8B P1 capstone — live A→B→A cycle proof (discriminating)", () =
         .from(tasks)
         .all()
         .map((t) => t.id)
-        .sort(),
-    ).toEqual([seed.taskA.id, taskB!.id].sort());
+        .toSorted(),
+    ).toEqual([seed.taskA.id, taskB!.id].toSorted());
 
     void actionB;
     void actionA;

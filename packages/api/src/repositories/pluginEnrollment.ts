@@ -2,7 +2,6 @@ import { getDb } from "../db/index.js";
 import { pluginEnrollments } from "../db/schema/index.js";
 import type { PluginEnrollmentInsert, PluginEnrollmentRow } from "../db/schema/index.js";
 import { eq, and } from "drizzle-orm";
-import { isNull, isNotNull } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 import {
   repositoryCreateError,

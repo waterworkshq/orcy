@@ -565,7 +565,7 @@ function computeTriageFingerprint(scope: DerivedTriageScope): string {
 function stableStringify(value: unknown): string {
   if (value === null || typeof value !== "object") return JSON.stringify(value);
   if (Array.isArray(value)) return `[${value.map(stableStringify).join(",")}]`;
-  const keys = Object.keys(value as Record<string, unknown>).sort();
+  const keys = Object.keys(value as Record<string, unknown>).toSorted();
   return `{${keys
     .map((k) => `${JSON.stringify(k)}:${stableStringify((value as Record<string, unknown>)[k])}`)
     .join(",")}}`;
@@ -579,7 +579,7 @@ function stableHash(s: string): string {
 /** Recursively sorts an object's keys for deterministic fingerprinting. */
 function sortRecordKeys(record: Record<string, string>): Record<string, string> {
   const sorted: Record<string, string> = {};
-  for (const key of Object.keys(record).sort()) sorted[key] = record[key];
+  for (const key of Object.keys(record).toSorted()) sorted[key] = record[key];
   return sorted;
 }
 

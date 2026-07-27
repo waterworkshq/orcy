@@ -350,7 +350,7 @@ describe("publishTemplateAggregateWithClient — happy path", () => {
       .where(eq(taskWorkflowGates.workflowId, aggregate.workflow!.workflowId))
       .all();
     expect(gateRows).toHaveLength(2);
-    expect(gateRows.map((g) => g.gateType).sort()).toEqual(["on_approve", "on_complete"]);
+    expect(gateRows.map((g) => g.gateType).toSorted()).toEqual(["on_approve", "on_complete"]);
 
     // Usage count incremented.
     expect(templateUsageCount(template.id)).toBe(1);

@@ -9,15 +9,6 @@ import * as providerService from "../services/identityProviderService.js";
 import * as inviteService from "../services/remoteInviteService.js";
 import * as adminService from "../services/remoteAccessAdminService.js";
 import * as mcpConfigService from "../services/mcpConfigService.js";
-import type {
-  IdentityProviderKind,
-  ParticipantStanding,
-  RemoteActionScope,
-  RemoteGrantType,
-  RemoteGrantEligibilityMode,
-  RemoteGrantTargetType,
-  RemoteCredentialType,
-} from "@orcy/shared/types";
 
 const participantStandingSchema = z.enum([
   "local_member",
@@ -43,7 +34,7 @@ const remoteGrantTypeSchema = z.enum([
 ]);
 const remoteGrantEligibilityModeSchema = z.enum(["allowlist", "rule_based"]);
 const remoteGrantTargetTypeSchema = z.enum(["habitat", "mission", "task"]);
-const remoteRevocationModeSchema = z.enum(["soft", "hard", "freeze"]);
+
 const remoteCredentialTypeSchema = z.enum(["api", "mcp"]);
 const identityProviderKindSchema = z.enum(["github", "oidc"]);
 const mcpClientIdSchema = z.enum([

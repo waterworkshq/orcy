@@ -123,5 +123,5 @@ function groupByRelease(findings: FindingTriageView[]): BacklogGroup[] {
   }
   return [...map.entries()]
     .map(([targetRelease, items]) => ({ targetRelease, findings: items }))
-    .sort((a, b) => a.targetRelease.localeCompare(b.targetRelease));
+    .toSorted((a, b) => a.targetRelease.localeCompare(b.targetRelease));
 }

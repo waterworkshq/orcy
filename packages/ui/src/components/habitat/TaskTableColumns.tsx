@@ -1,6 +1,5 @@
 import * as React from "react";
 import { type ColumnDef } from "@tanstack/react-table";
-import { shallow } from "zustand/shallow";
 import { Badge } from "../ui/Badge.js";
 import { AgentAvatar } from "./AgentAvatar.js";
 import { PRIORITY_VARIANT, TASK_STATUS_VARIANT, formatMinutes } from "../../lib/formatting.js";

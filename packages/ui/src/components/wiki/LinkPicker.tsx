@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Link2, Link2Off, Plus, Loader2, AlertTriangle, X } from "lucide-react";
+import { Link2, Link2Off, Plus, Loader2, X } from "lucide-react";
 import { wikiApi } from "../../api/domains/wiki.js";
 import { queryKeys } from "../../lib/queryKeys.js";
 import { notify } from "../../lib/toast.js";

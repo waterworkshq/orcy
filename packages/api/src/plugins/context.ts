@@ -7,7 +7,6 @@ import type {
   TaskWriter,
   NotificationSender,
   WebhookCaller,
-  WebhookCallResult,
   HabitatReader,
   ChatIntegrationView,
   ChatIntegrationReader,
@@ -479,7 +478,7 @@ function buildWebhookCaller(
           { pluginId, runId, url, err: message },
           "plugin.webhookCaller: call failed",
         );
-        throw new Error(`Webhook call to ${url} failed: ${message}`);
+        throw new Error(`Webhook call to ${url} failed: ${message}`, { cause: err });
       }
     },
   };

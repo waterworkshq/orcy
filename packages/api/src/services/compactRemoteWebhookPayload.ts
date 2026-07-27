@@ -136,7 +136,7 @@ function stableStringify(value: unknown): string {
     return "[" + value.map(stableStringify).join(",") + "]";
   }
   const obj = value as Record<string, unknown>;
-  const keys = Object.keys(obj).sort();
+  const keys = Object.keys(obj).toSorted();
   const parts = keys.map((k) => JSON.stringify(k) + ":" + stableStringify(obj[k]));
   return "{" + parts.join(",") + "}";
 }

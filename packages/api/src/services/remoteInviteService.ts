@@ -1,6 +1,6 @@
 import { createHash, randomBytes } from "crypto";
 import { v4 as uuid } from "uuid";
-import type { RemoteInviteType, ParticipantStanding, RemoteActionScope } from "@orcy/shared/types";
+import type { ParticipantStanding, RemoteActionScope } from "@orcy/shared/types";
 import * as inviteRepo from "../repositories/remoteInvite.js";
 import type { RemoteInviteRow } from "../repositories/remoteInvite.js";
 import * as podRepo from "../repositories/remotePod.js";

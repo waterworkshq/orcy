@@ -77,7 +77,7 @@ import { eq } from "drizzle-orm";
 import { getDb } from "../db/index.js";
 import { agentOrHumanAuth } from "../middleware/auth.js";
 import { requireMissionAccess } from "../middleware/team.js";
-import { forbidden, notFound, serviceUnavailable, unprocessableEntity } from "../errors.js";
+import { forbidden, notFound, unprocessableEntity } from "../errors.js";
 import { taskPublicationSchema, type TaskPublicationInput } from "../models/schemas.js";
 import { publishTaskCreation } from "../services/taskCreationPublication.js";
 import * as missionRepo from "../repositories/mission.js";

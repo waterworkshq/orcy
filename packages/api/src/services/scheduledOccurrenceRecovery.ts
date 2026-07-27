@@ -478,7 +478,7 @@ export function recoverExpiredOccurrenceLeases(
       // attempts all terminalized atomically). The returned row reflects
       // the rejection.
       void rejectedRow; // the authoritative row is re-read below.
-      const rejected = getOccurrenceWithClient(db, reclaimed.id) ?? reclaimed;
+      
       result.exhausted++;
       result.terminalized++;
       result.details.push({

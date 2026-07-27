@@ -1,4 +1,3 @@
-import type { MessageClient } from "../api/interfaces.js";
 import type { Tool } from '@modelcontextprotocol/sdk/types.js';
 import type { KanbanApiClient } from '../api.js';
 import type { Agent } from '@orcy/shared';

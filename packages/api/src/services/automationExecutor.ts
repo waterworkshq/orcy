@@ -14,13 +14,10 @@ import { renderTemplate } from "./automationTemplateRenderer.js";
 import { enqueueNotificationForRecipients } from "./notificationCommandService.js";
 import * as pulseRepo from "../repositories/pulse.js";
 import * as taskRepo from "../repositories/task.js";
-import * as missionRepo from "../repositories/mission.js";
 import * as runRepo from "../repositories/automationRuleRun.js";
-import * as ruleRepo from "../repositories/automationRule.js";
 import * as taskReviewerRepo from "../repositories/taskReviewer.js";
 import { claimTask } from "./tasks/task-lifecycle.js";
 import { assignReviewers } from "./reviewAssignmentService.js";
-import type { AssignResult } from "./autoAssignService.js";
 import { logger } from "../lib/logger.js";
 import { executeCreateTaskViaPublication } from "./automationTaskPublication.js";
 
@@ -673,7 +670,7 @@ export async function executeAndRecordRuleRun(
     });
     notifyAutomationRunCompleted({ run, rule, outcome: result.status, habitatId });
     return { run, outcome: result.status };
-  } catch (err) {
+  } catch  {
     runRepo.finishRuleRun(run.id, { status: "failed" });
     notifyAutomationRunCompleted({ run, rule, outcome: "failed", habitatId });
     return { run, outcome: "failed" };

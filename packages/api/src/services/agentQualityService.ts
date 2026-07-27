@@ -3,7 +3,6 @@ import { getDb } from "../db/index.js";
 import {
   agents,
   codeEvidenceCompleteness,
-  codeEvidenceGaps,
   codeEvidenceLinks,
   missions,
   taskEvents,

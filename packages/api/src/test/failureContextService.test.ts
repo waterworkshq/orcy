@@ -359,7 +359,7 @@ describe("failureContextService", () => {
 
       const ctx = buildFailureContext(task.id, "manual")!;
       // When timestamps tie (same millisecond), order is non-deterministic — assert presence.
-      const actions = ctx.bundle.recentLifecycleEvents.map((e) => e.action).sort();
+      const actions = ctx.bundle.recentLifecycleEvents.map((e) => e.action).toSorted();
       expect(actions).toEqual(["claimed", "started"]);
     });
 

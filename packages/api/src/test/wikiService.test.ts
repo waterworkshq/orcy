@@ -171,7 +171,7 @@ describe("wikiService.listPages", () => {
     wikiService.createPage(habitat.id, { title: "A", content: "" }, "human-1");
     const b = wikiService.createPage(habitat.id, { title: "B", content: "" }, "human-1");
     const list = wikiService.listPages(habitat.id, { parentId: null });
-    expect(list.map((p) => p.id).sort()).toEqual([b.id, list[0].id].sort());
+    expect(list.map((p) => p.id).toSorted()).toEqual([b.id, list[0].id].toSorted());
     expect(list.every((p) => p.parentId === null)).toBe(true);
   });
 });
@@ -648,7 +648,7 @@ describe("wikiService.saveVersion", () => {
 
     const versions = wikiPageVersionRepo.listByPage(page.id);
     expect(versions).toHaveLength(4);
-    expect(versions.map((v) => v.versionNumber).sort((a, b) => a - b)).toEqual([1, 2, 3, 4]);
+    expect(versions.map((v) => v.versionNumber).toSorted((a, b) => a - b)).toEqual([1, 2, 3, 4]);
     const v4Row = versions.find((v) => v.versionNumber === 4)!;
     expect(v4Row.title).toBe("V4");
     expect(v4Row.content).toBe("body v4");

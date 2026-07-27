@@ -214,7 +214,7 @@ describe("automation schema - automation_rules", () => {
       .all();
 
     expect(rows).toHaveLength(2);
-    expect(rows.map((r) => r.name).sort()).toEqual(["R1", "R2"]);
+    expect(rows.map((r) => r.name).toSorted()).toEqual(["R1", "R2"]);
   });
 
   it("cascades delete with habitat", () => {

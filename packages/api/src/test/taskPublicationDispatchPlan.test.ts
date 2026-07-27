@@ -228,8 +228,8 @@ describe("T11 default creation dispatch plan — envelope shape", () => {
     // `input.dispatchPlan ?? []` and no caller supplied a plan.
     expect(outcome.publication.dispatchTargets).toHaveLength(6);
 
-    const kinds = outcome.publication.dispatchTargets.map((t) => t.targetKind).sort();
-    expect(kinds).toEqual([...CREATION_TARGET_KINDS].sort());
+    const kinds = outcome.publication.dispatchTargets.map((t) => t.targetKind).toSorted();
+    expect(kinds).toEqual([...CREATION_TARGET_KINDS].toSorted());
 
     for (const target of outcome.publication.dispatchTargets) {
       expect(target.targetKey).toBe(habitatId);
