@@ -204,7 +204,7 @@ import type {
   CommitAuthorizationDenialKind,
 } from "./taskPublicationGuardVerify.js";
 import type { PublicationError } from "./taskPublicationPreparation.js";
-import { stableStringify, stableHash } from "@orcy/shared";
+import { stableStringify, stableHash, substituteTokens } from "@orcy/shared";
 
 // ---------------------------------------------------------------------------
 // Re-exports (origin-neutral types the envelope carries)
@@ -264,27 +264,8 @@ const OCCURRENCE_CAUSAL_ROOT_TYPE = "scheduled_occurrence";
 const OCCURRENCE_SCOPE_KIND = "scheduled_occurrence";
 
 // ---------------------------------------------------------------------------
-// Token resolution (inlined — mirrors the publisher's discipline)
+// Token resolution: imported from @orcy/shared (substituteTokens)
 // ---------------------------------------------------------------------------
-
-/**
- * Replaces `{{date}}` (YYYY-MM-DD in the schedule's timezone) and
- * `{{counter}}` tokens. Inlined here (NOT imported from
- * `scheduledOccurrencePublication`) to keep the retry path self-contained
- * (the publisher is the precedent, not a dependency). The retry MUST use
- * the occurrence's preserved `scheduledFor` instant (T9A-06 — a retry
- * days after the original firing renders the SAME date so the fingerprint
- * is stable under the same rendered payload).
- */
-function substituteTokens(
-  template: string,
-  context: { runCount: number; timezone: string; scheduledFor: string },
-): string {
-  const date = new Intl.DateTimeFormat("en-CA", {
-    timeZone: context.timezone,
-  }).format(new Date(context.scheduledFor));
-  return template.replaceAll("{{date}}", date).replaceAll("{{counter}}", String(context.runCount));
-}
 
 // ---------------------------------------------------------------------------
 // Request fingerprint (inlined — mirrors the publisher's discipline)
@@ -638,7 +619,8 @@ function buildRetryHistoryParticipant(
       affected = db.get<{ n: number }>(sql`SELECT changes() AS n`)?.n ?? 0;
     } catch (err) {
       throw new Error(
-        `repairScheduledOccurrence: failed to stamp retryHistory on occurrence "${occurrenceId}" inside the publication tx — the aggregate will roll back. Cause: ${(err as Error).message}`, { cause: err },
+        `repairScheduledOccurrence: failed to stamp retryHistory on occurrence "${occurrenceId}" inside the publication tx — the aggregate will roll back. Cause: ${(err as Error).message}`,
+        { cause: err },
       );
     }
     if (affected !== 1) {

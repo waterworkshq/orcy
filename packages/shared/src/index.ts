@@ -4,6 +4,7 @@ export type { OrcyConfig, OrcyRemoteConfig, AuthMode } from "./config.js";
 export { normalizeTaskId, normalizeMissionId } from "./id.js";
 export { parseDurationWindow } from "./duration.js";
 export { stableStringify, stableHash } from "./stableHash.js";
+export { substituteTokens } from "./scheduleTokens.js";
 export {
   parseVersion,
   classifyReleaseType,

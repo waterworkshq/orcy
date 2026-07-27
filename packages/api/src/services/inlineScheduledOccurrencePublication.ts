@@ -108,7 +108,7 @@ import type {
   CommitAuthorizationDenialKind,
 } from "./taskPublicationGuardVerify.js";
 import type { PublicationError } from "./taskPublicationPreparation.js";
-import { stableStringify, stableHash } from "@orcy/shared";
+import { stableStringify, stableHash, substituteTokens } from "@orcy/shared";
 
 // ---------------------------------------------------------------------------
 // Re-exports (origin-neutral types the envelope carries — parallel to the
@@ -154,23 +154,6 @@ const OCCURRENCE_SCOPE_KIND = "scheduled_occurrence";
 // same cross-midnight `scheduledFor` discipline — see
 // `scheduledOccurrencePublication.ts:608-646`) applies here.
 // ---------------------------------------------------------------------------
-
-/**
- * Replaces `{{date}}` (YYYY-MM-DD in the schedule's timezone) and
- * `{{counter}}` (the display counter) tokens. Inlined here (NOT imported)
- * because `scheduledOccurrencePublication.substituteTokens` is a private
- * helper. Identical implementation to the templateId path's
- * `substituteTokens` (T9A-06 cross-midnight `scheduledFor` discipline).
- */
-function substituteTokens(
-  template: string,
-  context: { runCount: number; timezone: string; scheduledFor: string },
-): string {
-  const date = new Intl.DateTimeFormat("en-CA", {
-    timeZone: context.timezone,
-  }).format(new Date(context.scheduledFor));
-  return template.replaceAll("{{date}}", date).replaceAll("{{counter}}", String(context.runCount));
-}
 
 // ---------------------------------------------------------------------------
 // Request fingerprint (the per-Task attempt reservation dedup key)

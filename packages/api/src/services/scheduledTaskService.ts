@@ -49,18 +49,8 @@ export {
   type ScheduledTaskHandlerResult,
   type ScheduledTaskHandler,
 } from "../repositories/scheduledHandlerRegistry.js";
-
-
-/** Replaces `{{date}}` and `{{counter}}` tokens in a template string using the schedule's timezone and run count. */
-export function substituteTokens(
-  template: string,
-  context: { runCount: number; timezone: string },
-): string {
-  const date = new Intl.DateTimeFormat("en-CA", {
-    timeZone: context.timezone,
-  }).format(new Date());
-  return template.replaceAll("{{date}}", date).replaceAll("{{counter}}", String(context.runCount));
-}
+import { substituteTokens } from "@orcy/shared";
+export { substituteTokens };
 
 /** Computes the next run timestamp for a schedule based on its type (cron, interval, or once). */
 export function calculateNextRun(

@@ -283,7 +283,7 @@ import type {
   CommitAuthorizationDenialKind,
 } from "./taskPublicationGuardVerify.js";
 import type { PublicationError } from "./taskPublicationPreparation.js";
-import { stableStringify, stableHash } from "@orcy/shared";
+import { stableStringify, stableHash, substituteTokens } from "@orcy/shared";
 
 // ---------------------------------------------------------------------------
 // Re-exports (origin-neutral types the envelope carries)
@@ -589,48 +589,8 @@ export function diffScheduleGuard(
 }
 
 // ---------------------------------------------------------------------------
-// Token resolution (inlined to avoid the scheduledTaskService module load)
+// Token resolution: imported from @orcy/shared (substituteTokens)
 // ---------------------------------------------------------------------------
-
-/**
- * Replaces `{{date}}` (YYYY-MM-DD in the schedule's timezone) and
- * `{{counter}}` (the display counter) tokens. Inlined here (NOT imported
- * from `scheduledTaskService`) to avoid pulling that module's handler-
- * registry + SSE/logger dependencies into the load graph — the same
- * layering discipline Phase 2 adopted for `calculateNextRun`.
- *
- * # T9A-06 — `{{date}}` token consistency (cross-midnight retry safety)
- *
- * `{{date}}` is formatted from the DURABLE `context.scheduledFor` instant
- * (the occurrence's due timestamp), NOT from wall-clock `new Date()`. A
- * retry/recovery that crosses midnight (a publication deferred to the next
- * day by a crash + T9B lease-recovery) would otherwise render a DIFFERENT
- * date under the same attempt keys → a different fingerprint →
- * `rejected_fingerprint` on a same-key retry (the very mismatch the plan
- * warns about). The plan (`technical-plan:344`) requires the original
- * `scheduledFor`/ordinal be preserved "for audit and token consistency."
- *
- * The legacy `scheduledTaskService.substituteTokens` used `new Date()`
- * (wall-clock) — acceptable there because the legacy path advances the
- * schedule + renders + publishes synchronously in one tick. THIS adapter
- * separates reservation from publication by an unbounded interval (the
- * occurrence is reserved now, published when the scheduler picks it up —
- * possibly across a midnight boundary). The durable timestamp is the only
- * stable basis.
- *
- * `{{counter}}` (= `ordinal + 1`) was already durable (Phase 2 stores the
- * ordinal on the occurrence row); T9A-06 brings `{{date}}` to the same
- * standard.
- */
-function substituteTokens(
-  template: string,
-  context: { runCount: number; timezone: string; scheduledFor: string },
-): string {
-  const date = new Intl.DateTimeFormat("en-CA", {
-    timeZone: context.timezone,
-  }).format(new Date(context.scheduledFor));
-  return template.replaceAll("{{date}}", date).replaceAll("{{counter}}", String(context.runCount));
-}
 
 // ---------------------------------------------------------------------------
 // Request fingerprint (the per-Task attempt reservation dedup key)
