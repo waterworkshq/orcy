@@ -2,6 +2,29 @@
 
 > Older releases: see [git tags](https://github.com/waterworkshq/orcy/tags) and [GitHub Releases](https://github.com/waterworkshq/orcy/releases).
 
+## 0.33.1 — 2026-07-27
+
+### Refactors
+
+#### resolve lint error and auto-fix 265 lint warnings ([`7c927b9`](https://github.com/waterworkshq/orcy/commit/7c927b9326e65dd3cbf16f41969a779f4a0a19d2))
+
+1. Fix the sole lint error (unicorn/no-useless-fallback-in-spread in
+2. importAttempts.ts:1067 — redundant ?? {} on a required field) and
+3. auto-fix 265 of 373 pre-existing lint warnings via oxlint --fix:
+
+5. 119x unicorn/no-array-sort: .sort() -> .toSorted()
+6. 136x eslint/no-unused-vars: removed unused imports and variables
+7. 5x unicorn/no-array-reverse: .reverse() -> .toReversed()
+8. 4x eslint/preserve-caught-error: added .cause to re-throws
+9. 1x unicorn/no-useless-fallback-in-spread (manual fix)
+
+11. Remaining 108 warnings are non-auto-fixable style rules
+12. (no-underscore-dangle, consistent-function-scoping, no-shadow) that
+13. require case-by-case treatment. All checks green: typecheck, build,
+14. 5612 tests, 0 lint errors.
+
+
+
 ## 0.33.0 — 2026-07-26
 
 ### Bug Fixes
@@ -1552,13 +1575,3 @@
 20. INITIALLY DEFERRED. The fix is small but out of M3's scope (route
 21. composition); M3 ships the round-trip test as describe.skip with a
 22. detailed annotation identifying the bug + the masking.
-
-
-
-## 0.31.10 — 2026-07-16
-
-### Refactors
-
-#### canonicalize feature to mission identifiers across UI and API ([`7623a6a`](https://github.com/waterworkshq/orcy/commit/7623a6a30cbc184e46897644d792a63122843a15))
-
-1. Rename the surviving feature-named identifiers to their canonical mission forms: FeatureCard to MissionCard, FeatureHeader to MissionHeader, onSelectFeature to onSelectMission, addFeatureDependency to addMissionDependency, featureId to missionId in API clients, topFeatures to topMissions (matching server return), makeFeature factories to makeMission, setFeature setters to setMission, ScheduledTaskForm labels and error messages, template variable feature_name to mission_name. G8 (global template name 'Feature') kept as a legitimate category label per user decision.
