@@ -87,7 +87,7 @@ Agent Request (any endpoint)
 **Using agent auth:**
 
 ```bash
-curl -H "X-Agent-API-Key: <uuid>-<32-hex-chars>" http://localhost:3000/api/boards/board-id/tasks
+curl -H "X-Agent-API-Key: <uuid>-<32-hex-chars>" http://localhost:3000/api/habitats/<habitat-id>/tasks
 ```
 
 ### 2. Human Authentication (JWT)

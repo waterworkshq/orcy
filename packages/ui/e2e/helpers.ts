@@ -36,7 +36,7 @@ export async function createHabitat(
   });
   const body = await res.json();
   return {
-    habitat: body.board ?? body.habitat,
+    habitat: body.habitat,
     columns: body.columns,
   };
 }
@@ -53,7 +53,7 @@ export async function createMission(
     headers: { Authorization: `Bearer ${token}` },
   });
   const body = await res.json();
-  return { mission: body.feature ?? body.mission };
+  return { mission: body.mission };
 }
 
 export async function archiveMission(
