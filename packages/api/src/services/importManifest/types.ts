@@ -209,6 +209,10 @@ export interface ColumnPortable {
   nextColumnName: string | null;
   /** Whether this column represents a terminal state (done / cancelled). */
   isTerminal: boolean;
+  /** Column policy: auto-advance tasks to the next column on completion. Defaults to false. */
+  autoAdvance?: boolean;
+  /** Column policy: require explicit claim before tasks are visible. Defaults to true. */
+  requiresClaim?: boolean;
 }
 
 /**

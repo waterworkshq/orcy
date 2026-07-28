@@ -69,6 +69,8 @@ export interface ValidatedColumn {
   wipLimit: number | null;
   nextColumnName: string | null;
   isTerminal: boolean;
+  autoAdvance?: boolean;
+  requiresClaim?: boolean;
 }
 
 /** The validated columns domain (the full array, post-shape-check). */
@@ -93,9 +95,11 @@ export interface PreparedColumn {
    *  server ID in resolveReferences). */
   nextColumnName: string | null;
   /** The resolved next-column server ID (null when `nextColumnName` is null
-   *  OR before resolveReferences runs). */
+   * OR before resolveReferences runs). */
   nextColumnServerId: string | null;
   isTerminal: boolean;
+  autoAdvance: boolean;
+  requiresClaim: boolean;
 }
 
 /** The prepared columns domain (the full array, post-prepare). */
@@ -256,6 +260,8 @@ export function validateColumns(
         wipLimit: (e.wipLimit ?? null) as number | null,
         nextColumnName: (e.nextColumnName ?? null) as string | null,
         isTerminal: e.isTerminal as boolean,
+        autoAdvance: e.autoAdvance as boolean | undefined,
+        requiresClaim: e.requiresClaim as boolean | undefined,
       });
     } else {
       errors.push(...errs);
@@ -367,6 +373,8 @@ export function prepareColumns(
       nextColumnName: col.nextColumnName,
       nextColumnServerId: null,
       isTerminal: col.isTerminal,
+      autoAdvance: col.autoAdvance ?? false,
+      requiresClaim: col.requiresClaim ?? true,
     };
   });
   return { columns };
@@ -498,7 +506,7 @@ export function applyColumns(
     // already satisfied (null OR present in `insertedIds`). Mutating
     // `remaining` via splice during the walk is safe because we bump `i`
     // only on skip.
-    for (let i = 0; i < remaining.length; ) {
+    for (let i = 0; i < remaining.length;) {
       const col = remaining[i];
       if (col.nextColumnServerId !== null && !insertedIds.has(col.nextColumnServerId)) {
         i++;
@@ -511,9 +519,8 @@ export function applyColumns(
           name: col.name,
           order: col.order,
           wipLimit: col.wipLimit,
-          // autoAdvance + requiresClaim are NOT in v3 portable (drift #2 —
-          // legacy v2 column-policy fields have no v3 slot). Apply schema
-          // defaults: `auto_advance = 0` (false), `requires_claim = 1` (true).
+          autoAdvance: col.autoAdvance ?? false,
+          requiresClaim: col.requiresClaim ?? true,
           nextColumnId: col.nextColumnServerId,
           isTerminal: col.isTerminal,
         })

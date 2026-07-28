@@ -898,19 +898,16 @@ describe("Edge cases", () => {
     ).toBeDefined();
   });
 
-  it("column with autoAdvance/requiresClaim true → policy fields warned + dropped", () => {
+  it("column with autoAdvance/requiresClaim true → policy fields carried through to v3", () => {
     const adapted = adaptV2(
       v2Fixture({
         columns: [v2Column({ name: "Auto", order: 0, autoAdvance: true, requiresClaim: true })],
       }),
     );
     const col = adapted.manifest.domains.columns?.data[0];
-    // v3 ColumnPortable has no autoAdvance/requiresClaim slots.
-    expect((col as unknown as Record<string, unknown>).autoAdvance).toBeUndefined();
-    expect((col as unknown as Record<string, unknown>).requiresClaim).toBeUndefined();
-    expect(
-      adapted.warnings.find((w) => w.includes("column 'Auto'") && w.includes("autoAdvance=true")),
-    ).toBeDefined();
+    // v3 ColumnPortable now carries autoAdvance/requiresClaim (IMP-2 fix).
+    expect(col?.autoAdvance).toBe(true);
+    expect(col?.requiresClaim).toBe(true);
   });
 
   it("template with requiredDomain/requiredCapabilities → task-level fields warned + dropped", () => {

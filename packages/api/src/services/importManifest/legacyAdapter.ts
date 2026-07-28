@@ -669,6 +669,8 @@ function adaptColumns(columnsRaw: unknown, warnings: string[]): ColumnPortable[]
       wipLimit,
       nextColumnName,
       isTerminal,
+      autoAdvance: autoAdvance ?? false,
+      requiresClaim: requiresClaim ?? true,
     });
   }
   return out;
