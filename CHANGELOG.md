@@ -2,6 +2,93 @@
 
 > Older releases: see [git tags](https://github.com/waterworkshq/orcy/tags) and [GitHub Releases](https://github.com/waterworkshq/orcy/releases).
 
+## 0.33.6 — 2026-07-28
+
+### Bug Fixes
+
+#### carry column policy fields through v3 import (IMP-2) ([`9199791`](https://github.com/waterworkshq/orcy/commit/9199791e1de93e1a92458892eff95149d2ae4f1f))
+
+1. v2 columns carry autoAdvance and requiresClaim policy fields. The legacy
+2. adapter was reading them, emitting a warning, then dropping them because
+3. ColumnPortable had no slots. The v2→v3→apply round-trip lost the column
+4. policy silently.
+
+6. Added autoAdvance/requiresClaim to ColumnPortable, ValidatedColumn, and
+7. PreparedColumn. The legacy adapter now populates them (defaulting to
+8. schema defaults). The apply handler writes them to the DB. Test updated
+9. to verify fields carry through instead of being warned + dropped.
+
+11. Schema already had the columns (auto_advance, requires_claim) — only
+12. the portable type and handlers were missing the fields.
+
+
+#### add missing material fields to publication fingerprints (CS-54) ([`4133ced`](https://github.com/waterworkshq/orcy/commit/4133ced4a1c0de050018403cb20b5903c44ceb6f))
+
+1. Publication fingerprints omitted material fields, allowing a crash +
+2. same-key retry with changed fields to silently replay the old outcome
+3. instead of rejecting with 'rejected_fingerprint'.
+
+5. Added to fingerprints:
+6. taskCreation: +targetedAssignmentDeadline
+7. automation: +targetedAssignmentDeadline
+8. recovery: +workflowId, +recoveryDepth, +failureContextId,
+9. +targetedAssignmentDeadline
+10. blocker: +targetedAssignmentDeadline
+
+12. Test helper computeFingerprintViaAdapter synced with the new field.
+
+
+#### close as-never type holes in system-origin publication adapters (CS-55) ([`f3ea9e9`](https://github.com/waterworkshq/orcy/commit/f3ea9e96da2295867854391db15ddb22dfe4f590))
+
+1. The recovering-replay path in 4 system-origin adapters (automation,
+2. plugin, recovery, blocker) fabricated an incomplete checkpoint
+3. ({ id: attemptId }) and erased the type mismatch with 'as never'. Any
+4. caller reading state/timestamps from the replay result got undefined.
+
+6. Now each adapter re-reads the full attempt row from the DB before
+7. constructing the CommittedPublication, eliminating the type hole. The
+8. interactive adapter already did this correctly — the system adapters
+9. now match its pattern.
+
+11. Also removed the outer 'as CommittedPublication' cast (no longer needed
+12. now that the type is genuine). taskCreationPublication.ts untouched
+13. (it already had the full attempt row).
+
+
+#### carry template task-level fields through v3 import + close wiki dedupe race (IMP-1, IMP-3) ([`e9bc943`](https://github.com/waterworkshq/orcy/commit/e9bc943c55a9e4280093576533465eb9b55efde7))
+
+
+
+### Refactors
+
+#### rename component prop 'feature' to 'mission' (CS-51) ([`8d4dc29`](https://github.com/waterworkshq/orcy/commit/8d4dc299856b67e3404e56ad9d70fd26fcb4539d))
+
+1. MissionCard, MissionHeader, PipelineContextSidebar, RiskAnalysisSidebar
+2. all used 'feature' as the prop name for MissionWithProgress despite the
+3. components being renamed to Mission* in v0.31.10. Renamed to 'mission'
+4. across all 4 component interfaces + their callers + 5 test files with
+5. mock updates.
+
+7. The data-testid 'feature-card-*' intentionally kept as-is (renaming
+8. would break e2e tests and has no user-facing benefit).
+
+
+#### remove unused preserveDomainTargets field (CS-58) ([`79738c9`](https://github.com/waterworkshq/orcy/commit/79738c99ab19e1a7d819c374c7811d0ce4b42758))
+
+1. The field was populated during preflight (materializing preserve-domain
+2. entity IDs from the existing-habitat snapshot) and threaded through
+3. ApplyContext, but NO handler ever read it. Preserve semantics use the
+4. envelope disposition directly (applyDomainDisposition checks
+5. 'disposition === "preserve"' and skips). Removed the type field,
+6. population code, threading, and 2 dedicated tests.
+
+8. -44 lines of dead code across 4 source files + 1 test file.
+
+
+#### rename legacy filenames featureService→missionService, featureCommentService→missionCommentService, event-board→event-habitat (CS-50, CS-63) ([`19e70d7`](https://github.com/waterworkshq/orcy/commit/19e70d7bf7d16d2de88eba29b68270361b02b8a8))
+
+
+
 ## 0.33.5 — 2026-07-28
 
 ### Refactors
@@ -83,39 +170,3 @@
 
 7. Resolved TG-17 — the dormancy inventory test was deleted during the
 8. cutover flag removal; the flag is gone, dormancy proof no longer needed.
-
-
-
-## 0.33.3 — 2026-07-27
-
-### Bug Fixes
-
-#### TG-15 — fix 15.1 (correct move endpoint), skip 15.3 (needs task lifecycle) ([`a0964d1`](https://github.com/waterworkshq/orcy/commit/a0964d15bb92ed410a438f74f0fe681ed64d7689))
-
-1. 15.1 fix: was using PATCH /missions/:id (doesn't fire mission.moved SSE).
-2. Switched to POST /missions/:id/move which fires mission.moved +
-3. mission.updated SSE events. Now passes.
-
-5. 15.3 skip: archive requires mission status 'done', but
-6. updateMissionSchema doesn't accept a status field — only the full
-7. task lifecycle (create → claim → start → submit → approve) can set
-8. it. The archive-specific SSE behavior is tested at unit level
-9. (projector.test.ts). Skipped with documented re-enable conditions.
-
-11. Final TG-15 status: 3 passed, 1 skipped, 0 failed.
-12. 15.1 ✅ mission move via API → SSE updates board position
-13. 15.2 ✅ mission create via API → SSE renders card without refresh
-14. 15.3 ⏭️ skipped (documented)
-15. 15.4 ✅ column reorder via API → SSE updates board order
-
-
-
-### Documentation
-
-#### reflect v0.33.1 + v0.33.2 delivery in ROADMAP and README ([`c68c904`](https://github.com/waterworkshq/orcy/commit/c68c90427d93bb271dc0406249c4bde0715b950d))
-
-
-
-### Features
-
-#### TG-15 real-browser UX smoke tests + fix SPA browser-crash in paths.ts ([`e38d7b9`](https://github.com/waterworkshq/orcy/commit/e38d7b90ca30ad744e04a633479e911806dcf890))
