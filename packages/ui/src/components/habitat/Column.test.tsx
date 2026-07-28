@@ -13,8 +13,8 @@ vi.mock("@dnd-kit/sortable", () => ({
 }));
 
 vi.mock("./MissionCard.js", () => ({
-  SortableMissionCard: ({ feature }: any) => (
-    <div data-testid={`feature-card-${feature.id}`}>{feature.title}</div>
+  SortableMissionCard: ({ mission }: any) => (
+    <div data-testid={`feature-card-${mission.id}`}>{mission.title}</div>
   ),
 }));
 
@@ -75,8 +75,8 @@ const mockFeatures: MissionWithProgress[] = [
     sprintId: null,
     releaseGateType: null,
     releaseGateVersion: null,
-  releaseDeadlineType: null,
-  releaseDeadlineVersion: null,
+    releaseDeadlineType: null,
+    releaseDeadlineVersion: null,
     progress: {
       total: 3,
       pending: 0,
@@ -118,8 +118,8 @@ const mockFeatures: MissionWithProgress[] = [
     sprintId: null,
     releaseGateType: null,
     releaseGateVersion: null,
-  releaseDeadlineType: null,
-  releaseDeadlineVersion: null,
+    releaseDeadlineType: null,
+    releaseDeadlineVersion: null,
     progress: {
       total: 2,
       pending: 0,

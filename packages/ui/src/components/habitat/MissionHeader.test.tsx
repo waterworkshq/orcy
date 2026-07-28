@@ -100,7 +100,7 @@ describe("MissionHeader", () => {
 
   it("renders feature title as h1", () => {
     const feature = makeMission({ id: "feat-1", title: "My Feature Title" });
-    renderWithRouter(<MissionHeader feature={feature} />);
+    renderWithRouter(<MissionHeader mission={feature} />);
 
     const h1 = screen.getByText("My Feature Title");
     expect(h1.tagName).toBe("SPAN");
@@ -109,7 +109,7 @@ describe("MissionHeader", () => {
 
   it("renders priority badge", () => {
     const feature = makeMission({ id: "feat-1", priority: "critical" });
-    renderWithRouter(<MissionHeader feature={feature} />);
+    renderWithRouter(<MissionHeader mission={feature} />);
 
     const badges = screen.getAllByTestId("badge");
     const priorityBadge = badges.find((b) => b.dataset.variant === "critical");
@@ -119,7 +119,7 @@ describe("MissionHeader", () => {
 
   it("renders status badge", () => {
     const feature = makeMission({ id: "feat-1", status: "in_progress" });
-    renderWithRouter(<MissionHeader feature={feature} />);
+    renderWithRouter(<MissionHeader mission={feature} />);
 
     const badges = screen.getAllByTestId("badge");
     const statusBadge = badges.find((b) => b.dataset.variant === "in_progress");
@@ -132,7 +132,7 @@ describe("MissionHeader", () => {
       id: "feat-1",
       labels: ["frontend", "bug", "urgent"],
     });
-    renderWithRouter(<MissionHeader feature={feature} />);
+    renderWithRouter(<MissionHeader mission={feature} />);
 
     expect(screen.getByText("frontend")).toBeTruthy();
     expect(screen.getByText("bug")).toBeTruthy();
@@ -141,7 +141,7 @@ describe("MissionHeader", () => {
 
   it("renders no labels section when labels empty", () => {
     const feature = makeMission({ id: "feat-1", labels: [] });
-    renderWithRouter(<MissionHeader feature={feature} />);
+    renderWithRouter(<MissionHeader mission={feature} />);
 
     expect(screen.queryByTestId("icon-tag")).toBeNull();
   });
@@ -151,7 +151,7 @@ describe("MissionHeader", () => {
       id: "feat-1",
       description: "# Heading\n\nSome **bold** text",
     });
-    renderWithRouter(<MissionHeader feature={feature} />);
+    renderWithRouter(<MissionHeader mission={feature} />);
 
     const markdown = screen.getByTestId("markdown");
     expect(markdown.textContent).toContain("Heading");
@@ -160,7 +160,7 @@ describe("MissionHeader", () => {
 
   it("renders no description when empty", () => {
     const feature = makeMission({ id: "feat-1", description: "" });
-    renderWithRouter(<MissionHeader feature={feature} />);
+    renderWithRouter(<MissionHeader mission={feature} />);
 
     expect(screen.queryByTestId("markdown")).toBeNull();
   });
@@ -170,7 +170,7 @@ describe("MissionHeader", () => {
       id: "feat-1",
       createdAt: new Date("2024-06-15T13:30:00Z").toISOString(),
     });
-    renderWithRouter(<MissionHeader feature={feature} />);
+    renderWithRouter(<MissionHeader mission={feature} />);
 
     expect(screen.getByText(/1h ago/)).toBeTruthy();
   });
@@ -180,7 +180,7 @@ describe("MissionHeader", () => {
       id: "feat-1",
       updatedAt: new Date("2024-06-15T14:00:00Z").toISOString(),
     });
-    renderWithRouter(<MissionHeader feature={feature} />);
+    renderWithRouter(<MissionHeader mission={feature} />);
 
     expect(screen.getByText(/Updated/)).toBeTruthy();
   });
@@ -190,28 +190,28 @@ describe("MissionHeader", () => {
       id: "feat-1",
       dueAt: new Date("2024-06-16T14:30:00Z").toISOString(),
     });
-    renderWithRouter(<MissionHeader feature={feature} />);
+    renderWithRouter(<MissionHeader mission={feature} />);
 
     expect(screen.getByText(/Due/)).toBeTruthy();
   });
 
   it("does not render due date when null", () => {
     const feature = makeMission({ id: "feat-1", dueAt: null });
-    renderWithRouter(<MissionHeader feature={feature} />);
+    renderWithRouter(<MissionHeader mission={feature} />);
 
     expect(screen.queryByText(/Due/)).toBeNull();
   });
 
   it("renders feature ID prefix", () => {
     const feature = makeMission({ id: "feat-abcdef12" });
-    renderWithRouter(<MissionHeader feature={feature} />);
+    renderWithRouter(<MissionHeader mission={feature} />);
 
     expect(screen.getByText(/ID: feat-abc/)).toBeTruthy();
   });
 
   it("renders back to habitat link", () => {
     const feature = makeMission({ id: "feat-1", habitatId: "board-42" });
-    renderWithRouter(<MissionHeader feature={feature} />);
+    renderWithRouter(<MissionHeader mission={feature} />);
 
     const backLink = screen.getByText("Back to Habitat").closest("a");
     expect(backLink?.getAttribute("href")).toBe("/habitats/board-42");
@@ -219,14 +219,14 @@ describe("MissionHeader", () => {
 
   it("applies cool-glow class", () => {
     const feature = makeMission({ id: "feat-1" });
-    const { container } = renderWithRouter(<MissionHeader feature={feature} />);
+    const { container } = renderWithRouter(<MissionHeader mission={feature} />);
 
     expect(container.querySelector(".cool-glow")).toBeTruthy();
   });
 
   it("renders done status badge correctly", () => {
     const feature = makeMission({ id: "feat-1", status: "done" });
-    renderWithRouter(<MissionHeader feature={feature} />);
+    renderWithRouter(<MissionHeader mission={feature} />);
 
     const badges = screen.getAllByTestId("badge");
     const statusBadge = badges.find((b) => b.dataset.variant === "done");
@@ -236,7 +236,7 @@ describe("MissionHeader", () => {
 
   it("renders failed status badge correctly", () => {
     const feature = makeMission({ id: "feat-1", status: "failed" });
-    renderWithRouter(<MissionHeader feature={feature} />);
+    renderWithRouter(<MissionHeader mission={feature} />);
 
     const badges = screen.getAllByTestId("badge");
     const statusBadge = badges.find((b) => b.dataset.variant === "failed");

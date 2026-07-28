@@ -120,8 +120,7 @@ describe("RiskAnalysisSidebar", () => {
   it("renders risk analysis header", () => {
     const feature = makeMission({ id: "feat-1" });
     render(
-      <RiskAnalysisSidebar
-        feature={feature}
+      <RiskAnalysisSidebar mission={feature}
         tasks={[]}
         events={[]}
         dependencies={{ dependsOn: [], blocks: [] }}
@@ -133,8 +132,7 @@ describe("RiskAnalysisSidebar", () => {
   it("renders projected impact section", () => {
     const feature = makeMission({ id: "feat-1" });
     render(
-      <RiskAnalysisSidebar
-        feature={feature}
+      <RiskAnalysisSidebar mission={feature}
         tasks={[]}
         events={[]}
         dependencies={{ dependsOn: [], blocks: [] }}
@@ -146,8 +144,7 @@ describe("RiskAnalysisSidebar", () => {
   it("renders critical blockers section with no blockers message", () => {
     const feature = makeMission({ id: "feat-1" });
     render(
-      <RiskAnalysisSidebar
-        feature={feature}
+      <RiskAnalysisSidebar mission={feature}
         tasks={[]}
         events={[]}
         dependencies={{ dependsOn: [], blocks: [] }}
@@ -169,8 +166,7 @@ describe("RiskAnalysisSidebar", () => {
       }),
     ];
     render(
-      <RiskAnalysisSidebar
-        feature={feature}
+      <RiskAnalysisSidebar mission={feature}
         tasks={tasks}
         events={[]}
         dependencies={{ dependsOn: [], blocks: [] }}
@@ -186,8 +182,7 @@ describe("RiskAnalysisSidebar", () => {
       makeEvent({ id: "evt-1", missionId: "feat-1", action: "created", actorType: "system" }),
     ];
     render(
-      <RiskAnalysisSidebar
-        feature={feature}
+      <RiskAnalysisSidebar mission={feature}
         tasks={[]}
         events={events}
         dependencies={{ dependsOn: [], blocks: [] }}
@@ -200,8 +195,7 @@ describe("RiskAnalysisSidebar", () => {
   it("renders configure gates button", () => {
     const feature = makeMission({ id: "feat-1" });
     render(
-      <RiskAnalysisSidebar
-        feature={feature}
+      <RiskAnalysisSidebar mission={feature}
         tasks={[]}
         events={[]}
         dependencies={{ dependsOn: [], blocks: [] }}
@@ -214,8 +208,7 @@ describe("RiskAnalysisSidebar", () => {
     const feature = makeMission({ id: "feat-1" });
     const tasks = [makeTask({ id: "t1", missionId: "feat-1", status: "failed" })];
     render(
-      <RiskAnalysisSidebar
-        feature={feature}
+      <RiskAnalysisSidebar mission={feature}
         tasks={tasks}
         events={[]}
         dependencies={{ dependsOn: [], blocks: [] }}
@@ -227,8 +220,7 @@ describe("RiskAnalysisSidebar", () => {
   it("shows no history message when events are empty", () => {
     const feature = makeMission({ id: "feat-1" });
     render(
-      <RiskAnalysisSidebar
-        feature={feature}
+      <RiskAnalysisSidebar mission={feature}
         tasks={[]}
         events={[]}
         dependencies={{ dependsOn: [], blocks: [] }}
@@ -240,8 +232,7 @@ describe("RiskAnalysisSidebar", () => {
   it("shows blocked dependencies count", () => {
     const feature = makeMission({ id: "feat-1" });
     render(
-      <RiskAnalysisSidebar
-        feature={feature}
+      <RiskAnalysisSidebar mission={feature}
         tasks={[]}
         events={[]}
         dependencies={{ dependsOn: ["feat-2"], blocks: [] }}

@@ -125,7 +125,7 @@ describe("PipelineContextSidebar", () => {
 
   it("renders pipeline context header", () => {
     const feature = makeMission({ id: "feat-1" });
-    render(<PipelineContextSidebar feature={feature} tasks={[]} />);
+    render(<PipelineContextSidebar mission={feature} tasks={[]} />);
     expect(screen.getByText("Pipeline Context")).toBeTruthy();
   });
 
@@ -135,7 +135,7 @@ describe("PipelineContextSidebar", () => {
       makeTask({ id: "t1", missionId: "feat-1", status: "done" }),
       makeTask({ id: "t2", missionId: "feat-1", status: "pending" }),
     ];
-    render(<PipelineContextSidebar feature={feature} tasks={tasks} />);
+    render(<PipelineContextSidebar mission={feature} tasks={tasks} />);
     expect(screen.getByText("50% OK")).toBeTruthy();
   });
 
@@ -147,7 +147,7 @@ describe("PipelineContextSidebar", () => {
       makeTask({ id: "t3", missionId: "feat-1", status: "pending", title: "Pending One" }),
       makeTask({ id: "t4", missionId: "feat-1", status: "done", title: "Done One" }),
     ];
-    render(<PipelineContextSidebar feature={feature} tasks={tasks} />);
+    render(<PipelineContextSidebar mission={feature} tasks={tasks} />);
     expect(screen.getAllByText("Active").length).toBeGreaterThanOrEqual(1);
     expect(screen.getByText("Awaiting Validation")).toBeTruthy();
     expect(screen.getAllByText("Pending").length).toBeGreaterThanOrEqual(1);
@@ -159,7 +159,7 @@ describe("PipelineContextSidebar", () => {
     const tasks = [
       makeTask({ id: "task-click", missionId: "feat-1", status: "pending", title: "Clickable" }),
     ];
-    render(<PipelineContextSidebar feature={feature} tasks={tasks} />);
+    render(<PipelineContextSidebar mission={feature} tasks={tasks} />);
     fireEvent.click(screen.getAllByText("Clickable")[0]);
     expect(mockOpenModal).toHaveBeenCalledWith("task-click");
   });
@@ -169,14 +169,14 @@ describe("PipelineContextSidebar", () => {
     const tasks = [
       makeTask({ id: "t1", missionId: "feat-1", status: "pending", priority: "critical" }),
     ];
-    render(<PipelineContextSidebar feature={feature} tasks={tasks} />);
+    render(<PipelineContextSidebar mission={feature} tasks={tasks} />);
     expect(screen.getByText("critical")).toBeTruthy();
   });
 
   it("renders task ID prefix", () => {
     const feature = makeMission({ id: "feat-1" });
     const tasks = [makeTask({ id: "task-abc123", missionId: "feat-1", status: "pending" })];
-    render(<PipelineContextSidebar feature={feature} tasks={tasks} />);
+    render(<PipelineContextSidebar mission={feature} tasks={tasks} />);
     expect(screen.getByText("#task")).toBeTruthy();
   });
 });

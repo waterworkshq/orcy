@@ -13,7 +13,7 @@ import type {
 } from '../../types/index.js';
 
 interface RiskAnalysisSidebarProps {
-  feature: MissionWithProgress;
+  mission: MissionWithProgress;
   tasks: Task[];
   events: MissionEvent[];
   dependencies: { dependsOn: string[]; blocks: string[] };
@@ -213,7 +213,7 @@ function HistoryTimeline({ events }: { events: MissionEvent[] }) {
 }
 
 export function RiskAnalysisSidebar({
-  feature: _feature,
+  mission: _mission,
   tasks,
   events,
   dependencies,

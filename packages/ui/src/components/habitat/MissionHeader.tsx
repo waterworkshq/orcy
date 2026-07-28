@@ -30,12 +30,12 @@ function statusBadgeVariant(status: string) {
 }
 
 interface MissionHeaderProps {
-  feature: MissionWithProgress;
+  mission: MissionWithProgress;
   onEdit?: () => void;
 }
 
-export function MissionHeader({ feature, onEdit }: MissionHeaderProps) {
-  const priorityVariant = feature.priority as "critical" | "high" | "medium" | "low";
+export function MissionHeader({ mission, onEdit }: MissionHeaderProps) {
+  const priorityVariant = mission.priority as "critical" | "high" | "medium" | "low";
 
   return (
     <div className="cool-glow px-6 py-4 border-b border-[var(--outline-variant)] bg-[var(--surface-container)]/40">
@@ -43,43 +43,43 @@ export function MissionHeader({ feature, onEdit }: MissionHeaderProps) {
         <div className="flex items-center justify-between">
           <div className="flex-1 min-w-0">
             <h1 className="text-xl font-bold font-headline flex items-center gap-3 text-[var(--on-surface)]">
-              <span className="truncate">{feature.title}</span>
-              <Badge variant={priorityVariant}>{feature.priority}</Badge>
-              <Badge variant={statusBadgeVariant(feature.status)}>
-                {formatStatus(feature.status)}
+              <span className="truncate">{mission.title}</span>
+              <Badge variant={priorityVariant}>{mission.priority}</Badge>
+              <Badge variant={statusBadgeVariant(mission.status)}>
+                {formatStatus(mission.status)}
               </Badge>
             </h1>
             <div className="flex items-center mt-1 text-[10px] text-[var(--on-surface-variant)] gap-3 uppercase tracking-tight">
-              <span>ID: {feature.id.slice(0, 8)}</span>
+              <span>ID: {mission.id.slice(0, 8)}</span>
               <span>\u2022</span>
               <span className="flex items-center gap-1">
                 <Calendar className="h-3 w-3" />
-                {formatRelativeTime(feature.createdAt)}
+                {formatRelativeTime(mission.createdAt)}
               </span>
-              {feature.dueAt && (
+              {mission.dueAt && (
                 <>
                   <span>\u2022</span>
                   <span className="flex items-center gap-1">
                     <Clock className="h-3 w-3" />
-                    Due {formatRelativeTime(feature.dueAt)}
+                    Due {formatRelativeTime(mission.dueAt)}
                   </span>
                 </>
               )}
               <span>\u2022</span>
               <span className="flex items-center gap-1">
                 <Clock className="h-3 w-3" />
-                Updated {formatRelativeTime(feature.updatedAt)}
+                Updated {formatRelativeTime(mission.updatedAt)}
               </span>
             </div>
-            {feature.description && (
+            {mission.description && (
               <div className="mt-2 text-sm text-[var(--on-surface-variant)] max-w-2xl leading-relaxed prose prose-invert prose-sm">
-                <Markdown>{feature.description}</Markdown>
+                <Markdown>{mission.description}</Markdown>
               </div>
             )}
-            {feature.labels.length > 0 && (
+            {mission.labels.length > 0 && (
               <div className="flex items-center gap-1.5 mt-2">
                 <Tag className="h-3 w-3 text-[var(--on-surface-variant)]" />
-                {feature.labels.map((label) => (
+                {mission.labels.map((label) => (
                   <span
                     key={label}
                     className="text-[10px] px-1.5 py-0.5 rounded bg-[var(--surface-container-high)] text-[var(--on-surface-variant)]"
@@ -97,7 +97,7 @@ export function MissionHeader({ feature, onEdit }: MissionHeaderProps) {
                 Edit
               </Button>
             )}
-            <Link to={`/habitats/${feature.habitatId}`}>
+            <Link to={`/habitats/${mission.habitatId}`}>
               <Button variant="ghost" size="sm">
                 <ArrowLeft className="h-4 w-4 mr-2" />
                 Back to Habitat

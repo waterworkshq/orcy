@@ -379,7 +379,7 @@ export function Habitat({
 
         <DragOverlay>
           {activeFeature && !isBulkSelectMode && (
-            <MissionCard feature={activeFeature} isDragOverlay />
+            <MissionCard mission={activeFeature} isDragOverlay />
           )}
         </DragOverlay>
       </DndContext>

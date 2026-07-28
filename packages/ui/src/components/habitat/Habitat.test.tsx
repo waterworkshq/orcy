@@ -231,8 +231,8 @@ vi.mock("./Column.js", () => ({
 }));
 
 vi.mock("./MissionCard.js", () => ({
-  MissionCard: ({ feature }: any) => (
-    <div data-testid={`feature-card-${feature.id}`}>{feature.title}</div>
+  MissionCard: ({ mission }: any) => (
+    <div data-testid={`feature-card-${mission.id}`}>{mission.title}</div>
   ),
 }));
 

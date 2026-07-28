@@ -130,7 +130,7 @@ export const Column = React.memo(function Column({ column, features, onSettingsC
             >
               <div className="flex flex-col gap-2">
                 {visibleFeatures.map((feature) => (
-                  <SortableMissionCard key={feature.id} feature={feature} />
+                  <SortableMissionCard key={feature.id} mission={feature} />
                 ))}
               </div>
             </SortableContext>

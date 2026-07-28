@@ -7,7 +7,7 @@ import { Circle, CheckCircle2, XCircle, Timer, Clock, AlertTriangle } from "luci
 import type { Task, MissionWithProgress } from "../../types/index.js";
 
 interface PipelineContextSidebarProps {
-  feature: MissionWithProgress;
+  mission: MissionWithProgress;
   tasks: Task[];
 }
 
@@ -91,7 +91,7 @@ function TaskListItem({ task }: { task: Task }) {
   );
 }
 
-export function PipelineContextSidebar({ feature: _feature, tasks }: PipelineContextSidebarProps) {
+export function PipelineContextSidebar({ mission: _mission, tasks }: PipelineContextSidebarProps) {
   const openModal = useModalStore((s) => s.openModal);
 
   const grouped = React.useMemo(() => {

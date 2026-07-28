@@ -167,10 +167,10 @@ export function MissionDetailPage() {
   return (
     <div className="h-full flex flex-col bg-[var(--surface)]">
       <div className="flex flex-1 min-h-0">
-        <PipelineContextSidebar feature={feature} tasks={tasks} />
+        <PipelineContextSidebar mission={feature} tasks={tasks} />
 
         <section className="flex-1 flex flex-col min-w-0">
-          <MissionHeader feature={feature} onEdit={() => setEditOpen(true)} />
+          <MissionHeader mission={feature} onEdit={() => setEditOpen(true)} />
 
           <div className="flex border-b border-[var(--outline-variant)] bg-[var(--surface-container)]/50">
             {tabs.map(({ key, label, icon: Icon }) => (
@@ -237,8 +237,7 @@ export function MissionDetailPage() {
           {activeTab === "tasks" && <CommentInputBar tasks={tasks} />}
         </section>
 
-        <RiskAnalysisSidebar
-          feature={feature}
+        <RiskAnalysisSidebar mission={feature}
           tasks={tasks}
           events={events}
           dependencies={dependencies}

@@ -17,7 +17,7 @@ import {
 } from "../../lib/formatting.js";
 
 interface MissionCardProps {
-  feature: MissionWithProgress;
+  mission: MissionWithProgress;
   isDragOverlay?: boolean;
 }
 
@@ -28,42 +28,42 @@ const priorityTooltip: Record<string, string> = {
   low: "Low priority",
 };
 
-function MissionCardInner({ feature, isDragOverlay }: MissionCardProps) {
+function MissionCardInner({ mission, isDragOverlay }: MissionCardProps) {
   const navigate = useNavigate();
   const isBulkSelectMode = useHabitatStore((s) => s.isBulkSelectMode);
   const selectedMissionIds = useHabitatStore((s) => s.selectedMissionIds);
   const toggleMissionSelection = useHabitatStore((s) => s.toggleMissionSelection);
-  const { data: tasksData } = useMissionTasks(feature.id);
+  const { data: tasksData } = useMissionTasks(mission.id);
   const tasks = tasksData?.tasks ?? [];
   const { data: agents = [] } = useAgents();
   const featureTaskIds = new Set(tasks.map((t: any) => t.id));
   const activeAgents = agents.filter(
     (a: any) => a.currentTaskId !== null && featureTaskIds.has(a.currentTaskId),
   );
-  const isSelected = selectedMissionIds.includes(feature.id);
+  const isSelected = selectedMissionIds.includes(mission.id);
   const [isHovered, setIsHovered] = useState(false);
   const [animKey, setAnimKey] = useState(0);
-  const prevColumnId = React.useRef(feature.columnId);
+  const prevColumnId = React.useRef(mission.columnId);
 
   useEffect(() => {
-    if (prevColumnId.current !== feature.columnId) {
-      prevColumnId.current = feature.columnId;
+    if (prevColumnId.current !== mission.columnId) {
+      prevColumnId.current = mission.columnId;
       setAnimKey((k) => k + 1);
     }
-  }, [feature.columnId]);
+  }, [mission.columnId]);
 
-  const completed = feature.progress.done + feature.progress.approved;
-  const total = feature.progress.total;
+  const completed = mission.progress.done + mission.progress.approved;
+  const total = mission.progress.total;
   const percentage = total > 0 ? Math.round((completed / total) * 100) : 0;
 
-  const borderClass = PRIORITY_BORDER_CLASS[feature.priority] ?? PRIORITY_BORDER_CLASS.medium;
+  const borderClass = PRIORITY_BORDER_CLASS[mission.priority] ?? PRIORITY_BORDER_CLASS.medium;
 
   function handleCardClick(e: React.MouseEvent) {
     if (isBulkSelectMode) {
       e.stopPropagation();
-      toggleMissionSelection(feature.id);
+      toggleMissionSelection(mission.id);
     } else if (!isDragOverlay) {
-      navigate(`/missions/${feature.id}`);
+      navigate(`/missions/${mission.id}`);
     }
   }
 
@@ -73,7 +73,7 @@ function MissionCardInner({ feature, isDragOverlay }: MissionCardProps) {
       onClick={handleCardClick}
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
-      data-testid={`feature-card-${feature.id}`}
+      data-testid={`feature-card-${mission.id}`}
       className={`group glass-card ${borderClass} p-3 hover:-translate-y-0.5 transition-colors transition-shadow duration-200 ease-out ${
         isDragOverlay ? "shadow-lg ring-2 ring-primary" : "animate-card-hover"
       } ${!isDragOverlay && animKey > 0 ? "animate-task-move" : ""} ${
@@ -86,18 +86,18 @@ function MissionCardInner({ feature, isDragOverlay }: MissionCardProps) {
             <input
               type="checkbox"
               checked={isSelected}
-              onChange={() => toggleMissionSelection(feature.id)}
+              onChange={() => toggleMissionSelection(mission.id)}
               onClick={(e) => e.stopPropagation()}
               className="h-5 w-5 flex-shrink-0 rounded border-[var(--outline-variant)] mobile-touch-target"
             />
           )}
           <span className="text-sm font-medium leading-tight truncate text-[var(--on-surface)]">
-            {feature.title}
+            {mission.title}
           </span>
         </div>
         <div className="flex items-center gap-2 flex-shrink-0">
           <span className="text-xs text-on-surface-variant font-label whitespace-nowrap">
-            {truncateId(feature.id, "FEAT")}
+            {truncateId(mission.id, "FEAT")}
           </span>
           {!isBulkSelectMode && !isDragOverlay && (
             <GripVertical className="h-4 w-4 cursor-grab text-[var(--on-surface-variant)] opacity-0 group-hover:opacity-100 touch-drag-handle transition-opacity" />
@@ -115,44 +115,44 @@ function MissionCardInner({ feature, isDragOverlay }: MissionCardProps) {
       )}
 
       <div className="flex items-center gap-1.5 mt-2">
-        <Tooltip content={priorityTooltip[feature.priority] ?? ""} position="top">
-          <Badge variant={PRIORITY_VARIANT[feature.priority] ?? "medium"}>{feature.priority}</Badge>
+        <Tooltip content={priorityTooltip[mission.priority] ?? ""} position="top">
+          <Badge variant={PRIORITY_VARIANT[mission.priority] ?? "medium"}>{mission.priority}</Badge>
         </Tooltip>
-        <Badge variant={FEATURE_STATUS_VARIANT[feature.status] ?? "pending"}>
-          {feature.status.replace("_", " ")}
+        <Badge variant={FEATURE_STATUS_VARIANT[mission.status] ?? "pending"}>
+          {mission.status.replace("_", " ")}
         </Badge>
-        {feature.sprintId && (
+        {mission.sprintId && (
           <span className="inline-flex items-center gap-0.5 rounded px-1 py-0.5 text-[10px] bg-violet-100 text-violet-700 dark:bg-violet-900 dark:text-violet-300">
             <span className="h-1.5 w-1.5 rounded-full bg-violet-500" />
-            {truncateId(feature.sprintId, "SPR")}
+            {truncateId(mission.sprintId, "SPR")}
           </span>
         )}
-        {(feature.releaseGateType || feature.releaseGateVersion) && (
+        {(mission.releaseGateType || mission.releaseGateVersion) && (
           <Tooltip
             content={`Gated — auto-promotes when target release ships${
-              feature.releaseGateVersion ? ` (${feature.releaseGateVersion})` : ""
+              mission.releaseGateVersion ? ` (${mission.releaseGateVersion})` : ""
             }`}
             position="top"
           >
             <span className="inline-flex items-center gap-0.5 rounded px-1 py-0.5 text-[10px] bg-amber-100 text-amber-700 dark:bg-amber-900 dark:text-amber-300">
               <Lock className="h-3 w-3" />
-              {feature.releaseGateVersion
-                ? `waits for ${feature.releaseGateVersion}`
-                : `waits for ${feature.releaseGateType}`}
+              {mission.releaseGateVersion
+                ? `waits for ${mission.releaseGateVersion}`
+                : `waits for ${mission.releaseGateType}`}
             </span>
           </Tooltip>
         )}
-        {(feature.releaseDeadlineType || feature.releaseDeadlineVersion) && (
+        {(mission.releaseDeadlineType || mission.releaseDeadlineVersion) && (
           <Tooltip
             content={`Deadline — should complete before this release ships (escalates on miss)${
-              feature.releaseDeadlineVersion ? ` (${feature.releaseDeadlineVersion})` : ""
+              mission.releaseDeadlineVersion ? ` (${mission.releaseDeadlineVersion})` : ""
             }`}
             position="top"
           >
             <span className="inline-flex items-center gap-0.5 rounded px-1 py-0.5 text-[10px] bg-indigo-100 text-indigo-700 dark:bg-indigo-900 dark:text-indigo-300">
-              {feature.releaseDeadlineVersion
-                ? `due before ${feature.releaseDeadlineVersion}`
-                : `due before ${feature.releaseDeadlineType}`}
+              {mission.releaseDeadlineVersion
+                ? `due before ${mission.releaseDeadlineVersion}`
+                : `due before ${mission.releaseDeadlineType}`}
             </span>
           </Tooltip>
         )}
@@ -180,9 +180,9 @@ function MissionCardInner({ feature, isDragOverlay }: MissionCardProps) {
           isHovered ? "max-h-40 opacity-100" : "max-h-0 opacity-0"
         }`}
       >
-        {feature.labels.length > 0 && (
+        {mission.labels.length > 0 && (
           <div className="mb-2 flex flex-wrap gap-1">
-            {feature.labels.slice(0, 3).map((label) => (
+            {mission.labels.slice(0, 3).map((label) => (
               <span
                 key={label}
                 className="rounded bg-[var(--surface-container-high)] px-1.5 py-0.5 text-xs text-[var(--on-surface-variant)]"
@@ -190,26 +190,26 @@ function MissionCardInner({ feature, isDragOverlay }: MissionCardProps) {
                 {label}
               </span>
             ))}
-            {feature.labels.length > 3 && (
+            {mission.labels.length > 3 && (
               <span className="text-xs text-[var(--on-surface-variant)]">
-                +{feature.labels.length - 3}
+                +{mission.labels.length - 3}
               </span>
             )}
           </div>
         )}
 
-        {feature.dependsOn.length > 0 && (
+        {mission.dependsOn.length > 0 && (
           <div className="mb-2 flex items-center gap-1 text-xs text-[var(--on-surface-variant)]">
             <Link2 className="h-3 w-3" />
             <span>
-              {feature.dependsOn.length} dependency{feature.dependsOn.length > 1 ? "s" : ""}
+              {mission.dependsOn.length} dependency{mission.dependsOn.length > 1 ? "s" : ""}
             </span>
           </div>
         )}
 
-        {(feature.dueAt || feature.slaDeadlineAt) &&
+        {(mission.dueAt || mission.slaDeadlineAt) &&
           (() => {
-            const dd = formatDueDate(feature);
+            const dd = formatDueDate(mission);
             return dd ? (
               <div className={`flex items-center gap-1 text-xs mt-1 ${dd.color}`}>
                 {dd.icon}
@@ -224,9 +224,9 @@ function MissionCardInner({ feature, isDragOverlay }: MissionCardProps) {
 
 export const MissionCard = React.memo(MissionCardInner);
 
-export function SortableMissionCard({ feature }: { feature: MissionWithProgress }) {
+export function SortableMissionCard({ mission }: { mission: MissionWithProgress }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
-    id: feature.id,
+    id: mission.id,
   });
 
   const style = {
@@ -237,7 +237,7 @@ export function SortableMissionCard({ feature }: { feature: MissionWithProgress 
 
   return (
     <div ref={setNodeRef} style={style} {...attributes} {...listeners}>
-      <MissionCard feature={feature} />
+      <MissionCard mission={mission} />
     </div>
   );
 }

@@ -100,22 +100,22 @@ describe("MissionCard", () => {
   });
 
   it("renders title", () => {
-    render(<MissionCard feature={baseMission} />);
+    render(<MissionCard mission={baseMission} />);
     expect(screen.getByText("Test Feature")).toBeTruthy();
   });
 
   it("renders priority badge", () => {
-    render(<MissionCard feature={baseMission} />);
+    render(<MissionCard mission={baseMission} />);
     expect(screen.getByText("medium")).toBeTruthy();
   });
 
   it("renders status badge", () => {
-    render(<MissionCard feature={baseMission} />);
+    render(<MissionCard mission={baseMission} />);
     expect(screen.getByText("in progress")).toBeTruthy();
   });
 
   it("applies amber-slate border for medium priority", () => {
-    const { container } = render(<MissionCard feature={baseMission} />);
+    const { container } = render(<MissionCard mission={baseMission} />);
     const card = container.querySelector('[data-testid="feature-card-f1"]');
     expect(card).toBeTruthy();
     expect(card!.className).toContain("border-l-[var(--badge-medium)]");
@@ -123,21 +123,21 @@ describe("MissionCard", () => {
 
   it("applies desaturated crimson border for critical priority", () => {
     const feature = { ...baseMission, priority: "critical" as const };
-    const { container } = render(<MissionCard feature={feature} />);
+    const { container } = render(<MissionCard mission={feature} />);
     const card = container.querySelector('[data-testid="feature-card-f1"]');
     expect(card!.className).toContain("border-l-[var(--badge-critical)]");
   });
 
   it("applies slate rose border for high priority", () => {
     const feature = { ...baseMission, priority: "high" as const };
-    const { container } = render(<MissionCard feature={feature} />);
+    const { container } = render(<MissionCard mission={feature} />);
     const card = container.querySelector('[data-testid="feature-card-f1"]');
     expect(card!.className).toContain("border-l-[var(--badge-high)]");
   });
 
   it("applies slate border for low priority", () => {
     const feature = { ...baseMission, priority: "low" as const };
-    const { container } = render(<MissionCard feature={feature} />);
+    const { container } = render(<MissionCard mission={feature} />);
     const card = container.querySelector('[data-testid="feature-card-f1"]');
     expect(card!.className).toContain("border-l-[var(--badge-low)]");
   });
@@ -145,7 +145,7 @@ describe("MissionCard", () => {
   it("keeps high, medium, and low priority indicators visually distinct", () => {
     const priorities = ["high", "medium", "low"] as const;
     const classes = priorities.map((priority) => {
-      const { container, unmount } = render(<MissionCard feature={{ ...baseMission, priority }} />);
+      const { container, unmount } = render(<MissionCard mission={{ ...baseMission, priority }} />);
       const card = container.querySelector('[data-testid="feature-card-f1"]')!;
       const priorityClass = card.className
         .split(" ")
@@ -158,7 +158,7 @@ describe("MissionCard", () => {
   });
 
   it("uses glass-card base class", () => {
-    const { container } = render(<MissionCard feature={baseMission} />);
+    const { container } = render(<MissionCard mission={baseMission} />);
     const card = container.querySelector('[data-testid="feature-card-f1"]');
     expect(card!.className).toContain("glass-card");
   });
@@ -169,7 +169,7 @@ describe("MissionCard", () => {
       labels: ["bug", "ui"],
       dependsOn: ["f2"],
     };
-    const { container } = render(<MissionCard feature={feature} />);
+    const { container } = render(<MissionCard mission={feature} />);
     const details = container.querySelector(".max-h-0");
     expect(details).toBeTruthy();
     expect(details!.className).toContain("opacity-0");
@@ -180,7 +180,7 @@ describe("MissionCard", () => {
       ...baseMission,
       labels: ["bug"],
     };
-    const { container } = render(<MissionCard feature={feature} />);
+    const { container } = render(<MissionCard mission={feature} />);
     const card = container.querySelector('[data-testid="feature-card-f1"]')!;
     let details = container.querySelector(".max-h-0");
     expect(details).toBeTruthy();
@@ -202,21 +202,21 @@ describe("MissionCard", () => {
       ...baseMission,
       labels: ["bug", "ui", "perf"],
     };
-    const { container: _c1 } = render(<MissionCard feature={feature} />);
+    const { container: _c1 } = render(<MissionCard mission={feature} />);
     expect(screen.getByText("bug")).toBeTruthy();
     expect(screen.getByText("ui")).toBeTruthy();
     expect(screen.getByText("perf")).toBeTruthy();
   });
 
   it("shows progress bar in hover details", () => {
-    const { container } = render(<MissionCard feature={baseMission} />);
+    const { container } = render(<MissionCard mission={baseMission} />);
     const progressBar = container.querySelector(".bg-primary");
     expect(progressBar).toBeTruthy();
   });
 
   it("shows dependency count in hover details", () => {
     const feature = { ...baseMission, dependsOn: ["f2", "f3"] };
-    const { container } = render(<MissionCard feature={feature} />);
+    const { container } = render(<MissionCard mission={feature} />);
     const depEl = container.querySelector(".max-h-0 span");
     expect(depEl?.textContent).toContain("2 dependenc");
   });
@@ -224,7 +224,7 @@ describe("MissionCard", () => {
   it("shows due date in hover details when present", () => {
     const tomorrow = new Date(Date.now() + 86400000).toISOString();
     const feature = { ...baseMission, dueAt: tomorrow };
-    render(<MissionCard feature={feature} />);
+    render(<MissionCard mission={feature} />);
     expect(
       screen.getByText(/Tomorrow|Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec/),
     ).toBeTruthy();
@@ -232,7 +232,7 @@ describe("MissionCard", () => {
 
   it("navigates to feature detail page on click when not in bulk mode", () => {
     storeState = makeState();
-    const { container } = render(<MissionCard feature={baseMission} />);
+    const { container } = render(<MissionCard mission={baseMission} />);
     const card = container.querySelector('[data-testid="feature-card-f1"]')!;
     fireEvent.click(card);
     expect(mockNavigate).toHaveBeenCalledWith("/missions/f1");
@@ -240,7 +240,7 @@ describe("MissionCard", () => {
 
   it("does not navigate on click when isDragOverlay", () => {
     storeState = makeState();
-    const { container } = render(<MissionCard feature={baseMission} isDragOverlay />);
+    const { container } = render(<MissionCard mission={baseMission} isDragOverlay />);
     const card = container.querySelector('[data-testid="feature-card-f1"]')!;
     fireEvent.click(card);
     expect(mockNavigate).not.toHaveBeenCalled();
@@ -248,7 +248,7 @@ describe("MissionCard", () => {
 
   it("applies ring-2 ring-primary when selected", () => {
     storeState = makeState({ selectedMissionIds: ["f1"] });
-    const { container } = render(<MissionCard feature={baseMission} />);
+    const { container } = render(<MissionCard mission={baseMission} />);
     const card = container.querySelector('[data-testid="feature-card-f1"]');
     expect(card!.className).toContain("ring-2");
     expect(card!.className).toContain("ring-primary");
@@ -256,14 +256,14 @@ describe("MissionCard", () => {
 
   it("shows checkbox in bulk select mode", () => {
     storeState = makeState({ isBulkSelectMode: true });
-    const { container } = render(<MissionCard feature={baseMission} />);
+    const { container } = render(<MissionCard mission={baseMission} />);
     const checkbox = container.querySelector('input[type="checkbox"]');
     expect(checkbox).toBeTruthy();
   });
 
   it("renders truncated feature ID", () => {
     const feature = { ...baseMission, id: "feat-a72dc8e9-cd9b-489c-abe4-d0e0814c7225" };
-    const { container: _c2 } = render(<MissionCard feature={feature} />);
+    const { container: _c2 } = render(<MissionCard mission={feature} />);
     expect(screen.getByText("FEAT-a72dc8")).toBeTruthy();
   });
 
@@ -272,18 +272,18 @@ describe("MissionCard", () => {
     mockAgentsData = [
       { id: "agent-1", name: "Claude", type: "claude-code", currentTaskId: "task-1" },
     ];
-    render(<MissionCard feature={baseMission} />);
+    render(<MissionCard mission={baseMission} />);
     expect(screen.getByText("Processing...")).toBeTruthy();
   });
 
   it("does not show agent status when no agent is active", () => {
     storeState = makeState();
-    render(<MissionCard feature={baseMission} />);
+    render(<MissionCard mission={baseMission} />);
     expect(screen.queryByText("Processing...")).toBeNull();
   });
 
   it("progress bar is visible without hover", () => {
-    const { container } = render(<MissionCard feature={baseMission} />);
+    const { container } = render(<MissionCard mission={baseMission} />);
     const progressBar = container.querySelector(".bg-primary");
     expect(progressBar).toBeTruthy();
     const progressContainer = progressBar!.closest(".mt-2");
@@ -292,7 +292,7 @@ describe("MissionCard", () => {
   });
 
   it("applies hover:-translate-y-0.5 for hover animation", () => {
-    const { container } = render(<MissionCard feature={baseMission} />);
+    const { container } = render(<MissionCard mission={baseMission} />);
     const card = container.querySelector('[data-testid="feature-card-f1"]');
     expect(card!.className).toContain("hover:-translate-y-0.5");
     expect(card!.className).toContain("duration-200");
@@ -300,7 +300,7 @@ describe("MissionCard", () => {
   });
 
   it("card wrapper does not use transition-all", () => {
-    const { container } = render(<MissionCard feature={baseMission} />);
+    const { container } = render(<MissionCard mission={baseMission} />);
     const card = container.querySelector('[data-testid="feature-card-f1"]');
     expect(card!.className).not.toContain("transition-all");
     expect(card!.className).toContain("transition-colors");
@@ -308,7 +308,7 @@ describe("MissionCard", () => {
   });
 
   it("progress bar uses targeted transition-[width] instead of transition-all", () => {
-    const { container } = render(<MissionCard feature={baseMission} />);
+    const { container } = render(<MissionCard mission={baseMission} />);
     const progressBar = container.querySelector(".bg-primary");
     expect(progressBar).toBeTruthy();
     expect(progressBar!.className).not.toContain("transition-all");
@@ -317,7 +317,7 @@ describe("MissionCard", () => {
 
   it("details section uses targeted transition instead of transition-all", () => {
     const feature = { ...baseMission, labels: ["bug"] };
-    const { container } = render(<MissionCard feature={feature} />);
+    const { container } = render(<MissionCard mission={feature} />);
     const detailsDiv = container.querySelector(".transition-\\[max-height\\,opacity\\]");
     expect(detailsDiv).toBeTruthy();
     expect(detailsDiv!.className).not.toContain("transition-all");
@@ -332,7 +332,7 @@ describe("MissionCard", () => {
         ],
       };
       mockAgentsData = [];
-      const { container: _c3 } = render(<MissionCard feature={baseMission} />);
+      const { container: _c3 } = render(<MissionCard mission={baseMission} />);
       expect(screen.getByText("Test Feature")).toBeTruthy();
     });
 
@@ -344,7 +344,7 @@ describe("MissionCard", () => {
         { id: "agent-1", currentTaskId: "task-1" },
         { id: "agent-2", currentTaskId: "task-2" },
       ];
-      render(<MissionCard feature={baseMission} />);
+      render(<MissionCard mission={baseMission} />);
       expect(screen.getByText("Processing...")).toBeTruthy();
     });
 
@@ -353,7 +353,7 @@ describe("MissionCard", () => {
         tasks: [{ id: "task-1", missionId: "f1" }],
       };
       mockAgentsData = [{ id: "agent-2", currentTaskId: "task-2" }];
-      render(<MissionCard feature={baseMission} />);
+      render(<MissionCard mission={baseMission} />);
       expect(screen.queryByText("Processing...")).toBeNull();
     });
   });
@@ -374,10 +374,10 @@ describe("MissionCard", () => {
         ],
       };
 
-      const { rerender } = render(<TrackingMissionCard feature={baseMission} />);
+      const { rerender } = render(<TrackingMissionCard mission={baseMission} />);
       const countAfterFirstRender = renderSpy.mock.calls.length;
 
-      rerender(<TrackingMissionCard feature={baseMission} />);
+      rerender(<TrackingMissionCard mission={baseMission} />);
       expect(renderSpy.mock.calls.length).toBe(countAfterFirstRender + 1);
     });
 
@@ -391,11 +391,11 @@ describe("MissionCard", () => {
 
       storeState = makeState();
 
-      const { rerender } = render(<TrackingMissionCard feature={baseMission} />);
+      const { rerender } = render(<TrackingMissionCard mission={baseMission} />);
       const countAfterFirstRender = renderSpy.mock.calls.length;
 
       const updatedFeature = { ...baseMission, title: "Updated Title" };
-      rerender(<TrackingMissionCard feature={updatedFeature} />);
+      rerender(<TrackingMissionCard mission={updatedFeature} />);
       expect(renderSpy.mock.calls.length).toBeGreaterThan(countAfterFirstRender);
     });
 

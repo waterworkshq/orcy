@@ -61,7 +61,7 @@ vi.mock("./Column.js", () => ({
 }));
 
 vi.mock("./MissionCard.js", () => ({
-  MissionCard: ({ feature }: any) => <div data-testid={`feature-card-${feature.id}`} />,
+  MissionCard: ({ mission }: any) => <div data-testid={`feature-card-${mission.id}`} />,
 }));
 
 vi.mock("./ColumnSwiper.js", () => ({
@@ -377,9 +377,7 @@ describe("Habitat drag lifecycle (M9, m1)", () => {
     // The cleanup path must fire IMMEDIATELY (route through the same
     // cancelDragFor helper that handleDragCancel uses), not wait for the
     // user to manually end/cancel the gesture.
-    await vi.waitFor(() =>
-      expect(dragMoveResult.restorePreview).toHaveBeenCalledWith("m1"),
-    );
+    await vi.waitFor(() => expect(dragMoveResult.restorePreview).toHaveBeenCalledWith("m1"));
 
     // The DragOverlay content goes null (activeFeature cleared). Verified via
     // captured event handlers still being installed and no further restore
