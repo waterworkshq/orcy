@@ -2,6 +2,67 @@
 
 > Older releases: see [git tags](https://github.com/waterworkshq/orcy/tags) and [GitHub Releases](https://github.com/waterworkshq/orcy/releases).
 
+## 0.33.5 — 2026-07-28
+
+### Refactors
+
+#### extract stableStringify/stableHash to @orcy/shared (CS-57) ([`9ac22f0`](https://github.com/waterworkshq/orcy/commit/9ac22f027253633ff41e4a1f3b73e840799c2971))
+
+1. 14 production files + 1 test file had byte-identical copies of
+2. stableStringify (deterministic JSON serializer) and stableHash
+3. (SHA-256 hex). Extracted to @orcy/shared/src/stableHash.ts.
+
+5. 17 files changed: -236 lines of duplicated code, +38 lines (shared
+6. module + import sweep). taskPublicationGovernance.ts adapted:
+7. its variant stableHash(payload) that combined stringify+hash
+8. now calls stableHash(stableStringify(payload)).
+
+10. Net deletion: ~200 lines. MEMORY convention: 'Extract on 2+
+11. occurrence to @orcy/shared.'
+
+
+#### extract substituteTokens to @orcy/shared (CS-59) ([`159e144`](https://github.com/waterworkshq/orcy/commit/159e1446c0e5947b275190e73135dd5a09038473))
+
+1. 4 files had copies of substituteTokens ({{date}}/{{counter}} resolver).
+2. Extracted to @orcy/shared/src/scheduleTokens.ts with optional
+3. scheduledFor parameter (the publication modules pass a specific
+4. timestamp; the legacy scheduler uses now()).
+
+6. scheduledTaskService.ts re-exports from @orcy/shared for backward
+7. compat with its namespace import in tests.
+
+9. TG-16 reverted: corepack pnpm@9.0.0 broke compiledStartup in the
+10. test env. Left as deferred — needs a different approach.
+
+12. 7 files changed: -95 lines duplicated code.
+
+
+#### sweep stale DORMANT docstrings across publication kernel (CS-61, CS-65) ([`c13e715`](https://github.com/waterworkshq/orcy/commit/c13e7151af67e25deba6e390641585b568ad9a8e))
+
+1. 76 cutover-stale DORMANT references removed across 26 files in the
+2. publication kernel. The v0.32.0 cutover removed the feature flag and
+3. boot-wired all modules, but every docstring still said DORMANT as if
+4. the code wasn't active.
+
+6. Changes (comments only — zero code, type, or runtime changes):
+7. Removed (DORMANT) tags from file headers (17 files)
+8. Rewrote 'DORMANT: no production caller until T11' to active status
+9. Updated 'dormant wiring' to 'boot wiring'
+10. Updated 'dormant replacement for the legacy' to 'replacement for'
+11. Removed references to the removed cutover flag
+
+13. Preserved 5 legitimate runtime-state 'dormant' references:
+14. 'valid dormant state' (publication checkpoint)
+15. 'the dormant / not-yet-published case' (envelope condition)
+16. 'the dormant common case' (code path description)
+
+18. CS-65 (handler-key origin-matrix doc clarification) folded into the
+19. scheduledHandlerDispatch.ts docstring update within this sweep.
+
+21. All 5610 tests pass, typecheck clean.
+
+
+
 ## 0.33.4 — 2026-07-27
 
 ### Bug Fixes
@@ -58,19 +119,3 @@
 ### Features
 
 #### TG-15 real-browser UX smoke tests + fix SPA browser-crash in paths.ts ([`e38d7b9`](https://github.com/waterworkshq/orcy/commit/e38d7b90ca30ad744e04a633479e911806dcf890))
-
-
-
-## 0.33.2 — 2026-07-27
-
-### Chores
-
-#### bump TypeScript 6.0.3 -> 7.0.2 + Node engines >=22 -> >=24 ([`3567123`](https://github.com/waterworkshq/orcy/commit/35671239808542a5dcb141b315cc1508a77782f6))
-
-1. TypeScript 7.0 (native Go compiler, "Corsa") is stable on the main
-2. typescript package. The TS6 migration (v0.22.1) was the bridge that
-3. addressed every removed option; TS7 adoption is the version bump +
-4. verification. Zero code changes needed.
-
-6. Node engines floor raised from >=22 to >=24 to match CI (already
-7. running Node 24). This aligns the stated minimum with reality.
