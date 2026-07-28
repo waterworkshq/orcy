@@ -116,7 +116,8 @@
 import { v4 as uuid } from "uuid";
 import type { AuditActorRef, AuditSource, CausalContext, ClusterPayload } from "@orcy/shared";
 import { getDb } from "../db/index.js";
-import { triageClusterMissions } from "../db/schema/index.js";
+import { triageClusterMissions, taskCreationEnvelopes } from "../db/schema/index.js";
+import { eq } from "drizzle-orm";
 import { TRIAGE_MISSION_TEMPLATE_ID } from "../repositories/template.js";
 import * as triageResolutionsRepo from "../repositories/triageResolutions.js";
 import { reserveAttemptWithClient } from "../repositories/taskCreationAttempts.js";
@@ -822,18 +823,21 @@ export function publishTriageMission(
 
     // 2c. REPLAY of a RECOVERING per-Task attempt (post-publish, pre-
     //     terminalization). The aggregate already committed under this key
-    //     set; the adapter does NOT re-publish. For V1 dormancy, surface as
-    //     a `replayed` result carrying the recovering state — T11 refines the
-    //     reconstruction (the committed Mission + Tasks are read back from
-    //     the durable envelope rows when the scan needs them). The dispatcher
-    //     (T4A) + assignment coordinator (T5) advance the checkpoint; the
-    //     terminal `created` surfaces via same-key replay once they settle.
+    //     set; the adapter does NOT re-publish. Re-read the committed Task
+    //     from the durable envelope row so callers can recover the Mission
+    //     without waiting for terminalization.
     if (
       attempt.state === "published_pending_observation" ||
       attempt.state === "published_pending_assignment"
     ) {
+      const envelope = db
+        .select()
+        .from(taskCreationEnvelopes)
+        .where(eq(taskCreationEnvelopes.attemptId, attempt.id))
+        .all()[0];
       const terminal: AttemptTerminalResult = {
         outcome: attempt.state,
+        ...(envelope?.taskId ? { taskId: envelope.taskId } : {}),
       };
       return { outcome: "replayed", attemptId: attempt.id, terminal };
     }

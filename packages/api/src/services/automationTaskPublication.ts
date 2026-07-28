@@ -337,12 +337,13 @@ function mapToActionResult(
       };
     case "replayed": {
       // The terminal outcome is the source of truth for the prior run's
-      // disposition. created → succeeded; anything else → failed with the
-      // stored reason. The terminal carries `taskId` (stamped by the
-      // observation terminalizer — cold-review #2 M3) so the replay response
-      // links the caller to the committed Task.
+      // disposition. `created` and `created_unassigned` both represent a
+      // committed Task — the assignment refusal is a downstream outcome,
+      // not a creation failure. The terminal carries `taskId` (stamped by
+      // the observation terminalizer — cold-review #2 M3) so the replay
+      // response links the caller to the committed Task.
       const terminalOutcome = result.terminal.outcome;
-      if (terminalOutcome === "created") {
+      if (terminalOutcome === "created" || terminalOutcome === "created_unassigned") {
         return {
           actionType: "create_task",
           actionIndex,

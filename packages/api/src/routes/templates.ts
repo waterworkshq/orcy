@@ -46,6 +46,11 @@ const applyTemplateSchema = z.object({
   priority: z.enum(["low", "medium", "high", "critical"]).optional(),
   labels: z.array(z.string()).optional(),
   variables: z.record(z.string()).optional(),
+  /** Client-supplied attempt identity. When present, a deliberate re-application
+   *  with the same overrides but a different attemptKey creates a fresh publication
+   *  instead of replaying the first. When absent, the derived fingerprint key is
+   *  used (transport-retry safe). */
+  attemptKey: z.string().min(1).max(100).optional(),
 });
 
 // ---------------------------------------------------------------------------
@@ -305,8 +310,15 @@ export async function templateRoutes(fastify: FastifyInstance): Promise<void> {
 
       const attemptIds: string[] = [];
       const replayAttemptIds: string[] = [];
+      // When the client supplies an attemptKey, append it to the derived key
+      // so a deliberate re-application with the same overrides but a different
+      // client identity creates a fresh publication (v0.32-D4-4 fix). When
+      // absent, the derived fingerprint key is used (transport-retry safe).
+      const clientAttemptKey = parsed.data.attemptKey;
       for (let i = 0; i < aggregate.tasks.length; i++) {
-        const attemptKey = `${request.params.templateId}-${i}-${requestFingerprint}`;
+        const attemptKey = clientAttemptKey
+          ? `${request.params.templateId}-${i}-${requestFingerprint}-${clientAttemptKey}`
+          : `${request.params.templateId}-${i}-${requestFingerprint}`;
         const reservation = reserveAttemptWithClient(db, {
           source: auditSource,
           sourceScopeKind: "mission",
