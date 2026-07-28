@@ -246,6 +246,13 @@
       "when": 1784351602000,
       "tag": "0058_worker_scan_indexes",
       "breakpoints": true
+    },
+    {
+      "idx": 35,
+      "version": "6",
+      "when": 1784438002000,
+      "tag": "0059_scheduled_tasks_habitat_name_unique",
+      "breakpoints": true
     }
   ]
 }

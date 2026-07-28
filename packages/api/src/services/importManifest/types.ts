@@ -360,6 +360,10 @@ export interface TemplateContentPortable {
   /** Per-Mission content the template seeds (mirrors {@link MissionPortable}
    *  minus `sourceId` + `columnName` — column resolution is template-scoped). */
   missions: Array<Omit<MissionPortable, "sourceId" | "columnName">>;
+  /** Task-level required domain for tasks spawned from this template. */
+  requiredDomain?: string | null;
+  /** Task-level required capabilities for tasks spawned from this template. */
+  requiredCapabilities?: string[];
 }
 
 // ---------------------------------------------------------------------------

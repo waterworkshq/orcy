@@ -333,39 +333,50 @@ function spawnAuthoringTask(
   const existing = scheduledTaskRepo.getScheduledTaskByHabitatIdAndName(habitatId, name);
   if (existing) return existing;
 
-  return scheduledTaskRepo.createScheduledTask({
-    habitatId,
-    name,
-    description: `Wiki authoring run for ${chunkFrom} → ${chunkTo}.`,
-    scheduleType: "once",
-    scheduledAt: now,
-    timezone: "UTC",
-    missionTitle: `Wiki authoring ${chunkFrom} → ${chunkTo}`,
-    missionDescription:
-      `Author wiki page(s) covering the period ${chunkFrom} to ${chunkTo} ` +
-      `for habitat ${habitatId}. Use the orcy_wiki tool's get_authoring_context action ` +
-      `with these date bounds, then author pages covering the surfaced primitives.`,
-    missionPriority: "medium",
-    missionLabels: ["wiki", "authoring"],
-    missionDomain: "wiki",
-    tasksTemplate: [
-      {
-        key: "author_chunk",
-        title: `Author wiki pages for ${chunkFrom} → ${chunkTo}`,
-        description:
-          `Call wikiAugmentationService.getAuthoringContextForChunk with from=${chunkFrom} ` +
-          `and to=${chunkTo}. The returned primitives are the authoring material. Create or ` +
-          `update wiki pages via the orcy_wiki tool to cover them, then post a no_update_needed ` +
-          `marker for any sub-window you decide not to author.`,
-        priority: "medium",
-        requiredDomain: "wiki",
-        requiredCapabilities: ["wiki-authoring"],
-        order: 0,
-      },
-    ],
-    nextRunAt: now,
-    createdBy,
-  });
+  // IMP-3: UNIQUE index on (habitat_id, name) catches the concurrent-insert
+  // race window. If two concurrent spawnAuthoringTask calls both miss the
+  // pre-insert lookup, the second INSERT hits the UNIQUE constraint. Catch it
+  // and re-read the winner's row.
+  try {
+    return scheduledTaskRepo.createScheduledTask({
+      habitatId,
+      name,
+      description: `Wiki authoring run for ${chunkFrom} → ${chunkTo}.`,
+      scheduleType: "once",
+      scheduledAt: now,
+      timezone: "UTC",
+      missionTitle: `Wiki authoring ${chunkFrom} → ${chunkTo}`,
+      missionDescription:
+        `Author wiki page(s) covering the period ${chunkFrom} to ${chunkTo} ` +
+        `for habitat ${habitatId}. Use the orcy_wiki tool's get_authoring_context action ` +
+        `with these date bounds, then author pages covering the surfaced primitives.`,
+      missionPriority: "medium",
+      missionLabels: ["wiki", "authoring"],
+      missionDomain: "wiki",
+      tasksTemplate: [
+        {
+          key: "author_chunk",
+          title: `Author wiki pages for ${chunkFrom} → ${chunkTo}`,
+          description:
+            `Call wikiAugmentationService.getAuthoringContextForChunk with from=${chunkFrom} ` +
+            `and to=${chunkTo}. The returned primitives are the authoring material. Create or ` +
+            `update wiki pages via the orcy_wiki tool to cover them, then post a no_update_needed ` +
+            `marker for any sub-window you decide not to author.`,
+          priority: "medium",
+          requiredDomain: "wiki",
+          requiredCapabilities: ["wiki-authoring"],
+          order: 0,
+        },
+      ],
+      nextRunAt: now,
+      createdBy,
+    });
+  } catch (err) {
+    // UNIQUE-collision: the concurrent insert won. Re-read their row.
+    const reRead = scheduledTaskRepo.getScheduledTaskByHabitatIdAndName(habitatId, name);
+    if (reRead) return reRead;
+    throw err;
+  }
 }
 
 /**

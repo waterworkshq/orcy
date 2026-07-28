@@ -910,7 +910,7 @@ describe("Edge cases", () => {
     expect(col?.requiresClaim).toBe(true);
   });
 
-  it("template with requiredDomain/requiredCapabilities → task-level fields warned + dropped", () => {
+  it("template with requiredDomain/requiredCapabilities → task-level fields carried through to v3", () => {
     const adapted = adaptV2(
       v2Fixture({
         templates: [
@@ -924,15 +924,9 @@ describe("Edge cases", () => {
     );
     const tpl = adapted.manifest.domains.templates?.data[0];
     expect(tpl).toBeDefined();
-    const tplMission = tpl!.content.missions[0];
-    expect(tplMission).toBeDefined();
-    // Task-level fields not on the mission-shaped content.
-    expect((tplMission as unknown as Record<string, unknown>).requiredDomain).toBeUndefined();
-    expect(
-      adapted.warnings.find(
-        (w) => w.includes("template 'Tpl'") && w.includes("requiredDomain='code_review'"),
-      ),
-    ).toBeDefined();
+    // Task-level fields now carried through v3 TemplateContentPortable (IMP-1).
+    expect(tpl!.content.requiredDomain).toBe("code_review");
+    expect(tpl!.content.requiredCapabilities).toEqual(["rust", "typescript"]);
   });
 
   it("parentCommentSourceId is always null (v0.31 ignores parentTaskTitle)", () => {

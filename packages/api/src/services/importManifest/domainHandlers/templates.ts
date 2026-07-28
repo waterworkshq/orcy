@@ -348,22 +348,18 @@ export function applyTemplates(
         id: t.templateServerId,
         habitatId: ctx.targetHabitatId,
         name: t.name,
-        // titlePattern defaults to name (the table's required field; the v3
-        // portable has no `title` slot at the template level, so the
-        // template's own name becomes the title pattern).
         titlePattern: t.name,
         descriptionPattern: t.description,
-        // Defaulted: priority is not in v3 TemplatePortable; the schema's
-        // column default ('medium') applies via omission.
         labels,
-        // Defaulted: requiredDomain / requiredCapabilities not in v3 portable.
+        requiredDomain: (t.content?.["requiredDomain"] as string | null | undefined) ?? null,
+        requiredCapabilities: Array.isArray(t.content?.["requiredCapabilities"])
+          ? (t.content!["requiredCapabilities"] as unknown[]).filter(
+              (c): c is string => typeof c === "string",
+            )
+          : [],
         isDefault: t.isDefault,
-        // usageCount defaults to 0 (schema).
         createdBy: "import",
         createdAt: now,
-        // tasksTemplate defaults to [] (schema). The synthesized
-        // TemplateContentPortable.missions (drift 1) has no native column.
-        // workflowTemplate defaults to null (schema).
       })
       .run();
     committedServerIds.push(t.templateServerId);

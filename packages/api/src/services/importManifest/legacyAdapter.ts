@@ -881,21 +881,14 @@ function adaptTemplate(
   const descriptionPattern = asString(template.descriptionPattern) ?? "";
   const titlePattern = asString(template.titlePattern) ?? name;
 
-  // C4 absorption: task-level fields not portable to v3 TemplateContent.missions.
-  const droppedTaskFields: string[] = [];
-  const requiredDomain = asNullableString(template.requiredDomain);
-  if (requiredDomain !== undefined && requiredDomain !== null) {
-    droppedTaskFields.push(`requiredDomain='${requiredDomain}'`);
-  }
+  // C4 absorption: task-level fields now carried through v3 TemplateContentPortable.
+  const requiredDomain = asNullableString(template.requiredDomain) ?? null;
   const requiredCapabilitiesArr = asArray(template.requiredCapabilities);
-  if (requiredCapabilitiesArr && requiredCapabilitiesArr.length > 0) {
-    droppedTaskFields.push(`requiredCapabilities (count=${requiredCapabilitiesArr.length})`);
-  }
-  if (droppedTaskFields.length > 0) {
-    warnings.push(
-      `template '${name}': task-level fields (${droppedTaskFields.join(", ")}) not portable to v3 TemplateContent.missions (mission-shaped) — dropped`,
-    );
-  }
+  const requiredCapabilities =
+    Array.isArray(requiredCapabilitiesArr) &&
+    requiredCapabilitiesArr.every((c) => typeof c === "string")
+      ? (requiredCapabilitiesArr as string[])
+      : [];
 
   const priority = asPriority(template.priority, "medium", warnings, `template '${name}'`);
   const labels = stringArrayField(template.labels);
@@ -916,6 +909,8 @@ function adaptTemplate(
         dueAt: null,
       },
     ],
+    requiredDomain,
+    requiredCapabilities,
   };
 
   return {

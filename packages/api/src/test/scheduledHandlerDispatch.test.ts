@@ -200,7 +200,7 @@ function createHandlerSchedule(
   const schedule = scheduledTaskRepo.createScheduledTask({
     habitatId,
     templateId: null,
-    name: "Handler Test Schedule",
+    name: `Handler Test Schedule ${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
     scheduleType: "interval",
     intervalMinutes: 60,
     missionTitle: "Handler Mission",
