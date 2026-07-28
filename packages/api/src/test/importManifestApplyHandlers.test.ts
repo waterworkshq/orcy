@@ -194,7 +194,6 @@ describe("applyHabitatSettings", () => {
         targetHabitatId: prepared.habitatServerId,
         identityMap: idMap,
         existingHabitatSnapshot: null,
-        preserveDomainTargets: new Map(),
       });
     });
 
@@ -228,7 +227,6 @@ describe("applyHabitatSettings", () => {
           targetHabitatId: prepared.habitatServerId,
           identityMap: idMap,
           existingHabitatSnapshot: null,
-          preserveDomainTargets: new Map(),
         });
         // Simulate a downstream failure AFTER the habitat insert.
         throw new Error("downstream handler failure — must roll back");
@@ -271,7 +269,6 @@ describe("applyColumns", () => {
         targetHabitatId,
         identityMap: idMap,
         existingHabitatSnapshot: null,
-        preserveDomainTargets: new Map(),
       });
     });
 
@@ -308,7 +305,6 @@ describe("applyColumns", () => {
           targetHabitatId,
           identityMap: idMap,
           existingHabitatSnapshot: null,
-          preserveDomainTargets: new Map(),
         });
         throw new Error("rollback trigger");
       });
@@ -389,14 +385,12 @@ describe("applyMissions", () => {
         targetHabitatId,
         identityMap: idMap,
         existingHabitatSnapshot: null,
-        preserveDomainTargets: new Map(),
       });
       result = missionsHandler.apply(tx as never, resolved.resolved, {
         mode: "new",
         targetHabitatId,
         identityMap: idMap,
         existingHabitatSnapshot: null,
-        preserveDomainTargets: new Map(),
       });
     });
 
@@ -464,14 +458,12 @@ describe("applyMissions", () => {
           targetHabitatId: seedId,
           identityMap: idMap,
           existingHabitatSnapshot: null,
-          preserveDomainTargets: new Map(),
         });
         missionsHandler.apply(tx as never, resolved.resolved, {
           mode: "new",
           targetHabitatId: "target-missions-rb",
           identityMap: idMap,
           existingHabitatSnapshot: null,
-          preserveDomainTargets: new Map(),
         });
         throw new Error("trigger missions rollback");
       });
@@ -515,7 +507,6 @@ describe("applyTasks (STUB)", () => {
         targetHabitatId: "any",
         identityMap: idMap,
         existingHabitatSnapshot: null,
-        preserveDomainTargets: new Map(),
       });
     }).toThrow(/publishTaskWithClient/);
   });
@@ -573,7 +564,6 @@ describe("applySubtasks", () => {
         targetHabitatId: "any",
         identityMap: idMap,
         existingHabitatSnapshot: null,
-        preserveDomainTargets: new Map(),
       });
     });
 
@@ -633,7 +623,6 @@ describe("applySubtasks", () => {
           targetHabitatId: "any",
           identityMap: idMap,
           existingHabitatSnapshot: null,
-          preserveDomainTargets: new Map(),
         });
         throw new Error("subtasks rollback");
       });
@@ -718,7 +707,6 @@ describe("applyDependencies", () => {
         targetHabitatId: "any",
         identityMap: idMap,
         existingHabitatSnapshot: null,
-        preserveDomainTargets: new Map(),
       });
     });
 
@@ -796,7 +784,6 @@ describe("applyDependencies", () => {
           targetHabitatId: "any",
           identityMap: idMap,
           existingHabitatSnapshot: null,
-          preserveDomainTargets: new Map(),
         });
         throw new Error("dependencies rollback");
       });
@@ -867,7 +854,6 @@ describe("applyComments", () => {
         targetHabitatId: "any",
         identityMap: idMap,
         existingHabitatSnapshot: null,
-        preserveDomainTargets: new Map(),
       });
     });
 
@@ -923,7 +909,6 @@ describe("applyComments", () => {
           targetHabitatId: "any",
           identityMap: idMap,
           existingHabitatSnapshot: null,
-          preserveDomainTargets: new Map(),
         });
         throw new Error("comments rollback");
       });
@@ -967,7 +952,6 @@ describe("applyTemplates", () => {
         targetHabitatId,
         identityMap: idMap,
         existingHabitatSnapshot: null,
-        preserveDomainTargets: new Map(),
       });
     });
 
@@ -1012,7 +996,6 @@ describe("applyTemplates", () => {
           targetHabitatId: "target-tpl-rb",
           identityMap: idMap,
           existingHabitatSnapshot: null,
-          preserveDomainTargets: new Map(),
         });
         throw new Error("templates rollback");
       });

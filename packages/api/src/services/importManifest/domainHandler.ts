@@ -546,11 +546,6 @@ export interface ApplyContext {
   /** Snapshot of the existing habitat's portable state. Null for M1 (M3
    *  populates it for `mode:"replacement"`). */
   existingHabitatSnapshot: ExistingHabitatSnapshot | null;
-  /** Materialized entity IDs to skip for `preserve` dispositions (per drift
-   *  #12). Empty for M1; M3 reads from the existing-habitat snapshot. The map
-   *  keys are the domain name; the values are server-side entity ids that
-   *  the apply handler must skip writes for. */
-  preserveDomainTargets: ReadonlyMap<ManifestDomainName, readonly string[]>;
 }
 
 /**

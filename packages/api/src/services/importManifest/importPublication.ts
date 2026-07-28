@@ -1605,7 +1605,6 @@ export function publishImportAggregateWithClient(
     // M3 populates `prepared.existingHabitatSnapshot` for mode:"replacement"
     // via drift #13 absorption; the orchestrator must honor it).
     existingHabitatSnapshot: prepared.existingHabitatSnapshot ?? null,
-    preserveDomainTargets: prepared.guard.preserveDomainTargets,
   };
 
   // Build the default participant when the caller didn't supply one.

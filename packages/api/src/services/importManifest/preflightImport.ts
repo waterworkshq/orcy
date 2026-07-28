@@ -207,11 +207,6 @@ export interface ImportPublicationGuard {
   identityPolicySnapshot: "remap" | "restore";
   /**
    * DECLARED preserve-domain set (see type doc). Empty for `mode:"new"`;
-   * carries the declared preserve-domain keys for `mode:"replacement"`.
-   * T10B materializes the entity IDs in-tx.
-   */
-  preserveDomainTargets: ReadonlyMap<ManifestDomainName, readonly string[]>;
-  /**
    * SHA-256 of the canonical-stable-stringified manifest. T10B re-verifies
    * the prepared basis didn't drift between preflight + commit.
    */
@@ -1240,37 +1235,16 @@ function capturePublicationGuard(
   existingHabitatSnapshot: ExistingHabitatSnapshot | null,
 ): ImportPublicationGuard {
   let targetHabitatUpdatedAt: string | null = null;
-  const preserveDomainTargets = new Map<ManifestDomainName, readonly string[]>();
 
   if (mode === "replacement" && habitatId !== null) {
     const row = getDb().select().from(habitats).where(eq(habitats.id, habitatId)).get();
     targetHabitatUpdatedAt = row?.updatedAt ?? null;
   }
 
-  // Enumerate the DECLARED preserve-domain set + materialize the entity IDs
-  // from the snapshot (drift #12). For `mode:"new"` (snapshot null), the
-  // arrays stay empty — preserve on a fresh habitat is a no-op.
-  for (const domainName of MANIFEST_DOMAIN_NAMES) {
-    const envelope = manifest.domains[domainName];
-    if (envelope === undefined) continue;
-    if (envelope.disposition === "preserve") {
-      const ids: string[] = [];
-      if (existingHabitatSnapshot !== null) {
-        for (const entity of existingHabitatSnapshot.entitiesBySourceKey.values()) {
-          if (entity.domain === domainName) {
-            ids.push(entity.serverId);
-          }
-        }
-      }
-      preserveDomainTargets.set(domainName, ids);
-    }
-  }
-
   return {
     targetHabitatId: habitatId,
     targetHabitatUpdatedAt,
     identityPolicySnapshot: manifest.identityPolicy,
-    preserveDomainTargets,
     manifestDigest,
   };
 }
