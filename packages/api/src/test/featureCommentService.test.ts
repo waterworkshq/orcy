@@ -40,7 +40,7 @@ import {
   getComments,
   editComment,
   removeComment,
-} from "../services/featureCommentService.js";
+} from "../services/missionCommentService.js";
 import * as commentRepo from "../repositories/featureComment.js";
 import { sseBroadcaster } from "../sse/broadcaster.js";
 import { getMissionById } from "../repositories/mission.js";

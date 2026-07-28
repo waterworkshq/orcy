@@ -34,7 +34,7 @@ vi.mock("../sse/broadcaster.js", () => ({
 
 import * as missionRepo from "../repositories/mission.js";
 import * as columnRepo from "../repositories/column.js";
-import { moveMissionToColumn, autoAdvanceMissionColumn } from "../services/featureService.js";
+import { moveMissionToColumn, autoAdvanceMissionColumn } from "../services/missionService.js";
 
 const mockMoveMission = vi.mocked(missionRepo.moveMission);
 const mockGetMissionById = vi.mocked(missionRepo.getMissionById);

@@ -56,7 +56,7 @@ vi.mock('../services/gitWorktreeService.js', () => ({
   removeWorktree: vi.fn(),
 }));
 
-vi.mock('../services/featureService.js', () => ({
+vi.mock('../services/missionService.js', () => ({
   recalculateMissionStatus: vi.fn(),
 }));
 

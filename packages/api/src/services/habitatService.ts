@@ -10,7 +10,7 @@ import { getWebhookSubscriptions, createWebhookSubscription } from "./webhookDis
 import { badRequest } from "../errors.js";
 import { sseBroadcaster } from "../sse/broadcaster.js";
 import { rebuildCache as rebuildHabitatSecretCache } from "./habitatSecretCache.js";
-import * as missionService from "./featureService.js";
+import * as missionService from "./missionService.js";
 import * as skillRepo from "../repositories/habitatSkill.js";
 import type {
   Habitat,

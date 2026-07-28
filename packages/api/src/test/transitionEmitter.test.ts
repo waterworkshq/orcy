@@ -36,7 +36,7 @@ vi.mock("../services/retryService.js", () => ({
   getEffectivePolicy: vi.fn().mockReturnValue(null),
 }));
 
-vi.mock("../services/featureService.js", () => ({
+vi.mock("../services/missionService.js", () => ({
   recalculateMissionStatus: vi.fn(),
 }));
 
@@ -50,7 +50,7 @@ import * as eventRepo from "../repositories/event.js";
 import { sseBroadcaster } from "../sse/broadcaster.js";
 import * as watcherService from "../services/watcherService.js";
 import * as retryService from "../services/retryService.js";
-import * as missionService from "../services/featureService.js";
+import * as missionService from "../services/missionService.js";
 import * as pulseService from "../services/pulseService.js";
 import {
   emitTransition,

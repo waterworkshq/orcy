@@ -15,7 +15,7 @@ vi.mock('../sse/broadcaster.js', () => ({
 }));
 
 import * as missionRepo from '../repositories/mission.js';
-import { updateMission } from '../services/featureService.js';
+import { updateMission } from '../services/missionService.js';
 
 const mockUpdateMission = vi.mocked(missionRepo.updateMission);
 const mockGetMissionById = vi.mocked(missionRepo.getMissionById);

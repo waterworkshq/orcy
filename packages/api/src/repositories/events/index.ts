@@ -1,8 +1,8 @@
 export { createEvent, getEventById, getEventsByTaskId, getEventsByActor } from './event-crud.js';
 export type { CreateEventInput } from './event-crud.js';
 
-export { getEventsByHabitatId, getHabitatStats } from './event-board.js';
-export type { EnrichedHabitatEventRow, HabitatEventsFilters, HabitatStats } from './event-board.js';
+export { getEventsByHabitatId, getHabitatStats } from './event-habitat.js';
+export type { EnrichedHabitatEventRow, HabitatEventsFilters, HabitatStats } from './event-habitat.js';
 
 export { getAgentStats, getAllAgentStats } from './event-agent-stats.js';
 

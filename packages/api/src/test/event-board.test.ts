@@ -5,7 +5,7 @@ import * as columnRepo from "../repositories/column.js";
 import * as habitatRepo from "../repositories/habitat.js";
 import * as missionRepo from "../repositories/mission.js";
 import * as taskRepo from "../repositories/task.js";
-import { getEventsByHabitatId, getHabitatStats } from "../repositories/events/event-board.js";
+import { getEventsByHabitatId, getHabitatStats } from "../repositories/events/event-habitat.js";
 import { agents, columns, habitats, missions, taskEvents, tasks } from "../db/schema/index.js";
 
 function minutesAgo(minutes: number): string {

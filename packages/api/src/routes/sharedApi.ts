@@ -23,7 +23,7 @@ import * as credentialService from "../services/remoteCredentialService.js";
 import * as podRepo from "../repositories/remotePod.js";
 import * as participantRepo from "../repositories/remoteParticipant.js";
 import * as commentService from "../services/commentService.js";
-import * as featureCommentService from "../services/featureCommentService.js";
+import * as featureCommentService from "../services/missionCommentService.js";
 import * as pulseService from "../services/pulseService.js";
 import * as pulseRepo from "../repositories/pulse.js";
 import * as codeEvidenceLinking from "../services/codeEvidence/linking.js";

@@ -12,7 +12,7 @@ import * as findingTriageRepo from "../repositories/findingTriage.js";
 import * as triageResolutionsRepo from "../repositories/triageResolutions.js";
 import * as triageClusterMissionsRepo from "../repositories/triageClusterMissions.js";
 import * as pulseRepo from "../repositories/pulse.js";
-import * as featureService from "../services/featureService.js";
+import * as featureService from "../services/missionService.js";
 import * as findingTriageService from "../services/findingTriageService.js";
 import * as releaseTriggerService from "../services/releaseTriggerService.js";
 import { agentOrHumanAuth } from "../middleware/auth.js";

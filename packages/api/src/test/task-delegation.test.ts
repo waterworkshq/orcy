@@ -24,7 +24,7 @@ vi.mock("../repositories/agent.js", () => agentRepoMocks);
 vi.mock("../repositories/event.js", () => eventRepoMocks);
 vi.mock("../sse/broadcaster.js", () => ({ sseBroadcaster: { publish: ssePublishMock } }));
 vi.mock("../services/watcherService.js", () => watcherMocks);
-vi.mock("../services/featureService.js", () => missionServiceMocks);
+vi.mock("../services/missionService.js", () => missionServiceMocks);
 
 import { claimDelegatedTask, delegateTask } from "../services/tasks/task-delegation.js";
 

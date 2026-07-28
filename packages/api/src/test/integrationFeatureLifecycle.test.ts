@@ -5,7 +5,7 @@ import * as columnRepo from '../repositories/column.js';
 import * as missionRepo from '../repositories/mission.js';
 import * as taskRepo from '../repositories/task.js';
 import * as agentRepo from '../repositories/agent.js';
-import * as missionService from '../services/featureService.js';
+import * as missionService from '../services/missionService.js';
 import * as habitatService from '../services/habitatService.js';
 import { getTaskDetails } from '../services/tasks/task-details.js';
 import { claimTask, startTask, submitTask, approveTask } from '../services/tasks/task-lifecycle.js';

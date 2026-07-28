@@ -13,7 +13,7 @@ const missionServiceMocks = vi.hoisted(() => ({
 }));
 
 vi.mock("../repositories/habitat.js", () => habitatRepoMocks);
-vi.mock("../services/featureService.js", () => missionServiceMocks);
+vi.mock("../services/missionService.js", () => missionServiceMocks);
 vi.mock("../repositories/habitatSkill.js", () => ({ getOrCreateSkill: vi.fn() }));
 vi.mock("../services/habitatSecretCache.js", () => ({ rebuildCache: vi.fn() }));
 vi.mock("../sse/broadcaster.js", () => ({ sseBroadcaster: { publish: vi.fn() } }));

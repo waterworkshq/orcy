@@ -567,12 +567,16 @@ export function applyMissions(
   }
 
   // PASS 2 — mission-level dependency EDGES. The `mission_dependencies`
-  // table is keyed `(missionId, dependsOnId)`; one INSERT per edge. `blocks`
-  // are modeled as `dependsOn` rows in the OPPOSITE direction in v0.31 — for
-  // M1 fidelity, we write `dependsOn` rows directly. M2 may layer a separate
-  // `blocks` representation on top. All mission rows now exist, so every
-  // `dependsOnId` FK target resolves regardless of the manifest's mission
-  // ordering (the forward-FK bug class from the cold review).
+  // table is keyed `(missionId, dependsOnId)`; one INSERT per edge. Only
+  // `dependsOnServerIds` are written here — `blocksServerIds` is intentionally
+  // dropped (CS-63 acknowledged gap). The DB models blocks as reverse
+  // dependsOn edges (if A blocks B, then B dependsOn A), so the blocked
+  // mission's own `dependsOnServerIds` should carry the reverse edge. If a
+  // manifest declares blocks without the reciprocal dependsOn, the blocks
+  // relationship is lost. Real-world impact is nil: `createMission` models
+  // blocks as reverse dependsOn edges, so exporters rarely emit explicit
+  // blocks. All mission rows now exist, so FK targets resolve regardless
+  // of manifest ordering.
   for (const m of prepared.missions) {
     for (const depId of m.dependsOnServerIds) {
       tx.insert(missionDependencies)

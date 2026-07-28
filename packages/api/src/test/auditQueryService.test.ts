@@ -33,7 +33,7 @@ import {
 } from "../db/schema/index.js";
 import { queryAuditEvents } from "../services/auditQueryService.js";
 import { users } from "../db/schema/index.js";
-import { deleteMission } from "../services/featureService.js";
+import { deleteMission } from "../services/missionService.js";
 import { correctEffortEntry, logEffort } from "../services/effortService.js";
 import { runWithAuditProvenance, setAuditActor } from "../services/auditProvenanceContext.js";
 

@@ -57,7 +57,7 @@ vi.mock("../services/retryService.js", () => ({
   getEffectivePolicy: vi.fn().mockReturnValue(null),
 }));
 
-vi.mock("../services/featureService.js", () => ({
+vi.mock("../services/missionService.js", () => ({
   recalculateMissionStatus: vi.fn(),
 }));
 

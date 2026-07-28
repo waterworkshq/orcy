@@ -1,7 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
-import * as missionService from "../services/featureService.js";
+import * as missionService from "../services/missionService.js";
 import * as taskRepo from "../repositories/task.js";
 import * as missionRepo from "../repositories/mission.js";
 import * as missionEventRepo from "../repositories/events/event-feature.js";

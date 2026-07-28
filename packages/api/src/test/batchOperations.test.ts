@@ -28,7 +28,7 @@ vi.mock("../services/autoAssignService.js", () => ({
   assignTask: vi.fn(),
 }));
 
-vi.mock("../services/featureService.js", () => ({
+vi.mock("../services/missionService.js", () => ({
   recalculateMissionStatus: vi.fn(),
 }));
 

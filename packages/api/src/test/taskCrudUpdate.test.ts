@@ -34,13 +34,13 @@ vi.mock('../services/watcherService.js', () => ({
   notifyWatchers: vi.fn(),
 }));
 
-vi.mock('../services/featureService.js', () => ({
+vi.mock('../services/missionService.js', () => ({
   recalculateMissionStatus: vi.fn(),
 }));
 
 import { updateTask } from '../services/tasks/task-crud.js';
 import * as taskRepo from '../repositories/task.js';
-import * as missionService from '../services/featureService.js';
+import * as missionService from '../services/missionService.js';
 
 function makeTask(overrides: Record<string, unknown> = {}) {
   return {

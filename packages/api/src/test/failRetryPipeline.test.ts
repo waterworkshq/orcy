@@ -47,7 +47,7 @@ vi.mock('../plugins/pluginManager.js', () => ({
   emitTaskRejected: vi.fn().mockResolvedValue(undefined),
 }));
 
-vi.mock('../services/featureService.js', () => ({
+vi.mock('../services/missionService.js', () => ({
   recalculateMissionStatus: vi.fn(),
 }));
 

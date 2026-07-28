@@ -5,7 +5,7 @@ import * as columnRepo from "../repositories/column.js";
 import * as missionRepo from "../repositories/mission.js";
 import * as missionEventRepo from "../repositories/events/event-feature.js";
 import { columns, habitats, missionEvents, missions } from "../db/schema/index.js";
-import { deleteMission } from "../services/featureService.js";
+import { deleteMission } from "../services/missionService.js";
 
 beforeEach(async () => {
   await initTestDb();

@@ -9,7 +9,7 @@ import { eq } from "drizzle-orm";
 import * as missionRepo from "../repositories/mission.js";
 import * as columnRepo from "../repositories/column.js";
 import * as habitatService from "../services/habitatService.js";
-import { moveMissionToColumn, autoAdvanceMissionColumn } from "../services/featureService.js";
+import { moveMissionToColumn, autoAdvanceMissionColumn } from "../services/missionService.js";
 import * as dependencyService from "../services/dependencyService.js";
 import { computeMissionSummary } from "../services/habitatService.js";
 

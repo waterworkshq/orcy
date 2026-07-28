@@ -18,7 +18,7 @@ vi.mock("../sse/broadcaster.js", () => ({
 import * as missionRepo from "../repositories/mission.js";
 import * as eventRepo from "../repositories/event.js";
 import { sseBroadcaster } from "../sse/broadcaster.js";
-import { deleteMission } from "../services/featureService.js";
+import { deleteMission } from "../services/missionService.js";
 
 const mockGetMissionById = missionRepo.getMissionById as ReturnType<typeof vi.fn>;
 const mockDeleteMission = missionRepo.deleteMission as ReturnType<typeof vi.fn>;

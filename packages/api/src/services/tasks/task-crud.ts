@@ -4,7 +4,7 @@ import * as eventRepo from "../../repositories/event.js";
 import { sseBroadcaster } from "../../sse/broadcaster.js";
 import * as watcherService from "../watcherService.js";
 import * as autoAssignService from "../autoAssignService.js";
-import * as missionService from "../featureService.js";
+import * as missionService from "../missionService.js";
 import * as subtaskRepo from "../../repositories/subtask.js";
 import * as commentRepo from "../../repositories/comment.js";
 import * as pluginManager from "../../plugins/pluginManager.js";

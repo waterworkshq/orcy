@@ -1,5 +1,5 @@
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
-import * as missionCommentService from '../services/featureCommentService.js';
+import * as missionCommentService from '../services/missionCommentService.js';
 import { agentAuth, agentOrHumanAuth } from '../middleware/auth.js';
 import { badRequest, unauthorized, notFound, forbidden } from '../errors.js';
 import { z } from 'zod';

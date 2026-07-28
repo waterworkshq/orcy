@@ -18,7 +18,7 @@ vi.mock("../sse/broadcaster.js", () => ({
   sseBroadcaster: { publish: vi.fn() },
 }));
 
-vi.mock("../services/featureService.js", () => ({
+vi.mock("../services/missionService.js", () => ({
   recalculateMissionStatus: vi.fn(),
 }));
 

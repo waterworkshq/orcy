@@ -3,7 +3,7 @@ import * as eventRepo from "../../repositories/event.js";
 import { sseBroadcaster } from "../../sse/broadcaster.js";
 import * as watcherService from "../watcherService.js";
 import * as retryService from "../retryService.js";
-import * as missionService from "../featureService.js";
+import * as missionService from "../missionService.js";
 import * as pulseService from "../pulseService.js";
 import { logger } from "../../lib/logger.js";
 import type { Task } from "../../models/index.js";
