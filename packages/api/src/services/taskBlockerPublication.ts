@@ -3,7 +3,7 @@
  *
  * Composes the Story-1 kernel chain — reserve → prepare → govern → publish —
  * for the blocker-clearance origin (the auto-created "Clear Blocker: …" Task
- * spawned when a `blocker` signal pulse is posted). This is the 
+ * spawned when a `blocker` signal pulse is posted). This is the
  * replacement for the legacy `pulseService.ts:232 createBlockerClearanceTask`
  * path. It ships ALONGSIDE the legacy path and is exercised ONLY by tests
  * until the global cutover (T11) swaps the pulse service onto it.
@@ -452,6 +452,7 @@ function computeBlockerFingerprint(input: PublishBlockerClearanceTaskInput): str
       input.assignment.kind === "auto"
         ? { kind: "auto" }
         : { kind: "targeted", agentId: input.assignment.agentId },
+    targetedAssignmentDeadline: input.targetedAssignmentDeadline ?? null,
   };
   return "blocker:" + stableHash(stableStringify(payload));
 }

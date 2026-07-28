@@ -642,6 +642,7 @@ function computeFingerprintViaAdapter(input: PublishTaskCreationInput): string {
     // Mirrors the adapter's computeRequestFingerprint (T7 added this so clone
     // retries reference the same source identity; null for ordinary creation).
     cloneSourceTaskId: input.cloneSourceTaskId ?? null,
+    targetedAssignmentDeadline: input.targetedAssignmentDeadline ?? null,
   };
   return "interactive:" + stableHash(stableStringify(payload));
 }

@@ -274,6 +274,7 @@ function computeAutomationFingerprint(input: {
   requiredDomain?: string | null;
   requiredCapabilities?: string[];
   assignment: { kind: "auto" } | { kind: "targeted"; agentId: string };
+  targetedAssignmentDeadline?: string;
 }): string {
   const payload = {
     targetMissionId: input.targetMissionId,
@@ -282,6 +283,7 @@ function computeAutomationFingerprint(input: {
     requiredDomain: input.requiredDomain ?? null,
     requiredCapabilities: [...(input.requiredCapabilities ?? [])].toSorted(),
     assignment: input.assignment,
+    targetedAssignmentDeadline: input.targetedAssignmentDeadline ?? null,
   };
   return "automation:" + stableHash(stableStringify(payload));
 }

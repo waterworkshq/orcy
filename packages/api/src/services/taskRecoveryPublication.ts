@@ -510,6 +510,10 @@ function computeRecoveryFingerprint(input: PublishRecoveryTaskInput): string {
     // changes which gate is being linked is a different publication.
     linkageGateId: input.linkage.gateId,
     linkageDownstreamTaskId: input.linkage.downstreamTaskId,
+    linkageWorkflowId: input.linkage.workflowId,
+    linkageRecoveryDepth: input.linkage.recoveryDepth,
+    linkageFailureContextId: input.linkage.failureContextId ?? null,
+    targetedAssignmentDeadline: input.targetedAssignmentDeadline ?? null,
   };
   return "recovery:" + stableHash(stableStringify(payload));
 }

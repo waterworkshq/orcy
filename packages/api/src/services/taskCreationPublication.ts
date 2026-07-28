@@ -2,7 +2,7 @@
  * Interactive Task Creation Publication Adapter (T6 Phase 1).
  *
  * Composes the Story-1 kernel chain — reserve → prepare → govern → publish —
- * for interactive Task creation (UI / REST / MCP). This is the 
+ * for interactive Task creation (UI / REST / MCP). This is the
  * replacement for legacy `createTask` (`services/tasks/task-crud.ts:21`); it
  * ships ALONGSIDE the legacy path and is exercised ONLY by tests until the
  * global cutover (T11) swaps the route/MCP callers onto it.
@@ -347,6 +347,7 @@ function computeRequestFingerprint(input: PublishTaskCreationInput): string {
     // Clone source reference — included so a clone retry carries the same
     // source identity. Absent for ordinary creation (unchanged fingerprint).
     cloneSourceTaskId: input.cloneSourceTaskId ?? null,
+    targetedAssignmentDeadline: input.targetedAssignmentDeadline ?? null,
   };
   return "interactive:" + stableHash(stableStringify(payload));
 }
