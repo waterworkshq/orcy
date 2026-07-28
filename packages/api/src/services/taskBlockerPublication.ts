@@ -125,6 +125,7 @@ import {
   taskCreationEnvelopes,
   taskCreationDispatchTargets,
   taskCreationAssignmentReservations,
+  taskCreationAttempts,
 } from "../db/schema/index.js";
 import { eq } from "drizzle-orm";
 import {
@@ -526,6 +527,13 @@ function readCommittedBlockerPublication(
       .where(eq(taskCreationAssignmentReservations.attemptId, attemptId))
       .all()[0] ?? null;
 
+  const attemptRow = db
+    .select()
+    .from(taskCreationAttempts)
+    .where(eq(taskCreationAttempts.id, attemptId))
+    .all()[0];
+  if (!attemptRow) return null;
+
   return {
     task,
     event,
@@ -535,8 +543,8 @@ function readCommittedBlockerPublication(
     dispatchTargets,
     reservation,
     recalculationMarker: { missionId: task.missionId, reason: "task_published" },
-    checkpoint: { outcome: "transitioned" as const, attempt: { id: attemptId } as never },
-  } as CommittedPublication;
+    checkpoint: { outcome: "transitioned" as const, attempt: attemptRow },
+  };
 }
 
 // ---------------------------------------------------------------------------

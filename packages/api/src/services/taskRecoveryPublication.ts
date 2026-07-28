@@ -113,6 +113,7 @@ import {
   taskCreationEnvelopes,
   taskCreationDispatchTargets,
   taskCreationAssignmentReservations,
+  taskCreationAttempts,
   taskWorkflowGates,
   failureContexts,
 } from "../db/schema/index.js";
@@ -863,6 +864,13 @@ function readCommittedRecoveryPublication(
       .where(eq(taskCreationAssignmentReservations.attemptId, attemptId))
       .all()[0] ?? null;
 
+  const attemptRow = db
+    .select()
+    .from(taskCreationAttempts)
+    .where(eq(taskCreationAttempts.id, attemptId))
+    .all()[0];
+  if (!attemptRow) return null;
+
   return {
     task,
     event,
@@ -874,6 +882,6 @@ function readCommittedRecoveryPublication(
     recalculationMarker: { missionId: task.missionId, reason: "task_published" },
     // The checkpoint transition is already durable on the attempt row; the
     // recovering-replay caller reads `recoveringState` from the adapter result.
-    checkpoint: { outcome: "transitioned" as const, attempt: { id: attemptId } as never },
-  } as CommittedPublication;
+    checkpoint: { outcome: "transitioned" as const, attempt: attemptRow },
+  };
 }
