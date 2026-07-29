@@ -299,15 +299,10 @@ describe("triage integration", () => {
         estimatedMinutes: 60,
       });
       const completedAt = new Date(NOW.getTime() - i * 60_000).toISOString();
-      const claimedAt = new Date(NOW.getTime() - (i * 60_000 + 60 * 60_000)).toISOString();
+      // Genuinely degraded: rejected-only review history + no claim/cycle data →
+      // approval/nonRejection 0, excluded from the cycle dimensions → score < threshold.
       db.update(tasks)
-        .set({
-          assignedAgentId: degradedAgent.id,
-          status: "approved",
-          claimedAt,
-          completedAt,
-          cycleTimeMinutes: 60,
-        })
+        .set({ assignedAgentId: degradedAgent.id, status: "approved", completedAt })
         .where(eq(tasks.id, task.id))
         .run();
       db.insert(taskEvents)
@@ -317,16 +312,6 @@ describe("triage integration", () => {
           actorType: "human",
           actorId: "reviewer",
           action: "rejected",
-          timestamp: claimedAt,
-        })
-        .run();
-      db.insert(taskEvents)
-        .values({
-          id: `appr-${task.id}`,
-          taskId: task.id,
-          actorType: "human",
-          actorId: "reviewer",
-          action: "approved",
           timestamp: completedAt,
         })
         .run();

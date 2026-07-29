@@ -51,7 +51,7 @@ export async function runAgentQualityDegradedScan(habitatId: string): Promise<Sc
 
     for (const signal of qualityResponse.signals) {
       if (signal.sampleSize < qualityMinSample) continue;
-      if (signal.score === null || signal.score >= qualityThreshold) {
+      if (signal.score === null || signal.score * 100 >= qualityThreshold) {
         continue;
       }
 
@@ -86,7 +86,9 @@ export async function runAgentQualityDegradedScan(habitatId: string): Promise<Sc
           });
           tallyDisposition(rule, disposition, counts);
         } catch (err) {
-          counts.errors.push(`Rule ${rule.id}: ${err instanceof Error ? err.message : String(err)}`);
+          counts.errors.push(
+            `Rule ${rule.id}: ${err instanceof Error ? err.message : String(err)}`,
+          );
         }
       }
     }

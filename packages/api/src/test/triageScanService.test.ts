@@ -331,28 +331,18 @@ describe("triageScanService", () => {
           estimatedMinutes: 60,
         });
         const completedAt = new Date(NOW.getTime() - i * 60_000).toISOString();
-        const claimedAt = new Date(NOW.getTime() - (i * 60_000 + 60 * 60_000)).toISOString();
-        db.update(tasks)
-          .set({
-            assignedAgentId: agent.id,
-            status: "approved",
-            claimedAt,
-            completedAt,
-            cycleTimeMinutes: 60,
-          })
-          .where(eq(tasks.id, task.id))
-          .run();
-        db.insert(taskEvents)
-          .values({
-            id: `approved-${task.id}`,
-            taskId: task.id,
-            actorType: "human",
-            actorId: "reviewer-1",
-            action: "approved",
-            timestamp: completedAt,
-          })
-          .run();
-        if (opts.rejectedCount && i < opts.rejectedCount) {
+        // Genuinely-degraded vs healthy seeding. A rejected task is completed
+        // (status approved, in the sample window) but carries a rejection
+        // review event and NO claim/cycle data — so it drives
+        // approval/nonRejectionRate to 0 and is excluded from the cycle
+        // dimensions (score → 0, below the default 40% threshold). A healthy
+        // task carries an approval event + clean cycle data.
+        const isRejected = opts.rejectedCount !== undefined && i < opts.rejectedCount;
+        if (isRejected) {
+          db.update(tasks)
+            .set({ assignedAgentId: agent.id, status: "approved", completedAt })
+            .where(eq(tasks.id, task.id))
+            .run();
           db.insert(taskEvents)
             .values({
               id: `rejected-${task.id}`,
@@ -360,7 +350,29 @@ describe("triageScanService", () => {
               actorType: "human",
               actorId: "reviewer-1",
               action: "rejected",
-              timestamp: claimedAt,
+              timestamp: completedAt,
+            })
+            .run();
+        } else {
+          const claimedAt = new Date(NOW.getTime() - (i * 60_000 + 60 * 60_000)).toISOString();
+          db.update(tasks)
+            .set({
+              assignedAgentId: agent.id,
+              status: "approved",
+              claimedAt,
+              completedAt,
+              cycleTimeMinutes: 60,
+            })
+            .where(eq(tasks.id, task.id))
+            .run();
+          db.insert(taskEvents)
+            .values({
+              id: `approved-${task.id}`,
+              taskId: task.id,
+              actorType: "human",
+              actorId: "reviewer-1",
+              action: "approved",
+              timestamp: completedAt,
             })
             .run();
         }
@@ -420,7 +432,8 @@ describe("triageScanService", () => {
         domain: "backend",
       });
       const db = getDb();
-      // 5 tasks each rejected once
+      // 5 tasks each rejected (genuinely degraded: rejected-only review history +
+      // no claim/cycle data → score below the default threshold).
       for (let i = 0; i < 5; i++) {
         const task = taskRepo.createTask({
           missionId,
@@ -429,15 +442,8 @@ describe("triageScanService", () => {
           estimatedMinutes: 60,
         });
         const completedAt = new Date(NOW.getTime() - i * 60_000).toISOString();
-        const claimedAt = new Date(NOW.getTime() - (i * 60_000 + 60 * 60_000)).toISOString();
         db.update(tasks)
-          .set({
-            assignedAgentId: agent.id,
-            status: "approved",
-            claimedAt,
-            completedAt,
-            cycleTimeMinutes: 60,
-          })
+          .set({ assignedAgentId: agent.id, status: "approved", completedAt })
           .where(eq(tasks.id, task.id))
           .run();
         db.insert(taskEvents)
@@ -447,16 +453,6 @@ describe("triageScanService", () => {
             actorType: "human",
             actorId: "reviewer-1",
             action: "rejected",
-            timestamp: claimedAt,
-          })
-          .run();
-        db.insert(taskEvents)
-          .values({
-            id: `appr-${task.id}`,
-            taskId: task.id,
-            actorType: "human",
-            actorId: "reviewer-1",
-            action: "approved",
             timestamp: completedAt,
           })
           .run();
