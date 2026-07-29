@@ -1,5 +1,5 @@
 /**
- * Task Publication Persistence — transaction-aware, DORMANT primitives.
+ * Task Publication Persistence — transaction-aware primitives.
  *
  * Phase 2 of T1. These `*WithClient` functions mirror the Pulse precedent
  * (`PulseDbClient` / `createPulseWithClient` in `pulse.ts`): each accepts a
@@ -11,13 +11,14 @@
  *   - open their own transaction (no nested transactions),
  *   - emit external effects (SSE / hooks / webhooks).
  * They only validate + insert on the caller-supplied client. The publication
- * coordinator (later tickets) composes them inside one `db.transaction((tx) => …)`
- * to achieve the atomicity that `taskCrud.createTask` cannot (it is a bare
- * `getDb()` insert with no transaction).
+ * coordinator composes them inside one `db.transaction((tx) => …)` to achieve
+ * the atomicity that the legacy bare-`getDb()` `createTask` insert could not.
  *
- * These primitives are DORMANT: no production origin routes through them yet.
- * See `db/schema/taskPublication.ts` (Phase 1) for the dormant storage they
- * write against, and the Technical Plan § "Transactional Persistence".
+ * These primitives are LIVE: the atomic publication coordinator
+ * (`publishTaskWithClient`) composes them inside its caller-owned transaction,
+ * and the kernel has been the sole Task-creation path since v0.32.0. See
+ * `db/schema/taskPublication.ts` (Phase 1) for the storage they write against,
+ * and the Technical Plan § "Transactional Persistence".
  */
 import { getDb } from "../db/index.js";
 import {

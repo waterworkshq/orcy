@@ -3,9 +3,11 @@
  * worker leases / safe takeover (T3A Phase 3), and compact-vs-detailed
  * retention (T3A Phase 4).
  *
- * DORMANT additive production code: no production origin routes through this
- * module yet. It is tested in isolation against the T1 storage layer
- * (`db/schema/taskPublication.ts` → `task_creation_attempts`). Phase 2 added
+ * LIVE production code: the atomic publication coordinator reserves an
+ * attempt for every Task creation, and the kernel has been the sole
+ * Task-creation path since v0.32.0. Also tested in isolation against the T1
+ * storage layer (`db/schema/taskPublication.ts` → `task_creation_attempts`).
+ * Phase 2 added
  * the compare-and-set transition matrix (forward-only, terminal-locked) in
  * `taskPublication.ts`. Phase 3 adds the worker-lease primitives — acquire /
  * renew / release with safe expired-lease takeover — operating on the

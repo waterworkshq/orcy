@@ -3,9 +3,10 @@
  *
  * Composes the Story-1 kernel chain — reserve → prepare → govern → publish —
  * for interactive Task creation (UI / REST / MCP). This is the
- * replacement for legacy `createTask` (`services/tasks/task-crud.ts:21`); it
- * ships ALONGSIDE the legacy path and is exercised ONLY by tests until the
- * global cutover (T11) swaps the route/MCP callers onto it.
+ * replacement for legacy `createTask` (`services/tasks/task-crud.ts:21`). The
+ * cutover landed in v0.32.0 (`isCreationPublicationEnabled` always true; legacy
+ * create/clone routes removed), so this adapter is the live interactive
+ * Task-creation path — the REST create/clone routes route through it.
  *
  * Why a new adapter (Technical Plan § "Origin Migration Matrix"):
  *   The legacy `createTask` path carries two structural hacks the kernel

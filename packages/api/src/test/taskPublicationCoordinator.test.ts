@@ -12,8 +12,10 @@
  * is the core guardrail; it leans on the `FailingDbClient` wrapper the same way
  * `taskPublicationFailureInjection.test.ts` does.
  *
- * DORMANT: no production origin routes through the coordinator yet — this test
- * suite is the sole exerciser until the global cutover (T11) wires origins in.
+ * The coordinator is LIVE: it has been the sole Task-creation commit path
+ * since v0.32.0 (`isCreationPublicationEnabled` always true; legacy create/clone
+ * routes removed). This suite remains the canonical invariant guard (atomicity
+ * matrix + guard/governance/consistency contracts).
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { mkdir, writeFile, rm } from "node:fs/promises";

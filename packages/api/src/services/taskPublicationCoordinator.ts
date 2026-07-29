@@ -37,8 +37,12 @@
  *     entire aggregate — the caller's tx aborts. Nothing externally observable
  *     runs until commit succeeds.
  *
- * global cutover (T11) is what wires origins in. Until then this module is
- * exercised only by its test suite.
+ * The global cutover (T11) landed in v0.32.0 — `isCreationPublicationEnabled`
+ * is always true and the legacy create/clone routes are removed, so this
+ * coordinator is the sole Task-creation commit path in production. Every
+ * Story-2/3 origin (manual create, clone, automation, plugin, blocker,
+ * recovery, import, template, triage, scheduled occurrence) routes its final
+ * commit through it.
  *
  * See: Task Creation and Clone Technical Plan § "Single Task publication";
  * ADR-0039 (managed runtime owns classification).
