@@ -28,11 +28,15 @@
  *   1. FREEZE BATCH ADMISSION before evaluating any Task: the enrolled
  *      `taskCreated` pre-interceptor list in priority order, each entry's
  *      contribution version, enrollment/configuration revision, and quarantine
- *      admission. A fault in one Task CANNOT alter admission for later Tasks in
- *      the SAME batch (the freeze is per-batch; quarantine updates from a
- *      Task's runtime faults still apply to LATER PUBLICATIONS — the runtime
- *      keeps incrementing counters, the frozen snapshot is what gates THIS
- *      batch).
+ *      admission state (captured truthfully via `isInterceptorQuarantined` so
+ *      the fingerprint is honest). Enrollment/config/contribution-version ARE
+ *      frozen per-batch — a re-registration mid-batch does not change THIS
+ *      batch. Quarantine admission is captured in the FINGERPRINT, but the
+ *      runtime REMAINS authoritative for invocation gating: a mid-batch
+ *      quarantine update (a Task-1 fault crossing the threshold) IS visible to
+ *      later Tasks' invocations. That per-batch quarantine-freeze gap is the
+ *      documented ADR-004 Option C relaxation (re-opened for Option B on the
+ *      triggers recorded in that ADR).
  *   2. OVERWRITE the Phase-1 `interceptorEnrollmentFingerprint` sentinel on
  *      every Task's {@link PublicationGuard} with the real enrollment/config
  *      fingerprint computed from the frozen snapshot. No governed guard may
@@ -61,6 +65,7 @@ import {
   snapshotEnrolledPreInterceptors,
   makePreInterceptorTargetForGovernance,
   invokePreInterceptorForGovernance,
+  isInterceptorQuarantined,
 } from "../plugins/pluginManager.js";
 import {
   PHASE1_INTERCEPTOR_FINGERPRINT_PLACEHOLDER,
@@ -161,10 +166,13 @@ export interface FrozenEnrolledInterceptor {
   /** The contribution version snapshot. */
   contributionSnapshot: FrozenContributionSnapshot;
   /**
-   * Whether the contribution was quarantined at freeze time. Captured so the
-   * fingerprint reflects the admission state the Task was evaluated against.
-   * The runtime STILL increments quarantine counters during the batch; this
-   * snapshot is what the FINGERPRINT covers.
+   * Whether the contribution was quarantined at freeze time, populated
+   * truthfully via {@link isInterceptorQuarantined} (ADR-004 Option A) so the
+   * fingerprint reflects the admission state captured at freeze. The runtime
+   * REMAINS authoritative for invocation gating and still increments quarantine
+   * counters during the batch — a mid-batch quarantine change is visible to
+   * later Tasks' invocations (the ADR-004 Option C relaxation). This field
+   * makes the FINGERPRINT honest; it does not freeze invocation admission.
    */
   quarantinedAtFreeze: boolean;
   /**
@@ -549,20 +557,21 @@ function mapPreVetoToGovernanceDecision(preVeto: PreVetoDecision): {
  * for the habitat in priority order and computes the enrollment/config
  * fingerprint. Called ONCE per batch, BEFORE evaluating any Task.
  *
- * Quarantine admission is captured per-entry via the exported
- * `clearQuarantine`-managed set indirectly — the governance module does NOT
- * reach into the private `quarantineSet`; instead the runtime's
- * `isQuarantined` check at invocation time is authoritative. The fingerprint
- * captures the enrollment/configuration identity; per-batch quarantine state
- * is reflected at invocation time by the runtime (a quarantined interceptor
- * the runtime skips → `allow` decision → recorded). This keeps the freeze
- * aligned with the live runtime authority without duplicating the quarantine
- * set.
+ * Each entry's `quarantinedAtFreeze` is populated truthfully via the exported
+ * {@link isInterceptorQuarantined} read (ADR-004 Option A) so the fingerprint
+ * is honest about the admission state captured at freeze time. The runtime
+ * REMAINS authoritative on quarantine for invocation gating (ADR-0039): a
+ * mid-batch quarantine update — a Task-1 fault crossing the threshold — IS
+ * visible to later Tasks' invocations (the runtime live-skips the newly-
+ * quarantined interceptor → `allow`). That per-batch quarantine-freeze gap is
+ * the documented ADR-004 Option C relaxation; the truthful fingerprint does
+ * NOT close it (Option B would). This read does not reach into runtime
+ * internals or duplicate the quarantine set's authority.
  */
 function freezeBatchAdmission(habitatId: string): FrozenBatchAdmissionSnapshot {
   const enrolled = snapshotEnrolledPreInterceptors(GOVERNED_EVENT, habitatId);
   const frozenEnrolled: FrozenEnrolledInterceptor[] = enrolled.map((entry) =>
-    freezeInterceptorEntry(entry, false),
+    freezeInterceptorEntry(entry, isInterceptorQuarantined(entry.canonicalKey)),
   );
   const enrollmentFingerprint = computeEnrollmentFingerprint({
     event: GOVERNED_EVENT,

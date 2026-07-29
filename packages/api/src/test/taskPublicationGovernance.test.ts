@@ -27,6 +27,7 @@ import {
 import * as pluginManager from "../plugins/pluginManager.js";
 import * as runRepo from "../repositories/pluginRun.js";
 import * as enrollmentRepo from "../repositories/pluginEnrollment.js";
+import * as quarantineRepo from "../repositories/pluginQuarantine.js";
 import * as habitatRepo from "../repositories/habitat.js";
 import * as columnRepo from "../repositories/column.js";
 import * as missionRepo from "../repositories/mission.js";
@@ -40,6 +41,7 @@ import {
   computeGovernanceFingerprint,
   computeEnrollmentFingerprint,
   guardCarriesPhase1Sentinel,
+  freezeCurrentBatchAdmission,
   GOVERNED_EVENT,
   type FrozenBatchAdmissionSnapshot,
   type FrozenEnrolledInterceptor,
@@ -758,5 +760,60 @@ describe("T3B Phase 2 — governance-decisions ledger primitives", () => {
         diagnostics: null,
       }),
     ).toThrow();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// ADR-004 Option A — truthful quarantinedAtFreeze in the frozen fingerprint
+// ---------------------------------------------------------------------------
+describe("ADR-004 Option A — frozen snapshot reflects live quarantine state", () => {
+  let tmpDir: string;
+  beforeEach(() => {
+    tmpDir = "";
+  });
+  afterEach(async () => {
+    if (tmpDir) await cleanup(tmpDir);
+  });
+
+  it("populates quarantinedAtFreeze truthfully from isInterceptorQuarantined (clean → quarantined → cleared)", async () => {
+    // FAILURE MODE this catches: if freezeBatchAdmission hardcoded
+    // quarantinedAtFreeze:false, the frozen snapshot would NOT reflect the
+    // quarantine state and the enrollment/governance fingerprint would be
+    // dishonest about the admission state the Task was evaluated against.
+    tmpDir = await writePlugin(
+      "quarantine-freeze",
+      `{
+        manifest: {
+          id: 'quarantine-freeze', version: '1.0.0', description: 'quarantine freeze',
+          contributions: [
+            { kind: 'lifecycleInterceptor', scope: 'habitat', interceptorId: 'q-pre', phase: 'pre', event: 'taskCreated', priority: 1, requires: [] },
+          ],
+        },
+        interceptors: {
+          'q-pre': () => ({ allow: true }),
+        },
+      }`,
+    );
+    enrollInterceptor(habitatId, "quarantine-freeze", "q-pre");
+
+    // 1. Not quarantined → quarantinedAtFreeze === false.
+    const clean = freezeCurrentBatchAdmission(habitatId);
+    expect(clean.enrolled).toHaveLength(1);
+    const interceptorKey = clean.enrolled[0].interceptorKey;
+    expect(clean.enrolled[0].quarantinedAtFreeze).toBe(false);
+
+    // 2. Persist + load a quarantine for THIS interceptor's canonical key, then
+    //    re-freeze — the snapshot must now reflect quarantinedAtFreeze === true.
+    //    (Also proves the freeze's interceptorKey matches the quarantine key.)
+    quarantineRepo.upsert(interceptorKey, "quarantine-freeze", "test-quarantine");
+    pluginManager.loadQuarantinesFromDb();
+    const quarantined = freezeCurrentBatchAdmission(habitatId);
+    expect(quarantined.enrolled[0].interceptorKey).toBe(interceptorKey);
+    expect(quarantined.enrolled[0].quarantinedAtFreeze).toBe(true);
+
+    // 3. Clear the quarantine → the snapshot reflects false again.
+    pluginManager.clearQuarantine(interceptorKey);
+    const cleared = freezeCurrentBatchAdmission(habitatId);
+    expect(cleared.enrolled[0].quarantinedAtFreeze).toBe(false);
   });
 });

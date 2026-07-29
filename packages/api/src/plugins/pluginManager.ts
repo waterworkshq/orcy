@@ -1316,6 +1316,22 @@ export function clearQuarantine(pluginKey: string): boolean {
   return wasQuarantined;
 }
 
+/**
+ * Whether a contribution is currently quarantined, keyed by its canonical
+ * contribution key (ADR-0039 Q9 kind-aware key — the same key
+ * {@link incrementError} adds to `quarantineSet`).
+ *
+ * Additive read used by the prospective governance freeze (T3B Phase 2) to
+ * populate `quarantinedAtFreeze` truthfully on the frozen snapshot (ADR-004
+ * Option A). The runtime REMAINS authoritative on quarantine for invocation
+ * gating — this read only makes the governance FINGERPRINT honest about the
+ * admission state captured at freeze time. It does not mutate state, does not
+ * reach into runtime internals, and never affects the live hot path.
+ */
+export function isInterceptorQuarantined(canonicalKey: string): boolean {
+  return quarantineSet.has(canonicalKey);
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // T3B Phase 2 — prospective taskCreated governance seam (ADDITIVE)
 //
