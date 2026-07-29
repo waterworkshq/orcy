@@ -71,10 +71,7 @@ export async function runOrphanMissionUnmappedScan(habitatId: string): Promise<S
     const orphans = habitatMissions.filter((m) => !connected.has(m.id));
     if (orphans.length === 0) return [];
 
-    const errs: string[] = [];
-    let matched = 0;
-    let skipped = 0;
-    let deduplicated = 0;
+    const counts = { matched: 0, skipped: 0, deduplicated: 0, errors: [] as string[] };
 
     for (const orphan of orphans) {
       const clusterKey = `orphan-mission:${orphan.id}`;
@@ -87,7 +84,7 @@ export async function runOrphanMissionUnmappedScan(habitatId: string): Promise<S
       try {
         triageService.createOrphanTriageMission(habitatId, orphan);
       } catch (err) {
-        errs.push(
+        counts.errors.push(
           `createOrphanTriageMission ${orphan.id}: ${err instanceof Error ? err.message : String(err)}`,
         );
         continue;
@@ -110,14 +107,9 @@ export async function runOrphanMissionUnmappedScan(habitatId: string): Promise<S
             },
             eventDedupeKey: null,
           });
-          tallyDisposition(rule, disposition, {
-            matched,
-            skipped,
-            deduplicated,
-            errors: errs,
-          });
+          tallyDisposition(rule, disposition, counts);
         } catch (err) {
-          errs.push(`Rule ${rule.id}: ${err instanceof Error ? err.message : String(err)}`);
+          counts.errors.push(`Rule ${rule.id}: ${err instanceof Error ? err.message : String(err)}`);
         }
       }
     }
@@ -126,10 +118,10 @@ export async function runOrphanMissionUnmappedScan(habitatId: string): Promise<S
       {
         scanType: SCAN_TYPE,
         habitatId,
-        rulesMatched: matched,
-        rulesSkipped: skipped,
-        rulesDeduplicated: 0,
-        errors: errs,
+        rulesMatched: counts.matched,
+        rulesSkipped: counts.skipped,
+        rulesDeduplicated: counts.deduplicated,
+        errors: counts.errors,
       },
     ];
   } catch (err) {

@@ -47,10 +47,7 @@ export async function runAgentQualityDegradedScan(habitatId: string): Promise<Sc
     const qualityResponse = getAgentQualitySignals(habitatId);
     const { qualityThreshold, qualityMinSample } = resolveThresholds(habitatId);
 
-    const errs: string[] = [];
-    let matched = 0;
-    let skipped = 0;
-    let deduplicated = 0;
+    const counts = { matched: 0, skipped: 0, deduplicated: 0, errors: [] as string[] };
 
     for (const signal of qualityResponse.signals) {
       if (signal.sampleSize < qualityMinSample) continue;
@@ -87,14 +84,9 @@ export async function runAgentQualityDegradedScan(habitatId: string): Promise<Sc
             },
             eventDedupeKey: null,
           });
-          tallyDisposition(rule, disposition, {
-            matched,
-            skipped,
-            deduplicated,
-            errors: errs,
-          });
+          tallyDisposition(rule, disposition, counts);
         } catch (err) {
-          errs.push(`Rule ${rule.id}: ${err instanceof Error ? err.message : String(err)}`);
+          counts.errors.push(`Rule ${rule.id}: ${err instanceof Error ? err.message : String(err)}`);
         }
       }
     }
@@ -103,10 +95,10 @@ export async function runAgentQualityDegradedScan(habitatId: string): Promise<Sc
       {
         scanType: SCAN_TYPE,
         habitatId,
-        rulesMatched: matched,
-        rulesSkipped: skipped,
-        rulesDeduplicated: 0,
-        errors: errs,
+        rulesMatched: counts.matched,
+        rulesSkipped: counts.skipped,
+        rulesDeduplicated: counts.deduplicated,
+        errors: counts.errors,
       },
     ];
   } catch (err) {
