@@ -1,5 +1,5 @@
 /**
- * Scheduled Occurrence Repository — T9A Phase 1 (DORMANT additive primitives).
+ * Scheduled Occurrence Repository — T9A Phase 1 (additive primitives).
  *
  * Builds the transaction-aware repository layer for the existing
  * `scheduled_occurrences` table (T1 — `db/schema/taskPublication.ts:436-466`)
@@ -64,11 +64,12 @@
  * worker — a `publishing` occurrence whose `leaseExpiresAt < now` can be
  * re-claimed, transferring the lease to the recovery owner.
  *
- * DORMANT: no production origin routes through this module yet. The
- * reservation transaction (Phase 2 — `reserveScheduledOccurrence`) and the
- * occurrence publisher (Phase 3 — `publishScheduledOccurrence`) compose these
- * primitives. The scheduler wiring that actually drives occurrence creation
- * is T11 (the cutover ticket).
+ * LIVE: the Task-creation cutover (T11) landed in v0.32.0; the kernel is the
+ * sole Task-creation path and these primitives are exercised in production
+ * transitively via `executeScheduledTaskViaPublication`
+ * (`services/scheduledTaskService.ts`) → `reserveScheduledOccurrence` →
+ * the Phase-3 publisher (`publishScheduledOccurrence` /
+ * `publishInlineScheduledOccurrence` / `dispatchHandlerScheduledOccurrence`).
  */
 import { getDb } from "../db/index.js";
 import { scheduledOccurrences } from "../db/schema/index.js";

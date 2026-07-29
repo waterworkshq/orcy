@@ -24,16 +24,12 @@
  *  (e) RECURRING-INDEPENDENCE — a rejected occurrence does NOT suppress the
  *      next tick's reservation (the UNIQUE index is per-`(schedule,
  *      scheduledFor)`; each firing gets its own row).
- *  (f) DORMANCY — the worker + the recovery function + the resume entry
- *      point are exported + tested but wire NO production boot-registration.
+ *  (f) LIVE — the recovery worker has been boot-registered since the
+ *      Task-creation cutover (T11) landed in v0.32.0; this section still
+ *      guards the lease-recovery contract.
  *
- * Out of scope: T9B Phase 3 (retry endpoint), T11 (scheduler wiring), the
- * legacy `executeScheduledTask` path (unchanged). The recovery worker is
- * DORMANT — no production origin routes through it yet. The PRESERVE suites
- * (`scheduledTaskService.test.ts`, `scheduledOccurrences.test.ts`,
- * `scheduledOccurrencePublication.test.ts`,
- * `scheduledOccurrenceReservation.test.ts`) stay byte-unchanged — the
- * orchestrator's full-suite run confirms.
+ * Out of scope: T9B Phase 3 (retry endpoint), the legacy `executeScheduledTask`
+ * path (unchanged as outer dispatcher).
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { eq, sql } from "drizzle-orm";
@@ -708,12 +704,12 @@ describe("recoverExpiredOccurrenceLeases — recurring-independence", () => {
 });
 
 // ===========================================================================
-// 6. DORMANCY + BOOT-REGISTRATION
+// 6. LIVE + BOOT-REGISTRATION (since v0.32.0)
 // ===========================================================================
 
-describe("startOccurrenceLeaseRecoveryWorker — boot-registration (dormant)", () => {
-  it("exports the worker function + the recovery function (dormant — no production wiring)", () => {
-    // The exports exist + are callable. NO production boot-registration
+describe("startOccurrenceLeaseRecoveryWorker — boot-registration (live since v0.32.0)", () => {
+  it("exports the worker function + the recovery function (boot-registered at startup)", () => {
+    // The exports exist + are callable; boot-registration runs unconditionally
     // wires them (T11 owns the boot wiring).
     expect(typeof recoverExpiredOccurrenceLeases).toBe("function");
     expect(typeof startOccurrenceLeaseRecoveryWorker).toBe("function");

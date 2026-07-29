@@ -1,7 +1,8 @@
 /**
  * T7 Phase 1 — Clone Preparation + Clone Publication guardrail tests.
  *
- * Two DORMANT deliverables, each exercised solely by this suite until T11:
+ * Two deliverables, live since the Task-creation cutover (T11) landed in
+ * v0.32.0; this suite still guards the contract:
  *
  *   (a) {@link prepareClonePublication} — the read-only allowlisted DTO that
  *       prefills the clone composer. Opening the clone form creates NOTHING.

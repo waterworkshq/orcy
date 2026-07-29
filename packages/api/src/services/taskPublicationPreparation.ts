@@ -10,12 +10,13 @@
  *   publication guards. MUST NOT: Write domain rows or emit observable
  *   effects.
  *
- * Phase 1 is PURE: no production origin calls
- * {@link prepareTaskPublication} yet, and the function performs only read-only
+ * Phase 1 is PURE: {@link prepareTaskPublication} performs only read-only
  * validation against the existing mission/habitat/dependency repositories. It
  * allocates a prospective Task ID, canonicalizes the proposal, and captures a
  * {@link PublicationGuard} snapshot that the publication transaction later
- * re-verifies (Phase 3). It writes nothing and emits nothing.
+ * re-verifies (Phase 3). It writes nothing and emits nothing. Called by every
+ * Task-creation kernel adapter since the Task-creation cutover (T11) landed
+ * in v0.32.0 (the kernel is the sole Task-creation path).
  *
  * Validation contract (load-bearing):
  *   - ALL actionable field errors are collected into one `rejected_validation`

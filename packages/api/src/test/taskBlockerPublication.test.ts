@@ -4,9 +4,9 @@
  * The adapter (`publishBlockerClearanceTask`) composes the Story-1 kernel chain
  * (reserve → prepare → govern → publish) for the blocker-clearance origin (the
  * auto-created "Clear Blocker: …" Task spawned when a `blocker` signal pulse
- * is posted). It is DORMANT: no production pulse-service call routes through
- * it yet — this suite is the sole exerciser until the global cutover (T11)
- * swaps `createBlockerClearanceTask` onto it.
+ * is posted). It has been LIVE in production since the Task-creation cutover
+ * (T11) landed in v0.32.0 — the pulse service now delegates every blocker
+ * clearance here. This suite continues to guard the contract.
  *
  * Each test maps 1:1 to a guardrail named in the ticket:
  *   - C1 — habitat-scoped rejection: a habitat-scoped blocker pulse (no valid
@@ -21,8 +21,8 @@
  *   - Provenance server-constructed: input cannot assert
  *     actor/auditSource/causalContext; the committed envelope carries the
  *     pulse root.
- *   - Legacy `createBlockerClearanceTask` unchanged: the adapter ships DORMANT
- *     alongside it (pulseService.ts byte-unchanged).
+ *   - Legacy `createBlockerClearanceTask` retired: the adapter replaced it at
+ *     T11 (v0.32.0).
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { eq } from "drizzle-orm";
@@ -579,12 +579,13 @@ describe("T8A-pre P2 provenance — server-constructed pulse identity", () => {
 });
 
 // ===========================================================================
-// 6. LEGACY createBlockerClearanceTask UNCHANGED — the adapter ships DORMANT.
+// 6. LEGACY createBlockerClearanceTask RETIRED — the adapter replaced it at T11.
 // ===========================================================================
 
-describe("T8A-pre P2 dormancy — legacy createBlockerClearanceTask stays the active production path", () => {
-  it("the legacy service-layer path is untouched (pulseService.ts byte-unchanged)", () => {
-    // The adapter does NOT wire into postMissionPulseSignal /
+describe("T8A-pre P2 post-cutover — legacy createBlockerClearanceTask no longer reached", () => {
+  it("the legacy service-layer path is no longer reached from the pulse service", () => {
+    // The adapter wires into postMissionPulseSignal / postHabitatPulseSignal
+    // unconditionally since v0.32.0.
     // postHabitatPulseSignal. The legacy path's
     // `taskService.createTask({ createdBy: "system" })` stays the active
     // production writer. Assert the marker: a legacy blocker Task is NOT

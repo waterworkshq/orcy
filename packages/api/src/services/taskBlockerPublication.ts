@@ -5,8 +5,8 @@
  * for the blocker-clearance origin (the auto-created "Clear Blocker: …" Task
  * spawned when a `blocker` signal pulse is posted). This is the
  * replacement for the legacy `pulseService.ts:232 createBlockerClearanceTask`
- * path. It ships ALONGSIDE the legacy path and is exercised ONLY by tests
- * until the global cutover (T11) swaps the pulse service onto it.
+ * path; live since the Task-creation cutover (T11) landed in v0.32.0 — the
+ * pulse service now routes every blocker clearance through this adapter.
  *
  * # Why a new adapter (not an extension of `publishTaskCreation`)
  *
@@ -107,9 +107,8 @@
  * propagate as retryable throws (the attempt stays resumable under the same
  * key).
  *
- * Legacy `createBlockerClearanceTask` + its two callers
- * (`postMissionPulseSignal` / `postHabitatPulseSignal`) stay the active
- * production path until T11.
+ * Replaced the legacy `createBlockerClearanceTask` path; live since the
+ * Task-creation cutover (T11) landed in v0.32.0.
  *
  * See: Task Creation and Clone Technical Plan § "Origin Migration Matrix";
  * Story-2 implementation-context § "Story 1 kernel API surface"; gap-audit O2;

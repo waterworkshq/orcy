@@ -30,18 +30,20 @@
  *      change too (occurrence stays `publishing`). Proves the
  *      `publishing → published` transition commits in the SAME tx as the
  *      Mission+Tasks.
- *  (h) DORMANCY — exported + tested but no production caller.
+ *  (h) LIVE — the adapter has been reached in production via
+ *      `executeScheduledTaskViaPublication` since the Task-creation cutover
+ *      (T11) landed in v0.32.0; this section still guards the
+ *      templateId-path publication contract.
  *  (i) REPLAY — second call after a successful publish → `illegal_source_state`
  *      (the occurrence is terminal).
  *  (j) SCHEDULE MISSING — schedule deleted between reservation and publication
  *      → `schedule_missing`; occurrence `rejected`.
  *
- * Out of scope: T9B (lease-recovery worker), T11 (scheduler wiring), the
- * legacy `executeScheduledTask` path (unchanged). The publisher is DORMANT —
- * no production origin routes through it yet. The PRESERVE suites
- * (`scheduledTaskService.test.ts`, `scheduledOccurrences.test.ts`,
- * `scheduledOccurrenceReservation.test.ts`) stay byte-unchanged — the
- * orchestrator's full-suite run confirms.
+ * Out of scope: T9B (lease-recovery worker), the legacy `executeScheduledTask`
+ * path (unchanged as outer dispatcher). The publisher has been LIVE in
+ * production since the Task-creation cutover (T11) landed in v0.32.0 —
+ * `executeScheduledTaskViaPublication` (`scheduledTaskService.ts`) routes
+ * every `templateId`-bearing schedule firing here.
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { mkdir, writeFile } from "node:fs/promises";
@@ -1066,11 +1068,12 @@ describe("publishScheduledOccurrence — atomic occurrence-state transition (loa
 });
 
 // ===========================================================================
-// 8. DORMANCY — exported + tested, no production caller.
+// 8. LIVE — reached in production since v0.32.0 via the scheduler; this
+//    section still guards the templateId-path publication contract.
 // ===========================================================================
 
-describe("publishScheduledOccurrence — dormancy", () => {
-  it("the adapter is exported and callable (wired to no production path)", () => {
+describe("publishScheduledOccurrence — post-cutover wiring", () => {
+  it("the adapter is exported and callable (reached in production via the scheduler since v0.32.0)", () => {
     expect(typeof publishScheduledOccurrence).toBe("function");
     expect(typeof buildOccurrenceRecordParticipant).toBe("function");
 

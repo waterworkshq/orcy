@@ -11,9 +11,9 @@
  * junction in T8A, the scheduled-occurrence record in later T9A phases).
  *
  * This is the replacement for the legacy `applyTemplate` write path
- * (`repositories/template.ts:403`). It ships ALONGSIDE the legacy path and is
- * exercised ONLY by tests until the global cutover (T11) swaps the consuming
- * origins (triage, scheduler, routes/templates) onto
+ * (`repositories/template.ts:403`); live since the Task-creation cutover
+ * (T11) landed in v0.32.0 — every template-bearing origin (triage,
+ * scheduler templateId-path, routes/templates) routes through
  * `prepareTemplateAggregate` + `publishTemplateAggregateWithClient`.
  *
  * # The load-bearing design decision: N per-Task attempts (NOT one aggregate attempt)

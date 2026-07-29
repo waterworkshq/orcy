@@ -1,10 +1,13 @@
 /**
  * Claim Authority — the transactional mutation authority for Task claims.
  *
- * T2 Phase 2. ADDITIVE + DORMANT: no production caller routes through here yet.
- * Phase 3 will migrate `claimTask`, `claimTaskByRemoteParticipant`,
- * `claimDelegatedTask`, `startTask`, and `startTaskByRemoteParticipant` in
- * `repositories/taskStateMachine.ts` to delegate to this authority.
+ * T2 Phase 2. ADDITIVE: the kernel is the sole Task-creation path since the
+ * Task-creation cutover (T11) landed in v0.32.0, and the post-cutover
+ * reservation-expiry retry path in `routes/tasks/assignment.ts` delegates
+ * its fresh local-claim to {@link claimWithAuthority} here, so this authority
+ * is reached in production. Phase 3 will additionally migrate the
+ * plain-claim and delegated-claim functions in `repositories/taskStateMachine.ts`
+ * to delegate here.
  *
  * Owns the mutation-time claim decision in ONE transaction (ADR-0038
  * consequence — closes TOCTOU races):

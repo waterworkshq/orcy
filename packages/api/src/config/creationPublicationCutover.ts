@@ -1,8 +1,14 @@
 /**
- * Fix-P1 — Cutover gate for the post-cutover Task-creation mutation routes.
+ * Fix-P1 — Cutover gate for the post-cutover Task-creation mutation routes
+ * (HISTORICAL — superseded by the v0.32.0 cutover landing; retained for the
+ * git-history narrative). The {@link isCreationPublicationEnabled} function
+ * below permanently returns `true` since v0.32.0; the routes it once gated
+ * are now registered unconditionally and the legacy create/clone REST
+ * surfaces have been retired.
  *
- * The 4 mutation routes that create/modify POST_CUTOVER state are dormant in
- * production until T11 (Story 3 cutover) flips this flag on:
+ * Historical context — The 4 mutation routes that create/modify POST_CUTOVER
+ * state were dormant in production until T11 (Story 3 cutover) flipped this
+ * flag on:
  *   - `POST /missions/:missionId/task-publications`
  *   - `POST /tasks/:sourceTaskId/clone-publications`
  *   - `POST /tasks/:taskId/assignment-attempts`

@@ -44,13 +44,16 @@
  * throws {@link AmbiguousLegacyTitleError} carrying ALL accumulated ambiguity
  * errors — never silently picks one (the B3 contract).
  *
- * # Dormancy (PRESERVE the legacy path)
+ * # Live status (preserved legacy path)
  *
- * The adapter has NO caller until M4's preflight imports it. The legacy
- * `importHabitat` (`services/habitatService.ts:450-710`) + the `z.preprocess`
- * (`models/schemas.ts:265-280`) stay byte-identical + active until T11's
- * cutover. This module ships ALONGSIDE the legacy preprocess — it does NOT
- * modify or replace it.
+ * Active since the Task-creation cutover (T11) landed in v0.32.0 — M4's
+ * preflight imports this adapter for every v1/v2 manifest routed through
+ * the import-aggregate pipeline (`routes/board-export.ts` →
+ * `prepareImport` → `adaptUnknown`). The legacy `importHabitat`
+ * (`services/habitatService.ts:450-710`) + the `z.preprocess`
+ * (`models/schemas.ts:265-280`) remain byte-identical as the declared
+ * v1/v2 adapter. This module ships ALONGSIDE the legacy preprocess — it
+ * does NOT modify or replace it.
  *
  * @see packages/api/src/services/importManifest/sourceIdentity.ts for the
  *      structural-source-ID + ambiguity-detection helpers (re-exported here

@@ -82,11 +82,15 @@
  * tx owns the atomicity unit; a single throw at any step aborts the whole
  * aggregate.
  *
- * # Dormancy (PRESERVE)
+ * # Live status
  *
- * Dormant behind `ORCY_CREATION_PUBLICATION_ENABLED`. No production caller
- * until T11. Legacy `importHabitat` + the `z.preprocess` stay
- * byte-identical + active. The new path is exercised only by tests.
+ * Active since the Task-creation cutover (T11) landed in v0.32.0; the kernel
+ * is the sole Task-creation path and `isCreationPublicationEnabled()` is
+ * permanently `true` (`config/creationPublicationCutover.ts`). The
+ * import-aggregate pipeline (`routes/board-export.ts` → `prepareImport` here)
+ * is reached on every habitat import. Legacy `importHabitat` + the
+ * `z.preprocess` (`models/schemas.ts:265-280`) remain as the declared adapter
+ * for v1/v2 inputs but the production write path is the kernel.
  *
  * @see packages/api/src/services/importManifest/preflightImport.ts for the
  *      {@link PreparedImport} shape (T10A M4 — the orchestrator's input).
@@ -1369,8 +1373,10 @@ function terminalRejectImport(
  * own throws that are NOT the guard sentinel) propagate as retryable runtime
  * errors; the whole aggregate rolls back.
  *
- * flag gate is `isCreationPublicationEnabled()`. Legacy `importHabitat`
- * stays byte-identical + active until T11.
+ * `isCreationPublicationEnabled()` is permanently `true` since v0.32.0
+ * (see `config/creationPublicationCutover.ts`). Legacy `importHabitat`
+ * remains as the declared v1/v2 adapter; the kernel publication path is
+ * the production path.
  */
 export function publishImportAggregateWithClient(
   db: TaskPublicationDbClient,

@@ -6,8 +6,8 @@
  * "Triage: …" Mission spawned by the cluster + orphan scans). This is the
  * replacement for the legacy
  * `triageService.ts:24 createTriageMission` + `:67 createOrphanTriageMission`
- * paths. It ships ALONGSIDE the legacy paths and is exercised ONLY by tests
- * until the global cutover (T11) swaps the scan callers onto it.
+ * paths; live since the Task-creation cutover (T11) landed in v0.32.0 — the
+ * scan callers route every triage + orphan-spawn through this adapter.
  *
  * # Why a new adapter (not an extension of the single-Task adapters)
  *
@@ -100,13 +100,13 @@
  * usage, AND the junction would point at the WINNER's mission → orphaned
  * loser aggregate + duplicate suppression failure on the next scan.
  *
- * # Dormancy
+ * # Live status
  *
- * No production scan call routes through this adapter yet. Legacy
- * `createTriageMission` + `createOrphanTriageMission` + their scan callers
- * (`triageScanService.ts:87`, `orphanScanService.ts:80`) stay the active
- * production path until T11. The gate-wiring at the legacy entry points +
- * adaptation of the scan callers to the vetoed surface is T11.
+ * Replaced the legacy `createTriageMission` + `createOrphanTriageMission`
+ * paths; live since the Task-creation cutover (T11) landed in v0.32.0 — the
+ * scan callers (`triageScanService.ts`, `orphanScanService.ts`) route every
+ * triage + orphan-spawn through this adapter and surface vetoed outcomes as
+ * blocked log entries.
  *
  * See: T8A ticket (triage milestone — active scope); T9A ticket (consumer
  * contract for T8A-triage); the Recovery adapter (`taskRecoveryPublication`)
@@ -690,8 +690,9 @@ export function buildTriageClusterJunctionParticipant(
  * winner's junction committed.
  *
  * `createTriageMission` + `createOrphanTriageMission` + their scan callers
- * (`triageScanService.ts:87`, `orphanScanService.ts:80`) stay byte-identical +
- * active until T11.
+ * (`triageScanService.ts:87`, `orphanScanService.ts:80`) remain byte-identical
+ * as outer dispatchers; the publication path they route through is this
+ * adapter since v0.32.0.
  */
 export function publishTriageMission(
   input: TriageMissionPublicationInput,

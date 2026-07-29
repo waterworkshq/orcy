@@ -6,8 +6,9 @@
  * the Story-1 kernel chain (reserve → prepare → govern → publish) with a fresh
  * `plugin_run` causal root + server-constructed provenance.
  *
- * This suite is the SOLE exerciser until T11 cutover. Each test maps 1:1 to a
- * guardrail named in the T8B P2 ticket:
+ * Live in production since the Task-creation cutover (T11) landed in v0.32.0;
+ * this suite continues to guard the plugin producer-migration contract.
+ * Each test maps 1:1 to a guardrail named in the T8B P2 ticket:
  *
  *   - **Scope/cap preserved:** the publication path still enforces `checkCap`
  *     (write-cap exceeded → throw) + the habitat-scope check (cross-habitat

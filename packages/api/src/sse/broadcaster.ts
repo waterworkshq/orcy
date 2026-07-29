@@ -76,10 +76,12 @@ class SSEBroadcaster {
    * generic consumers (webhook/chat/automation fire via their OWN dedicated
    * adapters — exactly once per envelope).
    *
-   * DORMANT until cutover: the live `createTask` / `cloneTask` /
-   * transition-emitter paths stay on `publish` (the domain bus); only the
-   * dormant `clientStreamAdapter` calls this. Additive to `publish` —
-   * `publish` is byte-identical and its ~30 callers are unaffected.
+   * Live since the Task-creation cutover (T11) landed in v0.32.0 — the
+   * `clientStreamAdapter` reaches direct SSE clients without double-firing
+   * the generic consumers (webhook/chat/automation fire via their OWN
+   * dedicated adapters — exactly once per envelope). The legacy
+   * `createTask` / `cloneTask` / transition-emitter fan-out is no longer
+   * reached; `publish` remains byte-identical for the rest of its callers.
    */
   publishToClients(habitatId: string, event: SSEEvent): void {
     const handlers = this.habitatStreams.get(habitatId);

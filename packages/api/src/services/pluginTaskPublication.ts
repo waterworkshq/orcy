@@ -4,13 +4,12 @@
  * Composes the Story-1 kernel chain — reserve → prepare → govern → publish —
  * for the plugin `createTask` origin (a plugin contribution's
  * `taskWriter.createTask(input)` call). This is the replacement for
- * the legacy raw-insert path (`plugins/context.ts:266 createTask`, which calls
+ * the legacy raw-insert path (`plugins/context.ts:266 createTask`, which called
  * `taskRepo.createTask` directly with only `createdBy: "plugin:<pluginId>"`
  * — no `created` Lifecycle Event, no prospective governance, no dispatch
- * envelope, and a `runId` that is LOGGED but never persisted on the Task).
- * It ships ALONGSIDE the legacy path (gated by `isCreationPublicationEnabled`)
- * and is exercised ONLY by tests until the global cutover (T11) flips the
- * plugin `createTask` onto it unconditionally.
+ * envelope, and a `runId` that was LOGGED but never persisted on the Task);
+ * live since the Task-creation cutover (T11) landed in v0.32.0 — the plugin
+ * `createTask` delegate unconditionally routes here.
  *
  * # Why a new adapter (not an extension of `publishTaskCreation`)
  *
@@ -93,8 +92,9 @@
  *      terminalize + return `vetoed`.
  *   4. PUBLISH via `db.transaction((tx) => publishTaskWithClient(tx, ...))`.
  *
- * unless `ORCY_CREATION_PUBLICATION_ENABLED=true`. Legacy raw insert stays the
- * active production path until T11.
+ * The `isCreationPublicationEnabled` flag is permanently on
+ * (`config/creationPublicationCutover.ts` returns `true` since v0.32.0); the
+ * legacy raw-insert path is no longer reached.
  *
  * See: Task Creation and Clone Technical Plan § "Origin Migration Matrix",
  * § "Provenance and Automation Cycle Safety"; Story-2 implementation-context

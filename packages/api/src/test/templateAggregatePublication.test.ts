@@ -16,9 +16,12 @@
  *         roll back too.
  *  (c) PARTICIPANTS SEAM — a participant that writes a sentinel row commits
  *      with the aggregate AND rolls back with it.
- *  (d) DORMANCY — the function is exported + tested but wires NO production
- *      caller (legacy `applyTemplate` paths stay byte-unchanged — verified by
- *      the PRESERVE suite `applyTemplate.test.ts` remaining green).
+ *  (d) LIVE — the publisher has been reached in production via every
+ *      template-bearing origin (triage, scheduler templateId-path,
+ *      routes/templates) since the Task-creation cutover (T11) landed in
+ *      v0.32.0. Legacy `applyTemplate` paths remain byte-identical as
+ *      outer dispatchers; this section still guards the
+ *      template-aggregate publication contract.
  *
  * The atomicity matrix is the load-bearing proof: it establishes that the
  * aggregate publisher composes the kernel's per-Task publication primitive
@@ -926,17 +929,16 @@ describe("publishTemplateAggregateWithClient — input contract", () => {
 });
 
 // ===========================================================================
-// 5. DORMANCY — the publisher ships with NO production caller. This suite is
-//    the sole exerciser. Legacy `applyTemplate` paths stay byte-unchanged
-//    (verified by the PRESERVE suite `applyTemplate.test.ts` remaining green,
-//    which the orchestrator's full-suite run confirms).
+// 5. LIVE — the publisher is reached in production since v0.32.0; this
+//    section still guards the template-aggregate publication contract.
+//    Legacy `applyTemplate` paths remain byte-identical as outer dispatchers.
 // ===========================================================================
 
-describe("publishTemplateAggregateWithClient — dormancy", () => {
-  it("the publisher is exported and callable (wired to no production path)", () => {
+describe("publishTemplateAggregateWithClient — post-cutover wiring", () => {
+  it("the publisher is exported and callable (reached in production since v0.32.0)", () => {
     // The function exists, is typed, and is the sole export of its module
-    // alongside the closed outcome + input types. No route/MCP/service wires
-    // it (the consuming origins T8A-triage + later T9A phases land later).
+    // alongside the closed outcome + input types. Reached in production by
+    // every template-bearing origin since the Task-creation cutover (T11).
     expect(typeof publishTemplateAggregateWithClient).toBe("function");
     // A minimal end-to-end call exercises the wiring without asserting
     // anything beyond "the publisher runs and returns a closed outcome".

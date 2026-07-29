@@ -22,10 +22,12 @@
  *     created event + envelope).
  *
  * Out of scope: snapshotting + `restore` identity (M3); recovery/repair
- * surfaces (T10B-recovery); route wiring (T10C); the flag flip (T11).
+ * surfaces (T10B-recovery); route wiring (T10C).
  *
- * DORMANT: the new path is exercised only by tests until T11. The flag
- * ORCY_CREATION_PUBLICATION_ENABLED is forced ON for these tests.
+ * Live since the Task-creation cutover (T11) landed in v0.32.0 — the
+ * import-aggregate pipeline (`routes/board-export.ts` → `prepareImport`)
+ * reaches every habitat import. `isCreationPublicationEnabled()` is
+ * permanently `true`; the flag is retained only for backward-compat tests.
  */
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { randomUUID } from "node:crypto";

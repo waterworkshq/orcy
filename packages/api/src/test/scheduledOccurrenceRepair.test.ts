@@ -24,13 +24,14 @@
  *  (f) ILLEGAL SOURCE STATE — a non-`rejected` occurrence refuses the
  *      retry (`reserved` / `publishing` / `published`).
  *  (g) NOT FOUND — no occurrence row → typed not-found.
- *  (h) DORMANCY — exported + tested but no production caller.
+ *  (h) LIVE — the retry function has been reached in production via
+ *      `POST /scheduled-occurrences/:id/retry` since the Task-creation
+ *      cutover (T11) landed in v0.32.0; this section still guards the
+ *      repair-and-retry contract.
  *
- * Out of scope: T11 (the scheduler wiring + the operator UI), the route
- * layer (covered separately in `scheduledOccurrenceRepairRoute.test.ts`),
- * the legacy `executeScheduledTask` path (unchanged). The retry function
- * is DORMANT — no production origin routes through it yet. The PRESERVE
- * suites stay byte-unchanged.
+ * Out of scope: the route layer (covered separately in
+ * `scheduledOccurrenceRepairRoute.test.ts`), the legacy `executeScheduledTask`
+ * path (unchanged as outer dispatcher).
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { mkdir, writeFile } from "node:fs/promises";
@@ -795,10 +796,11 @@ describe("repairScheduledOccurrence — not_found", () => {
 });
 
 // ===========================================================================
-// 8. DORMANCY — exported + tested but no production caller.
+// 8. LIVE — reached in production since v0.32.0 via the retry route; this
+//    section still guards the repair-and-retry contract.
 // ===========================================================================
 
-describe("repairScheduledOccurrence — dormancy", () => {
+describe("repairScheduledOccurrence — post-cutover wiring", () => {
   it("the function is exported + named", () => {
     expect(repairScheduledOccurrence).toBeInstanceOf(Function);
     expect(repairScheduledOccurrence.name).toBe("repairScheduledOccurrence");

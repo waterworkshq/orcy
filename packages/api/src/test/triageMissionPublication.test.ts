@@ -24,11 +24,11 @@
  *      junction surfaces as a clean rollback (the loser's aggregate rolls
  *      away; the winner's survives). Catching+re-reading would mask a
  *      half-committed loser — the adapter intentionally does NOT.
- *  (f) DORMANCY — the adapter is exported + tested but wires NO production
- *      caller. Legacy `createTriageMission`/`createOrphanTriageMission` +
- *      their scan callers stay byte-unchanged (verified by the PRESERVE suite
- *      `triage-integration.test.ts` + `triageResolutions.test.ts` remaining
- *      green — the orchestrator's full-suite run confirms).
+ *  (f) LIVE — the adapter has been wired into the cluster + orphan scan
+ *      callers since the Task-creation cutover (T11) landed in v0.32.0.
+ *      Legacy `createTriageMission`/`createOrphanTriageMission` remain as
+ *      outer dispatchers; this section still guards the
+ *      triage-publication contract.
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { mkdir, writeFile, rm } from "node:fs/promises";
@@ -647,11 +647,12 @@ describe("publishTriageMission — outcome translation", () => {
 });
 
 // ===========================================================================
-// 6. DORMANCY — the adapter ships with NO production caller.
+// 6. LIVE — the adapter has reached the cluster + orphan scan callers
+//    since the Task-creation cutover (T11) landed in v0.32.0.
 // ===========================================================================
 
-describe("publishTriageMission — dormancy", () => {
-  it("the adapter is exported and callable (wired to no production path)", () => {
+describe("publishTriageMission — post-cutover wiring", () => {
+  it("the adapter is exported and callable (reached in production since v0.32.0)", () => {
     // The function exists, is typed, and is the sole export of its module
     // alongside the participant builder + the input/result types. No scan
     // caller wires it (the gate-wiring at `createTriageMission` /

@@ -20,10 +20,11 @@
  *      re-exported from `scheduledOccurrencePublication.ts`) composes against
  *      the inline {@link InlineAggregateParticipantContext} unchanged (the
  *      participant is shape-agnostic).
- *  (d) DORMANCY — the function is exported + tested but wires NO production
- *      caller (legacy `createMissionFromSchedule` + `executeScheduledTask:236-240`
- *      stay byte-unchanged — verified by the PRESERVE suite
- *      `scheduledTaskService.test.ts` remaining green).
+ *  (d) LIVE — the publisher has been reached in production via the
+ *      scheduler since the Task-creation cutover (T11) landed in v0.32.0.
+ *      Legacy `createMissionFromSchedule` + `executeScheduledTask:236-240`
+ *      remain byte-identical as outer dispatchers; this section still guards
+ *      the inline-aggregate publication contract.
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { mkdir, writeFile, rm } from "node:fs/promises";
@@ -632,11 +633,11 @@ describe("publishInlineAggregateWithClient — input contract", () => {
 });
 
 // ===========================================================================
-// 5. DORMANCY — exported + tested but no production caller
+// 5. LIVE — reached in production since v0.32.0 via the scheduler
 // ===========================================================================
 
-describe("publishInlineAggregateWithClient — dormancy", () => {
-  it("the publisher is exported and callable (wired to no production path)", () => {
+describe("publishInlineAggregateWithClient — post-cutover wiring", () => {
+  it("the publisher is exported and callable (reached in production since v0.32.0)", () => {
     // The mere fact that we can import + call the function is the dormancy
     // assertion. The full-suite run confirms the legacy
     // `scheduledTaskService.test.ts` PRESERVE suite stays green (the

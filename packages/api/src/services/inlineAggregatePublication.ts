@@ -11,9 +11,10 @@
  *
  * This is the replacement for the legacy
  * `createMissionFromSchedule` write path
- * (`scheduledTaskService.ts:103-133`). It ships ALONGSIDE the legacy path
- * and is exercised ONLY by tests until the global cutover (T11) swaps the
- * scheduler onto `prepareInlineAggregate` + `publishInlineAggregateWithClient`.
+ * (`scheduledTaskService.ts:103-133`); live since the Task-creation cutover
+ * (T11) landed in v0.32.0 — `executeScheduledTaskViaPublication` routes every
+ * inline-bearing schedule firing through `prepareInlineAggregate` +
+ * `publishInlineAggregateWithClient`.
  *
  * # Composition (mirrors `publishTemplateAggregateWithClient` minus Workflow + usage)
  *
@@ -53,11 +54,12 @@
  * `PublicationCheckpointConsistencyError`). The caller (the occurrence
  * publisher) reserves N attempts BEFORE calling this publisher.
  *
- * # Dormancy
+ * # Live status
  *
- * No production caller switches to this path yet. Legacy
- * `createMissionFromSchedule` + its caller (the inline branch of
- * `executeScheduledTask:236-240`) stay byte-identical and active until T11.
+ * Replaced the legacy `createMissionFromSchedule` write path; live since
+ * the Task-creation cutover (T11) landed in v0.32.0 —
+ * `executeScheduledTaskViaPublication` (`scheduledTaskService.ts`) routes
+ * every inline-bearing schedule firing through this publisher.
  *
  * See: T9A-10 M1 ticket (Path A); the T9A-milestone-1 publisher to mirror
  * (`templateAggregatePublication`); the legacy inline path to replace

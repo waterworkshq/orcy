@@ -11,9 +11,8 @@
  * # Architecture
  *
  *   {@link prepareImport} — the entry point. Composes:
- *     1. Dormancy gate ({@link isCreationPublicationEnabled} — the flag is OFF
- *        by default; the legacy `importHabitat` path stays byte-identical +
- *        active until T11 flips it).
+ *     1. Publication gate ({@link isCreationPublicationEnabled} — permanently
+ *        `true` since v0.32.0; see `config/creationPublicationCutover.ts`).
  *     2. Version detection + adapter dispatch (M2's {@link adaptUnknown}).
  *     3. Strict v3 zod schema parse (defensive — rejects gross malformations).
  *     4. Manifest digest + summary computation (the prepared basis).
@@ -55,13 +54,14 @@
  *   (c) Persisted-habitat governance over each proposed Task — preflight step
  *       (6) via {@link governTaskPublication} (prospective governance).
  *
- * # Dormancy (PRESERVE)
+ * # Live status
  *
- * The legacy `importHabitat` (`services/habitatService.ts:450-710`) + the
- * silent `z.preprocess` (`models/schemas.ts:265-280`) stay byte-identical +
- * active. This module has NO production caller until T11 flips
- * `ORCY_CREATION_PUBLICATION_ENABLED=true`. The new manifest path is exercised
- * only by tests until then.
+ * Active since the Task-creation cutover (T11) landed in v0.32.0;
+ * `isCreationPublicationEnabled()` is permanently `true`. The legacy
+ * `importHabitat` (`services/habitatService.ts:450-710`) + the silent
+ * `z.preprocess` (`models/schemas.ts:265-280`) remain as the declared
+ * v1/v2 adapter (still exercised for legacy inputs), but every v3 manifest
+ * reaches this pipeline via `routes/board-export.ts` → `prepareImport`.
  *
  * @see packages/api/src/services/importManifest/types.ts for the v3 manifest.
  * @see packages/api/src/services/importManifest/legacyAdapter.ts for M2.

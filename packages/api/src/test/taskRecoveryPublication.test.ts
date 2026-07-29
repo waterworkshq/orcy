@@ -3,10 +3,10 @@
  *
  * The adapter (`publishRecoveryTask`) composes the Story-1 kernel chain
  * (reserve → prepare → govern → publish) for the Workflow-Recovery origin
- * (the `on_fail` gate's spawned recovery Task). It is DORMANT: no production
- * failure-handler call routes through it yet — this suite is the sole
- * exerciser until the global cutover (T11) swaps `spawnRecoveryForGate` onto
- * it.
+ * (the `on_fail` gate's spawned recovery Task). It has been LIVE in
+ * production since the Task-creation cutover (T11) landed in v0.32.0 —
+ * `spawnRecoveryForGate` now delegates here unconditionally. This suite
+ * continues to guard the recovery-publication contract.
  *
  * Each test maps 1:1 to a guardrail named in the ticket:
  *   - First-time history: the Recovery Task gets a `created` Lifecycle Event
@@ -26,8 +26,8 @@
  *     terminal outcome (no duplicate Task).
  *   - Provenance is server-constructed: the committed envelope carries the
  *     Recovery-run root; the input cannot assert privileged identities.
- *   - Legacy `createRecoveryTask` unchanged: the adapter ships DORMANT
- *     alongside it.
+ *   - Legacy `createRecoveryTask` retired: the adapter replaced it at T11
+ *     (v0.32.0).
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { eq } from "drizzle-orm";
@@ -909,12 +909,12 @@ describe("T8A-pre P1 provenance — server-constructed Recovery-run identity", (
 });
 
 // ===========================================================================
-// 8. LEGACY createRecoveryTask UNCHANGED — the adapter ships DORMANT.
+// 8. LEGACY createRecoveryTask RETIRED — the adapter replaced it at T11.
 // ===========================================================================
 
-describe("T8A-pre P1 dormancy — legacy createRecoveryTask stays the active production path", () => {
-  it("the legacy raw-insert path is untouched (workflowService.ts byte-unchanged)", () => {
-    // The adapter does NOT wire into spawnRecoveryForGate. The legacy path's
+describe("T8A-pre P1 post-cutover — legacy createRecoveryTask no longer reached", () => {
+  it("the legacy raw-insert path is no longer reached from the failure handler", () => {
+    // The adapter wires into spawnRecoveryForGate unconditionally since v0.32.0.
     // raw `taskCrudRepo.createTask({ createdBy: "workflow-recovery" })` stays
     // the active production writer. Assert the marker: a legacy Recovery Task
     // is NOT stamped POST_CUTOVER (the kernel stamps it; the legacy path

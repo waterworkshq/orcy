@@ -25,9 +25,10 @@
  * enrollment (covered by `taskPublicationGovernance.test.ts`); the route
  * dispatch (T10C/T11).
  *
- * DORMANT: no production caller routes through this module yet. The flag
- * ORCY_CREATION_PUBLICATION_ENABLED is forced ON for most tests; the dormancy
- * test forces it OFF.
+ * Live since the Task-creation cutover (T11) landed in v0.32.0 —
+ * `routes/board-export.ts` reaches `prepareImport` for every habitat import.
+ * `isCreationPublicationEnabled()` is permanently `true`; tests retain
+ * legacy flag manipulation only for backward-compat coverage.
  */
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { randomUUID } from "node:crypto";

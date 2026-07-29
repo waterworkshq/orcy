@@ -138,13 +138,12 @@
  * outcome in an additive JSON stamp. Keeping it in its own module keeps
  * each flow self-documenting.
  *
- * # Dormancy
+ * # Live status
  *
  * The retry route (`POST /scheduled-occurrences/:id/retry`) is the sole
- * caller. The route is active since v0.32.0 cutover
- * (consistent with the other cutover-gated surfaces — the retry creates
- * POST_CUTOVER state via the milestone-1 publisher). No production caller
- * until T11 (the cutover ticket).
+ * caller. The route has been registered since v0.32.0 (the cutover landing)
+ * and is reached in production by operator-driven scheduled-occurrence
+ * repair; `isCreationPublicationEnabled()` is permanently `true`.
  *
  * See: the T9B ticket (Phase 3 — active scope); the technical plan
  * (§ "Scheduled Mission occurrence" — the `POST /scheduled-occurrences/:id/retry`
@@ -768,8 +767,8 @@ function stampFailureRetryHistory(
 /**
  * The scheduled-occurrence retry publication command.
  *
- * The caller (the `POST /scheduled-occurrences/:id/retry` route, 
- * until T11) supplies the rejected occurrence id + the operator identity
+ * The caller (the `POST /scheduled-occurrences/:id/retry` route, live since
+ * v0.32.0) supplies the rejected occurrence id + the operator identity
  * (for the retryHistory stamp's audit trail). The adapter derives
  * everything else (templateId, title, schedule, attempts) from the
  * occurrence + the LIVE schedule — the input does NOT expose templateId,

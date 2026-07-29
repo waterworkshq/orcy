@@ -1,10 +1,11 @@
 /**
  * Creation Dispatch Adapters — T4B Phase 1 invariant tests.
  *
- * DORMANT: no production origin creates post-cutover Tasks until cutover.
- * These tests prove the load-bearing invariants the T4A dispatcher and the
- * eventual cutover will rely on. Each test is a discriminating probe: it FAILS
- * without the Phase 1 implementation and PASSES after.
+ * Live since the Task-creation cutover (T11) landed in v0.32.0 — the
+ * adapters are boot-registered and reached on every kernel-mediated Task
+ * creation. These tests prove the load-bearing invariants they rely on.
+ * Each test is a discriminating probe: it FAILS without the Phase 1
+ * implementation and PASSES after.
  *
  * Contract invariants covered:
  *  1. Each adapter returns `accepted` on attempt/durable-ingress.

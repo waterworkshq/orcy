@@ -18,9 +18,9 @@
  *     and `getAttemptStatus` still resolves the recovery surface (without the
  *     detailed payload).
  *
- * Out of scope: the coordinator, scheduled pruner (a later ticket — Phase 4
- * ships the primitive). The compact primitive here is DORMANT — no production
- * origin invokes it yet.
+ * Out of scope: the coordinator, scheduled pruner. The compact primitive
+ * has been LIVE in production since the Task-creation cutover (T11) landed
+ * in v0.32.0 — the retention path invokes it.
  */
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { closeDb, getDb, initTestDb } from "../db/index.js";

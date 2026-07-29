@@ -4,11 +4,12 @@
  * Each test states the SPECIFIC failure mode that would break its assertion
  * (proving it is not tautological), matching the T3A/T3B-1 convention.
  *
- * Scope: the dormant governance entry point (`governTaskPublication`) + the
+ * Scope: the governance entry point (`governTaskPublication`) + the
  * additive pluginManager seam (`snapshotEnrolledPreInterceptors` /
  * `makePreInterceptorTargetForGovernance` / `invokePreInterceptorForGovernance`)
- * + the governance-decisions ledger primitives. No production origin routes
- * through any of these yet — Phase 2 is DORMANT.
+ * + the governance-decisions ledger primitives. Phase 2 is LIVE: every
+ * kernel-mediated Task creation reaches `governTaskPublication` since the
+ * Task-creation cutover (T11) landed in v0.32.0.
  *
  * The additive-seam constraint (NON-NEGOTIABLE): `runPreInterceptors`,
  * `TransitionRef`, `InterceptorHandler`, and ALL runtime code are byte-identical.

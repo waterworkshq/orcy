@@ -4,9 +4,10 @@
  * Composes the handler-dispatch flow for the scheduled-occurrence origin
  * when the schedule carries a `handlerKey` (instead of a `templateId` or an
  * inline `tasksTemplate[]`). This is the replacement for the legacy
- * `scheduledTaskService.ts:170-208 executeScheduledTask` handlerKey branch.
- * It ships ALONGSIDE the legacy path and is exercised ONLY by tests until
- * the global cutover (T11) swaps the scheduler onto it.
+ * `scheduledTaskService.ts:170-208 executeScheduledTask` handlerKey branch;
+ * live since the Task-creation cutover (T11) landed in v0.32.0 —
+ * `executeScheduledTaskViaPublication` routes every `handlerKey`-bearing
+ * schedule firing through this adapter.
  *
  * # The handler IS the work
  *
@@ -85,11 +86,13 @@
  * No logger dependency either (the scheduler's outer try/catch logs).
  * Mirrors `inlineScheduledOccurrencePublication.ts` / Phase 3's discipline.
  *
- * # Dormancy
+ * # Live status
  *
- * No production scheduler call routes through this adapter yet. Legacy
- * `executeScheduledTask` + its handlerKey branch stay byte-identical and
- * active until T11. The T11 scheduler is the sole production caller.
+ * Replaced the legacy `executeScheduledTask` handlerKey branch; live since
+ * the Task-creation cutover (T11) landed in v0.32.0 —
+ * `executeScheduledTaskViaPublication` (`scheduledTaskService.ts`) routes
+ * every `handlerKey`-bearing schedule firing (e.g. wiki-cadence) through
+ * this adapter.
  *
  * See: T9A-10 M2 ticket (Path B — handler dispatch); the T9A + M1
  * publishers to mirror structurally (`scheduledOccurrencePublication.ts`
@@ -684,9 +687,9 @@ function runHandlerDispatchBody(
  *      (occurrence `published` + coordination attempt `created` + result
  *      `{kind: "handler_dispatched", …}`).
  *
- * Legacy `executeScheduledTask` + its handlerKey branch stay byte-identical
- * and active until T11. The scheduler wiring that drives occurrence
- * reservation + dispatch is T11 (the cutover ticket).
+ * Legacy `executeScheduledTask` + its handlerKey branch are still invoked
+ * as outer dispatchers (no behavioral change), but the dispatch path they
+ * route through is this adapter since v0.32.0.
  */
 export function dispatchHandlerScheduledOccurrence(
   input: PublishHandlerDispatchInput,

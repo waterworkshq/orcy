@@ -42,14 +42,15 @@
  *      single `dispatched` outcome.
  *  (m) REPLAYED — defensive replay guard when the coordination attempt is
  *      already terminal (unreachable in production; documented + tested).
- *  (n) DORMANCY / PRESERVE — exported + tested but no production callers.
- *      Legacy `executeScheduledTask` handlerKey branch stays byte-identical
- *      (the `scheduledTaskService.test.ts` PRESERVE suite stays green).
+ *  (n) LIVE — the dispatch adapter has been reached in production since
+ *      the Task-creation cutover (T11) landed in v0.32.0 —
+ *      `executeScheduledTaskViaPublication` routes every `handlerKey`-bearing
+ *      schedule firing here (e.g. wiki-cadence). Legacy `executeScheduledTask`
+ *      handlerKey branch remains byte-identical as outer dispatcher; this
+ *      section still guards the handler-dispatch contract.
  *
- * Out of scope: T9B recovery routing (recovery currently calls
- * `resumeScheduledOccurrencePublication` only; routing by schedule shape is
- * a T9B amendment / T11), T11 scheduler wiring, the wiki-cadence
- * idempotency fix (M3), the legacy `executeScheduledTask` path (unchanged).
+ * Out of scope: T9B recovery routing, the wiki-cadence idempotency fix (M3),
+ * the legacy `executeScheduledTask` path (unchanged as outer dispatcher).
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { eq, sql } from "drizzle-orm";

@@ -24,7 +24,9 @@
  *  7. Terminal replay never reruns assignment; non-terminal resumption never
  *     recreates the Task.
  *
- * DORMANT: no production origin creates post-cutover Tasks until cutover.
+ * Live since the Task-creation cutover (T11) landed in v0.32.0 — the
+ * targeted-assignment retry path + the dispatch worker compose the
+ * coordinator on every kernel-mediated Task creation.
  */
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { closeDb, getDb, initTestDb } from "../db/index.js";

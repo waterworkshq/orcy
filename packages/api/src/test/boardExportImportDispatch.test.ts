@@ -52,9 +52,9 @@
  * `importPublication.test.ts` + `preflightImport.test.ts`); the UI (M4);
  * the flag flip (T11).
  *
- * DORMANT: the v3 dispatch is exercised only when
- * `ORCY_CREATION_PUBLICATION_ENABLED=true`. Tests force the flag ON/OFF
- * per-scenario via `beforeEach` env-var manipulation.
+ * Live since the Task-creation cutover (T11) landed in v0.32.0 —
+ * `isCreationPublicationEnabled()` is permanently `true`. Tests retain
+ * legacy env-var manipulation only for backward-compat coverage.
  */
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import Fastify, { type FastifyInstance } from "fastify";

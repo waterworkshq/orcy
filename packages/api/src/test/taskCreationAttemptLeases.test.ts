@@ -15,9 +15,10 @@
  *     lease columns untouched (defense in depth alongside the Phase-2 matrix).
  *   - Renew / release by a non-owner → `not_owner` (no mutation).
  *
- * Out of scope: the coordinator that composes lease-acquire + transition (later
- * ticket — T4A), retention, the GET route (Phase 4). The primitives here are
- * DORMANT — no production origin routes through them yet.
+ * Out of scope: retention, the GET route (Phase 4). The primitives here
+ * have been LIVE in production since the Task-creation cutover (T11) landed
+ * in v0.32.0 — the dispatch worker + the assignment coordinator compose them
+ * for every kernel-mediated Task creation.
  */
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { closeDb, getDb, initTestDb } from "../db/index.js";

@@ -1,5 +1,5 @@
 /**
- * Task Publication Governance-Decisions Ledger — transaction-aware, DORMANT
+ * Task Publication Governance-Decisions Ledger — transaction-aware.
  * primitives (T3B Phase 2).
  *
  * The decision ledger keyed `(attemptId, prospectiveTaskId, interceptorKey,
@@ -26,7 +26,9 @@
  * The table (`task_creation_governance_decisions`) is schema-only at this
  * phase — it was created in T1's migration `0054`. No migration is added here.
  *
- * DORMANT: no production origin routes through these primitives yet. The
+ * LIVE: the Task-creation cutover (T11) landed in v0.32.0; the kernel is the
+ * sole Task-creation path and these primitives are exercised in production
+ * by every kernel invocation via `taskPublicationCoordinator.ts`. The
  * prospective governance service (`services/taskPublicationGovernance.ts`) is
  * the sole intended consumer; it is itself dormant until T3C wires an origin.
  *

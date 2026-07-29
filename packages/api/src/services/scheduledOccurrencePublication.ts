@@ -6,9 +6,10 @@
  * scheduler-driven Mission spawned by a due `scheduledTasks` row). This is
  * the replacement for the legacy
  * `scheduledTaskService.ts:103 createMissionFromSchedule` + the template
- * branch of `:213-240 executeScheduledTask`. It ships ALONGSIDE the legacy
- * paths and is exercised ONLY by tests until the global cutover (T11) swaps
- * the scheduler onto it.
+ * branch of `:213-240 executeScheduledTask`; live since the Task-creation
+ * cutover (T11) landed in v0.32.0 — `executeScheduledTaskViaPublication`
+ * (`scheduledTaskService.ts`) routes every `templateId`-bearing schedule
+ * firing through this adapter.
  *
  * # Why a new adapter (the structural analog of `triageMissionPublication`)
  *
@@ -232,13 +233,13 @@
  *   7. MAP the milestone-1 outcome to occurrence state (see the
  *      {@link PublishScheduledOccurrenceOutcome} branches).
  *
- * # Dormancy
+ * # Live status
  *
- * No production scheduler call routes through this adapter yet. Legacy
- * `executeScheduledTask` + its `processDueTasks` caller stay byte-identical
- * and active until T11. The scheduler wiring that drives occurrence
- * reservation + publication is T11 (the cutover ticket). The lease-recovery
- * worker for resumable-failure retry is T9B.
+ * Replaced the legacy template-branch path; live since the Task-creation
+ * cutover (T11) landed in v0.32.0 — the kernel is the sole Task-creation
+ * path and `executeScheduledTaskViaPublication` (`scheduledTaskService.ts`)
+ * routes every `templateId`-bearing schedule firing through this adapter.
+ * The lease-recovery worker for resumable-failure retry is T9B.
  *
  * See: T9A ticket (Phase 3 — active scope); the T9A-milestone-1 publisher
  * (`templateAggregatePublication`); the Phase-2 reservation
@@ -1234,8 +1235,9 @@ export function buildOccurrenceRecordParticipant(
  * try/catch logs any other infrastructure error; T9B's recovery worker
  * handles the retry.
  *
- * Legacy `executeScheduledTask` + `processDueTasks` stay byte-identical +
- * active until T11.
+ * Legacy `executeScheduledTask` + `processDueTasks` are still invoked as
+ * outer dispatchers (no behavioral change), but the publication path they
+ * route through is this adapter since v0.32.0.
  */
 // ---------------------------------------------------------------------------
 // Internal: atomic coordination-attempt terminalization + occurrence rejection

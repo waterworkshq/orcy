@@ -29,9 +29,10 @@
  *     change the reserved occurrence's snapshot — the optimistic publication
  *     guard for Phase 3).
  *
- * Out of scope: Phase 3's publisher, T9B's lease-reclaim worker, scheduler
- * wiring (T11). The reservation is DORMANT — no production origin routes
- * through it yet.
+ * Out of scope: Phase 3's publisher, T9B's lease-reclaim worker. The
+ * reservation has been LIVE in production since the Task-creation cutover
+ * (T11) landed in v0.32.0 — `executeScheduledTaskViaPublication`
+ * (`scheduledTaskService.ts`) is the production caller.
  */
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { closeDb, getDb, initTestDb } from "../db/index.js";

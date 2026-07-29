@@ -1,12 +1,12 @@
 /**
  * T3A Phase 4 — authorized read endpoint for task-creation attempts.
  *
- * DORMANT additive production route: no production origin creates attempts
- * yet, but the GET surface lets authorized operators (agents + humans WITH
- * ACCESS) inspect attempt recovery state without going through the
- * reservation layer. Phase 1 ships {@link getAttemptStatus} in
- * `repositories/taskCreationAttempts.ts`; this route is its only HTTP
- * consumer.
+ * LIVE since the Task-creation cutover (T11) landed in v0.32.0 — every
+ * interactive Task creation reserves a kernel attempt, so this GET surface is
+ * reached in production by agents + humans WITH ACCESS to inspect attempt
+ * recovery state without going through the reservation layer. Phase 1 ships
+ * {@link getAttemptStatus} in `repositories/taskCreationAttempts.ts`; this
+ * route is its only HTTP consumer.
  *
  * Authorization (T3B Phase R / R4): `agentOrHumanAuth` establishes identity;
  * the handler then resolves the caller's habitat membership against the

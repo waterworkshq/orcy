@@ -1,11 +1,12 @@
 /**
- * T6 Phase 2 — REST publication route (DORMANT).
+ * T6 Phase 2 — REST publication route.
  *
  * Exposes the interactive {@link publishTaskCreation} adapter from
- * `services/taskCreationPublication.ts` (T6 Phase 1, committed at `c111a9f`)
- * as a dormant REST route alongside the legacy
- * `POST /missions/:missionId/tasks` + `createTaskInMissionSchema` (the
- * production path until T11 swaps them).
+ * `services/taskCreationPublication.ts` (T6 Phase 1, committed at `c111a9f`).
+ * This IS the active Task-creation route as of the Task-creation cutover
+ * (T11) landed in v0.32.0 — the legacy `POST /missions/:missionId/tasks` +
+ * `createTaskInMissionSchema` were retired; every interactive (REST/UI/MCP)
+ * Task creation now reaches this route.
  *
  * Why a new path:
  *   The route must NOT collide with the legacy `POST /missions/:missionId/tasks`
@@ -49,9 +50,6 @@
  *          re-prepares).
  *
  * What this route does NOT do:
- *   - Replace the legacy `POST /missions/:missionId/tasks`. That swap is T11.
- *   - Wire the adapter into the production path (DORMANT — tests are the only
- *     exerciser until T11).
  *   - Accept `actor`, `causalContext`, `prospectiveTaskId`, or any other
  *     privileged field from the body. The adapter type does not expose them;
  *     the route does not smuggle them in.
@@ -182,8 +180,8 @@ export async function taskPublicationRoutes(fastify: FastifyInstance): Promise<v
         );
       }
 
-      // Adapter call. The adapter is DORMANT (no production caller besides
-      // this route + tests until T11). It returns the result envelope
+      // Adapter call. The adapter is LIVE (this route + every interactive
+      // Task creation since v0.32.0). It returns the result envelope
       // synchronously; we map it to HTTP. It MAY throw for purely-internal
       // precondition failures (empty attemptKey, empty agentId, etc.) — those
       // surface as unhandled 500s via the global error handler; they are

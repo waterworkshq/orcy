@@ -271,9 +271,10 @@ export function deleteScheduledTask(id: string): boolean {
 //
 // The legacy `claimExecution` / `finalizeExecution` stay BYTE-IDENTICAL —
 // `executeScheduledTask` (services/scheduledTaskService.ts:136-264) continues
-// to call them. These primitives are DORMANT siblings composed only by Phase
-// 2's reservation (also dormant). The scheduler wiring that drives this path
-// is T11 (the cutover ticket).
+// to call them. These primitives are LIVE: `executeScheduledTaskViaPublication`
+// drives `reserveScheduledOccurrence`, which composes `advanceScheduleOnceWithClient`
+// + `disableScheduleWithClient` inside ONE atomic tx on every schedule firing
+// (the Task-creation cutover (T11) landed in v0.32.0).
 // ---------------------------------------------------------------------------
 
 /**
@@ -310,8 +311,9 @@ export type ScheduleAdvanceResult = { advanced: true } | { advanced: false };
  * NEVER calls `getDb()`, never opens a nested tx, never emits external
  * effects. Throws only on infrastructure failure (retryable transport).
  *
- * DORMANT: composed only by Phase 2's `reserveScheduledOccurrence`
- * (`scheduledOccurrenceReservation.ts`), also dormant.
+ * LIVE: composed by Phase 2's `reserveScheduledOccurrence`
+ * (`scheduledOccurrenceReservation.ts`), which is reached in production via
+ * `executeScheduledTaskViaPublication` on every schedule firing since v0.32.0.
  */
 export function advanceScheduleOnceWithClient(
   db: ReturnType<typeof getDb>,
@@ -359,7 +361,9 @@ export function advanceScheduleOnceWithClient(
  *
  * NEVER calls `getDb()`. Composes on the caller-supplied client.
  *
- * DORMANT: composed only by Phase 2's `reserveScheduledOccurrence`.
+ * LIVE: composed by Phase 2's `reserveScheduledOccurrence`, which is reached
+ * in production via `executeScheduledTaskViaPublication` on every schedule
+ * firing since v0.32.0.
  */
 export function disableScheduleWithClient(db: ReturnType<typeof getDb>, id: string): void {
   const now = new Date().toISOString();

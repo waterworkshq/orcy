@@ -1,5 +1,6 @@
 /**
- * T7 Phase 2 — REST clone publication routes (DORMANT).
+ * T7 Phase 2 — REST clone publication routes (live since v0.32.0; the
+ * legacy clone REST route was retired at T11).
  *
  * Exercises the load-bearing HTTP contract of the two new dormant routes:
  *

@@ -1,5 +1,5 @@
 /**
- * Scheduled Task Handler Registry — the `handlerKey → handler` Map (DORMANT-safe).
+ * Scheduled Task Handler Registry — the `handlerKey → handler` Map.
  *
  * Owns the in-process dispatch table that maps a schedule row's `handlerKey`
  * to the JS handler that fires when the schedule is due. The registry is a

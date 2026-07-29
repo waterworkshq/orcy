@@ -8,9 +8,11 @@
  * `taskCreationAttempts.test.ts` convention.
  *
  * Scope: validation + canonicalization + guard capture ONLY. No domain rows
- * are written by `prepareTaskPublication`; it is DORMANT — no production
- * origin routes through it yet. Phase 2 owns the prospective interceptor
- * transition; Phase 3 owns guard re-verify inside the publication tx.
+ * are written by `prepareTaskPublication`. It has been LIVE in production
+ * since the Task-creation cutover (T11) landed in v0.32.0 — every kernel
+ * adapter composes it as step 2 of the reserve → prepare → govern → publish
+ * chain. Phase 2 owns the prospective interceptor transition; Phase 3 owns
+ * guard re-verify inside the publication tx.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { eq } from "drizzle-orm";

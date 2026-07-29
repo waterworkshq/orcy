@@ -2,9 +2,10 @@
  * Dispatch Engine — observation advancement + lease-based dispatcher invariant
  * tests (T4A Phase 2).
  *
- * DORMANT: no production origin creates post-cutover Tasks until cutover, so no
- * caller drives this engine in production. This test proves the load-bearing
- * invariants the Phase 3 claim gate will rely on. Each test is a discriminating
+ * Live since the Task-creation cutover (T11) landed in v0.32.0 — the
+ * dispatch worker (`services/creationDispatchWorker.ts`) drives this engine
+ * in production on every kernel-mediated Task creation. This test proves
+ * the load-bearing invariants they rely on. Each test is a discriminating
  * probe: it FAILS without the Phase 2 implementation (matrix edge missing,
  * primitive missing, or wrong policy) and PASSES after.
  *

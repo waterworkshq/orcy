@@ -25,10 +25,11 @@
  *     is refused without mutation. The lease is RETIRED atomically with the
  *     terminal transition.
  *
- * Out of scope: Phase 2's reservation tx (occurrence insert + schedule
- * advance + one-shot disablement), Phase 3's publisher, T9B's lease-reclaim
- * worker. The primitives here are DORMANT — no production origin routes
- * through them yet.
+ * Out of scope: T9B's lease-reclaim worker. The primitives here have been
+ * LIVE in production since the Task-creation cutover (T11) landed in
+ * v0.32.0 — `executeScheduledTaskViaPublication`
+ * (`services/scheduledTaskService.ts`) routes every schedule firing through
+ * the Phase-2 reservation tx that composes them.
  */
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { closeDb, getDb, initTestDb } from "../db/index.js";

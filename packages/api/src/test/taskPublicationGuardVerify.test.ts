@@ -4,11 +4,12 @@
  * Each test states the SPECIFIC failure mode that would break its assertion
  * (proving it is not tautological), matching the T3A/T3B-1/T3B-2 convention.
  *
- * Scope: the dormant re-verify primitive (`verifyPublicationGuard`) + the
- * dormant commit-authorization primitive (`authorizeCommitFromGovernance`) +
- * the additive governance-module helpers (`computeCurrentEnrollmentFingerprint`
- * / `freezeCurrentBatchAdmission`). No production origin routes through any of
- * these yet — Phase 3 is DORMANT.
+ * Scope: the re-verify primitive (`verifyPublicationGuard`) + the
+ * commit-authorization primitive (`authorizeCommitFromGovernance`) + the
+ * additive governance-module helpers (`computeCurrentEnrollmentFingerprint`
+ * / `freezeCurrentBatchAdmission`). Phase 3 is LIVE: every kernel-mediated
+ * Task creation reaches these primitives since the Task-creation cutover
+ * (T11) landed in v0.32.0.
  *
  * The no-origin-exemption constraint (NON-NEGOTIABLE): neither primitive takes
  * an origin/exemption/bypass parameter. Test "no-origin-exemption: no bypass

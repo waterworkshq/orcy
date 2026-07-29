@@ -27,8 +27,10 @@
  *   - T10B's `publishImportAggregateWithClient` (atomic transaction).
  *   - The recovery worker that drives `reacquireExpiredImportAttemptLeaseWithClient`.
  *
- * DORMANT: no production origin routes through this module yet. The
- * primitives here are exercised only by tests until T10B + T11.
+ * Live since the Task-creation cutover (T11) landed in v0.32.0 — the
+ * import-aggregate pipeline (`routes/board-export.ts` → `prepareImport`)
+ * composes these primitives via `reserveImportAttempt` + the atomic
+ * publisher on every habitat import.
  */
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { closeDb, getDb, initTestDb } from "../db/index.js";

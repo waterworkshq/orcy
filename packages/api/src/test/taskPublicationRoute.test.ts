@@ -1,6 +1,6 @@
 /**
  * T6 Phase 2 — POST /missions/:missionId/task-publications (REST publication
- * route, DORMANT).
+ * route — live since v0.32.0; the legacy create-task route was retired at T11).
  *
  * Exercises the load-bearing HTTP contract of the new dormant publication
  * route against an injected Fastify instance (the established route-test

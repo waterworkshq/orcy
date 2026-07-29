@@ -27,8 +27,9 @@
  *      double-processing.
  *  (g) EMPTY-SCAN NO-OP — no pending attempts → all counts zero, no
  *      errors, no log spam.
- *  (h) DORMANCY — the worker is exported + tested but wires NO
- *      production boot-registration (T11 owns the boot wiring).
+ *  (h) LIVE — the worker has been boot-registered since the Task-creation
+ *      cutover (T11) landed in v0.32.0; this section still guards the
+ *      dispatch-worker contract.
  *
  * Mirrors `test/scheduledOccurrenceRecovery.test.ts` (T9B Phase 2 — the
  * structural precedent) in style + fixture pattern.

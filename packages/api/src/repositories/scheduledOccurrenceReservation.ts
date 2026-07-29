@@ -1,5 +1,5 @@
 /**
- * Scheduled Occurrence Reservation — T9A Phase 2 (DORMANT additive composer).
+ * Scheduled Occurrence Reservation — T9A Phase 2 (additive composer).
  *
  * Composes Phase 1's `reserveOccurrenceWithClient` (`scheduledOccurrences.ts`)
  * with new tx-aware schedule primitives (`advanceScheduleOnceWithClient`,
@@ -58,10 +58,11 @@
  * no service imports, no module-load side effects from
  * `scheduledTaskService`'s handler registry).
  *
- * DORMANT: no production origin routes through this module yet. The scheduler
- * wiring (T11) is the cutover gate. The occurrence publisher (Phase 3 —
- * `publishScheduledOccurrence`) consumes the reserved occurrence this module
- * produces and is the next phase.
+ * LIVE: the Task-creation cutover (T11) landed in v0.32.0; the kernel is the
+ * sole Task-creation path and `executeScheduledTaskViaPublication`
+ * (`services/scheduledTaskService.ts`) is the production caller of
+ * {@link reserveScheduledOccurrence} — the scheduler now drives the
+ * reservation → Phase-3 publication flow on every schedule firing.
  */
 import { getDb } from "../db/index.js";
 import { scheduledTasks } from "../db/schema/index.js";

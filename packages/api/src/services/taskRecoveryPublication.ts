@@ -6,8 +6,8 @@
  * Task). This is the replacement for the legacy raw-insert path
  * (`workflowService.ts:471 createRecoveryTask` + the failure-handler's
  * separate gate/linkage/failure-context writes at `spawnRecoveryForGate`
- * L262-367). It ships ALONGSIDE the legacy path and is exercised ONLY by tests
- * until the global cutover (T11) swaps the failure handler onto it.
+ * L262-367); live since the Task-creation cutover (T11) landed in v0.32.0 —
+ * the failure handler now routes every recovery spawn through this adapter.
  *
  * # Why a new adapter (not an extension of `publishTaskCreation`)
  *
@@ -95,8 +95,9 @@
  * propagate as retryable throws (the attempt stays resumable under the same
  * key).
  *
- * yet. Legacy `createRecoveryTask` + `spawnRecoveryForGate` stay the active
- * production path until T11.
+ * Replaced the legacy `createRecoveryTask` + `spawnRecoveryForGate` path in
+ * the failure handler; live since the Task-creation cutover (T11) landed in
+ * v0.32.0.
  *
  * See: Task Creation and Clone Technical Plan § "Origin Migration Matrix";
  * Story-2 implementation-context § "Story 1 kernel API surface" + § "Shared

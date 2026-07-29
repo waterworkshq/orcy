@@ -2,10 +2,11 @@
  * T5 Phase 3 — POST /tasks/:taskId/assignment-attempts (assignment-retry route)
  * + GET /task-creation-attempts/:attemptId projection extension.
  *
- * Additive. DORMANT in production (the route is gated behind
- * `ORCY_CREATION_PUBLICATION_ENABLED` until T11 cutover — see
- * `config/creationPublicationCutover.ts` + `routes/tasks/index.ts`). These
- * tests register the route DIRECTLY (bypassing the gate) to exercise the
+ * Additive. Live since the Task-creation cutover (T11) landed in v0.32.0 —
+ * `isCreationPublicationEnabled()` is permanently `true` (see
+ * `config/creationPublicationCutover.ts`), so the route is registered
+ * unconditionally on every API boot. These tests register the route
+ * DIRECTLY (matching the live registration path) to exercise the
  * load-bearing HTTP contract:
  *
  * Fix-P1 (C1) added TWO route-layer guards (independent of the gate):

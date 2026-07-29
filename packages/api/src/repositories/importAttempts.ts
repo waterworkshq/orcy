@@ -1,5 +1,5 @@
 /**
- * Import Attempts Repository — T10A Milestone 1 (DORMANT additive primitives).
+ * Import Attempts Repository — T10A Milestone 1 (additive primitives).
  *
  * Builds the transaction-aware repository layer for the new `import_attempts`
  * table (migration `0057` — `db/schema/importManifest.ts`) and the legal-
@@ -62,10 +62,12 @@
  * attempt whose `leaseExpiresAt < now` can be re-claimed, transferring the
  * lease to the recovery owner.
  *
- * DORMANT: no production caller routes through this module yet. The M4
- * reservation tx (`reserveImportAttempt` + `setImportAttemptCoordinationAttemptIdWithClient`)
- * and the M4 publisher (T10B's `publishImportAggregateWithClient`) compose
- * these primitives. The preflight pipeline that drives them ships in M4.
+ * LIVE: the Task-creation cutover (T11) landed in v0.32.0; the kernel is the
+ * sole Task-creation path and the import-aggregate publication pipeline
+ * (`services/importManifest/importPublication.ts` +
+ * `services/importManifest/preflightImport.ts`, wired from
+ * `routes/board-export.ts`) composes these primitives via the M4 reservation
+ * tx and M4 publisher.
  */
 import { getDb } from "../db/index.js";
 import { importAttempts } from "../db/schema/index.js";

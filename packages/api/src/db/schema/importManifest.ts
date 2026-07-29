@@ -1,12 +1,13 @@
 /**
- * Habitat Import Manifest v3 — DORMANT additive persistence.
+ * Habitat Import Manifest v3 — additive persistence.
  *
  * Mirrors the hand-written SQL in `drizzle/0057_import_attempts.sql` exactly
  * (MEMORY.md § Migration Plumbing — both the `.sql` AND the drizzle export
- * are required so `drizzle-kit generate` stays consistent). No production
- * caller routes through this table yet; T10A M4 ships the `reserveImportAttempt`
- * wrapper + the preflight pipeline that fills it, and the T11 cutover wires
- * the new manifest path behind `ORCY_CREATION_PUBLICATION_ENABLED`.
+ * are required so `drizzle-kit generate` stays consistent). Active since the
+ * Task-creation cutover (T11) landed in v0.32.0 — every habitat import now
+ * reserves an `import_attempts` row via `reserveImportAttempt`
+ * (`repositories/importAttempts.ts`); `isCreationPublicationEnabled()` is
+ * permanently `true`.
  *
  * The `import_attempts` table is the import analog of `scheduled_occurrences`
  * (T9A Phase 1 — `db/schema/taskPublication.ts:436-466`): the import-level

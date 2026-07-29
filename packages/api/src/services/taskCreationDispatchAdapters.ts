@@ -9,10 +9,11 @@
  * attempted / durably handed-off (NOT on external completion), and
  * `{attention, error}` on a runtime fault (no silent claimability).
  *
- * **Active** — registered with the T4A registry and called at boot by
- * production until cutover (T11). The live `createTask` / `transition-emitter`
- * fan-out is UNTOUCHED; these adapters activate only when an origin publishes
- * via T3C and the T4A dispatcher processes the envelope.
+ * **Active** — registered with the T4A registry at boot and invoked on
+ * every kernel-mediated Task creation since the Task-creation cutover (T11)
+ * landed in v0.32.0. The legacy `createTask` / `transition-emitter` raw fan-out
+ * is no longer reached; these adapters activate when an origin publishes via
+ * the kernel and the T4A dispatcher processes the envelope.
  *
  * Phase 1 covers the CREATE case (one `created` envelope, one signal per
  * consumer). Phase 2 adds the CLONE case + the client/domain routing split:
@@ -372,8 +373,9 @@ let creationAdaptersRegistered = false;
  * Idempotent — safe to call multiple times (last-writer-wins per kind).
  *
  * After registration, `resolveDispatchAdapter` resolves each of the 6 creation
- * target kinds. Called at boot; production origins call through the coordinator's inline
- * publishes via T3C until cutover, so these adapters are never invoked.
+ * target kinds. Called at boot. Since the Task-creation cutover (T11) landed
+ * in v0.32.0, every kernel-mediated Task creation reaches the dispatcher and
+ * these adapters run for each target kind.
  */
 export function registerCreationDispatchAdapters(): void {
   for (const adapter of ALL_ADAPTERS) {

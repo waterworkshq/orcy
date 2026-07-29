@@ -54,7 +54,7 @@
  *        via {@link outcomeToHttpResponse} (DUPLICATED from T6 P2 — the
  *        function is small, the T6 route is committed, and extracting to a
  *        shared helper would require editing the committed T6 route, which
- *        is forbidden until T11).
+ *        is forbidden after T11 — the duplication was retired when T11 landed in v0.32.0).
  *
  * What these routes do NOT do:
  *   - Accept `includeSubtasks`/`includeComments`/`order` from the body

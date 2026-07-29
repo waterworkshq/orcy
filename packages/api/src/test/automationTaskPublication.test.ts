@@ -6,8 +6,9 @@
  * for the Automation `create_task` origin. The publication kernel is the
  * sole production path after the T11 cutover.
  *
- * This suite is the SOLE exerciser until T11 cutover. Each test maps 1:1 to a
- * guardrail named in the T8B ticket:
+ * Live in production since the Task-creation cutover (T11) landed in v0.32.0;
+ * this suite continues to guard the automation producer-migration contract.
+ * Each test maps 1:1 to a guardrail named in the T8B ticket:
  *
  *   - **Live A→B→A cycle proof** (the capstone): Rule A creates a Task whose
  *     trusted envelope triggers Rule B; B creates a Task whose envelope would

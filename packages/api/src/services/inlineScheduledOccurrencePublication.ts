@@ -6,9 +6,10 @@
  * origin when the schedule carries an inline `tasksTemplate[]` instead of
  * a `templateId` (and no `handlerKey`). This is the replacement
  * for the legacy `scheduledTaskService.ts:103-133 createMissionFromSchedule`
- * + the inline branch of `:236-240 executeScheduledTask`. It ships
- * ALONGSIDE the legacy path and is exercised ONLY by tests until the
- * global cutover (T11) swaps the scheduler onto it.
+ * + the inline branch of `:236-240 executeScheduledTask`; live since the
+ * Task-creation cutover (T11) landed in v0.32.0 —
+ * `executeScheduledTaskViaPublication` routes every inline-bearing schedule
+ * firing through this adapter.
  *
  * # The schedule-shape routing (T11's job)
  *
@@ -59,11 +60,12 @@
  * guard → resolve tokens → prepare → reserve N attempts → publish → map";
  * the two bodies are stable (the kernel contract doesn't drift).
  *
- * # Dormancy
+ * # Live status
  *
- * No production scheduler call routes through this adapter yet. Legacy
- * `executeScheduledTask` + its inline branch stay byte-identical and
- * active until T11. The T11 scheduler is the sole production caller.
+ * Replaced the legacy inline-branch path; live since the Task-creation
+ * cutover (T11) landed in v0.32.0 — the kernel is the sole Task-creation
+ * path and `executeScheduledTaskViaPublication` (`scheduledTaskService.ts`)
+ * routes every inline-bearing schedule firing through this adapter.
  *
  * See: T9A-10 M1 ticket (Path A — inline template aggregate); the T9A
  * publisher to mirror structurally (`scheduledOccurrencePublication.ts`);
@@ -794,9 +796,9 @@ function runInlineOccurrencePublicationBody(
  *      transition commits with the aggregate.
  *   7. MAPS the outcome to {@link PublishInlineScheduledOccurrenceOutcome}.
  *
- * Legacy `executeScheduledTask` + its inline branch stay byte-identical +
- * active until T11. The scheduler wiring that drives occurrence
- * reservation + publication is T11 (the cutover ticket).
+ * Legacy `executeScheduledTask` + its inline branch remain byte-identical
+ * as outer dispatchers; the publication path they route through is this
+ * adapter since v0.32.0.
  */
 export function publishInlineScheduledOccurrence(
   input: PublishInlineScheduledOccurrenceInput,

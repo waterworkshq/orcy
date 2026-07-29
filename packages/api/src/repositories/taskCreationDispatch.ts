@@ -1,5 +1,5 @@
 /**
- * Dispatch-Target State Primitives — transaction-aware, DORMANT.
+ * Dispatch-Target State Primitives — transaction-aware.
  *
  * Phase 1 of T4A. These `*WithClient` functions read and transition
  * `task_creation_dispatch_targets` rows on a caller-supplied drizzle client
@@ -17,8 +17,11 @@
  * `pending → accepted | attention` (with retry for `attention`), and the
  * all-accepted predicate that the Phase 2 worker and Phase 3 claim gate compose.
  *
- * DORMANT: no production origin creates post-cutover Tasks until cutover, so no
- * dispatch targets exist in production. See the T4A ticket § "Phase 1 grounding".
+ * LIVE: the Task-creation cutover (T11) landed in v0.32.0; the kernel is the
+ * sole Task-creation path and the post-cutover envelope pipeline writes
+ * `task_creation_dispatch_targets` rows on every Task creation. The Phase 2
+ * dispatch worker (`services/creationDispatchWorker.ts` → engine) advances
+ * them through the matrix in production. See the T4A ticket § "Phase 1 grounding".
  */
 import { taskCreationDispatchTargets } from "../db/schema/index.js";
 import { and, eq, sql } from "drizzle-orm";

@@ -7,9 +7,10 @@
  * that would break its assertion (proving it is not tautological), matching
  * the T1 `taskPublicationFailureInjection.test.ts` convention.
  *
- * Out of scope: the transition state matrix (Phase 2), worker leases / GET
- * route / retention (Phase 3). The primitives here are DORMANT — no production
- * origin routes through them yet.
+ * Out of scope: worker leases / GET route / retention (Phase 3). The
+ * primitives here have been LIVE in production since the Task-creation
+ * cutover (T11) landed in v0.32.0 — every Task creation reserves an
+ * attempt row through these primitives.
  */
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { closeDb, getDb, initTestDb } from "../db/index.js";

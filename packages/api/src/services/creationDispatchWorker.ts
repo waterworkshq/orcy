@@ -35,11 +35,13 @@
  *     `pid`/`uuid`), so multi-instance fencing works (T9B-01 — the
  *     unique-per-process fencing fix; the same defect class applies here).
  *
- * # Dormancy (T11 Phase 1A wiring)
+ * # Live status
  *
- * NO production caller wires this until cutover (T11). The function is
- * always callable (tests exercise it directly); the boot-registration in
- * `packages/api/src/index.ts` is gated by `isCreationPublicationEnabled()`.
+ * Boot-registered at process startup since the Task-creation cutover (T11)
+ * landed in v0.32.0; `isCreationPublicationEnabled()` is permanently `true`
+ * (see `config/creationPublicationCutover.ts`), so the dispatch +
+ * lease-recovery intervals are started unconditionally on every API boot
+ * and run for the lifetime of the process.
  *
  * # Intervals (T11 Phase 1A — defaulted in `index.ts`)
  *

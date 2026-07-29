@@ -14,9 +14,10 @@
  *   - Webhook/integration NOT emitted as portable content; warnings carry
  *     source counts
  *
- * Out of scope: the strict v3 zod schema (M4), the domain handlers (M3), the
- * preflight orchestrator (M4), the legacy `importHabitat` path (PRESERVE —
- * stays byte-identical behind the flag until T11).
+ * Out of scope: the strict v3 zod schema (M4), the domain handlers (M3),
+ * the preflight orchestrator (M4). Legacy `importHabitat` path is preserved
+ * as the declared v1/v2 adapter — it has been reached for every v1/v2 input
+ * since the Task-creation cutover (T11) landed in v0.32.0.
  */
 import { describe, it, expect } from "vitest";
 import {

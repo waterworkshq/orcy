@@ -1,8 +1,10 @@
 /**
  * Smoke test for the transaction-aware task-publication primitives (T1 Phase 2).
  *
- * These primitives are DORMANT (no production callers). This test proves the
- * load-bearing invariants that the later publication coordinator will rely on:
+ * These primitives have been LIVE in production since the Task-creation
+ * cutover (T11) landed in v0.32.0 — every kernel-mediated Task creation
+ * composes them through the publication coordinator. This test proves the
+ * load-bearing invariants they rely on:
  *
  *  1. Each primitive inserts on the PASSED client and the row is read-back-able
  *     through the SAME transaction (it does not escape to getDb()).

@@ -23,14 +23,15 @@
  *      writes the occurrence-state transition in the SAME tx as the
  *      aggregate; a participant throw AFTER the occurrence-state write rolls
  *      back the transition too.
- *  (g) DORMANCY — exported + tested but no production caller. Legacy
- *      `createMissionFromSchedule` + the inline branch of
- *      `executeScheduledTask:236-240` stay byte-identical (the
- *      `scheduledTaskService.test.ts` PRESERVE suite stays green).
+ *  (g) LIVE — the adapter has been reached in production via
+ *      `executeScheduledTaskViaPublication` since the Task-creation cutover
+ *      (T11) landed in v0.32.0. Legacy `createMissionFromSchedule` + the
+ *      inline branch of `executeScheduledTask:236-240` remain byte-identical
+ *      as outer dispatchers; this section still guards the
+ *      inline-path publication contract.
  *
- * Out of scope: T9B recovery (covered by `scheduledOccurrenceRecovery.test.ts`
- * for the templateId path; the inline path's recovery routes via T11), T11
- * scheduler wiring, the legacy `executeScheduledTask` path (unchanged).
+ * Out of scope: T9B recovery, the legacy `executeScheduledTask` path
+ * (unchanged as outer dispatcher).
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { mkdir, writeFile } from "node:fs/promises";
@@ -567,11 +568,12 @@ describe("publishInlineScheduledOccurrence — edge cases", () => {
 });
 
 // ===========================================================================
-// 9. DORMANCY — exported + tested but no production caller
+// 9. LIVE — reached in production since v0.32.0 via the scheduler; this
+//    section still guards the inline-path publication contract.
 // ===========================================================================
 
-describe("publishInlineScheduledOccurrence — dormancy", () => {
-  it("the adapter is exported and callable (wired to no production path)", () => {
+describe("publishInlineScheduledOccurrence — post-cutover wiring", () => {
+  it("the adapter is exported and callable (reached in production via the scheduler since v0.32.0)", () => {
     // The mere fact that we can import + call the function is the dormancy
     // assertion. The full-suite run confirms the legacy
     // `scheduledTaskService.test.ts` PRESERVE suite stays green (the inline

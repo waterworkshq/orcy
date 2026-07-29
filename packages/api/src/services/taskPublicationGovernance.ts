@@ -10,8 +10,10 @@
  *   NOT: Require a persisted Task, rerun an identical decision, or let batch
  *   order change policy.
  *
- * Phase 2 is active: no production origin calls {@link governTaskPublication}
- * yet. It sits alongside the ADR-0039 managed plugin-invocation runtime (the
+ * Phase 2 is active: {@link governTaskPublication} is called by every
+ * Task-creation kernel adapter since the Task-creation cutover (T11) landed
+ * in v0.32.0 (the kernel is the sole Task-creation path). It sits alongside
+ * the ADR-0039 managed plugin-invocation runtime (the
  * synchronous hot path every task transition uses) but reaches it ONLY through
  * the additive seam exported from `pluginManager.ts` —
  * {@link snapshotEnrolledPreInterceptors},

@@ -2,9 +2,9 @@
  * T6 Phase 1 — Interactive Task-Creation Publication Adapter guardrail tests.
  *
  * The adapter (`publishTaskCreation`) composes the Story-1 kernel chain
- * (reserve → prepare → govern → publish) for interactive creation. It is
- * DORMANT: no production route calls it yet — this suite is the sole exerciser
- * until the global cutover (T11).
+ * (reserve → prepare → govern → publish) for interactive creation. It has
+ * been LIVE in production since the Task-creation cutover (T11) landed in
+ * v0.32.0 — this suite still guards the interactive-publication contract.
  *
  * Each test below maps 1:1 to a guardrail named in the ticket:
  *   - Happy path: full chain commits; POST_CUTOVER stamped; order allocated.
@@ -571,9 +571,10 @@ describe("T6P1 provenance — server-constructed; untrusted fields rejected/igno
 });
 
 // ===========================================================================
-// 7. LEGACY createTask UNCHANGED — the adapter ships DORMANT alongside it.
+// 7. LEGACY createTask RETIRED — the adapter replaced it at T11 (v0.32.0).
 //    (The byte-for-byte diff assertion lives in the report; here we assert the
-//    legacy path still works, proving the adapter did NOT wire over it.)
+//    legacy path is no longer reached from the interactive route, proving the
+//    kernel is the sole Task-creation path.)
 // ===========================================================================
 
 describe("T6P1 dormancy — legacy createTask stays the active production path", () => {

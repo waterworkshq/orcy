@@ -97,7 +97,7 @@ export const createTaskInMissionSchema = z.object({
  * T6 Phase 2 — body for `POST /missions/:missionId/task-publications`
  * (the dormant REST publication route exposing {@link publishTaskCreation}).
  *
- * Distinct from {@link createTaskInMissionSchema} (legacy, T11 swaps it):
+ * Distinct from {@link createTaskInMissionSchema} (legacy, retired in v0.32.0):
  *   - carries `attemptKey` (the client-supplied retry identity; retained
  *     across an unchanged Publish so the adapter can idempotently resume);
  *   - has NO `order` field — the kernel allocates `max(order)+1` in
@@ -108,9 +108,11 @@ export const createTaskInMissionSchema = z.object({
  *     constraint as a 422 via `.superRefine` instead of leaking the
  *     throwable).
  *
- * DORMANT: the legacy `POST /missions/:missionId/tasks` +
- * {@link createTaskInMissionSchema} stay byte-unchanged until T11 swaps
- * them. The new route ships alongside them.
+ * Live since the Task-creation cutover (T11) landed in v0.32.0 — this is
+ * the schema the active `POST /missions/:missionId/task-publications`
+ * route validates against. {@link createTaskInMissionSchema} remains in
+ * the module for backward-compat imports but the legacy route that
+ * consumed it was removed.
  */
 export const taskPublicationAssignmentSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("auto") }),
@@ -280,7 +282,7 @@ export const importHabitatSchema = z.preprocess((data) => {
 }, importHabitatSchemaBody);
 
 // ---------------------------------------------------------------------------
-// T10A M4 — Strict manifest v3 schema (DORMANT alongside the legacy preprocess).
+// T10A M4 — Strict manifest v3 schema (live alongside the legacy preprocess).
 //
 // The preflight pipeline (`services/importManifest/preflightImport.ts`)
 // consumes this schema as a defensive layer AFTER the legacy adapter
@@ -292,10 +294,10 @@ export const importHabitatSchema = z.preprocess((data) => {
 // resolvability, dependency graph acyclicity, etc.) — that validation is
 // NOT duplicated here.
 //
-// The legacy `z.preprocess` above STAYS byte-identical + active until T11's
-// cutover (the legacy `importHabitat` route consumes it). The strict v3
-// schema sits ALONGSIDE it, used only by the new manifest path that is
-// itself dormant behind `ORCY_CREATION_PUBLICATION_ENABLED`.
+// The legacy `z.preprocess` above remains byte-identical; it is still
+// consumed by `importHabitat` (the declared v1/v2 adapter). The strict v3
+// schema sits ALONGSIDE it and is consumed by the live v3 manifest path
+// (`routes/board-export.ts` → `prepareImport`).
 // ---------------------------------------------------------------------------
 
 const importManifestDomainEnvelopeSchema = z
@@ -730,9 +732,9 @@ export type TaskPublicationAssignment = z.infer<typeof taskPublicationAssignment
  *   - `order` — the kernel allocates `max(order)+1` in `createTaskWithClient`;
  *     the route MUST NOT force one. Mirrored from T6.
  *
- * DORMANT: no production caller until T11. The new route ships alongside the
- * legacy `POST /tasks/:id/clone` + `cloneTaskSchema`, which stay
- * byte-unchanged.
+ * Live since the Task-creation cutover (T11) landed in v0.32.0 — this is
+ * the schema the active clone publication route validates against. Legacy
+ * `POST /tasks/:id/clone` + `cloneTaskSchema` were retired with the cutover.
  */
 export const clonePublicationSchema = z
   .object({

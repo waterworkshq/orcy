@@ -1,10 +1,12 @@
 /**
  * Dispatch-Target State Primitives — invariant tests (T4A Phase 1).
  *
- * These primitives are DORMANT (no production callers). This test proves the
- * load-bearing invariants that the Phase 2 worker and Phase 3 claim gate will
- * rely on. Each test is a discriminating probe: it FAILS without the primitive
- * (import / not-found) and PASSES after implementation.
+ * These primitives have been LIVE in production since the Task-creation
+ * cutover (T11) landed in v0.32.0 — the dispatch worker + the Phase 3
+ * observation gate compose them for every kernel-mediated Task creation.
+ * This test proves the load-bearing invariants they rely on. Each test is
+ * a discriminating probe: it FAILS without the primitive (import / not-found)
+ * and PASSES after implementation.
  *
  * Contract invariants covered:
  *  1. `pending → accepted` CAS: one transition, `acceptedAt` stamped; re-accept = `no_op`.
