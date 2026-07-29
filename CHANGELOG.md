@@ -2,6 +2,106 @@
 
 > Older releases: see [git tags](https://github.com/waterworkshq/orcy/tags) and [GitHub Releases](https://github.com/waterworkshq/orcy/releases).
 
+## 0.33.8 — 2026-07-29
+
+### Bug Fixes
+
+#### populate task-creation committed-identifier projection (CS-53) ([`c13ae77`](https://github.com/waterworkshq/orcy/commit/c13ae77090199eb6f2a2ac1cefcc5d2c371a8ab5))
+
+1. Four committed-identifier columns on task_creation_attempts
+2. (committedTaskId, committedMissionId, envelopeEventId, reservationId)
+3. had no production writer — they stayed null even after an attempt
+4. committed a Task/envelope/reservation. committedTaskId is the UI
+5. contract read on the created_unassigned terminal (targeted-assignment
+6. refusal), so a null value broke that recovery surface.
+
+8. Add stampCommittedIdentifiersWithClient: a strict CAS
+9. (WHERE id AND state='pending', portable SELECT changes()) that writes
+10. all four at the first commit point inside publishTaskWithClient
+11. (between reservation creation and the checkpoint), atomic with the
+12. aggregate. On a non-pending attempt it no-ops and defers to the
+13. checkpoint's canonical PublicationCheckpointConsistencyError.
+
+15. Also fixes the stale docstring contradiction (the dispatcher does not
+16. stamp the ids; the coordinator does) and extends the coordinator
+17. atomicity matrix to 10 writes.
+
+
+#### propagate automation scan tallies in CS-56 scan services ([`d0d8593`](https://github.com/waterworkshq/orcy/commit/d0d859365572f8e5269f888f271fd217f1dc2332))
+
+1. The three standalone CS-56 scans (agentQualityScanService,
+2. triageScanService, orphanScanService) held the tally counters as
+3. primitive lets and passed { matched, skipped, deduplicated, errors }
+4. to tallyDisposition. The object literal copied the primitives, so
+5. acc.matched++ mutated a throwaway object and rulesMatched/rulesSkipped/
+6. rulesDeduplicated were always 0 in every ScanReport (rules still
+7. executed; only the reported metrics were broken).
+
+9. Switch to a persistent counts object passed by reference. Restores the
+10. four triage scan tests that regressed when CS-56 rewrote the scans.
+
+
+#### normalize agent-quality threshold comparison (0-1 score vs 0-100) ([`d681823`](https://github.com/waterworkshq/orcy/commit/d681823c7991948e888fbd2e74ee7e3040d47bff))
+
+1. runAgentQualityDegradedScan compared the raw 0-1 composite score against the
+2. 0-100 agentQualityThreshold (default 40, schema int 0-100, UI percent input),
+3. so 'score >= threshold' was always false — every agent with an adequate sample
+4. + non-null score was flagged degraded on every scan cycle.
+
+6. Normalize at the comparison: score * 100 >= qualityThreshold. The score stays
+7. 0-1 internally (matching the UI's *100 percent display); only the scan gate
+8. now compares on the 0-100 scale the threshold uses.
+
+10. Test seedings that relied on the bug (approved+rejected+cycleTime60 -> 0.6
+11. score, flagged degraded only because 0.6 < 40) are replaced with genuinely-
+12. degraded fixtures (rejected-only review history, no claim/cycle data -> score
+13. 0). AC-QUALITY-1 (healthy) and AC-QUALITY-2 (small sample) still pass on
+14. their own terms.
+
+
+
+### Refactors
+
+#### sweep stale DORMANT headers across the live publication kernel (CS-66) ([`a55b2b6`](https://github.com/waterworkshq/orcy/commit/a55b2b6532a3023948107cb9ee3c2b79e2b92ccb))
+
+1. The Task-creation cutover (T11) landed in v0.32.0 — isCreationPublicationEnabled
+2. is always true and the legacy create/clone routes are removed, so the kernel is
+3. the sole Task-creation path. The canonical kernel-status headers still claimed
+4. the modules were DORMANT / exercised only by tests until cutover.
+
+6. Update the five canonical headers (coordinator, the two repositories, the
+7. interactive adapter, and the coordinator test suite) to reflect live
+8. production status. Doc-only; no behavior change.
+
+10. A cold review confirmed the kernel is live across all origins. The broader
+11. stale-DORMANT universe (~40 more files: per-origin adapter headers + test
+12. DORMANCY sections) remains for a follow-up sweep. scheduledHandlerDispatch
+13. is a deliberate non-Task-producing bypass and was intentionally left
+14. unchanged pending verification.
+
+
+#### sweep remaining stale DORMANT headers across kernel + tests (CS-66) ([`6d39e43`](https://github.com/waterworkshq/orcy/commit/6d39e433d1da6b58d8ba735c980709e56c23cd6a))
+
+1. Continues CS-66 (canonical 5 landed in a55b2b6). The Task-creation cutover
+2. (T11) landed in v0.32.0 — isCreationPublicationEnabled is always true, legacy
+3. create/clone routes removed — so the 'DORMANT / exercised only by tests until
+4. cutover' claims across the publication kernel and its tests are stale.
+
+6. Sweeps ~69 files (source headers + test DORMANCY sections + test describe
+7. labels). Each rewrite verified against live production wiring:
+8. scheduled-occurrence cluster + scheduledHandlerDispatch: LIVE via
+9. executeScheduledTaskViaPublication (handlerKey/templateId/inline branches);
+10. the wiki-cadence handler is boot-registered.
+11. blocker + recovery: pulseService/workflowService route through the kernel
+12. adapters (publishBlockerClearanceTask / publishRecoveryTask); legacy
+13. raw-insert paths no longer reached.
+14. claimAuthority: reached via routes/tasks/assignment.ts reservation-expiry retry.
+
+16. Doc-only; the only non-comment changes are 34 cosmetic test describe/it
+17. labels. No behavior change (scoped tsc clean; full suite 5750 passed).
+
+
+
 ## 0.33.7 — 2026-07-29
 
 ### Bug Fixes
@@ -101,64 +201,3 @@
 
 
 #### rename legacy filenames featureService→missionService, featureCommentService→missionCommentService, event-board→event-habitat (CS-50, CS-63) ([`19e70d7`](https://github.com/waterworkshq/orcy/commit/19e70d7bf7d16d2de88eba29b68270361b02b8a8))
-
-
-
-## 0.33.5 — 2026-07-28
-
-### Refactors
-
-#### extract stableStringify/stableHash to @orcy/shared (CS-57) ([`9ac22f0`](https://github.com/waterworkshq/orcy/commit/9ac22f027253633ff41e4a1f3b73e840799c2971))
-
-1. 14 production files + 1 test file had byte-identical copies of
-2. stableStringify (deterministic JSON serializer) and stableHash
-3. (SHA-256 hex). Extracted to @orcy/shared/src/stableHash.ts.
-
-5. 17 files changed: -236 lines of duplicated code, +38 lines (shared
-6. module + import sweep). taskPublicationGovernance.ts adapted:
-7. its variant stableHash(payload) that combined stringify+hash
-8. now calls stableHash(stableStringify(payload)).
-
-10. Net deletion: ~200 lines. MEMORY convention: 'Extract on 2+
-11. occurrence to @orcy/shared.'
-
-
-#### extract substituteTokens to @orcy/shared (CS-59) ([`159e144`](https://github.com/waterworkshq/orcy/commit/159e1446c0e5947b275190e73135dd5a09038473))
-
-1. 4 files had copies of substituteTokens ({{date}}/{{counter}} resolver).
-2. Extracted to @orcy/shared/src/scheduleTokens.ts with optional
-3. scheduledFor parameter (the publication modules pass a specific
-4. timestamp; the legacy scheduler uses now()).
-
-6. scheduledTaskService.ts re-exports from @orcy/shared for backward
-7. compat with its namespace import in tests.
-
-9. TG-16 reverted: corepack pnpm@9.0.0 broke compiledStartup in the
-10. test env. Left as deferred — needs a different approach.
-
-12. 7 files changed: -95 lines duplicated code.
-
-
-#### sweep stale DORMANT docstrings across publication kernel (CS-61, CS-65) ([`c13e715`](https://github.com/waterworkshq/orcy/commit/c13e7151af67e25deba6e390641585b568ad9a8e))
-
-1. 76 cutover-stale DORMANT references removed across 26 files in the
-2. publication kernel. The v0.32.0 cutover removed the feature flag and
-3. boot-wired all modules, but every docstring still said DORMANT as if
-4. the code wasn't active.
-
-6. Changes (comments only — zero code, type, or runtime changes):
-7. Removed (DORMANT) tags from file headers (17 files)
-8. Rewrote 'DORMANT: no production caller until T11' to active status
-9. Updated 'dormant wiring' to 'boot wiring'
-10. Updated 'dormant replacement for the legacy' to 'replacement for'
-11. Removed references to the removed cutover flag
-
-13. Preserved 5 legitimate runtime-state 'dormant' references:
-14. 'valid dormant state' (publication checkpoint)
-15. 'the dormant / not-yet-published case' (envelope condition)
-16. 'the dormant common case' (code path description)
-
-18. CS-65 (handler-key origin-matrix doc clarification) folded into the
-19. scheduledHandlerDispatch.ts docstring update within this sweep.
-
-21. All 5610 tests pass, typecheck clean.
