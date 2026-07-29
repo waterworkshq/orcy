@@ -2,6 +2,21 @@
 
 > Older releases: see [git tags](https://github.com/waterworkshq/orcy/tags) and [GitHub Releases](https://github.com/waterworkshq/orcy/releases).
 
+## 0.33.7 — 2026-07-29
+
+### Bug Fixes
+
+#### publication kernel replay-contract bugs (v0.32-D2-2, D2-3, D4-4) ([`113e455`](https://github.com/waterworkshq/orcy/commit/113e4553a26061c39f3354f0d422dd4f2c1f9445))
+
+1. Three replay-contract correctness gaps in the publication kernel:
+
+
+#### enforce mandatory Automation Rule conditions via canonical lifecycle (CS-56) ([`bcae038`](https://github.com/waterworkshq/orcy/commit/bcae03888cdb9c8b2925c1f80a713961c4d6202c))
+
+1. The production Automation path built an evaluation context but never called evaluateCondition, so every trigger-matched rule fired its actions regardless of its stored predicate (conditionResult stayed null). Route events, all seven scheduled scans, and the manual run through one canonical lifecycle (attemptRuleRun) that evaluates the stored condition before any action, persists conditionResult on every terminal branch, emits completion exactly-once per owned running->terminal transition, and retires executeAndRecordRuleRun. Kill switch now records skipped/disabled with the true conditionResult; hourly admission counts admitted attempts only; manual run returns a terminal disposition instead of stranding a running row; condition validation is a recursive depth-bounded schema shared by create/update/enable/simulate.
+
+
+
 ## 0.33.6 — 2026-07-28
 
 ### Bug Fixes
@@ -147,26 +162,3 @@
 19. scheduledHandlerDispatch.ts docstring update within this sweep.
 
 21. All 5610 tests pass, typecheck clean.
-
-
-
-## 0.33.4 — 2026-07-27
-
-### Bug Fixes
-
-#### broken seed import, dead dispatch function, missing safety check, test env fix ([`0c2d4a6`](https://github.com/waterworkshq/orcy/commit/0c2d4a6c4c122e0ef2c2ea6bbbd6d11e117808f7))
-
-
-
-### Documentation
-
-#### file v0.32.0 review findings + resolve TG-17 ([`21319dd`](https://github.com/waterworkshq/orcy/commit/21319dd88862ddfbf25dbd62b3456c718e9db454))
-
-1. Added 4 deferred items from the v0.32.0 release review:
-2. Roadmap: template replay idempotency (D4-4), triage replay taskId
-3. gap (D2-2), automation assignment_refused replay mapping (D2-3)
-4. Code style: handler-key schedule origin-matrix documentation
-5. clarification (CS-65)
-
-7. Resolved TG-17 — the dormancy inventory test was deleted during the
-8. cutover flag removal; the flag is gone, dormancy proof no longer needed.
