@@ -2,6 +2,32 @@
 
 > Older releases: see [git tags](https://github.com/waterworkshq/orcy/tags) and [GitHub Releases](https://github.com/waterworkshq/orcy/releases).
 
+## 0.33.9 — 2026-07-29
+
+### Bug Fixes
+
+#### populate governance freeze quarantine state truthfully ([`f8a48ef`](https://github.com/waterworkshq/orcy/commit/f8a48efcc12207032c534bf7fa90ee3543bfbed2))
+
+1. The prospective-governance freeze hardcoded the freeze-time quarantine flag to false, so the enrollment/governance fingerprint was dishonest about the admission state captured at freeze. Export a read of the live quarantine state and populate the flag truthfully. The runtime stays authoritative on quarantine for invocation gating, so a mid-batch quarantine update is still visible to later tasks' invocations (the per-batch quarantine-freeze gap remains a documented relaxation); the runtime override is deferred. The governance docstrings are corrected -- they previously overclaimed the per-batch invariant. No-op for callers when no interceptor is quarantined; full suite green.
+
+
+
+### Documentation
+
+#### forbid internal ticket tags in commit/PR messages ([`849187c`](https://github.com/waterworkshq/orcy/commit/849187c2ccecb263f58f1c54dab567b912a0f563))
+
+1. git-cliff regenerates CHANGELOG.md from commit subjects each release, so internal ticket/candidate tags in subjects leak into the public changelog; the same tags in bodies are noise. CONTRIBUTING.md now forbids internal ticket/candidate tags anywhere in commit/PR messages (subject and body).
+
+
+
+### Tests
+
+#### cover import scoped-delete on the production DB driver ([`2ab7d31`](https://github.com/waterworkshq/orcy/commit/2ab7d312df312bf2177c5c04aaf257c5aaefbd58))
+
+1. The import orchestrator's scoped-delete (explicit child-entity deletes in reversed manifest-domain order) was exercised only on the test DB driver, where FK enforcement / ON DELETE CASCADE is unreliable. Add a production-DB integration test that runs the replacement scoped-delete on the production driver (foreign_keys=ON) against a full habitat tree and asserts: the publish succeeds with no FK violation; the reversed-domain order honors the missions-to-columns NO ACTION constraint (missions deleted before columns); the explicit child-deletes + the cascade that also fires leave the correct end state. Resolves the deferred production-DB test gap.
+
+
+
 ## 0.33.8 — 2026-07-29
 
 ### Bug Fixes
@@ -114,90 +140,3 @@
 #### enforce mandatory Automation Rule conditions via canonical lifecycle (CS-56) ([`bcae038`](https://github.com/waterworkshq/orcy/commit/bcae03888cdb9c8b2925c1f80a713961c4d6202c))
 
 1. The production Automation path built an evaluation context but never called evaluateCondition, so every trigger-matched rule fired its actions regardless of its stored predicate (conditionResult stayed null). Route events, all seven scheduled scans, and the manual run through one canonical lifecycle (attemptRuleRun) that evaluates the stored condition before any action, persists conditionResult on every terminal branch, emits completion exactly-once per owned running->terminal transition, and retires executeAndRecordRuleRun. Kill switch now records skipped/disabled with the true conditionResult; hourly admission counts admitted attempts only; manual run returns a terminal disposition instead of stranding a running row; condition validation is a recursive depth-bounded schema shared by create/update/enable/simulate.
-
-
-
-## 0.33.6 — 2026-07-28
-
-### Bug Fixes
-
-#### carry column policy fields through v3 import (IMP-2) ([`9199791`](https://github.com/waterworkshq/orcy/commit/9199791e1de93e1a92458892eff95149d2ae4f1f))
-
-1. v2 columns carry autoAdvance and requiresClaim policy fields. The legacy
-2. adapter was reading them, emitting a warning, then dropping them because
-3. ColumnPortable had no slots. The v2→v3→apply round-trip lost the column
-4. policy silently.
-
-6. Added autoAdvance/requiresClaim to ColumnPortable, ValidatedColumn, and
-7. PreparedColumn. The legacy adapter now populates them (defaulting to
-8. schema defaults). The apply handler writes them to the DB. Test updated
-9. to verify fields carry through instead of being warned + dropped.
-
-11. Schema already had the columns (auto_advance, requires_claim) — only
-12. the portable type and handlers were missing the fields.
-
-
-#### add missing material fields to publication fingerprints (CS-54) ([`4133ced`](https://github.com/waterworkshq/orcy/commit/4133ced4a1c0de050018403cb20b5903c44ceb6f))
-
-1. Publication fingerprints omitted material fields, allowing a crash +
-2. same-key retry with changed fields to silently replay the old outcome
-3. instead of rejecting with 'rejected_fingerprint'.
-
-5. Added to fingerprints:
-6. taskCreation: +targetedAssignmentDeadline
-7. automation: +targetedAssignmentDeadline
-8. recovery: +workflowId, +recoveryDepth, +failureContextId,
-9. +targetedAssignmentDeadline
-10. blocker: +targetedAssignmentDeadline
-
-12. Test helper computeFingerprintViaAdapter synced with the new field.
-
-
-#### close as-never type holes in system-origin publication adapters (CS-55) ([`f3ea9e9`](https://github.com/waterworkshq/orcy/commit/f3ea9e96da2295867854391db15ddb22dfe4f590))
-
-1. The recovering-replay path in 4 system-origin adapters (automation,
-2. plugin, recovery, blocker) fabricated an incomplete checkpoint
-3. ({ id: attemptId }) and erased the type mismatch with 'as never'. Any
-4. caller reading state/timestamps from the replay result got undefined.
-
-6. Now each adapter re-reads the full attempt row from the DB before
-7. constructing the CommittedPublication, eliminating the type hole. The
-8. interactive adapter already did this correctly — the system adapters
-9. now match its pattern.
-
-11. Also removed the outer 'as CommittedPublication' cast (no longer needed
-12. now that the type is genuine). taskCreationPublication.ts untouched
-13. (it already had the full attempt row).
-
-
-#### carry template task-level fields through v3 import + close wiki dedupe race (IMP-1, IMP-3) ([`e9bc943`](https://github.com/waterworkshq/orcy/commit/e9bc943c55a9e4280093576533465eb9b55efde7))
-
-
-
-### Refactors
-
-#### rename component prop 'feature' to 'mission' (CS-51) ([`8d4dc29`](https://github.com/waterworkshq/orcy/commit/8d4dc299856b67e3404e56ad9d70fd26fcb4539d))
-
-1. MissionCard, MissionHeader, PipelineContextSidebar, RiskAnalysisSidebar
-2. all used 'feature' as the prop name for MissionWithProgress despite the
-3. components being renamed to Mission* in v0.31.10. Renamed to 'mission'
-4. across all 4 component interfaces + their callers + 5 test files with
-5. mock updates.
-
-7. The data-testid 'feature-card-*' intentionally kept as-is (renaming
-8. would break e2e tests and has no user-facing benefit).
-
-
-#### remove unused preserveDomainTargets field (CS-58) ([`79738c9`](https://github.com/waterworkshq/orcy/commit/79738c99ab19e1a7d819c374c7811d0ce4b42758))
-
-1. The field was populated during preflight (materializing preserve-domain
-2. entity IDs from the existing-habitat snapshot) and threaded through
-3. ApplyContext, but NO handler ever read it. Preserve semantics use the
-4. envelope disposition directly (applyDomainDisposition checks
-5. 'disposition === "preserve"' and skips). Removed the type field,
-6. population code, threading, and 2 dedicated tests.
-
-8. -44 lines of dead code across 4 source files + 1 test file.
-
-
-#### rename legacy filenames featureService→missionService, featureCommentService→missionCommentService, event-board→event-habitat (CS-50, CS-63) ([`19e70d7`](https://github.com/waterworkshq/orcy/commit/19e70d7bf7d16d2de88eba29b68270361b02b8a8))
