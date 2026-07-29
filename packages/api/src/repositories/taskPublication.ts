@@ -1246,3 +1246,106 @@ export function completeAttemptWithClient(
     ? { outcome: "completed", attempt: row }
     : { outcome: "no_op", attempt: row };
 }
+
+// ---------------------------------------------------------------------------
+// 10. stampCommittedIdentifiersWithClient — back-fill the attempt's
+//     committed-identifier projection at the first commit point
+// ---------------------------------------------------------------------------
+
+/**
+ * Committed-identifier payload for {@link stampCommittedIdentifiersWithClient}.
+ * The four projection columns on `task_creation_attempts` that record WHAT this
+ * attempt committed — they are the attempt-row mirror of the cross-table links
+ * (envelope / reservation) that the coordinator writes alongside.
+ */
+export interface CommittedIdentifierInput {
+  /** The committed Task id (=== the proposal's prospective task id). */
+  committedTaskId: string;
+  /** The committed Mission id (the task's mission). */
+  committedMissionId: string;
+  /** The committed creation-envelope event id. */
+  envelopeEventId: string;
+  /** The committed assignment-reservation id, or `null` when no assignee was requested. */
+  reservationId: string | null;
+}
+
+/**
+ * Stamps the four committed-identifier columns
+ * (`committed_task_id`/`committed_mission_id`/`envelope_event_id`/
+ * `reservation_id`) onto a `task_creation_attempts` row at the first commit
+ * point — the ONLY production writer of these columns.
+ *
+ * Why this exists: the columns are the attempt's recovery/audit/UI projection
+ * of what it committed. {@link readCommittedPublication} reconstructs the full
+ * {@link CommittedPublication} from the cross-table `envelope.attemptId` /
+ * `reservation.attemptId` links (the authoritative recovering-replay join
+ * keys), but the attempt-row columns are what the authorized GET route
+ * (`getAttemptStatus`) projects — and `committedTaskId` is read by the UI on
+ * the `created_unassigned` terminal (the targeted-assignment refusal surface).
+ * Without this stamp those columns stay `null` forever even though the attempt
+ * did commit a Task/envelope/reservation.
+ *
+ * Strict compare-and-set: the UPDATE matches ONLY a `pending` attempt by id
+ * (`WHERE id AND state = 'pending'`), classified via the portable
+ * `SELECT changes()` count (mirrors {@link checkpointAttemptWithClient} /
+ * {@link completeAttemptWithClient}). The coordinator calls this between
+ * reservation creation (step 9) and the first checkpoint (step 10), so the
+ * attempt is necessarily `pending` here and all four ids are known.
+ *
+ * Two zero-row outcomes, handled distinctly:
+ *   - the attempt VANISHED (no row) → {@link repositoryNotFoundError} (a
+ *     data-integrity throw);
+ *   - the attempt EXISTS but is NOT `pending` → return the unstamped row
+ *     WITHOUT throwing, and let the immediately-following
+ *     {@link checkpointAttemptWithClient} surface the canonical
+ *     {@link PublicationCheckpointConsistencyError}. This keeps the stamp a
+ *     focused data write rather than a second consistency gate that shadows the
+ *     checkpoint's contract; the `state = 'pending'` predicate still prevents
+ *     accidental overwrite if the helper is ever reused on a non-pending row.
+ *
+ * Never calls `getDb()`, opens a nested tx, or emits effects. Returns the
+ * stamped row (re-read on the SAME client; unstamped on the not-pending defer).
+ */
+export function stampCommittedIdentifiersWithClient(
+  db: TaskPublicationDbClient,
+  attemptId: string,
+  ids: CommittedIdentifierInput,
+): typeof taskCreationAttempts.$inferSelect {
+  let affected: number;
+  try {
+    db.update(taskCreationAttempts)
+      .set({
+        committedTaskId: ids.committedTaskId,
+        committedMissionId: ids.committedMissionId,
+        envelopeEventId: ids.envelopeEventId,
+        reservationId: ids.reservationId,
+      })
+      .where(and(eq(taskCreationAttempts.id, attemptId), eq(taskCreationAttempts.state, "pending")))
+      .run();
+    affected = db.get<{ n: number }>(sql`SELECT changes() AS n`)?.n ?? 0;
+  } catch (err) {
+    throw repositoryUpdateError("taskCreationAttempt", err as Error, attemptId);
+  }
+
+  if (affected !== 1) {
+    // Re-read to distinguish "gone" (data-integrity throw) from "not pending"
+    // (defer to the checkpoint's canonical consistency error — the stamp is a
+    // data write, not a second consistency gate that shadows the checkpoint's
+    // contract). The state='pending' predicate already prevents overwrite.
+    const row = db
+      .select()
+      .from(taskCreationAttempts)
+      .where(eq(taskCreationAttempts.id, attemptId))
+      .all()[0];
+    if (!row) throw repositoryNotFoundError("taskCreationAttempt", attemptId);
+    return row;
+  }
+
+  const stamped = db
+    .select()
+    .from(taskCreationAttempts)
+    .where(eq(taskCreationAttempts.id, attemptId))
+    .all()[0];
+  if (!stamped) throw repositoryNotFoundError("taskCreationAttempt", attemptId);
+  return stamped;
+}

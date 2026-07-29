@@ -61,6 +61,7 @@ import {
   createCommittedTaskEnvelopeWithClient,
   createAssignmentReservationWithClient,
   checkpointAttemptWithClient,
+  stampCommittedIdentifiersWithClient,
   type TaskPublicationDbClient,
   type DispatchTargetInput,
   type AttemptTransitionResult,
@@ -452,6 +453,23 @@ export function publishTaskWithClient(
         : {}),
     });
   }
+
+  // 9b. Stamp the committed-identifier projection onto the attempt row. This is
+  //     the ONLY production writer of `committedTaskId`/`committedMissionId`/
+  //     `envelopeEventId`/`reservationId`; all four are known here (Task,
+  //     envelope, reservation all created above) and the stamp runs in the
+  //     caller's tx so it is atomic with the aggregate. On the valid path the
+  //     attempt is `pending`, so the strict CAS (`WHERE id AND state='pending'`)
+  //     stamps one row; if it is NOT pending the CAS no-ops and the immediately
+  //     following checkpoint throws PublicationCheckpointConsistencyError (the
+  //     canonical consistency gate) — rolling back the whole publication. Runs
+  //     BEFORE the checkpoint so the checkpoint's returned row carries the ids.
+  stampCommittedIdentifiersWithClient(db, attemptId, {
+    committedTaskId: task.id,
+    committedMissionId: proposal.targetMissionId,
+    envelopeEventId: envelope.eventId,
+    reservationId: reservation?.id ?? null,
+  });
 
   // 10. Checkpoint the attempt to `published_pending_observation`. A
   //     non-`transitioned` outcome is a consistency failure (the attempt was

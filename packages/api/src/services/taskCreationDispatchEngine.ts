@@ -133,8 +133,9 @@ function envelopeForAttempt(
  * Decision order (all on the passed client — never `getDb()`, never a nested tx):
  *   1. Read the attempt (state decision). Missing → throws (data integrity).
  *   2. Resolve the attempt's envelope (by `attemptId`) → `eventId`. The
- *      attempt's `committedTaskId` is NOT set at observation (T3C stamps neither
- *      it nor `envelopeEventId` on the attempt here) — the envelope is the link.
+ *      attempt's committed identifiers were stamped by the coordinator at the
+ *      first commit point (NOT here at observation) — the envelope is this
+ *      step's link back to the committed Task/event.
  *   3. All targets accepted? (vacuously `true` for zero targets / a missing
  *      envelope — the dormant common case). No → `not_satisfiable`.
  *   4. State is `published_pending_observation`? No → `not_at_observation`.
@@ -165,8 +166,9 @@ export function satisfyObservationCheckpointWithClient(
   if (!attempt) throw repositoryNotFoundError("taskCreationAttempt", attemptId);
 
   // 2. Resolve the envelope by attemptId → eventId. The envelope carries the
-  //    (eventId, attemptId, taskId) linkage; the attempt's committedTaskId is
-  //    NOT set at observation (T3C), so the envelope is the authoritative link.
+  //    (eventId, attemptId, taskId) linkage; the committed identifiers on the
+  //    attempt row are stamped by the coordinator (not here), so the envelope
+  //    is this step's authoritative link back to the committed Task/event.
   const envelope = envelopeForAttempt(db, attemptId);
   const eventId = envelope?.eventId ?? null;
 

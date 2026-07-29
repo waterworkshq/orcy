@@ -234,6 +234,13 @@ function expectZeroPartialState(
   expect(attempt.state).toBe(expectedAttemptState);
   if (expectedAttemptState === "pending") {
     expect(attempt.publishedAt).toBeNull();
+    // CS-53: the committed-identifier projection must also be null after a
+    // rolled-back publication. The stamp is write #9; on a #10 checkpoint
+    // failure it must roll back with the rest of the aggregate.
+    expect(attempt.committedTaskId).toBeNull();
+    expect(attempt.committedMissionId).toBeNull();
+    expect(attempt.envelopeEventId).toBeNull();
+    expect(attempt.reservationId).toBeNull();
   }
 }
 
@@ -320,6 +327,15 @@ describe("T3C happy path — full aggregate committed atomically", () => {
     expect(p.checkpoint.outcome).toBe("transitioned");
     expect(p.checkpoint.attempt.state).toBe("published_pending_observation");
 
+    // Committed-identifier projection (CS-53): the coordinator stamps all four
+    // committed ids onto the attempt row at the first commit point (before the
+    // checkpoint), so the checkpoint's returned row carries them. committedTaskId
+    // is the field the UI reads on the created_unassigned terminal.
+    expect(p.checkpoint.attempt.committedTaskId).toBe("task-happy");
+    expect(p.checkpoint.attempt.committedMissionId).toBe(missionId);
+    expect(p.checkpoint.attempt.envelopeEventId).toBe(p.envelope.eventId);
+    expect(p.checkpoint.attempt.reservationId).toBe(p.reservation!.id);
+
     // FAILURE MODE: if any primitive wrote via getDb() instead of the passed
     // tx client, the row would commit despite a tx rollback (tested below) and
     // the prospective→final ID linkage would break.
@@ -347,6 +363,9 @@ describe("T3C happy path — full aggregate committed atomically", () => {
     expect(outcome?.outcome).toBe("published");
     if (outcome?.outcome !== "published") return;
     expect(outcome.publication.reservation).toBeNull();
+    // committedTaskId is stamped even without a reservation; reservationId is null.
+    expect(outcome.publication.checkpoint.attempt.committedTaskId).toBe("task-no-res");
+    expect(outcome.publication.checkpoint.attempt.reservationId).toBeNull();
   });
 });
 
@@ -367,7 +386,8 @@ describe("T3C atomicity matrix — failure injected at each write rolls back the
    *   #6 INSERT dispatch tgt  (createCommittedTaskEnvelopeWithClient)
    *   #7 INSERT recalc marker (markMissionForRecalculationWithClient)
    *   #8 INSERT reservation   (createAssignmentReservationWithClient)
-   *   #9 UPDATE checkpoint    (checkpointAttemptWithClient)
+   *   #9 UPDATE stamp         (stampCommittedIdentifiersWithClient — CS-53)
+   *   #10 UPDATE checkpoint   (checkpointAttemptWithClient)
    *
    * Each test injects a failure at ONE write boundary, expects a throw, and
    * asserts ZERO partial state + the attempt is STILL `pending`/resumable.
@@ -438,11 +458,13 @@ describe("T3C atomicity matrix — failure injected at each write rolls back the
   it("write #6 (INSERT dispatch target) — whole aggregate rolls back", () => runMatrixCase(6));
   it("write #7 (INSERT recalc marker) — whole aggregate rolls back", () => runMatrixCase(7));
   it("write #8 (INSERT reservation) — whole aggregate rolls back", () => runMatrixCase(8));
-  it("write #9 (UPDATE checkpoint) — whole aggregate rolls back", () => runMatrixCase(9));
+  it("write #9 (UPDATE committed-identifier stamp) — whole aggregate rolls back", () =>
+    runMatrixCase(9));
+  it("write #10 (UPDATE checkpoint) — whole aggregate rolls back", () => runMatrixCase(10));
 
-  it("a write AFTER #9 never happens (the full publication is exactly 9 writes for this fixture)", () => {
+  it("a write AFTER #10 never happens (the full publication is exactly 10 writes for this fixture)", () => {
     // Confirm the matrix covers EVERY write: run with no failure and assert
-    // writeCount === 9. If a primitive added a write, this guard fires and the
+    // writeCount === 10. If a primitive added a write, this guard fires and the
     // matrix above must be extended.
     const depTarget = getDb()
       .insert(tasks)
@@ -481,7 +503,7 @@ describe("T3C atomicity matrix — failure injected at each write rolls back the
         reservation: { deadline: "2099-01-01T00:00:00.000Z" },
       });
     });
-    expect(captured!.writeCount).toBe(9);
+    expect(captured!.writeCount).toBe(10);
   });
 });
 

@@ -365,10 +365,13 @@ function computeRequestFingerprint(input: PublishTaskCreationInput): string {
  * publication.
  *
  * NOTE: the coordinator stamps `attemptId` on the committed envelope +
- * reservation rows (NOT `committedTaskId`/`envelopeEventId`/`reservationId` on
- * the attempt row — those are stamped later by the dispatcher/observation
- * advancement). So the re-read keys off `envelope.attemptId` /
- * `reservation.attemptId`, which are durable at the recovering checkpoint.
+ * reservation rows AND stamps `committedTaskId`/`committedMissionId`/
+ * `envelopeEventId`/`reservationId` on the attempt row at the first commit
+ * point (see `stampCommittedIdentifiersWithClient`). This re-read still keys
+ * off `envelope.attemptId` / `reservation.attemptId` — those cross-table links
+ * are the authoritative recovering-replay join keys (durable at the recovering
+ * checkpoint), while the attempt-row columns are the audit/UI projection
+ * (`committedTaskId` is read by the UI on the `created_unassigned` terminal).
  *
  * Returns `null` when no committed envelope exists for the attempt (should not
  * happen on the recovering path, but handled defensively so the adapter never
