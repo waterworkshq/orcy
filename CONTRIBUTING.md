@@ -353,6 +353,8 @@ that blocked the original release.
 - `test: add tests for V` — test additions
 - `chore: update deps` — maintenance
 
+**No internal ticket tags in commit/PR messages.** Commit and PR messages (subject AND body) must not carry internal ticket or candidate IDs (`CS-53`, `PLG-7`, `TG-18`, `IMP-1`, `T10B`, `ADR-004`, etc.). `git-cliff` regenerates `CHANGELOG.md` from commit subjects on every release, so subject tags leak into the public changelog; body tags are noise. Reference internal ticket/candidate IDs only in the linked issue/PR description, never in the commit message.
+
 ---
 
 ## Debugging Tips
