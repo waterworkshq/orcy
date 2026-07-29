@@ -108,11 +108,14 @@ let ruleCounter = 0;
  *
  * Pass `condition` to discriminate (default `{ type: "always" }`). The
  * discriminating case (cold-review #2 M2) uses `label_contains` so each rule
- * matches only the other rule's output. The production ingestion path
- * (`ingestEvent`) does not gate on condition — it only checks the causal
- * cycle guard; the discriminating condition here documents the test's
- * intent and is the source of truth for "would this rule have fired" in the
- * assertion logic.
+ * matches only the other rule's output. After CS-56 T4, the production
+ * ingestion path (`ingestEvent`) evaluates the condition BEFORE the causal
+ * cycle guard (see `automationCS56Characterization.test.ts` §6). The
+ * discriminating condition here is therefore load-bearing for the A→B→A
+ * cycle proof: only rules whose condition WOULD have matched appear in
+ * the real-cycle skip count; self-cycles whose rule condition would not
+ * match instead record `condition_false` and never reach the causal
+ * guard.
  */
 function createChainedCreateTaskRule(
   label: string,
@@ -263,16 +266,19 @@ function envelopeToIngestData(
 // — the `AutomationActionCreateTask` shape does not currently carry `labels`,
 // so we apply the action's effect directly via DB update).
 //
-// Important implementation note (cold-review #2 M2 finding):
-// The production ingestion path (`ingestEvent` in `automationEventService`)
-// runs `checkCausalChain` BEFORE condition evaluation. With discriminating
-// conditions, every rule whose id appears in the hops will still
-// `causal_cycle`-skip — including self-referential hops where the rule's
-// condition would NOT have matched (a "phantom" self-cycle). To prove the
-// cycle guard correctly identifies the load-bearing A→B→A cycle, we
-// classify cycle skips by whether the rule's `condition` would have matched
-// the trigger task: only "real" cycle skips (rule WOULD have fired) count as
-// load-bearing. The expected global shape is:
+// Important implementation note (cold-review #2 M2 finding, post-CS-56 T4):
+// The production ingestion path (`ingestEvent` → `attemptRuleRun`) now
+// evaluates the condition BEFORE the causal cycle guard
+// (`automationAttemptLifecycle.ts` steps 6 + 7 — see
+// `automationCS56Characterization.test.ts` §6 for the invariant). With
+// discriminating conditions, every rule whose id appears in the hops
+// will still be processed, but the cycle guard runs ONLY after a TRUE
+// condition. A false condition short-circuits as `condition_false` and
+// the causal_cycle guard never sees it. To prove the cycle guard
+// correctly identifies the load-bearing A→B→A cycle, we classify cycle
+// skips by whether the rule's `condition` would have matched the
+// trigger task: only "real" cycle skips (rule WOULD have fired) count
+// as load-bearing. The expected global shape is:
 //   - Total cycle-skip rows: 3 (Rule A self-cycle on A's envelope,
 //     Rule A cross-cycle on B's envelope, Rule B self-cycle on B's envelope)
 //   - "Real" load-bearing cycle skips (condition would match): 1
@@ -280,7 +286,11 @@ function envelopeToIngestData(
 //      WOULD match Task B's `["from-rule-b"]` labels)
 //   - "Phantom" self-cycle skips (condition would NOT match): 2
 //     (Rule A on A's envelope — A's condition would not match A's labels;
-//      Rule B on B's envelope — B's condition would not match B's labels)
+//      Rule B on B's envelope — B's condition would not match B's labels).
+//     Note: post-CS-56 these are now `condition_false` rows, not
+//     `causal_cycle`; the cold-review #2 footnote about phantom cycles
+//     being misclassified as causal_cycle is corrected by the
+//     condition-before-causal ordering.
 //   - Tasks created: 2 (Task A + Task B), 0 duplicates
 // ===========================================================================
 
@@ -322,12 +332,13 @@ describe("T8B P1 capstone — live A→B→A cycle proof (discriminating)", () =
     expect(allTaskCount()).toBe(baselineTaskCount + 1);
 
     // ===== STEP 2: A's envelope → ingestEvent =====
-    // Rule A: cycle (ruleA in A's hops) → skip (PHANTOM — A's condition
-    //         would NOT match Task A's "from-rule-a" labels).
-    // Rule B: no cycle → fires → creates Task B (B's condition would match
-    //         Task A's "from-rule-a" labels — but conditions are not
-    //         enforced in the production ingestion path; the cycle guard is
-    //         the only pre-action gate).
+    // After T4 the lifecycle evaluates the stored condition BEFORE the
+    // causal cycle guard (condition-before-causal ordering, kills the
+    // phantom-cycle lineage). Rule A's condition (`label_contains
+    // "from-rule-b"`) is FALSE on Task A's labels (`["from-rule-a"]`) →
+    // `condition_false` skip (phantom self-cycle). Rule B's condition
+    // matches Task A's labels → causal guard: hops don't include ruleB →
+    // proceeds → action fires → creates Task B.
     const dataA = envelopeToIngestData(seed.envelopeA, seed.taskA);
     const resultStep2 = await ingestEventSync(habitatId, {
       type: "task.created",
@@ -336,7 +347,7 @@ describe("T8B P1 capstone — live A→B→A cycle proof (discriminating)", () =
 
     // Step 2 outcomes (raw ingestEvent counts):
     expect(resultStep2.matched).toBe(1); // Rule B fires (no cycle)
-    expect(resultStep2.skipped).toBe(1); // Rule A causal_cycle (phantom self-cycle)
+    expect(resultStep2.skipped).toBe(1); // Rule A condition_false (phantom)
 
     // Task B was created (Rule B's action ran through the migrated path).
     const tasksAfterStep2 = getDb().select().from(tasks).all();
@@ -360,12 +371,11 @@ describe("T8B P1 capstone — live A→B→A cycle proof (discriminating)", () =
       .run();
 
     // ===== STEP 3: B's envelope → ingestEvent =====
-    // Rule A: cycle (ruleA in B's hops) → skip (LOAD-BEARING — A's condition
-    //         `label_contains "from-rule-b"` WOULD match Task B's labels
-    //         `["from-rule-b"]`; this is the A→B→A cross-cycle).
-    // Rule B: cycle (ruleB in B's hops) → skip (PHANTOM — B's condition
-    //         `label_contains "from-rule-a"` would NOT match Task B's
-    //         `["from-rule-b"]` labels).
+    // Rule A: condition `label_contains "from-rule-b"` IS true on Task B's
+    //         labels `["from-rule-b"]` → causal guard: hops contain ruleA →
+    //         LOAD-BEARING `causal_cycle` skip.
+    // Rule B: condition `label_contains "from-rule-a"` is FALSE on Task B's
+    //         labels `["from-rule-b"]` → `condition_false` (phantom).
     const dataB = envelopeToIngestData(envelopeB, taskB!);
     const resultStep3 = await ingestEventSync(habitatId, {
       type: "task.created",
@@ -373,7 +383,7 @@ describe("T8B P1 capstone — live A→B→A cycle proof (discriminating)", () =
     });
 
     // Step 3 outcomes (raw ingestEvent counts):
-    expect(resultStep3.matched).toBe(0); // No rule passes cycle guard on B's envelope
+    expect(resultStep3.matched).toBe(0); // No rule passes causal guard on B's envelope
     expect(resultStep3.skipped).toBe(2); // Rule A (load-bearing) + Rule B (phantom)
 
     // No duplicate Task created — exactly the 2 we created in steps 1 + 2.
@@ -381,18 +391,28 @@ describe("T8B P1 capstone — live A→B→A cycle proof (discriminating)", () =
 
     // ===== GLOBAL ASSERTIONS =====
     //
-    // The cycle guard fires before condition evaluation, so all 3 causal_cycle
-    // skip runs persist in the database. The discriminating conditions
-    // classify them as 1 LOAD-BEARING (cross-cycle) + 2 PHANTOM (self-cycles
-    // where the rule's condition would not have matched the trigger task).
+    // After T4 the condition-before-causal ordering means only TRUE
+    // conditions reach the causal guard. The skip rows therefore split as:
+    //   - 1 LOAD-BEARING `causal_cycle` skip  — Rule A on B's envelope
+    //                                            (condition WOULD match;
+    //                                             causal guard fires).
+    //   - 2 PHANTOM `condition_false` skips   — Rule A on A's envelope + Rule B
+    //                                            on B's envelope (conditions do
+    //                                            NOT match; causal guard
+    //                                            never runs, no phantom cycle
+    //                                            label).
 
-    const ruleASkips = skippedRunsForRule(ruleAId).filter((r) => r.skipReason === "causal_cycle");
-    const ruleBSkips = skippedRunsForRule(ruleBId).filter((r) => r.skipReason === "causal_cycle");
-    const allCycleSkips = [...ruleASkips, ...ruleBSkips];
+    const ruleASkips = skippedRunsForRule(ruleAId).filter(
+      (r) => r.skipReason === "causal_cycle" || r.skipReason === "condition_false",
+    );
+    const ruleBSkips = skippedRunsForRule(ruleBId).filter(
+      (r) => r.skipReason === "causal_cycle" || r.skipReason === "condition_false",
+    );
+    const allCycleRelatedSkips = [...ruleASkips, ...ruleBSkips];
 
     // Classify each skip by whether the rule's condition WOULD have matched
-    // the trigger task. The trigger task is the cycle skip's `targetId`
-    // (set by `recordSkippedRun` from `event.data.taskId`).
+    // the trigger task. The trigger task is the skip's `targetId` (set by
+    // the lifecycle from `event.data.taskId`).
     const ruleARow = ruleRepo.getAutomationRuleById(ruleAId)!;
     const ruleBRow = ruleRepo.getAutomationRuleById(ruleBId)!;
 
@@ -416,7 +436,7 @@ describe("T8B P1 capstone — live A→B→A cycle proof (discriminating)", () =
       return evaluateCondition(rule.condition, ctx).matched ? "load-bearing" : "phantom";
     };
 
-    const classified = allCycleSkips.map((run) => {
+    const classified = allCycleRelatedSkips.map((run) => {
       const isRuleA = run.ruleId === ruleAId;
       return {
         run,
@@ -428,17 +448,20 @@ describe("T8B P1 capstone — live A→B→A cycle proof (discriminating)", () =
     const loadBearing = classified.filter((c) => c.classification === "load-bearing");
     const phantom = classified.filter((c) => c.classification === "phantom");
 
-    // Total causal_cycle skip rows = 3 (1 load-bearing + 2 phantom).
-    expect(allCycleSkips).toHaveLength(3);
+    // Total cycle-related skip rows = 3 (1 load-bearing causal_cycle +
+    // 2 phantom condition_false).
+    expect(allCycleRelatedSkips).toHaveLength(3);
     // Exactly ONE load-bearing cycle skip — the A→B→A cross-cycle on Rule A.
     expect(loadBearing).toHaveLength(1);
     expect(loadBearing[0].ruleId).toBe(ruleAId);
     expect(loadBearing[0].run.targetId).toBe(taskB!.id);
-    // Zero phantom self-cycles misclassified as load-bearing: Rule A's
-    // self-cycle on its own envelope + Rule B's self-cycle on its own
-    // envelope are correctly classified as phantom (the rule's condition
-    // would NOT have matched the trigger task).
+    expect(loadBearing[0].run.skipReason).toBe("causal_cycle");
+    // Two phantom skips (condition_false on the false-condition rules): Rule
+    // A's self-cycle on its own envelope + Rule B's self-cycle on B's
+    // envelope. Neither reached the causal guard because their conditions
+    // did not match — no phantom `causal_cycle` label is persisted.
     expect(phantom).toHaveLength(2);
+    expect(phantom.every((p) => p.run.skipReason === "condition_false")).toBe(true);
     const phantomRuleIds = new Set(phantom.map((p) => p.ruleId));
     expect(phantomRuleIds.has(ruleAId)).toBe(true); // A→A phantom
     expect(phantomRuleIds.has(ruleBId)).toBe(true); // B→B phantom

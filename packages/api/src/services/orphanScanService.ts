@@ -1,7 +1,12 @@
+/**
+ * CS-56 T5 — `orphan_mission_unmapped` scan. Routes every orphan Mission
+ * candidate through the canonical lifecycle. Cooldown + hourly admission
+ * live inside the lifecycle — the scan no longer applies its own guards.
+ */
 import type { AutomationScanType } from "@orcy/shared";
 import type { ScanReport } from "./automationScanService.js";
-import { applyGuards } from "./automationScanService.js";
-import { executeAndRecordRuleRun } from "./automationExecutor.js";
+import { attemptRuleRun } from "./automationAttemptLifecycle.js";
+import { tallyDisposition } from "./automationScanService.js";
 import * as ruleRepo from "../repositories/automationRule.js";
 import * as missionRepo from "../repositories/mission.js";
 import * as triageClusterMissionsRepo from "../repositories/triageClusterMissions.js";
@@ -32,9 +37,11 @@ export async function runOrphanMissionUnmappedScan(habitatId: string): Promise<S
   try {
     const rules = ruleRepo.getEnabledRulesByHabitatAndTrigger(habitatId, SCAN_TYPE);
 
-    // Active, non-archived missions in the habitat.
+    // Active, non-archived missions in the habitat. CS-56 cold-review
+    // m2 — unbounded call (the repository supports omitting `limit`;
+    // Habitats with >1000 Missions must not silently miss orphans).
     const habitatMissions = missionRepo
-      .getMissionsByHabitatId(habitatId, { limit: 1000 })
+      .getMissionsByHabitatId(habitatId)
       .missions.filter((m) => !m.isArchived && ACTIVE_STATUSES.has(m.status));
     if (habitatMissions.length === 0) return [];
 
@@ -67,6 +74,7 @@ export async function runOrphanMissionUnmappedScan(habitatId: string): Promise<S
     const errs: string[] = [];
     let matched = 0;
     let skipped = 0;
+    let deduplicated = 0;
 
     for (const orphan of orphans) {
       const clusterKey = `orphan-mission:${orphan.id}`;
@@ -89,20 +97,25 @@ export async function runOrphanMissionUnmappedScan(habitatId: string): Promise<S
       const payload = { missionId: orphan.id, title: orphan.title, clusterKey };
       for (const rule of rules) {
         try {
-          if (!applyGuards(rule, habitatId, SCAN_TYPE, triggerEventId, "mission", orphan.id)) {
-            skipped++;
-            continue;
-          }
-          await executeAndRecordRuleRun(
+          const disposition = await attemptRuleRun({
             rule,
-            habitatId,
-            SCAN_TYPE,
-            triggerEventId,
-            "mission",
-            orphan.id,
-            payload,
-          );
-          matched++;
+            source: "scan",
+            trigger: {
+              triggerType: SCAN_TYPE,
+              triggerEventId,
+              habitatId,
+              targetType: "mission",
+              targetId: orphan.id,
+              payload,
+            },
+            eventDedupeKey: null,
+          });
+          tallyDisposition(rule, disposition, {
+            matched,
+            skipped,
+            deduplicated,
+            errors: errs,
+          });
         } catch (err) {
           errs.push(`Rule ${rule.id}: ${err instanceof Error ? err.message : String(err)}`);
         }
@@ -115,6 +128,7 @@ export async function runOrphanMissionUnmappedScan(habitatId: string): Promise<S
         habitatId,
         rulesMatched: matched,
         rulesSkipped: skipped,
+        rulesDeduplicated: 0,
         errors: errs,
       },
     ];
@@ -125,6 +139,7 @@ export async function runOrphanMissionUnmappedScan(habitatId: string): Promise<S
         habitatId,
         rulesMatched: 0,
         rulesSkipped: 0,
+        rulesDeduplicated: 0,
         errors: [err instanceof Error ? err.message : String(err)],
       },
     ];

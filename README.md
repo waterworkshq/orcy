@@ -196,9 +196,9 @@ Orcy pulls external tracker issues into habitat intake, where humans/orcys revie
 
 | Release | Theme |
 |---------|-------|
-| v0.33.0 | Plugin Activation Contract — the architecture-deepening makes `customHttpRoute`'s boot-time failure contract honest: structural route faults rejected at plugin load, execution faults crash-loud with honest boot log (ADR-0041). Per-contribution execution-fault isolation (probe) deferred — its soundness property is mechanically unevaluable in JS. |
-| v0.33.1 | Lint Cleanup — fixes the sole lint error and auto-resolves 265 of 373 pre-existing lint warnings (unused imports, `.sort()` → `.toSorted()`, caught-error `.cause`, `.reverse()` → `.toReversed()`). |
-| v0.33.2 | TypeScript 7.0 + Node 24 Floor — migrates to the native Go compiler (zero code changes, 18% faster tests) and raises `engines.node` to `>=24` to match CI. |
+| v0.33.7 | **Fix: Mandatory Automation Rule Conditions (CS-56)** — blocker defect correction. Conditions are now mandatory production gates (`{type:"always"}` remains the explicit trigger-only rule). One canonical lifecycle replaces per-event/per-scan split ownership. **Operator action before upgrade:** simulate every enabled non-`always` rule to confirm intended behavior. Malformed conditions fail closed. |
+| v0.33.6 | carry column policy fields through v3 import (IMP-2) |
+| v0.33.5 | carry template task-level fields through v3 import + close wiki dedupe race (IMP-1, IMP-3) |
 
 Full plan: **[docs/ROADMAP.md](docs/ROADMAP.md)**
 

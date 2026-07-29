@@ -6,13 +6,20 @@
  * 2. Fail-safe behavior (no handler → not-matched, handler error → not-matched)
  * 3. PluginEvaluationContext projection (agent apiKeyHash stripped)
  * 4. Reference plugin (rejection-spike) integration
+ *
+ * CS-56 cold-review m3.1 — the original "throwing handler" test only
+ * exercised the missing-handler case (it never registered a real handler).
+ * This was a load-bearing test gap: ADR-0022 requires the throw-path to
+ * fail safe. Both paths are now exercised via direct mocking of
+ * `pluginManager.getConditionHandler`.
  */
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { closeDb, initTestDb } from "../db/index.js";
 import { evaluateCondition } from "../services/automationEvaluator.js";
 import * as pluginManager from "../plugins/pluginManager.js";
 import { resetPlugins } from "../plugins/pluginManager.js";
 import type { AutomationEvaluationContext } from "../services/automationContextBuilder.js";
+import type { ConditionHandler } from "../plugins/types.js";
 
 function makeCtx(
   overrides: Partial<AutomationEvaluationContext> = {},
@@ -34,8 +41,12 @@ describe("v0.22.10 Automation Condition Plugins", () => {
   beforeEach(async () => {
     await initTestDb();
     resetPlugins();
+    vi.restoreAllMocks();
   });
-  afterEach(() => closeDb());
+  afterEach(() => {
+    closeDb();
+    vi.restoreAllMocks();
+  });
 
   it("returns not-matched when no handler is registered for conditionId", () => {
     const result = evaluateCondition({ type: "plugin", conditionId: "nonexistent" }, makeCtx());
@@ -45,49 +56,49 @@ describe("v0.22.10 Automation Condition Plugins", () => {
   });
 
   it("dispatches to registered handler and returns matched result", () => {
-    // Register a handler via the module-level registry
-    const conditionPlugin = {
-      manifest: {
-        id: "test-condition-plugin",
-        version: "1.0.0",
-        description: "test",
-        contributions: [
-          {
-            kind: "automationCondition" as const,
-            scope: "system" as const,
-            conditionId: "always-true",
-            label: "Always True",
-            description: "test",
-            requires: [],
-          },
-        ],
-      },
-      conditions: {
-        "always-true": () => ({ matched: true, reason: "always matches" }),
-      },
-    };
-    // Manually register by calling the internal registration path
-    // We can't easily call registerContributions (not exported), so test via
-    // the evaluator's dispatch path by registering through the module system.
-    // For unit testing, we verify the evaluator dispatch logic directly.
+    // Register a real handler that returns matched=true.
+    const realHandler: ConditionHandler = (_ctx, _params) => ({
+      matched: true,
+      reason: "always matches",
+    });
+    const spy = vi
+      .spyOn(pluginManager, "getConditionHandler")
+      .mockReturnValue(realHandler);
+
     const result = evaluateCondition(
       { type: "plugin", conditionId: "always-true", params: { x: 1 } },
       makeCtx(),
     );
-    // No handler registered → fail-safe
-    expect(result.matched).toBe(false);
+    expect(spy).toHaveBeenCalledWith("always-true");
+    expect(result.matched).toBe(true);
+    expect(result.conditionType).toBe("plugin");
+    expect(result.reason).toBe("always matches");
   });
 
   it("catches handler errors and returns not-matched (fail-safe for workflow gates)", () => {
-    // This test verifies the error-catching behavior in evaluatePluginCondition.
-    // Since we can't easily register handlers in unit tests without the full
-    // plugin loader, we verify the fail-safe contract: missing handler = not matched.
+    // CS-56 cold-review m3.1 — register a real throwing spy handler so the
+    // evaluator's try/catch around `handler(...)` is exercised. The
+    // pre-fix test only proved the missing-handler case; this pins the
+    // THROWING path (the more important ADR-0022 contract — a throw on
+    // the workflow gate evaluation path MUST NOT block transitions).
+    const throwingHandler: ConditionHandler = (() => {
+      throw new Error("boom — handler is broken");
+    }) as ConditionHandler;
+    vi.spyOn(pluginManager, "getConditionHandler").mockReturnValue(throwingHandler);
+
     const result = evaluateCondition(
-      { type: "plugin", conditionId: "throwing-handler" },
+      { type: "plugin", conditionId: "throwing-handler", params: {} },
       makeCtx(),
     );
+
+    // ADR-0022 fail-safe: a throwing handler evaluates to not-matched
+    // (matched:false). The lifecycle persisted conditionResult.conditionType
+    // = "plugin" and skipReason = "condition_false" — proof that the
+    // throw never reached the executor and the run completed normally.
     expect(result.matched).toBe(false);
     expect(result.conditionType).toBe("plugin");
+    expect(result.reason).toContain("threw");
+    expect(result.reason).toContain("boom");
   });
 
   it("plugin condition works inside AND composition", () => {

@@ -522,6 +522,271 @@ describe("automationRuleRun repository", () => {
     });
   });
 
+  describe("terminalizeRuleRun (CS-56 T2 substrate)", () => {
+    it("persists condition_false on a skipped row (capability for T3 wiring)", () => {
+      const habitat = setupHabitat();
+      const rule = createRule(habitat.id);
+      const { run } = runRepo.startRuleRun({
+        ruleId: rule.id,
+        habitatId: habitat.id,
+        triggerType: "task.rejected",
+      });
+
+      const out = runRepo.terminalizeRuleRun({
+        runId: run.id,
+        status: "skipped",
+        skipReason: "condition_false",
+        conditionResult: {
+          matched: false,
+          conditionType: "priority_above",
+          reason: "Task priority low <= high",
+        },
+      });
+
+      expect(out.transitioned).toBe(true);
+      expect(out.run.status).toBe("skipped");
+      expect(out.run.skipReason).toBe("condition_false");
+      expect(out.run.conditionResult).not.toBeNull();
+      expect(out.run.conditionResult!.matched).toBe(false);
+      expect(out.run.finishedAt).not.toBeNull();
+    });
+
+    it("persists actionResults on a succeeded row", () => {
+      const habitat = setupHabitat();
+      const rule = createRule(habitat.id);
+      const { run } = runRepo.startRuleRun({
+        ruleId: rule.id,
+        habitatId: habitat.id,
+        triggerType: "task.rejected",
+      });
+
+      const out = runRepo.terminalizeRuleRun({
+        runId: run.id,
+        status: "succeeded",
+        conditionResult: {
+          matched: true,
+          conditionType: "always",
+          reason: "Always matches",
+        },
+        actionResults: [
+          { actionType: "notify", actionIndex: 0, status: "succeeded" },
+        ],
+      });
+
+      expect(out.transitioned).toBe(true);
+      expect(out.run.status).toBe("succeeded");
+      expect(out.run.actionResults).toHaveLength(1);
+      expect(out.run.conditionResult!.matched).toBe(true);
+    });
+
+    it("a second finalization attempt reports transitioned:false and leaves the first terminal result unchanged", () => {
+      const habitat = setupHabitat();
+      const rule = createRule(habitat.id);
+      const { run } = runRepo.startRuleRun({
+        ruleId: rule.id,
+        habitatId: habitat.id,
+        triggerType: "task.rejected",
+      });
+
+      const first = runRepo.terminalizeRuleRun({
+        runId: run.id,
+        status: "skipped",
+        skipReason: "cooldown",
+      });
+      expect(first.transitioned).toBe(true);
+      const firstFinishedAt = first.run.finishedAt;
+      const firstSkipReason = first.run.skipReason;
+
+      // Second finalization attempt — different terminal outcome that
+      // MUST NOT mutate the already-terminal row.
+      const second = runRepo.terminalizeRuleRun({
+        runId: run.id,
+        status: "failed",
+        conditionResult: {
+          matched: false,
+          conditionType: "unknown",
+          reason: "should-not-appear",
+        },
+      });
+
+      expect(second.transitioned).toBe(false);
+      expect(second.run.status).toBe("skipped");
+      expect(second.run.skipReason).toBe(firstSkipReason);
+      expect(second.run.finishedAt).toBe(firstFinishedAt);
+      // The would-be-clobbered fields must remain at their first-write values.
+      expect(second.run.conditionResult).toBeNull();
+    });
+
+    it("bumps rule lastRunAt only when transitioning", () => {
+      const habitat = setupHabitat();
+      const rule = createRule(habitat.id);
+      const { run } = runRepo.startRuleRun({
+        ruleId: rule.id,
+        habitatId: habitat.id,
+        triggerType: "task.rejected",
+      });
+
+      const first = runRepo.terminalizeRuleRun({
+        runId: run.id,
+        status: "succeeded",
+      });
+      expect(first.transitioned).toBe(true);
+      const lastRunAtAfterFirst = ruleRepo.getAutomationRuleById(rule.id)!.lastRunAt;
+      expect(lastRunAtAfterFirst).not.toBeNull();
+
+      // Second attempt — should NOT bump lastRunAt again (no transition).
+      const second = runRepo.terminalizeRuleRun({
+        runId: run.id,
+        status: "failed",
+      });
+      expect(second.transitioned).toBe(false);
+      const lastRunAtAfterSecond = ruleRepo.getAutomationRuleById(rule.id)!.lastRunAt;
+      expect(lastRunAtAfterSecond).toBe(lastRunAtAfterFirst);
+    });
+
+    it("throws repositoryNotFoundError when terminalizing a non-existent run", () => {
+      // The inner `getRuleRunById` after the UPDATE throws when the row
+      // is missing — terminalizing a non-existent run is a programming
+      // error, not a benign idempotent no-op.
+      expect(() =>
+        runRepo.terminalizeRuleRun({ runId: "run-does-not-exist", status: "succeeded" }),
+      ).toThrow();
+    });
+  });
+
+  describe("countAdmittedAttemptsInWindow / getHourlyRunCount (CS-56 T2 substrate)", () => {
+    it("counts running + succeeded + partial_failed + failed + admitted-skipped", () => {
+      const habitat = setupHabitat();
+      const rule = createRule(habitat.id);
+      const now = "2025-01-01T12:00:00.000Z";
+
+      // running
+      runRepo.startRuleRun({
+        ruleId: rule.id,
+        habitatId: habitat.id,
+        triggerType: "task.rejected",
+        now: "2025-01-01T11:30:00.000Z",
+      });
+
+      // succeeded
+      const s1 = runRepo.startRuleRun({
+        ruleId: rule.id,
+        habitatId: habitat.id,
+        triggerType: "task.rejected",
+        now: "2025-01-01T11:35:00.000Z",
+      });
+      runRepo.terminalizeRuleRun({
+        runId: s1.run.id,
+        status: "succeeded",
+      });
+
+      // failed
+      const f1 = runRepo.startRuleRun({
+        ruleId: rule.id,
+        habitatId: habitat.id,
+        triggerType: "task.rejected",
+        now: "2025-01-01T11:40:00.000Z",
+      });
+      runRepo.terminalizeRuleRun({ runId: f1.run.id, status: "failed" });
+
+      // condition_false skipped (admitted)
+      const cf = runRepo.startRuleRun({
+        ruleId: rule.id,
+        habitatId: habitat.id,
+        triggerType: "task.rejected",
+        now: "2025-01-01T11:45:00.000Z",
+      });
+      runRepo.terminalizeRuleRun({
+        runId: cf.run.id,
+        status: "skipped",
+        skipReason: "condition_false",
+        conditionResult: {
+          matched: false,
+          conditionType: "always",
+          reason: "false",
+        },
+      });
+
+      const count = runRepo.countAdmittedAttemptsInWindow(rule.id, now);
+      expect(count).toBe(4);
+    });
+
+    it("excludes cooldown, rate_limited, missing_target skipped rows", () => {
+      const habitat = setupHabitat();
+      const rule = createRule(habitat.id);
+      const now = "2025-01-01T12:00:00.000Z";
+
+      // one admitted succeeded
+      const ok = runRepo.startRuleRun({
+        ruleId: rule.id,
+        habitatId: habitat.id,
+        triggerType: "task.rejected",
+        now: "2025-01-01T11:00:00.000Z",
+      });
+      runRepo.terminalizeRuleRun({ runId: ok.run.id, status: "succeeded" });
+
+      // three non-admitting skipped rows
+      for (const reason of ["cooldown", "rate_limited", "missing_target"] as const) {
+        const r = runRepo.startRuleRun({
+          ruleId: rule.id,
+          habitatId: habitat.id,
+          triggerType: "task.rejected",
+          now: "2025-01-01T11:10:00.000Z",
+        });
+        runRepo.terminalizeRuleRun({
+          runId: r.run.id,
+          status: "skipped",
+          skipReason: reason,
+        });
+      }
+
+      const count = runRepo.countAdmittedAttemptsInWindow(rule.id, now);
+      expect(count).toBe(1);
+    });
+
+    it("getHourlyRunCount is a compat wrapper that returns the admitted-attempt count", () => {
+      const habitat = setupHabitat();
+      const rule = createRule(habitat.id);
+      const now = "2025-01-01T12:00:00.000Z";
+
+      // Inside-window running row.
+      runRepo.startRuleRun({
+        ruleId: rule.id,
+        habitatId: habitat.id,
+        triggerType: "task.rejected",
+        now: "2025-01-01T11:30:00.000Z",
+      });
+
+      // Inside-window rate_limited row (must be excluded).
+      const r = runRepo.startRuleRun({
+        ruleId: rule.id,
+        habitatId: habitat.id,
+        triggerType: "task.rejected",
+        now: "2025-01-01T11:35:00.000Z",
+      });
+      runRepo.terminalizeRuleRun({ runId: r.run.id, status: "skipped", skipReason: "rate_limited" });
+
+      expect(runRepo.getHourlyRunCount(rule.id, now)).toBe(1);
+      expect(runRepo.getHourlyRunCount(rule.id, now)).toBe(
+        runRepo.countAdmittedAttemptsInWindow(rule.id, now),
+      );
+    });
+
+    it("returns 0 when no runs in window", () => {
+      const habitat = setupHabitat();
+      const rule = createRule(habitat.id);
+      runRepo.startRuleRun({
+        ruleId: rule.id,
+        habitatId: habitat.id,
+        triggerType: "task.rejected",
+        now: "2025-01-01T10:00:00.000Z",
+      });
+
+      const count = runRepo.getHourlyRunCount(rule.id, "2025-01-01T20:00:00.000Z");
+      expect(count).toBe(0);
+    });
+  });
+
   describe("startRuleRun — event-dedupe reservation (T4C Phase 2)", () => {
     it("reserves on first call (created:true) and replays on collision (created:false) for same (eventDedupeKey, ruleId)", () => {
       const habitat = setupHabitat();
@@ -885,18 +1150,153 @@ describe("automationRuleRun repository", () => {
       expect(count).toBe(1);
     });
 
-    it("returns 0 when no runs in window", () => {
+    // CS-56 cold-review m1 — explicit-membership accounting. The prior
+    // `status != 'skipped'` formulation also admitted `simulated`/`matched`
+    // rows. Today's canonical lifecycle never persists those, but the
+    // admission predicate is now explicit and the following tests pin the
+    // behavior so a future refactor cannot regress it.
+    it("explicit membership: partial_failed + causal/disabled/condition_false skip reasons ALL COUNT toward the hourly budget", async () => {
       const habitat = setupHabitat();
       const rule = createRule(habitat.id);
-      runRepo.startRuleRun({
+      const now = "2025-01-01T12:00:00.000Z";
+
+      const pf = runRepo.startRuleRun({
         ruleId: rule.id,
         habitatId: habitat.id,
         triggerType: "task.rejected",
-        now: "2025-01-01T10:00:00.000Z",
+        now: "2025-01-01T11:00:00.000Z",
+      });
+      runRepo.terminalizeRuleRun({ runId: pf.run.id, status: "partial_failed" });
+
+      const cf = runRepo.startRuleRun({
+        ruleId: rule.id,
+        habitatId: habitat.id,
+        triggerType: "task.rejected",
+        now: "2025-01-01T11:05:00.000Z",
+      });
+      runRepo.terminalizeRuleRun({
+        runId: cf.run.id,
+        status: "skipped",
+        skipReason: "condition_false",
       });
 
-      const count = runRepo.getHourlyRunCount(rule.id, "2025-01-01T20:00:00.000Z");
+      const cy = runRepo.startRuleRun({
+        ruleId: rule.id,
+        habitatId: habitat.id,
+        triggerType: "task.rejected",
+        now: "2025-01-01T11:10:00.000Z",
+      });
+      runRepo.terminalizeRuleRun({
+        runId: cy.run.id,
+        status: "skipped",
+        skipReason: "causal_cycle",
+      });
+
+      const dis = runRepo.startRuleRun({
+        ruleId: rule.id,
+        habitatId: habitat.id,
+        triggerType: "task.rejected",
+        now: "2025-01-01T11:15:00.000Z",
+      });
+      runRepo.terminalizeRuleRun({
+        runId: dis.run.id,
+        status: "skipped",
+        skipReason: "disabled",
+      });
+
+      const run = runRepo.startRuleRun({
+        ruleId: rule.id,
+        habitatId: habitat.id,
+        triggerType: "task.rejected",
+        now: "2025-01-01T11:30:00.000Z",
+      });
+      expect(run.run.status).toBe("running");
+
+      const count = runRepo.countAdmittedAttemptsInWindow(rule.id, now);
+      expect(count).toBe(5);
+    });
+
+    it("explicit membership: simulated and matched rows do NOT count toward the hourly budget", async () => {
+      const habitat = setupHabitat();
+      const rule = createRule(habitat.id);
+      const now = "2025-01-01T12:00:00.000Z";
+
+      const sim = runRepo.startRuleRun({
+        ruleId: rule.id,
+        habitatId: habitat.id,
+        triggerType: "task.rejected",
+        now: "2025-01-01T11:00:00.000Z",
+      });
+      runRepo.terminalizeRuleRun({ runId: sim.run.id, status: "simulated" });
+
+      const db = (await import("../db/index.js")).getDb();
+      const { automationRuleRuns } = await import("../db/schema/index.js");
+      const { v4: uuid } = await import("uuid");
+      db.insert(automationRuleRuns)
+        .values({
+          id: uuid(),
+          ruleId: rule.id,
+          habitatId: habitat.id,
+          triggerType: "task.rejected",
+          triggerEventId: "matched-test",
+          targetType: null,
+          targetId: null,
+          fingerprint: `${habitat.id}:${rule.id}:task.rejected:matched-test::`,
+          eventDedupeKey: null,
+          status: "matched",
+          skipReason: null,
+          conditionResult: null,
+          actionResults: null,
+          metadata: null,
+          startedAt: "2025-01-01T11:05:00.000Z",
+          finishedAt: null,
+        })
+        .run();
+
+      const count = runRepo.countAdmittedAttemptsInWindow(rule.id, now);
+      // Neither simulated nor matched rows count — they consume no
+      // hourly budget (a latent edge the old `status != 'skipped'`
+      // membership would have wrongly admitted).
       expect(count).toBe(0);
+    });
+
+    it("explicit membership: a skipped row with NULL skipReason is excluded (NULL does not satisfy the ne(...) chain)", async () => {
+      const habitat = setupHabitat();
+      const rule = createRule(habitat.id);
+      const now = "2025-01-01T12:00:00.000Z";
+
+      const s = runRepo.startRuleRun({
+        ruleId: rule.id,
+        habitatId: habitat.id,
+        triggerType: "task.rejected",
+        now: "2025-01-01T11:00:00.000Z",
+      });
+      runRepo.terminalizeRuleRun({ runId: s.run.id, status: "succeeded" });
+
+      // Finalize as `skipped` (so it does NOT count as `running` which
+      // would be admitted) and then null its skipReason. The legacy /
+      // hand-inserted edge: a skipped row without a populated skipReason.
+      // The membership predicate only admits `skipped` rows whose
+      // skipReason is NOT in the non-admitting set AND IS NOT NULL —
+      // NULL does not satisfy `ne(...)` in SQL.
+      const sk = runRepo.startRuleRun({
+        ruleId: rule.id,
+        habitatId: habitat.id,
+        triggerType: "task.rejected",
+        now: "2025-01-01T11:05:00.000Z",
+      });
+      runRepo.terminalizeRuleRun({
+        runId: sk.run.id,
+        status: "skipped",
+        skipReason: "cooldown",
+      });
+      const db = (await import("../db/index.js")).getDb();
+      const { automationRuleRuns } = await import("../db/schema/index.js");
+      const { eq } = await import("drizzle-orm");
+      db.update(automationRuleRuns).set({ skipReason: null }).where(eq(automationRuleRuns.id, sk.run.id)).run();
+
+      const count = runRepo.countAdmittedAttemptsInWindow(rule.id, now);
+      expect(count).toBe(1);
     });
   });
 

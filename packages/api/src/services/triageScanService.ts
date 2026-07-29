@@ -1,8 +1,12 @@
+/**
+ * CS-56 T5 — `signal_pattern_clustered` scan. Routes every cluster
+ * candidate through the canonical lifecycle. Cooldown + hourly admission
+ * live inside the lifecycle — the scan no longer applies its own guards.
+ */
 import type { AutomationScanType, ClusterPayload } from "@orcy/shared";
 import { DEFAULT_TRIAGE_SETTINGS } from "@orcy/shared";
 import type { ScanReport } from "./automationScanService.js";
-import { applyGuards } from "./automationScanService.js";
-import { executeAndRecordRuleRun } from "./automationExecutor.js";
+import { attemptRuleRun } from "./automationAttemptLifecycle.js";
 import { normalize } from "./habitatSkillService.js";
 import * as ruleRepo from "../repositories/automationRule.js";
 import * as pulseRepo from "../repositories/pulse.js";
@@ -10,6 +14,7 @@ import * as triageClusterMissionsRepo from "../repositories/triageClusterMission
 import * as triageResolutionsRepo from "../repositories/triageResolutions.js";
 import * as triageService from "./triageService.js";
 import * as boardRepo from "../repositories/habitat.js";
+import { tallyDisposition } from "./automationScanService.js";
 import type { Pulse } from "@orcy/shared";
 
 /** Resolves habitat-level triage thresholds, falling back to defaults. */
@@ -61,6 +66,7 @@ export async function runSignalPatternClusteredScan(habitatId: string): Promise<
     const errs: string[] = [];
     let matched = 0;
     let skipped = 0;
+    let deduplicated = 0;
 
     for (const [clusterKey, group] of groups) {
       if (group.length < minClusterSize) continue;
@@ -95,20 +101,25 @@ export async function runSignalPatternClusteredScan(habitatId: string): Promise<
       const triggerEventId = `cluster:${clusterKey}:${habitatId}`;
       for (const rule of rules) {
         try {
-          if (!applyGuards(rule, habitatId, SCAN_TYPE, triggerEventId, "habitat", habitatId)) {
-            skipped++;
-            continue;
-          }
-          await executeAndRecordRuleRun(
+          const disposition = await attemptRuleRun({
             rule,
-            habitatId,
-            SCAN_TYPE,
-            triggerEventId,
-            "habitat",
-            habitatId,
-            payload as unknown as Record<string, unknown>,
-          );
-          matched++;
+            source: "scan",
+            trigger: {
+              triggerType: SCAN_TYPE,
+              triggerEventId,
+              habitatId,
+              targetType: "habitat",
+              targetId: habitatId,
+              payload: payload as unknown as Record<string, unknown>,
+            },
+            eventDedupeKey: null,
+          });
+          tallyDisposition(rule, disposition, {
+            matched,
+            skipped,
+            deduplicated,
+            errors: errs,
+          });
         } catch (err) {
           errs.push(`Rule ${rule.id}: ${err instanceof Error ? err.message : String(err)}`);
         }
@@ -121,6 +132,7 @@ export async function runSignalPatternClusteredScan(habitatId: string): Promise<
         habitatId,
         rulesMatched: matched,
         rulesSkipped: skipped,
+        rulesDeduplicated: 0,
         errors: errs,
       },
     ];
@@ -131,6 +143,7 @@ export async function runSignalPatternClusteredScan(habitatId: string): Promise<
         habitatId,
         rulesMatched: 0,
         rulesSkipped: 0,
+        rulesDeduplicated: 0,
         errors: [err instanceof Error ? err.message : String(err)],
       },
     ];

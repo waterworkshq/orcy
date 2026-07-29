@@ -17,9 +17,9 @@ import type {
 import {
   executeActions,
   shouldExecuteActions,
-  executeAndRecordRuleRun,
   onAutomationRunCompleted,
 } from "../services/automationExecutor.js";
+import { attemptRuleRun } from "../services/automationAttemptLifecycle.js";
 import * as eventRepo from "../repositories/notificationEvent.js";
 import * as deliveryRepo from "../repositories/notificationDelivery.js";
 import * as runRepo from "../repositories/automationRuleRun.js";
@@ -750,7 +750,7 @@ describe("shouldExecuteActions", () => {
   });
 });
 
-describe("executeAndRecordRuleRun", () => {
+describe("attemptRuleRun (canonical lifecycle — formerly executeAndRecordRuleRun)", () => {
   beforeEach(async () => {
     await initTestDb();
   });
@@ -781,17 +781,25 @@ describe("executeAndRecordRuleRun", () => {
     });
     const rule = ruleRepo.getEnabledRulesByHabitatAndTrigger(h.id, "task.rejected")[0];
 
-    const { run, outcome } = await executeAndRecordRuleRun(
+    const disposition = await attemptRuleRun({
       rule,
-      h.id,
-      "task.rejected",
-      "evt-1",
-      "task",
-      task.id,
-    );
+      source: "event",
+      trigger: {
+        triggerType: "task.rejected",
+        triggerEventId: "evt-1",
+        habitatId: h.id,
+        targetType: "task",
+        targetId: task.id,
+      },
+    });
 
-    expect(outcome).toBe("succeeded");
-    const finished = runRepo.getRuleRunById(run.id);
+    expect(disposition.kind).toBe("executed");
+    if (disposition.kind === "executed") {
+      expect(disposition.outcome).toBe("succeeded");
+      expect(disposition.actionResults).toHaveLength(1);
+      expect(disposition.actionResults[0].actionType).toBe("notify");
+    }
+    const finished = runRepo.getRuleRunById(disposition.run.id);
     expect(finished?.status).toBe("succeeded");
     expect(finished?.actionResults).toHaveLength(1);
     expect(finished?.actionResults?.[0]?.actionType).toBe("notify");
@@ -822,14 +830,24 @@ describe("executeAndRecordRuleRun", () => {
       hookOutcome = opts.outcome;
     });
 
-    await executeAndRecordRuleRun(rule, h.id, "task.rejected", "evt-2", "mission", mission.id);
+    await attemptRuleRun({
+      rule,
+      source: "event",
+      trigger: {
+        triggerType: "task.rejected",
+        triggerEventId: "evt-2",
+        habitatId: h.id,
+        targetType: "mission",
+        targetId: mission.id,
+      },
+    });
 
     expect(hookCalled).toBe(true);
     expect(hookOutcome).toBe("succeeded");
     unsub();
   });
 
-  it("does not execute actions when kill switch is off (habitat setting)", async () => {
+  it("does not execute actions when kill switch is off (habitat setting) — finalized skipped/disabled", async () => {
     const h = setupHabitat();
     boardRepo.updateHabitat(h.id, {
       automationSettings: { executeActions: false },
@@ -849,16 +867,32 @@ describe("executeAndRecordRuleRun", () => {
     });
     const rule = ruleRepo.getEnabledRulesByHabitatAndTrigger(h.id, "task.rejected")[0];
 
-    const { outcome } = await executeAndRecordRuleRun(
+    const disposition = await attemptRuleRun({
       rule,
-      h.id,
-      "task.rejected",
-      "evt-3",
-      "habitat",
-      h.id,
-    );
+      source: "event",
+      trigger: {
+        triggerType: "task.rejected",
+        triggerEventId: "evt-3",
+        habitatId: h.id,
+        targetType: "habitat",
+        targetId: h.id,
+      },
+    });
 
-    expect(outcome).toBe("succeeded");
+    // CS-56 settled: kill switch → skipped/disabled with persisted true
+    // conditionResult. The legacy `executeAndRecordRuleRun` returned
+    // `succeeded`; the canonical lifecycle correctly persists the
+    // SETTLED semantics.
+    expect(disposition.kind).toBe("skipped");
+    if (disposition.kind === "skipped") {
+      expect(disposition.reason).toBe("disabled");
+    }
+    const finished = runRepo.getRuleRunById(disposition.run.id);
+    expect(finished?.status).toBe("skipped");
+    expect(finished?.skipReason).toBe("disabled");
+    expect(finished?.actionResults).toBeNull();
+    expect(finished?.conditionResult?.matched).toBe(true);
+
     const pulses = pulseRepo.getPulsesByHabitat(h.id, { limit: 100, offset: 0 });
     expect(pulses.total).toBe(0);
   });

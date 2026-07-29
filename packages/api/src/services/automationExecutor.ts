@@ -4,17 +4,13 @@ import type {
   AutomationRuleRun,
   AutomationActionResult,
   AutomationRunStatus,
-  AutomationTargetType,
-  CausalContext,
   NotificationEventType,
 } from "@orcy/shared";
 import type { AutomationEvaluationContext } from "./automationContextBuilder.js";
-import { buildEvaluationContext, buildTriggerContext } from "./automationContextBuilder.js";
 import { renderTemplate } from "./automationTemplateRenderer.js";
 import { enqueueNotificationForRecipients } from "./notificationCommandService.js";
 import * as pulseRepo from "../repositories/pulse.js";
 import * as taskRepo from "../repositories/task.js";
-import * as runRepo from "../repositories/automationRuleRun.js";
 import * as taskReviewerRepo from "../repositories/taskReviewer.js";
 import { claimTask } from "./tasks/task-lifecycle.js";
 import { assignReviewers } from "./reviewAssignmentService.js";
@@ -591,7 +587,20 @@ export function onAutomationRunCompleted(hook: AutomationRunCompletedHook): () =
   };
 }
 
-function notifyAutomationRunCompleted(opts: Parameters<AutomationRunCompletedHook>[0]): void {
+/**
+ * CS-56 — Synchronous, ownership-gated completion emission shared by
+ * the canonical lifecycle (`automationAttemptLifecycle.attemptRuleRun`).
+ * Each caller invokes this exactly once per owned `running → terminal`
+ * transition; per-hook failures are isolated so one bad subscriber
+ * cannot block the others.
+ *
+ * Exported (rather than local to the executor) so the canonical
+ * lifecycle seam can deliver the same completion semantics from a
+ * different module without going through the executor.
+ */
+export function notifyAutomationRunCompleted(
+  opts: Parameters<AutomationRunCompletedHook>[0],
+): void {
   for (const hook of automationRunCompletedHooks) {
     try {
       hook(opts);
@@ -614,65 +623,11 @@ export function shouldExecuteActions(habitatId: string): boolean {
   return true;
 }
 
-/**
- * Encapsulates the full rule-run lifecycle: starts the run, builds the evaluation context,
- * checks the kill switch, executes actions (if enabled), records the result, and fires
- * the `onAutomationRunCompleted` hook. Replaces the pre-v0.20.1 pattern of
- * `startRuleRun → finishRuleRun(succeeded)` without executing any actions.
- */
-export async function executeAndRecordRuleRun(
-  rule: AutomationRule,
-  habitatId: string,
-  triggerType: string,
-  triggerEventId: string | null,
-  targetType: AutomationTargetType | null,
-  targetId: string | null,
-  payload?: Record<string, unknown>,
-  eventDedupeKey?: string | null,
-  causalContext?: CausalContext,
-): Promise<{ run: AutomationRuleRun; outcome: AutomationRunStatus }> {
-  const { run, created } = runRepo.startRuleRun({
-    ruleId: rule.id,
-    habitatId,
-    triggerType: triggerType as AutomationRuleRun["triggerType"],
-    triggerEventId,
-    targetType,
-    targetId,
-    eventDedupeKey,
-  });
-
-  if (!created) {
-    return { run, outcome: run.status };
-  }
-
-  if (!shouldExecuteActions(habitatId)) {
-    runRepo.finishRuleRun(run.id, { status: "succeeded" });
-    notifyAutomationRunCompleted({ run, rule, outcome: "succeeded", habitatId });
-    return { run, outcome: "succeeded" };
-  }
-
-  try {
-    const ctx = buildEvaluationContext(
-      buildTriggerContext({
-        triggerType,
-        triggerEventId,
-        habitatId,
-        targetType,
-        targetId,
-        payload,
-        causalContext,
-      }),
-    );
-    const result = await executeActions(rule, run, ctx);
-    runRepo.finishRuleRun(run.id, {
-      status: result.status as "succeeded" | "partial_failed" | "failed",
-      actionResults: result.actionResults,
-    });
-    notifyAutomationRunCompleted({ run, rule, outcome: result.status, habitatId });
-    return { run, outcome: result.status };
-  } catch  {
-    runRepo.finishRuleRun(run.id, { status: "failed" });
-    notifyAutomationRunCompleted({ run, rule, outcome: "failed", habitatId });
-    return { run, outcome: "failed" };
-  }
-}
+// CS-56 — The legacy one-shot seam `executeAndRecordRuleRun` was retired
+// in T5. Every production caller (event ingestion + 7 scan families + the
+// manual route) now flows through `automationAttemptLifecycle.attemptRuleRun`,
+// which owns admission, reservation, condition evaluation, causal guards,
+// kill switch, action execution, terminal persistence, and completion
+// emission. Direct callers of the old function were updated to
+// `attemptRuleRun` (or, for test fixtures, replaced with the equivalent
+// canonical call shape).

@@ -1,8 +1,13 @@
+/**
+ * CS-56 T5 — `agent_quality_degraded` scan. Routes every degraded Agent
+ * candidate through the canonical lifecycle. Cooldown + hourly admission
+ * live inside the lifecycle — the scan no longer applies its own guards.
+ */
 import type { AutomationScanType, AgentQualityPayload } from "@orcy/shared";
 import { DEFAULT_TRIAGE_SETTINGS } from "@orcy/shared";
 import type { ScanReport } from "./automationScanService.js";
-import { applyGuards } from "./automationScanService.js";
-import { executeAndRecordRuleRun } from "./automationExecutor.js";
+import { attemptRuleRun } from "./automationAttemptLifecycle.js";
+import { tallyDisposition } from "./automationScanService.js";
 import { getAgentQualitySignals } from "./agentQualityService.js";
 import * as ruleRepo from "../repositories/automationRule.js";
 import * as boardRepo from "../repositories/habitat.js";
@@ -45,6 +50,7 @@ export async function runAgentQualityDegradedScan(habitatId: string): Promise<Sc
     const errs: string[] = [];
     let matched = 0;
     let skipped = 0;
+    let deduplicated = 0;
 
     for (const signal of qualityResponse.signals) {
       if (signal.sampleSize < qualityMinSample) continue;
@@ -68,20 +74,25 @@ export async function runAgentQualityDegradedScan(habitatId: string): Promise<Sc
 
       for (const rule of rules) {
         try {
-          if (!applyGuards(rule, habitatId, SCAN_TYPE, triggerEventId, "agent", signal.agentId)) {
-            skipped++;
-            continue;
-          }
-          await executeAndRecordRuleRun(
+          const disposition = await attemptRuleRun({
             rule,
-            habitatId,
-            SCAN_TYPE,
-            triggerEventId,
-            "agent",
-            signal.agentId,
-            payload as unknown as Record<string, unknown>,
-          );
-          matched++;
+            source: "scan",
+            trigger: {
+              triggerType: SCAN_TYPE,
+              triggerEventId,
+              habitatId,
+              targetType: "agent",
+              targetId: signal.agentId,
+              payload: payload as unknown as Record<string, unknown>,
+            },
+            eventDedupeKey: null,
+          });
+          tallyDisposition(rule, disposition, {
+            matched,
+            skipped,
+            deduplicated,
+            errors: errs,
+          });
         } catch (err) {
           errs.push(`Rule ${rule.id}: ${err instanceof Error ? err.message : String(err)}`);
         }
@@ -94,6 +105,7 @@ export async function runAgentQualityDegradedScan(habitatId: string): Promise<Sc
         habitatId,
         rulesMatched: matched,
         rulesSkipped: skipped,
+        rulesDeduplicated: 0,
         errors: errs,
       },
     ];
@@ -104,6 +116,7 @@ export async function runAgentQualityDegradedScan(habitatId: string): Promise<Sc
         habitatId,
         rulesMatched: 0,
         rulesSkipped: 0,
+        rulesDeduplicated: 0,
         errors: [err instanceof Error ? err.message : String(err)],
       },
     ];

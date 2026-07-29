@@ -4,9 +4,25 @@ import * as ruleRepo from "../repositories/automationRule.js";
 import * as runRepo from "../repositories/automationRuleRun.js";
 import * as simulationService from "../services/automationSimulationService.js";
 import { buildTriggerContext } from "../services/automationContextBuilder.js";
+import {
+  automationConditionSchema,
+  validatePersistedCondition,
+} from "../models/automationConditionSchema.js";
+import { attemptRuleRun } from "../services/automationAttemptLifecycle.js";
+import {
+  agentHasHabitatWork,
+  checkHabitatOwnership,
+} from "../services/automationEventService.js";
 import { humanAuth } from "../middleware/auth.js";
 import { requireHabitatAccess } from "../middleware/team.js";
+import { checkHabitatAccess } from "../middleware/realtimeAuth.js";
 import { notFound, badRequest } from "../errors.js";
+import type { AutomationTargetType } from "@orcy/shared";
+
+// CS-56 T2: every rule boundary uses the shared recursive discriminated
+// condition schema. The trigger remains passthrough because its shape
+// (event vs scan, eventType vs scanType) is small and constrained; condition
+// is the structurally rich tree that required validation depth.
 
 const createRuleSchema = z.object({
   name: z.string().min(1).max(200),
@@ -14,7 +30,7 @@ const createRuleSchema = z.object({
   enabled: z.boolean().optional(),
   priority: z.number().int().nonnegative().optional(),
   trigger: z.object({}).passthrough(),
-  condition: z.object({}).passthrough().optional(),
+  condition: automationConditionSchema.optional(),
   actions: z.array(z.object({}).passthrough()).min(1).max(10),
   cooldownSeconds: z.number().int().nonnegative().optional(),
   maxRunsPerHour: z.number().int().positive().optional(),
@@ -26,19 +42,47 @@ const updateRuleSchema = z.object({
   enabled: z.boolean().optional(),
   priority: z.number().int().nonnegative().optional(),
   trigger: z.object({}).passthrough().optional(),
-  condition: z.object({}).passthrough().optional(),
+  condition: automationConditionSchema.optional(),
   actions: z.array(z.object({}).passthrough()).min(1).max(10).optional(),
   cooldownSeconds: z.number().int().nonnegative().optional(),
   maxRunsPerHour: z.number().int().positive().optional(),
 });
 
 const simulateSchema = z.object({
-  overrideCondition: z.object({}).passthrough().optional(),
+  overrideCondition: automationConditionSchema.optional(),
   triggerEventId: z.string().optional(),
   targetType: z.string().optional(),
   targetId: z.string().optional(),
   payload: z.object({}).passthrough().optional(),
 });
+
+/**
+ * CS-56 T6 — Manual run request schema. Mirrors the simulation
+ * target/payload shape so operators can author conditions with the same
+ * canonical `targetType` / `targetId` / `payload` triple.
+ *
+ *   - `targetType`: defaults to `"none"`; only direct entity targets
+ *     (`task`, `mission`, `agent`, `sprint`, `pulse`, `habitat`) are
+ *     accepted. `integration` is rejected with a 400 until a real
+ *     ownership resolver exists (decision: §6 Manual Execution).
+ *   - `targetId`: required unless `targetType` is `"none"`.
+ *   - `payload`: arbitrary passthrough; becomes `trigger.payload` for
+ *     live `raw.*` condition parity with simulation.
+ *
+ * The stored rule's condition, trigger identity, dedupe identity, and
+ * causal context are intentionally NOT overridable — clients cannot
+ * inject chain identity (T4 hardening) or substitute an arbitrary
+ * condition tree at runtime.
+ */
+const manualRunSchema = z
+  .object({
+    targetType: z
+      .enum(["task", "mission", "agent", "sprint", "pulse", "habitat", "none"])
+      .optional(),
+    targetId: z.string().optional(),
+    payload: z.record(z.unknown()).optional(),
+  })
+  .strict();
 
 function deriveTriggerType(trigger: unknown, defaultIfEvent: string): string {
   const t = trigger as { type?: string; scanType?: string; eventType?: string };
@@ -123,13 +167,24 @@ export async function automationRoutes(fastify: FastifyInstance): Promise<void> 
     },
   );
 
-  // Enable/Disable
+  // Enable/Disable — CS-56 T2: an enable request also re-validates the
+  // rule's persisted condition tree. Rules whose condition JSON predates
+  // the schema (or was authored outside the route surface) and is now
+  // structurally invalid are surfaced for repair rather than silently
+  // activated. CS-56 decision §4 / technical plan #condition-validation.
   fastify.post<{ Params: { ruleId: string } }>(
     "/automation-rules/:ruleId/enable",
     { preHandler: humanAuth },
     async (request, _reply) => {
       const existing = ruleRepo.getAutomationRuleById(request.params.ruleId);
       if (!existing) throw notFound("Rule not found");
+      const outcome = validatePersistedCondition(existing.condition);
+      if (!outcome.valid) {
+        throw badRequest(
+          "Stored condition is invalid and must be repaired before the rule can be enabled",
+          { issues: outcome.issues, diagnostic: outcome.diagnostic },
+        );
+      }
       return ruleRepo.setRuleEnabled(request.params.ruleId, true);
     },
   );
@@ -172,6 +227,24 @@ export async function automationRoutes(fastify: FastifyInstance): Promise<void> 
   );
 
   // Manual run
+  // CS-56 T6 — Routes manual execution through the canonical
+  // `attemptRuleRun` lifecycle. The handler:
+  //   - loads + enables the rule,
+  //   - enforces Habitat access against `rule.habitatId` so this rule-id
+  //     route cannot become a cross-Habitat execution seam (MEMORY:
+  //     `request.actor` does not exist on Fastify — auth is via
+  //     `request.user` / `request.agent`; `checkHabitatAccess` honors both),
+  //   - validates the request body (target/payload shape — no caller
+  //     overrides of condition / trigger identity / dedupe / causal),
+  //   - validates target ownership for Task / Mission / Sprint / Pulse /
+  //     Habitat (must resolve to the rule Habitat) and Agent (must have
+  //     active Habitat work via `agentHasHabitatWork`), and rejects
+  //     `integration` until an ownership resolver exists,
+  //   - calls `attemptRuleRun` with internal `triggerEventId="manual"`,
+  //     null `eventDedupeKey`, `source="manual"`, and the rule's
+  //     configured trigger type,
+  //   - returns the terminal run + disposition. Never returns a newly
+  //     stranded `running` row under normal execution.
   fastify.post<{ Params: { ruleId: string } }>(
     "/automation-rules/:ruleId/run",
     { preHandler: humanAuth },
@@ -181,15 +254,89 @@ export async function automationRoutes(fastify: FastifyInstance): Promise<void> 
       if (!rule.enabled) {
         throw badRequest("Rule is disabled — enable it first or simulate");
       }
-      const { run } = runRepo.startRuleRun({
-        ruleId: rule.id,
-        habitatId: rule.habitatId,
-        triggerType: deriveTriggerType(rule.trigger, "manual"),
-        triggerEventId: "manual",
-        targetType: "none",
-        targetId: null,
+      // Enforce Habitat access (route param is ruleId, not habitatId, so
+      // the standard `requireHabitatAccess` middleware cannot read it).
+      await checkHabitatAccess(request, rule.habitatId);
+
+      const parsed = manualRunSchema.safeParse(request.body ?? {});
+      if (!parsed.success) {
+        throw badRequest("Validation failed", parsed.error.flatten());
+      }
+      const targetType: AutomationTargetType =
+        (parsed.data.targetType ?? "none") as AutomationTargetType;
+      const targetId = parsed.data.targetId ?? null;
+
+      // targetId required unless targetType === "none".
+      if (targetType !== "none" && !targetId) {
+        throw badRequest("targetId is required when targetType is not 'none'");
+      }
+      // `integration` has no ownership resolver yet (decision §6).
+      if (targetType === "integration") {
+        throw badRequest(
+          "integration target is not yet supported for manual runs",
+        );
+      }
+
+      // Validate target ownership against the rule's Habitat.
+      // Task / Mission / Sprint / Pulse / Habitat: the entity must resolve
+      // to `rule.habitatId` (mirror of `checkHabitatOwnership` semantics).
+      // Agent: must have active Task work in the rule Habitat
+      // (`agentHasHabitatWork`, the same signal the event path uses).
+      if (targetType !== "none" && targetId) {
+        if (targetType === "agent") {
+          if (!agentHasHabitatWork(targetId, rule.habitatId)) {
+            throw badRequest(
+              "Agent has no active Habitat work in the rule's Habitat",
+            );
+          }
+        } else {
+          const ownership = checkHabitatOwnership(
+            rule.habitatId,
+            targetType,
+            targetId,
+          );
+          if (ownership !== "valid") {
+            throw badRequest(
+              ownership === "missing"
+                ? `Target ${targetType} not found`
+                : `Target ${targetType} belongs to a different Habitat`,
+            );
+          }
+        }
+      }
+
+      // Synthesize a stable trigger identity. `manual` is reserved — it
+      // is the cooldown fingerprint for manual attempts (T6 settles: per
+      // rule + target), and `eventDedupeKey` stays null so the manual
+      // path never engages trusted-event reservation.
+      const triggerEventId = "manual";
+      const triggerType = deriveTriggerType(rule.trigger, "manual");
+      const payload = parsed.data.payload ?? {};
+
+      const disposition = await attemptRuleRun({
+        rule,
+        source: "manual",
+        trigger: {
+          triggerType,
+          triggerEventId,
+          habitatId: rule.habitatId,
+          targetType,
+          targetId,
+          payload,
+        },
+        eventDedupeKey: null,
       });
-      return { runId: run.id, status: run.status };
+
+      // The response shape carries the terminal run and a slim disposition
+      // envelope (kind + reason / outcome / actionResults). UI consumers
+      // that previously polled for `runId`+`status` continue to find both
+      // here (see `run.id` + `run.status`).
+      return {
+        runId: disposition.run.id,
+        status: disposition.run.status,
+        disposition,
+        run: disposition.run,
+      };
     },
   );
 
