@@ -88,3 +88,54 @@ export function getEventsByActor(actorType: ActorType, actorId: string, limit = 
     .limit(limit)
     .all() as TaskEvent[];
 }
+
+/** Input for {@link createEventWithClient}, including an optional preallocated audit ID. */
+export interface CreateEventWithClientInput extends CreateEventInput {
+  id?: string;
+}
+
+/**
+ * Drizzle client accepted by {@link createEventWithClient}. Both the default
+ * client and a transaction client from `db.transaction(cb)` satisfy this
+ * shape; callers pass the latter when the audit row must commit atomically
+ * with another domain mutation.
+ */
+export type EventDbClient = ReturnType<typeof getDb>;
+
+/**
+ * Transaction-aware sibling of {@link createEvent}. The caller owns the
+ * transaction and supplies the client used for both the INSERT and read-back.
+ * Any INSERT failure is wrapped consistently with {@link createEvent} and
+ * propagates to the caller so the surrounding transaction can roll back.
+ */
+export function createEventWithClient(
+  db: EventDbClient,
+  input: CreateEventWithClientInput,
+): TaskEvent {
+  const id = input.id ?? uuid();
+  const now = new Date().toISOString();
+
+  try {
+    db.insert(taskEvents)
+      .values({
+        id,
+        taskId: input.taskId,
+        actorType: input.actorType,
+        actorId: input.actorId,
+        action: input.action,
+        fromColumnId: input.fromColumnId ?? null,
+        toColumnId: input.toColumnId ?? null,
+        fromStatus: input.fromStatus ?? null,
+        toStatus: input.toStatus ?? null,
+        metadata: withAuditProvenanceMetadata(input.metadata),
+        timestamp: now,
+      })
+      .run();
+  } catch (err) {
+    throw repositoryCreateError("taskEvent", err as Error, id);
+  }
+
+  const row = db.select().from(taskEvents).where(eq(taskEvents.id, id)).get();
+  if (!row) throw repositoryNotFoundError("taskEvent", id);
+  return row as TaskEvent;
+}
