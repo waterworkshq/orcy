@@ -196,8 +196,8 @@ Orcy pulls external tracker issues into habitat intake, where humans/orcys revie
 
 | Release | Theme |
 |---------|-------|
+| *(pending release)* | **Deepen: Workflow Gate Advancement (ADR-0042)** — per-gate advancement tx (satisfy + audit + recovery handoff) behind one `advanceGates` entry. Fail-closed: audit failure rolls back satisfaction (no outbox, no automatic replay). Boot-only Recovery Coordinator replaces the old spawn path and closes a reachable null-collapse bug. `satisfiedByEventId` normalized across all six paths. |
 | v0.33.9 | "Fix: Governance Freeze + Import Test + Commit Hygiene" — governance freeze quarantine state populated truthfully; import scoped-delete covered on production DB; `CONTRIBUTING.md` forbids internal ticket tags in commit/PR messages. |
-| v0.33.8 | "Fix: Publication Kernel + Scan Tallies" — CS-53 committed-identifier projection; CS-56 scan tallies; CS-66 stale DORMANT header sweep; agent-quality threshold normalization. |
 | v0.33.7 | **Fix: Mandatory Automation Rule Conditions (CS-56)** — blocker defect correction. Conditions are now mandatory production gates (`{type:"always"}` remains the explicit trigger-only rule). One canonical lifecycle replaces per-event/per-scan split ownership. **Operator action before upgrade:** simulate every enabled non-`always` rule to confirm intended behavior. Malformed conditions fail closed. |
 
 Full plan: **[docs/ROADMAP.md](docs/ROADMAP.md)**
