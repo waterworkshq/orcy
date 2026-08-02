@@ -60,7 +60,7 @@ import {
   type TaskAction,
   type TransitionContext,
 } from "../services/tasks/transition-emitter.js";
-import type { Task } from "../models/index.js";
+import type { Task, TaskEvent } from "../models/index.js";
 
 function makeTask(overrides: Partial<Task> = {}): Task {
   return {
@@ -410,6 +410,36 @@ describe("TransitionEmitter", () => {
   describe("onTransition (parallel channel, fires for all actions)", () => {
     beforeEach(() => {
       (missionService.recalculateMissionStatus as ReturnType<typeof vi.fn>).mockReset();
+    });
+
+    const gateMappedActions = ["completed", "approved", "failed", "rejected", "released"] as const;
+
+    it.each(gateMappedActions)("forwards the persisted event id for %s", (action) => {
+      const persistedEvent = { id: `event-${action}` } as TaskEvent;
+      vi.mocked(eventRepo.createEvent).mockReturnValueOnce(persistedEvent);
+      const hook = vi.fn();
+      const unsub = onTransition(hook);
+
+      emitTransition("task-1", action, "hab-1", baseCtx({ task: makeTask() }));
+
+      expect(eventRepo.createEvent).toHaveBeenCalledWith(expect.objectContaining({ action }));
+      expect(hook).toHaveBeenCalledWith(
+        expect.objectContaining({ action, eventId: persistedEvent.id }),
+      );
+      unsub();
+    });
+
+    it("passes an undefined event id for deleted without synthesizing a fallback", () => {
+      const hook = vi.fn();
+      const unsub = onTransition(hook);
+
+      emitTransition("task-1", "deleted", "hab-1", baseCtx({ task: makeTask() }));
+
+      expect(eventRepo.createEvent).not.toHaveBeenCalled();
+      expect(hook).toHaveBeenCalledWith(
+        expect.objectContaining({ action: "deleted", eventId: undefined }),
+      );
+      unsub();
     });
 
     const allTransitionActions: TaskAction[] = [

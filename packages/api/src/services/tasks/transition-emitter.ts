@@ -6,7 +6,7 @@ import * as retryService from "../retryService.js";
 import * as missionService from "../missionService.js";
 import * as pulseService from "../pulseService.js";
 import { logger } from "../../lib/logger.js";
-import type { Task } from "../../models/index.js";
+import type { Task, TaskEvent } from "../../models/index.js";
 import type { EventAction } from "@orcy/shared";
 
 /** Union of task lifecycle actions that can be emitted as transitions. */
@@ -425,6 +425,7 @@ type TransitionHook = (opts: {
   habitatId: string;
   actorType: string;
   actorId: string;
+  eventId?: string;
   oldStatus?: string;
   newStatus?: string;
   reason?: string;
@@ -463,11 +464,12 @@ export function emitTransition(
   const cfg = ACTION_EFFECTS[action];
   const ctx: TransitionContext = { ...context, taskId };
   const task = context.task ?? taskRepo.getTaskById(taskId) ?? undefined;
+  let transitionEvent: TaskEvent | undefined;
 
   if (cfg.emitEvent) {
     const eventAction = EVENT_ACTION_FOR[action];
     if (eventAction) {
-      eventRepo.createEvent({
+      transitionEvent = eventRepo.createEvent({
         taskId,
         actorType: (context.actorType ?? "agent") as "agent" | "human" | "system",
         actorId: context.actorId ?? "",
@@ -538,6 +540,7 @@ export function emitTransition(
     habitatId,
     actorType: context.actorType ?? "agent",
     actorId: context.actorId ?? "",
+    eventId: transitionEvent?.id,
     oldStatus: context.oldStatus,
     newStatus: cfg.eventToStatus ?? context.newStatus,
     reason: context.reason,

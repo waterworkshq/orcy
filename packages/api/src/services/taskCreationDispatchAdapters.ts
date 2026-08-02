@@ -339,6 +339,7 @@ export const transitionSubscriberAdapter: DispatchTargetAdapter = {
         habitatId: envelope.habitatId,
         actorType,
         actorId: envelope.actorId,
+        eventId: envelope.eventId,
         newStatus: task?.status,
         task: task ?? undefined,
       });
