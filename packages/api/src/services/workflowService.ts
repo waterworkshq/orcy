@@ -24,8 +24,16 @@ import type {
 import { workflowGateStore } from "./workflow/workflowGateStore.js";
 import { workflowGateEvaluator } from "./workflow/workflowGateEvaluator.js";
 import type { ConditionTrigger } from "./workflow/workflowGateEvaluator.js";
+import {
+  advanceGates,
+  resolveEffectiveFailureHandlerWithClient,
+  MAX_RECOVERY_DEPTH,
+  type AdvancementResult,
+  type GateTrigger,
+} from "./workflow/workflowGateAdvancer.js";
 
 export { areAllWorkflowGatesSatisfied };
+export { MAX_RECOVERY_DEPTH };
 
 let initialized = false;
 
@@ -91,6 +99,8 @@ function handleTransition(opts: {
   oldStatus?: string;
   newStatus?: string;
   metadata?: Record<string, unknown>;
+  /** Forwarded Task Event id from the `notifyTransition` seam (WG-2); absent for non-event-creating actions. */
+  eventId?: string;
 }): void {
   const gateType = workflowGateEvaluator.actionToGateType(opts.action);
   if (!gateType) return;
@@ -116,51 +126,48 @@ function handleTransition(opts: {
     opts,
     gateConditionMatches,
   );
-  const newlySatisfied: (typeof gates)[number][] = [];
-  for (const decision of decisions) {
-    if (decision.status === "skip") continue;
-    const gate = decision.gate;
-    if (decision.status === "error") {
-      logger.error({ err: decision.error, gateId: gate.id }, "Failed to satisfy workflow gate");
-      emitWorkflowTaskAudit(gate.downstreamTaskId, "workflow_evaluation_error", {
-        gateId: gate.id,
-        workflowId: gate.workflowId,
-        error: decision.error instanceof Error ? decision.error.message : String(decision.error),
-        phase: "gate_satisfaction",
-      });
-      continue;
-    }
-    try {
-      const result = workflowGateStore.satisfyGateIfUnsatisfied(gate);
-      if (result.status === "already_satisfied") continue;
-      newlySatisfied.push(gate);
-      emitWorkflowTaskAudit(gate.downstreamTaskId, "workflow_gate_satisfied", {
-        gateId: gate.id,
-        workflowId: gate.workflowId,
-        upstreamTaskId: opts.taskId,
-        downstreamTaskId: gate.downstreamTaskId,
-        gateType,
-        triggeredBy: opts.action,
-      });
-    } catch (err) {
-      logger.error({ err, gateId: gate.id }, "Failed to satisfy workflow gate");
-      emitWorkflowTaskAudit(gate.downstreamTaskId, "workflow_evaluation_error", {
-        gateId: gate.id,
-        workflowId: gate.workflowId,
-        error: err instanceof Error ? err.message : String(err),
-        phase: "gate_satisfaction",
-      });
-    }
+
+  // Defensive guard: the five gate-mapped actions always create a Task Event
+  // (verified: completed/approved/failed/rejected/released all emitEvent=true),
+  // and the seam forwards its id. If absent, skip advancement — no synthetic
+  // fallback id is ever constructed.
+  const eventId = opts.eventId;
+  if (!eventId) {
+    logger.warn(
+      { taskId: opts.taskId, action: opts.action },
+      "Lifecycle gate trigger missing forwarded transition eventId; skipping advanceGates",
+    );
+    return;
   }
 
-  if (newlySatisfied.length > 0 && gateType === "on_fail") {
-    handleFailureCapture(opts);
-    for (const gate of newlySatisfied) {
-      try {
-        spawnRecoveryForGate(gate, opts);
-      } catch (err) {
-        logger.error({ err, gateId: gate.id }, "Failed to spawn recovery task");
-      }
+  const trigger: GateTrigger = {
+    kind: "lifecycle",
+    eventId,
+    action: opts.action,
+    actorType: opts.actorType ?? "",
+    actorId: opts.actorId ?? "",
+  };
+  const results = advanceGates(decisions, trigger);
+  logAdvancementWriteErrors(results);
+
+  // Trigger-specific follow-up: failure capture + recovery spawn for the gates
+  // THIS call advanced to `satisfied`. A `write_error`/`already_satisfied` result
+  // never triggers spawn (the gate did not advance this call).
+  if (gateType !== "on_fail") return;
+  const newlySatisfiedOnFail: typeof gates = [];
+  for (let i = 0; i < results.length; i++) {
+    if (results[i].status === "satisfied") {
+      newlySatisfiedOnFail.push(decisions[i].gate);
+    }
+  }
+  if (newlySatisfiedOnFail.length === 0) return;
+
+  handleFailureCapture(opts);
+  for (const gate of newlySatisfiedOnFail) {
+    try {
+      spawnRecoveryForGate(gate, opts);
+    } catch (err) {
+      logger.error({ err, gateId: gate.id }, "Failed to spawn recovery task");
     }
   }
 }
@@ -340,9 +347,6 @@ function spawnRecoveryForGate(
   );
 }
 
-/** Maximum `recoveryDepth` allowed before recovery spawning is suppressed; gates at this depth fire but do not spawn deeper recoveries (two-attempts cap). */
-export const MAX_RECOVERY_DEPTH = 2;
-
 /** Emits a workflow recovery notification event (and corresponding audit via the notification-to-audit projection) with a consistent shape. */
 function emitRecoveryNotification(
   habitatId: string,
@@ -421,24 +425,10 @@ function resolveEffectiveFailureHandler(gate: {
   matchConfig: Record<string, unknown> | null;
   workflowId: string;
 }): WorkflowFailureHandlerConfig | null {
-  // Per-gate override lives in matchConfig.{failureHandlerOverride}:
-  //   - present and null -> explicit disable (returns null)
-  //   - present and an object -> use that handler
-  //   - absent (no key) -> fall back to workflow-level failureHandler
-  const matchConfig = gate.matchConfig as {
-    failureHandlerOverride?: WorkflowFailureHandlerConfig | null;
-  } | null;
-  if (matchConfig && Object.prototype.hasOwnProperty.call(matchConfig, "failureHandlerOverride")) {
-    return matchConfig.failureHandlerOverride ?? null;
-  }
-
-  const db = getDb();
-  const workflow = db
-    .select({ failureHandler: workflows.failureHandler })
-    .from(workflows)
-    .where(eq(workflows.id, gate.workflowId))
-    .get();
-  return (workflow?.failureHandler as WorkflowFailureHandlerConfig | null) ?? null;
+  // Delegate to the advancement module's tx-aware resolver so the override +
+  // workflow-fallback policy lives in one place (the module freezes the same
+  // config inside the per-gate advancement tx).
+  return resolveEffectiveFailureHandlerWithClient(getDb(), gate);
 }
 
 function createRecoveryTask(
@@ -546,41 +536,10 @@ function handlePulseCreated(pulse: Pulse): void {
   if (gates.length === 0) return;
 
   const decisions = workflowGateEvaluator.evaluatePulseTrigger(gates, pulse, gateConditionMatches);
-  for (const decision of decisions) {
-    if (decision.status === "skip") continue;
-    const gate = decision.gate;
-    if (decision.status === "error") {
-      logger.error({ err: decision.error, gateId: gate.id }, "Failed to evaluate on_signal gate");
-      emitWorkflowTaskAudit(gate.downstreamTaskId, "workflow_evaluation_error", {
-        gateId: gate.id,
-        workflowId: gate.workflowId,
-        error: decision.error instanceof Error ? decision.error.message : String(decision.error),
-        phase: "signal_gate_evaluation",
-      });
-      continue;
-    }
-    try {
-      const result = workflowGateStore.satisfyGateIfUnsatisfied(gate, pulse.id);
-      if (result.status === "already_satisfied") continue;
-      emitWorkflowTaskAudit(gate.downstreamTaskId, "workflow_gate_satisfied", {
-        gateId: gate.id,
-        workflowId: gate.workflowId,
-        upstreamTaskId: gate.upstreamTaskId,
-        downstreamTaskId: gate.downstreamTaskId,
-        gateType: "on_signal",
-        triggeredBy: "pulse",
-        pulseId: pulse.id,
-      });
-    } catch (err) {
-      logger.error({ err, gateId: gate.id }, "Failed to evaluate on_signal gate");
-      emitWorkflowTaskAudit(gate.downstreamTaskId, "workflow_evaluation_error", {
-        gateId: gate.id,
-        workflowId: gate.workflowId,
-        error: err instanceof Error ? err.message : String(err),
-        phase: "signal_gate_evaluation",
-      });
-    }
-  }
+  // advanceGates owns the per-gate tx (satisfy + audit + recovery handoff), the
+  // audit-action vocabulary, and the structured result. Pulse has no follow-up.
+  const results = advanceGates(decisions, { kind: "pulse", eventId: pulse.id });
+  logAdvancementWriteErrors(results);
 }
 
 function handleAutomationRunCompleted(opts: {
@@ -594,44 +553,29 @@ function handleAutomationRunCompleted(opts: {
   if (gates.length === 0) return;
 
   const decisions = workflowGateEvaluator.evaluateAutomationTrigger(gates, opts);
-  for (const decision of decisions) {
-    if (decision.status === "skip") continue;
-    const gate = decision.gate;
-    if (decision.status === "error") {
-      logger.error(
-        { err: decision.error, gateId: gate.id },
-        "Failed to evaluate on_automation gate",
-      );
-      emitWorkflowTaskAudit(gate.downstreamTaskId, "workflow_evaluation_error", {
-        gateId: gate.id,
-        workflowId: gate.workflowId,
-        error: decision.error instanceof Error ? decision.error.message : String(decision.error),
-        phase: "automation_gate_evaluation",
-      });
-      continue;
-    }
-    try {
-      const result = workflowGateStore.satisfyGateIfUnsatisfied(gate, opts.run.id);
-      if (result.status === "already_satisfied") continue;
-      emitWorkflowTaskAudit(gate.downstreamTaskId, "workflow_gate_satisfied", {
-        gateId: gate.id,
-        workflowId: gate.workflowId,
-        upstreamTaskId: gate.upstreamTaskId,
-        downstreamTaskId: gate.downstreamTaskId,
-        gateType: "on_automation",
-        triggeredBy: "automation_run",
-        runId: opts.run.id,
-        ruleId: opts.rule.id,
-      });
-    } catch (err) {
-      logger.error({ err, gateId: gate.id }, "Failed to evaluate on_automation gate");
-      emitWorkflowTaskAudit(gate.downstreamTaskId, "workflow_evaluation_error", {
-        gateId: gate.id,
-        workflowId: gate.workflowId,
-        error: err instanceof Error ? err.message : String(err),
-        phase: "automation_gate_evaluation",
-      });
-    }
+  // advanceGates owns the per-gate tx (satisfy + audit + recovery handoff), the
+  // audit-action vocabulary, and the structured result. Automation has no follow-up.
+  const results = advanceGates(decisions, {
+    kind: "automation",
+    eventId: opts.run.id,
+    ruleId: opts.rule.id,
+  });
+  logAdvancementWriteErrors(results);
+}
+
+/** Adapter-owned operator visibility for per-gate advancement write failures. */
+function logAdvancementWriteErrors(results: AdvancementResult[]): void {
+  for (const result of results) {
+    if (result.status !== "write_error") continue;
+    logger.error(
+      {
+        error: result.error,
+        gateId: result.gateId,
+        triggerKind: result.triggerKind,
+        triggerEventId: result.triggerEventId,
+      },
+      "Workflow gate advancement write failed",
+    );
   }
 }
 
