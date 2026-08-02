@@ -2,7 +2,7 @@
 
 > Older releases: see [git tags](https://github.com/waterworkshq/orcy/tags) and [GitHub Releases](https://github.com/waterworkshq/orcy/releases).
 
-## 0.33.10 — 2026-08-02
+## 0.34.0 — 2026-08-02
 
 ### Bug Fixes
 
@@ -61,7 +61,7 @@
 3. Next.
 
 
-#### add v0.33.10 release notes ([`a3433a6`](https://github.com/waterworkshq/orcy/commit/a3433a6d1e12df0adb2bf3b51490800e391b1529))
+#### add v0.34.0 release notes ([`a3433a6`](https://github.com/waterworkshq/orcy/commit/a3433a6d1e12df0adb2bf3b51490800e391b1529))
 
 
 
