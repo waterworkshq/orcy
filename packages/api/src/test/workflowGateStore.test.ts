@@ -13,7 +13,7 @@ import * as habitatRepo from "../repositories/habitat.js";
 import * as columnRepo from "../repositories/column.js";
 import * as missionRepo from "../repositories/mission.js";
 import * as taskCrudRepo from "../repositories/taskCrud.js";
-import { workflowGateStore } from "../services/workflow/workflowGateStore.js";
+import { manualUnblockGate } from "../services/workflowService.js";
 
 let habitatId: string;
 let missionId: string;
@@ -99,37 +99,21 @@ function seedGate(opts: {
   return { workflowId, gateId };
 }
 
-// The satisfaction / idempotency / stale-snapshot behaviors previously tested
-// here are now owned by `advanceGates` (workflowGateAdvancer) and covered by
-// real-DB module tests in workflowAdvancer.test.ts. These three eligibility
-// refusal tests stay at the store boundary until WG-7 moves the `on_manual`
-// eligibility check into the manual-unblock adapter and removes
-// `satisfyManualGateIfEligible`.
-describe("satisfyManualGateIfEligible — on_manual eligibility refusals", () => {
-  it("returns not_found when no gate exists with the given id", () => {
-    const result = workflowGateStore.satisfyManualGateIfEligible("nonexistent-gate-id");
-    expect(result.status).toBe("not_found");
-    if (result.status === "not_found") {
-      expect(result.gateId).toBe("nonexistent-gate-id");
-    }
+// Manual eligibility belongs to the workflow-service adapter. These tests stay
+// in this fixture file for the existing gate setup, but exercise the public
+// adapter boundary rather than the removed store mutation.
+describe("manualUnblockGate — on_manual eligibility refusals", () => {
+  it("returns false when no gate exists with the given id", () => {
+    expect(manualUnblockGate("nonexistent-gate-id", "admin-1")).toBe(false);
   });
 
-  it("returns wrong_gate_type when gate exists but is on_complete", () => {
+  it("returns false when gate exists but is on_complete", () => {
     const { gateId } = seedGate({ gateType: "on_complete" });
-    const result = workflowGateStore.satisfyManualGateIfEligible(gateId);
-    expect(result.status).toBe("wrong_gate_type");
-    if (result.status === "wrong_gate_type") {
-      expect(result.gate.id).toBe(gateId);
-      expect(result.gate.gateType).toBe("on_complete");
-    }
+    expect(manualUnblockGate(gateId, "admin-1")).toBe(false);
   });
 
-  it("returns wrong_gate_type when gate exists but is on_signal", () => {
+  it("returns false when gate exists but is on_signal", () => {
     const { gateId } = seedGate({ gateType: "on_signal" });
-    const result = workflowGateStore.satisfyManualGateIfEligible(gateId);
-    expect(result.status).toBe("wrong_gate_type");
-    if (result.status === "wrong_gate_type") {
-      expect(result.gate.gateType).toBe("on_signal");
-    }
+    expect(manualUnblockGate(gateId, "admin-1")).toBe(false);
   });
 });

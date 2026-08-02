@@ -18,12 +18,6 @@ export type WorkflowGateRecord = {
   recoveryDepth: number;
 };
 
-type ManualGateSatisfactionResult =
-  | { status: "satisfied"; gate: WorkflowGateRecord; satisfiedAt: string }
-  | { status: "already_satisfied"; gate: WorkflowGateRecord }
-  | { status: "not_found"; gateId: string }
-  | { status: "wrong_gate_type"; gate: WorkflowGateRecord };
-
 const gateProjection = {
   id: taskWorkflowGates.id,
   workflowId: taskWorkflowGates.workflowId,
@@ -40,6 +34,17 @@ const gateProjection = {
 };
 
 export const workflowGateStore = {
+  findGateById(gateId: string): WorkflowGateRecord | null {
+    const db = getDb();
+    return (
+      (db
+        .select(gateProjection)
+        .from(taskWorkflowGates)
+        .where(eq(taskWorkflowGates.id, gateId))
+        .get() as WorkflowGateRecord | undefined) ?? null
+    );
+  },
+
   findActiveLifecycleGates(
     taskId: string,
     gateType: "on_complete" | "on_approve" | "on_fail",
@@ -93,30 +98,4 @@ export const workflowGateStore = {
       .all();
   },
 
-  satisfyManualGateIfEligible(gateId: string): ManualGateSatisfactionResult {
-    const db = getDb();
-    const gate = db
-      .select(gateProjection)
-      .from(taskWorkflowGates)
-      .where(eq(taskWorkflowGates.id, gateId))
-      .get() as WorkflowGateRecord | undefined;
-    if (!gate) return { status: "not_found", gateId };
-    if (gate.gateType !== "on_manual") return { status: "wrong_gate_type", gate };
-
-    // Reuse the SELECT above to discriminate "already_satisfied". This works
-    // under both better-sqlite3 (production) and sql.js (test) because it
-    // does not rely on `runResult.changes`.
-    if (gate.satisfied) {
-      return { status: "already_satisfied", gate };
-    }
-
-    const now = new Date().toISOString();
-    // The `eq(taskWorkflowGates.satisfied, false)` guard is preserved for
-    // write correctness / concurrency safety.
-    db.update(taskWorkflowGates)
-      .set({ satisfied: true, satisfiedAt: now })
-      .where(and(eq(taskWorkflowGates.id, gateId), eq(taskWorkflowGates.satisfied, false)))
-      .run();
-    return { status: "satisfied", gate, satisfiedAt: now };
-  },
 };

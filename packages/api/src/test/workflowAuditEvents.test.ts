@@ -274,7 +274,7 @@ describe("workflowService — deferred audit events", () => {
         .all();
       const gateId = gates[0].id;
 
-      manualUnblockGate(gateId, "admin-1");
+      expect(manualUnblockGate(gateId, "admin-1")).toBe(true);
 
       const events = readWorkflowTaskEvents(downstream.id, "workflow_gate_unblocked");
       expect(events).toHaveLength(1);
@@ -283,13 +283,20 @@ describe("workflowService — deferred audit events", () => {
       expect(meta.gateId).toBe(gateId);
       expect(meta.unblockedBy).toBe("admin-1");
       expect(meta.audit).toEqual({ source: "workflow" });
+
+      const gate = getDb()
+        .select()
+        .from(taskWorkflowGates)
+        .where(eq(taskWorkflowGates.id, gateId))
+        .get();
+      expect(gate?.satisfied).toBe(true);
+      expect(gate?.satisfiedByEventId).toBe(events[0].id);
     });
 
     // CR-13 / TG-1: manualUnblockGate emits a workflow_gate_unblocked audit
     // event on BOTH the first unblock (unsatisfied → satisfied) and a repeat
-    // unblock (already_satisfied). satisfyManualGateIfEligible returns
-    // "already_satisfied" on the second call, but manualUnblockGate only
-    // short-circuits on not_found/wrong_gate_type — so the audit fires again.
+    // unblock (already_satisfied). The adapter only short-circuits on
+    // not_found/wrong_gate_type, so the advancer emits the attempt audit again.
     it("emits an audit event on a repeat unblock of an already-satisfied gate", () => {
       const { habitat, col } = setupHabitat();
       const mission = setupMission(habitat.id, col.id);
@@ -322,12 +329,31 @@ describe("workflowService — deferred audit events", () => {
 
       const events = readWorkflowTaskEvents(downstream.id, "workflow_gate_unblocked");
       expect(events).toHaveLength(2);
-      for (const e of events) {
-        const m = e.metadata as Record<string, unknown>;
-        expect(m.gateId).toBe(gateId);
-        expect(m.unblockedBy).toBe("admin-1");
-        expect(m.audit).toEqual({ source: "workflow" });
-      }
+      const firstEvent = events.find(
+        (event) => !(event.metadata as Record<string, unknown>).alreadySatisfied,
+      );
+      const secondEvent = events.find(
+        (event) => (event.metadata as Record<string, unknown>).alreadySatisfied === true,
+      );
+      expect(firstEvent).toBeDefined();
+      expect(secondEvent).toBeDefined();
+      const firstMeta = firstEvent!.metadata as Record<string, unknown>;
+      const secondMeta = secondEvent!.metadata as Record<string, unknown>;
+      expect(firstMeta.gateId).toBe(gateId);
+      expect(firstMeta.unblockedBy).toBe("admin-1");
+      expect(firstMeta.audit).toEqual({ source: "workflow" });
+      expect(secondMeta.gateId).toBe(gateId);
+      expect(secondMeta.unblockedBy).toBe("admin-1");
+      expect(secondMeta.audit).toEqual({ source: "workflow" });
+      expect(secondMeta.alreadySatisfied).toBe(true);
+      expect(secondEvent!.id).not.toBe(firstEvent!.id);
+
+      const gate = getDb()
+        .select()
+        .from(taskWorkflowGates)
+        .where(eq(taskWorkflowGates.id, gateId))
+        .get();
+      expect(gate?.satisfiedByEventId).toBe(firstEvent!.id);
     });
   });
 
