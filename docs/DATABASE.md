@@ -1901,6 +1901,29 @@ Structured failure bundle captured when a task fails (`failed`, `rejected`, or `
 
 **Indexes:** `idx_failure_contexts_task(failed_task_id)`, `idx_failure_contexts_workflow(workflow_id)`, `idx_failure_contexts_unresolved(resolved_at)`
 
+#### `task_recovery_handoffs`
+
+Durable recovery-intent rows written atomically in the advancement transaction when an eligible `on_fail` gate is satisfied. The boot-only `RecoveryCoordinator` consumes these joined to `task_creation_attempts` to spawn, resume, consume, or block recovery. ADR-0042 documents the contract. Migration `0060`.
+
+| Column | Type | Constraints | Description |
+|--------|------|-------------|-------------|
+| `id` | TEXT | PRIMARY KEY | UUID. |
+| `gate_id` | TEXT | NOT NULL, FK → `task_workflow_gates(id)` ON DELETE CASCADE | The `on_fail` gate whose satisfaction created this handoff. |
+| `workflow_id` | TEXT | NOT NULL | The workflow the gate belongs to. |
+| `habitat_id` | TEXT | NOT NULL | Habitat scope. |
+| `mission_id` | TEXT | NOT NULL | Mission scope. |
+| `downstream_task_id` | TEXT | NOT NULL | The gate's downstream task (mirrored from the gate row). |
+| `recovery_depth` | INTEGER | NOT NULL | Recovery chain depth at handoff creation (0 = original, 1 = recovery, 2 = recovery-of-recovery). Max 2. |
+| `trigger_event_id` | TEXT | NOT NULL | The causal event id that satisfied the gate (the lifecycle Task Event id, pulse id, or automation run id). |
+| `frozen_handler_config` | TEXT | NOT NULL (JSON) | Immutable snapshot of `resolveEffectiveFailureHandler` output at advancement time. Fork B (ADR-0042): the coordinator uses this frozen config on resume, never re-resolves live configuration. |
+| `handler_fingerprint` | TEXT | NOT NULL | `stableHash(stableStringify(frozen_handler_config))` — for drift detection if the live config changes after handoff creation. |
+| `status` | TEXT | NOT NULL DEFAULT 'expected', CHECK (IN 'expected','consumed','blocked') | `expected` = recovery intent recorded, coordinator action pending. `consumed` = recovery published+linked. `blocked` = terminal refusal (vetoed/rejected_validation/rejected_fingerprint/batch_rejected). No `spawned` state — the coordinator consumes the publication-attempt ledger for in-flight tracking. |
+| `blocked_reason` | TEXT | DEFAULT NULL | Present iff `status = 'blocked'`. The terminal publication outcome that blocked recovery. |
+| `created_at` | TEXT | NOT NULL DEFAULT (datetime('now')) | Handoff creation timestamp. |
+| `consumed_at` | TEXT | DEFAULT NULL | Present iff `status = 'consumed'`. |
+
+**Indexes:** `idx_recovery_handoffs_gate(gate_id)`, `idx_recovery_handoffs_status(status)`
+
 ---
 
 ### Habitat Wiki (v0.21)

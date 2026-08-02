@@ -1,13 +1,11 @@
 /**
- * Workflow-Recovery Task Publication Adapter (T8A-pre Phase 1).
+ * Workflow-Recovery Task Publication Adapter.
  *
  * Composes the Story-1 kernel chain — reserve → prepare → govern → publish —
  * for the Workflow-Recovery origin (the `on_fail` gate's spawned recovery
- * Task). This is the replacement for the legacy raw-insert path
- * (`workflowService.ts:471 createRecoveryTask` + the failure-handler's
- * separate gate/linkage/failure-context writes at `spawnRecoveryForGate`
- * L262-367); live since the Task-creation cutover (T11) landed in v0.32.0 —
- * the failure handler now routes every recovery spawn through this adapter.
+ * Task). Called by the `RecoveryCoordinator` (boot-only reconciliation pass
+ * over durable `task_recovery_handoffs` rows). ADR-0042 documents the
+ * fail-closed atomicity contract governing this path.
  *
  * # Why a new adapter (not an extension of `publishTaskCreation`)
  *
@@ -27,21 +25,8 @@
  *   - **The C2 atomic participant seam is the defining feature.** The gate
  *     insertion + `recoveryTaskId` linkage + failure-context record commit in
  *     the SAME transaction as the Recovery Task — eliminating the crash window
- *     that today leaves an unlinked Recovery Task (legacy `spawnRecoveryForGate`
- *     performs these as 5 separate non-atomic steps AFTER the raw insert).
- *
- * Both adapters compose the SAME kernel chain (reserve → prepare → govern →
- * publish) using the SAME kernel functions; DRY is preserved at the
- * composition level. Extending `publishTaskCreation` with `participants?`
- * would couple the interactive adapter to Recovery's atomicity contract and
- * leak Recovery-domain linkage fields into the interactive input type.
- *
- * # First-time history + governance (gap-audit O3 correction)
- *
- * The legacy `createRecoveryTask` calls `taskCrudRepo.createTask` directly —
- * NO `created` Lifecycle Event, NO prospective governance, NO service-layer
- * traversal. The Recovery Task produced by THIS adapter gets all three FOR THE
- * FIRST TIME, inherited from the kernel:
+ *     that today leaves an unlinked Recovery Task (the pre-deepening
+ *     path performed these as separate non-atomic steps; the C2
  *
  *   - **`created` Lifecycle Event** — `publishTaskWithClient` always creates
  *     exactly one initial event (`proposal.initialEventAction = "created"`).
@@ -87,15 +72,14 @@
  *
  * # Visible blocked outcome (not a swallowed null)
  *
- * The legacy path swallows every error → `null` (`createRecoveryTask` catch,
- * `spawnRecoveryForGate` catch). This adapter returns a TYPED result for every
+ * The pre-deepening path swallowed every error → `null`. This adapter returns a TYPED result for every
  * expected publication decision. The `vetoed` branch is the visible blocked
  * outcome the failure handler (T11) translates into the Recovery run's
  * blocked/unrecoverable state + retry action. Infrastructure failures still
  * propagate as retryable throws (the attempt stays resumable under the same
  * key).
  *
- * Replaced the legacy `createRecoveryTask` + `spawnRecoveryForGate` path in
+ * Replaced the pre-deepening spawn path in
  * the failure handler; live since the Task-creation cutover (T11) landed in
  * v0.32.0.
  *

@@ -11,7 +11,7 @@ import { emitTaskAuditEvent } from "../auditEventEmitter.js";
 import { logger } from "../../lib/logger.js";
 import * as agentRepo from "../../repositories/agent.js";
 import * as failureContextService from "../failureContextService.js";
-import { emitRecoveryNotification } from "../workflowService.js";
+import { emitRecoveryNotification, substituteTemplate } from "./recoveryNotifications.js";
 import {
   publishRecoveryTask,
   type RecoveryTaskPublicationResult,
@@ -275,10 +275,6 @@ function parseFrozenHandler(raw: string): WorkflowFailureHandlerConfig {
     throw new Error("frozen handler is missing recoveryTaskTemplate.title");
   }
   return parsed as WorkflowFailureHandlerConfig;
-}
-
-function substituteTemplate(text: string, variables: Record<string, string>): string {
-  return text.replace(/\{\{(\w+)\}\}/g, (_match, key: string) => variables[key] ?? "");
 }
 
 function collectSubstitutionVariables(

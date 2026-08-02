@@ -9,7 +9,6 @@ import { evaluateCondition } from "./automationEvaluator.js";
 import { buildEvaluationContext, buildTriggerContext } from "./automationContextBuilder.js";
 import { areAllWorkflowGatesSatisfied } from "../repositories/workflow.js";
 import * as failureContextService from "./failureContextService.js";
-import { enqueueNotification } from "./notificationCommandService.js";
 import { emitMissionAuditEvent } from "./auditEventEmitter.js";
 import type { Pulse } from "../repositories/pulse.js";
 import type {
@@ -24,10 +23,14 @@ import type { ConditionTrigger } from "./workflow/workflowGateEvaluator.js";
 import {
   advanceGates,
   MAX_RECOVERY_DEPTH,
+  resolveEffectiveFailureHandlerWithClient,
   type AdvancementResult,
   type GateTrigger,
 } from "./workflow/workflowGateAdvancer.js";
 import { runRecoveryReconciliationPass } from "./workflow/recoveryCoordinator.js";
+import { emitRecoveryNotification } from "./workflow/recoveryNotifications.js";
+
+export { emitRecoveryNotification, substituteTemplate } from "./workflow/recoveryNotifications.js";
 
 export { areAllWorkflowGatesSatisfied };
 export { MAX_RECOVERY_DEPTH };
@@ -168,7 +171,8 @@ function handleTransition(opts: {
     if (
       results[i]?.status === "satisfied" &&
       gate?.gateType === "on_fail" &&
-      gate.recoveryDepth >= MAX_RECOVERY_DEPTH
+      gate.recoveryDepth >= MAX_RECOVERY_DEPTH &&
+      resolveEffectiveFailureHandlerWithClient(getDb(), gate) !== null
     ) {
       emitRecoveryNotification(
         gate.habitatId,
@@ -313,36 +317,6 @@ function handleFailureCapture(opts: {
   }
 }
 
-/** Emits a workflow recovery notification event. */
-export function emitRecoveryNotification(
-  habitatId: string,
-  eventType:
-    | "workflow.recovery_started"
-    | "workflow.recovery_succeeded"
-    | "workflow.recovery_unrecoverable",
-  title: string,
-  payload: Record<string, unknown>,
-): void {
-  try {
-    enqueueNotification({
-      habitatId,
-      eventType,
-      sourceType: "workflow",
-      targetType: "task",
-      targetId:
-        (payload.recoveryTaskId as string | undefined) ??
-        (payload.failedTaskId as string | undefined),
-      severity: eventType === "workflow.recovery_succeeded" ? "info" : "warning",
-      title,
-      payload,
-      createdByType: "system",
-      createdById: "workflow-service",
-    });
-  } catch (err) {
-    logger.error({ err, eventType, habitatId }, "Failed to emit workflow recovery notification");
-  }
-}
-
 /** Emits an audit-only workflow mission event (no notification counterpart) with `source: "workflow"`. */
 function emitWorkflowMissionAudit(
   missionId: string,
@@ -363,11 +337,6 @@ function emitWorkflowMissionAudit(
   } catch (err) {
     logger.error({ err, missionId, action }, "Failed to emit workflow mission audit event");
   }
-}
-
-/** Substitutes `{{key}}` placeholders in `text` with values from `vars`, leaving unknown keys intact as empty strings. */
-export function substituteTemplate(text: string, vars: Record<string, string>): string {
-  return text.replace(/\{\{(\w+)\}\}/g, (_, key: string) => vars[key] ?? "");
 }
 
 function handlePulseCreated(pulse: Pulse): void {

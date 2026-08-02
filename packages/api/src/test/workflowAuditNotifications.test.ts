@@ -206,7 +206,7 @@ describe("workflowService — audit + notification integration (F5)", () => {
   });
 
   describe("no spurious notifications", () => {
-    it("does not emit workflow notifications when no failureHandler is configured", () => {
+    it("does not emit workflow notifications when no failureHandler is configured at the depth cap", () => {
       const { habitat, col } = setupHabitat();
       const mission = setupMission(habitat.id, col.id);
       const failedTask = taskCrudRepo.createTask({
@@ -226,6 +226,12 @@ describe("workflowService — audit + notification integration (F5)", () => {
         // no failureHandler
       };
       attachWorkflow(mission.id, habitat.id, def, {}, "test");
+
+      getDb()
+        .update(taskWorkflowGates)
+        .set({ recoveryDepth: MAX_RECOVERY_DEPTH })
+        .where(eq(taskWorkflowGates.upstreamTaskId, failedTask.id))
+        .run();
 
       emit(failedTask.id, "failed", habitat.id);
 

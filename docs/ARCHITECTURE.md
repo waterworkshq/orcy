@@ -1276,7 +1276,7 @@ onTransition ──────────┐   handleTransition()
                        │   ├── evaluate matchConfig + condition
                        │   ├── UPDATE satisfied = true (idempotent)
                        │   ├── if on_fail: buildFailureContext()
-                       │   ├── if on_fail: spawnRecoveryForGate()
+                       │   ├── if on_fail: advanceGates() + runRecoveryReconciliationPass()
                        │   │   ├── resolve effective handler
                        │   │   ├── check depth cap (max 2)
                        │   │   ├── substitute {{variables}}
@@ -1301,7 +1301,7 @@ onPulseCreated ────────┘   handlePulseCreated()
 
 **Error isolation:** Per-gate try/catch inside `WorkflowGateEvaluator` (one failing gate doesn't block others — errors returned as `GateEvaluationDecision` with `status: "error"`). Top-level try/catch in each handler (subscriber errors don't propagate to the emitter). Predicate evaluation errors (`ConditionDepthExceededError`, `InvalidConditionError`) are caught and logged.
 
-**Internal module structure (v0.26.0):** Gate lookup queries and idempotent satisfaction updates live in `WorkflowGateStore`. Pure trigger matching (signal/automation/lifecycle) lives in `WorkflowGateEvaluator`. `workflowService.ts` delegates to both but owns audit emission, recovery spawning, and redemption orchestration. The evaluator returns satisfaction decisions; it does not touch the DB or emit side effects.
+**Internal module structure:** Gate lookup queries live in `WorkflowGateStore`. Pure trigger matching (signal/automation/lifecycle) lives in `WorkflowGateEvaluator`. The advancement transaction (per-gate `db.transaction` owning guarded satisfaction + tx-aware audit INSERT + recovery handoff for eligible `on_fail` gates) lives in `WorkflowGateAdvancer` (`advanceGates`). `workflowService.ts` is the adapter layer — it translates triggers, finds gates, evaluates, calls `advanceGates`, and applies trigger-specific follow-up (failure capture, recovery coordination, notifications). The evaluator returns satisfaction decisions; it does not touch the DB or emit side effects. ADR-0042 documents the fail-closed atomicity contract.
 
 ### Recovery Subsystem
 
@@ -1309,11 +1309,12 @@ onPulseCreated ────────┘   handlePulseCreated()
 Task fails (failed/rejected/released)
   │
   ▼
-onTransition fires
+onTransition fires (with persisted eventId)
   │
   ▼
 workflowService.handleTransition()
-  ├── on_fail gates satisfied (idempotent)
+  ├── on_fail gates satisfied via advanceGates() (per-gate tx: CAS + audit + handoff)
+  │   └── eligible on_fail gates write a task_recovery_handoffs row (status=expected)
   ├── failureContextService.buildFailureContext()
   │   ├── read task.artifacts
   │   ├── query task_events (last 20)
@@ -1321,24 +1322,32 @@ workflowService.handleTransition()
   │   ├── summarize experience categories
   │   └── query retry history (last 10)
   ├── persist FailureContext row
-  └── spawnRecoveryForGate() per newly-satisfied on_fail gate
-      ├── idempotency: skip if gate.recoveryTaskId already set
-      ├── resolve effective handler (per-task override > workflow default)
-      ├── depth check: recoveryDepth >= 2 → emit workflow.recovery_unrecoverable, STOP
-      ├── substitute {{failedTaskTitle}}, {{failureReason}}, {{failedAgentName}}
-      ├── createTask() with recovery template
-      ├── create new on_fail gate (upstream=recoveryTask, depth+1)
-      ├── link gate.recoveryTaskId + failureContext.recoveryTaskId
-      └── emit workflow.recovery_started notification
+  └── runRecoveryReconciliationPass() (immediate)
+      └── RecoveryCoordinator consumes handoff rows joined to task_creation_attempts
+          ├── expected + no attempt → spawn: publishRecoveryTask with frozen handler config
+          │   ├── freeze handler config + fingerprint inside the advancement tx
+          │   ├── create recovery task via publication kernel (C2 atomic linkage)
+          │   ├── create new on_fail gate (upstream=recoveryTask, depth+1)
+          │   └── emit workflow.recovery_started notification (idempotent via recoveryTaskId)
+          ├── expected + pending → retry publishRecoveryTask under same key
+          ├── expected + published_pending_* → leave for publication workers
+          ├── expected + terminal-success → consume (flip to consumed)
+          └── expected + terminal-refusal → block (flip to blocked + audit)
+
+Boot: runRecoveryReconciliationPass() once at startup (discovers orphaned handoffs)
+On-demand: exported for operators/tests
+No periodic timer (Skeptical's YAGNI risk-acceptance per ADR-0042)
 
 Recovery task approved/completed
   │
   ▼
 workflowService.handleRedemptionIfNeeded()
   ├── find failure_contexts WHERE recoveryTaskId = taskId AND resolvedAt IS NULL
-  ├── satisfy original failed task's downstream on_complete/on_approve gates
-  ├── resolveFailureContext("redeemed")
-  └── emit workflow.recovery_succeeded notification
+  ├── redeemOneContext(): route through advanceGates with recovery_redemption trigger
+  │   ├── satisfy original failed task's downstream on_complete/on_approve gates
+  │   └── per-gate workflow_gate_satisfied audit + satisfiedByEventId stamp
+  ├── resolveFailureContext("redeemed") only when all gates satisfied
+  └── emit workflow.recovery_succeeded notification (UX; audit is separate per ADR-0035)
 ```
 
 **Gate orientation (implementation note):** The new on_fail gate created during recovery spawning uses `upstream=recoveryTask, downstream=originalDownstream` — NOT the literal `failedTask → recoveryTask` from the original design text. This prevents a double-spawn race on repeated failure events. Redemption works via `failureContexts.recoveryTaskId` direct reference, not gate-edge walking.
@@ -1349,8 +1358,10 @@ workflowService.handleRedemptionIfNeeded()
 
 | File | Role |
 |------|------|
-| `api/src/services/workflowService.ts` | Orchestration brain — gate evaluation, recovery spawning, redemption |
-| `api/src/services/workflow/workflowGateStore.ts` | Internal: active-gate DB lookup + idempotent satisfaction + manual unblock persistence |
+| `api/src/services/workflowService.ts` | Adapter layer — trigger translation, gate lookup, evaluation delegation, recovery coordination, redemption, notifications |
+| `api/src/services/workflow/workflowGateAdvancer.ts` | Deep module — per-gate advancement tx (CAS + audit + recovery handoff). ADR-0042 |
+| `api/src/services/workflow/recoveryCoordinator.ts` | Boot-only recovery reconciliation over durable handoff rows + publication-attempt ledger |
+| `api/src/services/workflow/workflowGateStore.ts` | Internal: active-gate DB lookup + typed gate record projection |
 | `api/src/services/workflow/workflowGateEvaluator.ts` | Internal: pure trigger matching for lifecycle/Pulse Signal/Automation Run gates |
 | `api/src/services/failureContextService.ts` | Builds and reads FailureBundle |
 | `api/src/services/experienceMetricsService.ts` | Per-agent experience signal metrics |
