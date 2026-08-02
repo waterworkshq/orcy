@@ -10,7 +10,7 @@ import { buildEvaluationContext, buildTriggerContext } from "./automationContext
 import { areAllWorkflowGatesSatisfied } from "../repositories/workflow.js";
 import * as failureContextService from "./failureContextService.js";
 import { enqueueNotification } from "./notificationCommandService.js";
-import { emitTaskAuditEvent, emitMissionAuditEvent } from "./auditEventEmitter.js";
+import { emitMissionAuditEvent } from "./auditEventEmitter.js";
 import type { Pulse } from "../repositories/pulse.js";
 import type {
   WorkflowTemplateDefinition,
@@ -219,10 +219,9 @@ function handleRedemptionIfNeeded(opts: {
 
   if (contexts.length === 0) return;
 
-  const now = new Date().toISOString();
   for (const ctx of contexts) {
     try {
-      redeemOneContext(ctx, now);
+      redeemOneContext(ctx);
     } catch (err) {
       logger.error(
         { err, contextId: ctx.id, failedTaskId: ctx.failedTaskId },
@@ -234,13 +233,26 @@ function handleRedemptionIfNeeded(opts: {
 
 function redeemOneContext(
   ctx: { id: string; failedTaskId: string; habitatId: string },
-  now: string,
 ): void {
   const db = getDb();
   // Satisfy every unsatisfied on_complete / on_approve gate upstream of the
-  // original failed task. Idempotent at SQL level via WHERE satisfied = false.
+  // original failed task. Eligibility stays in this adapter; the advancement
+  // module owns the guarded write, audit, and satisfiedByEventId stamp.
   const gates = db
-    .select({ id: taskWorkflowGates.id })
+    .select({
+      id: taskWorkflowGates.id,
+      workflowId: taskWorkflowGates.workflowId,
+      missionId: taskWorkflowGates.missionId,
+      habitatId: taskWorkflowGates.habitatId,
+      upstreamTaskId: taskWorkflowGates.upstreamTaskId,
+      downstreamTaskId: taskWorkflowGates.downstreamTaskId,
+      gateType: taskWorkflowGates.gateType,
+      satisfied: taskWorkflowGates.satisfied,
+      matchConfig: taskWorkflowGates.matchConfig,
+      condition: taskWorkflowGates.condition,
+      recoveryTaskId: taskWorkflowGates.recoveryTaskId,
+      recoveryDepth: taskWorkflowGates.recoveryDepth,
+    })
     .from(taskWorkflowGates)
     .innerJoin(workflows, eq(taskWorkflowGates.workflowId, workflows.id))
     .where(
@@ -253,12 +265,20 @@ function redeemOneContext(
     )
     .all();
 
-  for (const gate of gates) {
-    db.update(taskWorkflowGates)
-      .set({ satisfied: true, satisfiedAt: now })
-      .where(and(eq(taskWorkflowGates.id, gate.id), eq(taskWorkflowGates.satisfied, false)))
-      .run();
-  }
+  const decisions = gates.map((gate) => ({ status: "satisfy" as const, gate }));
+  const results = advanceGates(decisions, {
+    kind: "recovery_redemption",
+    eventId: ctx.id,
+    contextId: ctx.id,
+  });
+  logAdvancementWriteErrors(results);
+
+  // A failed per-gate transaction leaves that gate unsatisfied. Keep the
+  // context unresolved so the next redemption attempt can retry it.
+  const allGatesAdvanced = results.every(
+    (result) => result.status === "satisfied" || result.status === "already_satisfied",
+  );
+  if (!allGatesAdvanced) return;
 
   // Resolve the failure context so re-firing approved/completed is a no-op.
   failureContextService.resolveFailureContext(ctx.id, "redeemed");
@@ -293,7 +313,7 @@ function handleFailureCapture(opts: {
   }
 }
 
-/** Emits a workflow recovery notification event (and corresponding audit via the notification-to-audit projection) with a consistent shape. */
+/** Emits a workflow recovery notification event. */
 export function emitRecoveryNotification(
   habitatId: string,
   eventType:
@@ -320,28 +340,6 @@ export function emitRecoveryNotification(
     });
   } catch (err) {
     logger.error({ err, eventType, habitatId }, "Failed to emit workflow recovery notification");
-  }
-}
-
-/** Emits an audit-only workflow task event (no notification counterpart) with `source: "workflow"`. */
-function emitWorkflowTaskAudit(
-  taskId: string,
-  action: "workflow_gate_satisfied" | "workflow_gate_unblocked" | "workflow_evaluation_error",
-  payload: Record<string, unknown>,
-): void {
-  try {
-    emitTaskAuditEvent({
-      taskId,
-      actorType: "system",
-      actorId: "workflow-service",
-      action,
-      metadata: {
-        audit: { source: "workflow" },
-        ...payload,
-      },
-    });
-  } catch (err) {
-    logger.error({ err, taskId, action }, "Failed to emit workflow task audit event");
   }
 }
 
@@ -542,20 +540,33 @@ export function getTaskWorkflowContext(taskId: string): {
 }
 
 /** Manually satisfies an on_manual gate, typically called by an admin via the unblock endpoint. Emits a `workflow_gate_unblocked` audit event. */
-export function manualUnblockGate(gateId: string, _unblockerId: string): boolean {
-  const result = workflowGateStore.satisfyManualGateIfEligible(gateId);
-  if (result.status === "not_found" || result.status === "wrong_gate_type") return false;
+export function manualUnblockGate(gateId: string, unblockerId: string): boolean {
+  const gate = workflowGateStore.findGateById(gateId);
+  if (!gate || gate.gateType !== "on_manual") return false;
 
-  const gate = result.gate;
-  emitWorkflowTaskAudit(gate.downstreamTaskId, "workflow_gate_unblocked", {
-    gateId: gate.id,
-    workflowId: gate.workflowId,
-    upstreamTaskId: gate.upstreamTaskId,
-    downstreamTaskId: gate.downstreamTaskId,
-    unblockedBy: _unblockerId,
-  });
+  // Manual unblock has no external trigger event. The preallocated id is both
+  // the trigger event id and the audit row's own id (self-referential causal id).
+  const auditEventId = crypto.randomUUID();
+  const [result] = advanceGates(
+    [{ status: "satisfy", gate }],
+    { kind: "manual", eventId: auditEventId, unblockerId },
+  );
 
-  return true;
+  if (result.status === "satisfied" || result.status === "already_satisfied") return true;
+
+  if (result.status === "write_error" || result.status === "evaluation_error") {
+    logger.error(
+      {
+        error: result.error,
+        gateId: result.gateId,
+        triggerKind: result.triggerKind,
+        triggerEventId: result.triggerEventId,
+        status: result.status,
+      },
+      "Manual workflow gate unblock failed",
+    );
+  }
+  return false;
 }
 
 /** Returns the workflow row by id (any status), or null when missing. */

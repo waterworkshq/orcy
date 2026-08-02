@@ -1,6 +1,22 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { getDb, closeDb, initTestDb } from "../db/index.js";
 import { eq, and } from "drizzle-orm";
+
+const audit = vi.hoisted(() => ({ shouldThrow: false }));
+
+vi.mock("../repositories/events/event-crud.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../repositories/events/event-crud.js")>();
+  return {
+    ...actual,
+    createEventWithClient: (
+      ...args: Parameters<typeof actual.createEventWithClient>
+    ): ReturnType<typeof actual.createEventWithClient> => {
+      if (audit.shouldThrow) throw new Error("injected redemption audit write failure");
+      return actual.createEventWithClient(...args);
+    },
+  };
+});
+
 import * as habitatRepo from "../repositories/habitat.js";
 import * as columnRepo from "../repositories/column.js";
 import * as missionRepo from "../repositories/mission.js";
@@ -12,6 +28,8 @@ import { emitTransition, type TaskAction } from "../services/tasks/transition-em
 import {
   workflows,
   taskWorkflowGates,
+  taskEvents,
+  notificationEvents,
   tasks,
   missions,
   columns,
@@ -77,15 +95,40 @@ function readGatesForUpstreamTask(taskId: string) {
     .all();
 }
 
+function readRedemptionAudits() {
+  return getDb()
+    .select()
+    .from(taskEvents)
+    .all()
+    .filter((event) => {
+      const metadata = event.metadata as Record<string, unknown> | null;
+      return event.action === "workflow_gate_satisfied" && metadata?.triggeredBy === "recovery_redemption";
+    });
+}
+
+function readRecoverySucceededNotifications(habitatId: string) {
+  return getDb()
+    .select()
+    .from(notificationEvents)
+    .all()
+    .filter(
+      (event) =>
+        event.habitatId === habitatId && event.eventType === "workflow.recovery_succeeded",
+    );
+}
+
 const sampleHandler: WorkflowFailureHandlerConfig = {
   recoveryTaskTemplate: { title: "Recovery" },
 };
 
 describe("workflowService — recovery redemption (F4)", () => {
   beforeEach(async () => {
+    audit.shouldThrow = false;
     await initTestDb();
     initWorkflowService();
     const db = getDb();
+    db.delete(taskEvents).run();
+    db.delete(notificationEvents).run();
     db.delete(tasks).run();
     db.delete(missions).run();
     db.delete(columns).run();
@@ -96,6 +139,7 @@ describe("workflowService — recovery redemption (F4)", () => {
   });
 
   afterEach(() => {
+    audit.shouldThrow = false;
     closeDb();
   });
 
@@ -135,6 +179,19 @@ describe("workflowService — recovery redemption (F4)", () => {
       );
       expect(onCompleteGates).toHaveLength(1);
       expect(onCompleteGates[0].satisfied).toBe(true);
+
+      const context = failureContextService.getFailureContextsForTask(failedTask.id)[0];
+      expect(context).toBeDefined();
+      expect(onCompleteGates[0].satisfiedByEventId).toBe(context.id);
+
+      const redemptionAudits = readRedemptionAudits();
+      expect(redemptionAudits).toHaveLength(1);
+      const auditMetadata = redemptionAudits[0].metadata as Record<string, unknown>;
+      expect(auditMetadata.gateId).toBe(onCompleteGates[0].id);
+      expect(auditMetadata.contextId).toBe(context.id);
+
+      const succeededNotifications = readRecoverySucceededNotifications(habitat.id);
+      expect(succeededNotifications).toHaveLength(1);
     });
 
     it("satisfies the original failed task's downstream on_approve gate when recovery is approved", () => {
@@ -295,6 +352,50 @@ describe("workflowService — recovery redemption (F4)", () => {
       );
       expect(onCompleteGates).toHaveLength(2);
       expect(onCompleteGates.every((g) => g.satisfied)).toBe(true);
+
+      const context = failureContextService.getFailureContextsForTask(failedTask.id)[0];
+      expect(onCompleteGates.every((g) => g.satisfiedByEventId === context.id)).toBe(true);
+
+      const redemptionAudits = readRedemptionAudits();
+      expect(redemptionAudits).toHaveLength(onCompleteGates.length);
+      expect(new Set(redemptionAudits.map((event) => (event.metadata as Record<string, unknown>).gateId))).toEqual(
+        new Set(onCompleteGates.map((gate) => gate.id)),
+      );
+    });
+
+    it("keeps the failure context unresolved when redemption advancement writes fail", () => {
+      const { habitat, col } = setupHabitat();
+      const mission = setupMission(habitat.id, col.id);
+      const failedTask = taskCrudRepo.createTask({
+        missionId: mission.id,
+        title: "Original",
+        createdBy: "test",
+      });
+      const downstream = taskCrudRepo.createTask({
+        missionId: mission.id,
+        title: "Downstream",
+        createdBy: "test",
+      });
+      attachRecoveryChain(mission.id, habitat.id, failedTask.id, downstream.id, sampleHandler);
+
+      emitTransitionFor(failedTask.id, "failed", habitat.id);
+      const recoveryTask = getDb()
+        .select()
+        .from(tasks)
+        .where(eq(tasks.createdBy, "workflow-recovery"))
+        .get()!;
+
+      audit.shouldThrow = true;
+      emitTransitionFor(recoveryTask.id, "approved", habitat.id);
+      audit.shouldThrow = false;
+
+      const onCompleteGates = readGatesForUpstreamTask(failedTask.id).filter(
+        (g) => g.gateType === "on_complete",
+      );
+      expect(onCompleteGates[0].satisfied).toBe(false);
+      expect(failureContextRepo.getUnresolvedFailureContextByTaskId(failedTask.id)).not.toBeNull();
+      expect(readRedemptionAudits()).toHaveLength(0);
+      expect(readRecoverySucceededNotifications(habitat.id)).toHaveLength(0);
     });
   });
 
