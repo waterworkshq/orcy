@@ -85,14 +85,6 @@ export const TRIAGE_DISPATCH_TOOL: Tool = createDispatchTool({
         "Existing mission UUID to position — required for map_orphan_mission (sets its dependencies/gate). For set_focus_mission, pass the mission to designate as the focus goal, or omit/null to clear (auto-derive).",
     },
   },
-  requiredFor: {
-    investigate: ["habitatId", "clusterKey"],
-    top_issues: ["habitatId"],
-    resolution_lookup: ["habitatId", "clusterKey"],
-    insert_deferred_mission: ["habitatId", "findingId", "missionTitle", "releaseGateType"],
-    map_orphan_mission: ["habitatId", "missionId"],
-    set_focus_mission: ["habitatId"],
-  },
 });
 
 /** Map of MCP action name to the corresponding triage {@link Handler}. */
@@ -112,5 +104,5 @@ export const TRIAGE_DISPATCH_HANDLER = createDispatchHandler(TRIAGE_ACTIONS, {
   resolution_lookup: ["habitatId", "clusterKey"],
   insert_deferred_mission: ["habitatId", "findingId", "missionTitle", "releaseGateType"],
   map_orphan_mission: ["habitatId", "missionId"],
-  set_focus_mission: ["habitatId", "missionId"],
+  set_focus_mission: ["habitatId"],
 });

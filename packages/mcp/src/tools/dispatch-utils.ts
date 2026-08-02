@@ -27,7 +27,6 @@ export interface DispatchToolConfig {
   description: string;
   actions: string[];
   sharedParams?: Record<string, unknown>;
-  requiredFor?: Record<string, string[]>;
 }
 
 /** Builds the MCP {@link Tool} descriptor for a dispatch-backed `orcy_*` tool from its name, description, and action list. */

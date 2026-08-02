@@ -1,31 +1,31 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi } from "vitest";
 import {
   createDispatchTool,
   createDispatchHandler,
   type Handler,
   type DispatchToolConfig,
-} from '../../tools/dispatch-utils.js';
-import { createMockClient } from '../__fixtures__/mock-client.js';
+} from "../../tools/dispatch-utils.js";
+import { createMockClient } from "../__fixtures__/mock-client.js";
 
-describe('createDispatchTool', () => {
-  it('produces a Tool with the correct name and description', () => {
+describe("createDispatchTool", () => {
+  it("produces a Tool with the correct name and description", () => {
     const config: DispatchToolConfig = {
-      name: 'board_task',
-      description: 'Task operations',
-      actions: ['claim', 'submit'],
+      name: "board_task",
+      description: "Task operations",
+      actions: ["claim", "submit"],
     };
 
     const tool = createDispatchTool(config);
 
-    expect(tool.name).toBe('board_task');
-    expect(tool.description).toBe('Task operations');
+    expect(tool.name).toBe("board_task");
+    expect(tool.description).toBe("Task operations");
   });
 
-  it('produces a Tool with an action enum in inputSchema', () => {
+  it("produces a Tool with an action enum in inputSchema", () => {
     const config: DispatchToolConfig = {
-      name: 'board_task',
-      description: 'Task operations',
-      actions: ['claim', 'submit', 'complete'],
+      name: "board_task",
+      description: "Task operations",
+      actions: ["claim", "submit", "complete"],
     };
 
     const tool = createDispatchTool(config);
@@ -33,63 +33,63 @@ describe('createDispatchTool', () => {
     expect(tool.inputSchema).toBeDefined();
     expect(tool.inputSchema.properties).toBeDefined();
     expect(tool.inputSchema.properties.action).toEqual({
-      type: 'string',
-      enum: ['claim', 'submit', 'complete'],
-      description: 'The operation to perform',
+      type: "string",
+      enum: ["claim", "submit", "complete"],
+      description: "The operation to perform",
     });
-    expect(tool.inputSchema.required).toEqual(['action']);
+    expect(tool.inputSchema.required).toEqual(["action"]);
   });
 
-  it('includes shared params when provided', () => {
+  it("includes shared params when provided", () => {
     const config: DispatchToolConfig = {
-      name: 'board_task',
-      description: 'Task operations',
-      actions: ['claim', 'submit'],
+      name: "board_task",
+      description: "Task operations",
+      actions: ["claim", "submit"],
       sharedParams: {
-        taskId: { type: 'string', description: 'Task UUID' },
-        boardId: { type: 'string', description: 'Board UUID' },
+        taskId: { type: "string", description: "Task UUID" },
+        boardId: { type: "string", description: "Board UUID" },
       },
     };
 
     const tool = createDispatchTool(config);
 
     expect(tool.inputSchema.properties.taskId).toEqual({
-      type: 'string',
-      description: 'Task UUID',
+      type: "string",
+      description: "Task UUID",
     });
     expect(tool.inputSchema.properties.boardId).toEqual({
-      type: 'string',
-      description: 'Board UUID',
+      type: "string",
+      description: "Board UUID",
     });
   });
 
-  it('has no shared params when none are provided', () => {
+  it("has no shared params when none are provided", () => {
     const config: DispatchToolConfig = {
-      name: 'board_suggest',
-      description: 'Suggest next task',
-      actions: ['suggest-next-task'],
+      name: "board_suggest",
+      description: "Suggest next task",
+      actions: ["suggest-next-task"],
     };
 
     const tool = createDispatchTool(config);
 
-    expect(Object.keys(tool.inputSchema.properties)).toEqual(['action']);
+    expect(Object.keys(tool.inputSchema.properties)).toEqual(["action"]);
   });
 
-  it('requires action when no shared params', () => {
+  it("requires action when no shared params", () => {
     const config: DispatchToolConfig = {
-      name: 'board_suggest',
-      description: 'Suggest next task',
-      actions: ['suggest-next-task'],
+      name: "board_suggest",
+      description: "Suggest next task",
+      actions: ["suggest-next-task"],
     };
 
     const tool = createDispatchTool(config);
 
-    expect(tool.inputSchema.required).toEqual(['action']);
+    expect(tool.inputSchema.required).toEqual(["action"]);
   });
 });
 
-describe('createDispatchHandler', () => {
-  it('routes known actions to the correct handler', async () => {
+describe("createDispatchHandler", () => {
+  it("routes known actions to the correct handler", async () => {
     const client = createMockClient();
     const claimHandler = vi.fn().mockResolvedValue({ success: true });
     const submitHandler = vi.fn().mockResolvedValue({ success: true });
@@ -101,13 +101,13 @@ describe('createDispatchHandler', () => {
 
     const handler = createDispatchHandler(actions);
 
-    await handler(client, { action: 'claim', taskId: 'task-1' });
+    await handler(client, { action: "claim", taskId: "task-1" });
 
     expect(claimHandler).toHaveBeenCalledTimes(1);
     expect(submitHandler).not.toHaveBeenCalled();
   });
 
-  it('passes args through to the handler', async () => {
+  it("passes args through to the handler", async () => {
     const client = createMockClient();
     const mockHandler = vi.fn().mockResolvedValue({ success: true });
 
@@ -117,15 +117,15 @@ describe('createDispatchHandler', () => {
 
     const handler = createDispatchHandler(actions);
 
-    const args = { action: 'claim', taskId: 'task-1', boardId: 'board-1' };
+    const args = { action: "claim", taskId: "task-1", boardId: "board-1" };
     await handler(client, args);
 
     expect(mockHandler).toHaveBeenCalledWith(client, args);
   });
 
-  it('returns formatted result via formatResult pattern', async () => {
+  it("returns formatted result via formatResult pattern", async () => {
     const client = createMockClient();
-    const resultData = { id: 'task-1', status: 'done' };
+    const resultData = { id: "task-1", status: "done" };
     const mockHandler = vi.fn().mockResolvedValue(resultData);
 
     const actions: Record<string, Handler> = {
@@ -133,32 +133,32 @@ describe('createDispatchHandler', () => {
     };
 
     const handler = createDispatchHandler(actions);
-    const result = await handler(client, { action: 'claim' });
+    const result = await handler(client, { action: "claim" });
 
     expect(result.content).toHaveLength(1);
-    expect(result.content[0].type).toBe('text');
+    expect(result.content[0].type).toBe("text");
     expect(JSON.parse(result.content[0].text)).toEqual(resultData);
   });
 
-  it('returns isError result for unknown actions', async () => {
+  it("returns isError result for unknown actions", async () => {
     const client = createMockClient();
     const actions: Record<string, Handler> = {
       claim: vi.fn(),
     };
 
     const handler = createDispatchHandler(actions);
-    const result = await handler(client, { action: 'nonexistent' });
+    const result = await handler(client, { action: "nonexistent" });
 
     expect(result.isError).toBe(true);
-    expect(result.content[0].text).toContain('Unknown action: nonexistent');
-    expect(result.content[0].text).toContain('claim');
+    expect(result.content[0].text).toContain("Unknown action: nonexistent");
+    expect(result.content[0].text).toContain("claim");
   });
 
-  it('routes to the right handler when multiple actions exist', async () => {
+  it("routes to the right handler when multiple actions exist", async () => {
     const client = createMockClient();
-    const claimHandler = vi.fn().mockResolvedValue({ action: 'claim' });
-    const submitHandler = vi.fn().mockResolvedValue({ action: 'submit' });
-    const completeHandler = vi.fn().mockResolvedValue({ action: 'complete' });
+    const claimHandler = vi.fn().mockResolvedValue({ action: "claim" });
+    const submitHandler = vi.fn().mockResolvedValue({ action: "submit" });
+    const completeHandler = vi.fn().mockResolvedValue({ action: "complete" });
 
     const actions: Record<string, Handler> = {
       claim: claimHandler,
@@ -168,10 +168,52 @@ describe('createDispatchHandler', () => {
 
     const handler = createDispatchHandler(actions);
 
-    const submitResult = await handler(client, { action: 'submit' });
-    expect(JSON.parse(submitResult.content[0].text)).toEqual({ action: 'submit' });
+    const submitResult = await handler(client, { action: "submit" });
+    expect(JSON.parse(submitResult.content[0].text)).toEqual({ action: "submit" });
     expect(claimHandler).not.toHaveBeenCalled();
     expect(submitHandler).toHaveBeenCalledTimes(1);
     expect(completeHandler).not.toHaveBeenCalled();
+  });
+
+  it("allows optional params to be omitted when not in requiredFor", async () => {
+    const client = createMockClient();
+    const mockHandler = vi.fn().mockResolvedValue({ cleared: true });
+
+    const actions: Record<string, Handler> = {
+      set_focus: mockHandler,
+    };
+
+    const handler = createDispatchHandler(actions, {
+      set_focus: ["habitatId"],
+    });
+
+    const result = await handler(client, { action: "set_focus", habitatId: "hab-1" });
+    expect(result.isError).toBeUndefined();
+    expect(mockHandler).toHaveBeenCalledWith(client, { action: "set_focus", habitatId: "hab-1" });
+  });
+
+  it("allows optional params to be null when not in requiredFor", async () => {
+    const client = createMockClient();
+    const mockHandler = vi.fn().mockResolvedValue({ cleared: true });
+
+    const actions: Record<string, Handler> = {
+      set_focus: mockHandler,
+    };
+
+    const handler = createDispatchHandler(actions, {
+      set_focus: ["habitatId"],
+    });
+
+    const result = await handler(client, {
+      action: "set_focus",
+      habitatId: "hab-1",
+      missionId: null,
+    });
+    expect(result.isError).toBeUndefined();
+    expect(mockHandler).toHaveBeenCalledWith(client, {
+      action: "set_focus",
+      habitatId: "hab-1",
+      missionId: null,
+    });
   });
 });
