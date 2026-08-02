@@ -98,7 +98,12 @@ export {
   remoteWebhookEndpoints,
 } from "./remote-pod.js";
 export { remoteWebhookDeliveries } from "./remote-webhook.js";
-export { workflows, taskWorkflowGates, failureContexts } from "./workflow.js";
+export {
+  workflows,
+  taskWorkflowGates,
+  taskRecoveryHandoffs,
+  failureContexts,
+} from "./workflow.js";
 export { wikiPages, wikiPageVersions, wikiPageLinks, wikiCoverageMarkers } from "./wiki.js";
 export { findingTriage, triageResolutions, triageClusterMissions } from "./triage.js";
 export { releases } from "./release.js";

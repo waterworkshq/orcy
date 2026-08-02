@@ -253,6 +253,13 @@
       "when": 1784438002000,
       "tag": "0059_scheduled_tasks_habitat_name_unique",
       "breakpoints": true
+    },
+    {
+      "idx": 36,
+      "version": "6",
+      "when": 1785691882000,
+      "tag": "0060_task_recovery_handoffs",
+      "breakpoints": true
     }
   ]
 }

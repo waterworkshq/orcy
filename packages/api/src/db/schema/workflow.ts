@@ -91,6 +91,42 @@ export const taskWorkflowGates = sqliteTable(
   ],
 );
 
+/**
+ * Durable intent for an eligible `on_fail` gate. The advancement transaction
+ * writes `expected`; the recovery coordinator owns the terminal
+ * `consumed`/`blocked` transitions after consulting the publication attempt
+ * ledger.
+ */
+export const taskRecoveryHandoffs = sqliteTable(
+  "task_recovery_handoffs",
+  {
+    id: text("id").primaryKey(),
+    gateId: text("gate_id")
+      .notNull()
+      .references(() => taskWorkflowGates.id, { onDelete: "cascade" }),
+    workflowId: text("workflow_id").notNull(),
+    habitatId: text("habitat_id").notNull(),
+    missionId: text("mission_id").notNull(),
+    downstreamTaskId: text("downstream_task_id").notNull(),
+    recoveryDepth: integer("recovery_depth").notNull(),
+    triggerEventId: text("trigger_event_id").notNull(),
+    frozenHandlerConfig: text("frozen_handler_config").notNull(),
+    handlerFingerprint: text("handler_fingerprint").notNull(),
+    status: text("status", { enum: ["expected", "consumed", "blocked"] })
+      .notNull()
+      .default("expected"),
+    blockedReason: text("blocked_reason"),
+    createdAt: text("created_at")
+      .notNull()
+      .default(sql`(datetime('now'))`),
+    consumedAt: text("consumed_at"),
+  },
+  (table) => [
+    index("idx_task_recovery_handoffs_status").on(table.status),
+    index("idx_task_recovery_handoffs_gate").on(table.gateId),
+  ],
+);
+
 /** Structured failure bundle persisted for recovery agents to consume when an `on_fail` gate fires. */
 export const failureContexts = sqliteTable(
   "failure_contexts",

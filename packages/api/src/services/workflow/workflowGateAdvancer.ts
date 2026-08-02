@@ -1,5 +1,5 @@
 import { getDb } from "../../db/index.js";
-import { workflows, taskWorkflowGates } from "../../db/schema/index.js";
+import { workflows, taskWorkflowGates, taskRecoveryHandoffs } from "../../db/schema/index.js";
 import { eq, and } from "drizzle-orm";
 import { logger } from "../../lib/logger.js";
 import { stableHash, stableStringify } from "@orcy/shared";
@@ -12,8 +12,7 @@ import type { WorkflowGateRecord } from "./workflowGateStore.js";
 /**
  * Maximum `recoveryDepth` before recovery-handoff eligibility is suppressed
  * (two-attempts cap). Canonical home is the advancement module, which owns the
- * eligibility computation; {@link workflowService} re-exports it for the spawn
- * path.
+ * eligibility computation used by the durable recovery coordinator.
  */
 export const MAX_RECOVERY_DEPTH = 2;
 
@@ -64,8 +63,9 @@ export type AdvancementResult = {
  * Recovery handoff input. The advancer computes eligibility + freezes the
  * resolved handler config INSIDE the per-gate tx, then hands the frozen
  * snapshot to the registered writer. WG-4 owns the durable
- * `task_recovery_handoffs` table + the boot-only coordinator; the default
- * writer is a no-op so WG-3 ships the atomicity contract without the table.
+ * `task_recovery_handoffs` table + the boot-only coordinator; the production
+ * default writer inserts the handoff atomically, while tests may inject a
+ * no-op or failure writer through the seam.
  */
 export interface HandoffWriterInput {
   tx: EventDbClient;
@@ -78,16 +78,43 @@ export interface HandoffWriterInput {
 /** Durable recovery-handoff writer. WG-4 registers the real table INSERT. */
 export type RecoveryHandoffWriter = (input: HandoffWriterInput) => void;
 
-let registeredHandoffWriter: RecoveryHandoffWriter = () => {
-  /* no-op default; WG-4 registers the durable handoff INSERT */
-};
+/** Writes the handoff in the caller-owned advancement transaction. */
+function writeRecoveryHandoff({
+  tx,
+  gate,
+  trigger,
+  frozenHandler,
+  handlerFingerprint,
+}: HandoffWriterInput): void {
+  tx.insert(taskRecoveryHandoffs)
+    .values({
+      id: crypto.randomUUID(),
+      gateId: gate.id,
+      workflowId: gate.workflowId,
+      habitatId: gate.habitatId,
+      missionId: gate.missionId,
+      downstreamTaskId: gate.downstreamTaskId,
+      recoveryDepth: gate.recoveryDepth,
+      triggerEventId: trigger.eventId,
+      // Fork B: immutable payload. The coordinator always replays this
+      // snapshot and never re-reads the mutable workflow handler config.
+      frozenHandlerConfig: JSON.stringify(frozenHandler),
+      handlerFingerprint,
+      status: "expected",
+      blockedReason: null,
+      consumedAt: null,
+    })
+    .run();
+}
+
+let registeredHandoffWriter: RecoveryHandoffWriter = writeRecoveryHandoff;
 
 /** Registers the recovery handoff writer (WG-4). */
 export function registerRecoveryHandoffWriter(writer: RecoveryHandoffWriter): void {
   registeredHandoffWriter = writer;
 }
 
-/** Resets the handoff writer to the no-op default (test isolation). */
+/** Resets the injectable writer to a no-op (test isolation). */
 export function resetRecoveryHandoffWriter(): void {
   registeredHandoffWriter = () => {};
 }

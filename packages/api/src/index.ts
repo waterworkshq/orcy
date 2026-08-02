@@ -83,6 +83,7 @@ import { seedDefaultTemplates as seedQualityTemplates } from "./services/quality
 import { startAllSchedulers } from "./services/scheduler.js";
 import { initSkillHooks } from "./services/habitatSkillService.js";
 import { initWorkflowService } from "./services/workflowService.js";
+import { runRecoveryReconciliationPass } from "./services/workflow/recoveryCoordinator.js";
 import { initWikiScheduler } from "./services/wikiSchedulerService.js";
 import { initDb } from "./db/index.js";
 
@@ -412,6 +413,15 @@ await initDaemonWiring();
 
 const { initDetectorScan } = await import("./services/detectorScanService.js");
 initDetectorScan();
+
+try {
+  // Boot-only recovery reconciliation closes the crash window between the
+  // atomic gate handoff and the publication attempt. No periodic timer is
+  // scheduled; operators/tests may call the exported pass on demand.
+  runRecoveryReconciliationPass();
+} catch (err) {
+  fastify.log.error({ err }, "Failed to reconcile workflow recovery handoffs at boot");
+}
 
 try {
   await fastify.listen({ port: PORT, host: HOST });

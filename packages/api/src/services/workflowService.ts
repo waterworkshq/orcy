@@ -8,12 +8,9 @@ import { onAutomationRunCompleted } from "./automationExecutor.js";
 import { evaluateCondition } from "./automationEvaluator.js";
 import { buildEvaluationContext, buildTriggerContext } from "./automationContextBuilder.js";
 import { areAllWorkflowGatesSatisfied } from "../repositories/workflow.js";
-import * as taskCrudRepo from "../repositories/taskCrud.js";
-import * as agentRepo from "../repositories/agent.js";
 import * as failureContextService from "./failureContextService.js";
 import { enqueueNotification } from "./notificationCommandService.js";
 import { emitTaskAuditEvent, emitMissionAuditEvent } from "./auditEventEmitter.js";
-import { publishRecoveryTask } from "./taskRecoveryPublication.js";
 import type { Pulse } from "../repositories/pulse.js";
 import type {
   WorkflowTemplateDefinition,
@@ -26,11 +23,11 @@ import { workflowGateEvaluator } from "./workflow/workflowGateEvaluator.js";
 import type { ConditionTrigger } from "./workflow/workflowGateEvaluator.js";
 import {
   advanceGates,
-  resolveEffectiveFailureHandlerWithClient,
   MAX_RECOVERY_DEPTH,
   type AdvancementResult,
   type GateTrigger,
 } from "./workflow/workflowGateAdvancer.js";
+import { runRecoveryReconciliationPass } from "./workflow/recoveryCoordinator.js";
 
 export { areAllWorkflowGatesSatisfied };
 export { MAX_RECOVERY_DEPTH };
@@ -162,13 +159,42 @@ function handleTransition(opts: {
   }
   if (newlySatisfiedOnFail.length === 0) return;
 
-  handleFailureCapture(opts);
-  for (const gate of newlySatisfiedOnFail) {
-    try {
-      spawnRecoveryForGate(gate, opts);
-    } catch (err) {
-      logger.error({ err, gateId: gate.id }, "Failed to spawn recovery task");
+  // Depth-capped gates never receive a durable handoff, so the lifecycle
+  // adapter owns the unrecoverable notification for this newly satisfied
+  // outcome. Zip the positional advancement results back to the evaluator's
+  // full gate records to preserve the exact gate depth/action payload.
+  for (let i = 0; i < results.length; i++) {
+    const gate = decisions[i]?.gate;
+    if (
+      results[i]?.status === "satisfied" &&
+      gate?.gateType === "on_fail" &&
+      gate.recoveryDepth >= MAX_RECOVERY_DEPTH
+    ) {
+      emitRecoveryNotification(
+        gate.habitatId,
+        "workflow.recovery_unrecoverable",
+        "Recovery depth cap reached",
+        {
+          gateId: gate.id,
+          failedTaskId: opts.taskId,
+          recoveryDepth: gate.recoveryDepth,
+          action: opts.action,
+        },
+      );
     }
+  }
+
+  handleFailureCapture(opts);
+  try {
+    // The handoff was committed atomically with gate satisfaction. Reconcile
+    // immediately so the normal path does not wait for the next boot; the
+    // coordinator still owns the spawn and always uses the frozen payload.
+    runRecoveryReconciliationPass();
+  } catch (err) {
+    logger.error(
+      { err, taskId: opts.taskId, gateCount: newlySatisfiedOnFail.length },
+      "Failed to reconcile workflow recovery handoffs",
+    );
   }
 }
 
@@ -267,88 +293,8 @@ function handleFailureCapture(opts: {
   }
 }
 
-function spawnRecoveryForGate(
-  gate: {
-    id: string;
-    workflowId: string;
-    missionId: string;
-    habitatId: string;
-    downstreamTaskId: string;
-    recoveryDepth: number;
-    recoveryTaskId: string | null;
-    matchConfig: Record<string, unknown> | null;
-  },
-  opts: { taskId: string; action: string; metadata?: Record<string, unknown> },
-): void {
-  if (gate.recoveryTaskId) {
-    // Recovery already spawned for this gate — idempotent skip.
-    return;
-  }
-
-  const effectiveHandler = resolveEffectiveFailureHandler(gate);
-  if (effectiveHandler === null) return;
-
-  if (gate.recoveryDepth >= MAX_RECOVERY_DEPTH) {
-    logger.warn(
-      { gateId: gate.id, recoveryDepth: gate.recoveryDepth, taskId: opts.taskId },
-      "Recovery depth cap reached; not spawning a deeper recovery task",
-    );
-    emitRecoveryNotification(
-      gate.habitatId,
-      "workflow.recovery_unrecoverable",
-      "Recovery depth cap reached",
-      {
-        gateId: gate.id,
-        failedTaskId: opts.taskId,
-        recoveryDepth: gate.recoveryDepth,
-        action: opts.action,
-      },
-    );
-    return;
-  }
-
-  const failedTask = taskCrudRepo.getTaskById(opts.taskId);
-  if (!failedTask) {
-    logger.warn(
-      { gateId: gate.id, taskId: opts.taskId },
-      "Failed task missing during recovery spawn",
-    );
-    return;
-  }
-
-  // Pre-fetch the failure-context id so the publication participant can
-  // link it atomically with the recovery Task and workflow gates.
-  const ctx = failureContextService.getFailureContext(failedTask.id);
-
-  const recoveryTask = createRecoveryTask(failedTask, effectiveHandler, {
-    ...opts,
-    linkage: {
-      gateId: gate.id,
-      workflowId: gate.workflowId,
-      habitatId: gate.habitatId,
-      missionId: gate.missionId,
-      downstreamTaskId: gate.downstreamTaskId,
-      recoveryDepth: gate.recoveryDepth,
-      ...(ctx ? { failureContextId: ctx.id } : {}),
-    },
-  });
-  if (!recoveryTask) return;
-
-  emitRecoveryNotification(
-    gate.habitatId,
-    "workflow.recovery_started",
-    `Recovery task spawned for: ${failedTask.title}`,
-    {
-      gateId: gate.id,
-      failedTaskId: failedTask.id,
-      recoveryTaskId: recoveryTask.id,
-      recoveryDepth: gate.recoveryDepth + 1,
-    },
-  );
-}
-
 /** Emits a workflow recovery notification event (and corresponding audit via the notification-to-audit projection) with a consistent shape. */
-function emitRecoveryNotification(
+export function emitRecoveryNotification(
   habitatId: string,
   eventType:
     | "workflow.recovery_started"
@@ -419,110 +365,6 @@ function emitWorkflowMissionAudit(
   } catch (err) {
     logger.error({ err, missionId, action }, "Failed to emit workflow mission audit event");
   }
-}
-
-function resolveEffectiveFailureHandler(gate: {
-  matchConfig: Record<string, unknown> | null;
-  workflowId: string;
-}): WorkflowFailureHandlerConfig | null {
-  // Delegate to the advancement module's tx-aware resolver so the override +
-  // workflow-fallback policy lives in one place (the module freezes the same
-  // config inside the per-gate advancement tx).
-  return resolveEffectiveFailureHandlerWithClient(getDb(), gate);
-}
-
-function createRecoveryTask(
-  failedTask: {
-    id: string;
-    missionId: string;
-    title: string;
-    rejectionReason: string | null;
-    assignedAgentId: string | null;
-  },
-  handler: WorkflowFailureHandlerConfig,
-  opts: {
-    action: string;
-    metadata?: Record<string, unknown>;
-    /** Atomic linkage written within the recovery publication transaction. */
-    linkage: import("./taskRecoveryPublication.js").RecoveryLinkage;
-  },
-): { id: string } | null {
-  try {
-    const variables = collectSubstitutionVariables(failedTask, opts);
-    const assignedAgentId = handler.agentSelector?.assignedAgentId ?? null;
-    const result = publishRecoveryTask({
-      runId: opts.linkage.gateId,
-      actionKey: "spawn_recovery",
-      habitatId: opts.linkage.habitatId,
-      targetMissionId: failedTask.missionId,
-      title: substituteTemplate(handler.recoveryTaskTemplate.title, variables),
-      description: handler.recoveryTaskTemplate.description
-        ? substituteTemplate(handler.recoveryTaskTemplate.description, variables)
-        : "",
-      requiredDomain: handler.agentSelector?.requiredDomain ?? null,
-      requiredCapabilities: handler.agentSelector?.requiredCapabilities,
-      assignment: assignedAgentId
-        ? { kind: "targeted", agentId: assignedAgentId }
-        : { kind: "auto" },
-      linkage: opts.linkage,
-    });
-
-    // Map the typed result envelope to the legacy `{ id: string } | null`
-    // contract. `created` (committed, possibly still recovering) → the
-    // published Task id.
-    if (result.outcome === "created") {
-      return { id: result.publication.task.id };
-    }
-    // `replayed` — a prior publication under the same `(runId, actionKey)`
-    // already succeeded. The stored terminal carries `taskId`; return it so
-    // the caller can proceed (mirrors the triage MINOR #3 fix).
-    if (result.outcome === "replayed" && result.terminal.taskId) {
-      return { id: result.terminal.taskId };
-    }
-    // Any other outcome (vetoed, rejected_validation, guard_mismatch,
-    // governance_denied, rejected_fingerprint) is a non-terminal or
-    // terminal failure. Match the legacy catch→null swallow + a logged
-    // warning so the spawn caller skips the post-create writes.
-    logger.warn(
-      { failedTaskId: failedTask.id, gateId: opts.linkage.gateId, outcome: result.outcome },
-      "Recovery publication non-terminal outcome",
-    );
-    return null;
-  } catch (err) {
-    logger.error({ err, failedTaskId: failedTask.id }, "Failed to create recovery task row");
-    return null;
-  }
-}
-
-function collectSubstitutionVariables(
-  failedTask: {
-    id: string;
-    title: string;
-    rejectionReason: string | null;
-    assignedAgentId: string | null;
-  },
-  opts: { action: string; metadata?: Record<string, unknown> },
-): Record<string, string> {
-  const failedAgentId = failedTask.assignedAgentId ?? "";
-  let failedAgentName = "";
-  if (failedAgentId) {
-    const agent = agentRepo.getAgentById(failedAgentId);
-    failedAgentName = agent?.name ?? "";
-  }
-
-  const failureReason =
-    (opts.metadata?.["reason"] as string | undefined) ??
-    (opts.metadata?.["rejectionReason"] as string | undefined) ??
-    failedTask.rejectionReason ??
-    "";
-
-  return {
-    failedTaskId: failedTask.id,
-    failedTaskTitle: failedTask.title,
-    failureReason,
-    failedAgentId,
-    failedAgentName,
-  };
 }
 
 /** Substitutes `{{key}}` placeholders in `text` with values from `vars`, leaving unknown keys intact as empty strings. */
