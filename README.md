@@ -196,9 +196,9 @@ Orcy pulls external tracker issues into habitat intake, where humans/orcys revie
 
 | Release | Theme |
 |---------|-------|
+| v0.33.9 | "Fix: Governance Freeze + Import Test + Commit Hygiene" — governance freeze quarantine state populated truthfully; import scoped-delete covered on production DB; `CONTRIBUTING.md` forbids internal ticket tags in commit/PR messages. |
+| v0.33.8 | "Fix: Publication Kernel + Scan Tallies" — CS-53 committed-identifier projection; CS-56 scan tallies; CS-66 stale DORMANT header sweep; agent-quality threshold normalization. |
 | v0.33.7 | **Fix: Mandatory Automation Rule Conditions (CS-56)** — blocker defect correction. Conditions are now mandatory production gates (`{type:"always"}` remains the explicit trigger-only rule). One canonical lifecycle replaces per-event/per-scan split ownership. **Operator action before upgrade:** simulate every enabled non-`always` rule to confirm intended behavior. Malformed conditions fail closed. |
-| v0.33.6 | carry column policy fields through v3 import (IMP-2) |
-| v0.33.5 | carry template task-level fields through v3 import + close wiki dedupe race (IMP-1, IMP-3) |
 
 Full plan: **[docs/ROADMAP.md](docs/ROADMAP.md)**
 
