@@ -2,6 +2,35 @@
 
 > Older releases: see [git tags](https://github.com/waterworkshq/orcy/tags) and [GitHub Releases](https://github.com/waterworkshq/orcy/releases).
 
+## 0.34.1 — 2026-08-02
+
+### Bug Fixes
+
+#### remove dead requiredFor from DispatchToolConfig + fix set_focus_mission validation ([`5241507`](https://github.com/waterworkshq/orcy/commit/524150715d854da186a1a27d6cbf86cfb92964b6))
+
+1. Bug 1: DispatchToolConfig.requiredFor was a dead field — createDispatchTool
+2. never reads it. Only triage populated it, creating a misleading duplicate
+3. of the live createDispatchHandler validation map. Removed the field from the
+4. interface and deleted triage's dead declaration.
+
+6. Bug 2: triage set_focus_mission's live handler validation required missionId,
+7. but the handler explicitly supports omit/null to clear the habitat focus.
+8. An agent calling set_focus_mission without missionId was rejected before the
+9. handler ran — the 'clear focus' capability was unreachable through MCP.
+10. Fixed by removing missionId from the requiredFor map for set_focus_mission.
+
+12. Added two regression tests: omit-path (no missionId key) and explicit-null
+13. path (missionId: null) both reach the handler without validation rejection.
+
+
+
+### Documentation
+
+#### trim release notes — remove internal process details ([`e6918c7`](https://github.com/waterworkshq/orcy/commit/e6918c760d134272513eb22c8cbeec06f7ae4624))
+
+
+
+
 ## 0.34.0 — 2026-08-02
 
 ### Bug Fixes
