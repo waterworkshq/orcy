@@ -10,14 +10,6 @@ import {
   removeTaskReviewer,
 } from "./review.js";
 
-function requireArgs(action: string, args: Record<string, unknown>, keys: string[]): void {
-  for (const key of keys) {
-    if (!args[key]) {
-      throw new Error(`${key} is required for ${action}`);
-    }
-  }
-}
-
 /** MCP `Tool` registration schema for review rule and task reviewer operations. */
 export const REVIEW_DISPATCH_TOOL: Tool = createDispatchTool({
   name: "orcy_review",
@@ -96,35 +88,28 @@ export const REVIEW_DISPATCH_TOOL: Tool = createDispatchTool({
 
 /** Action-name → {@link Handler} map routing each review operation to its habitat client implementation. */
 export const REVIEW_ACTIONS: Record<string, Handler> = {
-  list_rules: (client, args) => {
-    requireArgs("list_rules", args, ["boardId"]);
-    return listReviewRules(client, args);
-  },
-  create_rule: (client, args) => {
-    requireArgs("create_rule", args, ["boardId", "name"]);
-    return createReviewRule(client, args);
-  },
-  update_rule: (client, args) => {
-    requireArgs("update_rule", args, ["ruleId"]);
-    return updateReviewRule(client, args);
-  },
-  delete_rule: (client, args) => {
-    requireArgs("delete_rule", args, ["ruleId"]);
-    return deleteReviewRule(client, args);
-  },
-  list_reviewers: (client, args) => {
-    requireArgs("list_reviewers", args, ["taskId"]);
-    return listTaskReviewers(client, args);
-  },
-  add_reviewer: (client, args) => {
-    requireArgs("add_reviewer", args, ["taskId", "reviewerId"]);
-    return addTaskReviewer(client, args);
-  },
-  remove_reviewer: (client, args) => {
-    requireArgs("remove_reviewer", args, ["taskId", "reviewerId"]);
-    return removeTaskReviewer(client, args);
-  },
+  list_rules: (client, args) => listReviewRules(client, args),
+  create_rule: (client, args) => createReviewRule(client, args),
+  update_rule: (client, args) => updateReviewRule(client, args),
+  delete_rule: (client, args) => deleteReviewRule(client, args),
+  list_reviewers: (client, args) => listTaskReviewers(client, args),
+  add_reviewer: (client, args) => addTaskReviewer(client, args),
+  remove_reviewer: (client, args) => removeTaskReviewer(client, args),
+};
+
+/** Per-action required parameters, validated by {@link createDispatchHandler} before the handler runs. */
+export const REVIEW_REQUIRED_PARAMS: Record<string, string[]> = {
+  list_rules: ["boardId"],
+  create_rule: ["boardId", "name"],
+  update_rule: ["ruleId"],
+  delete_rule: ["ruleId"],
+  list_reviewers: ["taskId"],
+  add_reviewer: ["taskId", "reviewerId"],
+  remove_reviewer: ["taskId", "reviewerId"],
 };
 
 /** Top-level {@link ToolHandler} that routes incoming `orcy_review` MCP calls to the matching action. */
-export const REVIEW_DISPATCH_HANDLER = createDispatchHandler(REVIEW_ACTIONS);
+export const REVIEW_DISPATCH_HANDLER = createDispatchHandler(
+  REVIEW_ACTIONS,
+  REVIEW_REQUIRED_PARAMS,
+);
