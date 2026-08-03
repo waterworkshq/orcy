@@ -146,14 +146,19 @@ export async function habitatCorrectTaskEvidenceLink(
   args: {
     taskId: string;
     linkId: string;
-    status: "incorrect" | "removed" | "superseded";
-    reason: string;
+    linkStatus: "incorrect" | "removed" | "superseded";
+    correctionReason: string;
     customReason?: string;
     replacementLinkId?: string;
   },
 ) {
-  const { taskId, linkId, ...input } = args;
-  return client.correctTaskEvidenceLink(taskId, linkId, input);
+  const { taskId, linkId, linkStatus, correctionReason, customReason, replacementLinkId } = args;
+  return client.correctTaskEvidenceLink(taskId, linkId, {
+    status: linkStatus,
+    reason: correctionReason,
+    customReason,
+    replacementLinkId,
+  });
 }
 
 /**

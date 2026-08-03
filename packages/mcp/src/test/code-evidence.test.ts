@@ -164,13 +164,13 @@ describe("habitatLinkTaskCode", () => {
 });
 
 describe("habitatCorrectTaskEvidenceLink", () => {
-  it("passes taskId, linkId, and correction input to client.correctTaskEvidenceLink", async () => {
+  it("maps wire args (linkStatus/correctionReason) to backend names (status/reason) for client.correctTaskEvidenceLink", async () => {
     const client = createMockClient();
     const args = {
       taskId: "task-1",
       linkId: "link-1",
-      status: "incorrect" as const,
-      reason: "Wrong branch linked",
+      linkStatus: "incorrect" as const,
+      correctionReason: "Wrong branch linked",
       customReason: "Mistakenly linked to develop instead of main",
       replacementLinkId: "link-2",
     };
@@ -183,13 +183,13 @@ describe("habitatCorrectTaskEvidenceLink", () => {
     });
   });
 
-  it("does not include taskId or linkId in the input object", async () => {
+  it("does not include taskId or linkId in the mapped backend input object", async () => {
     const client = createMockClient();
     await habitatCorrectTaskEvidenceLink(client, {
       taskId: "task-1",
       linkId: "link-1",
-      status: "removed",
-      reason: "Branch was deleted",
+      linkStatus: "removed",
+      correctionReason: "Branch was deleted",
     });
     const callArgs = client.correctTaskEvidenceLink.mock.calls[0];
     expect(callArgs[0]).toBe("task-1");
@@ -198,13 +198,13 @@ describe("habitatCorrectTaskEvidenceLink", () => {
     expect(callArgs[2]).not.toHaveProperty("linkId");
   });
 
-  it("passes status superseded correctly", async () => {
+  it("maps linkStatus superseded to backend status", async () => {
     const client = createMockClient();
     await habitatCorrectTaskEvidenceLink(client, {
       taskId: "task-1",
       linkId: "link-1",
-      status: "superseded",
-      reason: "Replaced by newer commit",
+      linkStatus: "superseded",
+      correctionReason: "Replaced by newer commit",
       replacementLinkId: "link-3",
     });
     expect(client.correctTaskEvidenceLink).toHaveBeenCalledWith("task-1", "link-1", {
@@ -214,13 +214,13 @@ describe("habitatCorrectTaskEvidenceLink", () => {
     });
   });
 
-  it("passes correction without optional fields", async () => {
+  it("maps a correction without optional fields", async () => {
     const client = createMockClient();
     await habitatCorrectTaskEvidenceLink(client, {
       taskId: "task-1",
       linkId: "link-1",
-      status: "incorrect",
-      reason: "Bad link",
+      linkStatus: "incorrect",
+      correctionReason: "Bad link",
     });
     const callArgs = client.correctTaskEvidenceLink.mock.calls[0];
     expect(callArgs[2]).toEqual({ status: "incorrect", reason: "Bad link" });
@@ -231,8 +231,8 @@ describe("habitatCorrectTaskEvidenceLink", () => {
     const result = await habitatCorrectTaskEvidenceLink(client, {
       taskId: "task-1",
       linkId: "link-1",
-      status: "incorrect",
-      reason: "Wrong",
+      linkStatus: "incorrect",
+      correctionReason: "Wrong",
     });
     expect(result).toEqual({ link: {} });
   });

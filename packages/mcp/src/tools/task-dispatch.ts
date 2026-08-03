@@ -144,7 +144,7 @@ const f = {
     description:
       "Agent UUID to assign subtask to (action=create-subtask) or batch-assign tasks to (action=batch-assign)",
   }),
-  taskIds: field.array(
+  taskIds: field.array<string>(
     { type: "string" },
     {
       minItems: 1,
