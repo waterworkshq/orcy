@@ -17,53 +17,15 @@ describe("TASK_DISPATCH_TOOL", () => {
     expect(TASK_DISPATCH_TOOL.name).toBe("orcy_habitat_task");
   });
 
-  it("includes all 41 actions in the enum", () => {
+  // The exact enum order is locked byte-for-byte by the firewall snapshot
+  // (task-firewall.test.ts); here we only assert the derived set matches the
+  // handler map, so the action list has a single source (`defineActions`).
+  it("includes every action in the enum (derived from TASK_ACTIONS)", () => {
     const actionProp = TASK_DISPATCH_TOOL.inputSchema.properties.action as {
       enum?: string[];
     };
-    expect(actionProp.enum).toEqual([
-      "list-in-mission",
-      "create-in-mission",
-      "update",
-      "delete",
-      "claim",
-      "start",
-      "submit",
-      "complete",
-      "release",
-      "retry",
-      "get-context",
-      "get-events",
-      "get-comments",
-      "add-comment",
-      "get-time-report",
-      "get-blocked-status",
-      "get-approval-status",
-      "add-dependency",
-      "remove-dependency",
-      "get-quality-checklist",
-      "update-quality-checklist-item",
-      "validate-quality-gates",
-      "list-subtasks",
-      "create-subtask",
-      "delete-subtask",
-      "link-code",
-      "list-code-evidence",
-      "correct-code-evidence-link",
-      "mark-not-applicable",
-      "clear-not-applicable",
-      "report-gap",
-      "resolve-gap",
-      "log-effort",
-      "list-effort",
-      "get-effort-report",
-      "correct-effort-entry",
-      "get-audit-bundle",
-      "batch-assign",
-      "batch-set-priority",
-      "batch-delete",
-      "fail",
-    ]);
+    expect(actionProp.enum).toHaveLength(41);
+    expect(new Set(actionProp.enum)).toEqual(new Set(Object.keys(TASK_ACTIONS)));
   });
 
   it("requires action", () => {
