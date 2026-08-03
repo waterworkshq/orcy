@@ -484,31 +484,32 @@ describe("habitatLinkMissionCode", () => {
 });
 
 describe("habitatCorrectMissionEvidenceLink", () => {
-  it("passes missionId, linkId, and correction input to client.correctMissionEvidenceLink", async () => {
+  it("maps wire args (linkStatus/correctionReason) to backend names (status/reason) for client.correctMissionEvidenceLink", async () => {
     const client = createMockClient();
-    await habitatCorrectMissionEvidenceLink(client, {
+    const args = {
       missionId: "mission-1",
       linkId: "link-1",
-      status: "removed",
-      reason: "Stale link",
-      customReason: "Branch was force-pushed",
+      linkStatus: "incorrect" as const,
+      correctionReason: "Wrong branch linked",
+      customReason: "Mistakenly linked to develop instead of main",
       replacementLinkId: "link-2",
-    });
+    };
+    await habitatCorrectMissionEvidenceLink(client, args);
     expect(client.correctMissionEvidenceLink).toHaveBeenCalledWith("mission-1", "link-1", {
-      status: "removed",
-      reason: "Stale link",
-      customReason: "Branch was force-pushed",
+      status: "incorrect",
+      reason: "Wrong branch linked",
+      customReason: "Mistakenly linked to develop instead of main",
       replacementLinkId: "link-2",
     });
   });
 
-  it("does not include missionId or linkId in the input object", async () => {
+  it("does not include missionId or linkId in the mapped backend input object", async () => {
     const client = createMockClient();
     await habitatCorrectMissionEvidenceLink(client, {
       missionId: "mission-1",
       linkId: "link-1",
-      status: "superseded",
-      reason: "Newer evidence available",
+      linkStatus: "removed",
+      correctionReason: "Branch was deleted",
     });
     const callArgs = client.correctMissionEvidenceLink.mock.calls[0];
     expect(callArgs[0]).toBe("mission-1");
@@ -517,16 +518,32 @@ describe("habitatCorrectMissionEvidenceLink", () => {
     expect(callArgs[2]).not.toHaveProperty("linkId");
   });
 
-  it("passes correction without optional fields", async () => {
+  it("maps linkStatus superseded to backend status", async () => {
     const client = createMockClient();
     await habitatCorrectMissionEvidenceLink(client, {
       missionId: "mission-1",
       linkId: "link-1",
-      status: "incorrect",
-      reason: "Wrong evidence",
+      linkStatus: "superseded",
+      correctionReason: "Replaced by newer commit",
+      replacementLinkId: "link-3",
+    });
+    expect(client.correctMissionEvidenceLink).toHaveBeenCalledWith("mission-1", "link-1", {
+      status: "superseded",
+      reason: "Replaced by newer commit",
+      replacementLinkId: "link-3",
+    });
+  });
+
+  it("maps a correction without optional fields", async () => {
+    const client = createMockClient();
+    await habitatCorrectMissionEvidenceLink(client, {
+      missionId: "mission-1",
+      linkId: "link-1",
+      linkStatus: "incorrect",
+      correctionReason: "Bad link",
     });
     const callArgs = client.correctMissionEvidenceLink.mock.calls[0];
-    expect(callArgs[2]).toEqual({ status: "incorrect", reason: "Wrong evidence" });
+    expect(callArgs[2]).toEqual({ status: "incorrect", reason: "Bad link" });
   });
 
   it("returns the result from client.correctMissionEvidenceLink", async () => {
@@ -534,8 +551,8 @@ describe("habitatCorrectMissionEvidenceLink", () => {
     const result = await habitatCorrectMissionEvidenceLink(client, {
       missionId: "mission-1",
       linkId: "link-1",
-      status: "incorrect",
-      reason: "Wrong",
+      linkStatus: "incorrect",
+      correctionReason: "Wrong",
     });
     expect(result).toEqual({ link: {} });
   });

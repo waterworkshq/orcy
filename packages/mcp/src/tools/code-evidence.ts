@@ -348,14 +348,19 @@ export async function habitatCorrectMissionEvidenceLink(
   args: {
     missionId: string;
     linkId: string;
-    status: "incorrect" | "removed" | "superseded";
-    reason: string;
+    linkStatus: "incorrect" | "removed" | "superseded";
+    correctionReason: string;
     customReason?: string;
     replacementLinkId?: string;
   },
 ) {
-  const { missionId, linkId, ...input } = args;
-  return client.correctMissionEvidenceLink(missionId, linkId, input);
+  const { missionId, linkId, linkStatus, correctionReason, customReason, replacementLinkId } = args;
+  return client.correctMissionEvidenceLink(missionId, linkId, {
+    status: linkStatus,
+    reason: correctionReason,
+    customReason,
+    replacementLinkId,
+  });
 }
 
 /**
