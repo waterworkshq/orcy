@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import Fastify, { type FastifyInstance } from "fastify";
 import { validatorCompiler, serializerCompiler } from "fastify-type-provider-zod";
 import { initTestDb, closeDb } from "../db/index.js";
@@ -16,6 +16,10 @@ import * as credentialService from "../services/remoteCredentialService.js";
 import * as idempotencyRepo from "../repositories/remoteIdempotency.js";
 import * as codeEvidenceLinking from "../services/codeEvidence/linking.js";
 import * as workflowService from "../services/workflowService.js";
+import * as transitionEmitter from "../services/tasks/transition-emitter.js";
+import * as qualityGateService from "../services/qualityGateService.js";
+import * as reviewAssignment from "../services/reviewAssignmentService.js";
+import * as taskEventRepo from "../repositories/events/event-crud.js";
 import type { RemoteActionScope, ParticipantStanding } from "@orcy/shared/types";
 import { isAppError } from "../errors.js";
 import { randomUUID } from "crypto";
@@ -198,6 +202,7 @@ describe("Phase D — Shared Habitat API", () => {
   });
 
   afterEach(async () => {
+    vi.restoreAllMocks();
     if (app) await app.close();
     closeDb();
     process.env = ORIGINAL_ENV;
@@ -1037,6 +1042,222 @@ describe("Phase D — Shared Habitat API", () => {
       });
 
       expect(res.statusCode).toBe(401);
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // Phase 0 — Characterization safety net for Remote Participant Actions
+  // (release v0.35.0). Each test below is tagged `INTENTIONALLY-CHANGE` — it
+  // pins the CURRENT (defective) behavior of the route handlers in
+  // `routes/sharedApi.ts`. Future T2/T5 tickets prove their changes by
+  // flipping these assertions (e.g. "not called" → "called", "200" → "403",
+  // event action:"updated" → no event). Do not weaken these assertions to
+  // make them pass; if a characterization assertion fails against current
+  // code, stop and report.
+  //
+  // These are the ROUTE-HANDLER-LAYER counterpart to
+  // `packages/api/src/test/claimPathCharacterization.test.ts`, which covers
+  // the repo/service-wrapper layer (taskStateMachine.claimTaskByRemoteParticipant
+  // result-shape parity). Tests here exercise the HTTP surface end-to-end
+  // through sharedApiRoutes and pin route-side-effects (events, notifications,
+  // module-level spies), so the two suites do not duplicate.
+  // ---------------------------------------------------------------------------
+
+  describe("Characterization — Remote Participant Actions (Phase 0, INTENTIONALLY-CHANGE)", () => {
+    function seedTaskWithRequiredCapabilities(
+      setup: ReturnType<typeof setupRemoteFixture>,
+      requiredCapabilities: string[],
+    ) {
+      const mission = missionRepo.createMission({
+        habitatId: setup.habitat.id,
+        title: "Char Mission",
+        priority: "medium",
+        createdBy: "test",
+      });
+      const task = taskRepo.createTask({
+        missionId: mission.id,
+        title: "Char Task",
+        description: "x",
+        priority: "medium",
+        requiredCapabilities,
+        labels: [],
+        createdBy: "test",
+      });
+      grantRepo.addRemoteGrantTarget(setup.grant.id, "task", task.id);
+      return { mission, task };
+    }
+
+    it("1. INTENTIONALLY-CHANGE — D2 gap: remote claim succeeds with empty approvedCapabilities on a requiredCapabilities task", async () => {
+      // Pin: today's route does NOT gate claim eligibility on capability
+      // overlap between participant.approvedCapabilities and
+      // task.requiredCapabilities. The participant's approvedCapabilities is
+      // empty by default (setupRemoteFixture); the task requires "typescript".
+      // Future T5/D2 closes the gap; this assertion then flips to "403".
+      const setup = setupRemoteFixture();
+      const { task } = seedTaskWithRequiredCapabilities(setup, ["typescript"]);
+
+      const res = await app!.inject({
+        method: "POST",
+        url: `/api/shared/tasks/${task.id}/claim`,
+        headers: remoteHeaders(setup, "test-char-d2-claim-1"),
+      });
+
+      expect(res.statusCode).toBe(200);
+      const body = JSON.parse(res.body);
+      expect(body.task.id).toBe(task.id);
+      expect(body.task.status).toBe("claimed");
+      expect(body.task.remoteAssignedParticipantId).toBe(setup.participant.id);
+    });
+
+    it("2. INTENTIONALLY-CHANGE — onTransition bypass: remote claim does NOT invoke emitTransition", async () => {
+      // Pin: the remote claim route hand-rolls `taskEventRepo.createEvent`
+      // instead of routing through emitTransition. Its outgoing fan
+      // (recalculateMissionStatus, emitAutoSignal, notifyWatchers/SSE,
+      // notifyTransition) therefore does NOT fire for remote claim today.
+      // Future T5 routes remote claim through emitTransition; this assertion
+      // then flips to "called".
+      const emitSpy = vi.spyOn(transitionEmitter, "emitTransition");
+
+      const setup = setupRemoteFixture();
+      const { task } = seedTaskWithRequiredCapabilities(setup, []);
+      const res = await app!.inject({
+        method: "POST",
+        url: `/api/shared/tasks/${task.id}/claim`,
+        headers: remoteHeaders(setup, "test-char-bypass-claim-2"),
+      });
+
+      expect(res.statusCode).toBe(200);
+      expect(emitSpy).not.toHaveBeenCalled();
+    });
+
+    it("3. INTENTIONALLY-CHANGE — manual claim event with hardcoded fromStatus:\"pending\"", async () => {
+      // Pin: the route's manual `taskEventRepo.createEvent` writes
+      //   action:"claimed", fromStatus:"pending", toStatus:"claimed"
+      // at sharedApi.ts:414-424, with actorType derived from the participant
+      // (remote_orcy for the default fixture). The literal "pending" is
+      // hardcoded — even if the task was previously started/released, the
+      // emitted fromStatus is always "pending". Future T5 routes through
+      // emitTransition, which derives fromStatus from the actual prior
+      // status; this assertion then carries the true fromStatus.
+      const setup = setupRemoteFixture();
+      const { task } = seedTaskWithRequiredCapabilities(setup, []);
+
+      const res = await app!.inject({
+        method: "POST",
+        url: `/api/shared/tasks/${task.id}/claim`,
+        headers: remoteHeaders(setup, "test-char-manual-event-3"),
+      });
+      expect(res.statusCode).toBe(200);
+
+      const { events } = taskEventRepo.getEventsByTaskId(task.id);
+      const claimed = events.find((e) => e.action === "claimed");
+      expect(claimed).toBeDefined();
+      expect(claimed!.action).toBe("claimed");
+      expect(claimed!.fromStatus).toBe("pending");
+      expect(claimed!.toStatus).toBe("claimed");
+      expect(claimed!.actorType).toBe("remote_orcy");
+      expect(claimed!.actorId).toBe(setup.participant.id);
+    });
+
+    it("4. INTENTIONALLY-CHANGE — comment over-emit: remote comment creates a manual action:\"updated\" Task Event", async () => {
+      // Pin: sharedApi.ts:695-704 hand-rolls an event with action:"updated"
+      // after every remote task-comment create. The local comment route does
+      // NOT do this. Future T2 removes the over-emit; this assertion then
+      // flips to "no event with action:updated exists".
+      const setup = setupRemoteFixture();
+      const { task } = seedTaskWithRequiredCapabilities(setup, []);
+
+      const res = await app!.inject({
+        method: "POST",
+        url: `/api/shared/tasks/${task.id}/comments`,
+        headers: remoteHeaders(setup, "test-char-comment-overemit-4"),
+        payload: { content: "Hello from remote" },
+      });
+      expect(res.statusCode).toBe(201);
+
+      const { events } = taskEventRepo.getEventsByTaskId(task.id);
+      const updated = events.find((e) => e.action === "updated");
+      expect(updated).toBeDefined();
+      expect(updated!.taskId).toBe(task.id);
+      expect(updated!.actorType).toBe("remote_orcy");
+      expect(updated!.actorId).toBe(setup.participant.id);
+      // metadata.action is "comment" (route labels the action in metadata);
+      // load-bearing for the future flip — once removed, neither event nor
+      // metadata.action exists.
+      const metadata = updated!.metadata as { action?: string; commentId?: string };
+      expect(metadata.action).toBe("comment");
+    });
+
+    it("5. INTENTIONALLY-CHANGE — submit parity gap: remote submit runs NO quality-gate and NO assignReviewers", async () => {
+      // Pin: the remote submit handler calls submitTaskByRemoteParticipant
+      // (a plain UPDATE) at sharedApi.ts:515-523, then writes a manual event
+      // at sharedApi.ts:524-536. It NEVER invokes
+      // qualityGateService.validateQualityGates (which the local submitTask
+      // does at services/tasks/task-lifecycle.ts:205) NOR
+      // reviewAssignment.assignReviewers (which the local submitTask does
+      // at services/tasks/task-lifecycle.ts:245). Future T5's submit wrapper
+      // must add these.
+      const qualitySpy = vi.spyOn(qualityGateService, "validateQualityGates");
+      const assignSpy = vi.spyOn(reviewAssignment, "assignReviewers");
+
+      const setup = setupRemoteFixture();
+      const { task } = seedTaskWithRequiredCapabilities(setup, []);
+
+      taskStateMachine.claimTaskByRemoteParticipant(task.id, setup.participant.id);
+      taskStateMachine.startTaskByRemoteParticipant(task.id, setup.participant.id);
+
+      const res = await app!.inject({
+        method: "POST",
+        url: `/api/shared/tasks/${task.id}/submit`,
+        headers: remoteHeaders(setup, "test-char-submit-parity-5"),
+        payload: { result: "done", artifacts: [] },
+      });
+      expect(res.statusCode).toBe(200);
+
+      expect(qualitySpy).not.toHaveBeenCalled();
+      expect(assignSpy).not.toHaveBeenCalled();
+
+      const { events } = taskEventRepo.getEventsByTaskId(task.id);
+      const submitted = events.find((e) => e.action === "submitted");
+      expect(submitted).toBeDefined();
+      // Hardcoded at sharedApi.ts:531 — the local submit derives fromStatus
+      // from the actual prior status (could be claimed OR in_progress).
+      expect(submitted!.fromStatus).toBe("in_progress");
+      expect(submitted!.toStatus).toBe("submitted");
+      expect(submitted!.actorType).toBe("remote_orcy");
+      expect(submitted!.actorId).toBe(setup.participant.id);
+    });
+
+    it("6. INTENTIONALLY-CHANGE — §5.3 swallow: a post-mutation side-effect failure is masked as idempotent 200 success", async () => {
+      // Pin: when the claim mutation has committed but a downstream
+      // side-effect (here, taskEventRepo.createEvent) throws, the catch at
+      // sharedApi.ts:444-451 re-fetches the task, sees the claim is now
+      // visible (remoteAssignedParticipantId === participant.id), and
+      // returns 200. The post-commit failure is masked — a veto/tx-failure
+      // would still be reported as success. Future T5 removes the swallow;
+      // this assertion then flips to "non-200 status" or "throws".
+      const createEventSpy = vi.spyOn(taskEventRepo, "createEvent");
+      createEventSpy.mockImplementation(() => {
+        throw new Error("synthetic post-commit event write failure");
+      });
+
+      const setup = setupRemoteFixture();
+      const { task } = seedTaskWithRequiredCapabilities(setup, []);
+
+      const res = await app!.inject({
+        method: "POST",
+        url: `/api/shared/tasks/${task.id}/claim`,
+        headers: remoteHeaders(setup, "test-char-swallow-6"),
+      });
+
+      // The catch's re-fetch observes the committed claim → idempotent 200.
+      expect(res.statusCode).toBe(200);
+      const body = JSON.parse(res.body);
+      expect(body.task.id).toBe(task.id);
+      expect(body.task.remoteAssignedParticipantId).toBe(setup.participant.id);
+      // The spy was actually invoked (proves the throw was on the
+      // post-commit path, not before the mutation).
+      expect(createEventSpy).toHaveBeenCalled();
     });
   });
 });
