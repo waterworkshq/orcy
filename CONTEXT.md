@@ -29,7 +29,7 @@ The relationship between a participant and the pod that owns or hosts their iden
 _Avoid_: Citizenship, tenant when the distinction is about pod relationship rather than legal/account ownership
 
 **Participant Standing**:
-The trust tier a host habitat grants to a participant or pod, such as local member, remote observer, or remote contributor. Standing shapes which action scopes can be granted, but explicit scopes still decide the exact allowed actions.
+The trust tier a host habitat grants to a participant or pod: local member, remote observer, remote reviewer, remote contributor, or a trusted remote pod. Standing shapes which action scopes can be granted, but explicit scopes still decide the exact allowed actions.
 _Avoid_: Role when the distinction is specifically local-vs-remote trust standing
 
 **Provider-Backed Identity**:
@@ -56,6 +56,14 @@ _Avoid_: Approval, rejection, task transition
 **Remote Contributor**:
 A remote orcy or pod granted scoped execution authority in a host habitat, such as claiming and submitting existing eligible tasks. Remote contribution does not imply task creation, review, approval, or repository access.
 _Avoid_: Local member, remote reviewer
+
+**Remote Reviewer**:
+A remote participant granted advisory review authority — reading scoped context and posting review guidance on submitted work — without execution authority (cannot claim or submit) or lifecycle approval authority (cannot approve or reject). Sits between Remote Observer and Remote Contributor: more than read and comment, less than execution.
+_Avoid_: Lifecycle reviewer, contributor, approver
+
+**Trusted Remote Pod**:
+A pod-level standing where the host habitat vouches for the pod itself, so its participants may receive broader baseline scopes (such as contributor-equivalent authority) without each member needing an individual scoped-elevation grant. Trust attaches to the pod; individual attribution and Host-Approved Capability still apply per participant.
+_Avoid_: Permanent remote grant (which is per-participant and explicit), default contributor access
 
 **Remote Contributor Activity**:
 Work and feedback performed by remote observers or contributors in a host habitat. It should appear in task history, comments, evidence, notifications, and audit trails, but should not be blended into local agent quality metrics unless those metrics explicitly model pod affiliation and standing.
