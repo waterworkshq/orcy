@@ -2,6 +2,38 @@
 
 > Older releases: see [git tags](https://github.com/waterworkshq/orcy/tags) and [GitHub Releases](https://github.com/waterworkshq/orcy/releases).
 
+## 0.35.1 — 2026-08-05
+
+### Bug Fixes
+
+#### tighten three deferred items in board summary + audit ([`6342cd1`](https://github.com/waterworkshq/orcy/commit/6342cd16c39ea7555ab18b99fc6b60a9d4551488))
+
+1. * summary: resolve displayName for remote participant actors
+2. in board summary timelines (was falling through to the raw
+3. actorId). Adds a batch-built remoteParticipantNameMap and a
+4. new branch in resolveActorName for remote_human and
+5. remote_orcy actor types. No behavior change for non-remote
+6. types.
+7. * audit: widen the code-evidence actorType cast from the
+8. over-narrow 3-value union to the full 6-value ActorType,
+9. matching the reportedByType schema enum and the type
+10. expected by normalizeAuditActorAndSource. Runtime behavior
+11. unchanged — AuditActorRef.type continues to receive the
+12. original string verbatim.
+13. * test(api): pin pnpm@9.0.0 in the compiledStartup smoke test
+14. via 'npx pnpm@9.0.0 --filter @orcy/api build' so local
+15. environments match CI (which already activates corepack).
+
+
+
+### Documentation
+
+#### mark v0.35.0 shipped in ROADMAP + README ([`bd659b6`](https://github.com/waterworkshq/orcy/commit/bd659b6bd4349de7fb80105792eb0caf22fbbf65))
+
+1. Flips the pending-release placeholders to v0.35.0 now that the tag has landed, per the ROADMAP release-state convention (ROADMAP.md:8).
+
+
+
 ## 0.35.0 — 2026-08-05
 
 ### Bug Fixes
@@ -96,13 +128,3 @@
 #### map correct-mission-evidence-link wire names to backend (status/reason) ([`a002c80`](https://github.com/waterworkshq/orcy/commit/a002c800544aeaf15ea35165629cd6182298feca))
 
 1. Same wire/backend name drift as the task variant fixed in v0.34.4: the mission wire delivers linkStatus/correctionReason but correctLinkSchema requires status/reason, and the handler rest-spread the wire names through -> 400. Add the explicit wire->backend map. Update the legacy test to an honest wire->backend integration test.
-
-
-
-## 0.34.4 — 2026-08-03
-
-### Bug Fixes
-
-#### map correct-code-evidence-link wire names to backend + wire ArgsOf handler typing ([`381407b`](https://github.com/waterworkshq/orcy/commit/381407bea61f3c71261b67d2ad5cf85371116050))
-
-1. The correct-code-evidence-link action returned 400: the wire delivered linkStatus/correctionReason but the backend correctLinkSchema requires status/reason, and the handler rest-spread the wire names through. Add an explicit wire->backend map. Wiring ArgsOf<A> to ActionEntry.execute surfaced the mismatch; making ActionEntry generic kills the args:any erasure at the inline arrows (args.bordId is now a compile error). Method-syntax bivariance lets named handlers keep their own typed args. The legacy code-evidence test becomes an honest wire->backend integration test.
