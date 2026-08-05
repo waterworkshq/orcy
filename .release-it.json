@@ -9,7 +9,7 @@
   "github": {
     "release": true,
     "releaseName": "v${version}",
-    "releaseNotes": "pnpm exec git-cliff --tag v${version} -o /dev/null"
+    "releaseNotes": "cat docs/releases/v${version}.md 2>/dev/null || pnpm exec git-cliff --tag v${version}"
   },
   "plugins": {
     "@release-it/conventional-changelog": {
