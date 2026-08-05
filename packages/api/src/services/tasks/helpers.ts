@@ -40,3 +40,20 @@ export function validateAgentCapabilities(
   const requiredCaps = requiredCapabilities.map((c) => c.toLowerCase());
   return requiredCaps.filter((cap) => !agentCaps.includes(cap));
 }
+
+/**
+ * Returns whether the given approved domains cover the task's required
+ * domain. A null/empty required domain means no domain gate (passes).
+ * Otherwise the required domain must appear (case-sensitively) in the
+ * approved domains list — used by the remote D2 eligibility gate to enforce
+ * `approvedDomains` against `task.requiredDomain` (mirror of the local
+ * `task-delegation.ts` domain check, which uses single `agent.domain`).
+ */
+export function validateAgentDomain(
+  approvedDomains: string[],
+  requiredDomain: string | null,
+): { ok: boolean; missingDomains: string[] } {
+  if (!requiredDomain) return { ok: true, missingDomains: [] };
+  if (approvedDomains.includes(requiredDomain)) return { ok: true, missingDomains: [] };
+  return { ok: false, missingDomains: [requiredDomain] };
+}

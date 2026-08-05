@@ -35,7 +35,7 @@ import { submitWithAuthorityClient } from "../../repositories/taskStateMachine.j
 import { createEventWithClient } from "../../repositories/events/event-crud.js";
 import { emitTransition } from "./transition-emitter.js";
 import * as pluginManager from "../../plugins/pluginManager.js";
-import { validateAgentCapabilities } from "./helpers.js";
+import { validateAgentCapabilities, validateAgentDomain } from "./helpers.js";
 import * as qualityGateService from "../qualityGateService.js";
 import * as reviewAssignment from "../reviewAssignmentService.js";
 import { getRemoteGovernanceSettings } from "../remoteGovernance.js";
@@ -88,7 +88,7 @@ export function claimTaskForRemote(
   ctx: RemoteParticipantContext,
 ):
   | { success: true; task: Task }
-  | { success: false; reason: string; missingCapabilities?: string[] } {
+  | { success: false; reason: string; missingCapabilities?: string[]; missingDomains?: string[] } {
   // 1. Load task
   const task = taskRepo.getTaskById(taskId);
   if (!task) return { success: false, reason: "not_found" };
@@ -109,6 +109,19 @@ export function claimTaskForRemote(
       );
       if (missing.length > 0) {
         return { success: false, reason: "capability_mismatch", missingCapabilities: missing };
+      }
+    }
+    if (task.requiredDomain) {
+      const domainCheck = validateAgentDomain(
+        ctx.participant.approvedDomains ?? [],
+        task.requiredDomain,
+      );
+      if (!domainCheck.ok) {
+        return {
+          success: false,
+          reason: "domain_mismatch",
+          missingDomains: domainCheck.missingDomains,
+        };
       }
     }
   }
@@ -383,9 +396,7 @@ export function releaseTaskForRemote(
         updatedAt: now,
         version: sql`${tasks.version} + 1`,
       })
-      .where(
-        and(eq(tasks.id, taskId), eq(tasks.remoteAssignedParticipantId, participantId)),
-      )
+      .where(and(eq(tasks.id, taskId), eq(tasks.remoteAssignedParticipantId, participantId)))
       .run();
 
     const updated = tx.select().from(tasks).where(eq(tasks.id, taskId)).get() as
