@@ -80,6 +80,7 @@ export type {
   Anomaly,
   AutoAssignSettings,
   AutomationSettings,
+  RemoteGovernanceSettings,
   TriageSettings,
   ReleaseSettings,
   RoadmapSettings,

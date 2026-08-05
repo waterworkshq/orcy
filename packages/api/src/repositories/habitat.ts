@@ -8,6 +8,7 @@ import type {
   AnomalySettings,
   AutoAssignSettings,
   AutomationSettings,
+  RemoteGovernanceSettings,
   GitWorktreeSettings,
   PrioritizationSettings,
   WikiSettings,
@@ -41,6 +42,7 @@ export interface UpdateHabitatInput {
   eventRetentionDays?: number;
   prioritizationSettings?: PrioritizationSettings | null;
   automationSettings?: AutomationSettings | null;
+  remoteGovernanceSettings?: RemoteGovernanceSettings | null;
   wikiSettings?: WikiSettings | null;
   triageSettings?: TriageSettings | null;
   releaseSettings?: ReleaseSettings | null;
@@ -120,6 +122,8 @@ export function updateHabitat(id: string, input: UpdateHabitatInput): Habitat | 
   if (input.prioritizationSettings !== undefined)
     values.prioritizationSettings = input.prioritizationSettings;
   if (input.automationSettings !== undefined) values.automationSettings = input.automationSettings;
+  if (input.remoteGovernanceSettings !== undefined)
+    values.remoteGovernanceSettings = input.remoteGovernanceSettings;
   if (input.wikiSettings !== undefined) values.wikiSettings = input.wikiSettings;
   if (input.triageSettings !== undefined) values.triageSettings = input.triageSettings;
   if (input.releaseSettings !== undefined) values.releaseSettings = input.releaseSettings;

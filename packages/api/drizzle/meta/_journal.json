@@ -260,6 +260,13 @@
       "when": 1785691882000,
       "tag": "0060_task_recovery_handoffs",
       "breakpoints": true
+    },
+    {
+      "idx": 37,
+      "version": "6",
+      "when": 1785778282000,
+      "tag": "0061_remote_governance_settings",
+      "breakpoints": true
     }
   ]
 }

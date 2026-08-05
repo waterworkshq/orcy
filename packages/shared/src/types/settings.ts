@@ -90,6 +90,14 @@ export interface AutomationSettings {
   executeActions: boolean;
 }
 
+/** Per-habitat kill-switch flags for Remote Participant Actions (v0.35.0). Stored as a JSON column on `habitats.remote_governance_settings`. Both flags default OFF; the effective value is resolved via `getRemoteGovernanceSettings` (env fallback + habitat override). */
+export interface RemoteGovernanceSettings {
+  /** D1: apply governance interceptors to remote-originated task mutations. */
+  applyInterceptorsToRemote: boolean;
+  /** D2: enforce Host-Approved Capability checks for remote participants. */
+  enforceHostApprovedCapability: boolean;
+}
+
 /** Per-habitat triage scan thresholds. Stored as a JSON column on `habitats.triage_settings`. Controls the cluster-detection and agent-quality scans. */
 export interface TriageSettings {
   minClusterSize: number;

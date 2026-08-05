@@ -13,6 +13,7 @@ import type {
   AnomalySettings,
   AutoAssignSettings,
   AutomationSettings,
+  RemoteGovernanceSettings,
   CodeReviewSettings,
   CiCdSettings,
   GitWorktreeSettings,
@@ -56,6 +57,9 @@ export const habitats = sqliteTable(
     automationSettings: text("automation_settings", {
       mode: "json",
     }).$type<AutomationSettings | null>(),
+    remoteGovernanceSettings: text("remote_governance_settings", {
+      mode: "json",
+    }).$type<RemoteGovernanceSettings | null>(),
     wikiSettings: text("wiki_settings", { mode: "json" }).$type<WikiSettings | null>(),
     triageSettings: text("triage_settings", { mode: "json" }).$type<TriageSettings | null>(),
     releaseSettings: text("release_settings", { mode: "json" }).$type<ReleaseSettings | null>(),

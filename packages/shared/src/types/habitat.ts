@@ -3,6 +3,7 @@ import type {
   AnomalySettings,
   AutoAssignSettings,
   AutomationSettings,
+  RemoteGovernanceSettings,
   CodeReviewSettings,
   CiCdSettings,
   GitWorktreeSettings,
@@ -44,6 +45,7 @@ export interface Habitat {
   gitWorktreeSettings: GitWorktreeSettings | null;
   prioritizationSettings: PrioritizationSettings | null;
   automationSettings: AutomationSettings | null;
+  remoteGovernanceSettings: RemoteGovernanceSettings | null;
   wikiSettings: WikiSettings | null;
   triageSettings: TriageSettings | null;
   releaseSettings: ReleaseSettings | null;
