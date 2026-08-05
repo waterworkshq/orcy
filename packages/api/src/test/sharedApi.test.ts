@@ -20,6 +20,7 @@ import * as transitionEmitter from "../services/tasks/transition-emitter.js";
 import * as qualityGateService from "../services/qualityGateService.js";
 import * as reviewAssignment from "../services/reviewAssignmentService.js";
 import * as taskEventRepo from "../repositories/events/event-crud.js";
+import * as remoteNotifications from "../services/remoteNotifications.js";
 import type { RemoteActionScope, ParticipantStanding } from "@orcy/shared/types";
 import { isAppError } from "../errors.js";
 import { logger } from "../lib/logger.js";
@@ -1441,6 +1442,74 @@ describe("Phase D — Shared Habitat API", () => {
       expect(res.statusCode).not.toBe(200);
       // The spy was invoked (proves the throw was inside the tx, not before).
       expect(createEventSpy).toHaveBeenCalled();
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // T10 — Pulse + Evidence-link notification emit guards
+  // Pins the single-emit (pulse) and zero-emit (evidence-link) behavior at the
+  // route layer so a future regression — e.g. someone adding a route-side
+  // notification to evidence-link, or a duplicate notification to pulse — is
+  // caught. Test-only; no production code changed.
+  // ---------------------------------------------------------------------------
+
+  describe("T10 — Pulse + Evidence-link notification emit guards", () => {
+    it("pulse route fires emitRemoteOriginatedNotification exactly once (no double-emit)", async () => {
+      const notifSpy = vi.spyOn(remoteNotifications, "emitRemoteOriginatedNotification");
+
+      const setup = setupRemoteFixture();
+      const mission = missionRepo.createMission({
+        habitatId: setup.habitat.id,
+        title: "T10 Pulse Mission",
+        priority: "medium",
+        createdBy: "test",
+      });
+      grantRepo.addRemoteGrantTarget(setup.grant.id, "mission", mission.id);
+
+      const res = await app!.inject({
+        method: "POST",
+        url: `/api/shared/missions/${mission.id}/pulse`,
+        headers: remoteHeaders(setup, "test-t10-pulse-guard-1"),
+        payload: { signalType: "finding", subject: "T10 guard" },
+      });
+      expect(res.statusCode).toBe(201);
+
+      // Exactly one cross-pod notification — no double.
+      expect(notifSpy).toHaveBeenCalledTimes(1);
+      expect(notifSpy.mock.calls[0]?.[0]?.eventType).toBe("pulse.signal_posted");
+    });
+
+    it("evidence-link route fires NO emitRemoteOriginatedNotification (no route-side notification)", async () => {
+      const notifSpy = vi.spyOn(remoteNotifications, "emitRemoteOriginatedNotification");
+
+      const setup = setupRemoteFixture();
+      const mission = missionRepo.createMission({
+        habitatId: setup.habitat.id,
+        title: "T10 Evidence Mission",
+        priority: "medium",
+        createdBy: "test",
+      });
+      const task = taskRepo.createTask({
+        missionId: mission.id,
+        title: "T10 Evidence Task",
+        description: "x",
+        priority: "low",
+        requiredCapabilities: [],
+        labels: [],
+        createdBy: "test",
+      });
+      grantRepo.addRemoteGrantTarget(setup.grant.id, "task", task.id);
+
+      const res = await app!.inject({
+        method: "POST",
+        url: `/api/shared/tasks/${task.id}/evidence-links`,
+        headers: remoteHeaders(setup, "test-t10-evidence-guard-1"),
+        payload: { url: "https://github.com/example/repo/pull/123" },
+      });
+      expect(res.statusCode).toBe(201);
+
+      // The route fires no notification — single service emission only.
+      expect(notifSpy).not.toHaveBeenCalled();
     });
   });
 });
