@@ -1,4 +1,4 @@
-import type { AuditEvent, AuditWarning } from "@orcy/shared/types";
+import type { ActorType, AuditEvent, AuditWarning } from "@orcy/shared/types";
 import {
   loadCodeEvidenceAuditContext,
   type CodeChangedFileRow,
@@ -108,7 +108,7 @@ function projectCodeEvidenceGapRow(
   const actorId =
     row.status === "resolved" && row.resolvedById ? row.resolvedById : row.reportedById;
   const normalized = normalizeAuditActorAndSource({
-    actorType: actorType as "human" | "agent" | "system",
+    actorType: actorType as ActorType,
     actorId,
     actorName: null,
     metadata,

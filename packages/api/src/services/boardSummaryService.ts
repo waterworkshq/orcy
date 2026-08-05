@@ -3,6 +3,7 @@ import * as taskRepo from "../repositories/task.js";
 import * as missionRepo from "../repositories/mission.js";
 import * as eventRepo from "../repositories/event.js";
 import * as agentRepo from "../repositories/agent.js";
+import * as remoteParticipantRepo from "../repositories/remoteParticipant.js";
 import { MS_PER_DAY } from "./analyticsDate.js";
 
 /** Options controlling the time window, mission cap, and digest inclusion for a generated habitat summary. */
@@ -121,6 +122,7 @@ export function generateHabitatSummary(
   const events = fetchHabitatEvents(habitatId, sinceDate);
   const missionEventsList = fetchMissionEvents(habitatId, sinceDate);
   const agentNameMap = buildAgentNameMap();
+  const remoteParticipantNameMap = buildRemoteParticipantNameMap(habitatId);
 
   const missionNarratives = buildMissionNarratives(
     missionList,
@@ -128,6 +130,7 @@ export function generateHabitatSummary(
     events,
     missionEventsList,
     agentNameMap,
+    remoteParticipantNameMap,
     maxMissions,
   );
 
@@ -285,12 +288,21 @@ function buildAgentNameMap(): Map<string, string> {
   return map;
 }
 
+function buildRemoteParticipantNameMap(habitatId: string): Map<string, string> {
+  const map = new Map<string, string>();
+  for (const participant of remoteParticipantRepo.getRemoteParticipantsByHabitat(habitatId)) {
+    map.set(participant.id, participant.displayName);
+  }
+  return map;
+}
+
 function buildMissionNarratives(
   missionList: any[],
   allTasks: any[],
   events: RawHabitatEvent[],
   missionEventList: RawMissionEvent[],
   agentNameMap: Map<string, string>,
+  remoteParticipantNameMap: Map<string, string>,
   _maxMissions: number,
 ): MissionNarrative[] {
   const missionTaskMap = new Map<string, any[]>();
@@ -315,7 +327,13 @@ function buildMissionNarratives(
     const timeline = missionTimeline.get(event.missionId) ?? [];
     timeline.push({
       action: event.action,
-      actor: resolveActorName(event.actorType, event.actorId, null, agentNameMap),
+      actor: resolveActorName(
+        event.actorType,
+        event.actorId,
+        null,
+        agentNameMap,
+        remoteParticipantNameMap,
+      ),
       timestamp: event.timestamp,
     });
     missionTimeline.set(event.missionId, timeline);
@@ -328,7 +346,13 @@ function buildMissionNarratives(
     const timeline = missionTimeline.get(missionId) ?? [];
     timeline.push({
       action: `task.${event.action}`,
-      actor: resolveActorName(event.actorType, event.actorId, event.actorName, agentNameMap),
+      actor: resolveActorName(
+        event.actorType,
+        event.actorId,
+        event.actorName,
+        agentNameMap,
+        remoteParticipantNameMap,
+      ),
       timestamp: event.timestamp,
       detail: extractEventDetail(event),
     });
@@ -373,9 +397,13 @@ function resolveActorName(
   actorId: string,
   actorName: string | null,
   agentNameMap: Map<string, string>,
+  remoteParticipantNameMap: Map<string, string>,
 ): string {
   if (actorType === "system") return "System";
   if (actorType === "human") return "Human";
+  if (actorType === "remote_human" || actorType === "remote_orcy") {
+    return actorName ?? remoteParticipantNameMap.get(actorId) ?? actorId;
+  }
   return actorName ?? agentNameMap.get(actorId) ?? actorId;
 }
 
