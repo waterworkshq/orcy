@@ -269,6 +269,14 @@ v0.19 "Pod Bridge" adds optional cross-pod collaboration. Local-only is the **de
 - Evidence linking is URL/metadata-only — remote participants cannot trigger branch creation, commit scans, or provider-side mutations
 - `codeEvidenceLinkSource` for remote-linked evidence is `"remote"` (not `"human_manual"` or `"agent_reported"`)
 
+### Remote API Surface — Anti-Probing Disclosure Policy
+
+The `/api/shared/*` routes follow the **404/403 convention**: a genuinely-missing resource returns **404 NOT_FOUND** (prevents blind enumeration); an authenticated-but-unauthorized access returns **403 FORBIDDEN**.
+
+Two existence-leaking denial codes — `HABITAT_MISMATCH` ("exists, but in another habitat") and `TARGET_NOT_VISIBLE` ("exists in your habitat, but not visible to you") — are **anti-probing-collapsed to a generic 403** for the client. The specific reason is logged server-side only (`logger.warn` with participant, habitat, and pod context). This prevents a remote participant from probing another habitat's task IDs and distinguishing "exists elsewhere" from "exists here but invisible."
+
+`TASK_NOT_OWNED` remains a distinct 403 — it is legitimate ownership feedback for a participant who already passed visibility checks, not an existence leak.
+
 ### Webhook Payload Minimization
 
 - Compact remote webhook payloads include: event type, timestamp, scoped IDs, actor summary with standing/affiliation, grant context, and a follow-up API URL

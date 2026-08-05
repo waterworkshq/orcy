@@ -22,6 +22,7 @@ import * as reviewAssignment from "../services/reviewAssignmentService.js";
 import * as taskEventRepo from "../repositories/events/event-crud.js";
 import type { RemoteActionScope, ParticipantStanding } from "@orcy/shared/types";
 import { isAppError } from "../errors.js";
+import { logger } from "../lib/logger.js";
 import { randomUUID } from "crypto";
 
 const ORIGINAL_ENV = { ...process.env };
@@ -1065,6 +1066,188 @@ describe("Phase D — Shared Habitat API", () => {
       });
 
       expect(res.statusCode).toBe(401);
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // Anti-probing — info-disclosure hardening (T12)
+  // Verifies that existence-leaking error codes are collapsed to a generic 403
+  // on the remote `/api/shared/*` surface. The distinct reason is logged
+  // server-side only.
+  // ---------------------------------------------------------------------------
+
+  describe("Anti-probing — remote surface disclosure hardening", () => {
+    it("habitat-mismatch probe returns 403 with generic FORBIDDEN (not HABITAT_MISMATCH)", async () => {
+      const setup = setupRemoteFixture();
+      // Create a task in a DIFFERENT habitat
+      const otherHabitat = setupHabitat();
+      const mission = missionRepo.createMission({
+        habitatId: otherHabitat.id,
+        title: "Other Habitat Mission",
+        priority: "medium",
+        createdBy: "test",
+      });
+      const task = taskRepo.createTask({
+        missionId: mission.id,
+        title: "Other Habitat Task",
+        description: "x",
+        priority: "low",
+        requiredCapabilities: [],
+        labels: [],
+        createdBy: "test",
+      });
+
+      const res = await app!.inject({
+        method: "GET",
+        url: `/api/shared/tasks/${task.id}`,
+        headers: remoteHeaders(setup),
+      });
+      expect(res.statusCode).toBe(403);
+      const body = JSON.parse(res.body);
+      expect(body.code).toBe("FORBIDDEN");
+      expect(body.code).not.toBe("HABITAT_MISMATCH");
+    });
+
+    it("not-visible probe returns 403 with generic FORBIDDEN (not TARGET_NOT_VISIBLE)", async () => {
+      const setup = setupRemoteFixture();
+      const mission = missionRepo.createMission({
+        habitatId: setup.habitat.id,
+        title: "Hidden Mission",
+        priority: "medium",
+        createdBy: "test",
+      });
+      const task = taskRepo.createTask({
+        missionId: mission.id,
+        title: "Hidden Task",
+        description: "x",
+        priority: "low",
+        requiredCapabilities: [],
+        labels: [],
+        createdBy: "test",
+      });
+      // No grant target added — task is in same habitat but not visible
+
+      const res = await app!.inject({
+        method: "GET",
+        url: `/api/shared/tasks/${task.id}`,
+        headers: remoteHeaders(setup),
+      });
+      expect(res.statusCode).toBe(403);
+      const body = JSON.parse(res.body);
+      expect(body.code).toBe("FORBIDDEN");
+      expect(body.code).not.toBe("TARGET_NOT_VISIBLE");
+    });
+
+    it("habitat-mismatch reason is logged server-side via logger.warn", async () => {
+      const warnSpy = vi.spyOn(logger, "warn");
+      const setup = setupRemoteFixture();
+      const otherHabitat = setupHabitat();
+      const mission = missionRepo.createMission({
+        habitatId: otherHabitat.id,
+        title: "Other Habitat Mission",
+        priority: "medium",
+        createdBy: "test",
+      });
+      const task = taskRepo.createTask({
+        missionId: mission.id,
+        title: "Other Habitat Task",
+        description: "x",
+        priority: "low",
+        requiredCapabilities: [],
+        labels: [],
+        createdBy: "test",
+      });
+
+      await app!.inject({
+        method: "GET",
+        url: `/api/shared/tasks/${task.id}`,
+        headers: remoteHeaders(setup),
+      });
+
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          reason: "HABITAT_MISMATCH",
+          targetId: task.id,
+        }),
+        "remote access denied",
+      );
+    });
+
+    it("not-visible reason is logged server-side via logger.warn", async () => {
+      const warnSpy = vi.spyOn(logger, "warn");
+      const setup = setupRemoteFixture();
+      const mission = missionRepo.createMission({
+        habitatId: setup.habitat.id,
+        title: "Hidden Mission",
+        priority: "medium",
+        createdBy: "test",
+      });
+      const task = taskRepo.createTask({
+        missionId: mission.id,
+        title: "Hidden Task",
+        description: "x",
+        priority: "low",
+        requiredCapabilities: [],
+        labels: [],
+        createdBy: "test",
+      });
+
+      await app!.inject({
+        method: "GET",
+        url: `/api/shared/tasks/${task.id}`,
+        headers: remoteHeaders(setup),
+      });
+
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          reason: "TARGET_NOT_VISIBLE",
+          targetId: task.id,
+        }),
+        "remote access denied",
+      );
+    });
+
+    it("TASK_NOT_OWNED remains a distinct 403 (not collapsed)", async () => {
+      const setup = setupRemoteFixture();
+      const mission = missionRepo.createMission({
+        habitatId: setup.habitat.id,
+        title: "Unclaimed Mission",
+        priority: "medium",
+        createdBy: "test",
+      });
+      const task = taskRepo.createTask({
+        missionId: mission.id,
+        title: "Unclaimed Task",
+        description: "x",
+        priority: "low",
+        requiredCapabilities: [],
+        labels: [],
+        createdBy: "test",
+      });
+      grantRepo.addRemoteGrantTarget(setup.grant.id, "task", task.id);
+      // Task is visible but not claimed by this participant
+
+      const res = await app!.inject({
+        method: "POST",
+        url: `/api/shared/tasks/${task.id}/heartbeat`,
+        headers: remoteHeaders(setup, "test-not-owned-key-1"),
+        payload: { progress: "x" },
+      });
+      expect(res.statusCode).toBe(403);
+      const body = JSON.parse(res.body);
+      expect(body.code).toBe("TASK_NOT_OWNED");
+    });
+
+    it("genuinely-missing task returns 404 NOT_FOUND (unchanged)", async () => {
+      const setup = setupRemoteFixture();
+      const res = await app!.inject({
+        method: "GET",
+        url: `/api/shared/tasks/${randomUUID()}`,
+        headers: remoteHeaders(setup),
+      });
+      expect(res.statusCode).toBe(404);
+      const body = JSON.parse(res.body);
+      expect(body.code).toBe("NOT_FOUND");
     });
   });
 

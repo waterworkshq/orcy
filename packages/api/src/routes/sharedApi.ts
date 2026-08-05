@@ -22,6 +22,7 @@ import {
   conflict,
   InterceptorVetoError,
 } from "../errors.js";
+import { logger } from "../lib/logger.js";
 import * as habitatRepo from "../repositories/habitat.js";
 import * as missionRepo from "../repositories/mission.js";
 import * as taskRepo from "../repositories/taskCrud.js";
@@ -154,6 +155,34 @@ function parseBody<T>(schema: z.ZodType<T>, raw: unknown): T {
   return result.data;
 }
 
+/**
+ * Anti-probing: collapse existence-leaking denial codes (HABITAT_MISMATCH,
+ * TARGET_NOT_VISIBLE) into a generic 403 for the remote client. The specific
+ * reason is logged server-side only — the `/api/shared/*` surface is
+ * cross-habitat, so distinct codes would let a prober distinguish "exists,
+ * other habitat" from "exists, your habitat, invisible".
+ *
+ * TASK_NOT_OWNED is intentionally NOT collapsed — it's legitimate ownership
+ * feedback for a participant who already passed visibility checks.
+ */
+function remoteAccessDenied(
+  reason: "HABITAT_MISMATCH" | "TARGET_NOT_VISIBLE",
+  targetId: string,
+  ctx: ReturnType<typeof requireRemoteContext>,
+): never {
+  logger.warn(
+    {
+      reason,
+      targetId,
+      participantId: ctx.participant.id,
+      habitatId: ctx.habitatId,
+      podId: ctx.pod.id,
+    },
+    "remote access denied",
+  );
+  throw forbidden("Access denied");
+}
+
 // ---------------------------------------------------------------------------
 // Route registration
 // ---------------------------------------------------------------------------
@@ -221,7 +250,7 @@ export async function sharedApiRoutes(fastify: FastifyInstance): Promise<void> {
     async (request: FastifyRequest<{ Params: { id: string } }>, _reply: FastifyReply) => {
       const ctx = requireRemoteContext(request);
       if (request.params.id !== ctx.habitatId) {
-        throw forbidden("Cannot access other habitats", "HABITAT_MISMATCH");
+        throw remoteAccessDenied("HABITAT_MISMATCH", request.params.id, ctx);
       }
       const habitat = habitatRepo.getHabitatById(ctx.habitatId);
       if (!habitat) {
@@ -248,7 +277,7 @@ export async function sharedApiRoutes(fastify: FastifyInstance): Promise<void> {
     async (request: FastifyRequest<{ Params: { id: string } }>, _reply: FastifyReply) => {
       const ctx = requireRemoteContext(request);
       if (request.params.id !== ctx.habitatId) {
-        throw forbidden("Cannot access other habitats", "HABITAT_MISMATCH");
+        throw remoteAccessDenied("HABITAT_MISMATCH", request.params.id, ctx);
       }
       const result = missionRepo.getMissionsByHabitatId(ctx.habitatId);
       const visible = result.missions.filter(
@@ -266,11 +295,11 @@ export async function sharedApiRoutes(fastify: FastifyInstance): Promise<void> {
       const mission = missionRepo.getMissionById(request.params.id);
       if (!mission) throw notFound("Mission not found");
       if (mission.habitatId !== ctx.habitatId) {
-        throw forbidden("Cannot access missions in other habitats", "HABITAT_MISMATCH");
+        throw remoteAccessDenied("HABITAT_MISMATCH", mission.id, ctx);
       }
       const visibility = isTargetVisibleToParticipant(ctx, "mission", mission.id);
       if (!visibility.visible) {
-        throw forbidden("Mission not visible to this remote participant", "TARGET_NOT_VISIBLE");
+        throw remoteAccessDenied("TARGET_NOT_VISIBLE", mission.id, ctx);
       }
       return { mission };
     },
@@ -289,11 +318,11 @@ export async function sharedApiRoutes(fastify: FastifyInstance): Promise<void> {
       if (!task) throw notFound("Task not found");
       const taskHabitatId = taskRepo.getHabitatIdForTask(request.params.id);
       if (!taskHabitatId || taskHabitatId !== ctx.habitatId) {
-        throw forbidden("Cannot access tasks in other habitats", "HABITAT_MISMATCH");
+        throw remoteAccessDenied("HABITAT_MISMATCH", task.id, ctx);
       }
       const visibility = isTargetVisibleToParticipant(ctx, "task", task.id);
       if (!visibility.visible) {
-        throw forbidden("Task not visible to this remote participant", "TARGET_NOT_VISIBLE");
+        throw remoteAccessDenied("TARGET_NOT_VISIBLE", task.id, ctx);
       }
       return { task };
     },
@@ -311,11 +340,11 @@ export async function sharedApiRoutes(fastify: FastifyInstance): Promise<void> {
       if (!task) throw notFound("Task not found");
       const taskHabitatId = taskRepo.getHabitatIdForTask(request.params.id);
       if (!taskHabitatId || taskHabitatId !== ctx.habitatId) {
-        throw forbidden("Cannot claim tasks in other habitats", "HABITAT_MISMATCH");
+        throw remoteAccessDenied("HABITAT_MISMATCH", task.id, ctx);
       }
       const visibility = isTargetVisibleToParticipant(ctx, "task", task.id);
       if (!visibility.visible) {
-        throw forbidden("Task not visible to this remote participant", "TARGET_NOT_VISIBLE");
+        throw remoteAccessDenied("TARGET_NOT_VISIBLE", task.id, ctx);
       }
       try {
         const result = claimTaskForRemote(request.params.id, ctx);
@@ -350,7 +379,7 @@ export async function sharedApiRoutes(fastify: FastifyInstance): Promise<void> {
       if (!task) throw notFound("Task not found");
       const taskHabitatId = taskRepo.getHabitatIdForTask(request.params.id);
       if (!taskHabitatId || taskHabitatId !== ctx.habitatId) {
-        throw forbidden("Cannot heartbeat tasks in other habitats", "HABITAT_MISMATCH");
+        throw remoteAccessDenied("HABITAT_MISMATCH", task.id, ctx);
       }
       if (task.remoteAssignedParticipantId !== ctx.participant.id) {
         throw forbidden("Task is not claimed by this participant", "TASK_NOT_OWNED");
@@ -384,7 +413,7 @@ export async function sharedApiRoutes(fastify: FastifyInstance): Promise<void> {
       if (!task) throw notFound("Task not found");
       const taskHabitatId = taskRepo.getHabitatIdForTask(request.params.id);
       if (!taskHabitatId || taskHabitatId !== ctx.habitatId) {
-        throw forbidden("Cannot submit tasks in other habitats", "HABITAT_MISMATCH");
+        throw remoteAccessDenied("HABITAT_MISMATCH", task.id, ctx);
       }
       try {
         const artifacts = (body.artifacts ?? []).map((a) => ({
@@ -434,7 +463,7 @@ export async function sharedApiRoutes(fastify: FastifyInstance): Promise<void> {
       if (!task) throw notFound("Task not found");
       const taskHabitatId = taskRepo.getHabitatIdForTask(request.params.id);
       if (!taskHabitatId || taskHabitatId !== ctx.habitatId) {
-        throw forbidden("Cannot release tasks in other habitats", "HABITAT_MISMATCH");
+        throw remoteAccessDenied("HABITAT_MISMATCH", task.id, ctx);
       }
       try {
         const result = releaseTaskForRemote(request.params.id, ctx, body.reason);
@@ -472,11 +501,11 @@ export async function sharedApiRoutes(fastify: FastifyInstance): Promise<void> {
       if (!task) throw notFound("Task not found");
       const taskHabitatId = taskRepo.getHabitatIdForTask(request.params.id);
       if (!taskHabitatId || taskHabitatId !== ctx.habitatId) {
-        throw forbidden("Cannot read comments in other habitats", "HABITAT_MISMATCH");
+        throw remoteAccessDenied("HABITAT_MISMATCH", task.id, ctx);
       }
       const visibility = isTargetVisibleToParticipant(ctx, "task", task.id);
       if (!visibility.visible) {
-        throw forbidden("Task not visible to this remote participant", "TARGET_NOT_VISIBLE");
+        throw remoteAccessDenied("TARGET_NOT_VISIBLE", task.id, ctx);
       }
       return commentService.getComments(request.params.id, 50, 0);
     },
@@ -495,11 +524,11 @@ export async function sharedApiRoutes(fastify: FastifyInstance): Promise<void> {
       if (!task) throw notFound("Task not found");
       const taskHabitatId = taskRepo.getHabitatIdForTask(request.params.id);
       if (!taskHabitatId || taskHabitatId !== ctx.habitatId) {
-        throw forbidden("Cannot comment on tasks in other habitats", "HABITAT_MISMATCH");
+        throw remoteAccessDenied("HABITAT_MISMATCH", task.id, ctx);
       }
       const visibility = isTargetVisibleToParticipant(ctx, "task", task.id);
       if (!visibility.visible) {
-        throw forbidden("Task not visible to this remote participant", "TARGET_NOT_VISIBLE");
+        throw remoteAccessDenied("TARGET_NOT_VISIBLE", task.id, ctx);
       }
       try {
         const authorType = mapParticipantToActorType(
@@ -541,11 +570,11 @@ export async function sharedApiRoutes(fastify: FastifyInstance): Promise<void> {
       const mission = missionRepo.getMissionById(request.params.id);
       if (!mission) throw notFound("Mission not found");
       if (mission.habitatId !== ctx.habitatId) {
-        throw forbidden("Cannot read comments in other habitats", "HABITAT_MISMATCH");
+        throw remoteAccessDenied("HABITAT_MISMATCH", mission.id, ctx);
       }
       const visibility = isTargetVisibleToParticipant(ctx, "mission", mission.id);
       if (!visibility.visible) {
-        throw forbidden("Mission not visible to this remote participant", "TARGET_NOT_VISIBLE");
+        throw remoteAccessDenied("TARGET_NOT_VISIBLE", mission.id, ctx);
       }
       return featureCommentService.getComments(request.params.id, 50, 0);
     },
@@ -563,11 +592,11 @@ export async function sharedApiRoutes(fastify: FastifyInstance): Promise<void> {
       const mission = missionRepo.getMissionById(request.params.id);
       if (!mission) throw notFound("Mission not found");
       if (mission.habitatId !== ctx.habitatId) {
-        throw forbidden("Cannot comment on missions in other habitats", "HABITAT_MISMATCH");
+        throw remoteAccessDenied("HABITAT_MISMATCH", mission.id, ctx);
       }
       const visibility = isTargetVisibleToParticipant(ctx, "mission", mission.id);
       if (!visibility.visible) {
-        throw forbidden("Mission not visible to this remote participant", "TARGET_NOT_VISIBLE");
+        throw remoteAccessDenied("TARGET_NOT_VISIBLE", mission.id, ctx);
       }
       try {
         const authorType = mapParticipantToActorType(
@@ -616,11 +645,11 @@ export async function sharedApiRoutes(fastify: FastifyInstance): Promise<void> {
       const mission = missionRepo.getMissionById(request.params.id);
       if (!mission) throw notFound("Mission not found");
       if (mission.habitatId !== ctx.habitatId) {
-        throw forbidden("Cannot read pulse in other habitats", "HABITAT_MISMATCH");
+        throw remoteAccessDenied("HABITAT_MISMATCH", mission.id, ctx);
       }
       const visibility = isTargetVisibleToParticipant(ctx, "mission", mission.id);
       if (!visibility.visible) {
-        throw forbidden("Mission not visible to this remote participant", "TARGET_NOT_VISIBLE");
+        throw remoteAccessDenied("TARGET_NOT_VISIBLE", mission.id, ctx);
       }
       const result = pulseRepo.getPulsesByMission(request.params.id);
       return { items: result.pulses, total: result.total };
@@ -639,11 +668,11 @@ export async function sharedApiRoutes(fastify: FastifyInstance): Promise<void> {
       const mission = missionRepo.getMissionById(request.params.id);
       if (!mission) throw notFound("Mission not found");
       if (mission.habitatId !== ctx.habitatId) {
-        throw forbidden("Cannot post pulse in other habitats", "HABITAT_MISMATCH");
+        throw remoteAccessDenied("HABITAT_MISMATCH", mission.id, ctx);
       }
       const visibility = isTargetVisibleToParticipant(ctx, "mission", mission.id);
       if (!visibility.visible) {
-        throw forbidden("Mission not visible to this remote participant", "TARGET_NOT_VISIBLE");
+        throw remoteAccessDenied("TARGET_NOT_VISIBLE", mission.id, ctx);
       }
       try {
         const result = pulseService.postMissionPulseSignal({
@@ -708,11 +737,11 @@ export async function sharedApiRoutes(fastify: FastifyInstance): Promise<void> {
       if (!task) throw notFound("Task not found");
       const taskHabitatId = taskRepo.getHabitatIdForTask(request.params.id);
       if (!taskHabitatId || taskHabitatId !== ctx.habitatId) {
-        throw forbidden("Cannot link evidence in other habitats", "HABITAT_MISMATCH");
+        throw remoteAccessDenied("HABITAT_MISMATCH", task.id, ctx);
       }
       const visibility = isTargetVisibleToParticipant(ctx, "task", task.id);
       if (!visibility.visible) {
-        throw forbidden("Task not visible to this remote participant", "TARGET_NOT_VISIBLE");
+        throw remoteAccessDenied("TARGET_NOT_VISIBLE", task.id, ctx);
       }
       try {
         // Remote participants can ONLY link external URLs. They cannot specify
@@ -751,11 +780,11 @@ export async function sharedApiRoutes(fastify: FastifyInstance): Promise<void> {
       const mission = missionRepo.getMissionById(request.params.id);
       if (!mission) throw notFound("Mission not found");
       if (mission.habitatId !== ctx.habitatId) {
-        throw forbidden("Cannot read workflow in other habitats", "HABITAT_MISMATCH");
+        throw remoteAccessDenied("HABITAT_MISMATCH", mission.id, ctx);
       }
       const visibility = isTargetVisibleToParticipant(ctx, "mission", mission.id);
       if (!visibility.visible) {
-        throw forbidden("Mission not visible to this remote participant", "TARGET_NOT_VISIBLE");
+        throw remoteAccessDenied("TARGET_NOT_VISIBLE", mission.id, ctx);
       }
       const workflow = workflowService.getWorkflowForMission(mission.id);
       if (!workflow) {
@@ -778,11 +807,11 @@ export async function sharedApiRoutes(fastify: FastifyInstance): Promise<void> {
       if (!task) throw notFound("Task not found");
       const taskHabitatId = taskRepo.getHabitatIdForTask(request.params.id);
       if (!taskHabitatId || taskHabitatId !== ctx.habitatId) {
-        throw forbidden("Cannot read workflow context in other habitats", "HABITAT_MISMATCH");
+        throw remoteAccessDenied("HABITAT_MISMATCH", task.id, ctx);
       }
       const visibility = isTargetVisibleToParticipant(ctx, "task", task.id);
       if (!visibility.visible) {
-        throw forbidden("Task not visible to this remote participant", "TARGET_NOT_VISIBLE");
+        throw remoteAccessDenied("TARGET_NOT_VISIBLE", task.id, ctx);
       }
       const context = workflowService.getTaskWorkflowContext(request.params.id);
       if (context.upstream.length === 0 && context.downstream.length === 0) {
@@ -893,7 +922,7 @@ export async function sharedApiRoutes(fastify: FastifyInstance): Promise<void> {
     const credential = credentialService.verifyRemoteKeyById(ctx.credentialId);
     if (!credential) throw notFound("Credential not found");
     if (credential.habitatId !== ctx.habitatId) {
-      throw forbidden("Credential habitat mismatch", "HABITAT_MISMATCH");
+      throw remoteAccessDenied("HABITAT_MISMATCH", ctx.credentialId, ctx);
     }
     return {
       credential: {
