@@ -17,6 +17,7 @@ vi.mock("../repositories/task.js", () => ({
 
 vi.mock("../repositories/event.js", () => ({
   createEvent: vi.fn(),
+  getEventById: vi.fn(),
 }));
 
 vi.mock("../sse/broadcaster.js", () => ({
@@ -570,6 +571,32 @@ describe("TransitionEmitter", () => {
       );
       unsub1();
       unsub2();
+    });
+  });
+
+  describe("existingEventId (no double event write)", () => {
+    it("skips createEvent and forwards the existing event id to transition hooks", () => {
+      const existingEvent = { id: "pre-existing-event-1" } as TaskEvent;
+      vi.mocked(eventRepo.getEventById).mockReturnValue(existingEvent);
+
+      const hook = vi.fn();
+      const unsub = onTransition(hook);
+
+      const task = makeTask({ status: "claimed" });
+      emitTransition("task-1", "claimed", "hab-1", {
+        ...baseCtx({ task, newStatus: "claimed" }),
+        existingEventId: "pre-existing-event-1",
+      });
+
+      // Invariant #9: no double event write
+      expect(eventRepo.createEvent).not.toHaveBeenCalled();
+      expect(eventRepo.getEventById).toHaveBeenCalledWith("pre-existing-event-1");
+      // The transition hook / notifyTransition receives the existing event's id
+      expect(hook).toHaveBeenCalledWith(
+        expect.objectContaining({ eventId: "pre-existing-event-1" }),
+      );
+
+      unsub();
     });
   });
 

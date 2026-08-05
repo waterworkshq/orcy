@@ -7,7 +7,7 @@ import * as missionService from "../missionService.js";
 import * as pulseService from "../pulseService.js";
 import { logger } from "../../lib/logger.js";
 import type { Task, TaskEvent } from "../../models/index.js";
-import type { EventAction } from "@orcy/shared";
+import type { EventAction, ActorType } from "@orcy/shared";
 
 /** Union of task lifecycle actions that can be emitted as transitions. */
 export type TaskAction =
@@ -50,7 +50,7 @@ const EVENT_ACTION_FOR: Record<TaskAction, EventAction | null> = {
 /** Optional metadata carried alongside a task transition. */
 export interface TransitionContext {
   actorId?: string;
-  actorType?: "agent" | "human" | "system";
+  actorType?: ActorType;
   reason?: string;
   oldStatus?: string;
   newStatus?: string;
@@ -65,6 +65,8 @@ export interface TransitionContext {
   backoffSeconds?: number;
   changedFields?: string[];
   taskId?: string;
+  /** When set, skips `createEvent` and uses this pre-existing event id (no double event write). */
+  existingEventId?: string;
 }
 
 type RecalcMode = "wrapped" | "direct" | "conditional" | "none";
@@ -466,12 +468,14 @@ export function emitTransition(
   const task = context.task ?? taskRepo.getTaskById(taskId) ?? undefined;
   let transitionEvent: TaskEvent | undefined;
 
-  if (cfg.emitEvent) {
+  if (context.existingEventId) {
+    transitionEvent = eventRepo.getEventById(context.existingEventId) ?? undefined;
+  } else if (cfg.emitEvent) {
     const eventAction = EVENT_ACTION_FOR[action];
     if (eventAction) {
       transitionEvent = eventRepo.createEvent({
         taskId,
-        actorType: (context.actorType ?? "agent") as "agent" | "human" | "system",
+        actorType: context.actorType ?? "agent",
         actorId: context.actorId ?? "",
         action: eventAction,
         fromStatus: context.oldStatus as never,
