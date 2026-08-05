@@ -1153,17 +1153,22 @@ describe("Phase D — Shared Habitat API", () => {
       const claimed = events.find((e) => e.action === "claimed");
       expect(claimed).toBeDefined();
       expect(claimed!.action).toBe("claimed");
+      // Phase-1 Edit B: fromStatus now reads task.status (the real prior
+      // status); still "pending" because a valid claim always originates
+      // from pending.
       expect(claimed!.fromStatus).toBe("pending");
       expect(claimed!.toStatus).toBe("claimed");
       expect(claimed!.actorType).toBe("remote_orcy");
       expect(claimed!.actorId).toBe(setup.participant.id);
     });
 
-    it("4. INTENTIONALLY-CHANGE — comment over-emit: remote comment creates a manual action:\"updated\" Task Event", async () => {
-      // Pin: sharedApi.ts:695-704 hand-rolls an event with action:"updated"
-      // after every remote task-comment create. The local comment route does
-      // NOT do this. Future T2 removes the over-emit; this assertion then
-      // flips to "no event with action:updated exists".
+    it("4. comment no-over-emit: remote comment does NOT create a manual action:\"updated\" Task Event", async () => {
+      // Phase-1 comment Option A fix: the remote task-comment handler no
+      // longer hand-rolls an action:"updated" event nor a
+      // pulse.signal_posted notification after a comment create.
+      // commentService.addComment is the sole seam (it fires the real SSE +
+      // hooks). This asserts the FIXED behavior — no action:"updated" Task
+      // Event exists for a remote comment.
       const setup = setupRemoteFixture();
       const { task } = seedTaskWithRequiredCapabilities(setup, []);
 
@@ -1176,16 +1181,7 @@ describe("Phase D — Shared Habitat API", () => {
       expect(res.statusCode).toBe(201);
 
       const { events } = taskEventRepo.getEventsByTaskId(task.id);
-      const updated = events.find((e) => e.action === "updated");
-      expect(updated).toBeDefined();
-      expect(updated!.taskId).toBe(task.id);
-      expect(updated!.actorType).toBe("remote_orcy");
-      expect(updated!.actorId).toBe(setup.participant.id);
-      // metadata.action is "comment" (route labels the action in metadata);
-      // load-bearing for the future flip — once removed, neither event nor
-      // metadata.action exists.
-      const metadata = updated!.metadata as { action?: string; commentId?: string };
-      expect(metadata.action).toBe("comment");
+      expect(events.find((e) => e.action === "updated")).toBeUndefined();
     });
 
     it("5. INTENTIONALLY-CHANGE — submit parity gap: remote submit runs NO quality-gate and NO assignReviewers", async () => {
@@ -1220,8 +1216,9 @@ describe("Phase D — Shared Habitat API", () => {
       const { events } = taskEventRepo.getEventsByTaskId(task.id);
       const submitted = events.find((e) => e.action === "submitted");
       expect(submitted).toBeDefined();
-      // Hardcoded at sharedApi.ts:531 — the local submit derives fromStatus
-      // from the actual prior status (could be claimed OR in_progress).
+      // Phase-1 Edit B: fromStatus now reads task.status (the real prior
+      // status); still "in_progress" because the state machine gates submit
+      // on in_progress.
       expect(submitted!.fromStatus).toBe("in_progress");
       expect(submitted!.toStatus).toBe("submitted");
       expect(submitted!.actorType).toBe("remote_orcy");

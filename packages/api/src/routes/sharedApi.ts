@@ -418,7 +418,7 @@ export async function sharedApiRoutes(fastify: FastifyInstance): Promise<void> {
           ),
           actorId: ctx.participant.id,
           action: "claimed",
-          fromStatus: "pending",
+          fromStatus: task.status,
           toStatus: "claimed",
           metadata: withAuditProvenanceMetadata({}),
         });
@@ -528,7 +528,7 @@ export async function sharedApiRoutes(fastify: FastifyInstance): Promise<void> {
           ),
           actorId: ctx.participant.id,
           action: "submitted",
-          fromStatus: "in_progress",
+          fromStatus: task.status,
           toStatus: "submitted",
           metadata: withAuditProvenanceMetadata({
             result: body.result,
@@ -692,31 +692,6 @@ export async function sharedApiRoutes(fastify: FastifyInstance): Promise<void> {
           body.content,
           body.parentId,
         );
-        taskEventRepo.createEvent({
-          taskId: task.id,
-          actorType: authorType,
-          actorId: ctx.participant.id,
-          action: "updated",
-          metadata: withAuditProvenanceMetadata({
-            commentId: comment.id,
-            action: "comment",
-          }),
-        });
-        emitRemoteOriginatedNotification({
-          habitatId: ctx.habitatId,
-          eventType: "pulse.signal_posted",
-          sourceType: "task",
-          sourceId: task.id,
-          targetType: "task",
-          targetId: task.id,
-          severity: "info",
-          title: `New comment on ${task.title}`,
-          body: `${ctx.participant.displayName}: ${body.content.slice(0, 120)}`,
-          payload: { taskId: task.id, missionId: task.missionId, action: "comment" },
-          actorType: ctx.participant.participantType as "remote_human" | "remote_orcy",
-          actorId: ctx.participant.id,
-          podId: ctx.pod.id,
-        });
         const responseBody = { comment };
         completeRemoteIdempotency(request, 201, responseBody);
         reply.code(201).send(responseBody);
