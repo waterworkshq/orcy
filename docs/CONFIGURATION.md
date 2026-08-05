@@ -19,6 +19,7 @@ Complete reference for all environment variables and configuration options in Or
 | `ORCY_BASE_URL` | — | Legacy fallback for `ORCY_PUBLIC_URL`. Optional. |
 | `ORCY_PUBLIC_URL` | — | Public base URL for shared-habitat reachability checks and webhook dispatch. Falls back to `ORCY_BASE_URL`. Read by `packages/api`. Optional for local-only deployments. |
 | `ORCY_TRANSITION_RECALC_DEBOUNCE` | unset | When set to `"true"`, debounces habitat-health recalculation after task transitions. Optional. |
+| `ORCY_REMOTE_GOVERNANCE_DEFAULT` | `true` (enabled) | Global default for the two remote-governance flags: `applyInterceptorsToRemote` (remote claim/submit run the same governance interceptors as local) and `enforceHostApprovedCapability` (remote claims enforce Host-Approved Capability eligibility). Truthy values (`true`/`1`/`yes`/`on`) enable; falsy (`false`/`0`/`off`/`no`) disable; unset defaults to `true`. Per-habitat override via the `remoteGovernanceSettings` JSON column (`PATCH /habitats/:id`). |
 | `ORCY_UI_PATH` | `~/.orcy/ui` | Directory containing built UI static assets, served at `/app/` when present. Optional. |
 
 ### Security Posture
