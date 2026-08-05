@@ -73,14 +73,14 @@ describe("remoteGovernanceSettings — round-trip (proves migration applied)", (
 });
 
 describe("getRemoteGovernanceSettings — effective-value resolution", () => {
-  it("both flags default to false when env unset and habitat column is null", () => {
+  it("both flags default to true when env unset and habitat column is null", () => {
     delete process.env.ORCY_REMOTE_GOVERNANCE_DEFAULT;
     setRemoteGovernanceSettings(null);
 
     const result = getRemoteGovernanceSettings(habitatId);
     expect(result).toEqual({
-      applyInterceptorsToRemote: false,
-      enforceHostApprovedCapability: false,
+      applyInterceptorsToRemote: true,
+      enforceHostApprovedCapability: true,
     });
   });
 
@@ -136,7 +136,8 @@ describe("getRemoteGovernanceSettings — effective-value resolution", () => {
   it("non-truthy env variants resolve to false", () => {
     setRemoteGovernanceSettings(null);
 
-    for (const variant of ["false", "0", "off", "no", "", "random"]) {
+    // Note: "" (empty string) is treated as unset → true, see dedicated test below.
+    for (const variant of ["false", "0", "off", "no", "random"]) {
       process.env.ORCY_REMOTE_GOVERNANCE_DEFAULT = variant;
       const result = getRemoteGovernanceSettings(habitatId);
       expect(result).toEqual({
@@ -144,5 +145,16 @@ describe("getRemoteGovernanceSettings — effective-value resolution", () => {
         enforceHostApprovedCapability: false,
       });
     }
+  });
+
+  it("empty-string env is treated as unset → both flags default true", () => {
+    setRemoteGovernanceSettings(null);
+
+    process.env.ORCY_REMOTE_GOVERNANCE_DEFAULT = "";
+    const result = getRemoteGovernanceSettings(habitatId);
+    expect(result).toEqual({
+      applyInterceptorsToRemote: true,
+      enforceHostApprovedCapability: true,
+    });
   });
 });

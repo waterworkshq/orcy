@@ -162,7 +162,7 @@ function claimAndStart(taskId: string, participantId: string): void {
 
 beforeEach(async () => {
   await initTestDb();
-  // Ensure governance env doesn't leak — flags default OFF
+  // Ensure governance env doesn't leak — flags default ON (env unset)
   delete process.env.ORCY_REMOTE_GOVERNANCE_DEFAULT;
   delete process.env.ORCY_PUBLIC_URL;
   delete process.env.ORCY_BASE_URL;
@@ -248,7 +248,11 @@ describe("claimTaskForRemote", () => {
     const { ctx } = setupRemoteFixture();
     const task = seedTask(ctx.habitatId, ["typescript"]);
 
-    // Flags OFF (default) — no capability enforcement
+    // Explicitly OFF (default is now ON)
+    setGovernance(ctx.habitatId, {
+      applyInterceptorsToRemote: false,
+      enforceHostApprovedCapability: false,
+    });
     const result = claimTaskForRemote(task.id, ctx);
 
     expect(result.success).toBe(true);
@@ -281,7 +285,11 @@ describe("claimTaskForRemote", () => {
     const { ctx } = setupRemoteFixture();
     const task = seedTask(ctx.habitatId);
 
-    // Flags OFF (default)
+    // Explicitly OFF (default is now ON)
+    setGovernance(ctx.habitatId, {
+      applyInterceptorsToRemote: false,
+      enforceHostApprovedCapability: false,
+    });
     const spy = vi.spyOn(pluginManager, "runPreInterceptors");
 
     claimTaskForRemote(task.id, ctx);

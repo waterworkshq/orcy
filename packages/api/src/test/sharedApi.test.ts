@@ -1294,12 +1294,10 @@ describe("Phase D — Shared Habitat API", () => {
       return { mission, task };
     }
 
-    it("1. INTENTIONALLY-CHANGE — D2 gap: remote claim succeeds with empty approvedCapabilities on a requiredCapabilities task", async () => {
-      // Pin: today's route does NOT gate claim eligibility on capability
-      // overlap between participant.approvedCapabilities and
-      // task.requiredCapabilities. The participant's approvedCapabilities is
-      // empty by default (setupRemoteFixture); the task requires "typescript".
-      // Future T5/D2 closes the gap; this assertion then flips to "403".
+    it("1. D2 enforced — remote claim refused (capability_mismatch) with empty approvedCapabilities on a requiredCapabilities task", async () => {
+      // D2 (enforceHostApprovedCapability) now defaults ON. The participant's
+      // approvedCapabilities is empty by default (setupRemoteFixture); the task
+      // requires "typescript" → capability_mismatch → 409 CONFLICT.
       const setup = setupRemoteFixture();
       const { task } = seedTaskWithRequiredCapabilities(setup, ["typescript"]);
 
@@ -1309,11 +1307,10 @@ describe("Phase D — Shared Habitat API", () => {
         headers: remoteHeaders(setup, "test-char-d2-claim-1"),
       });
 
-      expect(res.statusCode).toBe(200);
+      expect(res.statusCode).toBe(409);
       const body = JSON.parse(res.body);
-      expect(body.task.id).toBe(task.id);
-      expect(body.task.status).toBe("claimed");
-      expect(body.task.remoteAssignedParticipantId).toBe(setup.participant.id);
+      expect(body.message).toBe("capability_mismatch");
+      expect(body.code).toBe("CONFLICT");
     });
 
     it("2. onTransition wiring: remote claim invokes emitTransition", async () => {
