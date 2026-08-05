@@ -1109,13 +1109,10 @@ describe("Phase D — Shared Habitat API", () => {
       expect(body.task.remoteAssignedParticipantId).toBe(setup.participant.id);
     });
 
-    it("2. INTENTIONALLY-CHANGE — onTransition bypass: remote claim does NOT invoke emitTransition", async () => {
-      // Pin: the remote claim route hand-rolls `taskEventRepo.createEvent`
-      // instead of routing through emitTransition. Its outgoing fan
-      // (recalculateMissionStatus, emitAutoSignal, notifyWatchers/SSE,
-      // notifyTransition) therefore does NOT fire for remote claim today.
-      // Future T5 routes remote claim through emitTransition; this assertion
-      // then flips to "called".
+    it("2. onTransition wiring: remote claim invokes emitTransition", async () => {
+      // The remote claim wrapper routes through emitTransition, firing its
+      // outgoing fan (recalculateMissionStatus, emitAutoSignal,
+      // notifyWatchers/SSE, notifyTransition) for remote claim.
       const emitSpy = vi.spyOn(transitionEmitter, "emitTransition");
 
       const setup = setupRemoteFixture();
@@ -1127,18 +1124,15 @@ describe("Phase D — Shared Habitat API", () => {
       });
 
       expect(res.statusCode).toBe(200);
-      expect(emitSpy).not.toHaveBeenCalled();
+      expect(emitSpy).toHaveBeenCalled();
     });
 
-    it("3. INTENTIONALLY-CHANGE — manual claim event with hardcoded fromStatus:\"pending\"", async () => {
-      // Pin: the route's manual `taskEventRepo.createEvent` writes
-      //   action:"claimed", fromStatus:"pending", toStatus:"claimed"
-      // at sharedApi.ts:414-424, with actorType derived from the participant
-      // (remote_orcy for the default fixture). The literal "pending" is
-      // hardcoded — even if the task was previously started/released, the
-      // emitted fromStatus is always "pending". Future T5 routes through
-      // emitTransition, which derives fromStatus from the actual prior
-      // status; this assertion then carries the true fromStatus.
+    it("3. claim event via wrapper tx: action:\"claimed\", fromStatus:\"pending\"", async () => {
+      // The remote claim wrapper creates exactly one `action:"claimed"` event
+      // inside its atomic tx (via createEventWithClient). fromStatus is the
+      // task's real prior status ("pending" — a valid claim always originates
+      // from pending). The event is created through the wrapper's tx path,
+      // not a manual hardcoded event in the route.
       const setup = setupRemoteFixture();
       const { task } = seedTaskWithRequiredCapabilities(setup, []);
 
@@ -1184,15 +1178,9 @@ describe("Phase D — Shared Habitat API", () => {
       expect(events.find((e) => e.action === "updated")).toBeUndefined();
     });
 
-    it("5. INTENTIONALLY-CHANGE — submit parity gap: remote submit runs NO quality-gate and NO assignReviewers", async () => {
-      // Pin: the remote submit handler calls submitTaskByRemoteParticipant
-      // (a plain UPDATE) at sharedApi.ts:515-523, then writes a manual event
-      // at sharedApi.ts:524-536. It NEVER invokes
-      // qualityGateService.validateQualityGates (which the local submitTask
-      // does at services/tasks/task-lifecycle.ts:205) NOR
-      // reviewAssignment.assignReviewers (which the local submitTask does
-      // at services/tasks/task-lifecycle.ts:245). Future T5's submit wrapper
-      // must add these.
+    it("5. submit parity: remote submit runs quality-gate validation and assignReviewers", async () => {
+      // The submit wrapper calls validateQualityGates + assignReviewers,
+      // matching local submitTask parity.
       const qualitySpy = vi.spyOn(qualityGateService, "validateQualityGates");
       const assignSpy = vi.spyOn(reviewAssignment, "assignReviewers");
 
@@ -1210,32 +1198,28 @@ describe("Phase D — Shared Habitat API", () => {
       });
       expect(res.statusCode).toBe(200);
 
-      expect(qualitySpy).not.toHaveBeenCalled();
-      expect(assignSpy).not.toHaveBeenCalled();
+      expect(qualitySpy).toHaveBeenCalled();
+      expect(assignSpy).toHaveBeenCalled();
 
       const { events } = taskEventRepo.getEventsByTaskId(task.id);
       const submitted = events.find((e) => e.action === "submitted");
       expect(submitted).toBeDefined();
-      // Phase-1 Edit B: fromStatus now reads task.status (the real prior
-      // status); still "in_progress" because the state machine gates submit
-      // on in_progress.
+      // fromStatus is the task's real prior status ("in_progress" — the
+      // state machine gates submit on in_progress).
       expect(submitted!.fromStatus).toBe("in_progress");
       expect(submitted!.toStatus).toBe("submitted");
       expect(submitted!.actorType).toBe("remote_orcy");
       expect(submitted!.actorId).toBe(setup.participant.id);
     });
 
-    it("6. INTENTIONALLY-CHANGE — §5.3 swallow: a post-mutation side-effect failure is masked as idempotent 200 success", async () => {
-      // Pin: when the claim mutation has committed but a downstream
-      // side-effect (here, taskEventRepo.createEvent) throws, the catch at
-      // sharedApi.ts:444-451 re-fetches the task, sees the claim is now
-      // visible (remoteAssignedParticipantId === participant.id), and
-      // returns 200. The post-commit failure is masked — a veto/tx-failure
-      // would still be reported as success. Future T5 removes the swallow;
-      // this assertion then flips to "non-200 status" or "throws".
-      const createEventSpy = vi.spyOn(taskEventRepo, "createEvent");
+    it("6. §5.3 removed: a tx-internal failure is reported as honest failure, not masked as 200", async () => {
+      // The §5.3 swallow (re-fetch task → if looks claimed → 200) is removed.
+      // The wrapper creates the event inside its atomic tx via
+      // createEventWithClient. When that throws, the entire tx rolls back
+      // (undoing the claim) and the route reports an honest failure.
+      const createEventSpy = vi.spyOn(taskEventRepo, "createEventWithClient");
       createEventSpy.mockImplementation(() => {
-        throw new Error("synthetic post-commit event write failure");
+        throw new Error("synthetic tx-internal event write failure");
       });
 
       const setup = setupRemoteFixture();
@@ -1247,13 +1231,9 @@ describe("Phase D — Shared Habitat API", () => {
         headers: remoteHeaders(setup, "test-char-swallow-6"),
       });
 
-      // The catch's re-fetch observes the committed claim → idempotent 200.
-      expect(res.statusCode).toBe(200);
-      const body = JSON.parse(res.body);
-      expect(body.task.id).toBe(task.id);
-      expect(body.task.remoteAssignedParticipantId).toBe(setup.participant.id);
-      // The spy was actually invoked (proves the throw was on the
-      // post-commit path, not before the mutation).
+      // Under the new atomicity, the throw rolls back the tx → honest failure.
+      expect(res.statusCode).not.toBe(200);
+      // The spy was invoked (proves the throw was inside the tx, not before).
       expect(createEventSpy).toHaveBeenCalled();
     });
   });

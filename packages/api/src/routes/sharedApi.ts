@@ -14,11 +14,17 @@ import {
   isTargetVisibleToParticipant,
   listMyGrants,
 } from "../services/sharedGrantVisibilityService.js";
-import { badRequest, forbidden, notFound, unauthorized, conflict } from "../errors.js";
+import {
+  badRequest,
+  forbidden,
+  notFound,
+  unauthorized,
+  conflict,
+  InterceptorVetoError,
+} from "../errors.js";
 import * as habitatRepo from "../repositories/habitat.js";
 import * as missionRepo from "../repositories/mission.js";
 import * as taskRepo from "../repositories/taskCrud.js";
-import * as taskStateMachine from "../repositories/taskStateMachine.js";
 import * as credentialService from "../services/remoteCredentialService.js";
 import * as podRepo from "../repositories/remotePod.js";
 import * as participantRepo from "../repositories/remoteParticipant.js";
@@ -28,10 +34,13 @@ import * as pulseService from "../services/pulseService.js";
 import * as pulseRepo from "../repositories/pulse.js";
 import * as codeEvidenceLinking from "../services/codeEvidence/linking.js";
 import * as deliveryRepo from "../repositories/notificationDelivery.js";
-import * as taskEventRepo from "../repositories/events/event-crud.js";
 import * as workflowService from "../services/workflowService.js";
 import { emitRemoteOriginatedNotification } from "../services/remoteNotifications.js";
-import { withAuditProvenanceMetadata } from "../services/auditProvenanceContext.js";
+import {
+  claimTaskForRemote,
+  submitTaskForRemote,
+  releaseTaskForRemote,
+} from "../services/tasks/remote-task-lifecycle.js";
 import type { CodeEvidenceActor } from "../services/codeEvidence/types.js";
 
 // ---------------------------------------------------------------------------
@@ -309,50 +318,18 @@ export async function sharedApiRoutes(fastify: FastifyInstance): Promise<void> {
         throw forbidden("Task not visible to this remote participant", "TARGET_NOT_VISIBLE");
       }
       try {
-        const result = taskStateMachine.claimTaskByRemoteParticipant(
-          request.params.id,
-          ctx.participant.id,
-        );
+        const result = claimTaskForRemote(request.params.id, ctx);
         if (!result.success) {
           throw conflict(result.reason ?? "Cannot claim task", "TASK_CLAIM_FAILED");
         }
-        taskEventRepo.createEvent({
-          taskId: task.id,
-          actorType: mapParticipantToActorType(
-            ctx.participant.participantType as "remote_human" | "remote_orcy",
-          ),
-          actorId: ctx.participant.id,
-          action: "claimed",
-          fromStatus: task.status,
-          toStatus: "claimed",
-          metadata: withAuditProvenanceMetadata({}),
-        });
-        emitRemoteOriginatedNotification({
-          habitatId: ctx.habitatId,
-          eventType: "task.assigned",
-          sourceType: "task",
-          sourceId: task.id,
-          targetType: "task",
-          targetId: task.id,
-          severity: "info",
-          title: `Task claimed: ${task.title}`,
-          body: `${ctx.participant.displayName} claimed task ${task.title}`,
-          payload: { taskId: task.id, missionId: task.missionId, action: "claimed" },
-          actorType: ctx.participant.participantType as "remote_human" | "remote_orcy",
-          actorId: ctx.participant.id,
-          podId: ctx.pod.id,
-        });
         const responseBody = { task: result.task };
         completeRemoteIdempotency(request, 200, responseBody);
         reply.code(200).send(responseBody);
         return;
       } catch (err) {
-        const currentTask = taskRepo.getTaskById(request.params.id);
-        if (currentTask && currentTask.remoteAssignedParticipantId === ctx.participant.id) {
-          const responseBody = { task: currentTask };
-          completeRemoteIdempotency(request, 200, responseBody);
-          reply.code(200).send(responseBody);
-          return;
+        if (err instanceof InterceptorVetoError) {
+          // Anti-probing: suppress blockedBy detail for remote clients
+          throw forbidden("Transition blocked by lifecycle interceptor", "INTERCEPTOR_VETO");
         }
         failRemoteIdempotency(request, (err as Error).message);
         throw err;
@@ -408,77 +385,34 @@ export async function sharedApiRoutes(fastify: FastifyInstance): Promise<void> {
       if (!taskHabitatId || taskHabitatId !== ctx.habitatId) {
         throw forbidden("Cannot submit tasks in other habitats", "HABITAT_MISMATCH");
       }
-      if (task.remoteAssignedParticipantId !== ctx.participant.id) {
-        throw forbidden("Task is not claimed by this participant", "TASK_NOT_OWNED");
-      }
       try {
         const artifacts = (body.artifacts ?? []).map((a) => ({
           type: "pr" as const,
           url: a.url ?? "",
           description: a.kind,
         }));
-        const submitted = taskStateMachine.submitTaskByRemoteParticipant(
-          request.params.id,
-          ctx.participant.id,
-          body.result,
-          artifacts,
-        );
-        if (!submitted) {
+        const result = submitTaskForRemote(request.params.id, ctx, body.result, artifacts);
+        if (!result.success) {
+          if (result.reason === "not_owned") {
+            throw forbidden("Task is not claimed by this participant", "TASK_NOT_OWNED");
+          }
           throw conflict("Cannot submit task in current state", "TASK_SUBMIT_FAILED");
         }
-        taskEventRepo.createEvent({
-          taskId: submitted.id,
-          actorType: mapParticipantToActorType(
-            ctx.participant.participantType as "remote_human" | "remote_orcy",
-          ),
-          actorId: ctx.participant.id,
-          action: "submitted",
-          fromStatus: task.status,
-          toStatus: "submitted",
-          metadata: withAuditProvenanceMetadata({
-            result: body.result,
-          }),
-        });
-        emitRemoteOriginatedNotification({
-          habitatId: ctx.habitatId,
-          eventType: "task.review_requested",
-          sourceType: "task",
-          sourceId: submitted.id,
-          targetType: "task",
-          targetId: submitted.id,
-          severity: "info",
-          title: `Task submitted for review: ${submitted.title}`,
-          body: `${ctx.participant.displayName} submitted task ${submitted.title} for review`,
-          payload: { taskId: submitted.id, missionId: submitted.missionId, action: "submitted" },
-          actorType: ctx.participant.participantType as "remote_human" | "remote_orcy",
-          actorId: ctx.participant.id,
-          podId: ctx.pod.id,
-        });
         const responseBody = {
           success: true,
           task: {
-            id: submitted.id,
-            status: submitted.status,
-            submittedAt: submitted.submittedAt,
+            id: result.task.id,
+            status: result.task.status,
+            submittedAt: result.task.submittedAt,
           },
         };
         completeRemoteIdempotency(request, 200, responseBody);
         reply.code(200).send(responseBody);
         return;
       } catch (err) {
-        const currentTask = taskRepo.getTaskById(request.params.id);
-        if (currentTask && currentTask.status === "submitted") {
-          const responseBody = {
-            success: true,
-            task: {
-              id: currentTask.id,
-              status: currentTask.status,
-              submittedAt: currentTask.submittedAt,
-            },
-          };
-          completeRemoteIdempotency(request, 200, responseBody);
-          reply.code(200).send(responseBody);
-          return;
+        if (err instanceof InterceptorVetoError) {
+          // Anti-probing: suppress blockedBy detail for remote clients
+          throw forbidden("Transition blocked by lifecycle interceptor", "INTERCEPTOR_VETO");
         }
         failRemoteIdempotency(request, (err as Error).message);
         throw err;
@@ -502,41 +436,21 @@ export async function sharedApiRoutes(fastify: FastifyInstance): Promise<void> {
         throw forbidden("Cannot release tasks in other habitats", "HABITAT_MISMATCH");
       }
       try {
-        const released = taskStateMachine.releaseTaskByRemoteParticipant(
-          request.params.id,
-          ctx.participant.id,
-        );
-        if (!released) {
+        const result = releaseTaskForRemote(request.params.id, ctx, body.reason);
+        if (!result.success) {
+          if (result.reason === "not_owned") {
+            throw forbidden("Task is not claimed by this participant", "TASK_NOT_OWNED");
+          }
           throw conflict("Cannot release task in current state", "TASK_RELEASE_FAILED");
         }
-        taskEventRepo.createEvent({
-          taskId: released.id,
-          actorType: mapParticipantToActorType(
-            ctx.participant.participantType as "remote_human" | "remote_orcy",
-          ),
-          actorId: ctx.participant.id,
-          action: "released",
-          fromStatus: task.status,
-          toStatus: "pending",
-          metadata: withAuditProvenanceMetadata({
-            reason: body.reason,
-          }),
-        });
-        const responseBody = { task: released };
+        const responseBody = { task: result.task };
         completeRemoteIdempotency(request, 200, responseBody);
         reply.code(200).send(responseBody);
         return;
       } catch (err) {
-        const currentTask = taskRepo.getTaskById(request.params.id);
-        if (
-          currentTask &&
-          currentTask.remoteAssignedParticipantId === null &&
-          currentTask.status === "pending"
-        ) {
-          const responseBody = { task: currentTask };
-          completeRemoteIdempotency(request, 200, responseBody);
-          reply.code(200).send(responseBody);
-          return;
+        if (err instanceof InterceptorVetoError) {
+          // Anti-probing: suppress blockedBy detail for remote clients
+          throw forbidden("Transition blocked by lifecycle interceptor", "INTERCEPTOR_VETO");
         }
         failRemoteIdempotency(request, (err as Error).message);
         throw err;
