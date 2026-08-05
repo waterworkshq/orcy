@@ -134,6 +134,7 @@ const habitat: PublicHabitat = {
   ciCdSettings: null,
   gitWorktreeSettings: null,
   prioritizationSettings: null,
+  remoteGovernanceSettings: null,
   automationSettings: null,
   wikiSettings: null,
   triageSettings: null,

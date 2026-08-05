@@ -54,6 +54,7 @@ function makeTask(overrides: Partial<Task> & { id: string }): Task {
     createdBy: "user-1",
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
+    lastActivityAt: null,
     version: 1,
     estimatedMinutes: null,
     actualMinutes: null,
@@ -65,7 +66,7 @@ function makeTask(overrides: Partial<Task> & { id: string }): Task {
     nextRetryAt: null,
     labels: [],
     ...overrides,
-  };
+  } as Task;
 }
 
 describe("FeatureTaskKanban", () => {

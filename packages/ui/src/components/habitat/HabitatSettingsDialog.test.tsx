@@ -157,6 +157,7 @@ const mockHabitat: PublicHabitat = {
   anomalySettings: null,
   autoAssignSettings: null,
   prioritizationSettings: null,
+  remoteGovernanceSettings: null,
   automationSettings: null,
   codeReviewSettings: null,
   ciCdSettings: null,

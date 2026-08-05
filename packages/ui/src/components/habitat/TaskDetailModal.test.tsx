@@ -113,6 +113,7 @@ const baseTask: Task = {
   createdBy: "user-1",
   createdAt: "2024-03-18T10:00:00Z",
   updatedAt: "2024-03-20T12:00:00Z",
+  lastActivityAt: null,
   version: 3,
   estimatedMinutes: 60,
   actualMinutes: null,

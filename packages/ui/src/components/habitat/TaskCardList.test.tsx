@@ -80,10 +80,11 @@ function makeTask(overrides: Partial<Task> & { id: string; title: string }): Tas
     createdBy: "test",
     createdAt: "2024-01-01T00:00:00Z",
     updatedAt: "2024-01-01T00:00:00Z",
+    lastActivityAt: null,
     version: 1,
     order: 0,
     ...overrides,
-  };
+  } as Task;
 }
 
 const tasks = [
