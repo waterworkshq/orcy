@@ -141,6 +141,58 @@ export function submitTaskByRemoteParticipant(
 }
 
 /**
+ * T5a — tx-aware submit primitive for remote participants. Mirrors
+ * `submitTaskByRemoteParticipant`'s gate (status === "in_progress" &&
+ * remoteAssignedParticipantId === participantId) and SET clause, but operates
+ * on the caller-supplied `tx` so it can compose inside a wrapper's atomic
+ * transaction alongside `createEventWithClient`. Never calls `getDb()`.
+ *
+ * Returns the updated `Task` on success, or `null` if the task is missing or
+ * the gate check fails. Infrastructure errors propagate (the caller's tx owns
+ * the rollback).
+ */
+export function submitWithAuthorityClient(
+  tx: ReturnType<typeof getDb>,
+  taskId: string,
+  remoteParticipantId: string,
+  result: string,
+  artifacts: Artifact[],
+): Task | null {
+  type TaskRow = typeof tasks.$inferSelect;
+  const row = tx.select().from(tasks).where(eq(tasks.id, taskId)).get() as TaskRow | undefined;
+  if (!row) return null;
+  if (row.status !== "in_progress" || row.remoteAssignedParticipantId !== remoteParticipantId) {
+    return null;
+  }
+
+  const now = new Date().toISOString();
+  tx.update(tasks)
+    .set({
+      status: "submitted",
+      submittedAt: now,
+      result,
+      artifacts,
+      updatedAt: now,
+      version: sql`${tasks.version} + 1`,
+    })
+    .where(
+      and(
+        eq(tasks.id, taskId),
+        eq(tasks.remoteAssignedParticipantId, remoteParticipantId),
+        eq(tasks.status, "in_progress"),
+      ),
+    )
+    .run();
+
+  const updated = tx
+    .select()
+    .from(tasks)
+    .where(eq(tasks.id, taskId))
+    .get() as TaskRow | undefined;
+  return (updated as unknown as Task) ?? null;
+}
+
+/**
  * Phase D — start a task claimed by a remote participant. Mirrors `startTask`.
  */
 export function startTaskByRemoteParticipant(
