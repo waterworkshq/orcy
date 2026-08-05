@@ -29,6 +29,7 @@ import {
   validateTransition,
   formatClonedTitle,
   validateAgentCapabilities,
+  validateAgentDomain,
   mergeArtifacts,
   VALID_TRANSITIONS,
 } from '../services/tasks/helpers.js';
@@ -127,6 +128,28 @@ describe('helpers', () => {
 
     it('returns empty when no capabilities required', () => {
       expect(validateAgentCapabilities(['typescript'], [])).toEqual([]);
+    });
+  });
+
+  describe('validateAgentDomain', () => {
+    it('returns ok when requiredDomain is null', () => {
+      expect(validateAgentDomain(['infra'], null)).toEqual({ ok: true, missingDomains: [] });
+    });
+
+    it('returns ok when requiredDomain is empty string', () => {
+      expect(validateAgentDomain([], '')).toEqual({ ok: true, missingDomains: [] });
+    });
+
+    it('returns ok when requiredDomain is in approvedDomains', () => {
+      expect(validateAgentDomain(['infra', 'web'], 'infra')).toEqual({ ok: true, missingDomains: [] });
+    });
+
+    it('returns not ok with single-element missingDomains when requiredDomain is missing', () => {
+      expect(validateAgentDomain(['web'], 'infra')).toEqual({ ok: false, missingDomains: ['infra'] });
+    });
+
+    it('returns not ok when approvedDomains is empty and requiredDomain is set', () => {
+      expect(validateAgentDomain([], 'infra')).toEqual({ ok: false, missingDomains: ['infra'] });
     });
   });
 

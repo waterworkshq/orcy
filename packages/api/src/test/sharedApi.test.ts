@@ -1294,6 +1294,30 @@ describe("Phase D — Shared Habitat API", () => {
       return { mission, task };
     }
 
+    function seedTaskWithRequiredDomain(
+      setup: ReturnType<typeof setupRemoteFixture>,
+      requiredDomain: string,
+    ) {
+      const mission = missionRepo.createMission({
+        habitatId: setup.habitat.id,
+        title: "Char Mission",
+        priority: "medium",
+        createdBy: "test",
+      });
+      const task = taskRepo.createTask({
+        missionId: mission.id,
+        title: "Char Task",
+        description: "x",
+        priority: "medium",
+        requiredCapabilities: [],
+        requiredDomain,
+        labels: [],
+        createdBy: "test",
+      });
+      grantRepo.addRemoteGrantTarget(setup.grant.id, "task", task.id);
+      return { mission, task };
+    }
+
     it("1. D2 enforced — remote claim refused (capability_mismatch) with empty approvedCapabilities on a requiredCapabilities task", async () => {
       // D2 (enforceHostApprovedCapability) now defaults ON. The participant's
       // approvedCapabilities is empty by default (setupRemoteFixture); the task
@@ -1311,6 +1335,44 @@ describe("Phase D — Shared Habitat API", () => {
       const body = JSON.parse(res.body);
       expect(body.message).toBe("capability_mismatch");
       expect(body.code).toBe("CONFLICT");
+    });
+
+    it("1b. D2 enforced — remote claim refused (domain_mismatch) with empty approvedDomains on a requiredDomain task", async () => {
+      // D2 gate also enforces approvedDomains against task.requiredDomain.
+      // The participant's approvedDomains is empty by default; the task
+      // requires "infra" → domain_mismatch → 409 CONFLICT. Mirrors the
+      // local task-delegation.ts:73-83 domain check, but with an array
+      // (remote participants cover many domains; local agents have one).
+      const setup = setupRemoteFixture();
+      const { task } = seedTaskWithRequiredDomain(setup, "infra");
+
+      const res = await app!.inject({
+        method: "POST",
+        url: `/api/shared/tasks/${task.id}/claim`,
+        headers: remoteHeaders(setup, "test-char-d2-domain-1"),
+      });
+
+      expect(res.statusCode).toBe(409);
+      const body = JSON.parse(res.body);
+      expect(body.message).toBe("domain_mismatch");
+      expect(body.code).toBe("CONFLICT");
+    });
+
+    it("1c. D2 enforced — remote claim passes when approvedDomains covers requiredDomain", async () => {
+      // Positive test for the domain gate: when the participant's
+      // approvedDomains includes the task's requiredDomain, the claim
+      // proceeds (returns 200 + task payload).
+      const setup = setupRemoteFixture();
+      const { task } = seedTaskWithRequiredDomain(setup, "infra");
+      participantRepo.updateHostApprovedCapabilities(setup.participant.id, [], ["infra"]);
+
+      const res = await app!.inject({
+        method: "POST",
+        url: `/api/shared/tasks/${task.id}/claim`,
+        headers: remoteHeaders(setup, "test-char-d2-domain-2"),
+      });
+
+      expect(res.statusCode).toBe(200);
     });
 
     it("2. onTransition wiring: remote claim invokes emitTransition", async () => {
@@ -1331,7 +1393,7 @@ describe("Phase D — Shared Habitat API", () => {
       expect(emitSpy).toHaveBeenCalled();
     });
 
-    it("3. claim event via wrapper tx: action:\"claimed\", fromStatus:\"pending\"", async () => {
+    it('3. claim event via wrapper tx: action:"claimed", fromStatus:"pending"', async () => {
       // The remote claim wrapper creates exactly one `action:"claimed"` event
       // inside its atomic tx (via createEventWithClient). fromStatus is the
       // task's real prior status ("pending" — a valid claim always originates
@@ -1360,7 +1422,7 @@ describe("Phase D — Shared Habitat API", () => {
       expect(claimed!.actorId).toBe(setup.participant.id);
     });
 
-    it("4. comment no-over-emit: remote comment does NOT create a manual action:\"updated\" Task Event", async () => {
+    it('4. comment no-over-emit: remote comment does NOT create a manual action:"updated" Task Event', async () => {
       // Phase-1 comment Option A fix: the remote task-comment handler no
       // longer hand-rolls an action:"updated" event nor a
       // pulse.signal_posted notification after a comment create.
