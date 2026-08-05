@@ -36,6 +36,7 @@ import { notifyTransition } from "./tasks/transition-emitter.js";
 import type { TransitionContext } from "./tasks/transition-emitter.js";
 import * as taskRepo from "../repositories/task.js";
 import type { Task } from "../models/index.js";
+import type { ActorType } from "@orcy/shared";
 import { logger } from "../lib/logger.js";
 import {
   type DispatchTargetAdapter,
@@ -75,18 +76,20 @@ function resolveTask(envelope: EnvelopeRow): Task | null {
 }
 
 /**
- * Maps the envelope's `actorType` (which includes remote variants) to the
- * narrower `TransitionContext.actorType` union expected by
- * `runPostInterceptors` / `notifyTransition`.
+ * Resolves the envelope's canonical `actorType` for `runPostInterceptors` /
+ * `notifyTransition`. Since T3 widened `TransitionContext.actorType` to the
+ * full `ActorType` union, remote variants pass through unmodified — preserving
+ * remote-creator fidelity in the async task-creation dispatch path.
  */
-function envelopeActorType(envelope: EnvelopeRow): "agent" | "human" | "system" {
+function envelopeActorType(envelope: EnvelopeRow): ActorType {
   switch (envelope.actorType) {
     case "human":
     case "remote_human":
-      return "human";
     case "agent":
     case "remote_orcy":
-      return "agent";
+    case "remote_pod":
+    case "system":
+      return envelope.actorType;
     default:
       return "system";
   }

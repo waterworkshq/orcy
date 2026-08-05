@@ -544,6 +544,38 @@ describe("postInterceptorAdapter", () => {
     const result = await postInterceptorAdapter.attempt(testEnvelope, testTarget);
     expectAttention(result, "runtime unavailable");
   });
+
+  // ----- Remote actorType preservation (T13: no more remote→local collapse) -----
+
+  it("preserves remote_orcy actorType in buildTransitionContext (does NOT collapse to 'agent')", async () => {
+    const remoteEnvelope: EnvelopeRow = {
+      ...testEnvelope,
+      actorType: "remote_orcy",
+    };
+    const result = await postInterceptorAdapter.attempt(remoteEnvelope, testTarget);
+    expectAccepted(result);
+    expect(runPostInterceptors).toHaveBeenCalledWith(
+      remoteEnvelope.taskId,
+      "taskCreated",
+      remoteEnvelope.habitatId,
+      expect.objectContaining({ actorType: "remote_orcy" }),
+    );
+  });
+
+  it("preserves remote_human actorType in buildTransitionContext (does NOT collapse to 'human')", async () => {
+    const remoteEnvelope: EnvelopeRow = {
+      ...testEnvelope,
+      actorType: "remote_human",
+    };
+    const result = await postInterceptorAdapter.attempt(remoteEnvelope, testTarget);
+    expectAccepted(result);
+    expect(runPostInterceptors).toHaveBeenCalledWith(
+      remoteEnvelope.taskId,
+      "taskCreated",
+      remoteEnvelope.habitatId,
+      expect.objectContaining({ actorType: "remote_human" }),
+    );
+  });
 });
 
 // ===========================================================================
@@ -580,6 +612,35 @@ describe("transitionSubscriberAdapter", () => {
     });
     const result = await transitionSubscriberAdapter.attempt(testEnvelope, testTarget);
     expectAttention(result, "hook registry corrupt");
+  });
+
+  // ----- Remote actorType preservation (T13: no more remote→local collapse) -----
+
+  it("preserves remote_orcy actorType (does NOT collapse to 'agent')", async () => {
+    const remoteEnvelope: EnvelopeRow = {
+      ...testEnvelope,
+      actorType: "remote_orcy",
+    };
+    const result = await transitionSubscriberAdapter.attempt(remoteEnvelope, testTarget);
+    expectAccepted(result);
+    expect(notifyTransition).toHaveBeenCalledWith(
+      expect.objectContaining({ actorType: "remote_orcy" }),
+    );
+    expect(notifyTransition).not.toHaveBeenCalledWith(
+      expect.objectContaining({ actorType: "agent" }),
+    );
+  });
+
+  it("preserves remote_human actorType (does NOT collapse to 'human')", async () => {
+    const remoteEnvelope: EnvelopeRow = {
+      ...testEnvelope,
+      actorType: "remote_human",
+    };
+    const result = await transitionSubscriberAdapter.attempt(remoteEnvelope, testTarget);
+    expectAccepted(result);
+    expect(notifyTransition).toHaveBeenCalledWith(
+      expect.objectContaining({ actorType: "remote_human" }),
+    );
   });
 });
 
