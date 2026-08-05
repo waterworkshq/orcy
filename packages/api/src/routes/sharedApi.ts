@@ -355,12 +355,13 @@ export async function sharedApiRoutes(fastify: FastifyInstance): Promise<void> {
       if (task.remoteAssignedParticipantId !== ctx.participant.id) {
         throw forbidden("Task is not claimed by this participant", "TASK_NOT_OWNED");
       }
-      taskRepo.updateTask(task.id, {});
+      const touched = taskRepo.touchLastActivity(task.id);
+      if (!touched.success) throw notFound("Task not found");
       const responseBody = {
         task: {
           id: task.id,
           status: task.status,
-          lastActivityAt: new Date().toISOString(),
+          lastActivityAt: touched.task.lastActivityAt,
         },
         acknowledged: true,
         progress: body.progress ?? null,

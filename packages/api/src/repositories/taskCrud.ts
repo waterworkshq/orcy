@@ -163,6 +163,23 @@ export function updateTask(
   return { success: true, task: task! };
 }
 
+export function touchLastActivity(id: string):
+  | { success: true; task: Task }
+  | { success: false; notFound: true } {
+  const db = getDb();
+
+  const existing = db.select({ id: tasks.id }).from(tasks).where(eq(tasks.id, id)).get();
+  if (!existing) return { success: false, notFound: true };
+
+  db.update(tasks)
+    .set({ lastActivityAt: new Date().toISOString() })
+    .where(eq(tasks.id, id))
+    .run();
+
+  const task = getTaskById(id);
+  return { success: true, task: task! };
+}
+
 export interface UpdateTaskInput {
   title?: string;
   description?: string;

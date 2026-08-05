@@ -61,6 +61,7 @@ function makeTask(overrides: Record<string, unknown> = {}): Task {
     createdBy: 'user-1',
     createdAt: '2026-04-10T00:00:00.000Z',
     updatedAt: '2026-04-10T00:00:00.000Z',
+    lastActivityAt: null,
     version: 1,
     estimatedMinutes: null,
     retryPolicy: null,

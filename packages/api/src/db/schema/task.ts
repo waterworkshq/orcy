@@ -64,6 +64,7 @@ export const tasks = sqliteTable(
     createdBy: text("created_by").notNull(),
     createdAt: text("created_at").notNull().default("(datetime('now'))"),
     updatedAt: text("updated_at").notNull().default("(datetime('now'))"),
+    lastActivityAt: text("last_activity_at"),
     version: integer("version").notNull().default(1),
     order: integer("order").notNull().default(0),
     delegatedToAgentId: text("delegated_to_agent_id").references(() => agents.id),

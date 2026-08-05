@@ -30,6 +30,7 @@ function makeTask(overrides: Partial<Task> = {}): Task {
     createdBy: 'agent-1',
     createdAt: '2026-01-01T00:00:00Z',
     updatedAt: '2026-01-01T00:00:00Z',
+    lastActivityAt: null,
     version: 1,
     estimatedMinutes: null,
     retryPolicy: null,

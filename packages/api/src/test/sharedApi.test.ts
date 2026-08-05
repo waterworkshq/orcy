@@ -472,6 +472,10 @@ describe("Phase D — Shared Habitat API", () => {
       // First claim the task
       taskStateMachine.claimTaskByRemoteParticipant(task.id, setup.participant.id);
 
+      // Capture updatedAt BEFORE heartbeat to prove de-pollution
+      const beforeTask = taskRepo.getTaskById(task.id)!;
+      const updatedAtBefore = beforeTask.updatedAt;
+
       const res = await app!.inject({
         method: "POST",
         url: `/api/shared/tasks/${task.id}/heartbeat`,
@@ -483,6 +487,25 @@ describe("Phase D — Shared Habitat API", () => {
       expect(body.acknowledged).toBe(true);
       expect(body.progress).toBe("Halfway done");
       expect(body.task.lastActivityAt).toBeDefined();
+
+      // lastActivityAt must be persisted in the DB (not fabricated in the response)
+      const dbTask = taskRepo.getTaskById(task.id)!;
+      expect(dbTask.lastActivityAt).not.toBeNull();
+      expect(body.task.lastActivityAt).toBe(dbTask.lastActivityAt);
+
+      // Heartbeat must NOT bump updatedAt (de-pollution proof)
+      expect(dbTask.updatedAt).toBe(updatedAtBefore);
+    });
+
+    it("POST /tasks/:id/heartbeat — lastActivityAt is null before first heartbeat", async () => {
+      const setup = setupRemoteFixture();
+      const { task } = setupTaskFixture(setup);
+
+      taskStateMachine.claimTaskByRemoteParticipant(task.id, setup.participant.id);
+
+      // After claim, before any heartbeat — lastActivityAt should be null
+      const claimedTask = taskRepo.getTaskById(task.id)!;
+      expect(claimedTask.lastActivityAt).toBeNull();
     });
 
     it("POST /tasks/:id/heartbeat rejects if not claimed by participant", async () => {

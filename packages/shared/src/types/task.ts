@@ -50,6 +50,7 @@ export interface Task {
   createdBy: string;
   createdAt: string;
   updatedAt: string;
+  lastActivityAt: string | null;
   version: number;
   estimatedMinutes: number | null;
   labels: string[];
