@@ -648,7 +648,7 @@ export const SSE_EVENT_REGISTRY = {
   }),
 } satisfies Record<SSEEventType, SSEEventHandler>;
 
-export function getSSEEventHandler(type: SSEEventType): SSEEventHandler {
+export function getSSEEventHandler(type: SSEEventType): SSEEventHandler | undefined {
   return SSE_EVENT_REGISTRY[type];
 }
 
@@ -657,14 +657,14 @@ export function applySSEEphemeralUpdate(
   state: SSEStoreState,
   set: (partial: Partial<SSEStoreState>) => void,
 ): void {
-  getSSEEventHandler(event.type).ephemeral?.({ event, state, set });
+  getSSEEventHandler(event.type)?.ephemeral?.({ event, state, set });
 }
 
 export function projectSSEServerEvent(
   event: SSEEvent,
   context: ServerProjectionContext,
 ): void | Promise<void> {
-  return getSSEEventHandler(event.type).server?.(context);
+  return getSSEEventHandler(event.type)?.server?.(context);
 }
 
 export function getSSEEventDedupeKey(event: SSEEvent): string {
@@ -677,5 +677,5 @@ export function getSSENotification(
   state: SSEStoreState,
   currentUserId: string | null,
 ): SSENotificationResult | null {
-  return getSSEEventHandler(event.type).notification?.({ event, state, currentUserId }) ?? null;
+  return getSSEEventHandler(event.type)?.notification?.({ event, state, currentUserId }) ?? null;
 }
