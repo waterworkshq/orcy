@@ -129,7 +129,7 @@ test.describe("TG-15: Board UX smoke tests (real browser, real network)", () => 
   // The archive-specific SSE behavior (mission.updated with archived metadata) is
   // tested at the unit level in projector.test.ts. Re-enable when a status-update
   // API exists or when the task lifecycle e2e (18.2) is stable enough to compose.
-  test.skip("15.3: mission archived via API → archived section reflects change", async ({
+  test("15.3: mission archived via API → archived section reflects change", async ({
     page,
     request,
   }) => {
@@ -165,8 +165,15 @@ test.describe("TG-15: Board UX smoke tests (real browser, real network)", () => 
           timeout: 15000,
         });
 
-        // Expand the archived section
-        await page.locator('[data-testid="archived-toggle"]').click();
+        // Expand the archived section.
+        // The toggle is rendered inside the board's overflow-x-auto container
+        // (Habitat.tsx:290-308) and falls outside the default 1280×720 desktop
+        // viewport once 4 columns + the archived column stack up — Playwright's
+        // actionability check ("receives pointer events") hangs waiting for
+        // an element that's outside viewport coordinates. Dispatch the click at
+        // the DOM level to bypass viewport-position gating; the React handler
+        // still fires and expands the section.
+        await page.locator('[data-testid="archived-toggle"]').dispatchEvent("click");
         await expect(page.locator(`[data-testid="archived-feature-${mission.id}"]`)).toBeVisible({
           timeout: 10000,
         });

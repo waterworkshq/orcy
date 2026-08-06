@@ -48,6 +48,7 @@ export const updateMissionSchema = z.object({
   description: z.string().max(10000).optional(),
   acceptanceCriteria: z.string().max(10000).optional(),
   priority: z.enum(["low", "medium", "high", "critical"]).optional(),
+  status: z.enum(["not_started", "in_progress", "review", "done", "failed"]).optional(),
   labels: z.array(z.string()).optional(),
   dependsOn: z.array(z.string().uuid()).optional(),
   blocks: z.array(z.string().uuid()).optional(),
