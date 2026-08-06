@@ -25,6 +25,9 @@ import type { RemoteActionScope, ParticipantStanding } from "@orcy/shared/types"
 import { isAppError } from "../errors.js";
 import { logger } from "../lib/logger.js";
 import { randomUUID } from "crypto";
+import { taskLifecycleRoutes } from "../routes/tasks/lifecycle.js";
+import * as agentService from "../services/agentService.js";
+import * as taskService from "../services/tasks/index.js";
 
 const ORIGINAL_ENV = { ...process.env };
 
@@ -1569,6 +1572,108 @@ describe("Phase D — Shared Habitat API", () => {
 
       // The route fires no notification — single service emission only.
       expect(notifSpy).not.toHaveBeenCalled();
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // Local Delegated Claim Path — missingCapabilities forwarding
+  // ---------------------------------------------------------------------------
+
+  describe("Characterization — Local Delegated Claim Path (missingCapabilities forwarding)", () => {
+    it("delegated claim refusal surfaces missingCapabilities in the 409 body", async () => {
+      // The route handler at `routes/tasks/lifecycle.ts:74` must forward
+      // `missingCapabilities` from `claimDelegatedTask`'s capability_mismatch
+      // result to the 409 response body — mirroring the local-claim path at
+      // line 90.  The route-level pre-check at lines 57-65 normally
+      // intercepts capability mismatches first (403), so the service is
+      // mocked to simulate the defense-in-depth 409 path.
+      const localApp = Fastify({ logger: false });
+      localApp.setValidatorCompiler(validatorCompiler);
+      localApp.setSerializerCompiler(serializerCompiler);
+      // Set the error handler at root level so it catches errors from all
+      // child route contexts (Fastify encapsulation: sibling plugins don't
+      // share error handlers).
+      localApp.setErrorHandler((error, _request, reply) => {
+        if (isAppError(error)) {
+          reply.status(error.statusCode).send({
+            error: error.message,
+            code: error.code,
+            details: error.details,
+          });
+          return;
+        }
+        const err = error as Error & { statusCode?: number };
+        reply.status(err.statusCode || 500).send({
+          error: err.message,
+          statusCode: err.statusCode || 500,
+        });
+      });
+      await localApp.register(taskLifecycleRoutes);
+      await localApp.ready();
+
+      try {
+        // Agent with all required capabilities (passes the pre-check at 57-65)
+        const { agent: delegate, plainApiKey: delegateKey } = agentService.createAgent({
+          name: "delegated-409-delegate",
+          type: "claude-code",
+          domain: "fullstack",
+          capabilities: ["python", "docker"],
+        });
+        const { agent: assignee } = agentService.createAgent({
+          name: "delegated-409-assignee",
+          type: "claude-code",
+          domain: "fullstack",
+          capabilities: [],
+        });
+
+        const habitat = boardRepo.createHabitat({ name: "Delegated 409 Habitat" });
+        columnRepo.createColumn({ habitatId: habitat.id, name: "To Do" });
+        const mission = missionRepo.createMission({
+          habitatId: habitat.id,
+          title: "Delegated 409 Mission",
+          priority: "medium",
+          createdBy: "test",
+        });
+        const task = taskRepo.createTask({
+          missionId: mission.id,
+          title: "Delegated 409 Task",
+          description: "needs python+docker",
+          priority: "medium",
+          requiredCapabilities: ["python", "docker"],
+          labels: [],
+          createdBy: "test",
+        });
+
+        taskRepo.updateTask(task.id, {
+          delegatedToAgentId: delegate.id,
+          status: "claimed",
+          assignedAgentId: assignee.id,
+        });
+
+        // Mock the service to return capability_mismatch — simulates the
+        // defense-in-depth path where the service-level check fires even
+        // though the route pre-check passed.
+        vi.spyOn(taskService, "claimDelegatedTask").mockReturnValueOnce({
+          success: false,
+          reason: "capability_mismatch",
+          message: "Agent lacks required capabilities: python, docker",
+          missingCapabilities: ["python", "docker"],
+        });
+
+        const res = await localApp.inject({
+          method: "POST",
+          url: `/tasks/${task.id}/claim`,
+          headers: { "x-agent-api-key": delegateKey },
+          payload: {},
+        });
+
+        expect(res.statusCode).toBe(409);
+        const body = JSON.parse(res.body);
+        expect(body.code).toBe("CONFLICT");
+        expect(body.details.missingCapabilities).toEqual(["python", "docker"]);
+      } finally {
+        await localApp.close();
+      }
     });
   });
 });

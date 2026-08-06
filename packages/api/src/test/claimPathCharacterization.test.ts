@@ -713,9 +713,10 @@ describe("services/tasks/task-lifecycle.ts claimTask — wrapper-level pins", ()
 
 describe("services/tasks/task-delegation.ts claimDelegatedTask — wrapper-level pins", () => {
   it("returns capability_mismatch with missingCapabilities when delegated assignee lacks caps", () => {
-    // PRESERVE — rich shape mirror of 6.4. The route layer at
-    // `routes/tasks/lifecycle.ts:74` propagates `result.message` to the 409
-    // detail body.
+    // INTENTIONALLY-CHANGE — rich shape mirror of 6.1/6.4. The route layer at
+    // `routes/tasks/lifecycle.ts:74` now forwards both `message` AND
+    // `missingCapabilities` to the 409 detail body, matching the local-claim
+    // path at line 90.
     const agent = seedAgent("delegated-lacks-caps", ["typescript"]);
     const originalAssignee = seedAgent("delegated-original-assignee");
     const { task } = seedMission({
@@ -729,14 +730,15 @@ describe("services/tasks/task-delegation.ts claimDelegatedTask — wrapper-level
     });
 
     const result = taskDelegationService.claimDelegatedTask(task.id, agent.id);
-    expect(result.success).toBe(false);
-    if (!result.success) {
-      expect(result.reason).toBe("capability_mismatch");
-      expect(result.message).toContain("python");
-      expect(result.message).toContain("docker");
-    }
-    // Failure mode: a refactor that drops the message or changes the reason
-    // would break the route's 409 detail body shape.
+    expect(result).toEqual({
+      success: false,
+      reason: "capability_mismatch",
+      message: "Agent lacks required capabilities: python, docker",
+      missingCapabilities: ["python", "docker"],
+    });
+    // Failure mode: dropping missingCapabilities would silently cut UI
+    // feedback for delegated-claim refusals, just as it did for local claims
+    // before the §6.1 fix.
   });
 
   it("throws InterceptorVetoError when pre-interceptor returns a veto (no DB write)", () => {

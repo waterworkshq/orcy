@@ -15,7 +15,7 @@ export function delegateTask(
   fromAgentId: string,
   toAgentId: string,
   reason?: string,
-): { success: true; task: Task } | { success: false; reason: string; message: string } {
+): { success: true; task: Task } | { success: false; reason: string; message: string; missingCapabilities?: string[] } {
   const task = taskRepo.getTaskById(taskId);
   if (!task) return { success: false, reason: "not_found", message: "Task not found" };
 
@@ -66,6 +66,7 @@ export function delegateTask(
         success: false,
         reason: "capability_mismatch",
         message: `Target agent lacks required capabilities: ${missing.join(", ")}`,
+        missingCapabilities: missing,
       };
     }
   }
@@ -107,7 +108,7 @@ export function delegateTask(
 export function claimDelegatedTask(
   taskId: string,
   agentId: string,
-): { success: true; task: Task } | { success: false; reason: string; message?: string } {
+): { success: true; task: Task } | { success: false; reason: string; message?: string; missingCapabilities?: string[] } {
   const current = taskRepo.getTaskById(taskId);
   if (!current) return { success: false, reason: "not_found", message: "Task not found" };
 
@@ -125,6 +126,7 @@ export function claimDelegatedTask(
         success: false,
         reason: "capability_mismatch",
         message: `Agent lacks required capabilities: ${missing.join(", ")}`,
+        missingCapabilities: missing,
       };
     }
   }

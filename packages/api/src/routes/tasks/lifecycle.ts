@@ -71,7 +71,10 @@ export async function taskLifecycleRoutes(fastify: FastifyInstance): Promise<voi
           try {
             const result = taskService.claimDelegatedTask(request.params.id, agentId);
             if (!result.success) {
-              throw conflict(result.reason, { message: result.message });
+              throw conflict(result.reason, {
+                message: result.message,
+                missingCapabilities: result.missingCapabilities,
+              });
             }
             return { task: result.task };
           } catch (err) {

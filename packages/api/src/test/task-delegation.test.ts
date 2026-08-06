@@ -97,6 +97,7 @@ describe("task delegation service", () => {
         success: false,
         reason: "capability_mismatch",
         message: "Target agent lacks required capabilities: docker",
+        missingCapabilities: ["docker"],
       });
       expect(taskRepoMocks.updateTask).not.toHaveBeenCalled();
     });
@@ -142,6 +143,7 @@ describe("task delegation service", () => {
         success: false,
         reason: "capability_mismatch",
         message: "Agent lacks required capabilities: python",
+        missingCapabilities: ["python"],
       });
       expect(taskRepoMocks.claimDelegatedTask).not.toHaveBeenCalled();
     });
