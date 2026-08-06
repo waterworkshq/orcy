@@ -259,6 +259,72 @@ const goalDirectedStrategy: RoadmapScoringStrategy = {
 };
 
 /**
+ * critical_path (RM-3B): boost tasks whose missions sit on the longest dependency
+ * chain. Missions with longer downstream paths unblock more transitive work, so
+ * they receive a proportionally larger bonus. Chain length is the longest path
+ * from the mission through its transitive dependents (a leaf = length 1).
+ */
+const criticalPathStrategy: RoadmapScoringStrategy = {
+  buildBonusMap({ habitatId, candidateTasks }) {
+    const map = new Map<string, StrategyBonusEntry>();
+    if (candidateTasks.length === 0) return map;
+
+    const edges = getDb()
+      .select({
+        missionId: missionDependencies.missionId,
+        dependsOnId: missionDependencies.dependsOnId,
+      })
+      .from(missionDependencies)
+      .innerJoin(missions, eq(missionDependencies.missionId, missions.id))
+      .where(eq(missions.habitatId, habitatId))
+      .all();
+
+    if (edges.length === 0) return map;
+
+    // Build dependents adjacency: dependsOnId → [missionIds that depend on it]
+    const dependents = new Map<string, string[]>();
+    const allMissions = new Set<string>();
+    for (const e of edges) {
+      allMissions.add(e.missionId);
+      allMissions.add(e.dependsOnId);
+      pushEdge(dependents, e.dependsOnId, e.missionId);
+    }
+
+    // Memoized longest downstream chain length (1 = the mission itself).
+    const chainMemo = new Map<string, number>();
+    const visiting = new Set<string>();
+    function longestChain(mid: string): number {
+      if (chainMemo.has(mid)) return chainMemo.get(mid)!;
+      if (visiting.has(mid)) return 1; // cycle guard — treat as leaf
+      visiting.add(mid);
+      let best = 1;
+      for (const dep of dependents.get(mid) ?? []) {
+        best = Math.max(best, 1 + longestChain(dep));
+      }
+      visiting.delete(mid);
+      chainMemo.set(mid, best);
+      return best;
+    }
+
+    for (const m of allMissions) longestChain(m);
+
+    const topChain = Math.max(...chainMemo.values(), 1);
+    for (const t of candidateTasks) {
+      const chain = chainMemo.get(t.missionId);
+      if (chain === undefined) continue; // mission not in any dependency edge
+      const bonus = capBonus(Math.round((chain * MAX_BONUS) / topChain));
+      if (bonus > 0) {
+        map.set(t.id, {
+          bonus,
+          reason: `On critical path (chain length ${chain})`,
+        });
+      }
+    }
+    return map;
+  },
+};
+
+/**
  * Registry of selectable algorithms. `fanout` is the default (v0.25.0 behavior).
  */
 export const SCORING_STRATEGIES: Record<RoadmapScoringAlgorithm, RoadmapScoringStrategy> = {
@@ -266,4 +332,5 @@ export const SCORING_STRATEGIES: Record<RoadmapScoringAlgorithm, RoadmapScoringS
   depth_from_root: depthFromRootStrategy,
   release_proximity: releaseProximityStrategy,
   goal_directed: goalDirectedStrategy,
+  critical_path: criticalPathStrategy,
 };

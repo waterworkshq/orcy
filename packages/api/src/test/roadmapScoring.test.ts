@@ -60,7 +60,7 @@ function seedTask(missionId: string, title: string) {
 }
 
 function setAlgorithm(
-  algorithm: "fanout" | "depth_from_root" | "release_proximity" | "goal_directed",
+  algorithm: "fanout" | "depth_from_root" | "release_proximity" | "goal_directed" | "critical_path",
 ) {
   habitatRepo.updateHabitat(habitatId, {
     roadmapSettings: { scoringAlgorithm: algorithm, mode: "release", focusMissionId: null },
@@ -178,5 +178,89 @@ describe("algorithm selection (RM-5)", () => {
     setAlgorithm("depth_from_root");
     map = new Map(suggest().suggestions.map((s) => [s.taskId, s]));
     expect(map.get(a.id)!.reasons).toContain("Foundational mission (depth 0 from root)");
+  });
+
+  it("selecting critical_path boots the longest-chain mission; unrelated missions get no bonus", () => {
+    // A → B → C linear chain (longest path = 3, A is the root). X is
+    // unrelated (no dependency edge touches X).
+    const mA = seedMission("M-A");
+    const mB = seedMission("M-B");
+    const mC = seedMission("M-C");
+    const mX = seedMission("M-X");
+    missionRepo.addMissionDependency(mB.id, mA.id);
+    missionRepo.addMissionDependency(mC.id, mB.id);
+    const tA = seedTask(mA.id, "task-A");
+    seedTask(mX.id, "task-X");
+
+    setAlgorithm("critical_path");
+    const suggestions = suggest().suggestions;
+
+    const tASuggestion = suggestions.find((s) => s.taskId === tA.id);
+    const xSuggestions = suggestions.filter((s) => s.missionId === mX.id);
+    expect(tASuggestion).toBeDefined();
+    expect(tASuggestion!.factors.dependencyBonus).toBeGreaterThan(0);
+    expect(xSuggestions.every((s) => s.factors.dependencyBonus === 0)).toBe(true);
+
+    // Reason text mentions the chain.
+    expect(tASuggestion!.reasons.some((r) => r.includes("critical path"))).toBe(true);
+  });
+
+  it("selecting critical_path on a habitat with no mission-dependency edges gives no bonus anywhere", () => {
+    // No addMissionDependency calls — empty edge set.
+    const mA = seedMission("M-A");
+    const mB = seedMission("M-B");
+    seedTask(mA.id, "task-A");
+    seedTask(mB.id, "task-B");
+
+    setAlgorithm("critical_path");
+    const suggestions = suggest().suggestions;
+    expect(suggestions.every((s) => s.factors.dependencyBonus === 0)).toBe(true);
+  });
+
+  it("selecting critical_path on a branching DAG still boosts the branch root", () => {
+    // A → B, A → C — A is root of two branches (chain length 1 from A; 2 from
+    // each branch). A is the unique mission with the longest downstream
+    // fan-out *and* sits on the longest chain (every path starts at A).
+    const mA = seedMission("M-A");
+    const mB = seedMission("M-B");
+    const mC = seedMission("M-C");
+    const mX = seedMission("M-X");
+    missionRepo.addMissionDependency(mB.id, mA.id);
+    missionRepo.addMissionDependency(mC.id, mA.id);
+    seedTask(mA.id, "task-A");
+    seedTask(mB.id, "task-B");
+    seedTask(mC.id, "task-C");
+    seedTask(mX.id, "task-X");
+
+    setAlgorithm("critical_path");
+    const suggestions = suggest().suggestions;
+
+    const aBoost = suggestions
+      .filter((s) => s.missionId === mA.id)
+      .reduce((sum, s) => sum + s.factors.dependencyBonus, 0);
+    const xBoost = suggestions
+      .filter((s) => s.missionId === mX.id)
+      .reduce((sum, s) => sum + s.factors.dependencyBonus, 0);
+    expect(aBoost).toBeGreaterThan(0);
+    expect(xBoost).toBe(0);
+  });
+
+  it("selecting critical_path handles dependency cycles without crashing", () => {
+    // Cycle: A → B → A. The strategy's visiting-set cycle guard should
+    // terminate (treats cycle members as leaves) rather than recurse
+    // forever. Just verify the suggestion call doesn't throw — the
+    // suggestion engine's pre-flight filtering may filter cycle members
+    // before the scoring strategy runs, so we don't assert specific bonus
+    // values.
+    const mA = seedMission("M-A");
+    const mB = seedMission("M-B");
+    missionRepo.addMissionDependency(mB.id, mA.id);
+    missionRepo.addMissionDependency(mA.id, mB.id);
+    seedTask(mA.id, "task-A");
+    seedTask(mB.id, "task-B");
+
+    setAlgorithm("critical_path");
+    expect(() => suggest()).not.toThrow();
+    expect(suggest().suggestions.every((s) => s.factors.dependencyBonus >= 0)).toBe(true);
   });
 });

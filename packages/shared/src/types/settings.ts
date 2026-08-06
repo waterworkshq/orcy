@@ -172,12 +172,14 @@ export const ciCdSettingsSchema = z.object({
 /**
  * Selectable roadmap scoring algorithms (v0.25.4). `fanout` is the v0.25.0 default.
  * `goal_directed` (v0.25.7) boosts the focus mission's prerequisite chain.
+ * `critical_path` (closed RM-3B) boosts missions on the longest dependency chain.
  */
 export type RoadmapScoringAlgorithm =
   | "fanout"
   | "depth_from_root"
   | "release_proximity"
-  | "goal_directed";
+  | "goal_directed"
+  | "critical_path";
 
 /** Per-habitat roadmap scoring configuration. Stored as JSON on `habitats.roadmap_settings`. */
 export interface RoadmapSettings {
