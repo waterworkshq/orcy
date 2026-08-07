@@ -2,6 +2,40 @@
 
 > Older releases: see [git tags](https://github.com/waterworkshq/orcy/tags) and [GitHub Releases](https://github.com/waterworkshq/orcy/releases).
 
+## 0.35.4 — 2026-08-07
+
+### Chores
+
+#### notification write scope for ack/snooze + linked-identity recipient dedup ([`146b0f1`](https://github.com/waterworkshq/orcy/commit/146b0f117210e568247378c68800e1b2b4e81add))
+
+
+
+
+- Add a dedicated notification.write scope for notification ack/snooze endpoints (previously read, asymmetric with all other POST routes that carry write scopes) and dedup remote notification recipients by externalIdentityId so the same linked identity across pods or records receives one delivery instead of duplicates.
+
+
+
+
+
+### Documentation
+
+#### add v0.35.3 release notes ([`6281a35`](https://github.com/waterworkshq/orcy/commit/6281a3558f6ac101ac73d8e810df61af41ce10bd))
+
+
+#### mark v0.35.3 delivered ([`b70ebfb`](https://github.com/waterworkshq/orcy/commit/b70ebfbe95be4cc8445a24495019534bf3454eb5))
+
+
+#### add v0.35.4 release notes + sync ROADMAP/README ([`40552d3`](https://github.com/waterworkshq/orcy/commit/40552d3dc5213062d04631ac6c11ed3445e5e736))
+
+
+
+
+- Three-piece patch release: notification.write scope for ack/snooze, linked-identity recipient dedup, and stale deferred-doc cleanup.
+
+
+
+
+
 ## 0.35.3 — 2026-08-06
 
 ### Bug Fixes
@@ -245,31 +279,3 @@
 
 
 - Both patches land in tests only (production code shipped in the prior fix(remote-d2) commit). 'pnpm --filter @orcy/api exec tsc --noEmit' and 'pnpm --filter @orcy/api exec vitest run helpers.test.ts sharedApi.test.ts' are clean: 18 + 55 passed, 0 failed.
-
-
-
-
-
-## 0.35.1 — 2026-08-05
-
-### Bug Fixes
-
-#### tighten three deferred items in board summary + audit ([`6342cd1`](https://github.com/waterworkshq/orcy/commit/6342cd16c39ea7555ab18b99fc6b60a9d4551488))
-
-
-
-
-- summary: resolve displayName for remote participant actors   in board summary timelines (was falling through to the raw   actorId). Adds a batch-built remoteParticipantNameMap and a   new branch in resolveActorName for remote_human and   remote_orcy actor types. No behavior change for non-remote   types. * audit: widen the code-evidence actorType cast from the   over-narrow 3-value union to the full 6-value ActorType,   matching the reportedByType schema enum and the type   expected by normalizeAuditActorAndSource. Runtime behavior   unchanged — AuditActorRef.type continues to receive the   original string verbatim. * test(api): pin pnpm@9.0.0 in the compiledStartup smoke test   via 'npx pnpm@9.0.0 --filter @orcy/api build' so local   environments match CI (which already activates corepack).
-
-
-
-
-
-### Documentation
-
-#### mark v0.35.0 shipped in ROADMAP + README ([`bd659b6`](https://github.com/waterworkshq/orcy/commit/bd659b6bd4349de7fb80105792eb0caf22fbbf65))
-
-
-
-
-- Flips the pending-release placeholders to v0.35.0 now that the tag has landed, per the ROADMAP release-state convention (ROADMAP.md:8).
