@@ -48,12 +48,12 @@ export const BOARD_GET_METRICS_TOOL: Tool = {
   inputSchema: {
     type: "object",
     properties: {
-      boardId: {
+      habitatId: {
         type: "string",
-        description: "The UUID of the board",
+        description: "The UUID of the Orcy habitat",
       },
     },
-    required: ["boardId"],
+    required: ["habitatId"],
   },
 };
 
@@ -63,8 +63,8 @@ export const BOARD_GET_METRICS_TOOL: Tool = {
  * @requires EffortClient
  * @requires TimeTrackingClient
  */
-export async function habitatGetMetrics(client: KanbanApiClient, args: { boardId: string }) {
-  return client.getHabitatMetrics(args.boardId);
+export async function habitatGetMetrics(client: KanbanApiClient, args: { habitatId: string }) {
+  return client.getHabitatMetrics(args.habitatId);
 }
 
 /**

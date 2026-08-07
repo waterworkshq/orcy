@@ -591,6 +591,21 @@ export const habitatEventsQuerySchema = z.object({
 
 export type CreateHabitatInput = z.infer<typeof createHabitatSchema>;
 export type UpdateHabitatInput = z.infer<typeof updateHabitatSchema>;
+
+// Compile-time drift guard — prevents replacing `UpdateHabitatInput = z.infer<...>`
+// with a hand-written interface. If someone does that and it drifts from the
+// schema, AssertExact returns `false` and `const _: false = true` fails to compile.
+//
+// Caveat: while the alias remains `z.infer<typeof updateHabitatSchema>` this is
+// structurally a tautology (both args are identical). The guard only fires on a
+// manual interface replacement — it does NOT catch schema evolution drift.
+type AssertExact<A, B> =
+  (<T>() => T extends A ? 1 : 2) extends <T>() => T extends B ? 1 : 2 ? true : false;
+const _updateHabitatInputDriftGuard: AssertExact<
+  UpdateHabitatInput,
+  z.infer<typeof updateHabitatSchema>
+> = true;
+
 export type CreateColumnInput = z.infer<typeof createColumnSchema>;
 export type UpdateColumnInput = z.infer<typeof updateColumnSchema>;
 export type CreateTaskInput = z.infer<typeof createTaskSchema>;

@@ -3,7 +3,7 @@ import type {
   TaskEvent,
   TaskStatus,
   Agent,
-  Habitat,
+  PublicHabitat,
   Subtask,
   Mission,
   MissionWithProgress,
@@ -36,7 +36,6 @@ import type {
   CreateWebhookResponse,
   ListTemplatesResponse,
   CreateTemplateResponse,
-  HabitatSettings,
   AgentStats,
   HabitatSummary,
   MissionContext,
@@ -422,16 +421,9 @@ export interface TaskClient {
 }
 
 export interface HabitatClient {
-  getHabitat(
-    habitatId: string,
-  ): Promise<{ habitat: { id: string; name: string; columns: { name: string }[] } }>;
-  listHabitats(name?: string): Promise<{ habitats: Habitat[] }>;
-  createHabitat(input: { name: string; description?: string }): Promise<{ habitat: Habitat }>;
-  getHabitatSettings(boardId: string): Promise<{ habitat: HabitatSettings }>;
-  updateHabitatSettings(
-    boardId: string,
-    settings: Partial<HabitatSettings>,
-  ): Promise<{ habitat: HabitatSettings }>;
+  getHabitat(habitatId: string): Promise<{ habitat: PublicHabitat }>;
+  listHabitats(name?: string): Promise<{ habitats: PublicHabitat[] }>;
+  createHabitat(input: { name: string; description?: string }): Promise<{ habitat: PublicHabitat }>;
   getHabitatRepository(habitatId: string): Promise<unknown>;
   setHabitatRepository(habitatId: string, repo: unknown): Promise<unknown>;
   inferRepositoryFromWorktree(

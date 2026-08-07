@@ -4,6 +4,7 @@ export type { Agent, AgentStats, AllAgentStats } from "./agent.js";
 export type {
   Habitat,
   PublicHabitat,
+  HabitatListItem,
   Column,
   HabitatStats,
   MissionSummary,

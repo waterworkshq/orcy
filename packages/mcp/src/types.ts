@@ -3,7 +3,7 @@ import type {
   TaskStatus,
   Artifact,
   Agent,
-  Habitat,
+  PublicHabitat,
   Column,
   Mission,
   MissionStatus,
@@ -23,7 +23,7 @@ export type {
   TaskStatus,
   Artifact,
   Agent,
-  Habitat,
+  PublicHabitat,
   Column,
   Mission,
   MissionStatus,
@@ -264,15 +264,6 @@ export interface ListTemplatesResponse {
 
 export interface CreateTemplateResponse {
   template: MissionTemplate;
-}
-
-export interface HabitatSettings {
-  id: string;
-  name: string;
-  description: string;
-  columns: Column[];
-  createdAt: string;
-  updatedAt: string;
 }
 
 export interface AgentStats {

@@ -42,8 +42,6 @@ export function createMockClient() {
     getHabitat: vi.fn(),
     listHabitats: vi.fn(),
     createHabitat: vi.fn(),
-    getHabitatSettings: vi.fn(),
-    updateHabitatSettings: vi.fn(),
     getHabitatRepository: vi.fn(),
     setHabitatRepository: vi.fn(),
     inferRepositoryFromWorktree: vi.fn(),

@@ -88,7 +88,7 @@ export async function habitatRoutes(fastify: FastifyInstance): Promise<void> {
     '/habitats/:habitatId',
     { schema: { params: habitatIdParamsSchema, body: updateHabitatSchema }, preHandler: humanAuth },
     async (request, _reply) => {
-      const habitat = habitatService.updateHabitat(request.params.habitatId, request.body as Parameters<typeof habitatService.updateHabitat>[1]);
+      const habitat = habitatService.updateHabitat(request.params.habitatId, request.body);
       if (!habitat) {
         throw notFound('Habitat not found');
       }

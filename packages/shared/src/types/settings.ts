@@ -50,8 +50,8 @@ export interface GitWorktreeSettings {
 /** Configuration for the external code-review webhook integration. */
 export interface CodeReviewSettings {
   autoApproveOnMerge: boolean;
-  githubSecret: string | null;
-  gitlabSecret: string | null;
+  githubSecret?: string | null;
+  gitlabSecret?: string | null;
   taskPattern: string;
 }
 
@@ -65,8 +65,8 @@ export interface PublicCodeReviewSettings {
 
 /** Configuration for the CI/CD webhook integration. */
 export interface CiCdSettings {
-  githubSecret: string | null;
-  gitlabSecret: string | null;
+  githubSecret?: string | null;
+  gitlabSecret?: string | null;
   taskPattern: string;
 }
 
@@ -201,7 +201,7 @@ export const DEFAULT_ROADMAP_SETTINGS: RoadmapSettings = {
 /** Zod schema for validating `roadmapSettings` patches (all fields optional). */
 export const roadmapSettingsSchema = z.object({
   scoringAlgorithm: z
-    .enum(["fanout", "depth_from_root", "release_proximity", "goal_directed"])
+    .enum(["fanout", "depth_from_root", "release_proximity", "goal_directed", "critical_path"])
     .optional(),
   mode: z.enum(["release", "feature"]).optional(),
   focusMissionId: z.string().nullable().optional(),

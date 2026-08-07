@@ -1,5 +1,6 @@
 import type { Tool } from "@modelcontextprotocol/sdk/types.js";
 import type { KanbanApiClient } from "../api.js";
+import type { HabitatListItem } from "@orcy/shared";
 import { TIME_RANGES } from "./constants.js";
 
 /**
@@ -26,7 +27,9 @@ export const HABITAT_LIST_HABITATS_TOOL: Tool = {
 export async function habitatListHabitats(client: KanbanApiClient, _args: Record<string, never>) {
   const result = await client.listHabitats();
   return {
-    habitats: result.habitats.map((b) => ({ id: b.id, name: b.name, description: b.description })),
+    habitats: result.habitats.map(
+      (b): HabitatListItem => ({ id: b.id, name: b.name, description: b.description }),
+    ),
   };
 }
 
@@ -61,7 +64,9 @@ export const HABITAT_FIND_TOOL: Tool = {
 export async function habitatFind(client: KanbanApiClient, args: { name: string }) {
   const result = await client.listHabitats(args.name);
   return {
-    habitats: result.habitats.map((b) => ({ id: b.id, name: b.name, description: b.description })),
+    habitats: result.habitats.map(
+      (b): HabitatListItem => ({ id: b.id, name: b.name, description: b.description }),
+    ),
   };
 }
 
@@ -70,20 +75,20 @@ export async function habitatFind(client: KanbanApiClient, args: { name: string 
  * @requires DashboardClient
  * @requires HealthClient
  */
-export const HABITAT_GET_SETTINGS_TOOL: Tool = {
-  name: "habitat_get_settings",
+export const HABITAT_GET_HABITAT_TOOL: Tool = {
+  name: "habitat_get_habitat",
   description:
     "Get the settings and metadata for an Orcy habitat. " +
     "Returns habitat name, description, columns, and other configuration.",
   inputSchema: {
     type: "object",
     properties: {
-      boardId: {
+      habitatId: {
         type: "string",
         description: "The UUID of the Orcy habitat",
       },
     },
-    required: ["boardId"],
+    required: ["habitatId"],
   },
 };
 
@@ -92,53 +97,8 @@ export const HABITAT_GET_SETTINGS_TOOL: Tool = {
  * @requires DashboardClient
  * @requires HealthClient
  */
-export async function habitatGetSettings(client: KanbanApiClient, args: { boardId: string }) {
-  return client.getHabitatSettings(args.boardId);
-}
-
-/**
- * @requires HabitatClient
- * @requires DashboardClient
- * @requires HealthClient
- */
-export const HABITAT_UPDATE_SETTINGS_TOOL: Tool = {
-  name: "habitat_update_settings",
-  description:
-    "Update the editable settings for an Orcy habitat. " +
-    "Only name and description can be changed through this tool.",
-  inputSchema: {
-    type: "object",
-    properties: {
-      boardId: {
-        type: "string",
-        description: "The UUID of the Orcy habitat",
-      },
-      name: {
-        type: "string",
-        description: "Updated habitat name",
-      },
-      description: {
-        type: "string",
-        description: "Updated habitat description",
-      },
-    },
-    required: ["boardId"],
-  },
-};
-
-/**
- * @requires HabitatClient
- * @requires DashboardClient
- * @requires HealthClient
- */
-export async function habitatUpdateSettings(
-  client: KanbanApiClient,
-  args: { boardId: string; name?: string; description?: string },
-) {
-  return client.updateHabitatSettings(args.boardId, {
-    name: args.name,
-    description: args.description,
-  });
+export async function habitatGetHabitat(client: KanbanApiClient, args: { habitatId: string }) {
+  return client.getHabitat(args.habitatId);
 }
 
 /**
@@ -158,7 +118,7 @@ export const HABITAT_GET_SUMMARY_TOOL: Tool = {
   inputSchema: {
     type: "object",
     properties: {
-      boardId: {
+      habitatId: {
         type: "string",
         description: "The UUID of the Orcy habitat",
       },
@@ -178,7 +138,7 @@ export const HABITAT_GET_SUMMARY_TOOL: Tool = {
         description: "Whether to include the pre-formatted markdown digest (default: true)",
       },
     },
-    required: ["boardId"],
+    required: ["habitatId"],
   },
 };
 
@@ -190,13 +150,13 @@ export const HABITAT_GET_SUMMARY_TOOL: Tool = {
 export async function habitatGetSummary(
   client: KanbanApiClient,
   args: {
-    boardId: string;
+    habitatId: string;
     since?: "24h" | "7d" | "30d" | "all";
     maxTasks?: number;
     includeDigest?: boolean;
   },
 ) {
-  return client.getHabitatSummary(args.boardId, {
+  return client.getHabitatSummary(args.habitatId, {
     since: args.since,
     maxTasks: args.maxTasks,
     includeDigest: args.includeDigest,
@@ -215,12 +175,12 @@ export const HABITAT_GET_HEALTH_TOOL: Tool = {
   inputSchema: {
     type: "object",
     properties: {
-      boardId: {
+      habitatId: {
         type: "string",
         description: "The UUID of the Orcy habitat",
       },
     },
-    required: ["boardId"],
+    required: ["habitatId"],
   },
 };
 
@@ -229,8 +189,8 @@ export const HABITAT_GET_HEALTH_TOOL: Tool = {
  * @requires DashboardClient
  * @requires HealthClient
  */
-export async function habitatGetHealth(client: KanbanApiClient, args: { boardId: string }) {
-  return client.getHabitatHealth(args.boardId);
+export async function habitatGetHealth(client: KanbanApiClient, args: { habitatId: string }) {
+  return client.getHabitatHealth(args.habitatId);
 }
 
 /**
@@ -245,7 +205,7 @@ export const HABITAT_GET_HEALTH_HISTORY_TOOL: Tool = {
   inputSchema: {
     type: "object",
     properties: {
-      boardId: {
+      habitatId: {
         type: "string",
         description: "The UUID of the Orcy habitat",
       },
@@ -256,7 +216,7 @@ export const HABITAT_GET_HEALTH_HISTORY_TOOL: Tool = {
         maximum: 365,
       },
     },
-    required: ["boardId"],
+    required: ["habitatId"],
   },
 };
 
@@ -267,9 +227,9 @@ export const HABITAT_GET_HEALTH_HISTORY_TOOL: Tool = {
  */
 export async function habitatGetHealthHistory(
   client: KanbanApiClient,
-  args: { boardId: string; days?: number },
+  args: { habitatId: string; days?: number },
 ) {
-  return client.getHabitatHealthHistory(args.boardId, args.days);
+  return client.getHabitatHealthHistory(args.habitatId, args.days);
 }
 
 /**
@@ -277,10 +237,10 @@ export async function habitatGetHealthHistory(
  * @requires DashboardClient
  * @requires HealthClient
  */
-export async function habitatGetPredictions(client: KanbanApiClient, args: { boardId: string }) {
-  const predictions = await client.getHabitatPredictions(args.boardId);
+export async function habitatGetPredictions(client: KanbanApiClient, args: { habitatId: string }) {
+  const predictions = await client.getHabitatPredictions(args.habitatId);
   return {
-    boardId: args.boardId,
+    habitatId: args.habitatId,
     velocity: predictions.velocity,
     forecasts: predictions.forecasts,
     atRiskTasks: predictions.atRiskTasks,
@@ -294,11 +254,11 @@ export async function habitatGetPredictions(client: KanbanApiClient, args: { boa
  */
 export async function habitatGetBottlenecks(
   client: KanbanApiClient,
-  args: { boardId: string; days?: number },
+  args: { habitatId: string; days?: number },
 ) {
-  const result = await client.getHabitatBottlenecks(args.boardId, args.days);
+  const result = await client.getHabitatBottlenecks(args.habitatId, args.days);
   return {
-    boardId: args.boardId,
+    habitatId: args.habitatId,
     days: result.days,
     bottlenecks: result.bottlenecks,
     warnings: result.warnings,
@@ -310,8 +270,8 @@ export async function habitatGetBottlenecks(
  * @requires DashboardClient
  * @requires HealthClient
  */
-export async function habitatGetAgentQuality(client: KanbanApiClient, args: { boardId: string }) {
-  return client.getHabitatAgentQuality(args.boardId);
+export async function habitatGetAgentQuality(client: KanbanApiClient, args: { habitatId: string }) {
+  return client.getHabitatAgentQuality(args.habitatId);
 }
 
 /**
@@ -319,8 +279,8 @@ export async function habitatGetAgentQuality(client: KanbanApiClient, args: { bo
  * @requires DashboardClient
  * @requires HealthClient
  */
-export async function habitatGetRules(client: KanbanApiClient, args: { boardId: string }) {
-  return client.getPrioritizationRules(args.boardId);
+export async function habitatGetRules(client: KanbanApiClient, args: { habitatId: string }) {
+  return client.getPrioritizationRules(args.habitatId);
 }
 
 /**
@@ -330,9 +290,9 @@ export async function habitatGetRules(client: KanbanApiClient, args: { boardId: 
  */
 export async function habitatUpdateRules(
   client: KanbanApiClient,
-  args: { boardId: string; rules: Record<string, unknown> },
+  args: { habitatId: string; rules: Record<string, unknown> },
 ) {
-  return client.updatePrioritizationRules(args.boardId, args.rules);
+  return client.updatePrioritizationRules(args.habitatId, args.rules);
 }
 
 /**
@@ -340,6 +300,6 @@ export async function habitatUpdateRules(
  * @requires DashboardClient
  * @requires HealthClient
  */
-export async function habitatEvaluateRules(client: KanbanApiClient, args: { boardId: string }) {
-  return client.evaluatePrioritizationRules(args.boardId);
+export async function habitatEvaluateRules(client: KanbanApiClient, args: { habitatId: string }) {
+  return client.evaluatePrioritizationRules(args.habitatId);
 }

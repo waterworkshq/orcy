@@ -1,7 +1,7 @@
 import type {
   Task,
   Agent,
-  Habitat,
+  PublicHabitat,
   TaskStatus,
   TaskEvent,
   TaskComment,
@@ -36,7 +36,6 @@ import type {
   CreateWebhookResponse,
   ListTemplatesResponse,
   CreateTemplateResponse,
-  HabitatSettings,
   AgentStats,
   HabitatSummary,
   MissionContext,
@@ -978,20 +977,15 @@ export class KanbanApiClient
     return this.request<{ task: Task }>("GET", `/api/tasks/${taskId}`);
   }
 
-  async getHabitat(
-    habitatId: string,
-  ): Promise<{ habitat: { id: string; name: string; columns: { name: string }[] } }> {
-    return this.request<{ habitat: { id: string; name: string; columns: { name: string }[] } }>(
-      "GET",
-      `/api/habitats/${habitatId}`,
-    );
-  }
-
-  async listHabitats(name?: string): Promise<{ habitats: Habitat[] }> {
+  async listHabitats(name?: string): Promise<{ habitats: PublicHabitat[] }> {
     const params = new URLSearchParams();
     if (name) params.set("name", name);
     const query = params.toString();
-    return this.request<{ habitats: Habitat[] }>("GET", `/api/habitats${query ? `?${query}` : ""}`);
+    return this.request<{ habitats: PublicHabitat[] }>("GET", `/api/habitats${query ? `?${query}` : ""}`);
+  }
+
+  async getHabitat(habitatId: string): Promise<{ habitat: PublicHabitat }> {
+    return this.request<{ habitat: PublicHabitat }>("GET", `/api/habitats/${habitatId}`);
   }
 
   async getTaskEvents(
@@ -1059,8 +1053,8 @@ export class KanbanApiClient
     name: string;
     description?: string;
     defaultColumns?: boolean;
-  }): Promise<{ success: true; habitat: Habitat; columns: Habitat["columns"] }> {
-    return this.request<{ success: true; habitat: Habitat; columns: Habitat["columns"] }>(
+  }): Promise<{ success: true; habitat: PublicHabitat; columns: PublicHabitat["columns"] }> {
+    return this.request<{ success: true; habitat: PublicHabitat; columns: PublicHabitat["columns"] }>(
       "POST",
       "/api/habitats/agent",
       input,
@@ -1437,17 +1431,6 @@ export class KanbanApiClient
 
   async deleteTemplate(templateId: string): Promise<void> {
     await this.request<void>("DELETE", `/api/templates/${templateId}`);
-  }
-
-  async getHabitatSettings(boardId: string): Promise<{ habitat: HabitatSettings }> {
-    return this.request<{ habitat: HabitatSettings }>("GET", `/api/habitats/${boardId}`);
-  }
-
-  async updateHabitatSettings(
-    boardId: string,
-    input: { name?: string; description?: string },
-  ): Promise<{ habitat: HabitatSettings }> {
-    return this.request<{ habitat: HabitatSettings }>("PATCH", `/api/habitats/${boardId}`, input);
   }
 
   async getAgentStats(agentId: string): Promise<{ stats: AgentStats }> {

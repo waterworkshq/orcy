@@ -18,7 +18,7 @@ All Orcy tools use a dispatch pattern: each tool accepts an \`action\` parameter
 For example, \`orcy_task({action: "claim", taskId})\` claims a task.
 
 The dispatch tools are:
-- **orcy_habitat** — habitat-level operations (list, find, get-settings, update-settings, summary, metrics, get-health, get-health-history, get-rules, update-rules, evaluate-rules)
+- **orcy_habitat** — habitat-level operations (list, find, get-settings, summary, metrics, get-health, get-health-history, get-rules, update-rules, evaluate-rules)
 - **orcy_mission** — mission operations (list, create, delete, archive, unarchive, get-context)
 - **orcy_task** — task operations: lifecycle (claim, submit, complete, release, retry), CRUD (list-in-mission, create-in-mission, update, delete), detail (get-context, get-events, get-comments, add-comment), quality (get-quality-checklist, update-quality-checklist-item, validate-quality-gates), subtasks (list-subtasks, create-subtask, delete-subtask)
 - **orcy_agent** — agent operations (register, list, heartbeat, get-stats)

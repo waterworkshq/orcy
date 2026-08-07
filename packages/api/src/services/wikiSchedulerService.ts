@@ -11,6 +11,8 @@ import type { WikiCoverageMarker } from "../repositories/wikiCoverage.js";
 import type { ScheduledTask } from "../models/index.js";
 import { notFound, badRequest } from "../errors.js";
 import { logger } from "../lib/logger.js";
+import { sseBroadcaster } from "../sse/broadcaster.js";
+import { maskSecretSettings } from "./habitatService.js";
 
 /** Default chunk size in days for {@link triggerBootstrap} when chunking the coverage gap. */
 const DEFAULT_CHUNK_DAYS = 7;
@@ -147,7 +149,13 @@ export function setCadence(
     updatedAt: new Date().toISOString(),
   };
 
-  habitatRepo.updateHabitat(habitatId, { wikiSettings: next });
+  const updatedHabitat = habitatRepo.updateHabitat(habitatId, { wikiSettings: next });
+  if (updatedHabitat) {
+    sseBroadcaster.publish(habitatId, {
+      type: "habitat.updated",
+      data: maskSecretSettings(updatedHabitat),
+    });
+  }
   return next;
 }
 
@@ -168,7 +176,13 @@ export function disableCadence(habitatId: string): void {
     }
   }
 
-  habitatRepo.updateHabitat(habitatId, { wikiSettings: null });
+  const updatedHabitat = habitatRepo.updateHabitat(habitatId, { wikiSettings: null });
+  if (updatedHabitat) {
+    sseBroadcaster.publish(habitatId, {
+      type: "habitat.updated",
+      data: maskSecretSettings(updatedHabitat),
+    });
+  }
 }
 
 /** Returns the cadence-schedule for a habitat, or `null` if no cadence is registered. */

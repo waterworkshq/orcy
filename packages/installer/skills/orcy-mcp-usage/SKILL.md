@@ -16,7 +16,7 @@ If you also have the CLI installed, **prefer MCP for intra-session tool use** �
 
 | Tool | Actions | Covers |
 |------|---------|--------|
-| `orcy_habitat` | `list`, `find`, `get-settings`, `update-settings`, `summary`, `metrics` | Habitat-level operations |
+| `orcy_habitat` | `list`, `find`, `get-settings`, `summary`, `metrics` | Habitat-level operations |
 | `orcy_habitat_mission` | `list`, `create`, `delete`, `archive`, `unarchive`, `get-context` | Mission CRUD and lifecycle |
 | `orcy_habitat_task` | `list-in-mission`, `create-in-mission`, `update`, `delete`, `claim`, `submit`, `complete`, `release`, `retry`, `get-context`, `get-events`, `get-comments`, `add-comment`, `get-time-report`, `get-blocked-status`, `get-approval-status`, `add-dependency`, `remove-dependency`, `get-quality-checklist`, `update-quality-checklist-item`, `validate-quality-gates`, `list-subtasks`, `create-subtask`, `delete-subtask` | Full task lifecycle, history, quality, dependencies, subtasks |
 | `orcy_habitat_agent` | `register`, `list`, `heartbeat`, `get-stats` | Agent registration and presence |
@@ -37,7 +37,7 @@ When an agent starts a session:
 1. Read ORCY_HABITAT_ID and ORCY_AGENT_ID from environment
 2. Read orcy_instructions() to get the skill guide
 3. Call orcy_habitat_agent({ action: "heartbeat" }) to register presence
-4. Call orcy_habitat({ action: "summary", boardId }) to understand board state
+4. Call orcy_habitat({ action: "summary", habitatId }) to understand board state
 5. Call orcy_habitat_mission({ action: "list", boardId }) to browse missions
 6. Call orcy_habitat_mission({ action: "get-context", featureId }) for mission brief — pulse digest included
 7. If the mission has partners, check pulse data in get-context. For full Pulse protocol, call orcy_pulse_instructions()
@@ -55,12 +55,12 @@ When an agent starts a session:
 **Call this first.** Get a compact temporal overview of what was done, by whom, and when. Prevents N+1 loading of individual missions.
 
 ```
-orcy_habitat({ action: "summary", boardId: "uuid", since: "7d", maxTasks: 20, includeDigest: true })
+orcy_habitat({ action: "summary", habitatId: "uuid", since: "7d", maxTasks: 20, includeDigest: true })
 
 Input:
 {
   "action": "summary",
-  "boardId": "uuid-of-board",
+  "habitatId": "uuid-of-board",
   "since": "7d",           // 24h, 7d, 30d, all (default: 7d)
   "maxTasks": 20,          // 1-50 (default: 20)
   "includeDigest": true    // include markdown digest
@@ -99,20 +99,14 @@ Output: { "boards": [{ "id": "uuid", "name": "Sprint 24", ... }] }
 ### Get Settings
 
 ```
-orcy_habitat({ action: "get-settings", boardId: "uuid" })
+orcy_habitat({ action: "get-settings", habitatId: "uuid" })
 Output: { "board": { "name": "Sprint 24", "description": "...", ... } }
-```
-
-### Update Settings
-
-```
-orcy_habitat({ action: "update-settings", boardId: "uuid", name: "Sprint 25", description: "..." })
 ```
 
 ### Metrics
 
 ```
-orcy_habitat({ action: "metrics", boardId: "uuid" })
+orcy_habitat({ action: "metrics", habitatId: "uuid" })
 Output: { "averageCycleTime": 45, "overdueTasks": 2, "agentMetrics": [...] }
 ```
 
@@ -710,7 +704,7 @@ Output: { "worktree": { "path": "/repo/worktrees/task-uuid", "branch": "task/fix
 ### Path A: Self-Approval (Gated — Recommended)
 
 ```
-1. orcy_habitat({ action: "summary", boardId })                               → Understand the board
+1. orcy_habitat({ action: "summary", habitatId })                              → Understand the board
 2. orcy_habitat_mission({ action: "list", boardId })                          → Browse missions
 3. orcy_habitat_mission({ action: "get-context", featureId })                 → Read mission brief
 4. orcy_suggest({ action: "suggest-next-task", boardId })                   → Find best task
@@ -726,7 +720,7 @@ Output: { "worktree": { "path": "/repo/worktrees/task-uuid", "branch": "task/fix
 ### Path B: Human Review
 
 ```
-1. orcy_habitat({ action: "summary", boardId })                               → Understand the board
+1. orcy_habitat({ action: "summary", habitatId })                              → Understand the board
 2. orcy_habitat_mission({ action: "list", boardId })                          → Browse missions
 3. orcy_habitat_mission({ action: "get-context", featureId })                 → Read mission brief
 4. orcy_suggest({ action: "suggest-next-task", boardId })                   → Find best task
@@ -758,7 +752,7 @@ Output: { "worktree": { "path": "/repo/worktrees/task-uuid", "branch": "task/fix
 { "success": true, "agentStatus": "idle", "nextCheckIn": 300 }
 
 # Understand the board
-> orcy_habitat({ action: "summary", boardId: "sprint-24-uuid", since: "7d" })
+> orcy_habitat({ action: "summary", habitatId: "sprint-24-uuid", since: "7d" })
 {
   "digest": "# Board Summary: Sprint 24\n\n## Current State\n**Columns:** Backlog: 3 | In Progress: 2 | Review: 1 | Done: 3\n**Total features:** 9 | **Total tasks:** 24\n\n## Mission Progress\n- Auth System: 3/5 tasks done (in_progress)\n- Rate Limiting: done\n- Dashboard UI: 0/4 tasks (not_started)\n\n## Activity: Today\nCompleted: 2 tasks | Created: 1 mission | Rejected: 0",
   ...
