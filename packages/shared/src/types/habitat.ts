@@ -61,6 +61,9 @@ export type PublicHabitat = Omit<Habitat, "codeReviewSettings" | "ciCdSettings">
   ciCdSettings: import("./settings.js").PublicCiCdSettings | null;
 };
 
+/** Minimal list/find projection — discovery only (id + name + description). */
+export type HabitatListItem = Pick<PublicHabitat, "id" | "name" | "description">;
+
 /** Authoritative active-Mission summary computed server-side. `total`/`completed`/`byStatus` cover active Missions only; a Mission is `blocked` when at least one of its dependency Missions has a status other than `done` (archived dependencies participate, deleted dependency targets do not synthesize a block, and Task completeness is irrelevant). Every `MissionStatus` key is zero-filled. */
 export interface MissionSummary {
   total: number;

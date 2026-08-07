@@ -50,8 +50,8 @@ export interface GitWorktreeSettings {
 /** Configuration for the external code-review webhook integration. */
 export interface CodeReviewSettings {
   autoApproveOnMerge: boolean;
-  githubSecret: string | null;
-  gitlabSecret: string | null;
+  githubSecret?: string | null;
+  gitlabSecret?: string | null;
   taskPattern: string;
 }
 
@@ -65,8 +65,8 @@ export interface PublicCodeReviewSettings {
 
 /** Configuration for the CI/CD webhook integration. */
 export interface CiCdSettings {
-  githubSecret: string | null;
-  gitlabSecret: string | null;
+  githubSecret?: string | null;
+  gitlabSecret?: string | null;
   taskPattern: string;
 }
 
@@ -134,12 +134,12 @@ export const DEFAULT_RELEASE_SETTINGS: ReleaseSettings = {
   maxPromotionsPerRelease: null,
 };
 
-/** Zod schema for validating `releaseSettings` patches (all fields optional). */
+/** Zod schema for validating `releaseSettings` patches (all fields optional, defaults applied on parse). */
 export const releaseSettingsSchema = z.object({
-  autoPromote: z.boolean().optional(),
-  releaseWorkflowName: z.string().optional(),
-  requireVersionTag: z.boolean().optional(),
-  maxPromotionsPerRelease: z.number().int().positive().nullable().optional(),
+  autoPromote: z.boolean().optional().default(true),
+  releaseWorkflowName: z.string().optional().default("release"),
+  requireVersionTag: z.boolean().optional().default(true),
+  maxPromotionsPerRelease: z.number().int().positive().nullable().optional().default(null),
 });
 
 /**
@@ -198,13 +198,14 @@ export const DEFAULT_ROADMAP_SETTINGS: RoadmapSettings = {
   focusMissionId: null,
 };
 
-/** Zod schema for validating `roadmapSettings` patches (all fields optional). */
+/** Zod schema for validating `roadmapSettings` patches (all fields optional, defaults applied on parse). */
 export const roadmapSettingsSchema = z.object({
   scoringAlgorithm: z
-    .enum(["fanout", "depth_from_root", "release_proximity", "goal_directed"])
-    .optional(),
-  mode: z.enum(["release", "feature"]).optional(),
-  focusMissionId: z.string().nullable().optional(),
+    .enum(["fanout", "depth_from_root", "release_proximity", "goal_directed", "critical_path"])
+    .optional()
+    .default("fanout"),
+  mode: z.enum(["release", "feature"]).optional().default("release"),
+  focusMissionId: z.string().nullable().optional().default(null),
 });
 
 /**

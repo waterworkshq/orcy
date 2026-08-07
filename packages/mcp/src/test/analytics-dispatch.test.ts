@@ -11,9 +11,9 @@ describe("analytics dispatch actions", () => {
       getHabitatAgentQuality: vi.fn().mockResolvedValue({ signals: [] }),
     } as unknown as KanbanApiClient;
 
-    await HABITAT_ACTIONS.predictions(client, { boardId: "habitat-1" });
-    await HABITAT_ACTIONS.bottlenecks(client, { boardId: "habitat-1", days: 14 });
-    await HABITAT_ACTIONS["agent-quality"](client, { boardId: "habitat-1" });
+    await HABITAT_ACTIONS.predictions(client, { habitatId: "habitat-1" });
+    await HABITAT_ACTIONS.bottlenecks(client, { habitatId: "habitat-1", days: 14 });
+    await HABITAT_ACTIONS["agent-quality"](client, { habitatId: "habitat-1" });
 
     expect(client.getHabitatPredictions).toHaveBeenCalledWith("habitat-1");
     expect(client.getHabitatBottlenecks).toHaveBeenCalledWith("habitat-1", 14);

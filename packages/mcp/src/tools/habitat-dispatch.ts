@@ -3,8 +3,7 @@ import { createDispatchTool, createDispatchHandler, type Handler } from "./dispa
 import {
   habitatListHabitats,
   habitatFind,
-  habitatGetSettings,
-  habitatUpdateSettings,
+  habitatGetHabitat,
   habitatGetSummary,
   habitatGetHealth,
   habitatGetHealthHistory,
@@ -25,12 +24,11 @@ import { habitatGetMetrics } from "./lifecycle-gaps.js";
 export const HABITAT_DISPATCH_TOOL: Tool = createDispatchTool({
   name: "orcy_habitat",
   description:
-    "Board-level operations: list, find, get-settings, update-settings, summary, metrics, get-health, get-health-history, predictions, bottlenecks, agent-quality, get-rules, update-rules, evaluate-rules",
+    "Board-level operations: list, find, get-settings, summary, metrics, get-health, get-health-history, predictions, bottlenecks, agent-quality, get-rules, update-rules, evaluate-rules",
   actions: [
     "list",
     "find",
     "get-settings",
-    "update-settings",
     "summary",
     "metrics",
     "get-health",
@@ -43,7 +41,7 @@ export const HABITAT_DISPATCH_TOOL: Tool = createDispatchTool({
     "evaluate-rules",
   ],
   sharedParams: {
-    boardId: { type: "string", description: "The UUID of the Orcy habitat" },
+    habitatId: { type: "string", description: "The UUID of the Orcy habitat" },
     name: {
       type: "string",
       description: "Habitat name or partial name to search for (used with action=find)",
@@ -65,10 +63,6 @@ export const HABITAT_DISPATCH_TOOL: Tool = createDispatchTool({
       type: "number",
       description: "Number of days for analytics windows (action=bottlenecks)",
     },
-    description: {
-      type: "string",
-      description: "Updated habitat description (action=update-settings)",
-    },
     rules: {
       type: "object",
       description: "Prioritization settings to update (action=update-rules)",
@@ -84,8 +78,7 @@ export const HABITAT_DISPATCH_TOOL: Tool = createDispatchTool({
 export const HABITAT_ACTIONS: Record<string, Handler> = {
   list: habitatListHabitats,
   find: habitatFind,
-  "get-settings": habitatGetSettings,
-  "update-settings": habitatUpdateSettings,
+  "get-settings": habitatGetHabitat,
   summary: habitatGetSummary,
   metrics: habitatGetMetrics,
   "get-health": habitatGetHealth,

@@ -272,68 +272,13 @@ describe('board dispatch get-settings', () => {
       createdAt: '2026-04-01T00:00:00Z',
       updatedAt: '2026-04-10T00:00:00Z',
     };
-    client.getHabitatSettings.mockResolvedValue({ habitat: mockSettings });
+    client.getHabitat.mockResolvedValue({ habitat: mockSettings });
 
-    const raw = await HABITAT_DISPATCH_HANDLER(client, { action: 'get-settings', boardId: 'board-1' });
+    const raw = await HABITAT_DISPATCH_HANDLER(client, { action: 'get-settings', habitatId: 'board-1' });
     const result = JSON.parse(raw.content[0].text);
 
     expect(result.habitat.name).toBe('Sprint 24');
     expect(result.habitat.columns).toHaveLength(2);
-    expect(client.getHabitatSettings).toHaveBeenCalledWith('board-1');
-  });
-});
-
-describe('board dispatch update-settings', () => {
-  it('updates board name and description', async () => {
-    const client = createMockClient();
-    const mockUpdated = {
-      id: 'board-1',
-      name: 'Sprint 25',
-      description: 'Updated description',
-      columns: [],
-      createdAt: '2026-04-01T00:00:00Z',
-      updatedAt: '2026-04-11T00:00:00Z',
-    };
-    client.updateHabitatSettings.mockResolvedValue({ habitat: mockUpdated });
-
-    const raw = await HABITAT_DISPATCH_HANDLER(client, {
-      action: 'update-settings',
-      boardId: 'board-1',
-      name: 'Sprint 25',
-      description: 'Updated description',
-    });
-    const result = JSON.parse(raw.content[0].text);
-
-    expect(result.habitat.name).toBe('Sprint 25');
-    expect(client.updateHabitatSettings).toHaveBeenCalledWith('board-1', {
-      name: 'Sprint 25',
-      description: 'Updated description',
-    });
-  });
-
-  it('updates only name', async () => {
-    const client = createMockClient();
-    const mockUpdated = {
-      id: 'board-1',
-      name: 'New Name',
-      description: 'Old description',
-      columns: [],
-      createdAt: '2026-04-01T00:00:00Z',
-      updatedAt: '2026-04-11T00:00:00Z',
-    };
-    client.updateHabitatSettings.mockResolvedValue({ habitat: mockUpdated });
-
-    const raw = await HABITAT_DISPATCH_HANDLER(client, {
-      action: 'update-settings',
-      boardId: 'board-1',
-      name: 'New Name',
-    });
-    const result = JSON.parse(raw.content[0].text);
-
-    expect(result.habitat.name).toBe('New Name');
-    expect(client.updateHabitatSettings).toHaveBeenCalledWith('board-1', {
-      name: 'New Name',
-      description: undefined,
-    });
+    expect(client.getHabitat).toHaveBeenCalledWith('board-1');
   });
 });

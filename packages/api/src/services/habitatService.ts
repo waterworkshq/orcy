@@ -17,7 +17,6 @@ import type {
   PublicHabitat,
   Column,
   MissionTemplate,
-  AutoAssignSettings,
   CodeReviewSettings,
   CiCdSettings,
   TaskPriority,
@@ -25,6 +24,7 @@ import type {
   MissionStatus,
   MissionSummary,
 } from "../models/index.js";
+import type { UpdateHabitatInput } from "../models/schemas.js";
 
 /**
  * Returns a deep-copy of `habitat` with `githubSecret` / `gitlabSecret` stripped from
@@ -114,15 +114,7 @@ export function listHabitats(name?: string, teamIds?: string[]): PublicHabitat[]
 /** Applies a partial update to a {@link Habitat}'s editable fields; side effect: rebuilds the board secret cache and publishes `habitat.updated` SSE when the update succeeds. For `codeReviewSettings`/`ciCdSettings`, non-null updates are merged with existing values to preserve secret fields (`githubSecret`/`gitlabSecret`) that are set via the dedicated `PUT /webhook-secrets` endpoint and are absent from the PATCH payload. */
 export function updateHabitat(
   habitatId: string,
-  input: {
-    name?: string;
-    description?: string;
-    retrySettings?: import("../models/index.js").RetryPolicy | null;
-    anomalySettings?: import("../models/index.js").AnomalySettings | null;
-    autoAssignSettings?: AutoAssignSettings | null;
-    codeReviewSettings?: CodeReviewSettings | null;
-    ciCdSettings?: CiCdSettings | null;
-  },
+  input: UpdateHabitatInput,
 ): PublicHabitat | null {
   if (input.codeReviewSettings || input.ciCdSettings) {
     const current = habitatRepo.getHabitatById(habitatId);

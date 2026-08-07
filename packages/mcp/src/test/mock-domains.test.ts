@@ -73,7 +73,6 @@ describe("Per-domain mock factories", () => {
   it("createMockHabitatClient returns a complete HabitatClient", () => {
     const mock = createMockHabitatClient() as HabitatClient;
     expect(typeof mock.getHabitat).toBe("function");
-    expect(typeof mock.getHabitatSettings).toBe("function");
   });
 
   it("createMockPulseClient returns a complete PulseClient", () => {

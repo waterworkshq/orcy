@@ -6,6 +6,8 @@ import * as prioritizationService from '../services/prioritizationService.js';
 import * as taskRepo from '../repositories/task.js';
 import * as habitatRepo from '../repositories/habitat.js';
 import { notFound } from '../errors.js';
+import { sseBroadcaster } from '../sse/broadcaster.js';
+import { maskSecretSettings } from '../services/habitatService.js';
 
 import type { PrioritizationSettings } from '../models/index.js';
 import type { PrioritizationRuleCondition } from '../models/index.js';
@@ -88,7 +90,13 @@ export async function prioritizationRoutes(fastify: FastifyInstance): Promise<vo
         rules: parsed.data.rules ?? current.rules,
       };
 
-      habitatRepo.updateHabitat(params.habitatId, { prioritizationSettings: updated });
+      const updatedHabitat = habitatRepo.updateHabitat(params.habitatId, { prioritizationSettings: updated });
+      if (updatedHabitat) {
+        sseBroadcaster.publish(params.habitatId, {
+          type: "habitat.updated",
+          data: maskSecretSettings(updatedHabitat),
+        });
+      }
       return { rules: updated };
     }
   );

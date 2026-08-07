@@ -16,7 +16,6 @@ describe("HABITAT_DISPATCH_TOOL", () => {
       "list",
       "find",
       "get-settings",
-      "update-settings",
       "summary",
       "metrics",
       "get-health",
@@ -44,12 +43,8 @@ describe("HABITAT_ACTIONS", () => {
     expect(HABITAT_ACTIONS["find"]).toBe(habitat.habitatFind);
   });
 
-  it("routes get-settings to habitatGetSettings", () => {
-    expect(HABITAT_ACTIONS["get-settings"]).toBe(habitat.habitatGetSettings);
-  });
-
-  it("routes update-settings to habitatUpdateSettings", () => {
-    expect(HABITAT_ACTIONS["update-settings"]).toBe(habitat.habitatUpdateSettings);
+  it("routes get-settings to habitatGetHabitat", () => {
+    expect(HABITAT_ACTIONS["get-settings"]).toBe(habitat.habitatGetHabitat);
   });
 
   it("routes summary to habitatGetSummary", () => {
@@ -84,8 +79,8 @@ describe("HABITAT_ACTIONS", () => {
     expect(HABITAT_ACTIONS["evaluate-rules"]).toBe(habitat.habitatEvaluateRules);
   });
 
-  it("has exactly 14 actions", () => {
-    expect(Object.keys(HABITAT_ACTIONS)).toHaveLength(14);
+  it("has exactly 13 actions", () => {
+    expect(Object.keys(HABITAT_ACTIONS)).toHaveLength(13);
   });
 
   it("every action maps to a function", () => {
