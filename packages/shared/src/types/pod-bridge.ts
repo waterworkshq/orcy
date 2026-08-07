@@ -130,7 +130,8 @@ export type RemoteActionScope =
   | "heartbeat"
   | "submit"
   | "release"
-  | "evidence_link";
+  | "evidence_link"
+  | "notification.write";
 
 // ---------------------------------------------------------------------------
 // Credentials & invites

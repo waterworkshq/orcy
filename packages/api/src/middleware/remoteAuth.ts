@@ -307,7 +307,12 @@ function isActionAllowedForStanding(
 ): boolean {
   if (standing === "local_member") return true;
 
-  const observerActions: RemoteActionScope[] = ["read", "comment", "pulse.post"];
+  const observerActions: RemoteActionScope[] = [
+    "read",
+    "comment",
+    "pulse.post",
+    "notification.write",
+  ];
   const contributorActions: RemoteActionScope[] = [
     "read",
     "comment",
@@ -317,6 +322,7 @@ function isActionAllowedForStanding(
     "submit",
     "release",
     "evidence_link",
+    "notification.write",
   ];
 
   if (standing === "remote_observer") return observerActions.includes(action);

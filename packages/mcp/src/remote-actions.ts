@@ -62,7 +62,8 @@ export interface RemoteActionDescriptor {
     | "release"
     | "heartbeat"
     | "evidence_link"
-    | "pulse.post";
+    | "pulse.post"
+    | "notification.write";
 }
 
 export const REMOTE_MCP_ACTIONS: Record<RemoteMcpAction, RemoteActionDescriptor> = {
@@ -189,13 +190,13 @@ export const REMOTE_MCP_ACTIONS: Record<RemoteMcpAction, RemoteActionDescriptor>
     method: "POST",
     path: (p) => `/api/shared/notifications/deliveries/${p.deliveryId}/ack`,
     bodyFrom: () => ({}),
-    requiredScope: "read",
+    requiredScope: "notification.write",
   },
   "notifications.snooze": {
     method: "POST",
     path: (p) => `/api/shared/notifications/deliveries/${p.deliveryId}/snooze`,
     bodyFrom: (p) => ({ snoozedUntil: p.snoozedUntil }),
-    requiredScope: "read",
+    requiredScope: "notification.write",
   },
 };
 

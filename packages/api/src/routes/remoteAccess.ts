@@ -26,6 +26,7 @@ const remoteActionScopeSchema = z.enum([
   "submit",
   "release",
   "evidence_link",
+  "notification.write",
 ]);
 const remoteGrantTypeSchema = z.enum([
   "baseline_observer",

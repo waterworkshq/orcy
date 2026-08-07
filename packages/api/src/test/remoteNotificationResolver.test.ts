@@ -234,6 +234,216 @@ describe("Phase E — Remote notification resolver", () => {
       });
       expect(result).toHaveLength(1);
     });
+
+    it("deduplicates participants with the same externalIdentityId across pods", () => {
+      const habitat = setupHabitat();
+      const pod1 = setupActivePod(habitat.id);
+      const pod2 = setupActivePod(habitat.id);
+      const p1 = participantRepo.createRemoteParticipant({
+        remotePodId: pod1.id,
+        habitatId: habitat.id,
+        participantType: "remote_human",
+        displayName: "P1",
+        standing: "remote_contributor",
+        externalIdentityId: "shared-id",
+      });
+      participantRepo.activateRemoteParticipant(p1.id);
+      const p2 = participantRepo.createRemoteParticipant({
+        remotePodId: pod2.id,
+        habitatId: habitat.id,
+        participantType: "remote_orcy",
+        displayName: "P2",
+        standing: "remote_contributor",
+        externalIdentityId: "shared-id",
+      });
+      participantRepo.activateRemoteParticipant(p2.id);
+      grantRepo.createRemoteGrant({
+        habitatId: habitat.id,
+        remotePodId: pod1.id,
+        remoteParticipantId: p1.id,
+        grantType: "scoped_elevation",
+        standing: "remote_contributor",
+        actionScopes: ["read"],
+      });
+      grantRepo.createRemoteGrant({
+        habitatId: habitat.id,
+        remotePodId: pod2.id,
+        remoteParticipantId: p2.id,
+        grantType: "scoped_elevation",
+        standing: "remote_contributor",
+        actionScopes: ["read"],
+      });
+
+      const result = findRemoteRecipientsForEvent({
+        habitatId: habitat.id,
+        eventType: "pulse.signal_posted",
+        targetType: "habitat",
+      });
+      expect(result).toHaveLength(1);
+      // First record wins
+      expect(result[0].recipientId).toBe(p1.id);
+    });
+
+    it("returns both participants with different externalIdentityId", () => {
+      const habitat = setupHabitat();
+      const pod1 = setupActivePod(habitat.id);
+      const pod2 = setupActivePod(habitat.id);
+      const p1 = participantRepo.createRemoteParticipant({
+        remotePodId: pod1.id,
+        habitatId: habitat.id,
+        participantType: "remote_human",
+        displayName: "P1",
+        standing: "remote_contributor",
+        externalIdentityId: "id-a",
+      });
+      participantRepo.activateRemoteParticipant(p1.id);
+      const p2 = participantRepo.createRemoteParticipant({
+        remotePodId: pod2.id,
+        habitatId: habitat.id,
+        participantType: "remote_orcy",
+        displayName: "P2",
+        standing: "remote_contributor",
+        externalIdentityId: "id-b",
+      });
+      participantRepo.activateRemoteParticipant(p2.id);
+      grantRepo.createRemoteGrant({
+        habitatId: habitat.id,
+        remotePodId: pod1.id,
+        remoteParticipantId: p1.id,
+        grantType: "scoped_elevation",
+        standing: "remote_contributor",
+        actionScopes: ["read"],
+      });
+      grantRepo.createRemoteGrant({
+        habitatId: habitat.id,
+        remotePodId: pod2.id,
+        remoteParticipantId: p2.id,
+        grantType: "scoped_elevation",
+        standing: "remote_contributor",
+        actionScopes: ["read"],
+      });
+
+      const result = findRemoteRecipientsForEvent({
+        habitatId: habitat.id,
+        eventType: "pulse.signal_posted",
+        targetType: "habitat",
+      });
+      expect(result).toHaveLength(2);
+    });
+
+    it("returns both participants when one has externalIdentityId and one is null", () => {
+      const habitat = setupHabitat();
+      const pod1 = setupActivePod(habitat.id);
+      const pod2 = setupActivePod(habitat.id);
+      const p1 = participantRepo.createRemoteParticipant({
+        remotePodId: pod1.id,
+        habitatId: habitat.id,
+        participantType: "remote_human",
+        displayName: "P1",
+        standing: "remote_contributor",
+        externalIdentityId: "id-a",
+      });
+      participantRepo.activateRemoteParticipant(p1.id);
+      const p2 = participantRepo.createRemoteParticipant({
+        remotePodId: pod2.id,
+        habitatId: habitat.id,
+        participantType: "remote_orcy",
+        displayName: "P2",
+        standing: "remote_contributor",
+        // externalIdentityId left as null (default)
+      });
+      participantRepo.activateRemoteParticipant(p2.id);
+      grantRepo.createRemoteGrant({
+        habitatId: habitat.id,
+        remotePodId: pod1.id,
+        remoteParticipantId: p1.id,
+        grantType: "scoped_elevation",
+        standing: "remote_contributor",
+        actionScopes: ["read"],
+      });
+      grantRepo.createRemoteGrant({
+        habitatId: habitat.id,
+        remotePodId: pod2.id,
+        remoteParticipantId: p2.id,
+        grantType: "scoped_elevation",
+        standing: "remote_contributor",
+        actionScopes: ["read"],
+      });
+
+      const result = findRemoteRecipientsForEvent({
+        habitatId: habitat.id,
+        eventType: "pulse.signal_posted",
+        targetType: "habitat",
+      });
+      expect(result).toHaveLength(2);
+    });
+
+    it("deduplicates three participants where two share an identity and the third is separate", () => {
+      const habitat = setupHabitat();
+      const pod1 = setupActivePod(habitat.id);
+      const pod2 = setupActivePod(habitat.id);
+      const pod3 = setupActivePod(habitat.id);
+      const p1 = participantRepo.createRemoteParticipant({
+        remotePodId: pod1.id,
+        habitatId: habitat.id,
+        participantType: "remote_human",
+        displayName: "P1",
+        standing: "remote_contributor",
+        externalIdentityId: "shared-id",
+      });
+      participantRepo.activateRemoteParticipant(p1.id);
+      const p2 = participantRepo.createRemoteParticipant({
+        remotePodId: pod2.id,
+        habitatId: habitat.id,
+        participantType: "remote_orcy",
+        displayName: "P2",
+        standing: "remote_contributor",
+        externalIdentityId: "shared-id",
+      });
+      participantRepo.activateRemoteParticipant(p2.id);
+      const p3 = participantRepo.createRemoteParticipant({
+        remotePodId: pod3.id,
+        habitatId: habitat.id,
+        participantType: "remote_orcy",
+        displayName: "P3",
+        standing: "remote_contributor",
+        externalIdentityId: "unique-id",
+      });
+      participantRepo.activateRemoteParticipant(p3.id);
+      grantRepo.createRemoteGrant({
+        habitatId: habitat.id,
+        remotePodId: pod1.id,
+        remoteParticipantId: p1.id,
+        grantType: "scoped_elevation",
+        standing: "remote_contributor",
+        actionScopes: ["read"],
+      });
+      grantRepo.createRemoteGrant({
+        habitatId: habitat.id,
+        remotePodId: pod2.id,
+        remoteParticipantId: p2.id,
+        grantType: "scoped_elevation",
+        standing: "remote_contributor",
+        actionScopes: ["read"],
+      });
+      grantRepo.createRemoteGrant({
+        habitatId: habitat.id,
+        remotePodId: pod3.id,
+        remoteParticipantId: p3.id,
+        grantType: "scoped_elevation",
+        standing: "remote_contributor",
+        actionScopes: ["read"],
+      });
+
+      const result = findRemoteRecipientsForEvent({
+        habitatId: habitat.id,
+        eventType: "pulse.signal_posted",
+        targetType: "habitat",
+      });
+      expect(result).toHaveLength(2);
+      const ids = result.map((r) => r.recipientId).toSorted();
+      expect(ids).toEqual([p1.id, p3.id].toSorted());
+    });
   });
 
   describe("enqueueNotification integrates with remote resolver", () => {

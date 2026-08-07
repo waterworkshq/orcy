@@ -855,7 +855,7 @@ export async function sharedApiRoutes(fastify: FastifyInstance): Promise<void> {
   fastify.post<{ Params: { deliveryId: string } }>(
     "/notifications/deliveries/:deliveryId/ack",
     {
-      preHandler: [idempotentRemoteWrite("notification.ack")],
+      preHandler: [remoteActionScope("notification.write"), idempotentRemoteWrite("notification.ack")],
     },
     async (request: FastifyRequest<{ Params: { deliveryId: string } }>, reply: FastifyReply) => {
       const ctx = requireRemoteContext(request);
@@ -882,7 +882,7 @@ export async function sharedApiRoutes(fastify: FastifyInstance): Promise<void> {
   fastify.post<{ Params: { deliveryId: string } }>(
     "/notifications/deliveries/:deliveryId/snooze",
     {
-      preHandler: [idempotentRemoteWrite("notification.snooze")],
+      preHandler: [remoteActionScope("notification.write"), idempotentRemoteWrite("notification.snooze")],
     },
     async (request: FastifyRequest<{ Params: { deliveryId: string } }>, reply: FastifyReply) => {
       const ctx = requireRemoteContext(request);

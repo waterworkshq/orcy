@@ -92,9 +92,6 @@ describe("Remote MCP allowlist", () => {
   it("write actions require non-read scopes", () => {
     for (const [name, desc] of Object.entries(REMOTE_MCP_ACTIONS)) {
       if (desc.method === "POST") {
-        // Every POST should require a scope other than just "read" — except
-        // notification ack/snooze which is a read-adjacent write on a
-        // delivery the participant already owns.
         expect([
           "comment",
           "claim",
@@ -103,10 +100,15 @@ describe("Remote MCP allowlist", () => {
           "heartbeat",
           "evidence_link",
           "pulse.post",
-          "read", // allowed for ack/snooze
+          "notification.write",
         ]).toContain(desc.requiredScope);
       }
     }
+  });
+
+  it("notification ack/snooze require notification.write scope", () => {
+    expect(REMOTE_MCP_ACTIONS["notifications.ack"].requiredScope).toBe("notification.write");
+    expect(REMOTE_MCP_ACTIONS["notifications.snooze"].requiredScope).toBe("notification.write");
   });
 });
 

@@ -32,6 +32,16 @@ export interface RemoteEventContext {
   targetId?: string;
 }
 
+/**
+ * Dedup key: use `externalIdentityId` when present (links the same person/orcy
+ * across multiple pods or records via the identity provider), otherwise fall
+ * back to a per-id key so participants without a linked identity are never
+ * accidentally merged.
+ */
+function dedupKey(p: { externalIdentityId: string | null; id: string }): string {
+  return p.externalIdentityId ?? `__id__:${p.id}`;
+}
+
 /** A deduplicated remote recipient descriptor produced by recipient discovery. */
 export interface DiscoveredRemoteRecipient {
   recipientType: "remote_human" | "remote_orcy";
@@ -65,7 +75,7 @@ export function findRemoteRecipientsForEvent(ctx: RemoteEventContext): Discovere
       const podParticipants = participantRepo.getRemoteParticipantsByPod(grant.remotePodId);
       for (const p of podParticipants) {
         if (p.status !== "active") continue;
-        const key = `${p.participantType}:${p.id}`;
+        const key = dedupKey(p);
         if (seen.has(key)) continue;
         seen.add(key);
         result.push({
@@ -76,7 +86,7 @@ export function findRemoteRecipientsForEvent(ctx: RemoteEventContext): Discovere
     } else {
       // Per-participant grant
       if (!participant) continue;
-      const key = `${participant.participantType}:${participant.id}`;
+      const key = dedupKey(participant);
       if (seen.has(key)) continue;
       seen.add(key);
       result.push({

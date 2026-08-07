@@ -85,6 +85,7 @@ function setupActiveParticipant(
     "heartbeat",
     "evidence_link",
     "pulse.post",
+    "notification.write",
   ];
   const grant = grantRepo.createRemoteGrant({
     habitatId,
@@ -482,6 +483,36 @@ describe("remoteActionScope middleware", () => {
       403,
       "STANDING_ACTION_NOT_PERMITTED",
     );
+  });
+
+  it("notification.write is blocked for grants without that scope", async () => {
+    const h = setupHabitat();
+    const setup = setupActiveParticipant(h.id, "remote_contributor", [
+      "read",
+      "comment",
+    ]);
+
+    const req = mockRequest({ "x-orcy-remote-key": setup.plaintextSecret });
+    await remoteParticipantAuth(req, mockReply());
+
+    await expectAppError(
+      () => remoteActionScope("notification.write")(req, mockReply()),
+      403,
+      "ACTION_NOT_IN_GRANT_SCOPES",
+    );
+  });
+
+  it("notification.write is allowed when explicitly granted", async () => {
+    const h = setupHabitat();
+    const setup = setupActiveParticipant(h.id, "remote_observer", [
+      "read",
+      "notification.write",
+    ]);
+
+    const req = mockRequest({ "x-orcy-remote-key": setup.plaintextSecret });
+    await remoteParticipantAuth(req, mockReply());
+
+    await remoteActionScope("notification.write")(req, mockReply());
   });
 });
 
