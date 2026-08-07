@@ -1,5 +1,6 @@
 import type { Tool } from "@modelcontextprotocol/sdk/types.js";
 import type { KanbanApiClient } from "../api.js";
+import type { HabitatListItem } from "@orcy/shared";
 import { TIME_RANGES } from "./constants.js";
 
 /**
@@ -26,7 +27,9 @@ export const HABITAT_LIST_HABITATS_TOOL: Tool = {
 export async function habitatListHabitats(client: KanbanApiClient, _args: Record<string, never>) {
   const result = await client.listHabitats();
   return {
-    habitats: result.habitats.map((b) => ({ id: b.id, name: b.name, description: b.description })),
+    habitats: result.habitats.map(
+      (b): HabitatListItem => ({ id: b.id, name: b.name, description: b.description }),
+    ),
   };
 }
 
@@ -61,7 +64,9 @@ export const HABITAT_FIND_TOOL: Tool = {
 export async function habitatFind(client: KanbanApiClient, args: { name: string }) {
   const result = await client.listHabitats(args.name);
   return {
-    habitats: result.habitats.map((b) => ({ id: b.id, name: b.name, description: b.description })),
+    habitats: result.habitats.map(
+      (b): HabitatListItem => ({ id: b.id, name: b.name, description: b.description }),
+    ),
   };
 }
 
