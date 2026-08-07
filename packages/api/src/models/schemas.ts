@@ -367,16 +367,14 @@ export const anomalySettingsSchema = z.object({
       backlogToAgentRatio: z.number().min(1).max(20).optional().default(2),
       agentOfflineMinutes: z.number().int().min(1).max(120).optional().default(15),
     })
-    .optional()
-    .default({}),
+    .optional(),
   notifications: z
     .object({
       email: z.boolean().optional().default(true),
       sse: z.boolean().optional().default(true),
       chat: z.boolean().optional().default(true),
     })
-    .optional()
-    .default({}),
+    .optional(),
 });
 
 export const autoAssignSettingsSchema = z.object({
@@ -594,11 +592,15 @@ export const habitatEventsQuerySchema = z.object({
 export type CreateHabitatInput = z.infer<typeof createHabitatSchema>;
 export type UpdateHabitatInput = z.infer<typeof updateHabitatSchema>;
 
-// Compile-time drift guard — UpdateHabitatInput must always equal z.infer<typeof updateHabitatSchema>.
-// If someone changes UpdateHabitatInput to a hand-written interface, this const fails to compile
-// because AssertExact returns `false` and `true` is not assignable to `false`.
+// Compile-time drift guard — prevents replacing `UpdateHabitatInput = z.infer<...>`
+// with a hand-written interface. If someone does that and it drifts from the
+// schema, AssertExact returns `false` and `const _: false = true` fails to compile.
+//
+// Caveat: while the alias remains `z.infer<typeof updateHabitatSchema>` this is
+// structurally a tautology (both args are identical). The guard only fires on a
+// manual interface replacement — it does NOT catch schema evolution drift.
 type AssertExact<A, B> =
-  (<T>() => T extends A ? 1 : 2) extends (<T>() => T extends B ? 1 : 2) ? true : false;
+  (<T>() => T extends A ? 1 : 2) extends <T>() => T extends B ? 1 : 2 ? true : false;
 const _updateHabitatInputDriftGuard: AssertExact<
   UpdateHabitatInput,
   z.infer<typeof updateHabitatSchema>

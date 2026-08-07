@@ -54,8 +54,7 @@ vi.mock("../repositories/habitat.js", () => ({
 
 vi.mock("../sse/broadcaster.js", () => ({
   sseBroadcaster: {
-    publish: (_habitatId: string, evt: { type: string; data: unknown }) =>
-      publishCalls.push(evt),
+    publish: (_habitatId: string, evt: { type: string; data: unknown }) => publishCalls.push(evt),
   },
 }));
 
@@ -161,18 +160,16 @@ describe("SSE contract — habitat.updated on bypassed write paths", () => {
 
     expect(publishCalls).toHaveLength(1);
     expect(publishCalls[0].type).toBe("habitat.updated");
+    expect(publishCalls[0].data).toHaveProperty(["codeReviewSettings", "hasGithubSecret"]);
+    expect(publishCalls[0].data).not.toHaveProperty(["codeReviewSettings", "githubSecret"]);
   });
 
   it("PUT /habitats/:habitatId/rules publishes habitat.updated", async () => {
     const routes = captureRoutes();
     const { prioritizationRoutes } = await import("../routes/prioritization.js");
-    await prioritizationRoutes(
-      routes as unknown as Parameters<typeof prioritizationRoutes>[0],
-    );
+    await prioritizationRoutes(routes as unknown as Parameters<typeof prioritizationRoutes>[0]);
 
-    const route = routes.find(
-      (r) => r.method === "PUT" && r.path === "/habitats/:habitatId/rules",
-    );
+    const route = routes.find((r) => r.method === "PUT" && r.path === "/habitats/:habitatId/rules");
     expect(route).toBeDefined();
 
     const reply = {
@@ -190,5 +187,7 @@ describe("SSE contract — habitat.updated on bypassed write paths", () => {
 
     expect(publishCalls).toHaveLength(1);
     expect(publishCalls[0].type).toBe("habitat.updated");
+    expect(publishCalls[0].data).toHaveProperty(["codeReviewSettings", "hasGithubSecret"]);
+    expect(publishCalls[0].data).not.toHaveProperty(["codeReviewSettings", "githubSecret"]);
   });
 });

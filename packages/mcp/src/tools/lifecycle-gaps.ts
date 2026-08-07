@@ -48,12 +48,12 @@ export const BOARD_GET_METRICS_TOOL: Tool = {
   inputSchema: {
     type: "object",
     properties: {
-      boardId: {
+      habitatId: {
         type: "string",
-        description: "The UUID of the board",
+        description: "The UUID of the Orcy habitat",
       },
     },
-    required: ["boardId"],
+    required: ["habitatId"],
   },
 };
 

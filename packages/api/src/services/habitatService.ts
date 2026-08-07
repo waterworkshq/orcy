@@ -111,21 +111,35 @@ export function listHabitats(name?: string, teamIds?: string[]): PublicHabitat[]
   return habitatRepo.listHabitats(name, teamIds).map(maskSecretSettings);
 }
 
-/** Applies a partial update to a {@link Habitat}'s editable fields; side effect: rebuilds the board secret cache and publishes `habitat.updated` SSE when the update succeeds. For `codeReviewSettings`/`ciCdSettings`, non-null updates are merged with existing values to preserve secret fields (`githubSecret`/`gitlabSecret`) that are set via the dedicated `PUT /webhook-secrets` endpoint and are absent from the PATCH payload. */
-export function updateHabitat(
-  habitatId: string,
-  input: UpdateHabitatInput,
-): PublicHabitat | null {
-  if (input.codeReviewSettings || input.ciCdSettings) {
+/** Applies a partial update to a {@link Habitat}'s editable fields; side effect: rebuilds the board secret cache and publishes `habitat.updated` SSE when the update succeeds. Settings blobs (`retrySettings`, `anomalySettings`, `autoAssignSettings`, `triageSettings`, `releaseSettings`, `roadmapSettings`, `codeReviewSettings`, `ciCdSettings`) are deep-merged with existing stored values so a partial PATCH only overwrites the fields the caller explicitly provided — unmentioned fields preserve their current values. */
+export function updateHabitat(habitatId: string, input: UpdateHabitatInput): PublicHabitat | null {
+  const settingsBlobs = [
+    "retrySettings",
+    "anomalySettings",
+    "autoAssignSettings",
+    "triageSettings",
+    "releaseSettings",
+    "roadmapSettings",
+    "codeReviewSettings",
+    "ciCdSettings",
+  ] as const;
+
+  const needsMerge = settingsBlobs.some((key) => input[key] != null);
+  if (needsMerge) {
     const current = habitatRepo.getHabitatById(habitatId);
-    if (input.codeReviewSettings && current?.codeReviewSettings) {
-      input.codeReviewSettings = { ...current.codeReviewSettings, ...input.codeReviewSettings };
-    }
-    if (input.ciCdSettings && current?.ciCdSettings) {
-      input.ciCdSettings = { ...current.ciCdSettings, ...input.ciCdSettings };
+    for (const key of settingsBlobs) {
+      if (input[key] != null && current?.[key] != null) {
+        (input as Record<string, unknown>)[key] = {
+          ...current[key],
+          ...(input[key] as Record<string, unknown>),
+        };
+      }
     }
   }
-  const habitat = habitatRepo.updateHabitat(habitatId, input);
+  const habitat = habitatRepo.updateHabitat(
+    habitatId,
+    input as Parameters<typeof habitatRepo.updateHabitat>[1],
+  );
   if (!habitat) return null;
   const masked = maskSecretSettings(habitat);
   rebuildHabitatSecretCache();

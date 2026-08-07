@@ -94,13 +94,17 @@ describe("MCP ↔ server masking contract", () => {
     expect(h).not.toHaveProperty("ciCdSettings");
   });
 
-  it("catches a deliberately un-masked server response (negative proof)", async () => {
-    // Simulate a BUG: server accidentally includes the raw secret.
+  it("handler is a pass-through — does not independently mask server output", async () => {
+    // If the server accidentally leaks a raw secret, the MCP handler must pass it
+    // through unchanged (masking responsibility lives in the server, not the handler).
+    // This makes the positive test above a real guard for server-side masking
+    // regressions — if the handler started masking on its own, a server regression
+    // would be hidden and the positive test would give false confidence.
     const unmaskedResponse = {
       ...maskedHabitat,
       codeReviewSettings: {
         hasGithubSecret: true,
-        githubSecret: "ghs_secret123", // <-- raw secret leaked
+        githubSecret: "ghs_secret123",
         hasGitlabSecret: false,
         taskPattern: "TASK-\\d+",
         autoApproveOnMerge: true,
@@ -113,11 +117,8 @@ describe("MCP ↔ server masking contract", () => {
 
     const result = await habitatGetHabitat(client as never, { habitatId: "h-1" });
 
-    // The masking assertion catches the leaked secret — the inner expect throws,
-    // proving the test has teeth. Wrap in expect().toThrow so this test PASSES.
-    expect(() => {
-      expect(result.habitat.codeReviewSettings).not.toHaveProperty("githubSecret");
-    }).toThrow();
+    // The leaked secret reaches the consumer — confirming the handler is transparent.
+    expect(result.habitat.codeReviewSettings).toHaveProperty("githubSecret", "ghs_secret123");
   });
 
   it("type-level: habitatGetHabitat return type is PublicHabitat (masked), not Habitat (raw)", () => {

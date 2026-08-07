@@ -134,12 +134,12 @@ export const DEFAULT_RELEASE_SETTINGS: ReleaseSettings = {
   maxPromotionsPerRelease: null,
 };
 
-/** Zod schema for validating `releaseSettings` patches (all fields optional, defaults applied on parse). */
+/** Zod schema for validating `releaseSettings` patches (all fields optional). */
 export const releaseSettingsSchema = z.object({
-  autoPromote: z.boolean().optional().default(true),
-  releaseWorkflowName: z.string().optional().default("release"),
-  requireVersionTag: z.boolean().optional().default(true),
-  maxPromotionsPerRelease: z.number().int().positive().nullable().optional().default(null),
+  autoPromote: z.boolean().optional(),
+  releaseWorkflowName: z.string().optional(),
+  requireVersionTag: z.boolean().optional(),
+  maxPromotionsPerRelease: z.number().int().positive().nullable().optional(),
 });
 
 /**
@@ -198,14 +198,13 @@ export const DEFAULT_ROADMAP_SETTINGS: RoadmapSettings = {
   focusMissionId: null,
 };
 
-/** Zod schema for validating `roadmapSettings` patches (all fields optional, defaults applied on parse). */
+/** Zod schema for validating `roadmapSettings` patches (all fields optional). */
 export const roadmapSettingsSchema = z.object({
   scoringAlgorithm: z
     .enum(["fanout", "depth_from_root", "release_proximity", "goal_directed", "critical_path"])
-    .optional()
-    .default("fanout"),
-  mode: z.enum(["release", "feature"]).optional().default("release"),
-  focusMissionId: z.string().nullable().optional().default(null),
+    .optional(),
+  mode: z.enum(["release", "feature"]).optional(),
+  focusMissionId: z.string().nullable().optional(),
 });
 
 /**
