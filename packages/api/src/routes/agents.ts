@@ -13,7 +13,7 @@ import type {
 } from '../models/schemas.js';
 import { agentAuth, registrationAuth, humanAuth, agentOrHumanAuth } from '../middleware/auth.js';
 import { adminOnly } from '../middleware/rbac.js';
-import { badRequest, notFound } from '../errors.js';
+import { badRequest, notFound, unauthorized, forbidden } from '../errors.js';
 import { getSuggestionsForAgent } from '../services/taskSuggestion.js';
 
 /**
@@ -82,6 +82,26 @@ export async function agentRoutes(fastify: FastifyInstance): Promise<void> {
     '/agents/:id',
     { preHandler: [humanAuth, adminOnly] },
     async (request: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) => {
+      agentService.deleteAgent(request.params.id);
+      reply.code(204).send();
+    }
+  );
+
+  /**
+   * DELETE /agents/:id/self - Agent self-deletion (uninstall compensation).
+   * Auth: agentAuth. Agent can only delete itself (`:id` must equal its own id).
+   * Releases held tasks, then removes the record. Returns 204.
+   */
+  fastify.delete<{ Params: { id: string } }>(
+    '/agents/:id/self',
+    { preHandler: agentAuth },
+    async (request: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) => {
+      if (!request.agent) {
+        throw unauthorized('Authentication required');
+      }
+      if (request.params.id !== request.agent.id) {
+        throw forbidden('Agent can only delete itself');
+      }
       agentService.deleteAgent(request.params.id);
       reply.code(204).send();
     }
