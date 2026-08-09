@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import crypto from "node:crypto";
 import { ORCY_PATHS } from "@orcy/shared";
 import { journalExists, recordStep, addJournalComponent } from "./journal.js";
 
@@ -11,6 +12,14 @@ export interface ManifestEntry {
   marker?: string;
   keys?: string[];
   backup?: string;
+  /**
+   * Content hash of the artifact at install time (SHA-256). When present,
+   * {@link hashFile} / {@link hashDir} compute the on-disk hash at uninstall
+   * time; a mismatch means the user modified the artifact, so it is preserved
+   * instead of removed (P3.2 G4/G6 data-loss prevention). Optional so existing
+   * manifest entries and callers that don't need the guard are unaffected.
+   */
+  hash?: string;
 }
 
 export interface Manifest {
@@ -75,4 +84,40 @@ export function addComponent(name: string): void {
   }
   if (!m.components.includes(name)) m.components.push(name);
   writeManifest(m);
+}
+
+// --- Hash helpers (P3.2) --------------------------------------------------------
+// SHA-256 content hashes for user-modifiable artifacts. Recorded at install time
+// in {@link ManifestEntry.hash}; compared at uninstall time to detect user
+// modifications and prevent data loss (design §7 G4, G6).
+
+/** SHA-256 of a file's contents. */
+export function hashFile(p: string): string {
+  return crypto.createHash("sha256").update(fs.readFileSync(p)).digest("hex");
+}
+
+/**
+ * Deterministic SHA-256 for a directory tree. Walks recursively, collects
+ * `"<relative-path>:<sha256-of-file-contents>"` for every regular file (sorted
+ * lexicographically by relative path), then hashes the newline-joined manifest.
+ * This is order-independent and detects any content change. Empty dirs
+ * contribute no entries but still hash consistently.
+ */
+export function hashDir(dir: string): string {
+  const entries: string[] = [];
+  function walk(d: string, prefix: string): void {
+    for (const name of fs.readdirSync(d).sort()) {
+      const full = path.join(d, name);
+      const rel = prefix ? `${prefix}/${name}` : name;
+      const stat = fs.statSync(full);
+      if (stat.isDirectory()) {
+        walk(full, rel);
+      } else {
+        const h = crypto.createHash("sha256").update(fs.readFileSync(full)).digest("hex");
+        entries.push(`${rel}:${h}`);
+      }
+    }
+  }
+  walk(dir, "");
+  return crypto.createHash("sha256").update(entries.join("\n")).digest("hex");
 }

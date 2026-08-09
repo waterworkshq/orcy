@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import type { InstallContext } from './context.js';
-import { record } from './manifest.js';
+import { record, hashDir } from './manifest.js';
 
 /**
  * Skill Deployment System
@@ -49,7 +49,7 @@ export function installSkills(
         continue;
       }
       fs.cpSync(src, dest, { recursive: true });
-      record({ path: dest, action: 'copied' });
+      record({ path: dest, action: 'copied', hash: hashDir(dest) });
       console.log(`    Installed skill: ${skillName} → ${root}`);
     }
   }

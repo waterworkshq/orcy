@@ -3,7 +3,7 @@ import path from "node:path";
 import { execSync } from "node:child_process";
 import type { InstallContext } from "./context.js";
 import { createShims, editShellRc } from "./path-shim.js";
-import { record } from "./manifest.js";
+import { record, hashFile } from "./manifest.js";
 
 const REPO_URL_BASE = "https://github.com/waterworkshq/orcy";
 const ARCHIVE_URL = `${REPO_URL_BASE}/archive/refs/heads/main.tar.gz`;
@@ -103,6 +103,10 @@ function installRuntimeDeps(
 	console.log("    Installing runtime dependencies...");
 	execSync("pnpm install --prod", { cwd: orcyHome, stdio: "pipe" });
 	console.log("    Runtime dependencies installed");
+	// G4: Record the package.json hash AFTER pnpm install so it reflects the
+	// final on-disk state (pnpm may normalize package.json). Uninstall detects
+	// user modifications and avoids destroying user-added deps.
+	record({ path: pkgJson, action: "created", hash: hashFile(pkgJson) });
 }
 
 function installBuiltPackages(

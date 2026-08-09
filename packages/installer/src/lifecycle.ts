@@ -5,7 +5,7 @@ import { execSync } from 'node:child_process';
 import type { InstallContext } from './context.js';
 import { ALL_WRITERS, removeMcpConfig, writeMcpConfig } from './writers/index.js';
 import { injectIntoFile, removeFromFile } from './markdown-injector.js';
-import { readManifest } from './manifest.js';
+import { readManifest, hashFile, hashDir, type ManifestEntry } from './manifest.js';
 import { removeShims, SENTINEL_START, SENTINEL_END } from './path-shim.js';
 import { generateMcpServerBlock, readCredentials } from './credentials.js';
 import { stopService, installService, uninstallService } from './service-installer.js';
@@ -180,6 +180,20 @@ export async function updateInstall(ctx: InstallContext): Promise<void> {
   console.log('    Update complete');
 }
 
+/**
+ * P3.2 hash-guard: returns `true` if the on-disk artifact has been modified
+ * since install (recorded hash ≠ current hash). When `true`, the caller
+ * preserves the artifact instead of removing it (G4/G6 data-loss prevention).
+ * Returns `false` when there is no recorded hash or the artifact is unchanged.
+ */
+function isModifiedSinceInstall(entry: ManifestEntry): boolean {
+  if (!entry.hash || !fs.existsSync(entry.path)) return false;
+  const currentHash = fs.statSync(entry.path).isDirectory()
+    ? hashDir(entry.path)
+    : hashFile(entry.path);
+  return currentHash !== entry.hash;
+}
+
 export async function uninstallAll(ctx: InstallContext): Promise<void> {
   const manifest = readManifest();
   if (!manifest) {
@@ -204,6 +218,10 @@ export async function uninstallAll(ctx: InstallContext): Promise<void> {
       switch (entry.action) {
         case 'created':
           if (fs.existsSync(entry.path)) {
+            if (isModifiedSinceInstall(entry)) {
+              console.warn(`    ${entry.path} changed since install — preserved, not removed`);
+              break;
+            }
             if (fs.statSync(entry.path).isDirectory()) {
               fs.rmSync(entry.path, { recursive: true });
             } else {
@@ -232,6 +250,10 @@ export async function uninstallAll(ctx: InstallContext): Promise<void> {
         }
         case 'copied':
           if (fs.existsSync(entry.path)) {
+            if (isModifiedSinceInstall(entry)) {
+              console.warn(`    ${entry.path} changed since install — preserved, not removed`);
+              break;
+            }
             if (fs.statSync(entry.path).isDirectory()) {
               fs.rmSync(entry.path, { recursive: true });
             } else {
@@ -243,6 +265,22 @@ export async function uninstallAll(ctx: InstallContext): Promise<void> {
     } catch (e) {
       hadFailure = true;
       console.warn(`    Could not remove ${entry.path}: ${e}`);
+    }
+  }
+
+  // G4: Sweep disposable build artifacts not individually recorded in the
+  // manifest. These are ephemeral — update re-fetches them on every run
+  // (install-packages.ts:45). package.json is NOT swept: P3.2 hash-guards it
+  // when recorded, or it is deliberately preserved for the user's deps.
+  for (const dir of ['src', 'cache', 'node_modules']) {
+    const sweepPath = path.join(ctx.orcyHome, dir);
+    if (fs.existsSync(sweepPath)) {
+      try {
+        fs.rmSync(sweepPath, { recursive: true });
+        console.log(`    Swept ${dir}/`);
+      } catch (e) {
+        console.warn(`    Could not sweep ${dir}/: ${e}`);
+      }
     }
   }
 
