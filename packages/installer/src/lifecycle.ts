@@ -189,7 +189,15 @@ export async function uninstallAll(ctx: InstallContext): Promise<void> {
 
   console.log('==> Uninstalling orcy...');
 
+  // B1: Stop + disable + bootout the running service BEFORE removing any files.
+  // Without this the manifest loop deletes the unit/plist while the process is
+  // still alive (launchd respawns via KeepAlive on macOS).
+  try { stopLegacyService(ctx); } catch {}
+  try { stopService(ctx); } catch {}
+  try { uninstallService(ctx); } catch {}
+
   // Reverse order
+  let hadFailure = false;
   const reversed = [...manifest.files].toReversed();
   for (const entry of reversed) {
     try {
@@ -233,14 +241,21 @@ export async function uninstallAll(ctx: InstallContext): Promise<void> {
           break;
       }
     } catch (e) {
+      hadFailure = true;
       console.warn(`    Could not remove ${entry.path}: ${e}`);
     }
   }
 
   removeShims(ctx);
 
-  const manifestPath = path.join(ctx.orcyHome, 'install-manifest.json');
-  if (fs.existsSync(manifestPath)) fs.unlinkSync(manifestPath);
+  // B4: Only delete the manifest (and journal) on full success. On partial
+  // failure, keep both so the user can retry.
+  if (!hadFailure) {
+    const manifestPath = path.join(ctx.orcyHome, 'install-manifest.json');
+    if (fs.existsSync(manifestPath)) fs.unlinkSync(manifestPath);
+  } else {
+    console.log('    Some entries could not be removed. Manifest preserved for retry.');
+  }
 
   console.log('    Uninstall complete. ~/.orcy/orcy.db and ~/.orcy/.env preserved.');
 }

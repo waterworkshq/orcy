@@ -74,7 +74,10 @@ function installLaunchd(ctx: InstallContext): boolean {
   <key>RunAtLoad</key>
   <true/>
   <key>KeepAlive</key>
-  <true/>
+  <dict>
+    <key>SuccessfulExit</key>
+    <false/>
+  </dict>
   <key>EnvironmentVariables</key>
   <dict>
     <key>ORCY_API_URL</key>
@@ -93,7 +96,13 @@ function installLaunchd(ctx: InstallContext): boolean {
 
   try {
     const uid = execSync('id -u', { encoding: 'utf-8' }).trim();
-    execSync(`launchctl bootstrap gui/${uid} ${plistPath}`, { stdio: 'ignore' });
+    // Guard: launchctl bootstrap is NOT idempotent — it errors if the job is
+    // already loaded. Check via launchctl print; only bootstrap if absent.
+    try {
+      execSync(`launchctl print gui/${uid}/ai.orcy.api`, { stdio: 'ignore' });
+    } catch {
+      execSync(`launchctl bootstrap gui/${uid} ${plistPath}`, { stdio: 'ignore' });
+    }
     console.log('launchd service installed and started');
     return true;
   } catch (err) {
@@ -142,6 +151,8 @@ export function uninstallService(ctx: InstallContext): boolean {
   }
   if (ctx.platform === 'darwin') {
     try {
+      const uid = execSync('id -u', { encoding: 'utf-8' }).trim();
+      try { execSync(`launchctl bootout gui/${uid}/ai.orcy.api`, { stdio: 'ignore' }); } catch {}
       const plistPath = path.join(os.homedir(), 'Library', 'LaunchAgents', 'ai.orcy.api.plist');
       if (fs.existsSync(plistPath)) fs.rmSync(plistPath);
       if (fs.existsSync(WRAPPER_SCRIPT)) fs.rmSync(WRAPPER_SCRIPT);

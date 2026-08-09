@@ -209,7 +209,7 @@ export async function wizard(opts: WizardOptions = {}): Promise<void> {
   await installPackages(ctx, components, { local });
   console.log('    Packages installed.');
 
-  if (components.includes('api') && apiConfig.autostart && ctx.platform === 'linux') {
+  if (components.includes('api') && apiConfig.autostart) {
     console.log('==> Installing service...');
     installService(ctx);
   }
