@@ -5,6 +5,7 @@ import { getContext } from './context.js';
 import { doctor } from './doctor.js';
 import { updateInstall, uninstallAll, listInstall, serviceStatus } from './lifecycle.js';
 import { installService, stopService, uninstallService } from './service-installer.js';
+import { verify } from './verify.js';
 
 function parseYesArgs(args: string[]): Record<string, string> {
   const opts: Record<string, string> = {};
@@ -14,6 +15,7 @@ function parseYesArgs(args: string[]): Record<string, string> {
     if (arg.startsWith('--patch-files=')) opts['patchFiles'] = arg.split('=')[1];
     if (arg.startsWith('--skill-roots=')) opts['skillRoots'] = arg.split('=')[1];
     if (arg === '--local') opts['local'] = 'true';
+    if (arg === '--yes' || arg === '-y') opts['yes'] = 'true';
   }
   return opts;
 }
@@ -52,6 +54,13 @@ program.command('uninstall')
 program.command('list')
   .description('Show installed components and files')
   .action(() => { listInstall(getContext()); });
+
+program.command('verify')
+  .description('Audit installation consistency')
+  .action(() => {
+    const r = verify(getContext());
+    process.exitCode = r.ok ? 0 : 1;
+  });
 
 const service = program.command('service')
   .description('Manage the API systemd/launchd service');
@@ -96,43 +105,69 @@ service.command('uninstall')
     console.log('Service removed.');
   });
 
-const KNOWN_COMMANDS = new Set(['doctor', 'update', 'uninstall', 'list', 'service', 'help']);
+const KNOWN_COMMANDS = new Set(['doctor', 'update', 'uninstall', 'list', 'service', 'help', 'verify']);
 
-async function main() {
-  const rawArgs = process.argv.slice(2);
+const BUILTIN_FLAGS = new Set(['--help', '-h', '--version', '-V']);
+const WIZARD_FLAG_PREFIXES = ['--components=', '--mcp-clients=', '--patch-files=', '--skill-roots='];
+const WIZARD_FLAG_EXACT = new Set(['--local', '--yes', '-y']);
 
-  // No arguments: run interactive wizard
-  if (!rawArgs.length) {
-    const { wizard } = await import('./wizard.js');
-    await wizard({ interactive: true });
-    return;
-  }
+export type Action =
+  | { kind: 'interactive-wizard' }
+  | { kind: 'noninteractive-wizard'; opts: Record<string, string> }
+  | { kind: 'command' }
+  | { kind: 'error'; message: string };
+
+/** Determine the CLI dispatch action from raw argv (pure, testable without spawning). */
+export function resolveAction(rawArgs: string[]): Action {
+  if (!rawArgs.length) return { kind: 'interactive-wizard' };
 
   const first = rawArgs[0];
 
-  // Known subcommand: let commander handle it
-  if (KNOWN_COMMANDS.has(first)) {
-    program.parse(process.argv);
-    return;
-  }
+  if (KNOWN_COMMANDS.has(first)) return { kind: 'command' };
+  if (BUILTIN_FLAGS.has(first)) return { kind: 'command' };
+  if (isWizardArg(first)) return { kind: 'noninteractive-wizard', opts: parseYesArgs(rawArgs) };
 
-  // Commander built-in flags
-  if (first === '--help' || first === '-h' || first === '--version' || first === '-V') {
-    program.parse(process.argv);
-    return;
-  }
+  return {
+    kind: 'error',
+    message: `Unknown command or flag: ${first}\nRun 'orcy-install --help' for usage.`,
+  };
+}
 
-  // Non-interactive wizard mode (--yes, --components=...)
-  const { wizard } = await import('./wizard.js');
-  const opts = parseYesArgs(rawArgs);
-  await wizard({
-    components: opts['components'] ? opts['components'].split(',') : ['cli', 'api', 'mcp'],
-    mcpClients: opts['mcpClients'] ? opts['mcpClients'].split(',') : [],
-    patchFiles: opts['patchFiles'] ? opts['patchFiles'].split(',') : [],
-    skillRoots: opts['skillRoots'] ? opts['skillRoots'].split(',') : [],
-    local: opts['local'] === 'true',
-    interactive: false,
-  });
+function isWizardArg(arg: string): boolean {
+  return WIZARD_FLAG_EXACT.has(arg) || WIZARD_FLAG_PREFIXES.some(p => arg.startsWith(p));
+}
+
+async function main() {
+  const action = resolveAction(process.argv.slice(2));
+
+  switch (action.kind) {
+    case 'interactive-wizard': {
+      const { wizard } = await import('./wizard.js');
+      await wizard({ interactive: true });
+      return;
+    }
+    case 'noninteractive-wizard': {
+      const { wizard } = await import('./wizard.js');
+      const opts = action.opts;
+      await wizard({
+        components: opts['components'] ? opts['components'].split(',') : ['cli', 'api', 'mcp'],
+        mcpClients: opts['mcpClients'] ? opts['mcpClients'].split(',') : [],
+        patchFiles: opts['patchFiles'] ? opts['patchFiles'].split(',') : [],
+        skillRoots: opts['skillRoots'] ? opts['skillRoots'].split(',') : [],
+        local: opts['local'] === 'true',
+        interactive: false,
+      });
+      return;
+    }
+    case 'command': {
+      program.parse(process.argv);
+      return;
+    }
+    case 'error': {
+      console.error(action.message);
+      process.exit(1);
+    }
+  }
 }
 
 main().catch(console.error);
