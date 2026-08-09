@@ -5,10 +5,10 @@ import { readManifest, countEntries, defaultSkillRoot } from "./helpers/setup.js
 import { wizard } from "../src/wizard.js";
 
 describe("install idempotency", () => {
-  it("characterizes B5: running install twice grows files[] with DUPLICATE created entries (record() does not dedup)", async () => {
-    // KNOWN-DESTRUCTIVE: pinned by characterizes_*; flips to should_* in Phase 1.
-    // B5 = manifest.record() pushes without dedup, so a second install appends
-    // duplicate {path, action} entries for the steps that always re-record.
+  it("should not grow files[] when install runs twice (record() dedups on {path, action})", async () => {
+    // Was characterizes_* pinning the no-dedup bug (B5); flipped to should_* in Phase 1 (P1.1)
+    // when record() gained {path, action} dedup. A second identical install must not append
+    // duplicate entries — the manifest stays byte-stable across re-runs.
     const opts: WizardOptions = {
       components: ["cli", "api", "mcp"],
       mcpClients: [],
@@ -32,15 +32,14 @@ describe("install idempotency", () => {
     await wizard(opts);
     const afterSecond = readManifest();
     expect(afterSecond).not.toBeNull();
-    const secondTotal = afterSecond!.files.length;
     const secondCliCreated = countEntries(
       (e) => e.action === "created" && /node_modules\/@orcy\/cli/.test(e.path),
     );
 
-    // B5 pin: files[] grew — no dedup between runs.
-    expect(secondTotal).toBeGreaterThan(firstTotal);
-    // B5 pin: the @orcy/cli `created` entry now appears more than once (duplicated).
-    expect(secondCliCreated).toBeGreaterThan(firstCliCreated);
-    expect(secondCliCreated).toBeGreaterThanOrEqual(2);
+    // Dedup pin: files[] does NOT grow on a second identical install.
+    expect(afterSecond!.files.length).toBe(firstTotal);
+    // Dedup pin: the @orcy/cli `created` entry appears exactly once (not duplicated).
+    expect(secondCliCreated).toBe(firstCliCreated);
+    expect(secondCliCreated).toBe(1);
   });
 });
