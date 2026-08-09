@@ -1,23 +1,20 @@
 import { describe, it, expect } from "vitest";
+import fs from "node:fs";
+import path from "node:path";
 import "./helpers/setup.js";
 import {
   readManifest,
   countEntries,
   createAgentConfigDir,
   defaultSkillRoot,
+  tempHome,
 } from "./helpers/setup.js";
 import { wizard } from "../src/wizard.js";
 import { getContext } from "../src/context.js";
 import { updateInstall } from "../src/lifecycle.js";
 
 describe("update", () => {
-  it("characterizes B2: update skips replay of MCP config and skills (flips to should_* in Phase 4)", async () => {
-    // KNOWN-DESTRUCTIVE: pinned by characterizes_*; flips to should_* in Phase 4.
-    // B2 = update does NOT replay MCP config writes or skill installation. Pinned via the
-    // merged-json (MCP) and copied (skills) counts staying unchanged across update.
-    // (The created/fenced "grows" assertions that previously relied on the no-dedup bug
-    // were removed when record() gained {path, action} dedup in Phase 1 — update still
-    // re-runs installPackages, but those records now dedupe and no longer grow the manifest.)
+  it("should replay MCP config writes and skill installation on update", async () => {
     createAgentConfigDir();
     await wizard({
       components: ["cli", "api", "mcp"],
@@ -29,19 +26,32 @@ describe("update", () => {
 
     const mergedBefore = countEntries((e) => e.action === "merged-json");
     const copiedBefore = countEntries((e) => e.action === "copied");
-    expect(mergedBefore, "precondition: MCP config written during install").toBeGreaterThanOrEqual(
-      1,
-    );
+    expect(mergedBefore, "precondition: MCP config written during install").toBeGreaterThanOrEqual(1);
     expect(copiedBefore, "precondition: skills copied during install").toBeGreaterThanOrEqual(1);
+
+    // Delete MCP config + a skill dir so we can prove update replays them.
+    const mcpConfigPath = path.join(tempHome(), ".claude", "settings.json");
+    expect(fs.existsSync(mcpConfigPath), "precondition: MCP config exists after install").toBe(true);
+    fs.unlinkSync(mcpConfigPath);
+
+    const skillDir = path.join(defaultSkillRoot(), "orcy-overview");
+    expect(fs.existsSync(skillDir), "precondition: skill dir exists after install").toBe(true);
+    fs.rmSync(skillDir, { recursive: true });
 
     const ctx = getContext();
     await updateInstall(ctx);
 
-    // B2 pin: update does NOT replay MCP config writes — merged-json count unchanged.
+    // Update replayed MCP config — file re-created with orcy server block.
+    expect(fs.existsSync(mcpConfigPath), "MCP config re-created by update replay").toBe(true);
+    const mcpConfig = JSON.parse(fs.readFileSync(mcpConfigPath, "utf-8"));
+    expect(mcpConfig.mcpServers?.orcy).toBeDefined();
+
+    // Update replayed skills — dir re-created.
+    expect(fs.existsSync(skillDir), "skill dir re-created by update replay").toBe(true);
+
+    // Manifest dedup (P1.1 {path, action}) prevents duplicate entries — counts unchanged.
     expect(countEntries((e) => e.action === "merged-json")).toBe(mergedBefore);
-    // B2 pin: update does NOT replay skill installation — copied count unchanged.
     expect(countEntries((e) => e.action === "copied")).toBe(copiedBefore);
-    // Sanity: readManifest still resolves (update did not corrupt the manifest).
     expect(readManifest()).not.toBeNull();
   });
 });

@@ -22,11 +22,20 @@ export interface ManifestEntry {
   hash?: string;
 }
 
+export interface InstallIntent {
+  components: string[];
+  mcpClients: string[];
+  patchFiles: string[];
+  skillRoots: string[];
+  apiConfig?: { port: number; host: string; autostart: boolean };
+}
+
 export interface Manifest {
   version: number;
   installedAt: string;
   components: string[];
   files: ManifestEntry[];
+  intent?: InstallIntent;
 }
 
 export function readManifest(): Manifest | null {

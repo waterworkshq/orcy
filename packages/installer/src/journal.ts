@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { ORCY_PATHS } from "@orcy/shared";
-import { readManifest, writeManifest, type Manifest, type ManifestEntry } from "./manifest.js";
+import { readManifest, writeManifest, type Manifest, type ManifestEntry, type InstallIntent } from "./manifest.js";
 
 /**
  * In-flight installation transaction journal (design §7 G1, G3; decision D4).
@@ -272,6 +272,7 @@ export function commitJournal(): Manifest | null {
     installedAt: existing?.installedAt ?? j.startedAt,
     components: mergedComponents,
     files: mergedFiles,
+    ...(j.intent !== undefined ? { intent: j.intent as InstallIntent } : {}),
   };
   writeManifest(manifest);
   fs.unlinkSync(JOURNAL_PATH);

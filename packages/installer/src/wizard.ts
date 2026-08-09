@@ -191,7 +191,7 @@ export async function wizard(opts: WizardOptions = {}): Promise<void> {
   // builds the manifest from done entries and deletes the journal. If the
   // wizard throws mid-install, commitJournal is never reached → the journal
   // stays on disk → the next run detects it as stale (G2).
-  createJournal({ intent: { components, mcpClients, patchFiles, skillRoots } });
+  createJournal({ intent: { components, mcpClients, patchFiles, skillRoots, apiConfig } });
 
   console.log('\n==> Installing...\n');
 

@@ -10,6 +10,8 @@ import { journalExists } from './journal.js';
 import { removeShims, SENTINEL_START, SENTINEL_END } from './path-shim.js';
 import { generateMcpServerBlock, readCredentials } from './credentials.js';
 import { stopService, installService, uninstallService } from './service-installer.js';
+import { generateEnvFile } from './env-bootstrap.js';
+import { installSkills, determineSkillsToInstall } from './skill-installer.js';
 
 const OLD_SENTINEL_START = '# >>> agent-kanban PATH >>>';
 const OLD_SENTINEL_END = '# <<< agent-kanban PATH <<<';
@@ -173,11 +175,67 @@ export async function updateInstall(ctx: InstallContext): Promise<void> {
   console.log(`    Re-installing components: ${components.join(', ')}`);
   const { installPackages } = await import('./install-packages.js');
   await installPackages(ctx, components);
-  for (const entry of manifest.files) {
-    if (entry.action === 'fenced' && (entry.path.includes('AGENTS') || entry.path.includes('CLAUDE'))) {
-      injectIntoFile(entry.path, ctx);
+
+  const intent = manifest.intent;
+  if (intent) {
+    // Replay env (generateEnvFile self-guards on existing secrets)
+    if (components.includes('api') && intent.apiConfig) {
+      generateEnvFile(ctx, { port: intent.apiConfig.port, host: intent.apiConfig.host });
+    }
+
+    // Replay service (idempotent — Phase 2 guarded bootstrap)
+    if (components.includes('api') && intent.apiConfig?.autostart) {
+      installService(ctx);
+    }
+
+    // Replay MCP config writes (agent already registered — do NOT call registerAgent)
+    if (components.includes('mcp') && intent.mcpClients.length) {
+      const creds = readCredentials();
+      if (creds) {
+        const block = generateMcpServerBlock(creds, ctx);
+        for (const clientId of intent.mcpClients) {
+          const writer = ALL_WRITERS.find(w => w.id === clientId);
+          if (!writer) continue;
+          try {
+            writeMcpConfig(writer, block);
+            console.log(`    Replayed MCP config: ${writer.label}`);
+          } catch (e) {
+            console.warn(`    Failed to replay MCP config for ${clientId}: ${e}`);
+          }
+        }
+      } else {
+        console.log('    Credentials not found — skipping MCP config replay.');
+      }
+    }
+
+    // Replay markdown patches (remove-then-inject is idempotent via P4.2)
+    for (const filePath of intent.patchFiles) {
+      try {
+        injectIntoFile(filePath, ctx);
+      } catch (e) {
+        console.warn(`    Could not re-patch ${filePath}: ${e}`);
+      }
+    }
+
+    // Replay skills
+    if (intent.skillRoots.length) {
+      installSkills(ctx, intent.skillRoots, determineSkillsToInstall(components));
+    }
+  } else {
+    // Old manifest (no intent recorded) — fall back to packages + markdown re-injection
+    console.log('    Install intent not recorded (older install); replaying packages + markdown only.');
+    console.log('    Re-run `orcy-install` to enable full update replay.');
+    for (const entry of manifest.files) {
+      if (entry.action === 'fenced') {
+        try {
+          injectIntoFile(entry.path, ctx);
+        } catch (e) {
+          console.warn(`    Could not re-patch ${entry.path}: ${e}`);
+        }
+      }
     }
   }
+
   console.log('    Update complete');
 }
 
