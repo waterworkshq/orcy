@@ -38,6 +38,7 @@ program.command('update')
 program.command('uninstall')
   .description('Remove all installed components')
   .option('-y, --yes', 'Skip confirmation prompt')
+  .option('--purge', 'Also remove settings and data (.env, orcy.db, credentials)')
   .action(async (opts) => {
     const ctx = getContext();
     if (!opts.yes) {
@@ -45,7 +46,7 @@ program.command('uninstall')
       const confirmed = await confirm({ message: 'Remove all orcy components?' });
       if (!confirmed) { console.log('Aborted'); return; }
     }
-    await uninstallAll(ctx);
+    await uninstallAll(ctx, { purge: opts.purge ?? false, yes: opts.yes ?? false });
   });
 
 program.command('list')

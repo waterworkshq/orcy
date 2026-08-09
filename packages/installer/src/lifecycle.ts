@@ -6,6 +6,7 @@ import type { InstallContext } from './context.js';
 import { ALL_WRITERS, removeMcpConfig, writeMcpConfig } from './writers/index.js';
 import { injectIntoFile, removeFromFile } from './markdown-injector.js';
 import { readManifest, hashFile, hashDir, type ManifestEntry } from './manifest.js';
+import { journalExists } from './journal.js';
 import { removeShims, SENTINEL_START, SENTINEL_END } from './path-shim.js';
 import { generateMcpServerBlock, readCredentials } from './credentials.js';
 import { stopService, installService, uninstallService } from './service-installer.js';
@@ -194,7 +195,20 @@ function isModifiedSinceInstall(entry: ManifestEntry): boolean {
   return currentHash !== entry.hash;
 }
 
-export async function uninstallAll(ctx: InstallContext): Promise<void> {
+export interface UninstallOptions {
+  /** When true, remove .env, orcy.db, and credentials.json instead of preserving them. */
+  purge?: boolean;
+  /** When true, skip all interactive prompts (set by `--yes` in the CLI). */
+  yes?: boolean;
+}
+
+export async function uninstallAll(ctx: InstallContext, opts?: UninstallOptions): Promise<void> {
+  // G9 step 1: warn on stale install journal (proceed against the manifest regardless).
+  if (journalExists()) {
+    console.warn('    Warning: install journal found (interrupted install?). Proceeding with manifest-based uninstall.');
+  }
+
+  // G9 step 2: read manifest (absent → exit).
   const manifest = readManifest();
   if (!manifest) {
     console.log('No install manifest found.');
@@ -286,8 +300,61 @@ export async function uninstallAll(ctx: InstallContext): Promise<void> {
 
   removeShims(ctx);
 
-  // B4: Only delete the manifest (and journal) on full success. On partial
-  // failure, keep both so the user can retry.
+  // G9 step 6: G5 consent-gated remote agent deactivation.
+  // G9 step 7: D1 conditional preserve/remove of user data.
+  const creds = readCredentials();
+  const explicitPurge = opts?.purge ?? false;
+  const interactive = process.stdin.isTTY === true && !opts?.yes;
+
+  // Interactive: show the preserve-prompt (also surfaces G5 deactivation note
+  // when an agent is registered).
+  let willPurge = explicitPurge;
+  if (interactive && !explicitPurge) {
+    const { confirm } = await import('@clack/prompts');
+    const message = creds
+      ? `Also remove settings and data (.env, orcy.db, credentials)? This deactivates agent "${creds.agentName}" with the API.`
+      : `Also remove settings and data (.env, orcy.db, credentials)?`;
+    willPurge = (await confirm({ message, initialValue: false })) === true;
+  }
+
+  // G5: consent-gated remote DELETE.
+  if (creds) {
+    const consent = willPurge || interactive;
+    if (consent) {
+      try {
+        const resp = await fetch(`${ctx.apiUrl}/api/agents/${creds.agentId}/self`, {
+          method: 'DELETE',
+          headers: { 'x-agent-api-key': creds.apiKey },
+        });
+        if (resp.ok) {
+          console.log(`    Agent ${creds.agentId} deactivated.`);
+        } else {
+          console.warn(`    API deactivation returned ${resp.status}. Manual cleanup may be needed.`);
+        }
+      } catch (e) {
+        console.warn(`    Could not deactivate agent (API unreachable): ${e instanceof Error ? e.message : e}`);
+        console.warn(`    Manual: DELETE ${ctx.apiUrl}/api/agents/${creds.agentId}/self (header: x-agent-api-key)`);
+      }
+    } else {
+      // Non-interactive without explicit consent: skip, log orphan instructions.
+      console.log(`    Agent ${creds.agentId} still registered. To deactivate manually:`);
+      console.log(`    DELETE ${ctx.apiUrl}/api/agents/${creds.agentId}/self (header: x-agent-api-key: <key>)`);
+    }
+  }
+
+  // D1: purge or preserve user data files (.env, orcy.db, credentials.json).
+  const dataFiles = ['.env', 'orcy.db', 'credentials.json'];
+  if (willPurge) {
+    for (const f of dataFiles) {
+      const fp = path.join(ctx.orcyHome, f);
+      try { if (fs.existsSync(fp)) fs.unlinkSync(fp); } catch {}
+    }
+    console.log('    Removed: .env, orcy.db, credentials.json');
+  } else {
+    console.log('    Preserved: .env, orcy.db, credentials.json');
+  }
+
+  // G9 step 8: delete manifest LAST and ONLY on success (B4).
   if (!hadFailure) {
     const manifestPath = path.join(ctx.orcyHome, 'install-manifest.json');
     if (fs.existsSync(manifestPath)) fs.unlinkSync(manifestPath);
@@ -295,7 +362,7 @@ export async function uninstallAll(ctx: InstallContext): Promise<void> {
     console.log('    Some entries could not be removed. Manifest preserved for retry.');
   }
 
-  console.log('    Uninstall complete. ~/.orcy/orcy.db and ~/.orcy/.env preserved.');
+  console.log('    Uninstall complete.');
 }
 
 export function listInstall(_ctx: InstallContext): void {
