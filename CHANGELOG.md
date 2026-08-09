@@ -2,6 +2,31 @@
 
 > Older releases: see [git tags](https://github.com/waterworkshq/orcy/tags) and [GitHub Releases](https://github.com/waterworkshq/orcy/releases).
 
+## 0.36.1 — 2026-08-09
+
+### Bug Fixes
+
+#### strip field-level .default() from patch sub-schemas + extract publishHabitatUpdate helper ([`cf0da86`](https://github.com/waterworkshq/orcy/commit/cf0da86e42ce9248500eeed04e4f1be9820403c9))
+
+
+
+
+- Remove .default() from anomalySettingsSchema and autoAssignSettingsSchema   sub-fields so partial PATCHes don't silently reset unspecified fields to   Zod-injected defaults before the service deep-merge runs (CS-20)
+
+
+
+
+- Remove .default(false) from codeReviewSettingsSchema.autoApproveOnMerge —   same data-loss pattern
+
+
+
+
+- Extract publishHabitatUpdate(habitatId, habitat) helper in habitatService   centralizing mask + cache rebuild + SSE broadcast; route all 3 habitat-   change paths through it so side effects stay consistent (CS-21)
+
+
+
+
+
 ## 0.36.0 — 2026-08-07
 
 ### Documentation
@@ -147,54 +172,3 @@
 
 
 - Three-piece patch release: notification.write scope for ack/snooze, linked-identity recipient dedup, and stale deferred-doc cleanup.
-
-
-
-
-
-## 0.35.3 — 2026-08-06
-
-### Bug Fixes
-
-#### forward missingCapabilities on delegated capability_mismatch ([`a9aefff`](https://github.com/waterworkshq/orcy/commit/a9aefff9e9332aa15d3aa1a058795dc40b7c64a9))
-
-
-
-
-- The delegated-claim capability_mismatch path was silently dropping missingCapabilities between the service layer and the HTTP response. The local-claim path at routes/tasks/lifecycle.ts:90 already forwards the array; the delegated path at line 74 did not, leaving UI clients with only a message string on delegated failures (asymmetric capability feedback).
-
-
-
-
-- Three changes:
-
-
-
-
-- 1. Service (packages/api/src/services/tasks/task-delegation.ts):    - Both delegateTask (line 65) and claimDelegatedTask (line 124)      capability_mismatch returns now include missingCapabilities:      missing alongside the existing message field    - Both return-type unions widened to include missingCapabilities?:      string[] (matches the local task-lifecycle.ts:77 shape)
-
-
-
-
-- 2. Route (packages/api/src/routes/tasks/lifecycle.ts:74): the delegated    path's 409 conflict now forwards { message, missingCapabilities }    alongside the reason, mirroring line 90
-
-
-
-
-- 3. Tests:    - claimPathCharacterization.test.ts §8.1: PRESERVE marker flipped      to INTENTIONALLY-CHANGE; assertion strengthened from a partial      'message contains X' check to a full toEqual of the rich shape      (matches §6.1 style at lines 597-602). Docstring updated to      document the route fix and the new contract.    - sharedApi.test.ts: new it() block — builds a local app with the      delegated-claim route + root-level error handler, mocks      claimDelegatedTask to return capability_mismatch, asserts the      409 body.details.missingCapabilities matches the missing      capability array. Models the existing capability_mismatch test      at sharedApi.test.ts:1297-1314.    - task-delegation.test.ts: two pre-existing toEqual assertions      (lines 96, 141) needed missingCapabilities added to the      expected value — mechanical update, no semantic change.
-
-
-
-
-- Backward compat: missingCapabilities is additive; the existing message field is preserved. Clients that ignore unknown fields are unaffected.
-
-
-
-
-
-### Documentation
-
-#### add v0.35.2 release notes + sync ROADMAP/README ([`6ea93ff`](https://github.com/waterworkshq/orcy/commit/6ea93ff1c63e55b6bab5216b56a867a66fd38ef7))
-
-
-#### mark v0.35.1 + v0.35.2 delivered ([`c4cd4b0`](https://github.com/waterworkshq/orcy/commit/c4cd4b02b8cb117050ef2a5f1ef5b6e9764c6f30))
