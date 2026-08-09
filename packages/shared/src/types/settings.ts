@@ -153,7 +153,7 @@ export const releaseSettingsSchema = z.object({
  */
 export const codeReviewSettingsSchema = z.object({
   taskPattern: z.string(),
-  autoApproveOnMerge: z.boolean().default(false),
+  autoApproveOnMerge: z.boolean().optional(),
 });
 
 /**

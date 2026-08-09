@@ -356,34 +356,34 @@ export const retryPolicySchema = z.object({
 });
 
 export const anomalySettingsSchema = z.object({
-  enabled: z.boolean().optional().default(true),
-  scanIntervalMinutes: z.number().int().min(1).max(60).optional().default(5),
+  enabled: z.boolean().optional(),
+  scanIntervalMinutes: z.number().int().min(1).max(60).optional(),
   thresholds: z
     .object({
-      staleInProgressMinutes: z.number().int().min(10).optional().default(240),
-      rejectionRatePercent: z.number().min(1).max(100).optional().default(40),
-      rejectionWindowTasks: z.number().int().min(3).max(100).optional().default(10),
-      cycleTimeIncreasePercent: z.number().min(10).max(500).optional().default(50),
-      backlogToAgentRatio: z.number().min(1).max(20).optional().default(2),
-      agentOfflineMinutes: z.number().int().min(1).max(120).optional().default(15),
+      staleInProgressMinutes: z.number().int().min(10).optional(),
+      rejectionRatePercent: z.number().min(1).max(100).optional(),
+      rejectionWindowTasks: z.number().int().min(3).max(100).optional(),
+      cycleTimeIncreasePercent: z.number().min(10).max(500).optional(),
+      backlogToAgentRatio: z.number().min(1).max(20).optional(),
+      agentOfflineMinutes: z.number().int().min(1).max(120).optional(),
     })
     .optional(),
   notifications: z
     .object({
-      email: z.boolean().optional().default(true),
-      sse: z.boolean().optional().default(true),
-      chat: z.boolean().optional().default(true),
+      email: z.boolean().optional(),
+      sse: z.boolean().optional(),
+      chat: z.boolean().optional(),
     })
     .optional(),
 });
 
 export const autoAssignSettingsSchema = z.object({
-  enabled: z.boolean().optional().default(false),
-  strategy: z.enum(["round_robin", "least_loaded", "best_match"]).optional().default("best_match"),
-  maxTasksPerAgent: z.number().int().min(1).max(50).optional().default(5),
-  requireDomainMatch: z.boolean().optional().default(false),
-  requireCapabilityMatch: z.boolean().optional().default(false),
-  excludeOfflineAgents: z.boolean().optional().default(true),
+  enabled: z.boolean().optional(),
+  strategy: z.enum(["round_robin", "least_loaded", "best_match"]).optional(),
+  maxTasksPerAgent: z.number().int().min(1).max(50).optional(),
+  requireDomainMatch: z.boolean().optional(),
+  requireCapabilityMatch: z.boolean().optional(),
+  excludeOfflineAgents: z.boolean().optional(),
 });
 
 export const triageSettingsSchema = z.object({

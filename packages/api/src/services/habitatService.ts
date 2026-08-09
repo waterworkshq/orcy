@@ -111,6 +111,14 @@ export function listHabitats(name?: string, teamIds?: string[]): PublicHabitat[]
   return habitatRepo.listHabitats(name, teamIds).map(maskSecretSettings);
 }
 
+/** Masks secrets, rebuilds the secret cache, and broadcasts `habitat.updated` SSE. Returns the masked habitat. All habitat-change paths route through this helper so masking, cache invalidation, and SSE broadcast stay consistent across call sites. */
+export function publishHabitatUpdate(habitatId: string, habitat: Habitat): PublicHabitat {
+  const masked = maskSecretSettings(habitat);
+  rebuildHabitatSecretCache();
+  sseBroadcaster.publish(habitatId, { type: "habitat.updated", data: masked });
+  return masked;
+}
+
 /** Applies a partial update to a {@link Habitat}'s editable fields; side effect: rebuilds the board secret cache and publishes `habitat.updated` SSE when the update succeeds. Settings blobs (`retrySettings`, `anomalySettings`, `autoAssignSettings`, `triageSettings`, `releaseSettings`, `roadmapSettings`, `codeReviewSettings`, `ciCdSettings`) are deep-merged with existing stored values so a partial PATCH only overwrites the fields the caller explicitly provided — unmentioned fields preserve their current values. */
 export function updateHabitat(habitatId: string, input: UpdateHabitatInput): PublicHabitat | null {
   const settingsBlobs = [
@@ -141,10 +149,7 @@ export function updateHabitat(habitatId: string, input: UpdateHabitatInput): Pub
     input as Parameters<typeof habitatRepo.updateHabitat>[1],
   );
   if (!habitat) return null;
-  const masked = maskSecretSettings(habitat);
-  rebuildHabitatSecretCache();
-  sseBroadcaster.publish(habitatId, { type: "habitat.updated", data: masked });
-  return masked;
+  return publishHabitatUpdate(habitatId, habitat);
 }
 
 /** Removes a {@link Habitat} and all of its dependents; side effect: rebuilds the board secret cache and publishes `habitat.deleted` SSE. */

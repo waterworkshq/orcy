@@ -1,6 +1,6 @@
 # Orcy — Product Roadmap
 
-> **Version:** v0.36.0 | **Updated:** 2026-08-07
+> **Version:** v0.36.1 | **Updated:** 2026-08-07
 
 Each minor release tells a story — a coherent set of changes with a clear "why."
 Release boundaries are risk management decisions: breaking changes, fragile features, and big refactors never ship together.
