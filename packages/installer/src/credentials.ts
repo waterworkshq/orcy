@@ -5,6 +5,7 @@ import { ORCY_PATHS } from '@orcy/shared';
 import type { InstallContext } from './context.js';
 import type { McpServerBlock } from './writers/index.js';
 import { record } from './manifest.js';
+import { journalExists, readJournal, appendStep, setStepPhase, markStepDone } from './journal.js';
 import { readRegistrationToken } from './env-bootstrap.js';
 
 export interface Credentials {
@@ -52,6 +53,10 @@ export async function registerAgent(ctx: InstallContext, opts: AgentRegistration
     return existing;
   }
 
+  // G3 two-phase sub-stepping (see journal.ts). No-op unless a journal is in flight.
+  const journaled = journalExists();
+  const regStep = journaled ? readJournal()!.steps.length : -1;
+
   try {
     const hostname = os.hostname().replace(/[^a-zA-Z0-9-]/g, '').slice(0, 16) || 'local';
     const body = {
@@ -63,6 +68,7 @@ export async function registerAgent(ctx: InstallContext, opts: AgentRegistration
     const headers: Record<string, string> = { 'Content-Type': 'application/json' };
     const token = readRegistrationToken();
     if (token) headers['x-registration-token'] = token;
+    if (journaled) appendStep({ path: CREDENTIALS_PATH, action: 'created', phase: 'post' });
     const res = await fetch(`${ctx.apiUrl}/api/agents`, {
       method: 'POST',
       headers,
@@ -86,7 +92,9 @@ export async function registerAgent(ctx: InstallContext, opts: AgentRegistration
       agentName: body.name,
     };
     if (!creds.agentId || !creds.apiKey) throw new Error('API did not return agent ID or API key');
+    if (journaled) setStepPhase(regStep, 'credentials', { agentId: creds.agentId });
     writeCredentials(creds);
+    if (journaled) markStepDone(regStep);
     console.log(`Registered agent "${creds.agentName}" (${creds.agentId})`);
     return creds;
   } catch (err) {
