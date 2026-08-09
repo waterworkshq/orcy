@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { ORCY_PATHS } from "@orcy/shared";
+import { journalExists, recordStep, addJournalComponent } from "./journal.js";
 
 const MANIFEST_PATH = path.join(ORCY_PATHS.home, "install-manifest.json");
 
@@ -42,6 +43,13 @@ export function writeManifest(m: Manifest): void {
 }
 
 export function record(entry: ManifestEntry): void {
+  // Journal-aware seam (P1.4): when an in-flight journal exists, redirect to
+  // the journal instead of the manifest. The manifest is written ONLY at
+  // commitJournal() — the manifest path never holds in-flight state (G1).
+  if (journalExists()) {
+    recordStep(entry);
+    return;
+  }
   let m = readManifest();
   if (!m) {
     m = { version: 1, installedAt: new Date().toISOString(), components: [], files: [] };
@@ -57,6 +65,10 @@ export function record(entry: ManifestEntry): void {
 }
 
 export function addComponent(name: string): void {
+  if (journalExists()) {
+    addJournalComponent(name);
+    return;
+  }
   let m = readManifest();
   if (!m) {
     m = { version: 1, installedAt: new Date().toISOString(), components: [], files: [] };

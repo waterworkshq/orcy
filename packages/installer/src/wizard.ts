@@ -10,6 +10,7 @@ import { injectIntoFile } from './markdown-injector.js';
 import { installSkills, determineSkillsToInstall } from './skill-installer.js';
 import { installService } from './service-installer.js';
 import { addComponent } from './manifest.js';
+import { journalExists, readJournal, createJournal, commitJournal, discardJournal, journalPath } from './journal.js';
 
 export interface WizardOptions {
   components?: string[];
@@ -116,6 +117,42 @@ export async function wizard(opts: WizardOptions = {}): Promise<void> {
 
   const ctx = getContext();
 
+  // G2: stale-journal detection — don't start a new install over a partial one.
+  // Full resume/rollback is gated on G8/G5; today we only offer clear-and-restart
+  // (interactive) or structured fail (non-interactive / CI).
+  if (journalExists()) {
+    const stale = readJournal();
+    if (interactive) {
+      console.log('\n⚠ A previous installation was interrupted.');
+      if (stale) {
+        const doneCount = stale.steps.filter(s => s.status === 'done').length;
+        const lastDone = [...stale.steps].reverse().find(s => s.status === 'done');
+        console.log(`  Started: ${stale.startedAt}`);
+        console.log(`  Steps recorded: ${stale.steps.length} (${doneCount} completed)`);
+        if (lastDone) console.log(`  Last completed: ${lastDone.path} (${lastDone.action})`);
+      } else {
+        console.log('  (Journal is unreadable — treating as stale.)');
+      }
+      const { confirm } = await import('@clack/prompts');
+      const shouldClear = await confirm({
+        message: 'Clear the interrupted journal and start fresh?',
+        initialValue: true,
+      });
+      if (!shouldClear) { console.log('Aborted.'); return; }
+      discardJournal();
+    } else {
+      console.error('Error: stale installation journal detected.');
+      console.error(`  Journal: ${journalPath()}`);
+      if (stale) {
+        const doneCount = stale.steps.filter(s => s.status === 'done').length;
+        console.error(`  Started: ${stale.startedAt}`);
+        console.error(`  Completed steps: ${doneCount}`);
+      }
+      console.error('  To resolve: remove the journal file or run interactively.');
+      throw new Error(`stale installation journal detected — run interactively or remove ${journalPath()}`);
+    }
+  }
+
   console.log('orcy -- Installation wizard\n');
 
   const components = initComponents ?? await askComponents(interactive);
@@ -148,6 +185,13 @@ export async function wizard(opts: WizardOptions = {}): Promise<void> {
     console.log(`  Skill roots: ${skillRoots.length ? skillRoots.join(', ') : '(none)'}`);
     console.log('');
   }
+
+  // Start the in-flight transaction journal. Must exist before any record()/
+  // addComponent() call in the install body below. On success, commitJournal()
+  // builds the manifest from done entries and deletes the journal. If the
+  // wizard throws mid-install, commitJournal is never reached → the journal
+  // stays on disk → the next run detects it as stale (G2).
+  createJournal({ intent: { components, mcpClients, patchFiles, skillRoots } });
 
   console.log('\n==> Installing...\n');
 
@@ -207,6 +251,9 @@ export async function wizard(opts: WizardOptions = {}): Promise<void> {
     console.log('==> Installing skills...');
     installSkills(ctx, skillRoots, skills);
   }
+
+  // Commit: build manifest from journal done-entries, write atomically, delete journal.
+  commitJournal();
 
   console.log('\n==> Installation complete!\n');
   console.log('  ~/.orcy/bin/          PATH shims (ensure ~/.orcy/bin is on your PATH)');

@@ -154,6 +154,34 @@ export function appendStep(input: StepInput): void {
 }
 
 /**
+ * Append a `done` step, deduped on `{path, action}` against existing steps of
+ * any status — mirroring manifest.ts `record()`'s manifest dedup but applied to
+ * the journal's `steps[]`.
+ *
+ * This is the journal-side redirection target for manifest `record()`: when a
+ * journal is in flight, `record(entry)` calls this instead of writing the
+ * manifest. The dedup ensures that if an earlier `appendStep` already created
+ * a step for the same `{path, action}` (e.g. `registerAgent` in credentials.ts),
+ * the redirected `record()` from `writeCredentials` becomes a no-op — the
+ * registerAgent reconciliation seam (design §7 G3; P1.3/P1.4).
+ *
+ * Entries arrive as `done` (not `pending`) because `record()` callers have
+ * already completed their filesystem mutation — the record happens post-mutation.
+ */
+export function recordStep(input: StepInput): void {
+  const j = requireInFlight();
+  if (!j.steps.some((s) => s.path === input.path && s.action === input.action)) {
+    j.steps.push({
+      ...input,
+      step: j.steps.length,
+      status: "done",
+      ts: new Date().toISOString(),
+    });
+    writeJournalAtomic(j);
+  }
+}
+
+/**
  * Advance a step's G3 sub-phase WITHOUT changing its status (the operation is
  * still `pending`). Used to record intermediate progress such as the
  * `registerAgent` `"post" → "credentials"` transition. `payload` carries
@@ -202,8 +230,11 @@ export function addJournalComponent(name: string): void {
 
 /**
  * THE COMMIT POINT. Build a {@link Manifest} from the journal's `done` entries,
- * atomically write it to the manifest path (via `writeManifest`, already atomic
- * per P1.1), then unlink the journal.
+ * merge with any existing committed manifest (so entries from a prior install
+ * that are not re-recorded in this transaction — e.g. credentials when the agent
+ * is already registered — survive the commit), atomically write it to the
+ * manifest path (via `writeManifest`, already atomic per P1.1), then unlink the
+ * journal.
  *
  * Idempotent: if no journal exists but a manifest does (already committed), the
  * existing manifest is returned unchanged. If neither exists, returns `null`.
@@ -215,11 +246,32 @@ export function addJournalComponent(name: string): void {
 export function commitJournal(): Manifest | null {
   const j = readJournal();
   if (!j) return readManifest();
+  // Merge with the existing committed manifest: a re-install may skip some
+  // steps (e.g. agent already registered → no credentials record). Those prior
+  // entries must survive — the manifest is the full ledger, not just this run.
+  const existing = readManifest();
+  const priorFiles = existing?.files ?? [];
+  const priorComponents = existing?.components ?? [];
+  const journalFiles = j.steps
+    .filter((s) => s.status === "done")
+    .map(toManifestEntry);
+  // Dedup on {path, action}: journal entries that duplicate prior entries are
+  // dropped; new entries are appended. Mirrors record()'s manifest dedup.
+  const mergedFiles = [...priorFiles];
+  for (const f of journalFiles) {
+    if (!mergedFiles.some((m) => m.path === f.path && m.action === f.action)) {
+      mergedFiles.push(f);
+    }
+  }
+  const mergedComponents = [...priorComponents];
+  for (const c of j.components) {
+    if (!mergedComponents.includes(c)) mergedComponents.push(c);
+  }
   const manifest: Manifest = {
     version: 1,
-    installedAt: j.startedAt,
-    components: j.components,
-    files: j.steps.filter((s) => s.status === "done").map(toManifestEntry),
+    installedAt: existing?.installedAt ?? j.startedAt,
+    components: mergedComponents,
+    files: mergedFiles,
   };
   writeManifest(manifest);
   fs.unlinkSync(JOURNAL_PATH);

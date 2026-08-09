@@ -2,12 +2,12 @@ import { describe, it, expect, vi } from "vitest";
 import fs from "node:fs";
 import path from "node:path";
 
-// KNOWN-DESTRUCTIVE: pinned by characterizes_*; flips to should_* in Phase 1.
-// Mock install-packages.js to record a partial `created` entry then throw, so we
-// can pin the "no recovery/rollback on partial failure" baseline. The factory uses
-// the REAL manifest.record() (imported dynamically) so the leftover manifest is
-// genuinely produced by production code, and dynamically imports fs/path (mock
-// factories may only reference vi.hoisted bindings otherwise).
+// Flipped from characterizes_* in P1.4: with the journal wired into the install
+// flow, record() redirects to the in-flight journal. A mid-install throw leaves
+// the journal on disk and the manifest is NEVER written (commitJournal is
+// unreachable). The next invocation detects the stale journal via G2 policy.
+// The factory uses the REAL manifest.record() (imported dynamically) so the
+// leftover journal entry is genuinely produced by production code.
 vi.mock("../src/install-packages.js", async () => {
   const { record } = await import("../src/manifest.js");
   const nfs = await import("node:fs");
@@ -24,11 +24,12 @@ vi.mock("../src/install-packages.js", async () => {
 });
 
 import "./helpers/setup.js";
-import { orcyHome, readManifest, manifestPath } from "./helpers/setup.js";
+import { orcyHome, readManifest } from "./helpers/setup.js";
 import { wizard } from "../src/wizard.js";
+import { journalExists } from "../src/journal.js";
 
 describe("partial failure recovery", () => {
-  it("characterizes that a mid-installPackages throw leaves a partial manifest with NO recovery/rollback", async () => {
+  it("should leave a stale journal (NOT a partial manifest) when installPackages throws mid-install", async () => {
     await expect(
       wizard({
         components: ["cli", "api", "mcp"],
@@ -39,16 +40,14 @@ describe("partial failure recovery", () => {
       }),
     ).rejects.toThrow("partial-failure-mid-copy");
 
-    const m = readManifest();
-    expect(m, "partial manifest exists (entries recorded before throw)").not.toBeNull();
-    expect(
-      m!.files.some((e) => e.action === "created"),
-      "at least one created entry recorded before the throw",
-    ).toBe(true);
+    // Journal survives — the in-flight transaction record is on disk.
+    expect(journalExists(), "journal survives partial failure").toBe(true);
 
-    // No-recovery pin: the leftover dir and the partial manifest are NOT rolled back.
+    // Manifest was NEVER written (commitJournal never reached).
+    expect(readManifest(), "no partial manifest committed").toBeNull();
+
+    // No-recovery pin: the leftover dir is NOT rolled back (no auto-recovery today).
     const leftover = path.join(orcyHome(), "node_modules", "@orcy", "cli");
     expect(fs.existsSync(leftover), "leftover dir NOT rolled back").toBe(true);
-    expect(fs.existsSync(manifestPath()), "partial manifest NOT rolled back").toBe(true);
   });
 });
