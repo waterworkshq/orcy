@@ -1,5 +1,7 @@
 import fs from 'node:fs';
+import path from 'node:path';
 import { getContext } from './context.js';
+import { serviceStatus } from './lifecycle.js';
 
 export async function doctor(): Promise<void> {
   const ctx = getContext();
@@ -44,6 +46,17 @@ export async function doctor(): Promise<void> {
 
   const manifestExists = fs.existsSync(`${ctx.orcyHome}/install-manifest.json`);
   console.log(`${manifestExists ? 'OK' : 'FAIL'} install manifest exists`);
+
+  const staleJournal = fs.existsSync(path.join(ctx.orcyHome, 'install-journal.json'));
+  console.log(`${staleJournal ? 'WARN' : 'OK'} ${staleJournal ? 'stale install journal present (interrupted install)' : 'no stale install journal'}`);
+
+  if (ctx.platform === 'linux' || ctx.platform === 'darwin') {
+    const active = serviceStatus(ctx);
+    console.log(`${active ? 'OK' : 'FAIL'} service active`);
+    if (!active) allGood = false;
+  } else {
+    console.log('-- service: no init system');
+  }
 
   console.log(`\n${allGood ? 'All checks passed' : 'Some checks failed'}`);
 }
