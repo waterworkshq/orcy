@@ -338,7 +338,9 @@ function reverseEntry(ctx: InstallContext, entry: ManifestEntry): void {
         const content = fs.readFileSync(entry.path, "utf-8");
         const start = content.indexOf(SENTINEL_START);
         const end = content.indexOf(SENTINEL_END);
-        if (start !== -1 && end !== -1) {
+        // T2.7: only splice when END follows START. A misordered/incomplete
+        // sentinel pair is left untouched rather than spliced corruptly.
+        if (start !== -1 && end !== -1 && end > start) {
           const next = end + SENTINEL_END.length;
           fs.writeFileSync(
             entry.path,
@@ -591,7 +593,11 @@ export function isJournalViable(journal: Journal): boolean {
       case "appended": {
         if (!fs.existsSync(step.path)) return false;
         const content = fs.readFileSync(step.path, "utf-8");
-        if (!content.includes(SENTINEL_START)) return false;
+        // T2.7: require BOTH sentinels, START before END — a start-only or
+        // misordered pair is not a viable append to resume over.
+        const start = content.indexOf(SENTINEL_START);
+        const end = content.indexOf(SENTINEL_END);
+        if (start === -1 || end === -1 || end < start) return false;
         break;
       }
     }
