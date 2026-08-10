@@ -1,7 +1,13 @@
 import fs from "node:fs";
 import path from "node:path";
 import { ORCY_PATHS } from "@orcy/shared";
-import { readManifest, writeManifest, type Manifest, type ManifestEntry, type InstallIntent } from "./manifest.js";
+import {
+  readManifest,
+  writeManifest,
+  type Manifest,
+  type ManifestEntry,
+  type InstallIntent,
+} from "./manifest.js";
 
 /**
  * In-flight installation transaction journal (design §7 G1, G3; decision D4).
@@ -89,8 +95,8 @@ export interface Journal {
   components: string[];
   /** Ordered in-flight operations. */
   steps: JournalEntry[];
-  /** Optional wizard intent snapshot for diagnosis (minimal placeholder; P1.4). */
-  intent?: unknown;
+  /** Wizard intent snapshot (typed since P4.1/P7.3; drives update replay). */
+  intent?: InstallIntent;
 }
 
 export function journalPath(): string {
@@ -252,9 +258,7 @@ export function commitJournal(): Manifest | null {
   const existing = readManifest();
   const priorFiles = existing?.files ?? [];
   const priorComponents = existing?.components ?? [];
-  const journalFiles = j.steps
-    .filter((s) => s.status === "done")
-    .map(toManifestEntry);
+  const journalFiles = j.steps.filter((s) => s.status === "done").map(toManifestEntry);
   // Dedup on {path, action}: journal entries that duplicate prior entries are
   // dropped; new entries are appended. Mirrors record()'s manifest dedup.
   const mergedFiles = [...priorFiles];
@@ -272,7 +276,7 @@ export function commitJournal(): Manifest | null {
     installedAt: existing?.installedAt ?? j.startedAt,
     components: mergedComponents,
     files: mergedFiles,
-    ...(j.intent !== undefined ? { intent: j.intent as InstallIntent } : {}),
+    ...(j.intent !== undefined ? { intent: j.intent } : {}),
   };
   writeManifest(manifest);
   fs.unlinkSync(JOURNAL_PATH);

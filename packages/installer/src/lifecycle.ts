@@ -337,7 +337,7 @@ export async function uninstallAll(ctx: InstallContext, opts?: UninstallOptions)
 
   // Reverse order
   let hadFailure = false;
-  const reversed = [...manifest.files].toReversed();
+  const reversed = [...manifest.files].reverse();
   for (const entry of reversed) {
     try {
       switch (entry.action) {
