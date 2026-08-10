@@ -23,11 +23,13 @@ describe("atomicWriteJson", () => {
     const stat = fs.statSync(target);
     expect(stat.mode & 0o777).toBe(0o600);
 
-    // temp file is cleaned up after successful rename
-    expect(fs.existsSync(target + ".tmp")).toBe(false);
+    // temp file is cleaned up after successful rename (temp is now per-write unique)
+    expect(fs.readdirSync(orcyHome()).some((f) => f.startsWith("test-atomic.json.tmp"))).toBe(
+      false,
+    );
   });
 
-  it("writeManifest failure leaves no dangling .tmp file (dangling-temp fix)", () => {
+  it("writeManifest failure leaves no dangling temp file (dangling-temp fix)", () => {
     const spy = vi.spyOn(fs, "renameSync").mockImplementationOnce(() => {
       throw new Error("boom");
     });
@@ -40,9 +42,26 @@ describe("atomicWriteJson", () => {
     };
 
     expect(() => writeManifest(m)).toThrow("boom");
-    // The fix: the helper unlinks the temp on failure, so no dangling .tmp remains.
-    expect(fs.existsSync(manifestPath() + ".tmp")).toBe(false);
+    // The fix: the helper unlinks the (per-write unique) temp on failure.
+    expect(
+      fs
+        .readdirSync(path.dirname(manifestPath()))
+        .some((f) => f.startsWith("install-manifest.json.tmp")),
+      "no dangling temp left behind",
+    ).toBe(false);
 
     spy.mockRestore();
+  });
+
+  it("T3.2: mode 0o600 is forced even when the temp path pre-exists with a looser mode (fchmod)", () => {
+    const target = path.join(orcyHome(), "mode-test.json");
+    // Pre-create the EXACT temp path the writer will use, with a looser mode —
+    // writeFileSync alone would overwrite-in-place and inherit 0o644; fchmod forces 0o600.
+    const tempPath = `${target}.tmp.${process.pid}`;
+    fs.writeFileSync(tempPath, "stale", { mode: 0o644 });
+
+    atomicWriteJson(target, "{}");
+
+    expect(fs.statSync(target).mode & 0o777).toBe(0o600);
   });
 });

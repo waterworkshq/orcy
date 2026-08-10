@@ -10,7 +10,7 @@
  * gate requires ~/.orcy to NOT exist, so each test clears the harness-created
  * orcyHome before seeding the legacy ~/.kanban fixture.
  */
-import { describe, it, expect, afterEach } from "vitest";
+import { describe, it, expect, afterEach, vi } from "vitest";
 import fs from "node:fs";
 import path from "node:path";
 import "./helpers/setup.js";
@@ -88,5 +88,27 @@ describe("migrateLegacyInstallation — post-rename hardening (B6)", () => {
     for (const entry of m!.files) {
       expect(entry.path).not.toContain(".kanban");
     }
+  });
+
+  it("T3.3: a manifest path-rewrite write failure does not abort migration (best-effort)", async () => {
+    fs.rmSync(orcyHome(), { recursive: true, force: true });
+    seedLegacyManifest([{ path: path.join(kanbanHome(), "bin", "orcy"), action: "created" }]);
+
+    // Make the manifest write (the path-rewrite writeManifest) throw.
+    const real = fs.writeFileSync.bind(fs);
+    const spy = vi.spyOn(fs, "writeFileSync");
+    spy.mockImplementation(((p: unknown, d: unknown, o: unknown) => {
+      if (typeof p === "string" && p.endsWith("install-manifest.json")) {
+        throw new Error("simulated manifest disk error");
+      }
+      return real(p as never, d as never, o as never);
+    }) as never);
+
+    // Migration must NOT re-throw — the path-rewrite failure is caught and the
+    // remaining steps run. Stale paths are reconciled on the next update.
+    const result = await migrateLegacyInstallation(getContext());
+    expect(result).toBe(true);
+
+    spy.mockRestore();
   });
 });

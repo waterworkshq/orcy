@@ -75,8 +75,16 @@ export async function migrateLegacyInstallation(ctx: InstallContext): Promise<bo
       }
     }
     if (rewrote) {
-      writeManifest(migratedManifest);
-      console.log("    Rewrote manifest paths ~/.kanban → ~/.orcy.");
+      // T3.3: a manifest-write failure here must NOT abort the remaining migrate
+      // steps (service/MCP/skills) — the rename is already irreversible, so
+      // future runs can't re-enter migrate. Best-effort: log + continue. The
+      // stale paths are reconciled to ~/.orcy on the next `update` (reconcile.ts).
+      try {
+        writeManifest(migratedManifest);
+        console.log("    Rewrote manifest paths ~/.kanban → ~/.orcy.");
+      } catch (e) {
+        console.warn(`    Could not rewrite manifest paths (will reconcile on next update): ${e}`);
+      }
     }
   }
 
