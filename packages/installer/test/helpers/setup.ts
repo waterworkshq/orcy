@@ -237,3 +237,12 @@ export function createPatchFile(name: string): string {
 export function defaultSkillRoot(): string {
   return path.join(M.home, ".claude", "skills");
 }
+
+/**
+ * Install/clear a per-command execSync override. A test hook may return a value
+ * to short-circuit a command, or throw to simulate a failure at a specific
+ * command (e.g. a service-install failure). Pass `null` to clear.
+ */
+export function setExecHook(fn: ((cmd: string, opts?: unknown) => unknown) | null): void {
+  M.execHook = fn;
+}
