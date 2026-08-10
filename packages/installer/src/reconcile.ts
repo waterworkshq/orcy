@@ -39,9 +39,10 @@ export async function reconcileManifest(
   let pathCount = 0;
   let dupCount = 0;
 
-  // 1. Path rewrite — ~/.kanban → ~/.orcy (full-prefix match).
+  // 1. Path rewrite — ~/.kanban → ~/.orcy. Separator-aware so a sibling like
+  // ~/.kanban-notes is NOT rewritten to ~/.orcy-notes (T2.1).
   for (const entry of manifest.files) {
-    if (entry.path.startsWith(legacy)) {
+    if (entry.path === legacy || entry.path.startsWith(legacy + path.sep)) {
       entry.path = ctx.orcyHome + entry.path.slice(legacy.length);
       pathCount++;
     }

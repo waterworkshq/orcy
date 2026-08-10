@@ -284,7 +284,9 @@ export function commitJournal(): Manifest | null {
     if (!mergedComponents.includes(c)) mergedComponents.push(c);
   }
   const manifest: Manifest = {
-    version: 1,
+    // T2.6: preserve an existing reconciled version (e.g. v2) instead of
+    // hardcoding 1 — a later wizard install over a v2 manifest must not downgrade it.
+    version: existing?.version ?? 1,
     installedAt: existing?.installedAt ?? j.startedAt,
     components: mergedComponents,
     files: mergedFiles,

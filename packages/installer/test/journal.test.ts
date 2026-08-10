@@ -262,4 +262,22 @@ describe("commit crash-safety", () => {
   it("commitJournal returns null when neither journal nor manifest exist", () => {
     expect(commitJournal()).toBeNull();
   });
+
+  it("commitJournal preserves an existing reconciled version (T2.6: no v2→v1 downgrade)", () => {
+    // Seed an existing v2 manifest (e.g. produced by a prior reconcile).
+    fs.writeFileSync(
+      manifestPath(),
+      JSON.stringify({
+        version: 2,
+        installedAt: "2024-01-01T00:00:00Z",
+        components: ["cli"],
+        files: [{ path: "/prior/bin/orcy", action: "created" }],
+      }),
+    );
+    createJournal({ components: ["cli"] });
+    appendStep({ path: "/new/bin/orcy", action: "created" });
+    markStepDone(0);
+    const m = commitJournal();
+    expect(m!.version).toBe(2); // preserved — not downgraded to 1
+  });
 });

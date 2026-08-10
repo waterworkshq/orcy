@@ -67,7 +67,9 @@ export async function migrateLegacyInstallation(ctx: InstallContext): Promise<bo
   if (migratedManifest) {
     let rewrote = false;
     for (const entry of migratedManifest.files) {
-      if (entry.path.startsWith(legacyHome)) {
+      // T2.1: separator-aware match so a sibling like ~/.kanban-notes is NOT
+      // rewritten to ~/.orcy-notes (which would redirect later deletion).
+      if (entry.path === legacyHome || entry.path.startsWith(legacyHome + path.sep)) {
         entry.path = ctx.orcyHome + entry.path.slice(legacyHome.length);
         rewrote = true;
       }

@@ -91,6 +91,24 @@ describe("reconcileManifest — v1→v2 (G11)", () => {
     }
   });
 
+  it("(c2) a sibling like ~/.kanban-notes is NOT rewritten (T2.1 separator-aware)", async () => {
+    // startsWith(~/.kanban) would wrongly rewrite ~/.kanban-notes → ~/.orcy-notes.
+    const sibling = path.join(kanbanHome() + "-notes", "file");
+    writeManifestFile({
+      version: 1,
+      installedAt: "2024-01-01T00:00:00Z",
+      components: ["cli"],
+      files: [{ path: sibling, action: "created" }],
+    });
+
+    await reconcileManifest(getContext(), { interactive: false });
+
+    const m = readManifest()!;
+    expect(m.version).toBe(2);
+    // The sibling path is unchanged — still references .kanban-notes.
+    expect(m.files[0].path).toBe(sibling);
+  });
+
   it("(d) versionless manifest → treated as v1, bumped to 2", async () => {
     // A real old manifest may predate the version field entirely.
     writeRaw({
