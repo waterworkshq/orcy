@@ -197,6 +197,15 @@ export async function wizard(opts: WizardOptions = {}): Promise<void> {
         if (stale) {
           const { reversed, failed } = rollbackJournal(ctx, stale);
           console.log(`  Rolled back ${reversed} step(s)${failed ? ` (${failed} failed)` : ""}.`);
+          // G2H.3: an incomplete rollback must NOT be discarded + continued over —
+          // the disk state is partly reversed; preserve the journal and abort so
+          // the user can retry/inspect rather than install over a half-cleaned state.
+          if (failed > 0) {
+            console.error(
+              "  Rollback incomplete — journal preserved. Re-run to retry or remove the journal manually.",
+            );
+            return;
+          }
         }
         discardJournal();
       } else {
@@ -212,6 +221,12 @@ export async function wizard(opts: WizardOptions = {}): Promise<void> {
         if (stale) {
           const { reversed, failed } = rollbackJournal(ctx, stale);
           console.log(`  Rolled back ${reversed} step(s)${failed ? ` (${failed} failed)` : ""}.`);
+          if (failed > 0) {
+            console.error(
+              "  Rollback incomplete — aborting recovery (journal preserved). Re-run to retry.",
+            );
+            return;
+          }
         }
         discardJournal();
       }

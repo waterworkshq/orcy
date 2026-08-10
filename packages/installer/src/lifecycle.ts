@@ -505,13 +505,37 @@ export async function uninstallAll(ctx: InstallContext, opts?: UninstallOptions)
  * or delete the journal file (the caller decides both).
  *
  * Best-effort: each step is reversed in isolation; a failure increments `failed`
- * but does not abort the loop.
+ * but does not abort the loop. The caller MUST treat `failed > 0` as incomplete
+ * (the wizard aborts rather than discarding the journal in that case — G2H.3).
+ *
+ * G2H.3: if the partial install recorded a service artifact (it started the
+ * service), stop + uninstall the service BEFORE reversing files — mirrors
+ * uninstallAll's B1 order. Without this, reversal deletes the unit/wrapper
+ * while the service is still alive.
  */
+const SERVICE_ARTIFACT_SUFFIXES = ["orcy-api-wrapper", "orcy-api.service", "ai.orcy.api.plist"];
+
 export function rollbackJournal(
   ctx: InstallContext,
   journal: Journal,
 ): { reversed: number; failed: number } {
   const doneSteps = journal.steps.filter((s) => s.status === "done");
+  // Stop a service the partial install started, before reversing its files.
+  const hasServiceStep = doneSteps.some((s) =>
+    SERVICE_ARTIFACT_SUFFIXES.some((suf) => s.path.endsWith(suf)),
+  );
+  if (hasServiceStep) {
+    try {
+      stopService(ctx);
+    } catch (e) {
+      console.warn(`    Could not stop service during rollback: ${e}`);
+    }
+    try {
+      uninstallService(ctx);
+    } catch (e) {
+      console.warn(`    Could not uninstall service during rollback: ${e}`);
+    }
+  }
   let reversed = 0;
   let failed = 0;
   for (const step of [...doneSteps].reverse()) {
