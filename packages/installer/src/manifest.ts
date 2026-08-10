@@ -3,6 +3,7 @@ import path from "node:path";
 import crypto from "node:crypto";
 import { ORCY_PATHS } from "@orcy/shared";
 import { journalExists, recordStep, addJournalComponent } from "./journal.js";
+import { atomicWriteJson } from "./atomic-write.js";
 
 const MANIFEST_PATH = path.join(ORCY_PATHS.home, "install-manifest.json");
 
@@ -47,17 +48,7 @@ export function readManifest(): Manifest | null {
 }
 
 export function writeManifest(m: Manifest): void {
-  const dir = path.dirname(MANIFEST_PATH);
-  fs.mkdirSync(dir, { recursive: true });
-  const tmp = MANIFEST_PATH + ".tmp";
-  fs.writeFileSync(tmp, JSON.stringify(m, null, 2), { mode: 0o600 });
-  // fsync the temp file's data so the atomic rename is durable on power loss
-  // (rename alone is not sufficient — the directory entry may persist while
-  // the file contents are still in the page cache).
-  const fd = fs.openSync(tmp, "r");
-  fs.fsyncSync(fd);
-  fs.closeSync(fd);
-  fs.renameSync(tmp, MANIFEST_PATH);
+  atomicWriteJson(MANIFEST_PATH, JSON.stringify(m, null, 2), 0o600);
 }
 
 export function record(entry: ManifestEntry): void {

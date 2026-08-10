@@ -8,6 +8,7 @@ import {
   type ManifestEntry,
   type InstallIntent,
 } from "./manifest.js";
+import { atomicWriteJson } from "./atomic-write.js";
 
 /**
  * In-flight installation transaction journal (design §7 G1, G3; decision D4).
@@ -312,30 +313,10 @@ function toManifestEntry(e: JournalEntry): ManifestEntry {
 }
 
 /**
- * Atomically write the journal: temp + fsync + rename (mirrors manifest.ts
- * `writeManifest`). The temp file is in the SAME directory as the target so the
- * rename is atomic on POSIX. On any failure the temp file is cleaned up and the
- * error rethrown — the journal path never holds a partial write.
+ * Atomically write the journal via the shared {@link atomicWriteJson} helper
+ * (temp + fsync + rename + temp cleanup on failure). The temp file is in the
+ * SAME directory as the target so the rename is atomic on POSIX.
  */
 function writeJournalAtomic(j: Journal): void {
-  const dir = path.dirname(JOURNAL_PATH);
-  fs.mkdirSync(dir, { recursive: true });
-  const tmp = JOURNAL_PATH + ".tmp";
-  try {
-    fs.writeFileSync(tmp, JSON.stringify(j, null, 2), { mode: 0o600 });
-    // fsync the temp file's data so the atomic rename is durable on power loss
-    // (rename alone is not sufficient — the directory entry may persist while the
-    // file contents are still in the page cache).
-    const fd = fs.openSync(tmp, "r");
-    fs.fsyncSync(fd);
-    fs.closeSync(fd);
-    fs.renameSync(tmp, JOURNAL_PATH);
-  } catch (err) {
-    try {
-      fs.unlinkSync(tmp);
-    } catch {
-      /* temp may not exist (failed before write completed) — ignore */
-    }
-    throw err;
-  }
+  atomicWriteJson(JOURNAL_PATH, JSON.stringify(j, null, 2), 0o600);
 }
