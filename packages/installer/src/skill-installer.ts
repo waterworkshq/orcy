@@ -54,17 +54,3 @@ export function installSkills(
     }
   }
 }
-
-export function uninstallSkills(ctx: InstallContext): void {
-  const manifest = JSON.parse(
-    fs.readFileSync(path.join(ctx.orcyHome, 'install-manifest.json'), 'utf-8')
-  );
-  for (const entry of manifest.files) {
-    if (entry.action === 'copied' && entry.path.includes('/skills/')) {
-      try {
-        fs.rmSync(entry.path, { recursive: true });
-        console.log(`    Removed skill: ${entry.path}`);
-      } catch {}
-    }
-  }
-}

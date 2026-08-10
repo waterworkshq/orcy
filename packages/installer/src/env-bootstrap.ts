@@ -3,6 +3,7 @@ import path from 'node:path';
 import { randomBytes } from 'node:crypto';
 import { ORCY_PATHS } from '@orcy/shared';
 import type { InstallContext } from './context.js';
+import { backupFile } from './writers/index.js';
 
 export function generateSecret(length = 32): string {
   return randomBytes(length).toString('hex');
@@ -24,8 +25,7 @@ export function generateEnvFile(ctx: InstallContext, config: EnvConfig): void {
       console.log('    .env already has secrets, skipping generation');
       return;
     }
-    const bak = envPath + '.bak.' + new Date().toISOString().replace(/[:.]/g, '-');
-    fs.copyFileSync(envPath, bak);
+    backupFile(envPath);
     const entries: Record<string, string> = {};
     for (const line of lines) {
       const idx = line.indexOf('=');

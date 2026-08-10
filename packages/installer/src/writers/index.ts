@@ -91,6 +91,12 @@ function writeToml(filePath: string, block: McpServerBlock): void {
   const tmp = filePath + '.tmp';
   fs.writeFileSync(tmp, stringify(existing), 'utf-8');
   fs.renameSync(tmp, filePath);
+  // Action label is intentionally 'merged-json' even for TOML writers. Uninstall
+  // reverses a 'merged-json' entry by matching `entry.path` back to an
+  // ALL_WRITERS row and dispatching on `config.format` (see lifecycle.ts
+  // 'merged-json' case → removeMcpConfig → removeToml/removeJson), not by
+  // this label. Re-labeling would change the manifest schema without
+  // affecting behavior, so we leave it as a single shared label.
   record({ path: filePath, action: 'merged-json', keys: ['mcp_servers.orcy'], backup: bakPath ?? undefined });
 }
 
@@ -164,5 +170,37 @@ export function backupFile(filePath: string): string | null {
   const ts = new Date().toISOString().replace(/[:.]/g, '-');
   const bak = filePath + '.bak.' + ts;
   fs.copyFileSync(filePath, bak);
+  pruneBackups(filePath, 1);
   return bak;
+}
+
+/**
+ * Remove all but the newest `keepN` `.bak.<ts>` files for `filePath`. Callers
+ * that create a backup via `backupFile` get pruning automatically; sites that
+ * produce `.bak.<ts>` files by hand (e.g. path-shim, env-bootstrap) may call
+ * this directly to keep the same retention policy.
+ *
+ * ISO-8601 timestamps with `:` and `.` replaced by `-` (matching the
+ * `backupFile` format) sort lexicographically in chronological order, so a
+ * descending sort puts the newest first. Unlink failures (missing/stale bak)
+ * are swallowed — pruning is housekeeping, not a precondition for the write.
+ */
+export function pruneBackups(filePath: string, keepN = 1): void {
+  const dir = path.dirname(filePath);
+  const base = path.basename(filePath);
+  const prefix = base + '.bak.';
+  let entries: string[];
+  try {
+    entries = fs.readdirSync(dir);
+  } catch {
+    return;
+  }
+  const baks = entries
+    .filter((name) => name.startsWith(prefix))
+    .sort((a, b) => b.localeCompare(a));
+  for (const name of baks.slice(keepN)) {
+    try {
+      fs.unlinkSync(path.join(dir, name));
+    } catch {}
+  }
 }

@@ -4,6 +4,7 @@ import os from 'node:os';
 import { ORCY_PATHS } from '@orcy/shared';
 import type { InstallContext } from './context.js';
 import { record } from './manifest.js';
+import { backupFile } from './writers/index.js';
 
 export const SENTINEL_START = '# >>> orcy PATH >>>';
 export const SENTINEL_END = '# <<< orcy PATH <<<';
@@ -81,8 +82,7 @@ export function editShellRc(ctx: InstallContext): void {
       return;
     }
     content = existing;
-    const bak = rcPath + '.bak.' + new Date().toISOString().replace(/[:.]/g, '-');
-    fs.copyFileSync(rcPath, bak);
+    backupFile(rcPath);
   }
 
   fs.writeFileSync(rcPath, content.trimEnd() + '\n' + block, 'utf-8');
