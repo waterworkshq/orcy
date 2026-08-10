@@ -203,6 +203,12 @@ export async function migrateLegacyInstallation(ctx: InstallContext): Promise<bo
 export async function updateInstall(ctx: InstallContext): Promise<void> {
   await migrateLegacyInstallation(ctx);
 
+  // G11: reconcile a v1 (or versionless) manifest to v2 before replaying. Update
+  // runs non-interactively, so reconcile auto-applies (it only dedups/rewrites
+  // paths/bumps version — never deletes user data).
+  const { reconcileManifest } = await import("./reconcile.js");
+  await reconcileManifest(ctx, { interactive: false });
+
   const manifest = readManifest();
   if (!manifest) {
     console.log("No install manifest found. Run install first.");
