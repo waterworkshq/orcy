@@ -4,6 +4,7 @@ import { ORCY_PATHS } from "@orcy/shared";
 import {
   readManifest,
   writeManifest,
+  mergeEntryFields,
   type Manifest,
   type ManifestEntry,
   type InstallIntent,
@@ -177,15 +178,21 @@ export function appendStep(input: StepInput): void {
  */
 export function recordStep(input: StepInput): void {
   const j = requireInFlight();
-  if (!j.steps.some((s) => s.path === input.path && s.action === input.action)) {
-    j.steps.push({
-      ...input,
-      step: j.steps.length,
-      status: "done",
-      ts: new Date().toISOString(),
-    });
-    writeJournalAtomic(j);
+  // Upsert (G2H.1): if a step for {path, action} exists, refresh its metadata
+  // (hash/keys/backup/marker) instead of dropping the re-record. Mirrors
+  // manifest record()'s merge so a refreshed hash survives into the journal.
+  const existing = j.steps.find((s) => s.path === input.path && s.action === input.action);
+  if (existing) {
+    if (mergeEntryFields(existing, input)) writeJournalAtomic(j);
+    return;
   }
+  j.steps.push({
+    ...input,
+    step: j.steps.length,
+    status: "done",
+    ts: new Date().toISOString(),
+  });
+  writeJournalAtomic(j);
 }
 
 /**
@@ -260,11 +267,15 @@ export function commitJournal(): Manifest | null {
   const priorFiles = existing?.files ?? [];
   const priorComponents = existing?.components ?? [];
   const journalFiles = j.steps.filter((s) => s.status === "done").map(toManifestEntry);
-  // Dedup on {path, action}: journal entries that duplicate prior entries are
-  // dropped; new entries are appended. Mirrors record()'s manifest dedup.
+  // Dedup on {path, action} with metadata upsert (G2H.1): a journal entry that
+  // duplicates a prior manifest entry refreshes its metadata (hash/keys/etc.)
+  // rather than being dropped, so a refreshed hash commits correctly.
   const mergedFiles = [...priorFiles];
   for (const f of journalFiles) {
-    if (!mergedFiles.some((m) => m.path === f.path && m.action === f.action)) {
+    const existing = mergedFiles.find((m) => m.path === f.path && m.action === f.action);
+    if (existing) {
+      mergeEntryFields(existing, f);
+    } else {
       mergedFiles.push(f);
     }
   }

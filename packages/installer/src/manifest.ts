@@ -64,13 +64,58 @@ export function record(entry: ManifestEntry): void {
     m = { version: 1, installedAt: new Date().toISOString(), components: [], files: [] };
   }
   // Dedup on {path, action}: a second install/update must not append a
-  // duplicate entry for an artifact already recorded. No path appears with
-  // two different actions across the current call sites, so this collapses
-  // only true duplicates. Skips the write entirely when nothing changed.
-  if (!m.files.some((f) => f.path === entry.path && f.action === entry.action)) {
+  // duplicate entry for an artifact already recorded. When the entry already
+  // exists, UPSERT the optional metadata (hash/keys/backup/marker) from the
+  // incoming record — so a re-record after an update REFRESHES the hash instead
+  // of being silently dropped (G2H.1: without this, a refreshed skill's stale
+  // old hash survives and the artifact later looks "user-modified"). No path
+  // appears with two different actions across the current call sites.
+  const existing = m.files.find((f) => f.path === entry.path && f.action === entry.action);
+  if (existing) {
+    if (mergeEntryFields(existing, entry)) writeManifest(m);
+  } else {
     m.files.push(entry);
     writeManifest(m);
   }
+}
+
+/**
+ * Merge defined optional fields from `incoming` into `existing` (both share the
+ * same {path, action}). Returns true if `existing` changed. Only overwrites when
+ * the incoming field is defined and differs — undefined incoming fields never
+ * clobber existing values. Used by {@link record} / journal `recordStep` /
+ * `commitJournal` so re-records upsert metadata instead of being dropped.
+ */
+export function mergeEntryFields(existing: ManifestEntry, incoming: ManifestEntry): boolean {
+  let changed = false;
+  if (incoming.hash !== undefined && incoming.hash !== existing.hash) {
+    existing.hash = incoming.hash;
+    changed = true;
+  }
+  if (
+    incoming.keys !== undefined &&
+    incoming.keys.join("\0") !== (existing.keys ?? []).join("\0")
+  ) {
+    existing.keys = [...incoming.keys];
+    changed = true;
+  }
+  if (incoming.backup !== undefined && incoming.backup !== existing.backup) {
+    existing.backup = incoming.backup;
+    changed = true;
+  }
+  if (incoming.marker !== undefined && incoming.marker !== existing.marker) {
+    existing.marker = incoming.marker;
+    changed = true;
+  }
+  return changed;
+}
+
+/** Look up a recorded entry by {path, action} (manifest only; not the journal). */
+export function findEntry(
+  entryPath: string,
+  action: ManifestEntry["action"],
+): ManifestEntry | undefined {
+  return readManifest()?.files.find((f) => f.path === entryPath && f.action === action);
 }
 
 export function addComponent(name: string): void {
