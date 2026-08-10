@@ -18,7 +18,12 @@ import {
   discardJournal,
   journalPath,
 } from "./journal.js";
-import { rollbackJournal, isJournalViable, orphanedAgentIds } from "./lifecycle.js";
+import {
+  rollbackJournal,
+  isJournalViable,
+  orphanedAgentIds,
+  isJournalCommitted,
+} from "./lifecycle.js";
 
 export interface WizardOptions {
   components?: string[];
@@ -146,105 +151,116 @@ export async function wizard(opts: WizardOptions = {}): Promise<void> {
   // Non-interactive without --recover: safe-by-default structured fail (P1.4).
   if (journalExists()) {
     const stale = readJournal();
-    const viable = stale ? isJournalViable(stale) : false;
-    // G2H.2: surface orphaned remote agents (a registerAgent POST that succeeded
-    // but whose local credential write did not). The installer can't self-delete
-    // them (the apiKey was never stored), so warn the user to clean them up.
-    const orphans = stale ? orphanedAgentIds(stale) : [];
-    if (orphans.length) {
-      console.error(
-        `\n⚠ Interrupted registration left ${orphans.length} orphaned remote agent(s): ${orphans.join(", ")}`,
+    // T2.5: both-files post-commit window — the commit's writeManifest finished
+    // (the manifest already contains the journal's done steps) but the journal
+    // unlink was interrupted. Finalize silently instead of offering recovery,
+    // which could roll back legitimately-committed artifacts.
+    if (stale && isJournalCommitted(stale)) {
+      console.log(
+        "A previous install committed successfully but left a stale journal; clearing it.",
       );
-      console.error(
-        "  These were created on the API but never activated locally. Delete them via the admin API/UI.",
-      );
-    }
-    if (interactive) {
-      console.log("\n⚠ A previous installation was interrupted.");
-      if (stale) {
-        const doneCount = stale.steps.filter((s) => s.status === "done").length;
-        const lastDone = [...stale.steps].reverse().find((s) => s.status === "done");
-        console.log(`  Started: ${stale.startedAt}`);
-        console.log(`  Steps recorded: ${stale.steps.length} (${doneCount} completed)`);
-        if (lastDone) console.log(`  Last completed: ${lastDone.path} (${lastDone.action})`);
-      } else {
-        console.log("  (Journal is unreadable — treating as stale.)");
-      }
-      const { select } = await import("@clack/prompts");
-      const options: { value: string; label: string; hint?: string }[] = [];
-      if (viable) {
-        options.push({
-          value: "resume",
-          label: "Resume",
-          hint: "complete the install — done steps converge",
-        });
-      }
-      options.push({
-        value: "rollback",
-        label: "Roll back",
-        hint: "undo partial, then start fresh",
-      });
-      options.push({ value: "abort", label: "Abort" });
-      const choice = (await select({
-        message: "How would you like to proceed?",
-        options,
-      })) as string;
-      if (choice === "abort") {
-        console.log("Aborted.");
-        return;
-      }
-      if (choice === "rollback") {
-        if (stale) {
-          const { reversed, failed } = rollbackJournal(ctx, stale);
-          console.log(`  Rolled back ${reversed} step(s)${failed ? ` (${failed} failed)` : ""}.`);
-          // G2H.3: an incomplete rollback must NOT be discarded + continued over —
-          // the disk state is partly reversed; preserve the journal and abort so
-          // the user can retry/inspect rather than install over a half-cleaned state.
-          if (failed > 0) {
-            console.error(
-              "  Rollback incomplete — journal preserved. Re-run to retry or remove the journal manually.",
-            );
-            return;
-          }
-        }
-        discardJournal();
-      } else {
-        // resume — discard journal and re-run; G8 idempotency makes done steps converge.
-        discardJournal();
-      }
-    } else if (recover) {
-      if (viable) {
-        console.log("Stale journal detected — resuming (viable).");
-        discardJournal();
-      } else {
-        console.log("Stale journal detected — rolling back (not viable), then starting fresh.");
-        if (stale) {
-          const { reversed, failed } = rollbackJournal(ctx, stale);
-          console.log(`  Rolled back ${reversed} step(s)${failed ? ` (${failed} failed)` : ""}.`);
-          if (failed > 0) {
-            console.error(
-              "  Rollback incomplete — aborting recovery (journal preserved). Re-run to retry.",
-            );
-            return;
-          }
-        }
-        discardJournal();
-      }
+      discardJournal();
     } else {
-      console.error("Error: stale installation journal detected.");
-      console.error(`  Journal: ${journalPath()}`);
-      if (stale) {
-        const doneCount = stale.steps.filter((s) => s.status === "done").length;
-        console.error(`  Started: ${stale.startedAt}`);
-        console.error(`  Completed steps: ${doneCount}`);
+      const viable = stale ? isJournalViable(stale) : false;
+      // G2H.2: surface orphaned remote agents (a registerAgent POST that succeeded
+      // but whose local credential write did not). The installer can't self-delete
+      // them (the apiKey was never stored), so warn the user to clean them up.
+      const orphans = stale ? orphanedAgentIds(stale) : [];
+      if (orphans.length) {
+        console.error(
+          `\n⚠ Interrupted registration left ${orphans.length} orphaned remote agent(s): ${orphans.join(", ")}`,
+        );
+        console.error(
+          "  These were created on the API but never activated locally. Delete them via the admin API/UI.",
+        );
       }
-      console.error(
-        "  To resolve: run with --recover, remove the journal file, or run interactively.",
-      );
-      throw new Error(
-        `stale installation journal detected — run with --recover, interactively, or remove ${journalPath()}`,
-      );
-    }
+      if (interactive) {
+        console.log("\n⚠ A previous installation was interrupted.");
+        if (stale) {
+          const doneCount = stale.steps.filter((s) => s.status === "done").length;
+          const lastDone = [...stale.steps].reverse().find((s) => s.status === "done");
+          console.log(`  Started: ${stale.startedAt}`);
+          console.log(`  Steps recorded: ${stale.steps.length} (${doneCount} completed)`);
+          if (lastDone) console.log(`  Last completed: ${lastDone.path} (${lastDone.action})`);
+        } else {
+          console.log("  (Journal is unreadable — treating as stale.)");
+        }
+        const { select } = await import("@clack/prompts");
+        const options: { value: string; label: string; hint?: string }[] = [];
+        if (viable) {
+          options.push({
+            value: "resume",
+            label: "Resume",
+            hint: "complete the install — done steps converge",
+          });
+        }
+        options.push({
+          value: "rollback",
+          label: "Roll back",
+          hint: "undo partial, then start fresh",
+        });
+        options.push({ value: "abort", label: "Abort" });
+        const choice = (await select({
+          message: "How would you like to proceed?",
+          options,
+        })) as string;
+        if (choice === "abort") {
+          console.log("Aborted.");
+          return;
+        }
+        if (choice === "rollback") {
+          if (stale) {
+            const { reversed, failed } = rollbackJournal(ctx, stale);
+            console.log(`  Rolled back ${reversed} step(s)${failed ? ` (${failed} failed)` : ""}.`);
+            // G2H.3: an incomplete rollback must NOT be discarded + continued over —
+            // the disk state is partly reversed; preserve the journal and abort so
+            // the user can retry/inspect rather than install over a half-cleaned state.
+            if (failed > 0) {
+              console.error(
+                "  Rollback incomplete — journal preserved. Re-run to retry or remove the journal manually.",
+              );
+              return;
+            }
+          }
+          discardJournal();
+        } else {
+          // resume — discard journal and re-run; G8 idempotency makes done steps converge.
+          discardJournal();
+        }
+      } else if (recover) {
+        if (viable) {
+          console.log("Stale journal detected — resuming (viable).");
+          discardJournal();
+        } else {
+          console.log("Stale journal detected — rolling back (not viable), then starting fresh.");
+          if (stale) {
+            const { reversed, failed } = rollbackJournal(ctx, stale);
+            console.log(`  Rolled back ${reversed} step(s)${failed ? ` (${failed} failed)` : ""}.`);
+            if (failed > 0) {
+              console.error(
+                "  Rollback incomplete — aborting recovery (journal preserved). Re-run to retry.",
+              );
+              return;
+            }
+          }
+          discardJournal();
+        }
+      } else {
+        console.error("Error: stale installation journal detected.");
+        console.error(`  Journal: ${journalPath()}`);
+        if (stale) {
+          const doneCount = stale.steps.filter((s) => s.status === "done").length;
+          console.error(`  Started: ${stale.startedAt}`);
+          console.error(`  Completed steps: ${doneCount}`);
+        }
+        console.error(
+          "  To resolve: run with --recover, remove the journal file, or run interactively.",
+        );
+        throw new Error(
+          `stale installation journal detected — run with --recover, interactively, or remove ${journalPath()}`,
+        );
+      }
+    } // end T2.5 committed-else (recovery)
   }
 
   console.log("orcy -- Installation wizard\n");

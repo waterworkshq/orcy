@@ -624,6 +624,25 @@ export function orphanedAgentIds(journal: Journal): string[] {
   return ids;
 }
 
+/**
+ * Detect the both-files post-commit window (T2.5): the commit's `writeManifest`
+ * finished — the manifest already incorporates every one of the journal's `done`
+ * steps — but the journal unlink was interrupted, so both files exist. In that
+ * state the journal is a leftover, NOT an interrupted install, and recovery must
+ * finalize (delete the journal) rather than offer rollback (which would reverse
+ * legitimately-committed artifacts). Returns false when there is no manifest or
+ * the journal has done work not yet reflected in the manifest.
+ */
+export function isJournalCommitted(journal: Journal): boolean {
+  const manifest = readManifest();
+  if (!manifest) return false;
+  const doneSteps = journal.steps.filter((s) => s.status === "done");
+  if (doneSteps.length === 0) return false;
+  return doneSteps.every((s) =>
+    manifest.files.some((m) => m.path === s.path && m.action === s.action),
+  );
+}
+
 export function listInstall(_ctx: InstallContext): void {
   const manifest = readManifest();
   if (!manifest) {
