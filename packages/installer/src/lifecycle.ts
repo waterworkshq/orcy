@@ -291,7 +291,13 @@ export async function updateInstall(ctx: InstallContext): Promise<void> {
  * Returns `false` when there is no recorded hash or the artifact is unchanged.
  */
 function isModifiedSinceInstall(entry: ManifestEntry): boolean {
-  if (!entry.hash || !fs.existsSync(entry.path)) return false;
+  if (!fs.existsSync(entry.path)) return false;
+  // No recorded hash (legacy entry predating P3.2): for user-data-bearing
+  // 'copied' artifacts (skills) we can't verify the content is unchanged, so
+  // conservatively treat as modified → preserve (T2.3: otherwise a legacy
+  // user-edited skill would be recursively deleted = data loss). For 'created'
+  // artifacts (installer-owned shims/units) no hash → no guard → remove.
+  if (!entry.hash) return entry.action === "copied";
   const currentHash = fs.statSync(entry.path).isDirectory()
     ? hashDir(entry.path)
     : hashFile(entry.path);
@@ -416,6 +422,10 @@ export async function uninstallAll(ctx: InstallContext, opts?: UninstallOptions)
         fs.rmSync(sweepPath, { recursive: true });
         console.log(`    Swept ${dir}/`);
       } catch (e) {
+        // T2.4: a sweep failure indicates a real problem (busy/locked files,
+        // e.g. node_modules held by a running API). Count it so the manifest is
+        // preserved for retry instead of being deleted while files remain.
+        hadFailure = true;
         console.warn(`    Could not sweep ${dir}/: ${e}`);
       }
     }
