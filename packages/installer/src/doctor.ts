@@ -1,62 +1,72 @@
-import fs from 'node:fs';
-import path from 'node:path';
-import { getContext } from './context.js';
-import { serviceStatus } from './lifecycle.js';
+import fs from "node:fs";
+import path from "node:path";
+import { getContext } from "./context.js";
+import { serviceStatus } from "./lifecycle.js";
 
 export async function doctor(): Promise<void> {
   const ctx = getContext();
   let allGood = true;
 
-  console.log('orcy installation doctor\n');
+  console.log("orcy installation doctor\n");
 
   const homeExists = fs.existsSync(ctx.orcyHome);
-  console.log(`${homeExists ? 'OK' : 'FAIL'} ~/.orcy/ exists`);
-  if (!homeExists) { allGood = false; }
+  console.log(`${homeExists ? "OK" : "FAIL"} ~/.orcy/ exists`);
+  if (!homeExists) {
+    allGood = false;
+  }
 
   const binExists = fs.existsSync(ctx.binDir);
-  console.log(`${binExists ? 'OK' : 'FAIL'} ${ctx.binDir} exists`);
-  if (!binExists) { allGood = false; }
+  console.log(`${binExists ? "OK" : "FAIL"} ${ctx.binDir} exists`);
+  if (!binExists) {
+    allGood = false;
+  }
 
-  const pathDirs = (process.env.PATH || '').split(':');
+  const pathDirs = (process.env.PATH || "").split(":");
   const onPath = pathDirs.includes(ctx.binDir);
-  console.log(`${onPath ? 'OK' : 'FAIL'} ${ctx.binDir} is on PATH`);
+  console.log(`${onPath ? "OK" : "FAIL"} ${ctx.binDir} is on PATH`);
+  if (!onPath) allGood = false; // T4.5: PATH missing is a real failure (shims unreachable)
 
-  for (const bin of ['orcy', 'orcy-api', 'orcy-mcp']) {
+  for (const bin of ["orcy", "orcy-api", "orcy-mcp"]) {
     const binPath = `${ctx.binDir}/${bin}`;
     const exists = fs.existsSync(binPath);
-    console.log(`${exists ? 'OK' : 'FAIL'} ${bin} binary`);
+    console.log(`${exists ? "OK" : "FAIL"} ${bin} binary`);
     if (!exists) allGood = false;
   }
 
   try {
     const res = await fetch(`${ctx.apiUrl}/health`);
     const ok = res.ok;
-    console.log(`${ok ? 'OK' : 'FAIL'} API reachable at ${ctx.apiUrl}`);
+    console.log(`${ok ? "OK" : "FAIL"} API reachable at ${ctx.apiUrl}`);
     if (!ok) allGood = false;
   } catch {
     console.log(`FAIL API unreachable at ${ctx.apiUrl}`);
     allGood = false;
   }
 
+  // T4.5: these are optional/context-dependent (API may be uninstalled, no agent
+  // registered, fresh machine) — report as WARN (soft) so the printed status
+  // matches the summary (WARN never claims FAIL-then-"all checks passed").
   const envExists = fs.existsSync(`${ctx.orcyHome}/.env`);
-  console.log(`${envExists ? 'OK' : 'FAIL'} ~/.orcy/.env exists`);
+  console.log(`${envExists ? "OK" : "WARN"} ~/.orcy/.env exists`);
 
   const credsExists = fs.existsSync(`${ctx.orcyHome}/credentials.json`);
-  console.log(`${credsExists ? 'OK' : 'FAIL'} ~/.orcy/credentials.json exists`);
+  console.log(`${credsExists ? "OK" : "WARN"} ~/.orcy/credentials.json exists`);
 
   const manifestExists = fs.existsSync(`${ctx.orcyHome}/install-manifest.json`);
-  console.log(`${manifestExists ? 'OK' : 'FAIL'} install manifest exists`);
+  console.log(`${manifestExists ? "OK" : "WARN"} install manifest exists`);
 
-  const staleJournal = fs.existsSync(path.join(ctx.orcyHome, 'install-journal.json'));
-  console.log(`${staleJournal ? 'WARN' : 'OK'} ${staleJournal ? 'stale install journal present (interrupted install)' : 'no stale install journal'}`);
+  const staleJournal = fs.existsSync(path.join(ctx.orcyHome, "install-journal.json"));
+  console.log(
+    `${staleJournal ? "WARN" : "OK"} ${staleJournal ? "stale install journal present (interrupted install)" : "no stale install journal"}`,
+  );
 
-  if (ctx.platform === 'linux' || ctx.platform === 'darwin') {
+  if (ctx.platform === "linux" || ctx.platform === "darwin") {
     const active = serviceStatus(ctx);
-    console.log(`${active ? 'OK' : 'FAIL'} service active`);
+    console.log(`${active ? "OK" : "FAIL"} service active`);
     if (!active) allGood = false;
   } else {
-    console.log('-- service: no init system');
+    console.log("-- service: no init system");
   }
 
-  console.log(`\n${allGood ? 'All checks passed' : 'Some checks failed'}`);
+  console.log(`\n${allGood ? "All checks passed" : "Some checks failed"}`);
 }

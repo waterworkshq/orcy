@@ -200,11 +200,13 @@ export async function wizard(opts: WizardOptions = {}): Promise<void> {
           hint: "undo partial, then start fresh",
         });
         options.push({ value: "abort", label: "Abort" });
-        const choice = (await select({
+        const choice = await select({
           message: "How would you like to proceed?",
           options,
-        })) as string;
-        if (choice === "abort") {
+        });
+        // T4.2: @clack returns a cancel symbol on Ctrl-C / Esc — treat ANY
+        // non-string or unknown value as abort (don't fall through to resume).
+        if (typeof choice !== "string" || (choice !== "resume" && choice !== "rollback")) {
           console.log("Aborted.");
           return;
         }

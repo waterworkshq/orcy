@@ -1,8 +1,8 @@
-import fs from 'node:fs';
-import path from 'node:path';
-import os from 'node:os';
-import { parse, stringify } from 'smol-toml';
-import { record } from '../manifest.js';
+import fs from "node:fs";
+import path from "node:path";
+import os from "node:os";
+import { parse, stringify } from "smol-toml";
+import { record } from "../manifest.js";
 
 export interface McpServerBlock {
   command: string;
@@ -10,7 +10,7 @@ export interface McpServerBlock {
   env?: Record<string, string>;
 }
 
-type McpFormat = 'standard' | 'opencode' | 'toml';
+type McpFormat = "standard" | "opencode" | "toml";
 
 export interface McpWriterConfig {
   id: string;
@@ -21,9 +21,9 @@ export interface McpWriterConfig {
 }
 
 function blockToEntry(block: McpServerBlock, format: McpFormat): any {
-  if (format === 'opencode') {
+  if (format === "opencode") {
     const entry: any = {
-      type: 'local',
+      type: "local",
       command: [block.command, ...(block.args ?? [])],
       enabled: true,
     };
@@ -50,27 +50,34 @@ function writeJson(format: McpFormat, filePath: string, block: McpServerBlock): 
 
   const existing: Record<string, any> = {};
   if (fs.existsSync(filePath)) {
-    try { Object.assign(existing, JSON.parse(fs.readFileSync(filePath, 'utf-8'))); } catch {}
+    try {
+      Object.assign(existing, JSON.parse(fs.readFileSync(filePath, "utf-8")));
+    } catch {}
   }
 
-  const key = format === 'opencode' ? 'mcp' : 'mcpServers';
+  const key = format === "opencode" ? "mcp" : "mcpServers";
   if (!existing[key]) existing[key] = {};
   existing[key].orcy = blockToEntry(block, format);
 
-  const tmp = filePath + '.tmp';
-  fs.writeFileSync(tmp, JSON.stringify(existing, null, 2), 'utf-8');
+  const tmp = filePath + ".tmp";
+  fs.writeFileSync(tmp, JSON.stringify(existing, null, 2), "utf-8");
   fs.renameSync(tmp, filePath);
-  record({ path: filePath, action: 'merged-json', keys: [key + '.orcy'], backup: bakPath ?? undefined });
+  record({
+    path: filePath,
+    action: "merged-json",
+    keys: [key + ".orcy"],
+    backup: bakPath ?? undefined,
+  });
 }
 
 function removeJson(format: McpFormat, filePath: string): void {
   if (!fs.existsSync(filePath)) return;
   try {
-    const data = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
-    const key = format === 'opencode' ? 'mcp' : 'mcpServers';
+    const data = JSON.parse(fs.readFileSync(filePath, "utf-8"));
+    const key = format === "opencode" ? "mcp" : "mcpServers";
     if (data[key]?.orcy) {
       delete data[key].orcy;
-      fs.writeFileSync(filePath, JSON.stringify(data, null, 2), 'utf-8');
+      fs.writeFileSync(filePath, JSON.stringify(data, null, 2), "utf-8");
     }
   } catch {}
 }
@@ -84,12 +91,14 @@ function writeToml(filePath: string, block: McpServerBlock): void {
   }
   let existing: Record<string, any> = {};
   if (fs.existsSync(filePath)) {
-    try { existing = parse(fs.readFileSync(filePath, 'utf-8')) as any; } catch {}
+    try {
+      existing = parse(fs.readFileSync(filePath, "utf-8")) as any;
+    } catch {}
   }
   if (!existing.mcp_servers) existing.mcp_servers = {};
-  existing.mcp_servers.orcy = blockToEntry(block, 'standard');
-  const tmp = filePath + '.tmp';
-  fs.writeFileSync(tmp, stringify(existing), 'utf-8');
+  existing.mcp_servers.orcy = blockToEntry(block, "standard");
+  const tmp = filePath + ".tmp";
+  fs.writeFileSync(tmp, stringify(existing), "utf-8");
   fs.renameSync(tmp, filePath);
   // Action label is intentionally 'merged-json' even for TOML writers. Uninstall
   // reverses a 'merged-json' entry by matching `entry.path` back to an
@@ -97,78 +106,104 @@ function writeToml(filePath: string, block: McpServerBlock): void {
   // 'merged-json' case → removeMcpConfig → removeToml/removeJson), not by
   // this label. Re-labeling would change the manifest schema without
   // affecting behavior, so we leave it as a single shared label.
-  record({ path: filePath, action: 'merged-json', keys: ['mcp_servers.orcy'], backup: bakPath ?? undefined });
+  record({
+    path: filePath,
+    action: "merged-json",
+    keys: ["mcp_servers.orcy"],
+    backup: bakPath ?? undefined,
+  });
 }
 
 function removeToml(filePath: string): void {
   if (!fs.existsSync(filePath)) return;
   try {
-    const data = parse(fs.readFileSync(filePath, 'utf-8')) as any;
+    const data = parse(fs.readFileSync(filePath, "utf-8")) as any;
     if (data.mcp_servers?.orcy) {
       delete data.mcp_servers.orcy;
-      fs.writeFileSync(filePath, stringify(data), 'utf-8');
+      fs.writeFileSync(filePath, stringify(data), "utf-8");
     }
   } catch {}
 }
 
 export function writeMcpConfig(config: McpWriterConfig, block: McpServerBlock): void {
-  if (config.format === 'toml') writeToml(config.configPath, block);
+  if (config.format === "toml") writeToml(config.configPath, block);
   else writeJson(config.format, config.configPath, block);
 }
 
 export function removeMcpConfig(config: McpWriterConfig): void {
-  if (config.format === 'toml') removeToml(config.configPath);
+  if (config.format === "toml") removeToml(config.configPath);
   else removeJson(config.format, config.configPath);
 }
 
 export const ALL_WRITERS: McpWriterConfig[] = [
   {
-    id: 'claude-code', label: 'Claude Code', format: 'standard',
-    configPath: path.join(os.homedir(), '.claude', 'settings.json'),
-    isAvailable: fs.existsSync(path.join(os.homedir(), '.claude')),
+    id: "claude-code",
+    label: "Claude Code",
+    format: "standard",
+    configPath: path.join(os.homedir(), ".claude", "settings.json"),
+    isAvailable: fs.existsSync(path.join(os.homedir(), ".claude")),
   },
   {
-    id: 'claude-desktop', label: 'Claude Desktop', format: 'standard',
-    configPath: os.platform() === 'darwin'
-      ? path.join(os.homedir(), 'Library', 'Application Support', 'Claude', 'claude_desktop_config.json')
-      : path.join(os.homedir(), '.config', 'Claude', 'claude_desktop_config.json'),
+    id: "claude-desktop",
+    label: "Claude Desktop",
+    format: "standard",
+    configPath:
+      os.platform() === "darwin"
+        ? path.join(
+            os.homedir(),
+            "Library",
+            "Application Support",
+            "Claude",
+            "claude_desktop_config.json",
+          )
+        : path.join(os.homedir(), ".config", "Claude", "claude_desktop_config.json"),
     isAvailable: fs.existsSync(
-      os.platform() === 'darwin'
-        ? path.join(os.homedir(), 'Library', 'Application Support', 'Claude')
-        : path.join(os.homedir(), '.config', 'Claude')
+      os.platform() === "darwin"
+        ? path.join(os.homedir(), "Library", "Application Support", "Claude")
+        : path.join(os.homedir(), ".config", "Claude"),
     ),
   },
   {
-    id: 'cursor', label: 'Cursor', format: 'standard',
-    configPath: path.join(os.homedir(), '.cursor', 'mcp.json'),
-    isAvailable: fs.existsSync(path.join(os.homedir(), '.cursor')),
+    id: "cursor",
+    label: "Cursor",
+    format: "standard",
+    configPath: path.join(os.homedir(), ".cursor", "mcp.json"),
+    isAvailable: fs.existsSync(path.join(os.homedir(), ".cursor")),
   },
   {
-    id: 'gemini-antigravity', label: 'Gemini Antigravity', format: 'standard',
-    configPath: path.join(os.homedir(), '.gemini', 'antigravity', 'mcp_config.json'),
-    isAvailable: fs.existsSync(path.join(os.homedir(), '.gemini')),
+    id: "gemini-antigravity",
+    label: "Gemini Antigravity",
+    format: "standard",
+    configPath: path.join(os.homedir(), ".gemini", "antigravity", "mcp_config.json"),
+    isAvailable: fs.existsSync(path.join(os.homedir(), ".gemini")),
   },
   {
-    id: 'kilo', label: 'Kilo Code', format: 'standard',
-    configPath: path.join(os.homedir(), '.kilocode', 'mcp.json'),
-    isAvailable: fs.existsSync(path.join(os.homedir(), '.kilocode')),
+    id: "kilo",
+    label: "Kilo Code",
+    format: "standard",
+    configPath: path.join(os.homedir(), ".kilocode", "mcp.json"),
+    isAvailable: fs.existsSync(path.join(os.homedir(), ".kilocode")),
   },
   {
-    id: 'codex', label: 'Codex (OpenAI)', format: 'toml',
-    configPath: path.join(os.homedir(), '.codex', 'config.toml'),
-    isAvailable: fs.existsSync(path.join(os.homedir(), '.codex')),
+    id: "codex",
+    label: "Codex (OpenAI)",
+    format: "toml",
+    configPath: path.join(os.homedir(), ".codex", "config.toml"),
+    isAvailable: fs.existsSync(path.join(os.homedir(), ".codex")),
   },
   {
-    id: 'opencode', label: 'OpenCode', format: 'opencode',
-    configPath: path.join(os.homedir(), '.config', 'opencode', 'opencode.json'),
-    isAvailable: fs.existsSync(path.join(os.homedir(), '.config', 'opencode')),
+    id: "opencode",
+    label: "OpenCode",
+    format: "opencode",
+    configPath: path.join(os.homedir(), ".config", "opencode", "opencode.json"),
+    isAvailable: fs.existsSync(path.join(os.homedir(), ".config", "opencode")),
   },
 ];
 
 export function backupFile(filePath: string): string | null {
   if (!fs.existsSync(filePath)) return null;
-  const ts = new Date().toISOString().replace(/[:.]/g, '-');
-  const bak = filePath + '.bak.' + ts;
+  const ts = new Date().toISOString().replace(/[:.]/g, "-");
+  const bak = filePath + ".bak." + ts;
   fs.copyFileSync(filePath, bak);
   pruneBackups(filePath, 1);
   return bak;
@@ -188,7 +223,11 @@ export function backupFile(filePath: string): string | null {
 export function pruneBackups(filePath: string, keepN = 1): void {
   const dir = path.dirname(filePath);
   const base = path.basename(filePath);
-  const prefix = base + '.bak.';
+  const prefix = base + ".bak.";
+  // T4.7: match only the GENERATED timestamp grammar (backupFile emits
+  // `<ISO 8601 with :/. → ->`, e.g. 2024-01-01T00-00-00-000Z) so a user file
+  // like `<base>.bak.notes` is NOT swept up, and only regular files.
+  const tsSuffix = /^\d{4}-\d{2}-\d{2}T[\d-]+Z$/;
   let entries: string[];
   try {
     entries = fs.readdirSync(dir);
@@ -196,7 +235,15 @@ export function pruneBackups(filePath: string, keepN = 1): void {
     return;
   }
   const baks = entries
-    .filter((name) => name.startsWith(prefix))
+    .filter((name) => {
+      if (!name.startsWith(prefix)) return false;
+      if (!tsSuffix.test(name.slice(prefix.length))) return false;
+      try {
+        return fs.statSync(path.join(dir, name)).isFile();
+      } catch {
+        return false;
+      }
+    })
     .sort((a, b) => b.localeCompare(a));
   for (const name of baks.slice(keepN)) {
     try {

@@ -36,49 +36,55 @@ function listBackups(filePath: string): string[] {
   }
 }
 
+// Valid `.bak.<ts>` suffixes in the exact grammar backupFile emits
+// (ISO 8601 with ':' and '.' → '-'). Lex sort == chronological order.
+const T1 = "2024-01-01T00-00-00-000Z";
+const T2 = "2024-01-01T00-00-01-000Z";
+const T3 = "2024-01-01T00-00-02-000Z";
+const T4 = "2024-01-01T00-00-03-000Z";
+
 describe("pruneBackups", () => {
   it("keeps only the newest .bak when keepN=1", () => {
     const file = fileInTmp("prune-keep1.cfg");
     fs.writeFileSync(file, "live content\n", "utf-8");
-    // Three backups with monotonically increasing timestamps (lex sort == time order).
-    fs.writeFileSync(file + ".bak.t1-old", "v1\n", "utf-8");
-    fs.writeFileSync(file + ".bak.t2-mid", "v2\n", "utf-8");
-    fs.writeFileSync(file + ".bak.t3-new", "v3\n", "utf-8");
+    fs.writeFileSync(`${file}.bak.${T1}`, "v1\n", "utf-8");
+    fs.writeFileSync(`${file}.bak.${T2}`, "v2\n", "utf-8");
+    fs.writeFileSync(`${file}.bak.${T3}`, "v3\n", "utf-8");
     expect(listBackups(file)).toEqual([
-      "prune-keep1.cfg.bak.t1-old",
-      "prune-keep1.cfg.bak.t2-mid",
-      "prune-keep1.cfg.bak.t3-new",
+      `prune-keep1.cfg.bak.${T1}`,
+      `prune-keep1.cfg.bak.${T2}`,
+      `prune-keep1.cfg.bak.${T3}`,
     ]);
 
     pruneBackups(file, 1);
 
-    expect(listBackups(file)).toEqual(["prune-keep1.cfg.bak.t3-new"]);
+    expect(listBackups(file)).toEqual([`prune-keep1.cfg.bak.${T3}`]);
   });
 
   it("defaults keepN to 1 when omitted", () => {
     const file = fileInTmp("prune-default.cfg");
-    fs.writeFileSync(file + ".bak.a", "1\n", "utf-8");
-    fs.writeFileSync(file + ".bak.b", "2\n", "utf-8");
-    fs.writeFileSync(file + ".bak.c", "3\n", "utf-8");
+    fs.writeFileSync(`${file}.bak.${T1}`, "1\n", "utf-8");
+    fs.writeFileSync(`${file}.bak.${T2}`, "2\n", "utf-8");
+    fs.writeFileSync(`${file}.bak.${T3}`, "3\n", "utf-8");
 
     pruneBackups(file);
 
-    expect(listBackups(file)).toEqual(["prune-default.cfg.bak.c"]);
+    expect(listBackups(file)).toEqual([`prune-default.cfg.bak.${T3}`]);
   });
 
   it("keeps the newest N when keepN > 1", () => {
     const file = fileInTmp("prune-keep3.cfg");
-    fs.writeFileSync(file + ".bak.t1", "1\n", "utf-8");
-    fs.writeFileSync(file + ".bak.t2", "2\n", "utf-8");
-    fs.writeFileSync(file + ".bak.t3", "3\n", "utf-8");
-    fs.writeFileSync(file + ".bak.t4", "4\n", "utf-8");
+    fs.writeFileSync(`${file}.bak.${T1}`, "1\n", "utf-8");
+    fs.writeFileSync(`${file}.bak.${T2}`, "2\n", "utf-8");
+    fs.writeFileSync(`${file}.bak.${T3}`, "3\n", "utf-8");
+    fs.writeFileSync(`${file}.bak.${T4}`, "4\n", "utf-8");
 
     pruneBackups(file, 3);
 
     expect(listBackups(file)).toEqual([
-      "prune-keep3.cfg.bak.t2",
-      "prune-keep3.cfg.bak.t3",
-      "prune-keep3.cfg.bak.t4",
+      `prune-keep3.cfg.bak.${T2}`,
+      `prune-keep3.cfg.bak.${T3}`,
+      `prune-keep3.cfg.bak.${T4}`,
     ]);
   });
 
@@ -94,24 +100,27 @@ describe("pruneBackups", () => {
 
   it("is a no-op when there are fewer .bak files than keepN", () => {
     const file = fileInTmp("prune-underflow.cfg");
-    fs.writeFileSync(file + ".bak.t1", "1\n", "utf-8");
+    fs.writeFileSync(`${file}.bak.${T1}`, "1\n", "utf-8");
 
     pruneBackups(file, 5);
 
-    expect(listBackups(file)).toEqual(["prune-underflow.cfg.bak.t1"]);
+    expect(listBackups(file)).toEqual([`prune-underflow.cfg.bak.${T1}`]);
   });
 
-  it("ignores unrelated files in the same directory", () => {
+  it("ignores unrelated files AND non-timestamp siblings like .bak.notes (T4.7)", () => {
     const file = fileInTmp("prune-noise.cfg");
     const unrelated = fileInTmp("other.bak.t1");
-    fs.writeFileSync(file + ".bak.t1", "1\n", "utf-8");
-    fs.writeFileSync(file + ".bak.t2", "2\n", "utf-8");
+    const userNotes = `${file}.bak.notes`; // user file — must NOT be swept
+    fs.writeFileSync(`${file}.bak.${T1}`, "1\n", "utf-8");
+    fs.writeFileSync(`${file}.bak.${T2}`, "2\n", "utf-8");
     fs.writeFileSync(unrelated, "x\n", "utf-8");
+    fs.writeFileSync(userNotes, "my notes\n", "utf-8");
 
     pruneBackups(file, 1);
 
-    expect(listBackups(file)).toEqual(["prune-noise.cfg.bak.t2"]);
+    expect(listBackups(file)).toEqual([`prune-noise.cfg.bak.${T2}`, "prune-noise.cfg.bak.notes"]);
     expect(fs.existsSync(unrelated)).toBe(true);
+    expect(fs.existsSync(userNotes), "user .bak.notes preserved").toBe(true);
   });
 });
 
