@@ -1,12 +1,19 @@
-import fs from 'node:fs';
-import path from 'node:path';
-import os from 'node:os';
-import { ORCY_PATHS } from '@orcy/shared';
-import type { InstallContext } from './context.js';
-import type { McpServerBlock } from './writers/index.js';
-import { record } from './manifest.js';
-import { journalExists, readJournal, appendStep, setStepPhase, markStepDone } from './journal.js';
-import { readRegistrationToken } from './env-bootstrap.js';
+import fs from "node:fs";
+import path from "node:path";
+import os from "node:os";
+import { ORCY_PATHS } from "@orcy/shared";
+import type { InstallContext } from "./context.js";
+import type { McpServerBlock } from "./writers/index.js";
+import { record } from "./manifest.js";
+import {
+  journalExists,
+  readJournal,
+  appendStep,
+  setStepPhase,
+  markStepDone,
+  markStepFailed,
+} from "./journal.js";
+import { readRegistrationToken } from "./env-bootstrap.js";
 
 export interface Credentials {
   agentId: string;
@@ -17,16 +24,20 @@ export interface Credentials {
 const CREDENTIALS_PATH = ORCY_PATHS.credentialsFile;
 
 function isValidCredentials(data: unknown): data is Credentials {
-  if (!data || typeof data !== 'object') return false;
+  if (!data || typeof data !== "object") return false;
   const c = data as Record<string, unknown>;
-  return typeof c.agentId === 'string' && c.agentId.length > 0
-    && typeof c.apiKey === 'string' && c.apiKey.length > 0
-    && typeof c.agentName === 'string';
+  return (
+    typeof c.agentId === "string" &&
+    c.agentId.length > 0 &&
+    typeof c.apiKey === "string" &&
+    c.apiKey.length > 0 &&
+    typeof c.agentName === "string"
+  );
 }
 
 export function readCredentials(): Credentials | null {
   try {
-    const data = JSON.parse(fs.readFileSync(CREDENTIALS_PATH, 'utf-8'));
+    const data = JSON.parse(fs.readFileSync(CREDENTIALS_PATH, "utf-8"));
     return isValidCredentials(data) ? data : null;
   } catch {
     return null;
@@ -37,7 +48,7 @@ export function writeCredentials(creds: Credentials): void {
   const dir = path.dirname(CREDENTIALS_PATH);
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
   fs.writeFileSync(CREDENTIALS_PATH, JSON.stringify(creds, null, 2), { mode: 0o600 });
-  record({ path: CREDENTIALS_PATH, action: 'created' });
+  record({ path: CREDENTIALS_PATH, action: "created" });
 }
 
 export interface AgentRegistrationOpts {
@@ -46,7 +57,10 @@ export interface AgentRegistrationOpts {
   domain?: string;
 }
 
-export async function registerAgent(ctx: InstallContext, opts: AgentRegistrationOpts = {}): Promise<Credentials | null> {
+export async function registerAgent(
+  ctx: InstallContext,
+  opts: AgentRegistrationOpts = {},
+): Promise<Credentials | null> {
   const existing = readCredentials();
   if (existing) {
     console.log(`Already registered as "${existing.agentName}" (${existing.agentId})`);
@@ -57,66 +71,100 @@ export async function registerAgent(ctx: InstallContext, opts: AgentRegistration
   const journaled = journalExists();
   const regStep = journaled ? readJournal()!.steps.length : -1;
 
+  // Pre-POST phase: any failure here is non-fatal (no remote side-effect yet).
+  let creds: Credentials;
   try {
-    const hostname = os.hostname().replace(/[^a-zA-Z0-9-]/g, '').slice(0, 16) || 'local';
+    const hostname =
+      os
+        .hostname()
+        .replace(/[^a-zA-Z0-9-]/g, "")
+        .slice(0, 16) || "local";
     const body = {
       name: opts.name || `orcy-${hostname}`,
-      type: opts.type || 'claude-code',
-      domain: opts.domain || 'fullstack',
-      capabilities: ['typescript', 'node'],
+      type: opts.type || "claude-code",
+      domain: opts.domain || "fullstack",
+      capabilities: ["typescript", "node"],
     };
-    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    const headers: Record<string, string> = { "Content-Type": "application/json" };
     const token = readRegistrationToken();
-    if (token) headers['x-registration-token'] = token;
-    if (journaled) appendStep({ path: CREDENTIALS_PATH, action: 'created', phase: 'post' });
+    if (token) headers["x-registration-token"] = token;
+    if (journaled) appendStep({ path: CREDENTIALS_PATH, action: "created", phase: "post" });
     const res = await fetch(`${ctx.apiUrl}/api/agents`, {
-      method: 'POST',
+      method: "POST",
       headers,
       body: JSON.stringify(body),
     });
     if (res.status === 403) {
       const text = await res.text();
-      if (text.includes('registration token')) {
-        console.error('    API rejected registration: ORCY_REGISTRATION_TOKEN mismatch.');
-        console.error('    Ensure the token in ~/.orcy/.env matches the API server\'s ORCY_REGISTRATION_TOKEN.');
+      if (text.includes("registration token")) {
+        console.error("    API rejected registration: ORCY_REGISTRATION_TOKEN mismatch.");
+        console.error(
+          "    Ensure the token in ~/.orcy/.env matches the API server's ORCY_REGISTRATION_TOKEN.",
+        );
       } else {
         console.error(`    API registration rejected (403): ${text}`);
       }
       return null;
     }
     if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
-    const data = await res.json() as any;
-    const creds: Credentials = {
+    const data = (await res.json()) as any;
+    creds = {
       agentId: data.agent?.id ?? data.id,
       apiKey: data.apiKey ?? data.api_key,
       agentName: body.name,
     };
-    if (!creds.agentId || !creds.apiKey) throw new Error('API did not return agent ID or API key');
-    if (journaled) setStepPhase(regStep, 'credentials', { agentId: creds.agentId });
-    writeCredentials(creds);
-    if (journaled) markStepDone(regStep);
-    console.log(`Registered agent "${creds.agentName}" (${creds.agentId})`);
-    return creds;
+    if (!creds.agentId || !creds.apiKey) throw new Error("API did not return agent ID or API key");
   } catch (err) {
-    console.error('Failed to register agent:', err instanceof Error ? err.message : err);
+    console.error("Failed to register agent:", err instanceof Error ? err.message : err);
     return null;
   }
+
+  // POST succeeded — the remote agent now exists. Record the agentId (G3), then
+  // persist locally. G2H.2: a failure to persist here would orphan the remote
+  // agent — do NOT swallow it. Mark the step failed (preserving the agentId for
+  // recovery to surface) and rethrow so the wizard aborts before commitJournal
+  // deletes the journal. (Pre-POST failures above remain non-fatal.)
+  if (journaled) setStepPhase(regStep, "credentials", { agentId: creds.agentId });
+  try {
+    writeCredentials(creds);
+  } catch (writeErr) {
+    if (journaled) {
+      markStepFailed(
+        regStep,
+        `credential write failed: ${writeErr instanceof Error ? writeErr.message : writeErr}`,
+      );
+    }
+    console.error(
+      `Failed to persist agent credentials after remote registration — orphaned agent ${creds.agentId}. Re-run to recover.`,
+    );
+    throw writeErr;
+  }
+  if (journaled) markStepDone(regStep);
+  console.log(`Registered agent "${creds.agentName}" (${creds.agentId})`);
+  return creds;
 }
 
 export function generateMcpServerBlock(creds: Credentials, ctx: InstallContext): McpServerBlock {
   const block: McpServerBlock = {
-    command: 'orcy-mcp',
+    command: "orcy-mcp",
     env: {
       ORCY_API_URL: ctx.apiUrl,
       ORCY_AGENT_ID: creds.agentId,
       ORCY_API_KEY: creds.apiKey,
     },
   };
-  const pathDirs = (process.env.PATH || '').split(':');
-  const mcpNodeModules = path.join(ORCY_PATHS.home, 'node_modules', '@orcy', 'mcp', 'dist', 'index.js');
-  const onPath = pathDirs.some(d => fs.existsSync(path.join(d, 'orcy-mcp')));
+  const pathDirs = (process.env.PATH || "").split(":");
+  const mcpNodeModules = path.join(
+    ORCY_PATHS.home,
+    "node_modules",
+    "@orcy",
+    "mcp",
+    "dist",
+    "index.js",
+  );
+  const onPath = pathDirs.some((d) => fs.existsSync(path.join(d, "orcy-mcp")));
   if (!onPath && fs.existsSync(mcpNodeModules)) {
-    block.command = 'node';
+    block.command = "node";
     block.args = [mcpNodeModules];
   }
   return block;

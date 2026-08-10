@@ -40,20 +40,22 @@ describe("registerAgent G3 two-phase sub-stepping", () => {
     expect(step!.phasePayload).toBeUndefined();
   });
 
-  it("POST succeeds but credential write fails: step at phase 'credentials', pending, WITH agentId (the G3 crash window)", async () => {
+  it("POST succeeds but credential write fails: step marked failed at phase 'credentials' WITH agentId, and rethrows (G2H.2)", async () => {
     // The distinguishing G3 state: the remote POST committed (agentId captured) but the
-    // local credential write did not — so a stale-journal reader knows compensation is owed.
+    // local credential write did not — compensation is owed. G2H.2: such a failure is
+    // NOT swallowed; the step is marked failed (preserving the agentId) and the error
+    // rethrown so the wizard aborts before commitJournal deletes the journal. Recovery
+    // then sees phase 'credentials' + status !== 'done' → not viable → surfaces the orphan.
     const real = fs.writeFileSync.bind(fs);
     const spy = vi.spyOn(fs, "writeFileSync");
     spy.mockImplementation(((p: unknown, d: unknown, o: unknown) => {
       if (String(p).endsWith("credentials.json")) throw new Error("disk full");
       return real(p as never, d as never, o as never);
     }) as never);
-    const creds = await registerAgent(getContext(), {});
-    expect(creds).toBeNull();
+    await expect(registerAgent(getContext(), {})).rejects.toThrow("disk full");
     const step = credStep();
     expect(step).not.toBeNull();
-    expect(step!.status).toBe("pending");
+    expect(step!.status).toBe("failed");
     expect(step!.phase).toBe("credentials");
     expect(step!.phasePayload).toMatchObject({ agentId: "agent-test-001" });
   });

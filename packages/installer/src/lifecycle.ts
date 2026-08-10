@@ -531,8 +531,18 @@ export function rollbackJournal(
  * in the expected form. When true, resuming the install (discarding the journal
  * and re-running the wizard) is safe — G8 idempotency guarantees done steps
  * converge. When false, the journal is not viable and must be rolled back.
+ *
+ * G2H.2: an UNRESOLVED `registerAgent` step (G3 phase `"credentials"`, status
+ * not `done`) means the remote POST /api/agents already succeeded but the local
+ * credential write did not — the agentId in `phasePayload` is an orphaned remote
+ * agent. Such a journal is NEVER auto-resumable: resuming would POST a SECOND
+ * agent. Recovery must surface the orphan and require rollback/abort.
  */
 export function isJournalViable(journal: Journal): boolean {
+  // An unresolved registration (POST done, local write not) blocks resume.
+  if (journal.steps.some((s) => s.phase === "credentials" && s.status !== "done")) {
+    return false;
+  }
   const doneSteps = journal.steps.filter((s) => s.status === "done");
   for (const step of doneSteps) {
     switch (step.action) {
@@ -551,6 +561,25 @@ export function isJournalViable(journal: Journal): boolean {
     }
   }
   return true;
+}
+
+/**
+ * Collect agentIds from `registerAgent` steps that reached the remote POST but
+ * did not finish the local credential write (G3 phase `"credentials"`, status
+ * not `done`). These are orphaned remote agents the user must clean up
+ * manually (the installer cannot self-delete them — the apiKey was never stored
+ * locally, so the agentAuth self-delete route is unavailable). Used to surface
+ * the orphans during recovery so they're not silently lost.
+ */
+export function orphanedAgentIds(journal: Journal): string[] {
+  const ids: string[] = [];
+  for (const s of journal.steps) {
+    if (s.phase === "credentials" && s.status !== "done") {
+      const id = s.phasePayload?.agentId;
+      if (typeof id === "string" && id) ids.push(id);
+    }
+  }
+  return ids;
 }
 
 export function listInstall(_ctx: InstallContext): void {
