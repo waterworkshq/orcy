@@ -15,6 +15,7 @@ function parseYesArgs(args: string[]): Record<string, string> {
     if (arg.startsWith('--patch-files=')) opts['patchFiles'] = arg.split('=')[1];
     if (arg.startsWith('--skill-roots=')) opts['skillRoots'] = arg.split('=')[1];
     if (arg === '--local') opts['local'] = 'true';
+    if (arg === '--recover') opts['recover'] = 'true';
     if (arg === '--yes' || arg === '-y') opts['yes'] = 'true';
   }
   return opts;
@@ -109,7 +110,7 @@ const KNOWN_COMMANDS = new Set(['doctor', 'update', 'uninstall', 'list', 'servic
 
 const BUILTIN_FLAGS = new Set(['--help', '-h', '--version', '-V']);
 const WIZARD_FLAG_PREFIXES = ['--components=', '--mcp-clients=', '--patch-files=', '--skill-roots='];
-const WIZARD_FLAG_EXACT = new Set(['--local', '--yes', '-y']);
+const WIZARD_FLAG_EXACT = new Set(['--local', '--yes', '-y', '--recover']);
 
 export type Action =
   | { kind: 'interactive-wizard' }
@@ -156,6 +157,7 @@ async function main() {
         skillRoots: opts['skillRoots'] ? opts['skillRoots'].split(',') : [],
         local: opts['local'] === 'true',
         interactive: false,
+        recover: opts['recover'] === 'true',
       });
       return;
     }

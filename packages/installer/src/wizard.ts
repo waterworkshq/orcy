@@ -11,6 +11,7 @@ import { installSkills, determineSkillsToInstall } from './skill-installer.js';
 import { installService } from './service-installer.js';
 import { addComponent } from './manifest.js';
 import { journalExists, readJournal, createJournal, commitJournal, discardJournal, journalPath } from './journal.js';
+import { rollbackJournal, isJournalViable } from './lifecycle.js';
 
 export interface WizardOptions {
   components?: string[];
@@ -19,6 +20,7 @@ export interface WizardOptions {
   skillRoots?: string[];
   local?: boolean;
   interactive?: boolean;
+  recover?: boolean;
 }
 
 async function askComponents(interactive: boolean): Promise<string[]> {
@@ -113,15 +115,18 @@ export async function wizard(opts: WizardOptions = {}): Promise<void> {
     skillRoots: initSkillRoots,
     local = false,
     interactive = true,
+    recover = false,
   } = opts;
 
   const ctx = getContext();
 
-  // G2: stale-journal detection — don't start a new install over a partial one.
-  // Full resume/rollback is gated on G8/G5; today we only offer clear-and-restart
-  // (interactive) or structured fail (non-interactive / CI).
+  // G2.2: stale-journal detection with viability-aware recovery.
+  // Interactive: offer resume / rollback / abort based on viability.
+  // Non-interactive + --recover: auto-recover (resume if viable, else rollback).
+  // Non-interactive without --recover: safe-by-default structured fail (P1.4).
   if (journalExists()) {
     const stale = readJournal();
+    const viable = stale ? isJournalViable(stale) : false;
     if (interactive) {
       console.log('\n⚠ A previous installation was interrupted.');
       if (stale) {
@@ -133,13 +138,37 @@ export async function wizard(opts: WizardOptions = {}): Promise<void> {
       } else {
         console.log('  (Journal is unreadable — treating as stale.)');
       }
-      const { confirm } = await import('@clack/prompts');
-      const shouldClear = await confirm({
-        message: 'Clear the interrupted journal and start fresh?',
-        initialValue: true,
-      });
-      if (!shouldClear) { console.log('Aborted.'); return; }
-      discardJournal();
+      const { select } = await import('@clack/prompts');
+      const options: { value: string; label: string; hint?: string }[] = [];
+      if (viable) {
+        options.push({ value: 'resume', label: 'Resume', hint: 'complete the install — done steps converge' });
+      }
+      options.push({ value: 'rollback', label: 'Roll back', hint: 'undo partial, then start fresh' });
+      options.push({ value: 'abort', label: 'Abort' });
+      const choice = await select({ message: 'How would you like to proceed?', options }) as string;
+      if (choice === 'abort') { console.log('Aborted.'); return; }
+      if (choice === 'rollback') {
+        if (stale) {
+          const { reversed, failed } = rollbackJournal(ctx, stale);
+          console.log(`  Rolled back ${reversed} step(s)${failed ? ` (${failed} failed)` : ''}.`);
+        }
+        discardJournal();
+      } else {
+        // resume — discard journal and re-run; G8 idempotency makes done steps converge.
+        discardJournal();
+      }
+    } else if (recover) {
+      if (viable) {
+        console.log('Stale journal detected — resuming (viable).');
+        discardJournal();
+      } else {
+        console.log('Stale journal detected — rolling back (not viable), then starting fresh.');
+        if (stale) {
+          const { reversed, failed } = rollbackJournal(ctx, stale);
+          console.log(`  Rolled back ${reversed} step(s)${failed ? ` (${failed} failed)` : ''}.`);
+        }
+        discardJournal();
+      }
     } else {
       console.error('Error: stale installation journal detected.');
       console.error(`  Journal: ${journalPath()}`);
@@ -148,8 +177,8 @@ export async function wizard(opts: WizardOptions = {}): Promise<void> {
         console.error(`  Started: ${stale.startedAt}`);
         console.error(`  Completed steps: ${doneCount}`);
       }
-      console.error('  To resolve: remove the journal file or run interactively.');
-      throw new Error(`stale installation journal detected — run interactively or remove ${journalPath()}`);
+      console.error('  To resolve: run with --recover, remove the journal file, or run interactively.');
+      throw new Error(`stale installation journal detected — run with --recover, interactively, or remove ${journalPath()}`);
     }
   }
 

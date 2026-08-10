@@ -133,6 +133,7 @@ vi.mock("node:child_process", async () => {
 vi.mock("@clack/prompts", () => ({
   confirm: vi.fn(async () => true),
   multiselect: vi.fn(async () => []),
+  select: vi.fn(async (opts: { options: Array<{ value: string }> }) => opts.options[0]?.value ?? ""),
   text: vi.fn(async () => ""),
 }));
 
