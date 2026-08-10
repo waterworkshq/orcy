@@ -304,11 +304,12 @@ function requireInFlight(): Journal {
 }
 
 /** Strip the journal-only fields, returning the {@link ManifestEntry} subset. */
-function toManifestEntry(e: JournalEntry): ManifestEntry {
+export function toManifestEntry(e: JournalEntry): ManifestEntry {
   const out: ManifestEntry = { path: e.path, action: e.action };
   if (e.marker !== undefined) out.marker = e.marker;
   if (e.keys !== undefined) out.keys = e.keys;
   if (e.backup !== undefined) out.backup = e.backup;
+  if (e.hash !== undefined) out.hash = e.hash;
   return out;
 }
 

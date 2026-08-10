@@ -6,7 +6,7 @@ import type { InstallContext } from "./context.js";
 import { ALL_WRITERS, removeMcpConfig, writeMcpConfig } from "./writers/index.js";
 import { injectIntoFile, removeFromFile } from "./markdown-injector.js";
 import { readManifest, writeManifest, hashFile, hashDir, type ManifestEntry } from "./manifest.js";
-import { journalExists } from "./journal.js";
+import { journalExists, toManifestEntry, type Journal } from "./journal.js";
 import { removeShims, SENTINEL_START, SENTINEL_END } from "./path-shim.js";
 import { generateMcpServerBlock, readCredentials } from "./credentials.js";
 import { stopService, installService, uninstallService } from "./service-installer.js";
@@ -305,6 +305,64 @@ export interface UninstallOptions {
   yes?: boolean;
 }
 
+/**
+ * Reverse a single manifest/journal entry's on-disk artifact. Shared by
+ * {@link uninstallAll} (manifest reversal) and {@link rollbackJournal} (journal
+ * reversal). Preserves artifacts modified since install via the P3.2 hash-guard.
+ */
+function reverseEntry(ctx: InstallContext, entry: ManifestEntry): void {
+  switch (entry.action) {
+    case "created":
+      if (fs.existsSync(entry.path)) {
+        if (isModifiedSinceInstall(entry)) {
+          console.warn(`    ${entry.path} changed since install — preserved, not removed`);
+          break;
+        }
+        if (fs.statSync(entry.path).isDirectory()) {
+          fs.rmSync(entry.path, { recursive: true });
+        } else {
+          fs.unlinkSync(entry.path);
+        }
+      }
+      break;
+    case "appended":
+      if (fs.existsSync(entry.path)) {
+        const content = fs.readFileSync(entry.path, "utf-8");
+        const start = content.indexOf(SENTINEL_START);
+        const end = content.indexOf(SENTINEL_END);
+        if (start !== -1 && end !== -1) {
+          const next = end + SENTINEL_END.length;
+          fs.writeFileSync(
+            entry.path,
+            content.slice(0, start).trimEnd() + "\n" + content.slice(next).trimStart(),
+          );
+        }
+      }
+      break;
+    case "fenced":
+      removeFromFile(entry.path);
+      break;
+    case "merged-json": {
+      const writer = ALL_WRITERS.find((w) => w.configPath === entry.path);
+      if (writer) removeMcpConfig(writer);
+      break;
+    }
+    case "copied":
+      if (fs.existsSync(entry.path)) {
+        if (isModifiedSinceInstall(entry)) {
+          console.warn(`    ${entry.path} changed since install — preserved, not removed`);
+          break;
+        }
+        if (fs.statSync(entry.path).isDirectory()) {
+          fs.rmSync(entry.path, { recursive: true });
+        } else {
+          fs.unlinkSync(entry.path);
+        }
+      }
+      break;
+  }
+}
+
 export async function uninstallAll(ctx: InstallContext, opts?: UninstallOptions): Promise<void> {
   // G9 step 1: warn on stale install journal (proceed against the manifest regardless).
   if (journalExists()) {
@@ -340,56 +398,7 @@ export async function uninstallAll(ctx: InstallContext, opts?: UninstallOptions)
   const reversed = [...manifest.files].reverse();
   for (const entry of reversed) {
     try {
-      switch (entry.action) {
-        case "created":
-          if (fs.existsSync(entry.path)) {
-            if (isModifiedSinceInstall(entry)) {
-              console.warn(`    ${entry.path} changed since install — preserved, not removed`);
-              break;
-            }
-            if (fs.statSync(entry.path).isDirectory()) {
-              fs.rmSync(entry.path, { recursive: true });
-            } else {
-              fs.unlinkSync(entry.path);
-            }
-          }
-          break;
-        case "appended":
-          if (fs.existsSync(entry.path)) {
-            const content = fs.readFileSync(entry.path, "utf-8");
-            const start = content.indexOf(SENTINEL_START);
-            const end = content.indexOf(SENTINEL_END);
-            if (start !== -1 && end !== -1) {
-              const next = end + SENTINEL_END.length;
-              fs.writeFileSync(
-                entry.path,
-                content.slice(0, start).trimEnd() + "\n" + content.slice(next).trimStart(),
-              );
-            }
-          }
-          break;
-        case "fenced":
-          removeFromFile(entry.path);
-          break;
-        case "merged-json": {
-          const writer = ALL_WRITERS.find((w) => w.configPath === entry.path);
-          if (writer) removeMcpConfig(writer);
-          break;
-        }
-        case "copied":
-          if (fs.existsSync(entry.path)) {
-            if (isModifiedSinceInstall(entry)) {
-              console.warn(`    ${entry.path} changed since install — preserved, not removed`);
-              break;
-            }
-            if (fs.statSync(entry.path).isDirectory()) {
-              fs.rmSync(entry.path, { recursive: true });
-            } else {
-              fs.unlinkSync(entry.path);
-            }
-          }
-          break;
-      }
+      reverseEntry(ctx, entry);
     } catch (e) {
       hadFailure = true;
       console.warn(`    Could not remove ${entry.path}: ${e}`);
@@ -487,6 +496,61 @@ export async function uninstallAll(ctx: InstallContext, opts?: UninstallOptions)
   }
 
   console.log("    Uninstall complete.");
+}
+
+/**
+ * Actively reverse a stale journal's `done` steps to return disk state to
+ * pre-install. Unlike `uninstallAll` (which reverses a committed manifest),
+ * this operates on an in-flight journal and does NOT stop/disable the service
+ * or delete the journal file (the caller decides both).
+ *
+ * Best-effort: each step is reversed in isolation; a failure increments `failed`
+ * but does not abort the loop.
+ */
+export function rollbackJournal(
+  ctx: InstallContext,
+  journal: Journal,
+): { reversed: number; failed: number } {
+  const doneSteps = journal.steps.filter((s) => s.status === "done");
+  let reversed = 0;
+  let failed = 0;
+  for (const step of [...doneSteps].reverse()) {
+    try {
+      reverseEntry(ctx, toManifestEntry(step));
+      reversed++;
+    } catch (e) {
+      failed++;
+      console.warn(`    Could not reverse ${step.path}: ${e}`);
+    }
+  }
+  return { reversed, failed };
+}
+
+/**
+ * Check whether every `done` step's recorded artifact is still present on disk
+ * in the expected form. When true, resuming the install (discarding the journal
+ * and re-running the wizard) is safe — G8 idempotency guarantees done steps
+ * converge. When false, the journal is not viable and must be rolled back.
+ */
+export function isJournalViable(journal: Journal): boolean {
+  const doneSteps = journal.steps.filter((s) => s.status === "done");
+  for (const step of doneSteps) {
+    switch (step.action) {
+      case "created":
+      case "copied":
+      case "fenced":
+      case "merged-json":
+        if (!fs.existsSync(step.path)) return false;
+        break;
+      case "appended": {
+        if (!fs.existsSync(step.path)) return false;
+        const content = fs.readFileSync(step.path, "utf-8");
+        if (!content.includes(SENTINEL_START)) return false;
+        break;
+      }
+    }
+  }
+  return true;
 }
 
 export function listInstall(_ctx: InstallContext): void {
