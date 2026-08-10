@@ -672,8 +672,13 @@ export function serviceStatus(ctx: InstallContext): boolean {
     try {
       const uid = execSync("id -u", { encoding: "utf-8" }).trim();
       const out = execSync(`launchctl print gui/${uid}/ai.orcy.api`, { encoding: "utf-8" }).trim();
-      console.log(`Service status: ${out.includes("path") ? "active" : "inactive"}`);
-      return out.includes("path");
+      // T2.8: match the run STATE, not just the substring "path" (which appears
+      // in launchctl print output for loaded-but-stopped jobs too). A job is
+      // active only when state = running. (Needs macOS validation — untested on
+      // Linux; a false-negative here is safe, a false-positive was the bug.)
+      const active = /state\s*=\s*"?running"?/i.test(out);
+      console.log(`Service status: ${active ? "active" : "inactive"}`);
+      return active;
     } catch {
       console.log("Service status: inactive");
       return false;
