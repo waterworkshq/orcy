@@ -67,6 +67,33 @@ describe("injectIntoFile — idempotency (G8)", () => {
     expect(countOccurrences(out, END)).toBe(1);
   });
 
+  it("clears pre-existing DUPLICATE fences down to one on inject (T2.2)", () => {
+    const f = tmpFile("dup-pairs");
+    injectIntoFile(f, makeCtx());
+    // Manually append a SECOND complete fence (simulates a pre-P4.2 bug state).
+    const block = fs.readFileSync(f, "utf-8");
+    fs.writeFileSync(f, block + "\n" + block, "utf-8");
+    expect(countOccurrences(fs.readFileSync(f, "utf-8"), START)).toBe(2);
+    expect(countOccurrences(fs.readFileSync(f, "utf-8"), END)).toBe(2);
+
+    injectIntoFile(f, makeCtx());
+    const out = fs.readFileSync(f, "utf-8");
+    expect(countOccurrences(out, START)).toBe(1);
+    expect(countOccurrences(out, END)).toBe(1);
+  });
+
+  it("clears END-before-START (malformed) down to a clean single fence on inject (T2.2)", () => {
+    const f = tmpFile("end-before-start");
+    // A malformed state: END appears before START.
+    fs.writeFileSync(f, `intro\n${END}\nmid\n${START}\nbody\ntail\n`, "utf-8");
+    injectIntoFile(f, makeCtx());
+    const out = fs.readFileSync(f, "utf-8");
+    expect(countOccurrences(out, START)).toBe(1);
+    expect(countOccurrences(out, END)).toBe(1);
+    expect(out).toContain("intro");
+    expect(out).toContain("tail");
+  });
+
   it("preserves surrounding user content across injections", () => {
     const f = tmpFile("surround");
     fs.writeFileSync(f, "# My Project\n\nSome user notes.\n", "utf-8");

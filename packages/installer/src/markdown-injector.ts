@@ -92,20 +92,25 @@ function stripMarkerLine(content: string, marker: string): string {
  * partial (only START or only END survives a user edit). Returns the cleaned
  * text; the caller decides whether to re-inject. Idempotent: a second pass is
  * a no-op (returns the input unchanged once no marker remains).
+ *
+ * T2.2: removes EVERY complete START..END pair (looping, so duplicate pairs
+ * from a prior bug are all cleared — not just the first), then strips any
+ * remaining lone markers. Guarantees inject×N converges to exactly one fence.
  */
 function stripFence(content: string): string {
-  const startIdx = content.indexOf(START_MARKER);
-  const endIdx = content.indexOf(END_MARKER);
-
-  // Complete fence, END after START: drop the whole region in place.
-  if (startIdx !== -1 && endIdx !== -1 && endIdx > startIdx) {
-    return content.substring(0, startIdx) + content.substring(endIdx + END_MARKER.length);
+  let out = content;
+  // Repeatedly drop the first complete START..END region until none remain.
+  for (;;) {
+    const s = out.indexOf(START_MARKER);
+    const e = s === -1 ? -1 : out.indexOf(END_MARKER, s + START_MARKER.length);
+    if (s === -1 || e === -1) break;
+    out = out.substring(0, s) + out.substring(e + END_MARKER.length);
   }
-  // Orphan START (END missing, or END precedes START): strip just the line.
-  if (startIdx !== -1) return stripMarkerLine(content, START_MARKER);
-  // Orphan END.
-  if (endIdx !== -1) return stripMarkerLine(content, END_MARKER);
-  return content;
+  // Strip any leftover lone markers (orphan START or END with no partner, or
+  // END-before-START). Line-stripped so no blank line is left behind.
+  out = stripMarkerLine(out, START_MARKER);
+  out = stripMarkerLine(out, END_MARKER);
+  return out;
 }
 
 export function injectIntoFile(filePath: string, ctx: InstallContext): boolean {
