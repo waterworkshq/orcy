@@ -24,6 +24,7 @@ import * as triageResolutionsRepo from "../repositories/triageResolutions.js";
 import {
   automationRuleRuns,
   columns,
+  habitatSkillSignals,
   habitats,
   missionEvents,
   missions,
@@ -139,30 +140,208 @@ describe("extraction source catalog — totality", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Experience placeholder — totality without real data
+// Experience aggregate — privacy-projected adapter
 // ---------------------------------------------------------------------------
 
-describe("experience_aggregate placeholder", () => {
-  it("collects no real data and emits the deferred marker", () => {
+describe("experience_aggregate adapter — privacy projection", () => {
+  it("classifies as aggregate_only", () => {
+    const adapter = getAdapter("experience_aggregate");
+    expect(adapter.classify({} as ExtractionObservation)).toBe("aggregate_only");
+  });
+
+  it("collects no observations when no signals exist (honest partial, not empty success)", () => {
     vi.setSystemTime(new Date("2026-01-01T00:00:00.000Z"));
     const f = createFixture();
     const adapter = getAdapter("experience_aggregate");
-    const batch = adapter.collect(windowRequest(f.habitat.id));
+    const batch = adapter.collect({
+      habitatId: f.habitat.id,
+      windowFrom: WINDOW_FROM,
+    });
     expect(batch.observations).toEqual([]);
     expect(batch.completeness).toBe("partial");
-    expect(batch.warnings).toContain("experience_aggregate_deferred_to_ticket_3");
+    expect(batch.warnings).toContain("experience_no_eligible_cohorts");
   });
 
-  it("classifies as aggregate_only and resolves any ref to dangling", () => {
+  it("admits eligible cohorts and suppresses all isolating fields", () => {
+    vi.setSystemTime(new Date("2026-01-01T00:00:00.000Z"));
+    const f = createFixture();
+    // Create two eligible experience signal cohorts (≥5 signals, ≥3 agents each).
+    const db = getDb();
+    const now = new Date().toISOString();
+    for (const subject of ["subject-a", "subject-b"]) {
+      db.insert(habitatSkillSignals).values({
+        id: `sig-${subject}`,
+        habitatId: f.habitat.id,
+        clusterKey: subject,
+        skillCategory: subject === "subject-a" ? "pitfall" : "pattern",
+        sourceSignalType: "experience",
+        sourceType: "pulse",
+        subject: `Pattern for ${subject}`,
+        summary: null,
+        strength: 0.5,
+        frequency: 7,
+        corroboratingAgents: 4,
+        crossMissionCount: 0,
+        successfulTasks: 0,
+        failedTasks: 0,
+        firstSeenAt: now,
+        lastSeenAt: now,
+        sourcePulseIds: '["pulse-1","pulse-2"]',
+        sourceTaskIds: null,
+        sourceCommentIds: null,
+        corroboratingAgentIds: '["agent-a","agent-b","agent-c","agent-d"]',
+        promotedToSkill: 0,
+        createdAt: now,
+        updatedAt: now,
+      }).run();
+    }
+
     const adapter = getAdapter("experience_aggregate");
-    expect(adapter.classify({} as ExtractionObservation)).toBe("aggregate_only");
+    const batch = adapter.collect({
+      habitatId: f.habitat.id,
+      windowFrom: WINDOW_FROM,
+    });
+    expect(batch.observations.length).toBe(2);
+    expect(batch.completeness).toBe("complete");
+
+    // Verify no isolating fields in serialized observations.
+    for (const obs of batch.observations) {
+      const serialized = JSON.stringify(obs);
+      expect(serialized).not.toContain("pulse-1");
+      expect(serialized).not.toContain("agent-a");
+      expect(serialized).not.toContain("corroboratingAgentIds");
+      expect(serialized).not.toContain("sourcePulseIds");
+      // Aggregate-only: no entity refs.
+      expect(obs.entityRefs).toEqual([]);
+      // Visibility ceiling.
+      expect(obs.visibilityClass).toBe("aggregate_only");
+    }
+  });
+
+  it("resolves a citation to available when the cohort still meets the floor", () => {
+    vi.setSystemTime(new Date("2026-01-01T00:00:00.000Z"));
+    const f = createFixture();
+    const db = getDb();
+    const now = new Date().toISOString();
+    for (const subject of ["subject-a", "subject-b"]) {
+      db.insert(habitatSkillSignals).values({
+        id: `sig-${subject}`,
+        habitatId: f.habitat.id,
+        clusterKey: subject,
+        skillCategory: subject === "subject-a" ? "pitfall" : "pattern",
+        sourceSignalType: "experience",
+        sourceType: "pulse",
+        subject: `Pattern for ${subject}`,
+        summary: null,
+        strength: 0.5,
+        frequency: 7,
+        corroboratingAgents: 4,
+        crossMissionCount: 0,
+        successfulTasks: 0,
+        failedTasks: 0,
+        firstSeenAt: now,
+        lastSeenAt: now,
+        sourcePulseIds: null,
+        sourceTaskIds: null,
+        sourceCommentIds: null,
+        corroboratingAgentIds: '["agent-a","agent-b","agent-c","agent-d"]',
+        promotedToSkill: 0,
+        createdAt: now,
+        updatedAt: now,
+      }).run();
+    }
+
+    const adapter = getAdapter("experience_aggregate");
+    const batch = adapter.collect({
+      habitatId: f.habitat.id,
+      windowFrom: WINDOW_FROM,
+    });
+    const obs = batch.observations[0];
+    const identity = adapter.canonicalIdentity(obs);
+
     const ref: ResolveRef = {
       sourceType: "experience_aggregate",
-      sourceId: "experience_aggregate:x",
-      sourceVersion: "v1",
+      sourceId: identity.sourceId,
+      sourceVersion: identity.sourceVersion,
+      sourceDigest: identity.digest,
     };
-    const [resolved] = adapter.resolveByRefs([ref], { habitatId: "h1" });
-    expect(resolved.state).toBe("dangling");
+    const [resolved] = adapter.resolveByRefs([ref], { habitatId: f.habitat.id });
+    expect(resolved.state).toBe("available");
+    expect(resolved.digest).toBe(identity.digest);
+  });
+
+  it("resolves unauthorized (fail-closed) when the cohort drops below floor", () => {
+    vi.setSystemTime(new Date("2026-01-01T00:00:00.000Z"));
+    const f = createFixture();
+    const db = getDb();
+    const now = new Date().toISOString();
+    for (const subject of ["subject-a", "subject-b"]) {
+      db.insert(habitatSkillSignals).values({
+        id: `sig-${subject}`,
+        habitatId: f.habitat.id,
+        clusterKey: subject,
+        skillCategory: subject === "subject-a" ? "pitfall" : "pattern",
+        sourceSignalType: "experience",
+        sourceType: "pulse",
+        subject: `Pattern for ${subject}`,
+        summary: null,
+        strength: 0.5,
+        frequency: 7,
+        corroboratingAgents: 4,
+        crossMissionCount: 0,
+        successfulTasks: 0,
+        failedTasks: 0,
+        firstSeenAt: now,
+        lastSeenAt: now,
+        sourcePulseIds: null,
+        sourceTaskIds: null,
+        sourceCommentIds: null,
+        corroboratingAgentIds: '["agent-a","agent-b","agent-c","agent-d"]',
+        promotedToSkill: 0,
+        createdAt: now,
+        updatedAt: now,
+      }).run();
+    }
+
+    const adapter = getAdapter("experience_aggregate");
+    const batch = adapter.collect({
+      habitatId: f.habitat.id,
+      windowFrom: WINDOW_FROM,
+    });
+    const obs = batch.observations[0];
+    const identity = adapter.canonicalIdentity(obs);
+
+    // Now drop both cohorts below floor.
+    db.update(habitatSkillSignals)
+      .set({ frequency: 1, corroboratingAgents: 1 })
+      .run();
+
+    const ref: ResolveRef = {
+      sourceType: "experience_aggregate",
+      sourceId: identity.sourceId,
+      sourceVersion: identity.sourceVersion,
+      sourceDigest: identity.digest,
+    };
+    const [resolved] = adapter.resolveByRefs([ref], { habitatId: f.habitat.id });
+    // Fail-closed: unauthorized, no content leak.
+    expect(resolved.state).toBe("unauthorized");
+    expect(resolved.digest).toBeUndefined();
+    expect(resolved.entityRefs).toBeUndefined();
+    expect(resolved.occurredAt).toBeUndefined();
+  });
+
+  it("a cross-Habitat citation resolves unauthorized without leaking content", () => {
+    const adapter = getAdapter("experience_aggregate");
+    const ref: ResolveRef = {
+      sourceType: "experience_aggregate",
+      sourceId: "exp_agg:somehashthatisnotinthishabitat",
+      sourceVersion: "2026-01-01T00:00:00.000Z",
+      sourceDigest: "somedigest",
+    };
+    const [resolved] = adapter.resolveByRefs([ref], { habitatId: "other-habitat" });
+    expect(resolved.state).toBe("unauthorized");
+    expect(resolved.digest).toBeUndefined();
+    expect(resolved.entityRefs).toBeUndefined();
   });
 });
 
