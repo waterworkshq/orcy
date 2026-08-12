@@ -115,3 +115,21 @@ export function findByClusterKey(habitatId: string, clusterKey: string): TriageR
     .all()
     .map(rowToTriageResolution);
 }
+
+/**
+ * List every terminal resolution in a habitat, newest-first. The Learning Loop
+ * source catalog uses this as the direct family-specific collection lookup for
+ * `triage_resolution` citations (every `triage_resolutions` row is terminal by
+ * construction — it is written only on resolution). No implicit traversal to
+ * source pulses or non-terminal Engineering Findings.
+ */
+export function listByHabitat(habitatId: string): TriageResolution[] {
+  const db = getDb();
+  return db
+    .select()
+    .from(triageResolutions)
+    .where(eq(triageResolutions.habitatId, habitatId))
+    .orderBy(desc(triageResolutions.resolvedAt))
+    .all()
+    .map(rowToTriageResolution);
+}
