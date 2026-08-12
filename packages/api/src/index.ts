@@ -69,6 +69,7 @@ import { taskCreationAttemptRoutes } from "./routes/taskCreationAttempts.js";
 import { taskPublicationRoutes } from "./routes/taskPublication.js";
 import { taskClonePublicationRoutes } from "./routes/taskClonePublication.js";
 import { scheduledOccurrenceRepairRoutes } from "./routes/scheduledOccurrenceRepair.js";
+import { extractionRoutes } from "./routes/extraction.js";
 import { registerCreationDispatchAdapters } from "./services/taskCreationDispatchAdapters.js";
 import { startOccurrenceLeaseRecoveryWorker } from "./services/scheduledOccurrenceRecovery.js";
 import { startCreationDispatchWorker } from "./services/creationDispatchWorker.js";
@@ -241,6 +242,7 @@ async function registerApiRoutes(f: FastifyInstance) {
   await f.register(taskClonePublicationRoutes);
   await f.register(taskPublicationRoutes);
   await f.register(scheduledOccurrenceRepairRoutes);
+  await f.register(extractionRoutes);
 }
 
 await fastify.register(

@@ -78,3 +78,11 @@ export {
   type ReservePromotionInput,
   type TerminalizePromotionInput,
 } from "./promotions.js";
+
+export {
+  listAcceptedFindingsForAgentWithClient,
+  getAcceptedFindingForAgentWithClient,
+  type AgentFindingFilters,
+  type AgentFindingSummary,
+  type AgentFindingDetail,
+} from "./agentQueries.js";

@@ -93,6 +93,9 @@ export const SSE_EVENT_TYPES = [
   "plugin.quarantined",
   "triage.finding_created",
   "triage.finding_updated",
+  "extraction.finding_proposed",
+  "extraction.decision_changed",
+  "extraction.finding_withdrawn",
 ] as const satisfies readonly SSEEventType[];
 
 export type SSEEventRegistryMissingEvents = AssertNever<
@@ -646,6 +649,9 @@ export const SSE_EVENT_REGISTRY = {
       queryClient.invalidateQueries({ queryKey: queryKeys.triage.all });
     },
   }),
+  "extraction.finding_proposed": noopHandler,
+  "extraction.decision_changed": noopHandler,
+  "extraction.finding_withdrawn": noopHandler,
 } satisfies Record<SSEEventType, SSEEventHandler>;
 
 export function getSSEEventHandler(type: SSEEventType): SSEEventHandler | undefined {

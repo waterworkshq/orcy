@@ -282,6 +282,31 @@ export type SSEEvent =
         status: string;
         bucket: string | null;
       };
+    }
+  | {
+      type: "extraction.finding_proposed";
+      data: {
+        habitatId: string;
+        findingId: string;
+        findingType: string;
+        subject: string;
+        confidence: number;
+      };
+    }
+  | {
+      type: "extraction.decision_changed";
+      data: {
+        habitatId: string;
+        findingId: string;
+        decision: string;
+      };
+    }
+  | {
+      type: "extraction.finding_withdrawn";
+      data: {
+        habitatId: string;
+        findingId: string;
+      };
     };
 
 /** Subset of {@link SSEEvent} restricted to presence lifecycle updates such as join, leave, refresh, and summary. */
