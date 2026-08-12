@@ -242,7 +242,20 @@ describe("experience_aggregate adapter — privacy projection", () => {
     const f = createFixture();
     const db = getDb();
     const now = new Date().toISOString();
+    // B2 fix: Create underlying pulse data so window-scoped counting works.
+    // Pulses must have createdAt within the coarse window that WINDOW_FROM maps to.
+    const agents = ["agent-a", "agent-b", "agent-c", "agent-d"];
     for (const subject of ["subject-a", "subject-b"]) {
+      const pulseIds: string[] = [];
+      for (let i = 0; i < 7; i++) {
+        const pid = `pulse-resolve-${subject}-${i}`;
+        pulseIds.push(pid);
+        db.insert(pulses).values({
+          id: pid, habitatId: f.habitat.id, scope: "habitat",
+          fromType: "agent", fromId: agents[i % agents.length], signalType: "experience",
+          subject: `Pulse ${pid}`, body: "", createdAt: WINDOW_FROM,
+        }).run();
+      }
       db.insert(habitatSkillSignals).values({
         id: `sig-${subject}`,
         habitatId: f.habitat.id,
@@ -260,10 +273,10 @@ describe("experience_aggregate adapter — privacy projection", () => {
         failedTasks: 0,
         firstSeenAt: now,
         lastSeenAt: now,
-        sourcePulseIds: null,
+        sourcePulseIds: JSON.stringify(pulseIds),
         sourceTaskIds: null,
         sourceCommentIds: null,
-        corroboratingAgentIds: '["agent-a","agent-b","agent-c","agent-d"]',
+        corroboratingAgentIds: JSON.stringify(agents),
         promotedToSkill: 0,
         createdAt: now,
         updatedAt: now,
@@ -276,6 +289,7 @@ describe("experience_aggregate adapter — privacy projection", () => {
       windowFrom: WINDOW_FROM,
     });
     const obs = batch.observations[0];
+    expect(obs).toBeTruthy();
     const identity = adapter.canonicalIdentity(obs);
 
     const ref: ResolveRef = {
@@ -294,9 +308,21 @@ describe("experience_aggregate adapter — privacy projection", () => {
     const f = createFixture();
     const db = getDb();
     const now = new Date().toISOString();
+    // B2 fix: Create underlying pulse data that meets the floor initially.
+    const agents = ["agent-a", "agent-b", "agent-c", "agent-d"];
     for (const subject of ["subject-a", "subject-b"]) {
+      const pulseIds: string[] = [];
+      for (let i = 0; i < 7; i++) {
+        const pid = `pulse-unauth-${subject}-${i}`;
+        pulseIds.push(pid);
+        db.insert(pulses).values({
+          id: pid, habitatId: f.habitat.id, scope: "habitat",
+          fromType: "agent", fromId: agents[i % agents.length], signalType: "experience",
+          subject: `Pulse ${pid}`, body: "", createdAt: WINDOW_FROM,
+        }).run();
+      }
       db.insert(habitatSkillSignals).values({
-        id: `sig-${subject}`,
+        id: `sig-unauth-${subject}`,
         habitatId: f.habitat.id,
         clusterKey: subject,
         skillCategory: subject === "subject-a" ? "pitfall" : "pattern",
@@ -312,10 +338,10 @@ describe("experience_aggregate adapter — privacy projection", () => {
         failedTasks: 0,
         firstSeenAt: now,
         lastSeenAt: now,
-        sourcePulseIds: null,
+        sourcePulseIds: JSON.stringify(pulseIds),
         sourceTaskIds: null,
         sourceCommentIds: null,
-        corroboratingAgentIds: '["agent-a","agent-b","agent-c","agent-d"]',
+        corroboratingAgentIds: JSON.stringify(agents),
         promotedToSkill: 0,
         createdAt: now,
         updatedAt: now,
@@ -330,10 +356,10 @@ describe("experience_aggregate adapter — privacy projection", () => {
     const obs = batch.observations[0];
     const identity = adapter.canonicalIdentity(obs);
 
-    // Now drop both cohorts below floor.
-    db.update(habitatSkillSignals)
-      .set({ frequency: 1, corroboratingAgents: 1 })
-      .run();
+    // Now drop both cohorts below floor by removing the underlying pulses.
+    // B2 fix: window-scoped counts come from pulses, not all-time signal fields.
+    // Deleting the pulses makes the window counts 0/0 → below floor → unauthorized.
+    db.delete(pulses).run();
 
     const ref: ResolveRef = {
       sourceType: "experience_aggregate",

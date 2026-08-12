@@ -38,9 +38,9 @@ function hashApiKey(key: string): string {
   return createHash("sha256").update(key).digest("hex");
 }
 import {
-  listAcceptedFindingsForAgentWithClient,
-  getAcceptedFindingForAgentWithClient,
-} from "../repositories/extraction/index.js";
+  listAcceptedFindingsForAgent,
+  getAcceptedFindingForAgent,
+} from "../services/extractionAgentReadService.js";
 import {
   habitats,
   columns,
@@ -50,6 +50,7 @@ import {
   extractedFindings,
   extractedFindingSources,
   extractedFindingScopeRefs,
+  taskEvents,
 } from "../db/schema/index.js";
 
 // ---------------------------------------------------------------------------
@@ -108,6 +109,8 @@ function insertFinding(opts: {
   findingType?: ExtractionFindingType;
   subject?: string;
   body?: string;
+  /** Task ID to create a resolvable task-lifecycle citation. Required for findings that should pass citation re-resolution. */
+  resolvableTaskId?: string;
 }): string {
   const db = getDb();
   const findingId = uuid();
@@ -142,21 +145,51 @@ function insertFinding(opts: {
     caveats: [],
   }).run();
 
-  if (opts.scopeRefs) {
+  // B1 fix: create a resolvable task-lifecycle citation so the finding
+  // passes citation re-resolution through the service path.
+  if (opts.resolvableTaskId) {
+    const eventId = uuid();
+    const sourceRowId = uuid();
+    db.insert(taskEvents).values({
+      id: eventId, taskId: opts.resolvableTaskId,
+      actorType: "human", actorId: "test-user",
+      action: "created", timestamp: now,
+    }).run();
+    db.insert(extractedFindingSources).values({
+      id: sourceRowId, findingId, sourceType: "task_lifecycle_audit",
+      sourceId: `task_event:${eventId}`, sourceVersion: "v1", role: "supporting",
+      sourceDigest: "digest", occurredAt: now,
+      entityRefs: [{ type: "task", id: opts.resolvableTaskId }],
+      completeness: "complete", visibilityClass: "habitat_member",
+    }).run();
+
+    // Also insert scope refs if provided.
+    if (opts.scopeRefs) {
+      for (const ref of opts.scopeRefs) {
+        db.insert(extractedFindingScopeRefs).values({
+          id: uuid(), findingId,
+          scopeType: ref.scopeType,
+          scopeId: ref.scopeId, derivedFromSourceId: sourceRowId,
+        }).run();
+      }
+    }
+  } else if (opts.scopeRefs) {
+    // No resolvable task ID — create unresolvable citations (source rows
+    // without matching task events). These will resolve as "dangling" and
+    // block the finding from agent reads through the service path.
     for (const ref of opts.scopeRefs) {
-      const refId = uuid();
-      const sourceId = uuid();
+      const sourceRowId = uuid();
       db.insert(extractedFindingSources).values({
-        id: sourceId, findingId, sourceType: "task_lifecycle_audit",
-        sourceId: `src-${uuid()}`, sourceVersion: "v1", role: "supporting",
+        id: sourceRowId, findingId, sourceType: "task_lifecycle_audit",
+        sourceId: `task_event:nonexistent-${uuid()}`, sourceVersion: "v1", role: "supporting",
         sourceDigest: "digest", occurredAt: now,
-        entityRefs: [{ type: "task", id: "task-1" }],
+        entityRefs: [{ type: "task", id: ref.scopeId }],
         completeness: "complete", visibilityClass: "habitat_member",
       }).run();
       db.insert(extractedFindingScopeRefs).values({
-        id: refId, findingId,
+        id: uuid(), findingId,
         scopeType: ref.scopeType,
-        scopeId: ref.scopeId, derivedFromSourceId: sourceId,
+        scopeId: ref.scopeId, derivedFromSourceId: sourceRowId,
       }).run();
     }
   }
@@ -187,8 +220,8 @@ async function buildApp(): Promise<FastifyInstance> {
         const taskId = query.taskId;
         if (!taskId) return { findings: [] };
 
-        const findings = listAcceptedFindingsForAgentWithClient(
-          getDb(), agentId, taskId, request.params.habitatId,
+        const findings = listAcceptedFindingsForAgent(
+          agentId, taskId, request.params.habitatId,
           {
             findingType: query.findingType as never | undefined,
             domain: query.domain,
@@ -211,8 +244,8 @@ async function buildApp(): Promise<FastifyInstance> {
         const taskId = query.taskId;
         if (!taskId) throw notFound("Finding not found");
 
-        const finding = getAcceptedFindingForAgentWithClient(
-          getDb(), agentId, taskId,
+        const finding = getAcceptedFindingForAgent(
+          agentId, taskId,
           request.params.habitatId, request.params.findingId,
         );
         if (!finding) throw notFound("Finding not found");
@@ -251,6 +284,7 @@ describe("Learning Loop agent MCP read surface — production dispatch integrati
       subject: "Use pnpm",
       body: "Always use pnpm not npm",
       scopeRefs: [{ scopeType: "task", scopeId: fix.taskId }],
+      resolvableTaskId: fix.taskId,
     });
 
     const res = await app.inject({
@@ -274,6 +308,7 @@ describe("Learning Loop agent MCP read surface — production dispatch integrati
     const fix = setupHabitat({ id: "hab-B", agentName: "Agent B", taskStatus: "in_progress" });
     insertFinding({
       habitatId: fix.habitatId,
+      resolvableTaskId: fix.taskId,
       scopeRefs: [{ scopeType: "mission", scopeId: fix.missionId }],
     });
 
@@ -293,6 +328,7 @@ describe("Learning Loop agent MCP read surface — production dispatch integrati
     });
     insertFinding({
       habitatId: fix.habitatId,
+      resolvableTaskId: fix.taskId,
       scopeRefs: [{ scopeType: "domain", scopeId: "backend" }],
     });
 
@@ -328,6 +364,7 @@ describe("Learning Loop agent MCP read surface — production dispatch integrati
     const fix = setupHabitat({ id: "hab-E", agentName: "Agent E", taskStatus: "claimed" });
     insertFinding({
       habitatId: fix.habitatId,
+      resolvableTaskId: fix.taskId,
       scopeRefs: [{ scopeType: "task", scopeId: "wrong-task" }],
     });
 
@@ -350,6 +387,7 @@ describe("Learning Loop agent MCP read surface — production dispatch integrati
     // Finding in habitat Y, scoped to Y's task.
     insertFinding({
       habitatId: fixB.habitatId,
+      resolvableTaskId: fixB.taskId,
       scopeRefs: [{ scopeType: "task", scopeId: fixB.taskId }],
     });
 
@@ -373,6 +411,7 @@ describe("Learning Loop agent MCP read surface — production dispatch integrati
     insertFinding({
       habitatId: fix.habitatId,
       scopeRefs: [{ scopeType: "task", scopeId: fix.taskId }],
+      resolvableTaskId: fix.taskId,
     });
 
     // Create a second agent and reassign the task to them.
@@ -397,6 +436,7 @@ describe("Learning Loop agent MCP read surface — production dispatch integrati
     insertFinding({
       habitatId: fix.habitatId,
       scopeRefs: [{ scopeType: "task", scopeId: fix.taskId }],
+      resolvableTaskId: fix.taskId,
     });
 
     // Terminalize the task.
@@ -421,6 +461,7 @@ describe("Learning Loop agent MCP read surface — production dispatch integrati
     // Finding exists but is scoped to a different task.
     const deniedFindingId = insertFinding({
       habitatId: fix.habitatId,
+      resolvableTaskId: fix.taskId,
       scopeRefs: [{ scopeType: "task", scopeId: "other-task" }],
     });
     // Non-existent finding.
@@ -451,6 +492,7 @@ describe("Learning Loop agent MCP read surface — production dispatch integrati
       subject: "Authorized finding",
       body: "Detail body",
       scopeRefs: [{ scopeType: "task", scopeId: fix.taskId }],
+      resolvableTaskId: fix.taskId,
     });
 
     const res = await app.inject({
@@ -477,6 +519,7 @@ describe("Learning Loop agent MCP read surface — production dispatch integrati
       insertFinding({
         habitatId: fix.habitatId,
         scopeRefs: [{ scopeType: "task", scopeId: fix.taskId }],
+      resolvableTaskId: fix.taskId,
         subject: `Finding ${i}`,
       });
     }
@@ -501,6 +544,7 @@ describe("Learning Loop agent MCP read surface — production dispatch integrati
       subject: longSubject,
       body: longBody,
       scopeRefs: [{ scopeType: "task", scopeId: fix.taskId }],
+      resolvableTaskId: fix.taskId,
     });
 
     const res = await app.inject({
@@ -526,12 +570,14 @@ describe("Learning Loop agent MCP read surface — production dispatch integrati
       habitatId: fix.habitatId,
       visibilityCeiling: "aggregate_only",
       scopeRefs: [{ scopeType: "task", scopeId: fix.taskId }],
+      resolvableTaskId: fix.taskId,
     });
     // Insert a normal habitat_member finding with task scope ref.
     const normalFindingId = insertFinding({
       habitatId: fix.habitatId,
       visibilityCeiling: "habitat_member",
       scopeRefs: [{ scopeType: "task", scopeId: fix.taskId }],
+      resolvableTaskId: fix.taskId,
     });
 
     const res = await app.inject({
@@ -552,6 +598,7 @@ describe("Learning Loop agent MCP read surface — production dispatch integrati
     insertFinding({
       habitatId: fix.habitatId,
       scopeRefs: [{ scopeType: "task", scopeId: fix.taskId }],
+      resolvableTaskId: fix.taskId,
     });
 
     const res = await app.inject({
@@ -583,5 +630,93 @@ describe("Learning Loop agent MCP read surface — production dispatch integrati
     });
 
     expect(res.statusCode).toBe(401);
+  });
+
+  // -------------------------------------------------------------------------
+  // I1: Direct agent get output is bounded (subject + body ≤ total budget)
+  // -------------------------------------------------------------------------
+
+  it("I1: get endpoint bounds subject+body to total budget (default 4000)", async () => {
+    const fix = setupHabitat({ id: "hab-I1", agentName: "Agent I1", taskStatus: "claimed" });
+    const longSubject = "S".repeat(3000);
+    const longBody = "B".repeat(3000);
+    const findingId = insertFinding({
+      habitatId: fix.habitatId,
+      subject: longSubject,
+      body: longBody,
+      scopeRefs: [{ scopeType: "task", scopeId: fix.taskId }],
+      resolvableTaskId: fix.taskId,
+    });
+
+    const res = await app.inject({
+      method: "GET",
+      url: `/habitats/${fix.habitatId}/extraction/agent/findings/${findingId}?taskId=${fix.taskId}`,
+      headers: { "x-agent-api-key": fix.apiKey },
+    });
+
+    expect(res.statusCode).toBe(200);
+    const body = JSON.parse(res.body);
+    const finding = body.finding;
+
+    // I1 fix: subject + body combined must be ≤ DEFAULT_TOTAL_CHAR_BUDGET (4000).
+    expect(finding.subject.length + finding.body.length).toBeLessThanOrEqual(4000);
+  });
+
+  it("I1: get endpoint default budget prevents unbounded output", async () => {
+    const fix = setupHabitat({ id: "hab-I1b", agentName: "Agent I1b", taskStatus: "claimed" });
+    const findingId = insertFinding({
+      habitatId: fix.habitatId,
+      subject: "S".repeat(5000),
+      body: "B".repeat(5000),
+      resolvableTaskId: fix.taskId,
+      scopeRefs: [{ scopeType: "task", scopeId: fix.taskId }],
+    });
+
+    const res = await app.inject({
+      method: "GET",
+      url: `/habitats/${fix.habitatId}/extraction/agent/findings/${findingId}?taskId=${fix.taskId}`,
+      headers: { "x-agent-api-key": fix.apiKey },
+    });
+
+    expect(res.statusCode).toBe(200);
+    const body = JSON.parse(res.body);
+    const finding = body.finding;
+
+    // I1 fix: subject + body bounded to HARD_TOTAL_CHAR_BUDGET (8000).
+    expect(finding.subject.length + finding.body.length).toBeLessThanOrEqual(8000);
+    // And specifically the default 4000 since no maxChars was requested.
+    expect(finding.subject.length + finding.body.length).toBeLessThanOrEqual(4000);
+  });
+
+  // -------------------------------------------------------------------------
+  // B1: Citation re-resolution through the real service path
+  // -------------------------------------------------------------------------
+
+  it("B1: degraded citation excludes finding from agent list (real service path)", async () => {
+    const fix = setupHabitat({ id: "hab-B1", agentName: "Agent B1", taskStatus: "claimed" });
+    const findingId = insertFinding({
+      habitatId: fix.habitatId,
+      scopeRefs: [{ scopeType: "task", scopeId: fix.taskId }],
+      resolvableTaskId: fix.taskId,
+    });
+
+    // Degrade the citation: change the sourceId to something that won't resolve.
+    const db = getDb();
+    db.update(extractedFindingSources)
+      .set({ sourceId: "degraded-nonexistent" })
+      .where(eq(extractedFindingSources.findingId, findingId))
+      .run();
+
+    // B1 fix: the service re-resolves citations. A degraded citation
+    // blocks the finding from agent reads.
+    const res = await app.inject({
+      method: "GET",
+      url: `/habitats/${fix.habitatId}/extraction/agent/findings?taskId=${fix.taskId}`,
+      headers: { "x-agent-api-key": fix.apiKey },
+    });
+
+    expect(res.statusCode).toBe(200);
+    const body = JSON.parse(res.body);
+    expect(body.findings).toHaveLength(0);
   });
 });

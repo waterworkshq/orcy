@@ -94,7 +94,9 @@ function readRawSignals(habitatId: string) {
  * carries all-time counts; we must reconstruct per-window counts from the
  * timestamped pulse occurrences to enforce the privacy floor correctly.
  *
- * Falls back to all-time counts when sourcePulseIds is empty/unavailable.
+ * B2: Signals with no valid sourcePulseIds are omitted from the result map.
+ * The projection then fails closed (drops them) rather than falling back to
+ * all-time counts — a missing window count means privacy floor cannot be verified.
  */
 function computeWindowScopedCounts(
   signals: readonly ReturnType<typeof readRawSignals>[number][],
@@ -121,14 +123,16 @@ function computeWindowScopedCounts(
           }
         }
       } catch {
-        // Malformed JSON — fall back to all-time counts for this signal.
+        // Malformed JSON — signal omitted from result map; projection fails closed.
       }
     }
     signalToPulseIds.set(signal.id, pulseIds);
   }
 
   if (allPulseIds.size === 0) {
-    // No pulse IDs available — return empty map; projection falls back to all-time.
+    // B2 fix: No pulse IDs — return empty map. The projection fails closed:
+    // signals with no window count are dropped (ineligible), NOT admitted on
+    // all-time counts.
     return result;
   }
 
@@ -158,7 +162,7 @@ function computeWindowScopedCounts(
   // Count per signal.
   for (const signal of signals) {
     const pulseIds = signalToPulseIds.get(signal.id) ?? [];
-    if (pulseIds.length === 0) continue; // Fall back to all-time.
+    if (pulseIds.length === 0) continue; // B2: omitted from map → fail closed in projection.
 
     let frequency = 0;
     const agentSet = new Set<string>();

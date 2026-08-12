@@ -378,7 +378,6 @@ describe("serialization boundary — no forbidden fields or values", () => {
       "coarseWindow",
       "signalCountBand",
       "agentCountBand",
-      "sanitizedSubject",
       "caveats",
       "digest",
       "policyVersion",

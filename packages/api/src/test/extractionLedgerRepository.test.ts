@@ -414,6 +414,88 @@ describe("Learning Loop ledger — repository behavior", () => {
       // Old row preserved
       expect(getFindingsByHabitatWithClient(db, "hab-A")).toHaveLength(2);
     });
+
+    // B3 production-path: prove the repository derives revision/lineage
+    // internally — no explicit revision/supersedesFindingId/lineageRootId
+    // passed (mirrors how runExtraction calls persistCandidateWithClient).
+    it("B3: two persists with same fingerprint, different evidence → linked revision 2 (no explicit lineage fields)", () => {
+      const db = getDb();
+      const workItem = setupWorkItem(db);
+      const attempt = setupAttempt(db, workItem.id);
+
+      const fingerprint = "fp-b3-prodpath";
+
+      // First persist: same fingerprint, evidence "ed-b3-1".
+      // Do NOT pass lineageRootId, revision, or supersedesFindingId —
+      // the repository must self-root as revision 1.
+      const r1 = asOutcome(
+        db.transaction((tx) =>
+          persistCandidateWithClient(tx, {
+            habitatId: "hab-A",
+            fingerprint,
+            evidenceDigest: "ed-b3-1",
+            extractorKey: "test_extractor",
+            extractorVersion: 1,
+            findingType: "lesson" as const,
+            subject: "B3 production path",
+            body: "Revision 1 body",
+            confidence: 0.85,
+            sampleSize: 10,
+            completeness: "complete" as const,
+            visibilityCeiling: "habitat_member" as const,
+            caveats: [],
+            citations: [makeCitation()],
+            scopeRefs: [],
+            attemptId: attempt.id, workItemId: workItem.id,
+            leaseOwner: "owner-1", leaseGeneration: 1, firstAttemptId: attempt.id,
+          }),
+        ),
+        "created",
+      );
+
+      // Revision 1 self-roots.
+      expect(r1.finding.revision).toBe(1);
+      expect(r1.finding.lineageRootId).toBe(r1.finding.id);
+      expect(r1.finding.supersedesFindingId).toBeNull();
+
+      // Second persist: same fingerprint, different evidence.
+      // Do NOT pass lineageRootId, revision, or supersedesFindingId —
+      // the repository must look up the prior revision and derive lineage.
+      const r2 = asOutcome(
+        db.transaction((tx) =>
+          persistCandidateWithClient(tx, {
+            habitatId: "hab-A",
+            fingerprint,
+            evidenceDigest: "ed-b3-2", // ← different evidence
+            extractorKey: "test_extractor",
+            extractorVersion: 1,
+            findingType: "lesson" as const,
+            subject: "B3 production path",
+            body: "Revision 1 body",
+            confidence: 0.85,
+            sampleSize: 10,
+            completeness: "complete" as const,
+            visibilityCeiling: "habitat_member" as const,
+            caveats: [],
+            citations: [makeCitation()],
+            scopeRefs: [],
+            attemptId: attempt.id, workItemId: workItem.id,
+            leaseOwner: "owner-1", leaseGeneration: 1, firstAttemptId: attempt.id,
+          }),
+        ),
+        "created",
+      );
+
+      // B3: revision 2 with correct lineage derived internally.
+      expect(r2.finding.id).not.toBe(r1.finding.id);
+      expect(r2.finding.revision).toBe(2);
+      expect(r2.finding.supersedesFindingId).toBe(r1.finding.id);
+      expect(r2.finding.lineageRootId).toBe(r1.finding.id); // Same root as revision 1
+
+      // Revision 1 preserved.
+      const findings = getFindingsByHabitatWithClient(db, "hab-A");
+      expect(findings).toHaveLength(2);
+    });
   });
 
   // -------------------------------------------------------------------------

@@ -116,7 +116,9 @@ export function defaultFloor(): ExperiencePrivacyFloor {
  * never **lower** either threshold or the window minimum. Throws on violation.
  */
 export function validateFloorOverride(
-  override?: Partial<Pick<ExperiencePrivacyFloor, "minSignals" | "minDistinctAgents" | "minWindowMs">>,
+  override?: Partial<
+    Pick<ExperiencePrivacyFloor, "minSignals" | "minDistinctAgents" | "minWindowMs">
+  >,
 ): ExperiencePrivacyFloor {
   const floor = defaultFloor();
   if (!override) return floor;
@@ -413,8 +415,14 @@ export function projectExperienceSignals(
   const results: SuppressedExperienceAggregate[] = [];
 
   for (const signal of experienceSignals) {
-    // Floor check: use window-scoped counts when available, all-time fallback otherwise.
+    // B2 fix — Fail CLOSED on unknown window membership.
+    // When windowCounts is provided (production path), a signal with no
+    // window-scoped count (malformed/empty/absent sourcePulseIds) is
+    // INELIGIBLE: its privacy floor cannot be verified for the current
+    // window, so admitting it on all-time counts is a fail-open privacy hole.
+    // The undefined-windowCounts fallback remains for legacy test compatibility.
     const wsc = windowCounts?.get(signal.id);
+    if (windowCounts !== undefined && !wsc) continue;
     const effectiveFreq = wsc?.frequency ?? signal.frequency;
     const effectiveAgents = wsc?.distinctAgents ?? signal.corroboratingAgents;
 
@@ -425,8 +433,10 @@ export function projectExperienceSignals(
     // Denylist scan on subject and summary.
     const caveats: string[] = [];
     const rawSubject = signal.subject;
-    const { sanitized: denylistedSubject, hadMatch: subjectDenyMatch } =
-      scanAgainstDenylist(rawSubject, denylist);
+    const { sanitized: denylistedSubject, hadMatch: subjectDenyMatch } = scanAgainstDenylist(
+      rawSubject,
+      denylist,
+    );
 
     // Identifier-pattern check (embedded UUIDs, task IDs, etc.).
     const hasIdPattern = containsIdentifierPatterns(denylistedSubject);

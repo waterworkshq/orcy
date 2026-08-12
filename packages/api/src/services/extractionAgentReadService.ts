@@ -108,6 +108,11 @@ function hasBlockingCitations(
     try {
       const adapter = getAdapter(sourceType as never);
       const resolved = adapter.resolveByRefs(refs, viewer);
+      // B1 fix: an adapter that silently omits a requested ref is a degradation.
+      // If fewer refs are resolved than requested, treat as blocking (fail closed).
+      if (resolved.length < refs.length) {
+        return true;
+      }
       for (const r of resolved) {
         if (BLOCKING_STATES.has(r.state)) {
           return true;
@@ -188,5 +193,8 @@ export function getAcceptedFindingForAgent(
     return null;
   }
 
-  return finding;
+  // I1 fix: apply the same server-owned total character budget as list.
+  const budget = resolveTotalCharBudget();
+  const truncated = applyTotalCharBudget(finding.subject, finding.body, budget);
+  return { ...finding, subject: truncated.subject, body: truncated.body };
 }

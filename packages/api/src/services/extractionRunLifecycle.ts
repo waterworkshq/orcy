@@ -523,29 +523,55 @@ export function runExtraction(input: RunExtractionInput): ExtractionRunDispositi
   // Step 2 — capture each configured adapter's upper-bound token (before reservation).
   // -------------------------------------------------------------------------
 
-  const window = computeWindow(policy, nowIso);
   const selectedSourceTypes = new Set(policy.sourceTypes);
   const adapters = selectAdapters(selectedSourceTypes);
 
-  // I3 fix: Store tokens in a Map keyed by sourceType so capture failures
-  // don't shift tokens onto the wrong adapter's position.
+  // B7(a) fix: When resuming an existing work item (boot recovery), reuse its
+  // captured window and boundary tokens — do NOT recompute or recapture.
+  // Logical-work identity must be replay-safe: the same window, tokens, and
+  // policy snapshot as the original run. Recomputing would collect different
+  // data under the old logical-work identity.
+  let window: { windowFrom: string; windowTo: string };
   const boundaryTokenMap = new Map<string, SourceBoundaryToken | null>();
-  for (const adapter of adapters) {
-    try {
-      const token = adapter.captureBoundary({
-        habitatId,
-        windowFrom: window.windowFrom,
-        windowTo: window.windowTo,
-      });
-      boundaryTokenMap.set(adapter.type, token);
-    } catch (err) {
-      // Boundary capture failure → store null so this source is NOT missing
-      // from the map (which would shift subsequent adapters' tokens).
-      boundaryTokenMap.set(adapter.type, null);
-      logger.warn(
-        { err, sourceType: adapter.type, habitatId },
-        "Extraction boundary capture failed",
-      );
+
+  if (input.isBootRecovery && input.existingWorkItem) {
+    const stored = input.existingWorkItem;
+    window = { windowFrom: stored.windowFrom, windowTo: stored.windowTo };
+
+    // Reconstruct boundary tokens from the stored serialized map.
+    const storedTokens = stored.sourceBoundaryTokens as Record<string, unknown> | null;
+    if (storedTokens && typeof storedTokens === "object") {
+      for (const [sourceType, hwm] of Object.entries(storedTokens)) {
+        if (typeof hwm === "string") {
+          boundaryTokenMap.set(sourceType, {
+            sourceType: sourceType as ExtractionSourceType,
+            highWaterMark: hwm,
+            capturedAt: stored.createdAt,
+          });
+        }
+      }
+    }
+  } else {
+    window = computeWindow(policy, nowIso);
+    // I3 fix: Store tokens in a Map keyed by sourceType so capture failures
+    // don't shift tokens onto the wrong adapter's position.
+    for (const adapter of adapters) {
+      try {
+        const token = adapter.captureBoundary({
+          habitatId,
+          windowFrom: window.windowFrom,
+          windowTo: window.windowTo,
+        });
+        boundaryTokenMap.set(adapter.type, token);
+      } catch (err) {
+        // Boundary capture failure → store null so this source is NOT missing
+        // from the map (which would shift subsequent adapters' tokens).
+        boundaryTokenMap.set(adapter.type, null);
+        logger.warn(
+          { err, sourceType: adapter.type, habitatId },
+          "Extraction boundary capture failed",
+        );
+      }
     }
   }
 
@@ -562,54 +588,111 @@ export function runExtraction(input: RunExtractionInput): ExtractionRunDispositi
   // -------------------------------------------------------------------------
 
   // B9 fix: Derive rerunGeneration monotonically from MAX(rerun_generation)+1
-  // for this policy, NOT Date.now() (millisecond collision; not monotonic).
-  // Also resolve supersedesWorkId to link the prior work item.
+  // for this policy. For fresh reruns, wrap generation allocation + reservation
+  // in a single transaction so two concurrent reruns cannot read the same MAX
+  // and collide on the same logical_work_key. better-sqlite3 transactions are
+  // exclusive-locked, serializing concurrent callers.
   let rerunGeneration = 0;
   let supersedesWorkId = input.supersedesWorkId ?? null;
 
-  if (input.isFreshRerun) {
-    const maxGenRow = db
-      .select({ maxGen: sql<number>`COALESCE(MAX(${extractionWorkItems.rerunGeneration}), 0)` })
-      .from(extractionWorkItems)
-      .where(eq(extractionWorkItems.policyId, policy.id))
-      .all()[0];
-    rerunGeneration = (maxGenRow?.maxGen ?? 0) + 1;
-
-    // Link to the latest work item for this policy (prior-work ancestry).
-    if (!supersedesWorkId) {
-      const latestWork = db
-        .select()
-        .from(extractionWorkItems)
-        .where(eq(extractionWorkItems.policyId, policy.id))
-        .orderBy(sql`${extractionWorkItems.rerunGeneration} DESC`)
-        .all()[0];
-      if (latestWork) {
-        supersedesWorkId = latestWork.id;
-      }
-    }
-  }
-
   const extractorVersion = BUILTIN_EXTRACTOR_VERSION;
   const policyVersion = policy.version;
-
-  const logicalWorkKey = computeLogicalWorkKey({
-    habitatId,
-    extractorKey: policy.extractorKey,
-    extractorVersion,
-    policyVersion,
-    windowFrom: window.windowFrom,
-    windowTo: window.windowTo,
+  const policySnapshotData = {
+    schedule: policy.schedule,
+    windowSeconds: policy.windowSeconds,
+    lookbackSeconds: policy.lookbackSeconds,
     sourceTypes: policy.sourceTypes,
-    sourceBoundaryTokens: serializedTokens,
-    rerunGeneration,
-  });
+    minConfidence: policy.minConfidence,
+    minSampleSize: policy.minSampleSize,
+  };
 
   let workItem: ExtractionWorkItemRow;
 
   if (input.isBootRecovery && input.existingWorkItem) {
     // Boot recovery uses the existing work item.
     workItem = input.existingWorkItem;
+  } else if (input.isFreshRerun) {
+    // B9 fix: atomic generation allocation + reservation in one transaction.
+    const allocResult = db.transaction((tx) => {
+      const maxGenRow = tx
+        .select({ maxGen: sql<number>`COALESCE(MAX(${extractionWorkItems.rerunGeneration}), 0)` })
+        .from(extractionWorkItems)
+        .where(eq(extractionWorkItems.policyId, policy.id))
+        .all()[0];
+      const gen = (maxGenRow?.maxGen ?? 0) + 1;
+
+      let supersedes = input.supersedesWorkId ?? null;
+      if (!supersedes) {
+        const latestWork = tx
+          .select()
+          .from(extractionWorkItems)
+          .where(eq(extractionWorkItems.policyId, policy.id))
+          .orderBy(sql`${extractionWorkItems.rerunGeneration} DESC`)
+          .all()[0];
+        if (latestWork) {
+          supersedes = latestWork.id;
+        }
+      }
+
+      const key = computeLogicalWorkKey({
+        habitatId,
+        extractorKey: policy.extractorKey,
+        extractorVersion,
+        policyVersion,
+        windowFrom: window.windowFrom,
+        windowTo: window.windowTo,
+        sourceTypes: policy.sourceTypes,
+        sourceBoundaryTokens: serializedTokens,
+        rerunGeneration: gen,
+      });
+
+      const reservation = reserveWorkItemWithClient(tx, {
+        habitatId,
+        policyId: policy.id,
+        extractorKey: policy.extractorKey,
+        extractorVersion,
+        policyVersion,
+        windowFrom: window.windowFrom,
+        windowTo: window.windowTo,
+        sourceBoundaryTokens: serializedTokens,
+        logicalWorkKey: key,
+        deliveryMode: input.deliveryMode,
+        rerunGeneration: gen,
+        supersedesWorkId: supersedes,
+        freshReason: input.freshReason ?? null,
+        policySnapshot: policySnapshotData,
+      });
+
+      return { reservation, rerunGeneration: gen, supersedesWorkId: supersedes };
+    });
+
+    rerunGeneration = allocResult.rerunGeneration;
+    supersedesWorkId = allocResult.supersedesWorkId;
+
+    if (allocResult.reservation.outcome === "already_exists") {
+      const latestAttempt = getLatestAttemptForWorkItem(db, allocResult.reservation.workItem.id);
+      return {
+        kind: "deduplicated",
+        workItem: allocResult.reservation.workItem,
+        attempt: latestAttempt,
+      };
+    }
+
+    workItem = allocResult.reservation.workItem;
   } else {
+    // Normal (non-fresh-rerun, non-boot-recovery) path.
+    const logicalWorkKey = computeLogicalWorkKey({
+      habitatId,
+      extractorKey: policy.extractorKey,
+      extractorVersion,
+      policyVersion,
+      windowFrom: window.windowFrom,
+      windowTo: window.windowTo,
+      sourceTypes: policy.sourceTypes,
+      sourceBoundaryTokens: serializedTokens,
+      rerunGeneration,
+    });
+
     const reservation = reserveWorkItemWithClient(db, {
       habitatId,
       policyId: policy.id,
@@ -623,15 +706,8 @@ export function runExtraction(input: RunExtractionInput): ExtractionRunDispositi
       deliveryMode: input.deliveryMode,
       rerunGeneration,
       supersedesWorkId,
-      freshReason: input.isFreshRerun ? input.freshReason ?? null : null,
-      policySnapshot: {
-        schedule: policy.schedule,
-        windowSeconds: policy.windowSeconds,
-        lookbackSeconds: policy.lookbackSeconds,
-        sourceTypes: policy.sourceTypes,
-        minConfidence: policy.minConfidence,
-        minSampleSize: policy.minSampleSize,
-      },
+      freshReason: null,
+      policySnapshot: policySnapshotData,
     });
 
     if (reservation.outcome === "already_exists") {
@@ -749,7 +825,10 @@ export function runExtraction(input: RunExtractionInput): ExtractionRunDispositi
   // -------------------------------------------------------------------------
 
   let candidates: ExtractionCandidate[];
-  let extractorDiagnostics: Array<{ detectorIndex: number; error: string }> = [];
+  // B8(b)/I2 fix: Track extractor partiality separately — detector failures
+  // must NOT be fabricated as a fake experience_aggregate source snapshot.
+  // They contribute to the composite outcome as partial, not via watermark.
+  let extractorPartial = false;
   try {
     const extractorResult = runBuiltinExtractor({
       observations: allObservations,
@@ -757,16 +836,14 @@ export function runExtraction(input: RunExtractionInput): ExtractionRunDispositi
       habitatId,
     });
     candidates = extractorResult.candidates;
-    extractorDiagnostics = extractorResult.diagnostics;
-    // I2 fix: detector failures mark source snapshots as partial.
     if (extractorResult.completeness === "partial") {
-      sourceSnapshots.push({
-        sourceType: "experience_aggregate" as ExtractionSourceType, // diagnostic marker
-        completeness: "partial",
-        observationCount: 0,
-        warnings: extractorDiagnostics.map((d) => `detector_${d.detectorIndex}_failed`),
-        watermarkAdvanced: true, // Detector failure doesn't affect source watermark.
-      });
+      extractorPartial = true;
+      if (extractorResult.diagnostics.length > 0) {
+        logger.warn(
+          { diagnostics: extractorResult.diagnostics, habitatId },
+          "Extraction detector failures recorded",
+        );
+      }
     }
   } catch (err) {
     // Extractor throw → no findings persisted; terminalize failed.
@@ -802,7 +879,7 @@ export function runExtraction(input: RunExtractionInput): ExtractionRunDispositi
 
   // dry_run: persist NO findings, but terminalize the attempt with diagnostics.
   if (input.dryRun) {
-    const outcome = sourceSnapshots.some((s) => s.completeness === "partial")
+    const outcome = extractorPartial || sourceSnapshots.some((s) => s.completeness === "partial")
       ? "partial"
       : "succeeded";
 
@@ -905,13 +982,13 @@ export function runExtraction(input: RunExtractionInput): ExtractionRunDispositi
   }
 
   // Determine composite outcome. Partial if any source failed (watermark
-  // not advanced). Otherwise succeeded — even with zero findings (an honest
+  // not advanced) OR the extractor reported partial completeness (detector
+  // failures). Otherwise succeeded — even with zero findings (an honest
   // empty result, not an error).
-  const finalOutcome: "succeeded" | "partial" = sourceSnapshots.some(
-    (s) => !s.watermarkAdvanced,
-  )
-    ? "partial"
-    : "succeeded";
+  const finalOutcome: "succeeded" | "partial" =
+    extractorPartial || sourceSnapshots.some((s) => !s.watermarkAdvanced)
+      ? "partial"
+      : "succeeded";
 
   return terminalizeWithDiagnostics(
     db,

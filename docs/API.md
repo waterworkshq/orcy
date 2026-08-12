@@ -6558,7 +6558,7 @@ The two-layer kill switch (global `ORCY_RELEASE_AUTO_PROMOTE` env var AND habita
 
 ## Learning Loop Extraction
 
-> **Implementation complete; release pending.** Dormant by default — both `ORCY_LEARNING_LOOP_ENABLED` (global) and the per-policy `enabled` flag must be true. See [ADR-0044](../adr/0044-learning-loop-ledger-citations-and-lineage.md) and [ADR-0045](../adr/0045-learning-loop-authorization-and-privacy-propagation.md).
+> **Remediation in progress; pending re-review.** Dormant by default — both `ORCY_LEARNING_LOOP_ENABLED` (global) and the per-policy `enabled` flag must be true. See [ADR-0044](../adr/0044-learning-loop-ledger-citations-and-lineage.md) and [ADR-0045](../adr/0045-learning-loop-authorization-and-privacy-propagation.md).
 
 **Auth model:** Policy CRUD, review queue/list/detail, decisions, citation refresh, promotion eligibility, promotion, and manual execution controls are **human-only** (`humanAuth + requireHabitatAccess`). Agent accepted-finding reads (`list_accepted`, `get`) are `agentOrHumanAuth + requireHabitatAccess` but require a current `taskId` — the repository predicate is the sole authorization boundary.
 

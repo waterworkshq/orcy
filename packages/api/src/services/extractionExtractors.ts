@@ -342,7 +342,8 @@ const DETECTORS: readonly PatternDetector[] = [
 ];
 
 /**
-/** Diagnostic entry for a detector that threw during extraction. */
+ * Diagnostic entry for a detector that threw during extraction.
+ */
 export interface DetectorDiagnostic {
   detectorIndex: number;
   error: string;

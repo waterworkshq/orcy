@@ -9,7 +9,7 @@
  * Every `*WithClient` primitive accepts the caller-supplied client and never
  * calls `getDb()`, opens a nested transaction, or emits hooks/SSE/audit.
  */
-import { eq, and } from "drizzle-orm";
+import { eq, and, sql } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 import {
   extractedFindingPromotions,
@@ -326,7 +326,74 @@ export function reArmPromotionWithClient(
 }
 
 // ---------------------------------------------------------------------------
-// Source-exclusion probe (feedback-loop prevention — §19)
+// Re-arm a pending promotion's lease (crash recovery — B5)
+// ---------------------------------------------------------------------------
+
+/**
+ * Result of re-arming a pending promotion's lease (B5 crash recovery).
+ */
+export type ReArmPendingPromotionResult =
+  | { outcome: "re_armed"; promotion: ExtractedFindingPromotionRow }
+  | { outcome: "not_found" }
+  | { outcome: "illegal_source_state"; promotion: ExtractedFindingPromotionRow; fromState: string }
+  | { outcome: "fence_mismatch"; promotion: ExtractedFindingPromotionRow };
+
+/**
+ * Re-arm a `pending` promotion's lease when the caller's lease doesn't match
+ * the stored one (B5 fix). This handles the crash window: a prior attempt
+ * crashed after `createPage` but before `recordTarget`, leaving a `pending`
+ * row with null `target_id`. A retry must update the lease to reach the
+ * tag-recovery path and find the already-created page.
+ *
+ * CAS predicate: `id = promotionId AND status = 'pending' AND target_id IS NULL`.
+ * This is safe because:
+ * - A succeeded/failed promotion fails the CAS (no mutation).
+ * - A pending promotion with a target_id (already recorded) fails — the caller
+ *   should use the existing target via the succeeded/already_promoted path.
+ *
+ * Only one concurrent retry can win the CAS; the loser sees `fence_mismatch`.
+ */
+export function reArmPendingPromotionLeaseWithClient(
+  db: ExtractionDbClient,
+  input: ReArmPromotionInput,
+): ReArmPendingPromotionResult {
+  const now = new Date().toISOString();
+  try {
+    db.update(extractedFindingPromotions)
+      .set({
+        leaseOwner: input.leaseOwner,
+        leaseGeneration: input.leaseGeneration,
+        updatedAt: now,
+      })
+      .where(
+        and(
+          eq(extractedFindingPromotions.id, input.promotionId),
+          eq(extractedFindingPromotions.status, "pending"),
+          sql`${extractedFindingPromotions.targetId} IS NULL`,
+        ),
+      )
+      .run();
+  } catch (err) {
+    throw repositoryUpdateError("extractedFindingPromotion", err as Error, input.promotionId);
+  }
+
+  const affected = getChanges(db);
+  const row = db
+    .select()
+    .from(extractedFindingPromotions)
+    .where(eq(extractedFindingPromotions.id, input.promotionId))
+    .all()[0];
+  if (!row) return { outcome: "not_found" };
+
+  if (affected === 1) return { outcome: "re_armed", promotion: mapPromotionRow(row) };
+
+  const fromState = row.status;
+  if (fromState !== "pending") {
+    return { outcome: "illegal_source_state", promotion: mapPromotionRow(row), fromState };
+  }
+  // Status is pending but CAS failed: target_id was already set.
+  return { outcome: "fence_mismatch", promotion: mapPromotionRow(row) };
+}
 // ---------------------------------------------------------------------------
 
 /**

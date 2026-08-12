@@ -76,6 +76,7 @@ export {
   terminalizePromotionWithClient,
   recordPromotionTargetWithClient,
   reArmPromotionWithClient,
+  reArmPendingPromotionLeaseWithClient,
   getPromotionsByFindingWithClient,
   isWikiPageExcludedFromSources,
   type ReservePromotionInput,
@@ -84,6 +85,7 @@ export {
   type RecordPromotionTargetResult,
   type ReArmPromotionInput,
   type ReArmPromotionResult,
+  type ReArmPendingPromotionResult,
 } from "./promotions.js";
 
 export {

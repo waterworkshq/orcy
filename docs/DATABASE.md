@@ -2199,7 +2199,7 @@ Per-habitat release activation settings added via migration `0049_release_settin
 
 ---
 
-### Learning Loop Ledger (implementation complete; release pending)
+### Learning Loop Ledger (remediation in progress; pending re-review)
 
 The Learning Loop v1 adds 8 ledger tables that own the complete extraction lifecycle: habitat-scoped policies, replay-safe logical work items, lease-fenced physical attempts, immutable cited findings with mutable CAS decision envelopes, polymorphic citations, server-derived scope refs, append-only human reviews, and at-most-once promotion records. All tables ship empty — the feature is dormant until wired. See [ADR-0044](adr/0044-learning-loop-ledger-citations-and-lineage.md) and [ADR-0045](adr/0045-learning-loop-authorization-and-privacy-propagation.md).
 
@@ -2276,7 +2276,7 @@ One physical attempt to complete a work item. Lease-fenced: only the attempt hol
 | `lease_owner` | TEXT | NOT NULL | Current lease holder identifier |
 | `lease_generation` | INTEGER | NOT NULL | Fencing token for lease validity |
 | `lease_expires_at` | TEXT | NOT NULL | Lease expiry timestamp |
-| `source_snapshot` | TEXT | NOT NULL DEFAULT '[]' | JSON array of resolved source records |
+| `source_snapshot` | TEXT | NOT NULL DEFAULT '[]' | JSON array of per-source diagnostics (sourceType, completeness, observationCount, warnings, watermarkAdvanced) |
 | `status` | TEXT | NOT NULL DEFAULT 'running' | `running`, `succeeded`, `partial`, `failed`, `skipped` |
 | `candidate_count` / `persisted_count` / `deduplicated_count` | INTEGER | NOT NULL DEFAULT 0 | Finding pipeline tallies |
 | `error` | TEXT | | Error message on failure |

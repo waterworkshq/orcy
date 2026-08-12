@@ -25,6 +25,7 @@ import {
   terminalizePromotionWithClient,
   recordPromotionTargetWithClient,
   reArmPromotionWithClient,
+  reArmPendingPromotionLeaseWithClient,
   getFindingByIdWithClient,
   isWikiPageExcludedFromSources,
   getPoliciesByHabitatWithClient,
@@ -199,9 +200,29 @@ export function promoteToWikiDraft(
     } else if (promotion.status === "pending") {
       // Pending — check if we hold the lease (resume after crash).
       if (promotion.leaseOwner !== leaseOwner || promotion.leaseGeneration !== leaseGeneration) {
-        throw conflict("Promotion is already in progress", {
-          promotionId: promotion.id,
-        });
+        // B5 fix: A pending promotion with null target_id may be a crash
+        // window (createPage succeeded, recordTarget didn't). Re-arm the lease
+        // so we can reach the tag-recovery path and find the already-created
+        // page instead of creating a duplicate. The tag is the idempotency
+        // authority for the created page, not the lease.
+        if (!promotion.targetId) {
+          const reArmed = reArmPendingPromotionLeaseWithClient(db, {
+            promotionId: promotion.id,
+            leaseOwner,
+            leaseGeneration,
+          });
+          if (reArmed.outcome !== "re_armed") {
+            throw conflict("Promotion is already in progress", {
+              promotionId: promotion.id,
+              state: reArmed.outcome,
+            });
+          }
+          promotion = reArmed.promotion;
+        } else {
+          throw conflict("Promotion is already in progress", {
+            promotionId: promotion.id,
+          });
+        }
       }
     }
   }

@@ -83,8 +83,9 @@ function findStaleRunningAttempts(
 }
 
 /**
- * Mark a stale attempt as failed (guarded by status = 'running').
- * Uses `SELECT changes()` for portable affected-row classification.
+ * Mark a stale attempt as failed. B7(b) fix: CAS-guarded on status = 'running'
+ * so a concurrently terminalized attempt (succeeded/partial/failed) is NOT
+ * overwritten. Uses `SELECT changes()` for portable affected-row classification.
  */
 function markAttemptFailed(
   db: ExtractionDbClient,
@@ -99,7 +100,12 @@ function markAttemptFailed(
       completedAt: now,
       updatedAt: now,
     })
-    .where(eq(extractionAttempts.id, attemptId))
+    .where(
+      and(
+        eq(extractionAttempts.id, attemptId),
+        eq(extractionAttempts.status, "running"),
+      ),
+    )
     .run();
   return getChanges(db) === 1;
 }
