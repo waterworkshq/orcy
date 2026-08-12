@@ -2199,7 +2199,7 @@ Per-habitat release activation settings added via migration `0049_release_settin
 
 ---
 
-### Learning Loop Ledger (remediation in progress; pending re-review)
+### Learning Loop Ledger (implementation complete; release pending)
 
 The Learning Loop v1 adds 8 ledger tables that own the complete extraction lifecycle: habitat-scoped policies, replay-safe logical work items, lease-fenced physical attempts, immutable cited findings with mutable CAS decision envelopes, polymorphic citations, server-derived scope refs, append-only human reviews, and at-most-once promotion records. All tables ship empty — the feature is dormant until wired. See [ADR-0044](adr/0044-learning-loop-ledger-citations-and-lineage.md) and [ADR-0045](adr/0045-learning-loop-authorization-and-privacy-propagation.md).
 
