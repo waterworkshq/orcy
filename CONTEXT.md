@@ -158,8 +158,40 @@ A status that summarizes whether Orcy's provenance for a task or mission appears
 _Avoid_: Treating missing evidence as zero code work
 
 **Learning Loop**:
-A future Orcy capability where trusted history and outcomes are extracted into reusable knowledge, recommendations, rules, or agent context while preserving source citations, permissions, and uncertainty.
-_Avoid_: Treating raw audit history as automatic wisdom
+A bounded, human-governed proposal loop that converts an allowlist of trustworthy Orcy history into immutable, cited findings that agents may read through a task-bound query. Sources are a closed allowlist: task/mission lifecycle audit events, terminal automation/plugin run audit events, terminal triage resolutions, and privacy-projected experience aggregates. The loop is dormant by default and requires explicit per-Habitat enrollment. It does not auto-publish, auto-promote, or train models.
+_Avoid_: Treating raw audit history as automatic wisdom; treating the Learning Loop as unsupervised machine learning
+
+**Extraction Run**:
+One execution of the Learning Loop for a given policy, window, and set of source boundary tokens. Runs are replay-safe: a scheduled delivery and a manual `ensure` for the same window converge on one logical work item. An explicit human-only `fresh_rerun` creates a new logical key linked to the prior work. Delivery modes include scheduled, manual (`ensure`), `fresh_rerun`, and `dry_run`.
+_Avoid_: Batch job, ETL pipeline (when describing the bounded proposal loop, not a data-processing pipeline)
+
+**Extracted Finding**:
+An immutable content/evidence revision proposed by the Learning Loop from cited source observations. Each finding carries a finding type, subject, body, confidence, sample size, completeness assessment, and a visibility ceiling inherited from its sources. Findings are never mutated in place — corrections produce a new revision linked through lineage. The decision envelope (status, decision version) is mutable only through CAS-protected human review.
+_Avoid_: Wiki page (when describing the ledger finding, not the authored destination); insight (when describing the evidence-backed proposal, not a subjective impression)
+
+**Finding Revision**:
+An immutable version of an Extracted Finding's content and evidence. Same fingerprint plus evidence digest increments recurrence only (last-seen, occurrence count). Changed evidence or content creates a new revision linked through `(lineage_root_id, revision)` and `supersedes_finding_id`. There is no in-place content mutation primitive — corrections always produce a new revision, and the old revision remains queryable for audit.
+_Avoid_: Edit, update (when describing the immutable revision contract)
+
+**Citation**:
+A polymorphic reference from an Extracted Finding to a source observation, storing `(source_type, source_id, source_version)` as a stable catalog-owned reference. Citations are resolved at read time and may return `available`, `dangling`, `unauthorized`, or `changed`. Dangling or changed citations make the finding stale for new promotion but do not delete a previously reviewed finding or already-authored wiki page.
+_Avoid_: Wiki Page Link (which is a reader-facing citation from an authored page); Evidence Link (which records code-artifact provenance)
+
+**Server-Derived Scope Ref**:
+A transactionally derived authorization scope (`task`, `mission`, or `domain`) that determines which agent Task contexts may read an accepted finding. Scope refs are derived from successfully resolved cited-source entity refs — never from extractor payloads, free text, labels, or subject text. A Task ref also derives its owning Mission ref. Findings with no scope refs are human-only.
+_Avoid_: Tag, label, filter (when describing the server-derived authorization scope, not a user-applied categorization)
+
+**Promotion**:
+The at-most-once act of promoting an accepted finding to a destination. In v1, the only destination is a Habitat Wiki **draft** (never auto-published). The successful promotion row — keyed to `(finding_id, destination_type, destination_key)` — is the permanent derivation record. It survives wiki link removal, page edits, and publication, permanently excluding the promotion target from future source batches.
+_Avoid_: Publication (promotion creates a draft; it does not publish); auto-promotion (v1 promotion is always human-initiated)
+
+**Visibility Ceiling**:
+The most restrictive visibility class among an accepted finding's cited observations and the extractor policy. The ceiling is captured visibility, not a permanent grant; current authorization is rechecked on every read and promotion attempt. Three classes: `habitat_member` (local humans + agents through active-Task predicate), `human_reviewer` (humans only), `aggregate_only` (aggregate display only, no drill-down to contributing records).
+_Avoid_: Permission, access level (when describing the inherited visibility bound, not a granted right)
+
+**Aggregate-Only**:
+A visibility class and source-projection policy where only the aggregate observation may be displayed — no drill-down to contributing records. Experience aggregates are k-anonymous (≥5 signals / ≥3 agents / ≥7-day coarse windows) with all isolating fields suppressed before extractor input. Aggregate-only findings show bands and caveats only.
+_Avoid_: Anonymous, redacted (when describing the k-anonymous aggregation policy, not a post-hoc filter)
 
 **Automation Rule**:
 A habitat-scoped rule that reacts to a server-side trigger, checks conditions, and requests bounded actions such as notification, signal creation, task creation under an existing mission, priority change, assignment, review request, risk marking, or webhook call.
