@@ -16,8 +16,13 @@
  * 7. Schema exposes no mutating action (verified in MCP dispatch test).
  * 8. This test IS the production dispatch integration proof.
  */
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import Fastify, { type FastifyInstance } from "fastify";
+import {
+  serializerCompiler,
+  validatorCompiler,
+  type ZodTypeProvider,
+} from "fastify-type-provider-zod";
 import { v4 as uuid } from "uuid";
 import { eq } from "drizzle-orm";
 import { createHash } from "crypto";
@@ -30,17 +35,12 @@ import type {
 } from "@orcy/shared";
 import { initTestDb, closeDb, getDb } from "../db/index.js";
 import { registerErrorHandler } from "../errors/plugin.js";
-import { agentOrHumanAuth } from "../middleware/auth.js";
-import { authorizeHabitatAccess as requireHabitatAccess } from "../middleware/realtimeAuth.js";
-import { notFound } from "../errors.js";
+import { extractionRoutes } from "../routes/extraction.js";
+import { getAdapter } from "../services/extractionSourceCatalog/index.js";
 
 function hashApiKey(key: string): string {
   return createHash("sha256").update(key).digest("hex");
 }
-import {
-  listAcceptedFindingsForAgent,
-  getAcceptedFindingForAgent,
-} from "../services/extractionAgentReadService.js";
 import {
   habitats,
   columns,
@@ -109,6 +109,8 @@ function insertFinding(opts: {
   findingType?: ExtractionFindingType;
   subject?: string;
   body?: string;
+  structuredPayload?: unknown;
+  caveats?: string[];
   /** Task ID to create a resolvable task-lifecycle citation. Required for findings that should pass citation re-resolution. */
   resolvableTaskId?: string;
 }): string {
@@ -130,7 +132,7 @@ function insertFinding(opts: {
     findingType: opts.findingType ?? "lesson",
     subject: opts.subject ?? "Test finding",
     body: opts.body ?? "Test body",
-    structuredPayload: null,
+    structuredPayload: opts.structuredPayload ?? null,
     confidence: 0.85,
     sampleSize: 10,
     completeness: opts.completeness ?? "complete",
@@ -142,7 +144,7 @@ function insertFinding(opts: {
     firstSeenAt: now,
     lastSeenAt: now,
     occurrenceCount: 1,
-    caveats: [],
+    caveats: opts.caveats ?? [],
   }).run();
 
   // B1 fix: create a resolvable task-lifecycle citation so the finding
@@ -202,58 +204,16 @@ function updateTask(taskId: string, updates: Record<string, unknown>): void {
 }
 
 // ---------------------------------------------------------------------------
-// Fastify app builder — registers the agent accepted-finding routes inline
+// Fastify app builder — registers the real production extraction route plugin
 // ---------------------------------------------------------------------------
 
 async function buildApp(): Promise<FastifyInstance> {
-  const app = Fastify({ logger: false });
+  const app = Fastify({ logger: false }).withTypeProvider<ZodTypeProvider>();
+  app.setValidatorCompiler(validatorCompiler);
+  app.setSerializerCompiler(serializerCompiler);
   await registerErrorHandler(app);
-
-  await app.register(async (f) => {
-    // Agent accepted-finding list route (mirrors extraction.ts route handler)
-    f.get(
-      "/habitats/:habitatId/extraction/agent/findings",
-      { preHandler: [agentOrHumanAuth, requireHabitatAccess] },
-      async (request: any) => {
-        const agentId = request.agent?.id ?? "";
-        const query = request.query as Record<string, string | undefined>;
-        const taskId = query.taskId;
-        if (!taskId) return { findings: [] };
-
-        const findings = listAcceptedFindingsForAgent(
-          agentId, taskId, request.params.habitatId,
-          {
-            findingType: query.findingType as never | undefined,
-            domain: query.domain,
-            maxAgeSeconds: query.maxAgeSeconds ? Number(query.maxAgeSeconds) : undefined,
-            limit: query.limit ? Number(query.limit) : undefined,
-            maxChars: query.maxChars ? Number(query.maxChars) : undefined,
-          },
-        );
-        return { findings };
-      },
-    );
-
-    // Agent accepted-finding get route
-    f.get(
-      "/habitats/:habitatId/extraction/agent/findings/:findingId",
-      { preHandler: [agentOrHumanAuth, requireHabitatAccess] },
-      async (request: any) => {
-        const agentId = request.agent?.id ?? "";
-        const query = request.query as Record<string, string | undefined>;
-        const taskId = query.taskId;
-        if (!taskId) throw notFound("Finding not found");
-
-        const finding = getAcceptedFindingForAgent(
-          agentId, taskId,
-          request.params.habitatId, request.params.findingId,
-        );
-        if (!finding) throw notFound("Finding not found");
-        return { finding };
-      },
-    );
-  });
-
+  await app.register(extractionRoutes);
+  await app.ready();
   return app;
 }
 
@@ -270,6 +230,7 @@ describe("Learning Loop agent MCP read surface — production dispatch integrati
   });
   afterEach(async () => {
     await app.close();
+    vi.restoreAllMocks();
     closeDb();
   });
 
@@ -512,7 +473,7 @@ describe("Learning Loop agent MCP read surface — production dispatch integrati
   // Gate 5: Limit and character caps hold
   // -------------------------------------------------------------------------
 
-  it("gate 5: limit caps at 25 even when requesting more", async () => {
+  it("gate 5: production route rejects limits above 25 and accepts the hard cap", async () => {
     const fix = setupHabitat({ id: "hab-L", agentName: "Agent L", taskStatus: "claimed" });
     // Insert 30 findings.
     for (let i = 0; i < 30; i++) {
@@ -530,9 +491,15 @@ describe("Learning Loop agent MCP read surface — production dispatch integrati
       headers: { "x-agent-api-key": fix.apiKey },
     });
 
-    expect(res.statusCode).toBe(200);
-    const body = JSON.parse(res.body);
-    expect(body.findings.length).toBeLessThanOrEqual(25);
+    expect(res.statusCode).toBe(400);
+
+    const capped = await app.inject({
+      method: "GET",
+      url: `/habitats/${fix.habitatId}/extraction/agent/findings?taskId=${fix.taskId}&limit=25`,
+      headers: { "x-agent-api-key": fix.apiKey },
+    });
+    expect(capped.statusCode).toBe(200);
+    expect(JSON.parse(capped.body).findings.length).toBeLessThanOrEqual(25);
   });
 
   it("gate 5: maxChars truncates subject and body", async () => {
@@ -662,12 +629,16 @@ describe("Learning Loop agent MCP read surface — production dispatch integrati
     expect(finding.subject.length + finding.body.length).toBeLessThanOrEqual(4000);
   });
 
-  it("I1: get endpoint default budget prevents unbounded output", async () => {
+  it("I1: get endpoint budgets caveats and structured payload within the serialized response", async () => {
     const fix = setupHabitat({ id: "hab-I1b", agentName: "Agent I1b", taskStatus: "claimed" });
     const findingId = insertFinding({
       habitatId: fix.habitatId,
-      subject: "S".repeat(5000),
-      body: "B".repeat(5000),
+      subject: "S".repeat(3000),
+      body: "B".repeat(3000),
+      caveats: ["C".repeat(12_000)],
+      structuredPayload: {
+        nested: { value: "P".repeat(12_000) },
+      },
       resolvableTaskId: fix.taskId,
       scopeRefs: [{ scopeType: "task", scopeId: fix.taskId }],
     });
@@ -679,13 +650,8 @@ describe("Learning Loop agent MCP read surface — production dispatch integrati
     });
 
     expect(res.statusCode).toBe(200);
-    const body = JSON.parse(res.body);
-    const finding = body.finding;
-
-    // I1 fix: subject + body bounded to HARD_TOTAL_CHAR_BUDGET (8000).
-    expect(finding.subject.length + finding.body.length).toBeLessThanOrEqual(8000);
-    // And specifically the default 4000 since no maxChars was requested.
-    expect(finding.subject.length + finding.body.length).toBeLessThanOrEqual(4000);
+    expect(() => JSON.parse(res.body)).not.toThrow();
+    expect(res.body.length).toBeLessThanOrEqual(4000);
   });
 
   // -------------------------------------------------------------------------
@@ -718,5 +684,32 @@ describe("Learning Loop agent MCP read surface — production dispatch integrati
     expect(res.statusCode).toBe(200);
     const body = JSON.parse(res.body);
     expect(body.findings).toHaveLength(0);
+  });
+
+  it("B1: adapter omission excludes the finding through the real extraction route", async () => {
+    const fix = setupHabitat({ id: "hab-B1-omit", agentName: "Agent B1 omit", taskStatus: "claimed" });
+    const findingId = insertFinding({
+      habitatId: fix.habitatId,
+      scopeRefs: [{ scopeType: "task", scopeId: fix.taskId }],
+      resolvableTaskId: fix.taskId,
+    });
+
+    const adapter = getAdapter("task_lifecycle_audit");
+    vi.spyOn(adapter, "resolveByRefs").mockReturnValue([]);
+
+    const list = await app.inject({
+      method: "GET",
+      url: `/habitats/${fix.habitatId}/extraction/agent/findings?taskId=${fix.taskId}`,
+      headers: { "x-agent-api-key": fix.apiKey },
+    });
+    const get = await app.inject({
+      method: "GET",
+      url: `/habitats/${fix.habitatId}/extraction/agent/findings/${findingId}?taskId=${fix.taskId}`,
+      headers: { "x-agent-api-key": fix.apiKey },
+    });
+
+    expect(list.statusCode).toBe(200);
+    expect(JSON.parse(list.body).findings).toHaveLength(0);
+    expect(get.statusCode).toBe(404);
   });
 });

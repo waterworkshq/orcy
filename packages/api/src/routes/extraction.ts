@@ -94,9 +94,9 @@ const agentFindingsQuerySchema = z.object({
   taskId: z.string().min(1),
   findingType: z.string().optional(),
   domain: z.string().optional(),
-  maxAgeSeconds: z.number().int().positive().optional(),
-  limit: z.number().int().min(1).max(25).optional(),
-  maxChars: z.number().int().positive().optional(),
+  maxAgeSeconds: z.coerce.number().int().positive().optional(),
+  limit: z.coerce.number().int().min(1).max(25).optional(),
+  maxChars: z.coerce.number().int().positive().optional(),
 });
 
 const freshRerunBodySchema = z.object({

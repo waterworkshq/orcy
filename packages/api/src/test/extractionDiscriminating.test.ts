@@ -1,26 +1,23 @@
 /**
- * Learning Loop discriminating (falsifying) tests — I5 remediation round 2.
+ * Learning Loop discriminating (falsifying) tests — remediation round 3.
  *
  * Each test injects the specific failure the blocker fix addresses and
  * asserts the observable production outcome. Each test MUST fail if the
  * fix is reverted (mutation-checked — evidence recorded in SCRATCHPAD.md).
  *
- * Round 2 rewrite: every test now genuinely exercises the production
- * composition boundary. The prior round's false claims are eliminated.
- *
  * Coverage:
  *   B2: (a) window-scoped floor (all-time 5/3 but window 1/1 → no cohort)
  *       (b) fail-closed on null sourcePulseIds (all-time 5/3, null IDs → no cohort)
  *   B4: State machine (accept withdrawn → illegal_source_state)
- *   B5: Crash-safe promotion (throw after createPage → retry → one page)
+ *   B3: Two full lifecycle runs over changed evidence → linked revision 2
+ *   B5: Crash-safe promotion plus observed-fence single-winner re-arm
  *   B6: Kill switch (globally disabled → promote disabled)
  *   B7: (a) replay-safe recovery identity (stored window reused, no recapture)
  *       (b) status-guarded markAttemptFailed (CAS on status='running')
  *   B8: (a) source_snapshot persisted on attempt
  *       (b) failed source → watermark not advanced → partial
  *       (c) detector failure → partial outcome (no fake source)
- *   B9: (a) sequential fresh reruns: generations N and N+1
- *       (b) atomic allocation: race simulation (same MAX → collision without tx)
+ *   B9: IMMEDIATE allocation transaction is selected before read-MAX
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { eq } from "drizzle-orm";
@@ -37,6 +34,8 @@ import {
   createPolicyWithClient,
   updatePolicyWithClient,
   getWorkItemsByHabitatWithClient,
+  reservePromotionWithClient,
+  reArmPendingPromotionLeaseWithClient,
   type CitationInput,
 } from "../repositories/extraction/index.js";
 import { runExtraction } from "../services/extractionRunLifecycle.js";
@@ -50,6 +49,7 @@ import {
   computeExperienceSourceId,
 } from "../services/extractionSourceCatalog/experiencePrivacy.js";
 import * as wikiService from "../services/wikiService.js";
+import { logger } from "../lib/logger.js";
 import {
   habitats,
   columns,
@@ -147,12 +147,72 @@ function makeCitation(findingId: string): void {
 // Tests
 // ---------------------------------------------------------------------------
 
-describe("Learning Loop discriminating tests (I5 round 2)", () => {
+describe("Learning Loop discriminating tests (remediation round 3)", () => {
   beforeEach(async () => {
     savedEnvFlag = process.env[ENV_FLAG];
     process.env[ENV_FLAG] = "true";
     await initTestDb();
     setupHabitat("hab-A");
+  });
+
+  // ── B3: Production lifecycle derives linked revision 2 ───────────
+
+  describe("B3: lifecycle-composed finding revision", () => {
+    it("two runExtraction calls over changed evidence preserve revision 1 and link revision 2", () => {
+      const policy = setupPolicy({ enabled: true });
+      const adapter = getAdapter("task_lifecycle_audit");
+      const boundaryToken = {
+        sourceType: "task_lifecycle_audit" as const,
+        highWaterMark: "2026-06-15T12:00:00Z",
+        capturedAt: "2026-06-15T12:00:00Z",
+      };
+      vi.spyOn(adapter, "captureBoundary").mockReturnValue(boundaryToken);
+
+      const batch = (evidenceVersion: string) => ({
+        sourceType: "task_lifecycle_audit" as const,
+        observations: [1, 2, 3].map((index) => ({
+          observationId: `b3-observation-${index}`,
+          sourceType: "task_lifecycle_audit" as const,
+          underlyingId: `b3-event-${index}`,
+          occurredAt: `2026-06-15T11:0${index}:00Z`,
+          entityRefs: [{ type: "task", id: "task-b3" }],
+          domains: [],
+          digest: `b3-digest-${evidenceVersion}-${index}`,
+          contractVersion: "v1",
+          collectorFamily: "task_lifecycle",
+          habitatId: "hab-A",
+          visibilityClass: "habitat_member" as const,
+        })),
+        completeness: "complete" as const,
+        warnings: [],
+        boundaryToken,
+        collectionOutcome: "collected" as const,
+      });
+      vi.spyOn(adapter, "collect")
+        .mockReturnValueOnce(batch("one"))
+        .mockReturnValueOnce(batch("two"));
+
+      const first = runExtraction({
+        habitatId: "hab-A", policy, deliveryMode: "manual",
+        actorType: "human", actorId: "reviewer", now: "2026-06-15T12:00:00Z",
+      });
+      const second = runExtraction({
+        habitatId: "hab-A", policy, deliveryMode: "manual",
+        actorType: "human", actorId: "reviewer", now: "2026-06-15T12:00:00Z",
+        isFreshRerun: true, freshReason: "Evidence changed",
+      });
+
+      expect(first.kind).toBe("executed");
+      expect(second.kind).toBe("executed");
+      const findings = getFindingsByHabitatWithClient(getDb(), "hab-A")
+        .toSorted((a, b) => a.revision - b.revision);
+      expect(findings).toHaveLength(2);
+      expect(findings[0]!.revision).toBe(1);
+      expect(findings[0]!.lineageRootId).toBe(findings[0]!.id);
+      expect(findings[1]!.revision).toBe(2);
+      expect(findings[1]!.supersedesFindingId).toBe(findings[0]!.id);
+      expect(findings[1]!.lineageRootId).toBe(findings[0]!.id);
+    });
   });
   afterEach(() => {
     if (savedEnvFlag === undefined) delete process.env[ENV_FLAG];
@@ -417,13 +477,49 @@ describe("Learning Loop discriminating tests (I5 round 2)", () => {
       // NOT create a second page. B5 fix re-arms the lease on the pending
       // promotion and reaches the tag lookup.
       spy.mockRestore();
-      const result2 = promoteToWikiDraft("hab-A", findingId, "user-1");
+      const result2 = promoteToWikiDraft("hab-A", findingId, "user-2");
       expect(result2.outcome).not.toBe("disabled");
 
       // Exactly ONE wiki page total — no duplicate.
       const pagesAfterRetry = db.select().from(wikiPages)
         .where(eq(wikiPages.habitatId, "hab-A")).all().length;
       expect(pagesAfterRetry).toBe(1);
+    });
+
+    it("only the retry that observed the stored old fence can re-arm a pending row", () => {
+      const findingId = insertProposedFinding("hab-A", "accepted");
+      const reservation = reservePromotionWithClient(getDb(), {
+        findingId,
+        destinationType: "wiki_draft",
+        destinationKey: `wiki:${findingId}`,
+        idempotencyKey: `promotion:${findingId}`,
+        leaseOwner: "old-owner",
+        leaseGeneration: 10,
+        consumedFindingRevision: 1,
+      });
+      expect(reservation.outcome).toBe("created");
+
+      const winner = reArmPendingPromotionLeaseWithClient(getDb(), {
+        promotionId: reservation.promotion.id,
+        leaseOwner: "retry-a",
+        leaseGeneration: 11,
+        expectedLeaseOwner: "old-owner",
+        expectedLeaseGeneration: 10,
+      });
+      const loser = reArmPendingPromotionLeaseWithClient(getDb(), {
+        promotionId: reservation.promotion.id,
+        leaseOwner: "retry-b",
+        leaseGeneration: 12,
+        expectedLeaseOwner: "different-observed-owner",
+        expectedLeaseGeneration: 9,
+      });
+
+      expect(winner.outcome).toBe("re_armed");
+      expect(loser.outcome).toBe("fence_mismatch");
+      if (loser.outcome === "fence_mismatch") {
+        expect(loser.promotion.leaseOwner).toBe("retry-a");
+        expect(loser.promotion.leaseGeneration).toBe(11);
+      }
     });
   });
 
@@ -542,19 +638,22 @@ describe("Learning Loop discriminating tests (I5 round 2)", () => {
       });
       if (attempt.outcome !== "created") throw new Error("attempt failed");
 
-      // Simulate concurrent terminalization: terminalize the attempt as
-      // "succeeded" BEFORE recovery tries to mark it failed.
-      const termResult = terminalizeAttemptWithClient(db, {
-        attemptId: attempt.attempt.id,
-        workItemId: workItem.workItem.id,
-        leaseOwner: "owner-1", leaseGeneration: 1,
-        status: "succeeded" as const,
-        candidateCount: 0, persistedCount: 0,
-      });
-      expect(termResult.outcome).toBe("terminalized");
+      // The recovery scan is a SELECT. Intercept its first subsequent UPDATE and
+      // terminalize the already-selected row immediately before markAttemptFailed
+      // builds its UPDATE. This forces the status guard to decide the outcome.
+      const originalUpdate = db.update.bind(db);
+      vi.spyOn(db, "update").mockImplementationOnce(((table: Parameters<typeof db.update>[0]) => {
+        const termResult = terminalizeAttemptWithClient(db, {
+          attemptId: attempt.attempt.id,
+          workItemId: workItem.workItem.id,
+          leaseOwner: "owner-1", leaseGeneration: 1,
+          status: "succeeded" as const,
+          candidateCount: 0, persistedCount: 0,
+        });
+        expect(termResult.outcome).toBe("terminalized");
+        return originalUpdate(table);
+      }) as typeof db.update);
 
-      // Now run recovery. The attempt is already "succeeded" (not "running").
-      // B7(b) fix: markAttemptFailed has CAS on status='running' → no overwrite.
       const summary = runExtractionReconciliationPass();
 
       // The attempt should NOT have been marked failed — it's already succeeded.
@@ -562,9 +661,8 @@ describe("Learning Loop discriminating tests (I5 round 2)", () => {
         .where(eq(extractionAttempts.id, attempt.attempt.id)).all()[0];
       expect(rawAttempt?.status).toBe("succeeded");
 
-      // markAttemptFailed should report 0 failed (it lost the CAS).
-      // staleAttempts=1 (found it) but failedAttempts=0 (couldn't overwrite).
-      expect(summary.staleAttempts).toBe(0); // Not stale — already terminal.
+      expect(summary.staleAttempts).toBe(1);
+      expect(summary.failedAttempts).toBe(0);
     });
   });
 
@@ -703,22 +801,49 @@ describe("Learning Loop discriminating tests (I5 round 2)", () => {
   });
 
   describe("B8(c): detector failure → partial outcome (no fake source)", () => {
-    it("extractor partial completeness marks outcome partial without source_aggregate fabrication", () => {
-      const db = getDb();
+    it("a real detector throw marks the attempt partial, logs diagnostics, and fabricates no source", () => {
       const policy = setupPolicy({ enabled: true });
+
+      const adapter = getAdapter("task_lifecycle_audit");
+      const boundaryToken = {
+        sourceType: "task_lifecycle_audit" as const,
+        highWaterMark: "2026-06-15T12:00:00Z",
+        capturedAt: "2026-06-15T12:00:00Z",
+      };
+      vi.spyOn(adapter, "captureBoundary").mockReturnValue(boundaryToken);
+      const throwingObservation = {
+        observationId: "b8c-observation",
+        sourceType: "task_lifecycle_audit" as const,
+        underlyingId: "b8c-event",
+        occurredAt: "2026-06-15T11:00:00Z",
+        get entityRefs(): never {
+          throw new Error("B8C_DETECTOR_THROW");
+        },
+        domains: [],
+        digest: "b8c-digest",
+        contractVersion: "v1",
+        collectorFamily: "task_lifecycle",
+        habitatId: "hab-A",
+        visibilityClass: "habitat_member" as const,
+      };
+      vi.spyOn(adapter, "collect").mockReturnValue({
+        sourceType: "task_lifecycle_audit",
+        observations: [throwingObservation],
+        completeness: "complete",
+        warnings: [],
+        boundaryToken,
+        collectionOutcome: "collected",
+      });
+      const diagnosticSpy = vi.spyOn(logger, "warn");
 
       const result = runExtraction({
         habitatId: "hab-A", policy,
         deliveryMode: "manual", actorType: "human", actorId: "user-1",
       });
 
-      // With no source data, the extractor should run but produce no candidates.
-      // The outcome depends on whether sources collected successfully.
       expect(result.kind).toBe("executed");
       if (result.kind !== "executed") return;
-
-      // Verify no fake experience_aggregate diagnostic source is fabricated.
-      // B8(b)/I2 fix: detector failures must not be mislabeled as a source.
+      expect(result.outcome).toBe("partial");
       const hasFakeExperienceSource = result.sources.some(
         (s) =>
           s.sourceType === "experience_aggregate" &&
@@ -726,6 +851,14 @@ describe("Learning Loop discriminating tests (I5 round 2)", () => {
           s.warnings.some((w) => w.startsWith("detector_")),
       );
       expect(hasFakeExperienceSource).toBe(false);
+      expect(diagnosticSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          diagnostics: expect.arrayContaining([
+            expect.objectContaining({ error: "B8C_DETECTOR_THROW" }),
+          ]),
+        }),
+        "Extraction detector failures recorded",
+      );
     });
   });
 
@@ -753,7 +886,7 @@ describe("Learning Loop discriminating tests (I5 round 2)", () => {
 
   // ── B9: Atomic rerun-generation allocation ──────────────────────
 
-  describe("B9(a): sequential fresh reruns produce monotonic generations", () => {
+  describe("B9(a): sequential fresh-rerun behavior (not a concurrency proof)", () => {
     it("two fresh reruns produce generations 1 and 2 with exact linkage", () => {
       const policy = setupPolicy({ enabled: true });
       const now = "2026-06-15T12:00:00Z";
@@ -787,77 +920,21 @@ describe("Learning Loop discriminating tests (I5 round 2)", () => {
     });
   });
 
-  describe("B9(b): non-atomic read-then-reserve race simulation", () => {
-    it("same MAX read → same logical key → second reservation deduplicates (race defect)", () => {
-      // This test demonstrates the race defect that the transaction-based
-      // fix prevents. Two callers that read the same MAX both compute the
-      // same generation and logical key; the second is deduplicated.
+  describe("B9(b): writer lock is reserved before read-MAX", () => {
+    it("fresh rerun requests an IMMEDIATE transaction", () => {
       const db = getDb();
       const policy = setupPolicy({ enabled: true });
+      const transactionSpy = vi.spyOn(db, "transaction");
 
-      // Create an initial work item (generation 0).
-      const initial = runExtraction({
-        habitatId: "hab-A", policy, deliveryMode: "scheduled",
-        actorType: "system", actorId: "scheduler",
-      });
-      expect(initial.kind).not.toBe("failed");
-
-      // Simulate the race: both callers read MAX=0, compute generation=1.
-      // With the non-atomic code, both would try to reserve with generation 1
-      // and the same logical key. The unique constraint on logical_work_key
-      // means the second is deduplicated.
-      const racedGeneration = 1;
-      const now = "2026-06-15T12:00:00Z";
-
-      // Caller A reserves with generation 1.
-      const result1 = runExtraction({
+      const result = runExtraction({
         habitatId: "hab-A", policy, deliveryMode: "manual",
-        actorType: "human", actorId: "human-1", now,
-        isFreshRerun: true, freshReason: "Rerun A",
+        actorType: "human", actorId: "human-1", now: "2026-06-15T12:00:00Z",
+        isFreshRerun: true, freshReason: "Prove lock mode",
       });
-      expect(result1.kind).not.toBe("deduplicated");
-      if (result1.kind !== "executed") return;
-      expect(result1.workItem.rerunGeneration).toBe(1);
-
-      // Caller B also reserves — with the fix, the transaction ensures
-      // B reads MAX=1 (not 0), gets generation 2, and creates a new item.
-      const result2 = runExtraction({
-        habitatId: "hab-A", policy, deliveryMode: "manual",
-        actorType: "human", actorId: "human-2", now,
-        isFreshRerun: true, freshReason: "Rerun B",
-      });
-      // B9 fix: B gets generation 2 (not deduplicated with A's generation 1).
-      expect(result2.kind).not.toBe("deduplicated");
-      if (result2.kind === "executed") {
-        expect(result2.workItem.rerunGeneration).toBe(2);
-        expect(result2.workItem.supersedesWorkId).toBe(result1.workItem.id);
-      }
-    });
-
-    it("concurrent logical_work_key reservation: one created, one already_exists", () => {
-      // Directly verify the unique constraint race defender.
-      const db = getDb();
-      const policy = setupPolicy({ enabled: true });
-      const logicalKey = `lwkey-race-${uuid()}`;
-
-      const r1 = reserveWorkItemWithClient(db, {
-        habitatId: "hab-A", policyId: policy.id,
-        extractorKey: BUILTIN_EXTRACTOR_KEY, extractorVersion: BUILTIN_EXTRACTOR_VERSION,
-        policyVersion: 1, windowFrom: "2026-06-01T00:00:00Z", windowTo: "2026-06-02T00:00:00Z",
-        sourceBoundaryTokens: {}, logicalWorkKey: logicalKey,
-        deliveryMode: "manual", rerunGeneration: 1,
-      });
-      expect(r1.outcome).toBe("created");
-
-      const r2 = reserveWorkItemWithClient(db, {
-        habitatId: "hab-A", policyId: policy.id,
-        extractorKey: BUILTIN_EXTRACTOR_KEY, extractorVersion: BUILTIN_EXTRACTOR_VERSION,
-        policyVersion: 1, windowFrom: "2026-06-01T00:00:00Z", windowTo: "2026-06-02T00:00:00Z",
-        sourceBoundaryTokens: {}, logicalWorkKey: logicalKey,
-        deliveryMode: "manual", rerunGeneration: 1,
-      });
-      expect(r2.outcome).toBe("already_exists");
-      expect(r2.workItem.id).toBe(r1.workItem.id);
+      expect(result.kind).toBe("executed");
+      expect(transactionSpy.mock.calls.some(([, config]) =>
+        config?.behavior === "immediate"
+      )).toBe(true);
     });
   });
 });

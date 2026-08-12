@@ -9,7 +9,7 @@
  * matching the pattern in `productionMigrationChain.test.ts`.
  *
  * Coverage:
- *   1. Work reservation + unique-race on logical_work_key.
+ *   1. Work reservation + forced post-precheck UNIQUE on logical_work_key.
  *   2. Attempt lease fencing (CAS on lease_owner + lease_generation).
  *   3. Review CAS + rollback (transactional atomicity).
  *   4. Candidate atomic rollback (subordinate INSERT failure rolls back finding).
@@ -42,6 +42,8 @@ import {
   habitats,
 } from "../db/schema/index.js";
 import { isSqliteError } from "../errors/sqlite.js";
+import { FailingDbClient } from "./helpers/failingDbClient.js";
+import type { ExtractionDbClient } from "../repositories/extraction/types.js";
 
 const PACKAGE_ROOT = join(import.meta.dirname, "..", "..");
 const TEMP_DIR = join(PACKAGE_ROOT, ".test-b10-parity");
@@ -396,44 +398,45 @@ describe("B10 — better-sqlite3 parity suite", () => {
         firstSeenAt: now, lastSeenAt: now, occurrenceCount: 1, caveats: [],
       }).run();
 
-      // Insert a review row to create a unique constraint collision.
-      const reviewId = uuid();
-      db.insert(extractedFindingReviews).values({
-        id: reviewId, findingId,
-        decision: "accept", reason: "Pre-existing",
-        reviewerType: "human", reviewerId: "r1",
-        expectedDecisionVersion: 1, resultingDecisionVersion: 1,
-        createdAt: now,
-      }).run();
-
-      // Now try to insert a duplicate review row inside a transaction —
-      // the transaction must throw and roll back. This proves that a
-      // review INSERT failure inside a transaction rolls back cleanly.
+      let failingClient: FailingDbClient | null = null;
       expect(() =>
         db.transaction((tx) => {
-          tx.insert(extractedFindingReviews).values({
-            id: reviewId, // Duplicate → UNIQUE violation
-            findingId,
-            decision: "reject", reason: "Dup",
-            reviewerType: "human", reviewerId: "r2",
-            expectedDecisionVersion: 1, resultingDecisionVersion: 1,
-            createdAt: now,
-          }).run();
+          failingClient = new FailingDbClient(tx as never, {
+            failAtWriteN: 2,
+            errorFactory: () => new Error("B10_REVIEW_INSERT_FAILURE"),
+          });
+          return reviewCasWithClient(
+            failingClient as unknown as ExtractionDbClient,
+            {
+              findingId,
+              decision: "accept",
+              reason: "Exercise real CAS then fail review INSERT",
+              reviewerType: "human",
+              reviewerId: "reviewer-b10",
+              expectedDecisionVersion: 1,
+            },
+          );
         }),
       ).toThrow();
+
+      expect(failingClient).not.toBeNull();
+      expect(failingClient!.writeCount).toBe(2);
+      expect(failingClient!.writes[0]!.table).toBe(extractedFindings);
+      expect(failingClient!.writes[1]!.table).toBe(extractedFindingReviews);
 
       // Verify the finding was NOT mutated by the failed transaction.
       const finding = db.select().from(extractedFindings)
         .where(eq(extractedFindings.id, findingId)).all()[0];
       expect(finding?.status).toBe("proposed");
       expect(finding?.decisionVersion).toBe(1);
+      expect(db.select().from(extractedFindingReviews).all()).toHaveLength(0);
     });
   });
 
   // ── 7. Wrapped repository UNIQUE error classification ──────────
 
   describe("wrapped repository UNIQUE", () => {
-    it("wrapped drizzle UNIQUE on logical_work_key is classified by isUniqueConstraintViolation", () => {
+    it("repository classifies a genuine wrapped UNIQUE after a raced pre-check", () => {
       const db = getDb();
       const logicalKey = `lwkey-wrapped-${uuid()}`;
 
@@ -447,10 +450,41 @@ describe("B10 — better-sqlite3 parity suite", () => {
       });
       expect(r1.outcome).toBe("created");
 
-      // Second reservation with same key → already_exists (not throw).
-      // The wrapped repository catches the UNIQUE violation via
-      // isUniqueConstraintViolation and returns already_exists.
-      const r2 = reserveWorkItemWithClient(db, {
+      // Force the repository's second caller to observe an empty pre-check even
+      // though the row exists. Its INSERT then hits the real better-sqlite3
+      // UNIQUE, which Drizzle wraps; the repository must classify and re-read.
+      let suppressFirstSelect = true;
+      const wrapSelectChain = (builder: object): object => new Proxy(builder, {
+        get(target, property, receiver) {
+          if (property === "all" && suppressFirstSelect) {
+            return () => {
+              suppressFirstSelect = false;
+              return [];
+            };
+          }
+          const value = Reflect.get(target, property, receiver);
+          if (typeof value === "function") {
+            return (...args: unknown[]) => {
+              const next = value.apply(target, args);
+              return next && typeof next === "object" ? wrapSelectChain(next) : next;
+            };
+          }
+          return value;
+        },
+      });
+      const racedDb = new Proxy(db, {
+        get(target, property, receiver) {
+          if (property === "select") {
+            return (...args: unknown[]) => wrapSelectChain(
+              (target.select as (...selectArgs: unknown[]) => object)(...args),
+            );
+          }
+          const value = Reflect.get(target, property, receiver);
+          return typeof value === "function" ? value.bind(target) : value;
+        },
+      }) as ExtractionDbClient;
+
+      const r2 = reserveWorkItemWithClient(racedDb, {
         habitatId: "hab-parity", policyId: null,
         extractorKey: "test", extractorVersion: 1, policyVersion: 1,
         windowFrom: "2026-01-01T00:00:00Z", windowTo: "2026-01-02T00:00:00Z",
@@ -459,38 +493,7 @@ describe("B10 — better-sqlite3 parity suite", () => {
       });
       expect(r2.outcome).toBe("already_exists");
       expect(r2.workItem.id).toBe(r1.workItem.id);
-    });
-  });
-
-  // ── 8. Concurrent logical_work_key reservation ──────────────────
-
-  describe("concurrent logical_work_key reservation", () => {
-    it("two reservations with same key → exactly one created, one already_exists", () => {
-      const db = getDb();
-      const logicalKey = `lwkey-concurrent-${uuid()}`;
-
-      // First reservation.
-      const r1 = reserveWorkItemWithClient(db, {
-        habitatId: "hab-parity", policyId: null,
-        extractorKey: "test", extractorVersion: 1, policyVersion: 1,
-        windowFrom: "2026-01-01T00:00:00Z", windowTo: "2026-01-02T00:00:00Z",
-        sourceBoundaryTokens: {}, logicalWorkKey: logicalKey,
-        deliveryMode: "scheduled",
-      });
-
-      // Second reservation (simulating a concurrent caller that read
-      // the same pre-check result before the first INSERT committed).
-      const r2 = reserveWorkItemWithClient(db, {
-        habitatId: "hab-parity", policyId: null,
-        extractorKey: "test", extractorVersion: 1, policyVersion: 1,
-        windowFrom: "2026-01-01T00:00:00Z", windowTo: "2026-01-02T00:00:00Z",
-        sourceBoundaryTokens: {}, logicalWorkKey: logicalKey,
-        deliveryMode: "scheduled",
-      });
-
-      // Exactly one created, one already_exists.
-      const outcomes = [r1.outcome, r2.outcome].toSorted();
-      expect(outcomes).toEqual(["already_exists", "created"]);
+      expect(suppressFirstSelect).toBe(false);
     });
   });
 });

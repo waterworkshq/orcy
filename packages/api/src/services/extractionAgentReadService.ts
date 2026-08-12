@@ -43,7 +43,7 @@ const BLOCKING_STATES: ReadonlySet<CitationResolutionState> = new Set([
 // Character budget (I1 — server-owned total rendered-character budget)
 // ---------------------------------------------------------------------------
 
-/** Default total character budget per finding item (subject + body combined). */
+/** Default serialized character budget per finding item. */
 const DEFAULT_TOTAL_CHAR_BUDGET = 4000;
 
 /** Absolute hard maximum — no client request can exceed this. */
@@ -51,26 +51,138 @@ const HARD_TOTAL_CHAR_BUDGET = 8000;
 
 /**
  * Resolve the effective total character budget. The client may request less;
- * the server clamps to the hard maximum. The budget is shared across subject
- * and body — NOT applied independently (fixes the 2× issue).
+ * the server clamps to the hard maximum. The budget is shared across all
+ * agent-visible variable content, never applied independently per field.
  */
 function resolveTotalCharBudget(requested?: number): number {
   if (!requested || requested <= 0) return DEFAULT_TOTAL_CHAR_BUDGET;
   return Math.min(requested, HARD_TOTAL_CHAR_BUDGET);
 }
 
-/** Truncate subject + body within a shared total budget. */
-function applyTotalCharBudget(
-  subject: string,
-  body: string,
-  budget: number,
-): { subject: string; body: string } {
-  const subjectLen = subject.length;
-  if (subjectLen >= budget) {
-    return { subject: subject.slice(0, budget), body: "" };
+type BudgetedAgentFinding = AgentFindingSummary | AgentFindingDetail;
+
+/** The get route serializes this exact envelope; using it is conservative for list items. */
+function serializedFindingLength(finding: BudgetedAgentFinding): number {
+  return JSON.stringify({ finding }).length;
+}
+
+function truncateStringToFit(value: string, fits: (candidate: string) => boolean): string {
+  if (fits(value)) return value;
+
+  let low = 0;
+  let high = value.length;
+  while (low < high) {
+    const mid = Math.ceil((low + high) / 2);
+    if (fits(value.slice(0, mid))) low = mid;
+    else high = mid - 1;
   }
-  const bodyBudget = budget - subjectLen;
-  return { subject, body: body.slice(0, bodyBudget) };
+  return value.slice(0, low);
+}
+
+/**
+ * Preserve JSON shape while shrinking oversized structured payloads. Object
+ * properties and array entries are retained in order until the shared budget
+ * is exhausted; oversized strings are prefix-truncated rather than emitting
+ * invalid JSON.
+ */
+function clampJsonValue(value: unknown, maxSerializedChars: number): unknown {
+  if (maxSerializedChars < 4) return null;
+
+  const serialized = JSON.stringify(value);
+  if (serialized === undefined) return null;
+  if (serialized.length <= maxSerializedChars) return value;
+
+  if (typeof value === "string") {
+    return truncateStringToFit(
+      value,
+      (candidate) => JSON.stringify(candidate).length <= maxSerializedChars,
+    );
+  }
+
+  if (Array.isArray(value)) {
+    const result: unknown[] = [];
+    for (const item of value) {
+      const nullCandidateLength = JSON.stringify([...result, null]).length;
+      const allowance = maxSerializedChars - (nullCandidateLength - 4);
+      if (allowance < 4) break;
+      const clamped = clampJsonValue(item, allowance);
+      const candidate = [...result, clamped];
+      if (JSON.stringify(candidate).length > maxSerializedChars) break;
+      result.push(clamped);
+    }
+    return result;
+  }
+
+  if (value && typeof value === "object") {
+    const result: Record<string, unknown> = {};
+    for (const [key, item] of Object.entries(value)) {
+      const nullCandidate = { ...result, [key]: null };
+      const allowance = maxSerializedChars - (JSON.stringify(nullCandidate).length - 4);
+      if (allowance < 4) break;
+      const clamped = clampJsonValue(item, allowance);
+      const candidate = { ...result, [key]: clamped };
+      if (JSON.stringify(candidate).length > maxSerializedChars) break;
+      result[key] = clamped;
+    }
+    return result;
+  }
+
+  return null;
+}
+
+/** Clamp subject, body, caveats, and structured payload within one serialized budget. */
+function applyTotalCharBudget<T extends BudgetedAgentFinding>(finding: T, budget: number): T {
+  const result: BudgetedAgentFinding = {
+    ...finding,
+    subject: "",
+    body: "",
+    caveats: [],
+    ...(Object.hasOwn(finding, "structuredPayload") ? { structuredPayload: null } : {}),
+  };
+
+  const fits = (candidate: BudgetedAgentFinding) => serializedFindingLength(candidate) <= budget;
+
+  result.subject = truncateStringToFit(
+    finding.subject,
+    (subject) => fits({ ...result, subject }),
+  );
+  result.body = truncateStringToFit(
+    finding.body,
+    (body) => fits({ ...result, body }),
+  );
+
+  for (const caveat of finding.caveats) {
+    const next = [...result.caveats, caveat];
+    if (fits({ ...result, caveats: next })) {
+      result.caveats = next;
+      continue;
+    }
+
+    const truncated = truncateStringToFit(
+      caveat,
+      (candidate) => fits({ ...result, caveats: [...result.caveats, candidate] }),
+    );
+    if (truncated.length > 0) result.caveats = [...result.caveats, truncated];
+    break;
+  }
+
+  if (Object.hasOwn(finding, "structuredPayload")) {
+    const detail = finding as AgentFindingDetail;
+    const fullPayload = { ...result, structuredPayload: detail.structuredPayload };
+    if (fits(fullPayload)) {
+      (result as AgentFindingDetail).structuredPayload = detail.structuredPayload;
+    } else {
+      const currentLength = serializedFindingLength(result);
+      const payloadAllowance = budget - (currentLength - JSON.stringify(null).length);
+      const clamped = clampJsonValue(detail.structuredPayload, payloadAllowance);
+      const clampedResult = { ...result, structuredPayload: clamped };
+      if (fits(clampedResult)) {
+        (result as AgentFindingDetail).structuredPayload = clamped;
+      }
+    }
+  }
+
+  return result as T;
 }
 
 // ---------------------------------------------------------------------------
@@ -159,8 +271,7 @@ export function listAcceptedFindingsForAgent(
   return findings
     .filter((f) => !hasBlockingCitations(db, f.id, habitatId))
     .map((f) => {
-      const truncated = applyTotalCharBudget(f.subject, f.body, budget);
-      return { ...f, subject: truncated.subject, body: truncated.body };
+      return applyTotalCharBudget(f, budget);
     });
 }
 
@@ -193,8 +304,8 @@ export function getAcceptedFindingForAgent(
     return null;
   }
 
-  // I1 fix: apply the same server-owned total character budget as list.
+  // I1 fix: budget the actual serialized route envelope across every variable
+  // field, including caveats and the structured payload.
   const budget = resolveTotalCharBudget();
-  const truncated = applyTotalCharBudget(finding.subject, finding.body, budget);
-  return { ...finding, subject: truncated.subject, body: truncated.body };
+  return applyTotalCharBudget(finding, budget);
 }

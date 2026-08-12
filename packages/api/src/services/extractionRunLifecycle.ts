@@ -588,10 +588,11 @@ export function runExtraction(input: RunExtractionInput): ExtractionRunDispositi
   // -------------------------------------------------------------------------
 
   // B9 fix: Derive rerunGeneration monotonically from MAX(rerun_generation)+1
-  // for this policy. For fresh reruns, wrap generation allocation + reservation
-  // in a single transaction so two concurrent reruns cannot read the same MAX
-  // and collide on the same logical_work_key. better-sqlite3 transactions are
-  // exclusive-locked, serializing concurrent callers.
+  // for this policy. Fresh-rerun allocation uses BEGIN IMMEDIATE so SQLite
+  // reserves the write lock before read-MAX; a contending connection waits for
+  // the first allocation to commit, then reads the new MAX. V1 executes this
+  // synchronous better-sqlite3 path in one process; multi-process overlap is a
+  // separate hardening boundary and must be proved with worker processes.
   let rerunGeneration = 0;
   let supersedesWorkId = input.supersedesWorkId ?? null;
 
@@ -612,7 +613,8 @@ export function runExtraction(input: RunExtractionInput): ExtractionRunDispositi
     // Boot recovery uses the existing work item.
     workItem = input.existingWorkItem;
   } else if (input.isFreshRerun) {
-    // B9 fix: atomic generation allocation + reservation in one transaction.
+    // Reserve the writer lock before read-MAX, then allocate and reserve in the
+    // same transaction.
     const allocResult = db.transaction((tx) => {
       const maxGenRow = tx
         .select({ maxGen: sql<number>`COALESCE(MAX(${extractionWorkItems.rerunGeneration}), 0)` })
@@ -664,7 +666,7 @@ export function runExtraction(input: RunExtractionInput): ExtractionRunDispositi
       });
 
       return { reservation, rerunGeneration: gen, supersedesWorkId: supersedes };
-    });
+    }, { behavior: "immediate" });
 
     rerunGeneration = allocResult.rerunGeneration;
     supersedesWorkId = allocResult.supersedesWorkId;

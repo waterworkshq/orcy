@@ -210,6 +210,8 @@ export function promoteToWikiDraft(
             promotionId: promotion.id,
             leaseOwner,
             leaseGeneration,
+            expectedLeaseOwner: promotion.leaseOwner,
+            expectedLeaseGeneration: promotion.leaseGeneration,
           });
           if (reArmed.outcome !== "re_armed") {
             throw conflict("Promotion is already in progress", {

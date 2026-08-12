@@ -11,9 +11,7 @@
  */
 import { eq, and, sql } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
-import {
-  extractedFindingPromotions,
-} from "../../db/schema/index.js";
+import { extractedFindingPromotions } from "../../db/schema/index.js";
 import { repositoryCreateError, repositoryUpdateError } from "../../errors/repository.js";
 import type {
   ExtractedFindingPromotionRow,
@@ -276,6 +274,11 @@ export interface ReArmPromotionInput {
   leaseGeneration: number;
 }
 
+export interface ReArmPendingPromotionLeaseInput extends ReArmPromotionInput {
+  expectedLeaseOwner: string;
+  expectedLeaseGeneration: number;
+}
+
 export type ReArmPromotionResult =
   | { outcome: "re_armed"; promotion: ExtractedFindingPromotionRow }
   | { outcome: "not_found" }
@@ -345,7 +348,9 @@ export type ReArmPendingPromotionResult =
  * row with null `target_id`. A retry must update the lease to reach the
  * tag-recovery path and find the already-created page.
  *
- * CAS predicate: `id = promotionId AND status = 'pending' AND target_id IS NULL`.
+ * CAS predicate: `id = promotionId AND status = 'pending' AND target_id IS NULL
+ * AND lease_owner = expectedLeaseOwner
+ * AND lease_generation = expectedLeaseGeneration`.
  * This is safe because:
  * - A succeeded/failed promotion fails the CAS (no mutation).
  * - A pending promotion with a target_id (already recorded) fails — the caller
@@ -355,7 +360,7 @@ export type ReArmPendingPromotionResult =
  */
 export function reArmPendingPromotionLeaseWithClient(
   db: ExtractionDbClient,
-  input: ReArmPromotionInput,
+  input: ReArmPendingPromotionLeaseInput,
 ): ReArmPendingPromotionResult {
   const now = new Date().toISOString();
   try {
@@ -370,6 +375,8 @@ export function reArmPendingPromotionLeaseWithClient(
           eq(extractedFindingPromotions.id, input.promotionId),
           eq(extractedFindingPromotions.status, "pending"),
           sql`${extractedFindingPromotions.targetId} IS NULL`,
+          eq(extractedFindingPromotions.leaseOwner, input.expectedLeaseOwner),
+          eq(extractedFindingPromotions.leaseGeneration, input.expectedLeaseGeneration),
         ),
       )
       .run();
@@ -391,7 +398,8 @@ export function reArmPendingPromotionLeaseWithClient(
   if (fromState !== "pending") {
     return { outcome: "illegal_source_state", promotion: mapPromotionRow(row), fromState };
   }
-  // Status is pending but CAS failed: target_id was already set.
+  // Status is pending but CAS failed: target_id was set or the observed fence
+  // is stale because another retry already re-armed the row.
   return { outcome: "fence_mismatch", promotion: mapPromotionRow(row) };
 }
 // ---------------------------------------------------------------------------
@@ -402,10 +410,7 @@ export function reArmPendingPromotionLeaseWithClient(
  * future Wiki source batches, even after link removal, edit, or publish.
  * This is the feedback-loop prevention probe (not a real Wiki source adapter).
  */
-export function isWikiPageExcludedFromSources(
-  db: ExtractionDbClient,
-  pageId: string,
-): boolean {
+export function isWikiPageExcludedFromSources(db: ExtractionDbClient, pageId: string): boolean {
   const row = db
     .select({ id: extractedFindingPromotions.id })
     .from(extractedFindingPromotions)
