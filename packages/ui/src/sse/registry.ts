@@ -649,9 +649,36 @@ export const SSE_EVENT_REGISTRY = {
       queryClient.invalidateQueries({ queryKey: queryKeys.triage.all });
     },
   }),
-  "extraction.finding_proposed": noopHandler,
-  "extraction.decision_changed": noopHandler,
-  "extraction.finding_withdrawn": noopHandler,
+  "extraction.finding_proposed": defineSSEHandler<"extraction.finding_proposed">({
+    server: ({ queryClient, subscriptionHabitatId }) => {
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.extraction.reviewQueue(subscriptionHabitatId),
+      });
+    },
+  }),
+  "extraction.decision_changed": defineSSEHandler<"extraction.decision_changed">({
+    server: ({ queryClient, subscriptionHabitatId }) => {
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.extraction.reviewQueue(subscriptionHabitatId),
+      });
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.extraction.acceptedFindings(subscriptionHabitatId),
+      });
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.extraction.all,
+      });
+    },
+  }),
+  "extraction.finding_withdrawn": defineSSEHandler<"extraction.finding_withdrawn">({
+    server: ({ queryClient, subscriptionHabitatId }) => {
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.extraction.reviewQueue(subscriptionHabitatId),
+      });
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.extraction.all,
+      });
+    },
+  }),
 } satisfies Record<SSEEventType, SSEEventHandler>;
 
 export function getSSEEventHandler(type: SSEEventType): SSEEventHandler | undefined {

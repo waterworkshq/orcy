@@ -22,9 +22,12 @@ import { notFound } from "../errors.js";
 import * as extractionPolicyService from "../services/extractionPolicyService.js";
 import * as extractionReviewService from "../services/extractionReviewService.js";
 import * as extractionPromotionService from "../services/extractionPromotionService.js";
+import { runExtraction } from "../services/extractionRunLifecycle.js";
 import {
   listAcceptedFindingsForAgentWithClient,
   getAcceptedFindingForAgentWithClient,
+  getWorkItemsByHabitatWithClient,
+  getLatestAttemptWithClient,
 } from "../repositories/extraction/index.js";
 import { getDb } from "../db/index.js";
 
@@ -91,6 +94,10 @@ const agentFindingsQuerySchema = z.object({
   maxAgeSeconds: z.number().int().positive().optional(),
   limit: z.number().int().min(1).max(25).optional(),
   maxChars: z.number().int().positive().optional(),
+});
+
+const freshRerunBodySchema = z.object({
+  reason: z.string().min(1),
 });
 
 // ---------------------------------------------------------------------------
@@ -404,6 +411,117 @@ export async function extractionRoutes(fastify: FastifyInstance): Promise<void> 
       // Collapsed denial: not-found and forbidden are identical.
       if (!finding) throw notFound("Finding not found");
       return { finding };
+    },
+  );
+
+  // ──────────────────────────────────────────────────────────────
+  // Manual execution controls (human-only)
+  // ──────────────────────────────────────────────────────────────
+
+  fastify.withTypeProvider<ZodTypeProvider>().post(
+    "/habitats/:habitatId/extraction/policies/:policyId/ensure",
+    {
+      schema: { params: policyParamsSchema },
+      preHandler: [humanAuth, requireHabitatAccess],
+    },
+    async (request) => {
+      const policy = extractionPolicyService.getPolicy(request.params.policyId);
+      if (!policy || policy.habitatId !== request.params.habitatId) {
+        throw notFound("Policy not found");
+      }
+      const result = runExtraction({
+        habitatId: request.params.habitatId,
+        policy,
+        deliveryMode: "manual",
+        actorType: "human",
+        actorId: request.user!.id,
+      });
+      return { result };
+    },
+  );
+
+  fastify.withTypeProvider<ZodTypeProvider>().post(
+    "/habitats/:habitatId/extraction/policies/:policyId/fresh-rerun",
+    {
+      schema: { params: policyParamsSchema, body: freshRerunBodySchema },
+      preHandler: [humanAuth, requireHabitatAccess],
+    },
+    async (request) => {
+      const policy = extractionPolicyService.getPolicy(request.params.policyId);
+      if (!policy || policy.habitatId !== request.params.habitatId) {
+        throw notFound("Policy not found");
+      }
+      const result = runExtraction({
+        habitatId: request.params.habitatId,
+        policy,
+        deliveryMode: "manual",
+        actorType: "human",
+        actorId: request.user!.id,
+        isFreshRerun: true,
+        freshReason: request.body.reason,
+      });
+      return { result };
+    },
+  );
+
+  fastify.withTypeProvider<ZodTypeProvider>().post(
+    "/habitats/:habitatId/extraction/policies/:policyId/dry-run",
+    {
+      schema: { params: policyParamsSchema },
+      preHandler: [humanAuth, requireHabitatAccess],
+    },
+    async (request) => {
+      const policy = extractionPolicyService.getPolicy(request.params.policyId);
+      if (!policy || policy.habitatId !== request.params.habitatId) {
+        throw notFound("Policy not found");
+      }
+      const result = runExtraction({
+        habitatId: request.params.habitatId,
+        policy,
+        deliveryMode: "manual",
+        actorType: "human",
+        actorId: request.user!.id,
+        dryRun: true,
+      });
+      return { result };
+    },
+  );
+
+  // ──────────────────────────────────────────────────────────────
+  // Run/work history (human-only, habitat-scoped)
+  // ──────────────────────────────────────────────────────────────
+
+  fastify.withTypeProvider<ZodTypeProvider>().get(
+    "/habitats/:habitatId/extraction/runs",
+    {
+      schema: { params: habitatIdParamsSchema },
+      preHandler: [humanAuth, requireHabitatAccess],
+    },
+    async (request) => {
+      const db = getDb();
+      const workItems = getWorkItemsByHabitatWithClient(db, request.params.habitatId);
+      const runs = workItems
+        .map((wi) => {
+          const attempt = getLatestAttemptWithClient(db, wi.id);
+          if (!attempt) return null;
+          return {
+            id: attempt.id,
+            workItemId: wi.id,
+            status: attempt.status,
+            deliveryMode: attempt.deliveryMode,
+            extractorKey: wi.extractorKey,
+            candidateCount: attempt.candidateCount,
+            persistedCount: attempt.persistedCount,
+            deduplicatedCount: attempt.deduplicatedCount,
+            error: attempt.error,
+            startedAt: attempt.startedAt,
+            completedAt: attempt.completedAt,
+            createdAt: attempt.createdAt,
+          };
+        })
+        .filter((r): r is NonNullable<typeof r> => r !== null)
+        .toSorted((a, b) => b.createdAt.localeCompare(a.createdAt));
+      return { runs };
     },
   );
 }

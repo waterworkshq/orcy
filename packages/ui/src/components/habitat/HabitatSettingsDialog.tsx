@@ -19,6 +19,7 @@ import { IntegrationsTab } from "./settings/IntegrationsTab.js";
 import { WorktreeTab, type WorktreeTabHandle } from "./settings/WorktreeTab.js";
 import { RepositoryTab, type RepositoryTabHandle } from "./settings/RepositoryTab.js";
 import { PluginsTab } from "./settings/PluginsTab.js";
+import { LearningLoopTab } from "./settings/LearningLoopTab.js";
 import { TriageSettingsTab, type TriageSettingsTabHandle } from "./settings/TriageSettingsTab.js";
 import {
   RoadmapSettingsTab,
@@ -46,7 +47,8 @@ type SettingsTab =
   | "repository"
   | "plugins"
   | "triage"
-  | "roadmap";
+  | "roadmap"
+  | "learning_loop";
 
 const TAB_CONFIG: Array<{ key: SettingsTab; label: string }> = [
   { key: "general", label: "General" },
@@ -65,6 +67,7 @@ const TAB_CONFIG: Array<{ key: SettingsTab; label: string }> = [
   { key: "plugins", label: "Plugins" },
   { key: "triage", label: "Triage" },
   { key: "roadmap", label: "Roadmap" },
+  { key: "learning_loop", label: "Learning Loop" },
 ];
 
 const SAVE_LABELS: Partial<Record<SettingsTab, string>> = {
@@ -297,6 +300,9 @@ export function HabitatSettingsDialog({
               onUpdate={onUpdate}
               onSavingChange={handleTabSavingChange}
             />
+          </div>
+          <div className={activeTab !== "learning_loop" ? "hidden" : ""}>
+            <LearningLoopTab habitatId={habitat.id} />
           </div>
         </DialogContent>
         <DialogFooter>
