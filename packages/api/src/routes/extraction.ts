@@ -18,10 +18,11 @@ import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
 import { humanAuth, agentOrHumanAuth } from "../middleware/auth.js";
 import { requireHabitatAccess } from "../middleware/team.js";
-import { notFound } from "../errors.js";
+import { notFound, badRequest } from "../errors.js";
 import * as extractionPolicyService from "../services/extractionPolicyService.js";
 import * as extractionReviewService from "../services/extractionReviewService.js";
 import * as extractionPromotionService from "../services/extractionPromotionService.js";
+import { promoteToWikiDraft } from "../services/extractionWikiDestination.js";
 import { runExtraction } from "../services/extractionRunLifecycle.js";
 import {
   listAcceptedFindingsForAgentWithClient,
@@ -98,6 +99,10 @@ const agentFindingsQuerySchema = z.object({
 
 const freshRerunBodySchema = z.object({
   reason: z.string().min(1),
+});
+
+const promoteBodySchema = z.object({
+  destinationType: z.enum(["wiki_draft"]),
 });
 
 // ---------------------------------------------------------------------------
@@ -353,6 +358,30 @@ export async function extractionRoutes(fastify: FastifyInstance): Promise<void> 
         request.params.habitatId,
         request.params.findingId,
       );
+    },
+  );
+
+  // ──────────────────────────────────────────────────────────────
+  // Wiki draft promotion (human-only)
+  // ──────────────────────────────────────────────────────────────
+
+  fastify.withTypeProvider<ZodTypeProvider>().post(
+    "/habitats/:habitatId/extraction/findings/:findingId/promote",
+    {
+      schema: { params: findingParamsSchema, body: promoteBodySchema },
+      preHandler: [humanAuth, requireHabitatAccess],
+    },
+    async (request, reply) => {
+      if (request.body.destinationType !== "wiki_draft") {
+        throw badRequest("Only wiki_draft destination is supported");
+      }
+      const result = promoteToWikiDraft(
+        request.params.habitatId,
+        request.params.findingId,
+        request.user!.id,
+      );
+      if (result.outcome === "promoted") reply.code(201);
+      return result;
     },
   );
 

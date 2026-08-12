@@ -11,6 +11,7 @@ const mockRejectFinding = vi.fn();
 const mockRequestRevision = vi.fn();
 const mockWithdrawFinding = vi.fn();
 const mockRefreshCitations = vi.fn();
+const mockPromoteToWiki = vi.fn();
 const mockNotifySuccess = vi.fn();
 const mockNotifyError = vi.fn();
 
@@ -23,6 +24,7 @@ vi.mock("../../api/index.js", () => ({
       requestRevision: (...args: unknown[]) => mockRequestRevision(...args),
       withdrawFinding: (...args: unknown[]) => mockWithdrawFinding(...args),
       refreshCitations: (...args: unknown[]) => mockRefreshCitations(...args),
+      promoteToWiki: (...args: unknown[]) => mockPromoteToWiki(...args),
     },
   },
 }));
@@ -148,6 +150,27 @@ const ruleRecFinding = {
     subject: "Consider auto-assigning frontend tasks to domain experts",
     body: "Recommend creating an Automation Rule that assigns frontend tasks to agents with frontend domain.",
   },
+};
+
+const acceptedFinding = {
+  ...proposedFinding,
+  finding: {
+    ...proposedFinding.finding,
+    status: "accepted",
+    decisionVersion: 2,
+  },
+  citations: [
+    {
+      id: "cit-ok-1",
+      sourceType: "task_lifecycle_audit",
+      role: "supporting",
+      visibilityClass: "habitat_member",
+      completeness: "complete",
+      resolutionState: "available",
+      occurredAt: "2026-08-05T10:00:00Z",
+      entityRefs: [{ type: "task", id: "task-abc12345" }],
+    },
+  ],
 };
 
 describe("ExtractionFindingDetail", () => {
@@ -287,7 +310,7 @@ describe("ExtractionFindingDetail", () => {
     expect(screen.getByText("Occurrences:").parentElement).toHaveTextContent("3");
   });
 
-  it("does NOT render any Wiki publish affordance", async () => {
+  it("does NOT render any Wiki publish affordance for proposed findings", async () => {
     mockGetFindingDetail.mockResolvedValue(proposedFinding);
 
     renderWithClient(<ExtractionFindingDetail habitatId="hab-1" findingId="find-1" onBack={() => {}} />);
@@ -297,8 +320,93 @@ describe("ExtractionFindingDetail", () => {
     });
 
     expect(screen.queryByText(/publish.*wiki/i)).not.toBeInTheDocument();
-    expect(screen.queryByText(/promote.*wiki/i)).not.toBeInTheDocument();
-    expect(screen.queryByText(/wiki.*draft/i)).not.toBeInTheDocument();
+    expect(screen.queryByTestId("promote-action")).not.toBeInTheDocument();
+  });
+
+  it("shows promote-to-wiki action for accepted findings (draft only, no publish)", async () => {
+    mockGetFindingDetail.mockResolvedValue(acceptedFinding);
+
+    renderWithClient(<ExtractionFindingDetail habitatId="hab-1" findingId="find-1" onBack={() => {}} />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("promote-action")).toBeInTheDocument();
+    });
+
+    // Promote button is visible
+    expect(screen.getByTestId("promote-to-wiki-btn")).toBeInTheDocument();
+    expect(screen.getByLabelText("Promote to Wiki draft")).toBeInTheDocument();
+
+    // No publish button — only the promote-to-draft action
+    expect(screen.queryByRole("button", { name: /publish/i })).not.toBeInTheDocument();
+  });
+
+  it("calls promoteToWiki on button click and shows success", async () => {
+    mockGetFindingDetail.mockResolvedValue(acceptedFinding);
+    mockPromoteToWiki.mockResolvedValue({
+      outcome: "promoted",
+      promotion: { id: "promo-1", targetId: "page-1" },
+      pageId: "page-1",
+    });
+
+    renderWithClient(<ExtractionFindingDetail habitatId="hab-1" findingId="find-1" onBack={() => {}} />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("promote-to-wiki-btn")).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByTestId("promote-to-wiki-btn"));
+
+    await waitFor(() => {
+      expect(mockPromoteToWiki).toHaveBeenCalledWith("hab-1", "find-1", { destinationType: "wiki_draft" });
+    });
+
+    await waitFor(() => {
+      expect(mockNotifySuccess).toHaveBeenCalledWith("Wiki draft created");
+    });
+  });
+
+  it("shows already-promoted notification on replay", async () => {
+    mockGetFindingDetail.mockResolvedValue(acceptedFinding);
+    mockPromoteToWiki.mockResolvedValue({
+      outcome: "already_promoted",
+      promotion: { id: "promo-1", targetId: "page-1" },
+      pageId: "page-1",
+    });
+
+    renderWithClient(<ExtractionFindingDetail habitatId="hab-1" findingId="find-1" onBack={() => {}} />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("promote-to-wiki-btn")).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByTestId("promote-to-wiki-btn"));
+
+    await waitFor(() => {
+      expect(mockNotifySuccess).toHaveBeenCalledWith(
+        "Finding was already promoted — existing Wiki draft found.",
+      );
+    });
+  });
+
+  it("shows error message when promotion fails", async () => {
+    mockGetFindingDetail.mockResolvedValue(acceptedFinding);
+    mockPromoteToWiki.mockRejectedValue(new Error("Finding is not eligible for promotion"));
+
+    renderWithClient(<ExtractionFindingDetail habitatId="hab-1" findingId="find-1" onBack={() => {}} />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("promote-to-wiki-btn")).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByTestId("promote-to-wiki-btn"));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("promote-error")).toBeInTheDocument();
+    });
+
+    expect(screen.getByTestId("promote-error")).toHaveTextContent(
+      "Finding is not eligible for promotion",
+    );
   });
 
   it("shows error state when finding is not found", async () => {

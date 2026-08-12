@@ -29,6 +29,7 @@ const TARGET_TYPE_TO_TABLE: Record<WikiLinkTargetType, string> = {
   pull_request: "pull_requests",
   evidence_link: "code_evidence_links",
   external_issue: "external_issue_links",
+  extracted_finding: "extracted_findings",
 };
 
 function rowToLink(row: Record<string, unknown>): WikiPageLink {
@@ -182,8 +183,10 @@ function habitatScopedQuery(type: WikiLinkTargetType, habitatId: string, ids: st
           SELECT id FROM ${sql.raw("missions")} WHERE habitat_id = ${habitatId}
         ))
       )`;
+    case "extracted_finding":
+      return sql`SELECT id FROM ${sql.raw("extracted_findings")} WHERE habitat_id = ${habitatId} AND id IN (${idList})`;
   }
 }
 
 /** Re-export for callers that want to test the mapping table directly. */
-export const _targetTypeToTable = TARGET_TYPE_TO_TABLE;
+export const targetTypeToTable = TARGET_TYPE_TO_TABLE;

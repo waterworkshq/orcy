@@ -166,6 +166,24 @@ export function ExtractionFindingDetail({
     },
   });
 
+  const promoteMutation = useMutation({
+    mutationFn: () =>
+      api.extraction.promoteToWiki(habitatId, findingId, {
+        destinationType: "wiki_draft",
+      }),
+    onSuccess: (result) => {
+      if (result.outcome === "already_promoted") {
+        notify.success("Finding was already promoted — existing Wiki draft found.");
+      } else {
+        notify.success("Wiki draft created");
+      }
+      invalidateFinding();
+    },
+    onError: (err: Error) => {
+      notify.error(err.message);
+    },
+  });
+
   if (isLoading) {
     return (
       <div className="py-8 text-center text-sm text-muted-foreground">
@@ -427,7 +445,29 @@ export function ExtractionFindingDetail({
         </div>
       )}
 
-      {/* NO Wiki publish affordance — ticket 7 composes into this view */}
+      {/* Wiki draft promotion — accepted findings only, creates a draft, never publishes */}
+      {finding.status === "accepted" && (
+        <div className="space-y-3 pt-3 border-t border-border" data-testid="promote-action">
+          <p className="text-sm font-medium">Promote to Wiki</p>
+          <p className="text-xs text-muted-foreground">
+            Creates a draft Wiki page from this finding. The page is always a draft —
+            publishing is a separate explicit Wiki action.
+          </p>
+          <Button
+            onClick={() => promoteMutation.mutate()}
+            loading={promoteMutation.isPending}
+            aria-label="Promote to Wiki draft"
+            data-testid="promote-to-wiki-btn"
+          >
+            Promote to Wiki Draft
+          </Button>
+          {promoteMutation.isError && (
+            <p className="text-xs text-red-600" data-testid="promote-error">
+              {promoteMutation.error.message}
+            </p>
+          )}
+        </div>
+      )}
     </div>
   );
 }

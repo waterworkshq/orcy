@@ -176,6 +176,37 @@ export const extractionApi = {
     }).then((r) => r.citations),
 
   // ──────────────────────────────────────────────────────────────
+  // Wiki draft promotion (human-only)
+  // ──────────────────────────────────────────────────────────────
+
+  /** Promote an accepted finding to a Wiki draft page. */
+  promoteToWiki: (
+    habitatId: string,
+    findingId: string,
+    body: { destinationType: "wiki_draft" },
+  ) =>
+    request<{
+      outcome: "promoted" | "already_promoted";
+      promotion: {
+        id: string;
+        findingId: string;
+        destinationType: string;
+        destinationKey: string;
+        status: string;
+        targetType: string | null;
+        targetId: string | null;
+        targetVersion: string | null;
+        consumedFindingRevision: number;
+        error: string | null;
+        completedAt: string | null;
+      };
+      pageId: string;
+    }>(
+      `/habitats/${habitatId}/extraction/findings/${findingId}/promote`,
+      { method: "POST", body: JSON.stringify(body) },
+    ),
+
+  // ──────────────────────────────────────────────────────────────
   // Manual execution controls
   //
   // These routes target the expected REST paths for ensure / fresh_rerun /

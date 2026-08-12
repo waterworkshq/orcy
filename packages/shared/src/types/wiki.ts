@@ -15,6 +15,7 @@ export const WIKI_LINK_TARGET_TYPES = [
   "pull_request",
   "evidence_link",
   "external_issue",
+  "extracted_finding",
 ] as const;
 
 /** Controlled source primitive type for a polymorphic Wiki Page Link citation. */

@@ -197,6 +197,162 @@ export function terminalizePromotionWithClient(
 }
 
 // ---------------------------------------------------------------------------
+// Target recording (stays pending, fenced by lease)
+// ---------------------------------------------------------------------------
+
+export interface RecordPromotionTargetInput {
+  promotionId: string;
+  leaseOwner: string;
+  leaseGeneration: number;
+  targetType: string;
+  targetId: string;
+  targetVersion: string;
+}
+
+export type RecordPromotionTargetResult =
+  | { outcome: "recorded"; promotion: ExtractedFindingPromotionRow }
+  | { outcome: "not_found" }
+  | { outcome: "illegal_source_state"; promotion: ExtractedFindingPromotionRow; fromState: string }
+  | { outcome: "fence_mismatch"; promotion: ExtractedFindingPromotionRow };
+
+/**
+ * Record the created destination target on a pending promotion row without
+ * terminalizing. This lets a retry detect a page created in a prior attempt
+ * (targetId is set) and skip page creation, preventing duplicates.
+ *
+ * CAS predicate: `id = promotionId AND status = 'pending' AND
+ * lease_owner = leaseOwner AND lease_generation = leaseGeneration`.
+ */
+export function recordPromotionTargetWithClient(
+  db: ExtractionDbClient,
+  input: RecordPromotionTargetInput,
+): RecordPromotionTargetResult {
+  const now = new Date().toISOString();
+  try {
+    db.update(extractedFindingPromotions)
+      .set({
+        targetType: input.targetType,
+        targetId: input.targetId,
+        targetVersion: input.targetVersion,
+        updatedAt: now,
+      })
+      .where(
+        and(
+          eq(extractedFindingPromotions.id, input.promotionId),
+          eq(extractedFindingPromotions.status, "pending"),
+          eq(extractedFindingPromotions.leaseOwner, input.leaseOwner),
+          eq(extractedFindingPromotions.leaseGeneration, input.leaseGeneration),
+        ),
+      )
+      .run();
+  } catch (err) {
+    throw repositoryUpdateError("extractedFindingPromotion", err as Error, input.promotionId);
+  }
+
+  const affected = getChanges(db);
+  const row = db
+    .select()
+    .from(extractedFindingPromotions)
+    .where(eq(extractedFindingPromotions.id, input.promotionId))
+    .all()[0];
+  if (!row) return { outcome: "not_found" };
+
+  if (affected === 1) return { outcome: "recorded", promotion: mapPromotionRow(row) };
+
+  const fromState = row.status;
+  if (fromState !== "pending") {
+    return { outcome: "illegal_source_state", promotion: mapPromotionRow(row), fromState };
+  }
+  return { outcome: "fence_mismatch", promotion: mapPromotionRow(row) };
+}
+
+// ---------------------------------------------------------------------------
+// Re-arm a failed promotion for retry
+// ---------------------------------------------------------------------------
+
+export interface ReArmPromotionInput {
+  promotionId: string;
+  leaseOwner: string;
+  leaseGeneration: number;
+}
+
+export type ReArmPromotionResult =
+  | { outcome: "re_armed"; promotion: ExtractedFindingPromotionRow }
+  | { outcome: "not_found" }
+  | { outcome: "illegal_source_state"; promotion: ExtractedFindingPromotionRow; fromState: string };
+
+/**
+ * Re-arm a `failed` promotion back to `pending` with a new lease, allowing an
+ * honest retry. CAS predicate: `id = promotionId AND status = 'failed'`.
+ * Only one concurrent retry can win the CAS; the loser sees `illegal_source_state`.
+ */
+export function reArmPromotionWithClient(
+  db: ExtractionDbClient,
+  input: ReArmPromotionInput,
+): ReArmPromotionResult {
+  const now = new Date().toISOString();
+  try {
+    db.update(extractedFindingPromotions)
+      .set({
+        status: "pending",
+        leaseOwner: input.leaseOwner,
+        leaseGeneration: input.leaseGeneration,
+        error: null,
+        updatedAt: now,
+      })
+      .where(
+        and(
+          eq(extractedFindingPromotions.id, input.promotionId),
+          eq(extractedFindingPromotions.status, "failed"),
+        ),
+      )
+      .run();
+  } catch (err) {
+    throw repositoryUpdateError("extractedFindingPromotion", err as Error, input.promotionId);
+  }
+
+  const affected = getChanges(db);
+  const row = db
+    .select()
+    .from(extractedFindingPromotions)
+    .where(eq(extractedFindingPromotions.id, input.promotionId))
+    .all()[0];
+  if (!row) return { outcome: "not_found" };
+
+  if (affected === 1) return { outcome: "re_armed", promotion: mapPromotionRow(row) };
+
+  const fromState = row.status;
+  return { outcome: "illegal_source_state", promotion: mapPromotionRow(row), fromState };
+}
+
+// ---------------------------------------------------------------------------
+// Source-exclusion probe (feedback-loop prevention — §19)
+// ---------------------------------------------------------------------------
+
+/**
+ * Check whether a wiki page ID appears as a successful promotion target.
+ * Any page that was promoted from a finding is permanently excluded from
+ * future Wiki source batches, even after link removal, edit, or publish.
+ * This is the feedback-loop prevention probe (not a real Wiki source adapter).
+ */
+export function isWikiPageExcludedFromSources(
+  db: ExtractionDbClient,
+  pageId: string,
+): boolean {
+  const row = db
+    .select({ id: extractedFindingPromotions.id })
+    .from(extractedFindingPromotions)
+    .where(
+      and(
+        eq(extractedFindingPromotions.targetId, pageId),
+        eq(extractedFindingPromotions.status, "succeeded"),
+      ),
+    )
+    .all()[0];
+  return !!row;
+}
+
+// ---------------------------------------------------------------------------
 // Read
 // ---------------------------------------------------------------------------
 
