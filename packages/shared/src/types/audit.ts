@@ -12,6 +12,7 @@ export const AUDIT_SOURCES = [
   "notification",
   "workflow",
   "plugin",
+  "learning_loop",
   "unknown",
 ] as const;
 
@@ -39,6 +40,9 @@ export const AUDIT_ENTITY_TYPES = [
   "notification_event",
   "notification_delivery",
   "plugin_run",
+  "extraction_work_item",
+  "extraction_attempt",
+  "extracted_finding",
 ] as const;
 
 /** Discriminator for an audit event's subject entity kind. Covers both primary and linked entities (including `branch`, which is reference-only and never a primary query entity). */
