@@ -121,6 +121,7 @@ export const automationRunAuditAdapter: ExtractionSourceAdapter = {
         completeness: "complete",
         warnings: [],
         boundaryToken: boundaryToken!,
+        collectionOutcome: "collected" as const,
       };
     } catch {
       return {
@@ -129,6 +130,7 @@ export const automationRunAuditAdapter: ExtractionSourceAdapter = {
         completeness: "partial",
         warnings: ["automation_run_source_unavailable"],
         boundaryToken: boundaryToken ?? makeBoundaryToken(SOURCE_TYPE, EPOCH_ISO),
+        collectionOutcome: "failed" as const,
       };
     }
   },

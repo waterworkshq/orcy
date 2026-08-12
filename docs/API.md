@@ -6666,7 +6666,7 @@ Reject a proposed finding. Transitions `proposed → rejected`.
 
 #### POST /habitats/:habitatId/extraction/findings/:findingId/revise
 
-Request revision of a proposed finding. Transitions `proposed → revision_requested`.
+Request revision of a proposed finding. Records feedback only — the finding stays in `proposed` status with an incremented `decisionVersion`.
 
 **Response:** revision result
 
@@ -6717,7 +6717,7 @@ List accepted findings readable by the calling agent in the context of the suppl
 | `domain` | No | Filter by domain (narrows only) |
 | `maxAgeSeconds` | No | Exclude findings older than this |
 | `limit` | No | Max results (default 10, hard limit 25) |
-| `maxChars` | No | Truncate finding body to this many characters |
+| `maxChars` | No | Server-owned total character budget for subject+body combined (default 4000, hard max 8000) |
 
 **Response:** `{ findings: AgentFindingView[] }` — bounded summaries, no drill-down for aggregate-only findings.
 

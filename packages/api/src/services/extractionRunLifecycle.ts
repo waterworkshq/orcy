@@ -30,7 +30,9 @@
  */
 import { createHash } from "node:crypto";
 import { v4 as uuid } from "uuid";
+import { eq, sql } from "drizzle-orm";
 import { getDb } from "../db/index.js";
+import { extractionWorkItems } from "../db/schema/index.js";
 import { logger } from "../lib/logger.js";
 import {
   reserveWorkItemWithClient,
@@ -108,7 +110,7 @@ export type ExtractionRunDisposition =
       attempt: ExtractionAttemptRow;
       outcome: "succeeded" | "partial";
       sources: SourceSnapshotEntry[];
-      candidates: { validated: number; persisted: number; deduplicated: number; rejected: number };
+      candidates: { emitted: number; validated: number; persisted: number; deduplicated: number; rejected: number };
     }
   | {
       kind: "skipped";
@@ -525,7 +527,9 @@ export function runExtraction(input: RunExtractionInput): ExtractionRunDispositi
   const selectedSourceTypes = new Set(policy.sourceTypes);
   const adapters = selectAdapters(selectedSourceTypes);
 
-  const boundaryTokens: SourceBoundaryToken[] = [];
+  // I3 fix: Store tokens in a Map keyed by sourceType so capture failures
+  // don't shift tokens onto the wrong adapter's position.
+  const boundaryTokenMap = new Map<string, SourceBoundaryToken | null>();
   for (const adapter of adapters) {
     try {
       const token = adapter.captureBoundary({
@@ -533,14 +537,22 @@ export function runExtraction(input: RunExtractionInput): ExtractionRunDispositi
         windowFrom: window.windowFrom,
         windowTo: window.windowTo,
       });
-      boundaryTokens.push(token);
+      boundaryTokenMap.set(adapter.type, token);
     } catch (err) {
-      // Boundary capture failure → empty token; collection will report the error.
+      // Boundary capture failure → store null so this source is NOT missing
+      // from the map (which would shift subsequent adapters' tokens).
+      boundaryTokenMap.set(adapter.type, null);
       logger.warn(
         { err, sourceType: adapter.type, habitatId },
         "Extraction boundary capture failed",
       );
     }
+  }
+
+  // Build the serializable boundary token map from successful captures only.
+  const boundaryTokens: SourceBoundaryToken[] = [];
+  for (const [, token] of boundaryTokenMap) {
+    if (token) boundaryTokens.push(token);
   }
 
   const serializedTokens = serializeBoundaryTokens(boundaryTokens);
@@ -549,7 +561,34 @@ export function runExtraction(input: RunExtractionInput): ExtractionRunDispositi
   // Step 3 — reserve logical work by `logical_work_key`.
   // -------------------------------------------------------------------------
 
-  const rerunGeneration = input.isFreshRerun ? Date.now() : 0; // Unique per fresh rerun
+  // B9 fix: Derive rerunGeneration monotonically from MAX(rerun_generation)+1
+  // for this policy, NOT Date.now() (millisecond collision; not monotonic).
+  // Also resolve supersedesWorkId to link the prior work item.
+  let rerunGeneration = 0;
+  let supersedesWorkId = input.supersedesWorkId ?? null;
+
+  if (input.isFreshRerun) {
+    const maxGenRow = db
+      .select({ maxGen: sql<number>`COALESCE(MAX(${extractionWorkItems.rerunGeneration}), 0)` })
+      .from(extractionWorkItems)
+      .where(eq(extractionWorkItems.policyId, policy.id))
+      .all()[0];
+    rerunGeneration = (maxGenRow?.maxGen ?? 0) + 1;
+
+    // Link to the latest work item for this policy (prior-work ancestry).
+    if (!supersedesWorkId) {
+      const latestWork = db
+        .select()
+        .from(extractionWorkItems)
+        .where(eq(extractionWorkItems.policyId, policy.id))
+        .orderBy(sql`${extractionWorkItems.rerunGeneration} DESC`)
+        .all()[0];
+      if (latestWork) {
+        supersedesWorkId = latestWork.id;
+      }
+    }
+  }
+
   const extractorVersion = BUILTIN_EXTRACTOR_VERSION;
   const policyVersion = policy.version;
 
@@ -583,7 +622,7 @@ export function runExtraction(input: RunExtractionInput): ExtractionRunDispositi
       logicalWorkKey,
       deliveryMode: input.deliveryMode,
       rerunGeneration,
-      supersedesWorkId: input.supersedesWorkId ?? null,
+      supersedesWorkId,
       freshReason: input.isFreshRerun ? input.freshReason ?? null : null,
       policySnapshot: {
         schedule: policy.schedule,
@@ -644,7 +683,8 @@ export function runExtraction(input: RunExtractionInput): ExtractionRunDispositi
 
   for (let i = 0; i < adapters.length; i++) {
     const adapter = adapters[i]!;
-    const token = boundaryTokens[i];
+    // I3 fix: Look up token by sourceType from the Map, not by position.
+    const token = boundaryTokenMap.get(adapter.type) ?? undefined;
 
     let batch: SourceBatch;
     try {
@@ -673,9 +713,11 @@ export function runExtraction(input: RunExtractionInput): ExtractionRunDispositi
       continue;
     }
 
-    // A failed source → partial snapshot + warning, watermark NOT advanced.
+    // B8 fix: Use the batch's collectionOutcome discriminator to determine
+    // watermark advancement. Only `collected` advances; `failed` does NOT.
+    const isFailed = batch.collectionOutcome === "failed";
     const hasWarnings = batch.warnings.length > 0;
-    const completeness = hasWarnings || batch.completeness === "partial"
+    const completeness = (isFailed || hasWarnings || batch.completeness === "partial")
       ? "partial"
       : "complete";
 
@@ -684,7 +726,7 @@ export function runExtraction(input: RunExtractionInput): ExtractionRunDispositi
       completeness: completeness as "complete" | "partial",
       observationCount: batch.observations.length,
       warnings: batch.warnings,
-      watermarkAdvanced: true, // Watermark advances only on successful collection.
+      watermarkAdvanced: !isFailed, // Failed sources do NOT advance their watermark.
     });
 
     allObservations.push(...batch.observations);
@@ -707,16 +749,29 @@ export function runExtraction(input: RunExtractionInput): ExtractionRunDispositi
   // -------------------------------------------------------------------------
 
   let candidates: ExtractionCandidate[];
+  let extractorDiagnostics: Array<{ detectorIndex: number; error: string }> = [];
   try {
-    candidates = runBuiltinExtractor({
+    const extractorResult = runBuiltinExtractor({
       observations: allObservations,
       policyConfig: policy.config,
       habitatId,
     });
+    candidates = extractorResult.candidates;
+    extractorDiagnostics = extractorResult.diagnostics;
+    // I2 fix: detector failures mark source snapshots as partial.
+    if (extractorResult.completeness === "partial") {
+      sourceSnapshots.push({
+        sourceType: "experience_aggregate" as ExtractionSourceType, // diagnostic marker
+        completeness: "partial",
+        observationCount: 0,
+        warnings: extractorDiagnostics.map((d) => `detector_${d.detectorIndex}_failed`),
+        watermarkAdvanced: true, // Detector failure doesn't affect source watermark.
+      });
+    }
   } catch (err) {
     // Extractor throw → no findings persisted; terminalize failed.
     const message = err instanceof Error ? err.message : String(err);
-    return terminalizeFailed(db, workItem, attempt, "extractor_throw", message, sourceSnapshots, 0, 0, 0);
+    return terminalizeFailed(db, workItem, attempt, "extractor_throw", message, sourceSnapshots, 0, 0, 0, 0);
   }
 
   // -------------------------------------------------------------------------
@@ -757,7 +812,7 @@ export function runExtraction(input: RunExtractionInput): ExtractionRunDispositi
       attempt,
       outcome,
       sourceSnapshots,
-      { validated, persisted: 0, deduplicated: 0, rejected },
+      { emitted: candidates.length, validated, persisted: 0, deduplicated: 0, rejected },
       true,
     );
   }
@@ -812,8 +867,9 @@ export function runExtraction(input: RunExtractionInput): ExtractionRunDispositi
       completeness,
       visibilityCeiling,
       caveats: candidate.caveats,
-      lineageRootId: uuid(), // Revision 1 → root is self
-      revision: 1,
+      // lineageRootId and revision are now derived by the repository:
+      // revision 1 self-roots (lineage_root_id = finding id), and changed
+      // evidence creates a linked revision of the prior finding.
       citations,
       scopeRefs,
     };
@@ -828,7 +884,7 @@ export function runExtraction(input: RunExtractionInput): ExtractionRunDispositi
         return terminalizeFailed(
           db, workItem, attempt, "fence_mismatch_during_persist",
           "Attempt fence mismatch during candidate persistence",
-          sourceSnapshots, validated, persisted, rejected,
+          sourceSnapshots, candidates.length, validated, persisted, rejected,
         );
       }
 
@@ -863,7 +919,7 @@ export function runExtraction(input: RunExtractionInput): ExtractionRunDispositi
     attempt,
     finalOutcome,
     sourceSnapshots,
-    { validated, persisted, deduplicated, rejected },
+    { emitted: candidates.length, validated, persisted, deduplicated, rejected },
   );
 }
 
@@ -881,14 +937,16 @@ function terminalizeWithDiagnostics(
   attempt: ExtractionAttemptRow,
   outcome: "succeeded" | "partial",
   sources: SourceSnapshotEntry[],
-  candidates: { validated: number; persisted: number; deduplicated: number; rejected: number },
+  candidates: { emitted: number; validated: number; persisted: number; deduplicated: number; rejected: number },
   dryRun = false,
 ): ExtractionRunDisposition {
-  const candidateCount = candidates.validated + candidates.rejected;
+  // B8(4) fix: candidateCount is the emitted count, NOT validated + rejected
+  // (which double-counts post-validation rejections).
+  const candidateCount = candidates.emitted;
   const attemptStatus = outcome === "succeeded" ? "succeeded" as const : "partial" as const;
   const workStatus = outcome === "succeeded" ? "succeeded" as const : "partial" as const;
 
-  // Terminalize the attempt (owned transition only).
+  // Terminalize the attempt (owned transition only) with source snapshot (B8(1)).
   const attemptResult = terminalizeAttemptWithClient(db, {
     attemptId: attempt.id,
     workItemId: workItem.id,
@@ -898,6 +956,7 @@ function terminalizeWithDiagnostics(
     candidateCount,
     persistedCount: candidates.persisted,
     deduplicatedCount: candidates.deduplicated,
+    sourceSnapshot: sources as unknown as Record<string, unknown>[],
   });
 
   if (attemptResult.outcome !== "terminalized") {
@@ -917,8 +976,10 @@ function terminalizeWithDiagnostics(
 
   const terminalAttempt = attemptResult.attempt;
 
-  // Terminalize the work item (only if not dry-run).
-  if (!dryRun) {
+  // B8(3) fix: Terminalize the work item in ALL cases, including dry-run.
+  // Previously dry-run skipped work-item terminalization, leaving a pending
+  // work row forever. Now dry-run terminalizes with a truthful status.
+  {
     const workResult = terminalizeWorkItemWithClient(db, {
       workItemId: workItem.id,
       attemptId: attempt.id,
@@ -926,11 +987,8 @@ function terminalizeWithDiagnostics(
     });
 
     if (workResult.outcome !== "terminalized") {
-      // Work item terminalization failed — this is the crash-after-commit-
-      // before-finalization window. Findings are already committed. Recovery
-      // will reconcile.
       logger.warn(
-        { workItemId: workItem.id, outcome: workResult.outcome },
+        { workItemId: workItem.id, outcome: workResult.outcome, dryRun },
         "Extraction work item terminalization failed — recovery will reconcile",
       );
     }
@@ -965,11 +1023,12 @@ function terminalizeFailed(
   stage: string,
   error: string,
   sources: SourceSnapshotEntry[],
+  emitted: number,
   validated: number,
   persisted: number,
-  rejected: number,
+  _rejected: number,
 ): ExtractionRunDisposition {
-  const candidateCount = validated + rejected;
+  const candidateCount = emitted;
 
   const attemptResult = terminalizeAttemptWithClient(db, {
     attemptId: attempt.id,
@@ -980,6 +1039,7 @@ function terminalizeFailed(
     candidateCount,
     persistedCount: persisted,
     error,
+    sourceSnapshot: sources as unknown as Record<string, unknown>[],
   });
 
   // Attempt to terminalize the work item as failed.

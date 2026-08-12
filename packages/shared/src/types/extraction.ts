@@ -208,6 +208,7 @@ export const EXTRACTION_REVIEW_DECISIONS = [
   "accept",
   "reject",
   "request_revision",
+  "withdraw",
 ] as const;
 
 /** Human review decision on a finding proposal. */

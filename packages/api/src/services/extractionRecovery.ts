@@ -30,10 +30,12 @@ import { logger } from "../lib/logger.js";
 import {
   terminalizeWorkItemWithClient,
   getLatestAttemptWithClient,
-  createAttemptWithClient,
+  getPolicyByIdWithClient,
 } from "../repositories/extraction/index.js";
 import { getChanges } from "../repositories/extraction/types.js";
 import type { ExtractionDbClient } from "../repositories/extraction/types.js";
+import type { LearningLoopPolicyRow, ExtractionWorkItemRow, ExtractionSourceType } from "@orcy/shared";
+import { runExtraction } from "./extractionRunLifecycle.js";
 
 // ---------------------------------------------------------------------------
 // Summary types
@@ -133,7 +135,7 @@ function hasCommittedFindings(
   attemptId: string,
 ): boolean {
   const result = db
-    .select({ count: sql<number>`count(*)::int` })
+    .select({ count: sql<number>`count(*)` })
     .from(extractedFindings)
     .where(eq(extractedFindings.firstAttemptId, attemptId))
     .all()[0];
@@ -180,10 +182,13 @@ export function runExtractionReconciliationPass(): ExtractionRecoverySummary {
     }
     summary.failedAttempts++;
 
-    // Check if this attempt had committed findings.
-    const hadFindings = attempt.persistedCount > 0;
+    // B7 fix: Query committed findings by stale attempt ID BEFORE deciding to
+    // rerun, regardless of persisted tallies. The attempt's persistedCount may
+    // be 0 if candidate persistence committed but attempt terminalization/count
+    // update did not.
+    const hasCommitted = hasCommittedFindings(db, attempt.id);
 
-    if (hadFindings) {
+    if (hasCommitted) {
       // The attempt committed findings before crashing. Repair the work item
       // terminal status based on the committed outcome rather than creating
       // a child re-run (findings remain discoverable via first_attempt_id).
@@ -201,31 +206,38 @@ export function runExtractionReconciliationPass(): ExtractionRecoverySummary {
       continue;
     }
 
-    // No committed findings — create a child attempt for the same work item.
-    // The child gets the next attempt_no and a new lease generation.
+    // No committed findings — resume through the canonical lifecycle.
+    // B7 fix: previously created an inert child attempt that never executed.
+    // Now we re-run extraction on the existing work item so the work completes.
     try {
-      const childLeaseOwner = `extraction:boot_recovery:${process.pid ?? "unknown"}`;
-      const childLeaseGeneration = attempt.leaseGeneration + 1;
-      const childLeaseExpiresAt = new Date(
-        Date.parse(nowIso) + 300 * 1000,
-      ).toISOString();
-
-      const childResult = createAttemptWithClient(db, {
-        workItemId: workItem.id,
-        parentAttemptId: attempt.id,
-        deliveryMode: "boot_recovery",
-        leaseOwner: childLeaseOwner,
-        leaseGeneration: childLeaseGeneration,
-        leaseExpiresAt: childLeaseExpiresAt,
-      });
-
-      if (childResult.outcome === "created") {
+      const policy = resolvePolicyFromWorkItem(workItem);
+      if (policy) {
+        runExtraction({
+          habitatId: workItem.habitatId,
+          policy,
+          deliveryMode: "boot_recovery",
+          actorType: "system",
+          actorId: `boot_recovery:${process.pid ?? "unknown"}`,
+          isBootRecovery: true,
+          existingWorkItem: mapWorkItemRow(workItem),
+        });
         summary.childAttemptsCreated++;
+      } else {
+        // Policy was deleted — terminalize the work item as failed.
+        terminalizeWorkItemWithClient(db, {
+          workItemId: workItem.id,
+          attemptId: attempt.id,
+          status: "failed",
+        });
+        logger.warn(
+          { workItemId: workItem.id },
+          "Boot recovery: policy not found, work item terminalized as failed",
+        );
       }
     } catch (err) {
       logger.error(
         { err, workItemId: workItem.id, staleAttemptId: attempt.id },
-        "Failed to create boot-recovery child attempt",
+        "Failed to resume boot-recovery work item through lifecycle",
       );
     }
   }
@@ -281,4 +293,71 @@ export function runExtractionReconciliationPass(): ExtractionRecoverySummary {
   }
 
   return summary;
+}
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Resolve a policy from a work item's policyId (or reconstruct a minimal one
+ * from the policy snapshot if the policy was deleted).
+ */
+function resolvePolicyFromWorkItem(
+  workItem: typeof extractionWorkItems.$inferSelect,
+): LearningLoopPolicyRow | null {
+  const db = getDb();
+  if (workItem.policyId) {
+    const policy = getPolicyByIdWithClient(db, workItem.policyId);
+    if (policy) return policy;
+  }
+  // Policy was deleted — reconstruct a minimal policy from the work item's snapshot.
+  const snapshot = workItem.policySnapshot as Record<string, unknown>;
+  if (!snapshot) return null;
+  return {
+    id: workItem.policyId ?? "recovered",
+    habitatId: workItem.habitatId,
+    extractorKey: workItem.extractorKey,
+    enabled: true, // Recovery forces re-evaluation regardless.
+    sourceTypes: (snapshot.sourceTypes as ExtractionSourceType[]) ?? [],
+    schedule: (snapshot.schedule as string) ?? "* * * * *",
+    windowSeconds: (snapshot.windowSeconds as number) ?? workItem.windowTo
+      ? Math.round((Date.parse(workItem.windowTo) - Date.parse(workItem.windowFrom)) / 1000)
+      : 604800,
+    lookbackSeconds: (snapshot.lookbackSeconds as number) ?? Math.round(
+      (Date.parse(workItem.windowTo) - Date.parse(workItem.windowFrom)) / 1000,
+    ),
+    minConfidence: (snapshot.minConfidence as number | null) ?? null,
+    minSampleSize: (snapshot.minSampleSize as number | null) ?? null,
+    config: {},
+    version: workItem.policyVersion,
+    createdByType: "system",
+    createdById: null,
+    createdAt: workItem.createdAt,
+    updatedAt: workItem.updatedAt,
+  };
+}
+
+/** Map a raw work-item DB row to the typed projection. */
+function mapWorkItemRow(row: typeof extractionWorkItems.$inferSelect): ExtractionWorkItemRow {
+  return {
+    id: row.id,
+    habitatId: row.habitatId,
+    policyId: row.policyId,
+    extractorKey: row.extractorKey,
+    extractorVersion: row.extractorVersion,
+    policyVersion: row.policyVersion,
+    windowFrom: row.windowFrom,
+    windowTo: row.windowTo,
+    sourceBoundaryTokens: row.sourceBoundaryTokens,
+    logicalWorkKey: row.logicalWorkKey,
+    rerunGeneration: row.rerunGeneration,
+    supersedesWorkId: row.supersedesWorkId,
+    freshReason: row.freshReason,
+    status: row.status,
+    completedByAttemptId: row.completedByAttemptId,
+    policySnapshot: row.policySnapshot,
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
+  };
 }

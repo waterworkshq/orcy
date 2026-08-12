@@ -47,6 +47,8 @@ export interface TerminalizeAttemptInput {
   persistedCount?: number;
   deduplicatedCount?: number;
   error?: string | null;
+  /** Per-source diagnostics to persist on the attempt (B8 fix). */
+  sourceSnapshot?: Record<string, unknown>[];
 }
 
 // ---------------------------------------------------------------------------
@@ -201,6 +203,7 @@ export function terminalizeAttemptWithClient(
   if (input.persistedCount !== undefined) updates.persistedCount = input.persistedCount;
   if (input.deduplicatedCount !== undefined) updates.deduplicatedCount = input.deduplicatedCount;
   if (input.error !== undefined) updates.error = input.error;
+  if (input.sourceSnapshot !== undefined) updates.sourceSnapshot = input.sourceSnapshot;
 
   try {
     db.update(extractionAttempts)

@@ -16,6 +16,7 @@ import {
   extractedFindingReviews,
 } from "../../db/schema/index.js";
 import { repositoryCreateError, repositoryUpdateError } from "../../errors/repository.js";
+import { inArray } from "drizzle-orm";
 import type {
   ExtractedFindingReviewRow,
   ExtractedFindingRow,
@@ -42,7 +43,8 @@ export interface ReviewCasInput {
 
 export type ReviewCasResult =
   | { outcome: "decided"; review: ExtractedFindingReviewRow; finding: ExtractedFindingRow }
-  | { outcome: "version_conflict"; finding: ExtractedFindingRow };
+  | { outcome: "version_conflict"; finding: ExtractedFindingRow }
+  | { outcome: "illegal_source_state"; finding: ExtractedFindingRow; fromState: string };
 
 // ---------------------------------------------------------------------------
 // Review compare-and-set
@@ -52,24 +54,33 @@ export type ReviewCasResult =
  * Append one review decision and update the finding status/decision_version
  * atomically in one caller-owned transaction.
  *
- * CAS predicate: `id = findingId AND decision_version = expectedDecisionVersion`.
+ * CAS predicate: `id = findingId AND decision_version = expectedDecisionVersion
+ * AND status IN (allowed_prior_statuses)`.
+ *
  * `affected === 1` → decision recorded and finding status bumped.
- * `affected === 0` → a concurrent reviewer already bumped the version →
- * `version_conflict` with no mutation.
+ * `affected === 0` → either a concurrent reviewer bumped the version
+ *   (version_conflict) or the finding's status is not in the allowed set
+ *   (illegal_source_state). Re-reading distinguishes the two.
  *
  * The review row is always inserted AFTER the CAS succeeds, so a conflict
- * leaves no orphan review. The status transition follows the review decision:
- * accept → accepted, reject → rejected, request_revision → proposed (unchanged).
+ * leaves no orphan review. The caller MUST wrap this in a transaction so
+ * that a review-INSERT failure rolls back the status update.
+ *
+ * Approved state machine:
+ *   proposed → accepted | rejected | proposed (request_revision)
+ *   accepted → withdrawn
+ *   withdrawn is terminal unless a separately-approved recovery transition exists.
  */
 export function reviewCasWithClient(
   db: ExtractionDbClient,
   input: ReviewCasInput,
 ): ReviewCasResult {
   const newStatus = decisionToStatus(input.decision);
+  const allowedPriorStatuses = allowedPriorStatusesFor(input.decision);
   const newVersion = input.expectedDecisionVersion + 1;
   const now = new Date().toISOString();
 
-  // --- 1. CAS the finding status and decision_version ---
+  // --- 1. CAS the finding status and decision_version with state-machine guard ---
   try {
     db.update(extractedFindings)
       .set({
@@ -81,6 +92,7 @@ export function reviewCasWithClient(
         and(
           eq(extractedFindings.id, input.findingId),
           eq(extractedFindings.decisionVersion, input.expectedDecisionVersion),
+          inArray(extractedFindings.status, allowedPriorStatuses),
         ),
       )
       .run();
@@ -90,7 +102,7 @@ export function reviewCasWithClient(
 
   const affected = getChanges(db);
 
-  // Re-read the finding (needed for both branches)
+  // Re-read the finding (needed for all branches)
   const findingRow = db
     .select()
     .from(extractedFindings)
@@ -99,7 +111,14 @@ export function reviewCasWithClient(
   if (!findingRow) throw repositoryCreateError("extractedFinding", undefined, input.findingId);
 
   if (affected === 0) {
-    // Version conflict: another reviewer bumped the version first.
+    // Distinguish version conflict from illegal source state.
+    if (!allowedPriorStatuses.includes(findingRow.status as ExtractionFindingStatus)) {
+      return {
+        outcome: "illegal_source_state",
+        finding: mapFindingRow(findingRow),
+        fromState: findingRow.status,
+      };
+    }
     return { outcome: "version_conflict", finding: mapFindingRow(findingRow) };
   }
 
@@ -164,6 +183,24 @@ function decisionToStatus(decision: ExtractionReviewDecision): ExtractionFinding
     case "accept": return "accepted";
     case "reject": return "rejected";
     case "request_revision": return "proposed"; // status unchanged; records feedback
+    case "withdraw": return "withdrawn";
+  }
+}
+
+/**
+ * Allowed prior statuses for each decision — the state-machine guard.
+ * proposed → accepted|rejected|proposed (request_revision)
+ * accepted → withdrawn
+ * withdrawn is terminal.
+ */
+function allowedPriorStatusesFor(decision: ExtractionReviewDecision): ExtractionFindingStatus[] {
+  switch (decision) {
+    case "accept":
+    case "reject":
+    case "request_revision":
+      return ["proposed"];
+    case "withdraw":
+      return ["accepted"];
   }
 }
 

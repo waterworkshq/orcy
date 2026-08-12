@@ -53,7 +53,7 @@ export const LEARNING_DISPATCH_TOOL: Tool = createDispatchTool({
     maxChars: {
       type: "number",
       description:
-        "Truncate subject and body prose to this many characters (optional, list_accepted only)",
+        "Server-owned total character budget for subject+body combined (default 4000, hard max 8000, list_accepted only)",
     },
   },
 });

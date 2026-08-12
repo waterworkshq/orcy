@@ -107,6 +107,7 @@ export const taskLifecycleAuditAdapter: ExtractionSourceAdapter = {
         completeness: "complete",
         warnings: [],
         boundaryToken: boundaryToken!,
+        collectionOutcome: "collected" as const,
       };
     } catch {
       // Failed source honesty: a source whose collection fails records a
@@ -117,6 +118,7 @@ export const taskLifecycleAuditAdapter: ExtractionSourceAdapter = {
         completeness: "partial",
         warnings: ["task_lifecycle_source_unavailable"],
         boundaryToken: boundaryToken ?? makeBoundaryToken(SOURCE_TYPE, EPOCH_ISO),
+        collectionOutcome: "failed" as const,
       };
     }
   },

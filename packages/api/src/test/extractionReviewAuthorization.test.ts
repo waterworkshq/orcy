@@ -544,12 +544,13 @@ describe("Learning Loop review and authorization API", () => {
         expectedDecisionVersion: 1,
       });
 
-      // Exactly one decided, one version_conflict
+      // B4 state machine: first accept moves proposed→accepted. Second accept
+      // is illegal because accept is only allowed from proposed status.
       const outcomes = [r1.outcome, r2.outcome].toSorted();
-      expect(outcomes).toEqual(["decided", "version_conflict"]);
+      expect(outcomes).toEqual(["decided", "illegal_source_state"]);
     });
 
-    it("second decision with updated version succeeds", () => {
+    it("request_revision then accept with updated version succeeds", () => {
       const fix = setupHabitat({ id: "hab-A", agentName: "Agent A", taskStatus: "claimed" });
       const findingId = insertFinding({
         habitatId: fix.habitatId,
@@ -558,21 +559,22 @@ describe("Learning Loop review and authorization API", () => {
       });
 
       const db = getDb();
+      // request_revision stays in proposed status but bumps the version.
       const r1 = reviewCasWithClient(db, {
         findingId,
-        decision: "reject",
-        reason: "First reject",
+        decision: "request_revision",
+        reason: "Needs more evidence",
         reviewerType: "human",
         reviewerId: "reviewer-1",
         expectedDecisionVersion: 1,
       });
       expect(r1.outcome).toBe("decided");
 
-      // The version is now 2
+      // The version is now 2, status is still proposed — accept is valid.
       const r2 = reviewCasWithClient(db, {
         findingId,
         decision: "accept",
-        reason: "Actually accept",
+        reason: "Actually accept after revision feedback",
         reviewerType: "human",
         reviewerId: "reviewer-2",
         expectedDecisionVersion: 2,

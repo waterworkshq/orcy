@@ -24,8 +24,10 @@ import {
   recordPromotionTargetWithClient,
   isWikiPageExcludedFromSources,
   getFindingByIdWithClient,
+  createPolicyWithClient,
+  updatePolicyWithClient,
 } from "../repositories/extraction/index.js";
-import { promoteToWikiDraft, isPageExcludedFromSources } from "../services/extractionWikiDestination.js";
+import { promoteToWikiDraft, isPageExcludedFromSources, type WikiPromotionResult, type PromotionDisabledResult } from "../services/extractionWikiDestination.js";
 import * as wikiPageLinkRepo from "../repositories/wikiPageLink.js";
 import * as wikiPageRepo from "../repositories/wikiPage.js";
 import {
@@ -36,11 +38,46 @@ import {
   extractedFindingPromotions,
   wikiPages,
   wikiPageLinks,
+  learningLoopPolicies,
 } from "../db/schema/index.js";
+
+// ---------------------------------------------------------------------------
+// Type narrowing helper — narrows union to WikiPromotionResult
+// ---------------------------------------------------------------------------
+
+function asPromotionResult(
+  r: WikiPromotionResult | PromotionDisabledResult,
+): WikiPromotionResult {
+  if (r.outcome === "disabled") throw new Error(`Test setup error: promotion disabled (${r.reason})`);
+  return r;
+}
 
 // ---------------------------------------------------------------------------
 // Test fixture helpers
 // ---------------------------------------------------------------------------
+
+const ENV_FLAG = "ORCY_LEARNING_LOOP_ENABLED";
+let savedEnvFlag: string | undefined;
+
+function setupEnabledPolicy(habitatId: string): void {
+  const db = getDb();
+  const result = createPolicyWithClient(db, {
+    habitatId,
+    extractorKey: "builtin:lesson_detector",
+    sourceTypes: ["task_lifecycle_audit"] as never,
+    schedule: "0 */5 * * *",
+    windowSeconds: 3600,
+    lookbackSeconds: 86400,
+    createdByType: "human",
+  });
+  if (result.outcome !== "created") throw new Error("Policy creation failed");
+  const updated = updatePolicyWithClient(db, {
+    policyId: result.policy.id,
+    expectedVersion: 1,
+    enabled: true,
+  });
+  if (updated.outcome !== "updated") throw new Error("Policy enable failed");
+}
 
 function setupHabitat(id: string): void {
   const db = getDb();
@@ -121,11 +158,19 @@ function countPageLinks(pageId: string): number {
 
 describe("Wiki draft promotion — acceptance gates", () => {
   beforeEach(async () => {
+    savedEnvFlag = process.env[ENV_FLAG];
+    process.env[ENV_FLAG] = "true";
     await initTestDb();
     setupHabitat("hab-A");
     setupHabitat("hab-B");
+    setupEnabledPolicy("hab-A");
+    setupEnabledPolicy("hab-B");
   });
-  afterEach(() => closeDb());
+  afterEach(() => {
+    if (savedEnvFlag === undefined) delete process.env[ENV_FLAG];
+    else process.env[ENV_FLAG] = savedEnvFlag;
+    closeDb();
+  });
 
   // ── Gate 1: At-most-once ──────────────────────────────────────
 
@@ -133,7 +178,7 @@ describe("Wiki draft promotion — acceptance gates", () => {
     const findingId = insertFinding({ habitatId: "hab-A" });
 
     // First promotion
-    const result1 = promoteToWikiDraft("hab-A", findingId, "user-1");
+    const result1 = asPromotionResult(promoteToWikiDraft("hab-A", findingId, "user-1"));
     expect(result1.outcome).toBe("promoted");
     expect(result1.pageId).toBeTruthy();
 
@@ -141,7 +186,7 @@ describe("Wiki draft promotion — acceptance gates", () => {
     const promotionsAfter1 = countPromotions(findingId);
 
     // Replay — should return the same page, not create a new one
-    const result2 = promoteToWikiDraft("hab-A", findingId, "user-1");
+    const result2 = asPromotionResult(promoteToWikiDraft("hab-A", findingId, "user-1"));
     expect(result2.outcome).toBe("already_promoted");
     expect(result2.pageId).toBe(result1.pageId);
 
@@ -156,7 +201,7 @@ describe("Wiki draft promotion — acceptance gates", () => {
   it("created page is always draft — no publish path", () => {
     const findingId = insertFinding({ habitatId: "hab-A" });
 
-    const result = promoteToWikiDraft("hab-A", findingId, "user-1");
+    const result = asPromotionResult(promoteToWikiDraft("hab-A", findingId, "user-1"));
 
     const page = wikiPageRepo.getById(result.pageId);
     expect(page).toBeTruthy();
@@ -224,7 +269,7 @@ describe("Wiki draft promotion — acceptance gates", () => {
     expect(countWikiPages("hab-A")).toBe(0);
 
     // Retry via the adapter — should re-arm and succeed
-    const result = promoteToWikiDraft("hab-A", findingId, "user-1");
+    const result = asPromotionResult(promoteToWikiDraft("hab-A", findingId, "user-1"));
     expect(result.outcome).toBe("promoted");
 
     // Exactly one page, one promotion row
@@ -293,7 +338,7 @@ describe("Wiki draft promotion — acceptance gates", () => {
     expect(countWikiPages("hab-A")).toBe(1);
 
     // Retry — should detect existing page via targetId, NOT create a new one
-    const result = promoteToWikiDraft("hab-A", findingId, "user-1");
+    const result = asPromotionResult(promoteToWikiDraft("hab-A", findingId, "user-1"));
     expect(result.outcome).toBe("promoted");
     expect(result.pageId).toBe(pageId);
 
@@ -306,7 +351,7 @@ describe("Wiki draft promotion — acceptance gates", () => {
 
   it("promotion row survives wiki link removal", () => {
     const findingId = insertFinding({ habitatId: "hab-A" });
-    const result = promoteToWikiDraft("hab-A", findingId, "user-1");
+    const result = asPromotionResult(promoteToWikiDraft("hab-A", findingId, "user-1"));
 
     const db = getDb();
     // Remove the wiki link
@@ -327,7 +372,7 @@ describe("Wiki draft promotion — acceptance gates", () => {
 
   it("promotion row survives page publish", () => {
     const findingId = insertFinding({ habitatId: "hab-A" });
-    const result = promoteToWikiDraft("hab-A", findingId, "user-1");
+    const result = asPromotionResult(promoteToWikiDraft("hab-A", findingId, "user-1"));
 
     const db = getDb();
     // Simulate publishing the page
@@ -354,7 +399,7 @@ describe("Wiki draft promotion — acceptance gates", () => {
 
   it("source-exclusion probe rejects a successfully-promoted page", () => {
     const findingId = insertFinding({ habitatId: "hab-A" });
-    const result = promoteToWikiDraft("hab-A", findingId, "user-1");
+    const result = asPromotionResult(promoteToWikiDraft("hab-A", findingId, "user-1"));
 
     // The promoted page is excluded from future source batches
     expect(isPageExcludedFromSources(result.pageId)).toBe(true);

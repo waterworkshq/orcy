@@ -25,9 +25,14 @@ import {
   persistCandidateWithClient,
   getLatestAttemptWithClient,
   getFindingsByHabitatWithClient,
+  createPolicyWithClient,
+  updatePolicyWithClient,
   type CitationInput,
 } from "../repositories/extraction/index.js";
 import { runExtractionReconciliationPass } from "../services/extractionRecovery.js";
+
+const ENV_FLAG = "ORCY_LEARNING_LOOP_ENABLED";
+let savedEnvFlag: string | undefined;
 import { BUILTIN_EXTRACTOR_KEY, BUILTIN_EXTRACTOR_VERSION } from "../services/extractionExtractors.js";
 
 // ---------------------------------------------------------------------------
@@ -53,6 +58,14 @@ function makeWorkItem(
     sourceBoundaryTokens: {},
     logicalWorkKey: `lwkey-${uuid()}`,
     deliveryMode: "scheduled",
+    policySnapshot: {
+      schedule: "0 */5 * * *",
+      windowSeconds: 3600,
+      lookbackSeconds: 86400,
+      sourceTypes: ["task_lifecycle_audit"],
+      minConfidence: null,
+      minSampleSize: null,
+    },
     ...overrides,
   });
   if (result.outcome !== "created") throw new Error("Work item creation failed");
@@ -94,11 +107,30 @@ function makeCitation(overrides: Partial<CitationInput> = {}): CitationInput {
 
 describe("Learning Loop boot recovery", () => {
   beforeEach(async () => {
+    savedEnvFlag = process.env[ENV_FLAG];
+    process.env[ENV_FLAG] = "true";
     await initTestDb();
     const db = getDb();
     setupHabitat(db);
+    // Create an enabled policy so recovery's runExtraction can proceed.
+    const policyResult = createPolicyWithClient(db, {
+      habitatId: "hab-A",
+      extractorKey: BUILTIN_EXTRACTOR_KEY,
+      sourceTypes: ["task_lifecycle_audit"] as never,
+      schedule: "0 */5 * * *",
+      windowSeconds: 3600,
+      lookbackSeconds: 86400,
+      createdByType: "human",
+    });
+    if (policyResult.outcome === "created") {
+      updatePolicyWithClient(db, { policyId: policyResult.policy.id, expectedVersion: 1, enabled: true });
+    }
   });
-  afterEach(() => closeDb());
+  afterEach(() => {
+    if (savedEnvFlag === undefined) delete process.env[ENV_FLAG];
+    else process.env[ENV_FLAG] = savedEnvFlag;
+    closeDb();
+  });
 
   // -------------------------------------------------------------------------
   // 1. Fresh DB → empty summary
@@ -118,7 +150,7 @@ describe("Learning Loop boot recovery", () => {
   // 2. Stale running attempt → marked failed + child attempt created
   // -------------------------------------------------------------------------
 
-  it("marks a stale running attempt as failed and creates a child attempt", () => {
+  it("marks a stale running attempt as failed and resumes via runExtraction", () => {
     const db = getDb();
     const workItem = makeWorkItem(db);
     const attempt = makeRunningAttempt(db, workItem.id, {
@@ -140,12 +172,15 @@ describe("Learning Loop boot recovery", () => {
     expect(reloaded?.status).toBe("failed");
     expect(reloaded?.error).toContain("lease_expired");
 
-    // Verify a child attempt was created.
+    // B7 fix: Verify a child attempt was created through runExtraction
+    // (not an inert running child — the canonical lifecycle actually executed).
     const latest = getLatestAttemptWithClient(db, workItem.id);
     expect(latest).toBeTruthy();
     expect(latest!.id).not.toBe(attempt.id);
     expect(latest!.parentAttemptId).toBe(attempt.id);
     expect(latest!.deliveryMode).toBe("boot_recovery");
+    // The child must be terminal (not inert/running).
+    expect(["succeeded", "partial", "failed", "skipped"]).toContain(latest!.status);
   });
 
   // -------------------------------------------------------------------------

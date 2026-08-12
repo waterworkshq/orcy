@@ -178,6 +178,16 @@ export function deriveCoarseWindow(windowFrom: string): string {
   return new Date(bucket).toISOString();
 }
 
+/**
+ * Compute the exclusive end boundary of a coarse window bucket. Used during
+ * re-resolution to bound the historical window correctly (coarseWindow →
+ * coarseWindow + bucket) instead of coarseWindow → now.
+ */
+export function coarseWindowEnd(coarseWindow: string): string {
+  const ms = Date.parse(coarseWindow);
+  return new Date(ms + COARSE_BUCKET_MS).toISOString();
+}
+
 // ---------------------------------------------------------------------------
 // Transient denylist
 // ---------------------------------------------------------------------------
@@ -243,6 +253,10 @@ export function scanAgainstDenylist(
  * A privacy-projected experience aggregate. This is the sole output of the
  * projection — it contains NO individual IDs, raw bodies, exact timestamps, or
  * identifying combinations. Every field here is safe for extractor consumption.
+ *
+ * Free text (subject, summary) does NOT cross the privacy boundary in the type.
+ * The adapter drops sanitized subject text before building an extraction
+ * observation, and the type does not expose it to future callers.
  */
 export interface SuppressedExperienceAggregate {
   /** Non-disclosing stable source identity (`exp_agg:<hash>`). */
@@ -255,8 +269,6 @@ export interface SuppressedExperienceAggregate {
   signalCountBand: string;
   /** Banded distinct-agent count (e.g. "3-4"), never the exact count. */
   agentCountBand: string;
-  /** Denylist-sanitized subject text (or null if fully redacted). */
-  sanitizedSubject: string | null;
   /** Completeness caveats (e.g. denylist match, rare combination warning). */
   caveats: string[];
   /** Stable digest of the suppressed aggregate (drives `changed` detection). */
@@ -341,6 +353,16 @@ function containsIdentifierPatterns(text: string): boolean {
 // ---------------------------------------------------------------------------
 
 /**
+ * Window-scoped counts for a signal, replacing all-time aggregates.
+ * When provided, the privacy floor and banded counts use these values
+ * instead of the signal row's all-time `frequency`/`corroboratingAgents`.
+ */
+export interface WindowScopedCounts {
+  frequency: number;
+  distinctAgents: number;
+}
+
+/**
  * Project raw experience signals through the k-anonymity privacy boundary.
  *
  * Steps:
@@ -348,14 +370,20 @@ function containsIdentifierPatterns(text: string): boolean {
  *  2. Reject if the window is shorter than the floor minimum.
  *  3. Build the transient denylist from ALL raw signal identifiers.
  *  4. Derive the coarse window bucket from the window start.
- *  5. For each signal row (cohort), check the k-anonymity floor:
- *     ≥minSignals frequency AND ≥minDistinctAgents corroborating agents.
+ *  5. For each signal row (cohort), check the k-anonymity floor using
+ *     window-scoped counts (not all-time aggregates):
+ *     ≥minSignals window frequency AND ≥minDistinctAgents window agents.
  *  6. Apply denylist scan and identifier-pattern check to subject/summary text.
  *  7. Suppress rare combinations — denylist-matched or identifier-embedded
  *     subjects are redacted with a caveat.
  *  8. Emit only banded counts and coarse window — never exact values.
  *
  * Below-floor cohorts are dropped entirely — not partially emitted.
+ *
+ * @param windowCounts Optional map from signal.id → window-scoped counts.
+ *   When provided, the floor check and banded counts use window-scoped values.
+ *   When absent, falls back to all-time counts (for legacy test compatibility).
+ *   Production callers MUST provide window-scoped counts.
  */
 export function projectExperienceSignals(
   rawSignals: readonly HabitatSkillSignal[],
@@ -363,6 +391,7 @@ export function projectExperienceSignals(
   floor: ExperiencePrivacyFloor,
   windowFrom: string,
   windowTo: string | undefined,
+  windowCounts?: Map<string, WindowScopedCounts>,
 ): SuppressedExperienceAggregate[] {
   // Step 1: filter to experience categories.
   const experienceSignals = rawSignals.filter((s) =>
@@ -384,9 +413,14 @@ export function projectExperienceSignals(
   const results: SuppressedExperienceAggregate[] = [];
 
   for (const signal of experienceSignals) {
-    // Floor check: drop below-floor cohorts entirely.
-    if (signal.frequency < floor.minSignals) continue;
-    if (signal.corroboratingAgents < floor.minDistinctAgents) continue;
+    // Floor check: use window-scoped counts when available, all-time fallback otherwise.
+    const wsc = windowCounts?.get(signal.id);
+    const effectiveFreq = wsc?.frequency ?? signal.frequency;
+    const effectiveAgents = wsc?.distinctAgents ?? signal.corroboratingAgents;
+
+    // Drop below-floor cohorts entirely.
+    if (effectiveFreq < floor.minSignals) continue;
+    if (effectiveAgents < floor.minDistinctAgents) continue;
 
     // Denylist scan on subject and summary.
     const caveats: string[] = [];
@@ -397,10 +431,7 @@ export function projectExperienceSignals(
     // Identifier-pattern check (embedded UUIDs, task IDs, etc.).
     const hasIdPattern = containsIdentifierPatterns(denylistedSubject);
 
-    let sanitizedSubject: string | null = denylistedSubject;
     if (subjectDenyMatch || hasIdPattern) {
-      // Redact entirely — the subject text could re-identify.
-      sanitizedSubject = null;
       caveats.push("subject_redacted_identifier_match");
     }
 
@@ -412,9 +443,9 @@ export function projectExperienceSignals(
       }
     }
 
-    // Compute banded counts — never exact values.
-    const signalCountBand = bandFor(signal.frequency, SIGNAL_COUNT_BANDS);
-    const agentCountBand = bandFor(signal.corroboratingAgents, AGENT_COUNT_BANDS);
+    // Compute banded counts from window-scoped values — never exact values.
+    const signalCountBand = bandFor(effectiveFreq, SIGNAL_COUNT_BANDS);
+    const agentCountBand = bandFor(effectiveAgents, AGENT_COUNT_BANDS);
 
     // Stable non-disclosing source identity.
     const sourceId = computeExperienceSourceId(
@@ -438,7 +469,6 @@ export function projectExperienceSignals(
       coarseWindow,
       signalCountBand,
       agentCountBand,
-      sanitizedSubject,
       caveats,
       digest: computeExperienceDigest(digestInput),
       policyVersion: EXPERIENCE_PRIVACY_POLICY_VERSION,

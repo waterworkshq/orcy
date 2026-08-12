@@ -27,8 +27,10 @@ import {
   reArmPromotionWithClient,
   getFindingByIdWithClient,
   isWikiPageExcludedFromSources,
+  getPoliciesByHabitatWithClient,
 } from "../repositories/extraction/index.js";
 import { checkPromotionEligibility, reservePromotion } from "./extractionPromotionService.js";
+import { isLearningLoopGloballyEnabled } from "./extractionPolicyService.js";
 import * as wikiService from "./wikiService.js";
 import { badRequest, conflict, notFound } from "../errors.js";
 import { logger } from "../lib/logger.js";
@@ -44,6 +46,12 @@ export interface WikiPromotionResult {
   promotion: ExtractedFindingPromotionRow;
   /** The wiki page ID created by this promotion (set on both outcomes). */
   pageId: string;
+}
+
+/** Outcome when the kill switch blocks a new promotion. */
+export interface PromotionDisabledResult {
+  outcome: "disabled";
+  reason: "global_kill_switch" | "habitat_not_enrolled";
 }
 
 // ---------------------------------------------------------------------------
@@ -117,8 +125,21 @@ export function promoteToWikiDraft(
   habitatId: string,
   findingId: string,
   actorId: string,
-): WikiPromotionResult {
+): WikiPromotionResult | PromotionDisabledResult {
   const db = getDb();
+
+  // 0. Kill switch: enforce the global switch + per-habitat enrollment at the
+  // promotion service boundary (not only in UI/route). Reads and privacy
+  // withdrawal remain available when disabled (PATCH-CONSTRAINTS §21).
+  if (!isLearningLoopGloballyEnabled()) {
+    return { outcome: "disabled", reason: "global_kill_switch" };
+  }
+  const habitatPolicies = getPoliciesByHabitatWithClient(db, habitatId);
+  const hasEnabledPolicy = habitatPolicies.some((p) => p.enabled);
+  if (!hasEnabledPolicy) {
+    return { outcome: "disabled", reason: "habitat_not_enrolled" };
+  }
+
   const leaseOwner = `human:${actorId}`;
   const leaseGeneration = Date.now();
   const destinationKey = wikiDestinationKey(habitatId);
@@ -185,23 +206,34 @@ export function promoteToWikiDraft(
     }
   }
 
-  // 5. Create the wiki page (ALWAYS draft).
+  // 5. Create the wiki page (ALWAYS draft) — crash-safe idempotent creation.
+  // Use a deterministic promotion tag so a retry after a crash finds the
+  // already-created page instead of creating a duplicate.
+  const promotionTag = `extraction:promotion:${promotion.id}`;
   let pageId = promotion.targetId;
   if (!pageId) {
-    const page = wikiService.createPage(
-      habitatId,
-      {
-        title: finding.subject,
-        content: derivePageContent(finding),
-        tags: ["extraction", finding.findingType],
-        status: "draft",
-      },
-      actorId,
-    );
-    pageId = page.id;
+    // Check for an existing page from a prior crash (idempotent replay).
+    const existing = wikiService.listPages(habitatId, { tag: promotionTag });
+    if (existing.length > 0) {
+      pageId = existing[0]!.id;
+    } else {
+      const page = wikiService.createPage(
+        habitatId,
+        {
+          title: finding.subject,
+          content: derivePageContent(finding),
+          tags: ["extraction", finding.findingType, promotionTag],
+          status: "draft",
+        },
+        actorId,
+      );
+      pageId = page.id;
+    }
 
     // 6. Record the target on the promotion (fenced, stays pending).
-    // This lets a retry after a crash detect the already-created page.
+    // The promotion row is the recovery authority — the promotion tag on the
+    // page makes creation idempotent even when this recording is the failed
+    // operation. A retry finds the page by tag before creating a new one.
     const recorded = recordPromotionTargetWithClient(db, {
       promotionId: promotion.id,
       leaseOwner,
@@ -212,7 +244,7 @@ export function promoteToWikiDraft(
     });
     if (recorded.outcome !== "recorded") {
       // Another owner raced us or the promotion was terminalized — fail honestly.
-      // The created page is orphaned but a retry will find it via the promotion row.
+      // The created page is recoverable on retry via the promotion tag.
       logger.error(
         { promotionId: promotion.id, pageId, outcome: recorded.outcome },
         "Could not record promotion target after page creation",

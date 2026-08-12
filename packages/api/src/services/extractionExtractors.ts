@@ -342,22 +342,51 @@ const DETECTORS: readonly PatternDetector[] = [
 ];
 
 /**
+/** Diagnostic entry for a detector that threw during extraction. */
+export interface DetectorDiagnostic {
+  detectorIndex: number;
+  error: string;
+}
+
+/** Result of running the built-in extractor. */
+export interface BuiltinExtractorResult {
+  candidates: ExtractionCandidate[];
+  diagnostics: DetectorDiagnostic[];
+  /** `"partial"` if any detector threw; `"complete"` otherwise. */
+  completeness: "complete" | "partial";
+}
+
+/**
  * Run the built-in pattern extractor over a normalized batch.
  *
- * Returns the union of all detector outputs. The downstream validator
- * drops invalid candidates (zero-citation, fabricated IDs, cross-Habitat,
- * feedback-derived, etc.).
+ * Returns the union of all detector outputs plus diagnostics for any detector
+ * that threw. The downstream validator drops invalid candidates (zero-citation,
+ * fabricated IDs, cross-Habitat, feedback-derived, etc.).
+ *
+ * Detector failures are NOT silently swallowed — they are recorded as
+ * diagnostics and the overall completeness is marked `partial` so the
+ * lifecycle can terminalize the attempt accordingly (I2 fix).
  */
-export function runBuiltinExtractor(ctx: ExtractorContext): ExtractionCandidate[] {
+export function runBuiltinExtractor(ctx: ExtractorContext): BuiltinExtractorResult {
   const all: ExtractionCandidate[] = [];
-  for (const detector of DETECTORS) {
+  const diagnostics: DetectorDiagnostic[] = [];
+
+  DETECTORS.forEach((detector, index) => {
     try {
       const candidates = detector(ctx);
       all.push(...candidates);
-    } catch {
-      // A detector throw should not poison the entire batch. The extractor
-      // is best-effort; invalid candidates are dropped by the validator.
+    } catch (err) {
+      // Record the failure — do NOT silently convert to success.
+      diagnostics.push({
+        detectorIndex: index,
+        error: err instanceof Error ? err.message : String(err),
+      });
     }
-  }
-  return all;
+  });
+
+  return {
+    candidates: all,
+    diagnostics,
+    completeness: diagnostics.length > 0 ? "partial" : "complete",
+  };
 }

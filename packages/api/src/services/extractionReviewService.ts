@@ -12,17 +12,13 @@
  * Privacy: audit events/SSE payloads carry NO raw source bodies or Experience
  * contributor data. Aggregate-only citations expose bands/caveats only.
  */
-import { eq, and } from "drizzle-orm";
-import { v4 as uuid } from "uuid";
 import { getDb } from "../db/index.js";
-import { extractedFindings, extractedFindingReviews } from "../db/schema/index.js";
 import {
   reviewCasWithClient,
   getReviewsByFindingWithClient,
   getFindingByIdWithClient,
   getFindingsByHabitatWithClient,
   getCitationsByFindingWithClient,
-  getChanges,
   type ReviewCasInput,
 } from "../repositories/extraction/index.js";
 import { getAdapter, type ResolveRef, type ViewerContext } from "./extractionSourceCatalog/index.js";
@@ -246,9 +242,14 @@ export function requestRevision(input: DecisionInput): { recorded: true } {
     resolvedCitationStates: resolvedStates,
   };
 
-  const result = reviewCasWithClient(db, casInput);
+  const result = db.transaction((tx) => reviewCasWithClient(tx, casInput));
   if (result.outcome === "version_conflict") {
     throw conflict("Finding decision version mismatch — another reviewer acted first");
+  }
+  if (result.outcome === "illegal_source_state") {
+    throw conflict(
+      `Finding cannot be request_revision from status "${result.fromState}"`,
+    );
   }
 
   emitDecisionSSE(input.habitatId, input.findingId, "request_revision");
@@ -257,7 +258,10 @@ export function requestRevision(input: DecisionInput): { recorded: true } {
 
 /**
  * Withdraw a finding (privacy/integrity invalidation). Status → withdrawn.
- * Uses CAS: only succeeds if the expected decision version matches.
+ * Uses the state-machine CAS path: only succeeds from `accepted` status with
+ * the expected decision version. The `withdraw` decision is distinct from
+ * `reject` so audit history distinguishes privacy invalidation from human rejection.
+ * Wrapped in a transaction so the status CAS and review INSERT are atomic.
  */
 export function withdrawFinding(input: DecisionInput): ExtractedFindingRow {
   const finding = getFindingByIdWithClient(getDb(), input.findingId);
@@ -265,47 +269,31 @@ export function withdrawFinding(input: DecisionInput): ExtractedFindingRow {
     throw notFound("Finding not found");
   }
 
-  const db = getDb();
   const resolvedStates = resolveCitationStates(input.habitatId, input.findingId);
-  const newVersion = input.expectedDecisionVersion + 1;
-  const now = new Date().toISOString();
+  const db = getDb();
 
-  // CAS: only update if the expected version matches
-  db.update(extractedFindings)
-    .set({ status: "withdrawn", decisionVersion: newVersion, updatedAt: now })
-    .where(
-      and(
-        eq(extractedFindings.id, input.findingId),
-        eq(extractedFindings.decisionVersion, input.expectedDecisionVersion),
-      ),
-    )
-    .run();
+  const casInput: ReviewCasInput = {
+    findingId: input.findingId,
+    decision: "withdraw",
+    reason: input.reason ?? "Withdrawn",
+    reviewerType: "human",
+    reviewerId: input.reviewerId,
+    expectedDecisionVersion: input.expectedDecisionVersion,
+    resolvedCitationStates: resolvedStates,
+  };
 
-  const affected = getChanges(db);
-  if (affected === 0) {
+  const result = db.transaction((tx) => reviewCasWithClient(tx, casInput));
+  if (result.outcome === "version_conflict") {
     throw conflict("Finding decision version mismatch — another reviewer acted first");
   }
-
-  // Append the review history row
-  const reviewId = uuid();
-  db.insert(extractedFindingReviews)
-    .values({
-      id: reviewId,
-      findingId: input.findingId,
-      decision: "reject", // closest decision enum; reason carries context
-      reason: input.reason ?? "Withdrawn",
-      reviewerType: "human",
-      reviewerId: input.reviewerId,
-      expectedDecisionVersion: input.expectedDecisionVersion,
-      resultingDecisionVersion: newVersion,
-      resolvedCitationStates: resolvedStates,
-    })
-    .run();
+  if (result.outcome === "illegal_source_state") {
+    throw conflict(
+      `Finding cannot be withdrawn from status "${result.fromState}" — only accepted findings can be withdrawn`,
+    );
+  }
 
   emitDecisionSSE(input.habitatId, input.findingId, "withdrawn");
-
-  const updated = getFindingByIdWithClient(getDb(), input.findingId);
-  return updated ?? finding;
+  return result.finding;
 }
 
 // ---------------------------------------------------------------------------
@@ -350,9 +338,16 @@ function executeDecision(
     resolvedCitationStates: resolvedStates,
   };
 
-  const result = reviewCasWithClient(db, casInput);
+  // Wrap status-CAS + review-INSERT in one service-owned transaction.
+  const result = db.transaction((tx) => reviewCasWithClient(tx, casInput));
+
   if (result.outcome === "version_conflict") {
     throw conflict("Finding decision version mismatch — another reviewer acted first");
+  }
+  if (result.outcome === "illegal_source_state") {
+    throw conflict(
+      `Finding cannot be ${decision} from status "${result.fromState}"`,
+    );
   }
 
   emitDecisionSSE(input.habitatId, input.findingId, decision);

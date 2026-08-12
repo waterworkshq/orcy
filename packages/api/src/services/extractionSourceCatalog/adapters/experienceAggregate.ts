@@ -20,7 +20,10 @@
  *
  * See authorization-review §Experience-signal privacy for the binding contract.
  */
+import { and, inArray, gte, lt } from "drizzle-orm";
 import { getAllSignalsByHabitat } from "../../../repositories/habitatSkill.js";
+import { pulses } from "../../../db/schema/pulse.js";
+import { getDb } from "../../../db/index.js";
 import {
   EPOCH_ISO,
   isWithinWindow,
@@ -32,6 +35,8 @@ import {
   defaultFloor,
   projectExperienceSignals,
   resolveExperienceCohort,
+  coarseWindowEnd,
+  type WindowScopedCounts,
 } from "../experiencePrivacy.js";
 import type {
   ExtractionSourceAdapter,
@@ -51,8 +56,8 @@ const CONTRACT_VERSION = EXPERIENCE_PRIVACY_POLICY_VERSION;
 
 /**
  * Map a suppressed aggregate to an extraction observation. The observation
- * carries NO entity refs (aggregate-only), NO domains, and the `occurredAt`
- * is the coarse window bucket — never an exact timestamp.
+ * carries NO entity refs (aggregate-only), NO domains, NO free text, and the
+ * `occurredAt` is the coarse window bucket — never an exact timestamp.
  */
 function aggregateToObservation(
   sourceId: string,
@@ -81,6 +86,93 @@ function aggregateToObservation(
 /** Read all raw experience signals for a habitat (filtered to experience categories inside the projection). */
 function readRawSignals(habitatId: string) {
   return getAllSignalsByHabitat(habitatId);
+}
+
+/**
+ * Compute window-scoped counts for each signal by reading the underlying
+ * experience pulses within [windowFrom, windowTo). The deduplicated signal row
+ * carries all-time counts; we must reconstruct per-window counts from the
+ * timestamped pulse occurrences to enforce the privacy floor correctly.
+ *
+ * Falls back to all-time counts when sourcePulseIds is empty/unavailable.
+ */
+function computeWindowScopedCounts(
+  signals: readonly ReturnType<typeof readRawSignals>[number][],
+  windowFrom: string,
+  windowTo: string | undefined,
+): Map<string, WindowScopedCounts> {
+  const result = new Map<string, WindowScopedCounts>();
+
+  // Collect all pulse IDs across all signals.
+  const signalToPulseIds = new Map<string, string[]>();
+  const allPulseIds = new Set<string>();
+
+  for (const signal of signals) {
+    const pulseIds: string[] = [];
+    if (signal.sourcePulseIds) {
+      try {
+        const parsed = JSON.parse(signal.sourcePulseIds);
+        if (Array.isArray(parsed)) {
+          for (const id of parsed) {
+            if (typeof id === "string" && id.length > 0) {
+              pulseIds.push(id);
+              allPulseIds.add(id);
+            }
+          }
+        }
+      } catch {
+        // Malformed JSON — fall back to all-time counts for this signal.
+      }
+    }
+    signalToPulseIds.set(signal.id, pulseIds);
+  }
+
+  if (allPulseIds.size === 0) {
+    // No pulse IDs available — return empty map; projection falls back to all-time.
+    return result;
+  }
+
+  // Query pulses by IDs within the window boundary.
+  const db = getDb();
+  const pulseIdsArr = [...allPulseIds];
+  const conditions = [
+    inArray(pulses.id, pulseIdsArr),
+    gte(pulses.createdAt, windowFrom),
+  ];
+  if (windowTo !== undefined) {
+    conditions.push(lt(pulses.createdAt, windowTo));
+  }
+
+  const pulseRows = db
+    .select({ id: pulses.id, fromId: pulses.fromId })
+    .from(pulses)
+    .where(and(...conditions))
+    .all();
+
+  // Build lookup: pulse ID → fromId, for window-scoped pulse set.
+  const windowPulseFromId = new Map<string, string>();
+  for (const row of pulseRows) {
+    windowPulseFromId.set(row.id, row.fromId);
+  }
+
+  // Count per signal.
+  for (const signal of signals) {
+    const pulseIds = signalToPulseIds.get(signal.id) ?? [];
+    if (pulseIds.length === 0) continue; // Fall back to all-time.
+
+    let frequency = 0;
+    const agentSet = new Set<string>();
+    for (const pid of pulseIds) {
+      const fromId = windowPulseFromId.get(pid);
+      if (fromId !== undefined) {
+        frequency++;
+        agentSet.add(fromId);
+      }
+    }
+    result.set(signal.id, { frequency, distinctAgents: agentSet.size });
+  }
+
+  return result;
 }
 
 export const experienceAggregateAdapter: ExtractionSourceAdapter = {
@@ -112,12 +204,19 @@ export const experienceAggregateAdapter: ExtractionSourceAdapter = {
       );
 
       const floor = defaultFloor();
+      // Compute window-scoped counts from underlying pulses (B2 fix).
+      const windowCounts = computeWindowScopedCounts(
+        boundedSignals,
+        request.windowFrom,
+        request.windowTo,
+      );
       const aggregates = projectExperienceSignals(
         boundedSignals,
         request.habitatId,
         floor,
         request.windowFrom,
         request.windowTo,
+        windowCounts,
       );
 
       const observations = aggregates.map((agg) =>
@@ -139,6 +238,7 @@ export const experienceAggregateAdapter: ExtractionSourceAdapter = {
         warnings:
           observations.length > 0 ? [] : ["experience_no_eligible_cohorts"],
         boundaryToken: boundaryToken!,
+        collectionOutcome: "collected" as const,
       };
     } catch {
       // Failed source honesty: a source whose collection fails records a
@@ -149,6 +249,7 @@ export const experienceAggregateAdapter: ExtractionSourceAdapter = {
         completeness: "partial",
         warnings: ["experience_source_unavailable"],
         boundaryToken: boundaryToken ?? makeBoundaryToken(SOURCE_TYPE, EPOCH_ISO),
+        collectionOutcome: "failed" as const,
       };
     }
   },
@@ -176,15 +277,25 @@ export const experienceAggregateAdapter: ExtractionSourceAdapter = {
         return { ref, state: "dangling" as const };
       }
 
-      // Re-project using the cited coarse window so HMAC identities match.
+      // Re-project using the cited coarse window bounded to its bucket
+      // (coarseWindow → coarseWindow + bucket), NOT coarseWindow → now.
+      // This ensures a cohort that was eligible historically but is no longer
+      // within the cited window is correctly detected as unauthorized.
       let cohorts = cohortCache.get(coarseWindow);
       if (!cohorts) {
+        const windowTo = coarseWindowEnd(coarseWindow);
+        const windowCounts = computeWindowScopedCounts(
+          allSignals,
+          coarseWindow,
+          windowTo,
+        );
         cohorts = projectExperienceSignals(
           allSignals,
           viewer.habitatId,
           floor,
           coarseWindow,
-          undefined,
+          windowTo,
+          windowCounts,
         );
         cohortCache.set(coarseWindow, cohorts);
       }

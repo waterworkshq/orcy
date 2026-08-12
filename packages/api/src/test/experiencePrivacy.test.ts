@@ -239,8 +239,7 @@ describe("rare-combination and singleton-batch suppression", () => {
     const agentIdSubject = result.find((r) => r.sourceId.includes(computeExperienceSourceId(
       HABITAT_ID, "subject-with-agent-id", "pitfall", deriveCoarseWindow(WINDOW_FROM),
     ).slice("exp_agg:".length)));
-    // The subject should be redacted (null) because it contained a denylisted identifier.
-    expect(agentIdSubject?.sanitizedSubject).toBeNull();
+    // The subject should have the identifier-match caveat because it contained a denylisted identifier.
     expect(agentIdSubject?.caveats).toContain("subject_redacted_identifier_match");
   });
 
@@ -259,7 +258,7 @@ describe("rare-combination and singleton-batch suppression", () => {
     ];
     const result = projectExperienceSignals(signals, HABITAT_ID, defaultFloor(), WINDOW_FROM, WINDOW_TO);
     const uuidCohort = result.find(
-      (r) => r.sanitizedSubject === null && r.caveats.includes("subject_redacted_identifier_match"),
+      (r) => r.caveats.includes("subject_redacted_identifier_match"),
     );
     expect(uuidCohort).toBeDefined();
   });

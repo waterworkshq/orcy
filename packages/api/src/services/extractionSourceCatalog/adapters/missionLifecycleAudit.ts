@@ -95,6 +95,7 @@ export const missionLifecycleAuditAdapter: ExtractionSourceAdapter = {
         completeness: "complete",
         warnings: [],
         boundaryToken: boundaryToken!,
+        collectionOutcome: "collected" as const,
       };
     } catch {
       return {
@@ -103,6 +104,7 @@ export const missionLifecycleAuditAdapter: ExtractionSourceAdapter = {
         completeness: "partial",
         warnings: ["mission_lifecycle_source_unavailable"],
         boundaryToken: boundaryToken ?? makeBoundaryToken(SOURCE_TYPE, EPOCH_ISO),
+        collectionOutcome: "failed" as const,
       };
     }
   },

@@ -29,6 +29,7 @@ import {
   missionEvents,
   missions,
   pluginRuns,
+  pulses,
   taskEvents,
   tasks,
 } from "../db/schema/index.js";
@@ -168,7 +169,25 @@ describe("experience_aggregate adapter — privacy projection", () => {
     // Create two eligible experience signal cohorts (≥5 signals, ≥3 agents each).
     const db = getDb();
     const now = new Date().toISOString();
+    // B2 fix: Create underlying pulse data so window-scoped counting works.
+    const agents = ["agent-a", "agent-b", "agent-c", "agent-d"];
     for (const subject of ["subject-a", "subject-b"]) {
+      const pulseIds: string[] = [];
+      for (let i = 0; i < 7; i++) {
+        const pid = `pulse-${subject}-${i}`;
+        pulseIds.push(pid);
+        db.insert(pulses).values({
+          id: pid,
+          habitatId: f.habitat.id,
+          scope: "habitat",
+          fromType: "agent",
+          fromId: agents[i % 4]!,
+          signalType: "experience",
+          subject: `Experience ${subject}`,
+          body: "",
+          createdAt: now,
+        }).run();
+      }
       db.insert(habitatSkillSignals).values({
         id: `sig-${subject}`,
         habitatId: f.habitat.id,
@@ -186,10 +205,10 @@ describe("experience_aggregate adapter — privacy projection", () => {
         failedTasks: 0,
         firstSeenAt: now,
         lastSeenAt: now,
-        sourcePulseIds: '["pulse-1","pulse-2"]',
+        sourcePulseIds: JSON.stringify(pulseIds),
         sourceTaskIds: null,
         sourceCommentIds: null,
-        corroboratingAgentIds: '["agent-a","agent-b","agent-c","agent-d"]',
+        corroboratingAgentIds: JSON.stringify(agents),
         promotedToSkill: 0,
         createdAt: now,
         updatedAt: now,

@@ -119,6 +119,10 @@ export interface ExtractionObservation {
  * A bounded batch of collected observations with honest completeness metadata.
  * A source whose collection fails records a partial/failed snapshot with
  * warnings — never an empty success (PATCH-CONSTRAINTS §Operational #22).
+ *
+ * `collectionOutcome` discriminates adapter-caught unavailability (`failed`)
+ * from honest empty/success results (`collected`). A `failed` source does NOT
+ * advance its watermark and cannot be confused with an honest empty success.
  */
 export interface SourceBatch {
   sourceType: ExtractionSourceType;
@@ -128,6 +132,12 @@ export interface SourceBatch {
   warnings: string[];
   /** The boundary token that bounded this batch. */
   boundaryToken: SourceBoundaryToken;
+  /**
+   * Discriminator: `collected` = the adapter successfully collected (even if
+   * empty); `failed` = the adapter caught an internal error and returned a
+   * partial/empty batch. Failed sources do NOT advance their watermark.
+   */
+  collectionOutcome: "collected" | "failed";
 }
 
 // ---------------------------------------------------------------------------

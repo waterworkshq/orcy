@@ -1,14 +1,13 @@
 /**
- * Extraction audit + SSE emission — subscribes to extraction lifecycle events
- * and emits SSE notifications carrying IDs and bounded state only.
+ * Extraction SSE emission — subscribes to extraction lifecycle events and emits
+ * SSE notifications carrying IDs and bounded state only.
  *
- * Audit events/SSE payloads contain NO raw source bodies or Experience
- * contributor data. The emitter subscribes to `onExtractionRunCompleted` and
- * emits `extraction.finding_proposed` for each newly persisted finding in the
- * completed attempt.
+ * SSE payloads contain NO raw source bodies, Experience contributor data, or
+ * finding subject text. The emitter subscribes to `onExtractionRunCompleted`
+ * and emits `extraction.finding_proposed` for each newly persisted finding.
  *
- * This module is the extraction-side counterpart to the audit projection
- * collectors. It is registered at boot.
+ * The durable audit-projection collector is deferred — SSE is an ephemeral
+ * notification surface, not an audit counterpart. It is registered at boot.
  */
 import { eq } from "drizzle-orm";
 import { getDb } from "../db/index.js";
@@ -21,7 +20,7 @@ let registered = false;
 let unsubscribe: (() => void) | null = null;
 
 /**
- * Register the extraction audit/SSE emitter. Called once at boot.
+ * Register the extraction SSE emitter. Called once at boot.
  * Emits `extraction.finding_proposed` for new findings after each completed run.
  */
 export function registerExtractionAuditEmitter(): void {
@@ -34,13 +33,12 @@ export function registerExtractionAuditEmitter(): void {
 
     try {
       const db = getDb();
-      // Find findings whose first_attempt_id matches the completed attempt
+      // Find findings whose first_attempt_id matches the completed attempt.
+      // I4 fix: Select IDs and bounded state only — NO subject text in SSE payloads.
       const newFindings = db
         .select({
           id: extractedFindings.id,
           findingType: extractedFindings.findingType,
-          subject: extractedFindings.subject,
-          confidence: extractedFindings.confidence,
         })
         .from(extractedFindings)
         .where(eq(extractedFindings.firstAttemptId, attempt.id))
@@ -54,8 +52,6 @@ export function registerExtractionAuditEmitter(): void {
               habitatId,
               findingId: finding.id,
               findingType: finding.findingType,
-              subject: finding.subject,
-              confidence: finding.confidence,
             },
           });
         } catch (err) {
@@ -63,7 +59,7 @@ export function registerExtractionAuditEmitter(): void {
         }
       }
     } catch (err) {
-      logger.warn({ err, habitatId, attemptId: attempt.id }, "Extraction audit emission failed");
+      logger.warn({ err, habitatId, attemptId: attempt.id }, "Extraction SSE emission failed");
     }
   });
 }

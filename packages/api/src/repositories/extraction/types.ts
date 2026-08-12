@@ -79,7 +79,8 @@ export type PersistCandidateResult =
 /** Outcome of a review compare-and-set. */
 export type ReviewCasResult =
   | { outcome: "decided"; review: ExtractedFindingReviewRow; finding: ExtractedFindingRow }
-  | { outcome: "version_conflict"; finding: ExtractedFindingRow };
+  | { outcome: "version_conflict"; finding: ExtractedFindingRow }
+  | { outcome: "illegal_source_state"; finding: ExtractedFindingRow; fromState: string };
 
 /** Outcome of promotion reservation by `(finding_id, destination_type, destination_key)`. */
 export type ReservePromotionResult =

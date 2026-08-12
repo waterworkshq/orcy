@@ -407,7 +407,9 @@ describe("Learning Loop ledger — repository behavior", () => {
       expect(r2.finding.evidenceDigest).toBe("ed-new");
       expect(r2.finding.revision).toBe(2);
       expect(r2.finding.supersedesFindingId).toBe(r1.finding.id);
-      expect(r2.finding.lineageRootId).toBe(lineageRoot);
+      // B3 fix: lineageRootId is derived by the repository (revision 1 self-roots).
+      expect(r2.finding.lineageRootId).toBe(r1.finding.lineageRootId);
+      expect(r1.finding.lineageRootId).toBe(r1.finding.id); // Revision 1 self-root
 
       // Old row preserved
       expect(getFindingsByHabitatWithClient(db, "hab-A")).toHaveLength(2);
@@ -444,9 +446,10 @@ describe("Learning Loop ledger — repository behavior", () => {
       expect(r1.finding.status).toBe("accepted");
       expect(r1.finding.decisionVersion).toBe(2);
 
-      // Second reviewer: also tries at version 1 → conflict
+      // Second reviewer: tries withdraw at stale version 1 → version_conflict.
+      // Withdraw IS valid from accepted status, but the version is wrong.
       const r2 = asOutcome(reviewCasWithClient(db, {
-        findingId: finding.id, decision: "reject", reason: "Disagree",
+        findingId: finding.id, decision: "withdraw", reason: "Stale version",
         reviewerId: "human-2", expectedDecisionVersion: 1,
       }), "version_conflict");
       expect(r2.finding.status).toBe("accepted");

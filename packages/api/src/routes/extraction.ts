@@ -25,8 +25,10 @@ import * as extractionPromotionService from "../services/extractionPromotionServ
 import { promoteToWikiDraft } from "../services/extractionWikiDestination.js";
 import { runExtraction } from "../services/extractionRunLifecycle.js";
 import {
-  listAcceptedFindingsForAgentWithClient,
-  getAcceptedFindingForAgentWithClient,
+  listAcceptedFindingsForAgent,
+  getAcceptedFindingForAgent,
+} from "../services/extractionAgentReadService.js";
+import {
   getWorkItemsByHabitatWithClient,
   getLatestAttemptWithClient,
 } from "../repositories/extraction/index.js";
@@ -380,6 +382,9 @@ export async function extractionRoutes(fastify: FastifyInstance): Promise<void> 
         request.params.findingId,
         request.user!.id,
       );
+      if (result.outcome === "disabled") {
+        return result;
+      }
       if (result.outcome === "promoted") reply.code(201);
       return result;
     },
@@ -399,8 +404,7 @@ export async function extractionRoutes(fastify: FastifyInstance): Promise<void> 
       const agentId = request.agent?.id ?? "";
       const { taskId } = request.query;
 
-      const findings = listAcceptedFindingsForAgentWithClient(
-        getDb(),
+      const findings = listAcceptedFindingsForAgent(
         agentId,
         taskId,
         request.params.habitatId,
@@ -429,8 +433,7 @@ export async function extractionRoutes(fastify: FastifyInstance): Promise<void> 
       const agentId = request.agent?.id ?? "";
       const { taskId } = request.query;
 
-      const finding = getAcceptedFindingForAgentWithClient(
-        getDb(),
+      const finding = getAcceptedFindingForAgent(
         agentId,
         taskId,
         request.params.habitatId,

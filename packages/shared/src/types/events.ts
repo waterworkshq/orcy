@@ -289,8 +289,6 @@ export type SSEEvent =
         habitatId: string;
         findingId: string;
         findingType: string;
-        subject: string;
-        confidence: number;
       };
     }
   | {

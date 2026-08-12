@@ -96,7 +96,7 @@ describe("Learning Loop built-in extractors", () => {
       makeObservation({ observationId: "obs-4", underlyingId: "row-4", occurredAt: "2026-06-04T12:00:00Z" }),
     ];
 
-    const candidates = runBuiltinExtractor({
+    const { candidates } = runBuiltinExtractor({
       observations,
       policyConfig: {},
       habitatId: "hab-A",
@@ -118,7 +118,7 @@ describe("Learning Loop built-in extractors", () => {
       makeAutomationRunObs({ observationId: "ar-3" }),
     ];
 
-    const candidates = runBuiltinExtractor({
+    const { candidates } = runBuiltinExtractor({
       observations,
       policyConfig: {},
       habitatId: "hab-A",
@@ -137,7 +137,7 @@ describe("Learning Loop built-in extractors", () => {
       makePluginRunObs({ observationId: "pr-4", collectorFamily: "detector" }),
     ];
 
-    const candidates = runBuiltinExtractor({
+    const { candidates } = runBuiltinExtractor({
       observations,
       policyConfig: {},
       habitatId: "hab-A",
@@ -154,7 +154,7 @@ describe("Learning Loop built-in extractors", () => {
       makeTriageObs({ observationId: "tri-3", underlyingId: "tri-3" }),
     ];
 
-    const candidates = runBuiltinExtractor({
+    const { candidates } = runBuiltinExtractor({
       observations,
       policyConfig: {},
       habitatId: "hab-A",
@@ -176,7 +176,7 @@ describe("Learning Loop built-in extractors", () => {
       makeExperienceObs({ observationId: "exp-3", underlyingId: "exp_agg:c" }),
     ];
 
-    const candidates = runBuiltinExtractor({
+    const { candidates } = runBuiltinExtractor({
       observations,
       policyConfig: {},
       habitatId: "hab-A",
@@ -194,15 +194,15 @@ describe("Learning Loop built-in extractors", () => {
     ];
 
     const ctx = { observations, policyConfig: {}, habitatId: "hab-A" };
-    const result1 = runBuiltinExtractor(ctx);
-    const result2 = runBuiltinExtractor(ctx);
+    const { candidates: result1 } = runBuiltinExtractor(ctx);
+    const { candidates: result2 } = runBuiltinExtractor(ctx);
 
     expect(result1.length).toBe(result2.length);
     expect(result1.map((c) => c.clientKey)).toEqual(result2.map((c) => c.clientKey));
   });
 
   it("returns empty array for empty observations", () => {
-    const candidates = runBuiltinExtractor({
+    const { candidates } = runBuiltinExtractor({
       observations: [],
       policyConfig: {},
       habitatId: "hab-A",
@@ -218,7 +218,7 @@ describe("Learning Loop built-in extractors", () => {
       makeObservation({ observationId: "obs-4", underlyingId: "row-4" }),
     ];
 
-    const candidates = runBuiltinExtractor({
+    const { candidates } = runBuiltinExtractor({
       observations,
       policyConfig: {},
       habitatId: "hab-A",

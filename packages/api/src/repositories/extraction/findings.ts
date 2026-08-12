@@ -89,9 +89,11 @@ export interface PersistCandidateInput {
   visibilityCeiling: ExtractionVisibilityClass;
   caveats: string[];
 
-  // Lineage
-  lineageRootId: string;
-  revision: number;
+  // Lineage — the repository derives these internally for new findings
+  // (revision 1 self-roots, changed evidence creates linked revisions).
+  // These are accepted for test/backward compatibility but overridden.
+  lineageRootId?: string;
+  revision?: number;
   supersedesFindingId?: string | null;
 
   // Citations and scope refs
@@ -190,9 +192,33 @@ export function persistCandidateWithClient(
     return { outcome: "recurrence", finding: mapFindingRow(updated) };
   }
 
-  // --- 3. New finding: INSERT finding, then citations, then scope refs ---
+  // --- 3. New finding or linked revision ---
+  // Allocate the finding ID BEFORE constructing lineage metadata so revision 1
+  // can self-root (lineage_root_id = finding id).
   const findingId = uuid();
   const now = new Date().toISOString();
+
+  // Claim-identity lookup: find the latest revision for the same fingerprint
+  // family (same habitat + extractor + fingerprint, different evidence).
+  // Same fingerprint + different evidence = new revision of the same claim.
+  const priorRevision = db
+    .select()
+    .from(extractedFindings)
+    .where(
+      and(
+        eq(extractedFindings.habitatId, input.habitatId),
+        eq(extractedFindings.extractorKey, input.extractorKey),
+        eq(extractedFindings.extractorVersion, input.extractorVersion),
+        eq(extractedFindings.fingerprint, input.fingerprint),
+      ),
+    )
+    .all()
+    .toSorted((a, b) => b.revision - a.revision)[0];
+
+  // Determine lineage: link to prior revision or self-root as revision 1.
+  const lineageRootId = priorRevision ? priorRevision.lineageRootId : findingId;
+  const revision = priorRevision ? priorRevision.revision + 1 : 1;
+  const supersedesFindingId = priorRevision ? priorRevision.id : null;
 
   try {
     db.insert(extractedFindings)
@@ -201,9 +227,9 @@ export function persistCandidateWithClient(
         habitatId: input.habitatId,
         firstAttemptId: input.firstAttemptId,
         lastSeenAttemptId: input.attemptId,
-        lineageRootId: input.lineageRootId,
-        supersedesFindingId: input.supersedesFindingId ?? null,
-        revision: input.revision,
+        lineageRootId,
+        supersedesFindingId,
+        revision,
         extractorKey: input.extractorKey,
         extractorVersion: input.extractorVersion,
         findingType: input.findingType,

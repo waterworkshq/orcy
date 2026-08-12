@@ -111,6 +111,7 @@ export const pluginRunAuditAdapter: ExtractionSourceAdapter = {
         completeness: "complete",
         warnings: [],
         boundaryToken: boundaryToken!,
+        collectionOutcome: "collected" as const,
       };
     } catch {
       return {
@@ -119,6 +120,7 @@ export const pluginRunAuditAdapter: ExtractionSourceAdapter = {
         completeness: "partial",
         warnings: ["plugin_run_source_unavailable"],
         boundaryToken: boundaryToken ?? makeBoundaryToken(SOURCE_TYPE, EPOCH_ISO),
+        collectionOutcome: "failed" as const,
       };
     }
   },

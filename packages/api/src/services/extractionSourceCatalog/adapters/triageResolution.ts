@@ -98,6 +98,7 @@ export const triageResolutionAdapter: ExtractionSourceAdapter = {
         completeness: "complete",
         warnings: [],
         boundaryToken: boundaryToken!,
+        collectionOutcome: "collected" as const,
       };
     } catch {
       return {
@@ -106,6 +107,7 @@ export const triageResolutionAdapter: ExtractionSourceAdapter = {
         completeness: "partial",
         warnings: ["triage_resolution_source_unavailable"],
         boundaryToken: boundaryToken ?? makeBoundaryToken(SOURCE_TYPE, EPOCH_ISO),
+        collectionOutcome: "failed" as const,
       };
     }
   },
