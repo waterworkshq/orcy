@@ -1,6 +1,6 @@
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import * as missionCommentService from '../services/missionCommentService.js';
-import { agentAuth, agentOrHumanAuth } from '../middleware/auth.js';
+import { agentOrHumanAuth } from '../middleware/auth.js';
 import { badRequest, unauthorized, notFound, forbidden } from '../errors.js';
 import { z } from 'zod';
 
@@ -21,7 +21,7 @@ const commentsQuerySchema = z.object({
 export async function missionCommentRoutes(fastify: FastifyInstance): Promise<void> {
   fastify.post<{ Params: { missionId: string }; Body: z.infer<typeof createCommentSchema> }>(
     '/missions/:missionId/comments',
-    { preHandler: agentAuth },
+    { preHandler: agentOrHumanAuth },
     async (request: FastifyRequest<{ Params: { missionId: string }; Body: z.infer<typeof createCommentSchema> }>, reply: FastifyReply) => {
       if (!request.agent && !request.user) {
         throw unauthorized('Authentication required');
@@ -77,7 +77,7 @@ export async function missionCommentRoutes(fastify: FastifyInstance): Promise<vo
 
   fastify.patch<{ Params: { missionId: string; commentId: string }; Body: z.infer<typeof updateCommentSchema> }>(
     '/missions/:missionId/comments/:commentId',
-    { preHandler: agentAuth },
+    { preHandler: agentOrHumanAuth },
     async (request: FastifyRequest<{ Params: { missionId: string; commentId: string }; Body: z.infer<typeof updateCommentSchema> }>, _reply: FastifyReply) => {
       if (!request.agent && !request.user) {
         throw unauthorized('Authentication required');
@@ -117,7 +117,7 @@ export async function missionCommentRoutes(fastify: FastifyInstance): Promise<vo
 
   fastify.delete<{ Params: { missionId: string; commentId: string } }>(
     '/missions/:missionId/comments/:commentId',
-    { preHandler: agentAuth },
+    { preHandler: agentOrHumanAuth },
     async (request: FastifyRequest<{ Params: { missionId: string; commentId: string } }>, reply: FastifyReply) => {
       if (!request.agent && !request.user) {
         throw unauthorized('Authentication required');

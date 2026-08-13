@@ -33,9 +33,17 @@ glossary types. Communication is not a domain noun.
    composer is hidden in Pulse-only filter mode so a post cannot vanish from
    the visible list.
 
+5. **v1 merge is the loaded window.** Pulse pages and the comment list are
+   independent queries. Interleave is by timestamp among rows already fetched.
+   Loading another Pulse page can insert older Pulse above a comment that was
+   already shown. Coordinated dual-source pagination is a later change.
+   Comments currently use the list default (limit 50).
+
 ## Consequences
 
 - One mission scroll for Pulse + comments without a new CONTEXT type.
 - Pulse and comment modules remain the owners of their queries and cards.
 - A habitat Communication shell or mixing Activity/mail into this tab is a new
   ADR.
+- Operators who page Pulse on a busy mission may see order shift; that is
+  accepted for this projection, not a second store.
