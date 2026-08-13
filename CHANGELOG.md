@@ -2,6 +2,27 @@
 
 > Older releases: see [git tags](https://github.com/waterworkshq/orcy/tags) and [GitHub Releases](https://github.com/waterworkshq/orcy/releases).
 
+## 0.39.4 — 2026-08-13
+
+### Documentation
+
+#### add v0.39.4 operator notes ([`2aba8d9`](https://github.com/waterworkshq/orcy/commit/2aba8d98075d930229643d682173bc627a9e055f))
+
+
+
+### Refactors
+
+#### migrate non-habitat tool schemas and client interfaces to habitatId ([`50523f4`](https://github.com/waterworkshq/orcy/commit/50523f464cca2ffbd5d61fadcb0b05e98e2308e9))
+
+
+
+
+- Align all non-habitat MCP dispatch tool schemas, handler contracts, and client interfaces with the canonical habitatId naming convention introduced in v0.36.0, replacing remaining boardId references while maintaining transparent fallback compatibility for legacy callers and tests.
+
+
+
+
+
 ## 0.39.3 — 2026-08-13
 
 ### Documentation
@@ -39,27 +60,3 @@
 
 
 - Prove that concurrent fresh-rerun allocations allocate monotonic generations without collisions or lock timeouts. Fix error-cause forwarding and unused identifiers across API and UI, and fix mocked error and remote-participant fixtures in prioritization and board-summary test suites.
-
-
-
-
-
-## 0.39.1 — 2026-08-13
-
-### Documentation
-
-#### mark v0.39.0 shipped ([`9903984`](https://github.com/waterworkshq/orcy/commit/990398488a4e4e3ea952e8cc924aa72448a6ad19))
-
-
-#### add v0.39.1 operator notes ([`0abe932`](https://github.com/waterworkshq/orcy/commit/0abe932316f2dbcd1052a963da1e42bbf14a334d))
-
-
-
-### Features
-
-#### add comment pagination and query error retry to communication board ([`af2eaa4`](https://github.com/waterworkshq/orcy/commit/af2eaa4e9a4fb5ff1f1ec7b6783a8ae961425e74))
-
-
-
-
-- Support multi-page comments via infinite query and surface query error states with retry actions in the communication board.
