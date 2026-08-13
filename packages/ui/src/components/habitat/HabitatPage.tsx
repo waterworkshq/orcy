@@ -31,12 +31,12 @@ import {
   HelpCircle,
   Activity,
   BookOpen,
-  Eye,
   CheckSquare,
   Square,
   Menu,
   GitBranch,
 } from "lucide-react";
+import { HabitatPresence } from "./HabitatPresence.js";
 import { HabitatPulsePanel } from "./HabitatPulsePanel.js";
 import { InsightsPanel } from "./InsightsPanel.js";
 import { SkillPanel } from "./SkillPanel.js";
@@ -286,28 +286,7 @@ export function HabitatPage() {
               </button>
             ) : (
               <div className="flex items-center gap-1.5">
-                {presence.length > 0 && (
-                  <div className="flex items-center gap-1.5 rounded-md bg-surface-container-high px-2 py-1 text-xs text-on-surface-variant">
-                    <Eye className="h-3.5 w-3.5" />
-                    <span>{presence.length}</span>
-                    <div className="ml-1 flex -space-x-1.5">
-                      {presence.slice(0, 3).map((p) => (
-                        <div
-                          key={p.sessionId}
-                          className="flex h-5 w-5 items-center justify-center rounded-full border border-surface bg-[var(--agent-blue)] text-[9px] font-bold text-[var(--on-surface)]"
-                          title={p.userName ?? p.agentName ?? "Unknown"}
-                        >
-                          {(p.userName ?? p.agentName ?? "?").slice(0, 2).toUpperCase()}
-                        </div>
-                      ))}
-                      {presence.length > 3 && (
-                        <div className="flex h-5 w-5 items-center justify-center rounded-full border border-surface bg-surface-container-highest text-[9px] font-bold text-on-surface-variant">
-                          +{presence.length - 3}
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                )}
+                <HabitatPresence presence={presence} />
                 <button
                   type="button"
                   onClick={() => setHelpOpen(true)}
@@ -436,11 +415,8 @@ export function HabitatPage() {
           </div>
         )}
 
-        {!isMobile && presence.length > 0 && (
-          <div className="mb-2 flex items-center gap-1.5 rounded-md bg-surface-container-high px-2 py-1 text-xs text-on-surface-variant w-fit md:hidden">
-            <Eye className="h-3.5 w-3.5" />
-            <span>{presence.length} viewing</span>
-          </div>
+        {!isMobile && (
+          <HabitatPresence presence={presence} className="mb-2 w-fit md:hidden" />
         )}
 
         <FilterBar habitatId={habitatId} focusSearchRef={searchRef} />

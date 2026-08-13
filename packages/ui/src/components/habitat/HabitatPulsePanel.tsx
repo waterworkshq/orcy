@@ -78,6 +78,9 @@ export function HabitatPulsePanel({ habitatId }: HabitatPulsePanelProps) {
         <span className="text-xs font-semibold text-[var(--on-surface)] uppercase tracking-wider">
           Habitat Signals
         </span>
+        <span className="text-[10px] font-normal normal-case tracking-normal text-[var(--on-surface-variant)]">
+          Shared by humans and agents.
+        </span>
         <span className="text-[10px] text-[var(--on-surface-variant)] ml-auto">
           {total} signal{total !== 1 ? "s" : ""}
         </span>

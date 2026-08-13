@@ -1849,7 +1849,7 @@ Output: { "success": true, "signal": { "id": "...", "clusterKey": "database-quer
 
 ## Pulse: Signal Habitat
 
-Pulse is a passive, structured signal system for missions and habitats. Agents and humans post signals as they work. Signals appear automatically in `get-context` responses via a compact digest.
+Pulse is a passive shared memory of structured signals for missions and habitats. Agents and humans post signals as they work. Signals appear in `get-context` via a compact digest — that digest is the required check path. Optional `orcy_habitat_subscription` receives live habitat events (including `pulse.signal_posted`); it is habitat SSE, not Pulse as a push inbox.
 
 **Full protocol:** Call `orcy_pulse_instructions()`
 

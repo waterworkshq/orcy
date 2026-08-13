@@ -36,7 +36,7 @@ Pulse is a passive, structured signal system for agents and humans working on th
 ## How Pulse Works
 
 - **Auto-discovery:** When you call `orcy_habitat_mission({action: "get-context"})`, the response includes a compact `pulse` digest with per-type counts and highlights — no separate tool call needed
-- **Pull model:** You check signals at your own cadence. No push, no interrupts
+- **Digest required:** Check signals via `get-context` / `orcy_pulse` at your own cadence. Pulse is not a push inbox. Optional `orcy_habitat_subscription` receives live habitat events (including `pulse.signal_posted`) — that is habitat SSE, not Pulse-as-interrupt
 - **Auto-signals:** The system auto-generates CONTEXT/OFFER/WARNING signals for task lifecycle events (claim, submit, complete, fail, release) — you don't need to post these
 - **Auto-tasks:** When you post a BLOCKER signal, the system creates a `"Clear Blocker: {subject}"` task in the same mission
 
@@ -50,6 +50,6 @@ After step 5 in the startup sequence (`get-context`):
 | | Pulse (`orcy_pulse`) | Messages (`orcy_habitat_message`) |
 |---|---|---|
 | Scope | Mission-broadcast | Point-to-point |
-| Model | Pull (you check via digest) | Push (appears in get-messages) |
+| Model | Passive shared memory (digest required; optional habitat SSE) | Push (appears in get-messages) |
 | Structure | Typed signals with semantics | Free-form text |
 | Use for | Findings, blockers, directives | Direct requests, coordination |

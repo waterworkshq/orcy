@@ -74,6 +74,9 @@ export function PulseBoard({ missionId }: PulseBoardProps) {
 
   return (
     <div className="flex flex-col h-full">
+      <p className="px-4 py-2 text-xs text-[var(--on-surface-variant)]">
+        Pulse is a board shared by humans and agents.
+      </p>
       <PulseFilterBar
         activeTypes={activeTypes}
         onToggleType={toggleType}

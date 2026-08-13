@@ -47,6 +47,15 @@ describe("PulseBoard", () => {
     vi.clearAllMocks();
   });
 
+  it("states Pulse is a board shared by humans and agents", async () => {
+    renderBoard();
+
+    expect(await screen.findByText(/shared by humans and agents/i)).toBeInTheDocument();
+    expect(screen.queryByText(/chat/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/channel/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/notification/i)).not.toBeInTheDocument();
+  });
+
   it("hides experience signals by default for agents", async () => {
     renderBoard();
 
