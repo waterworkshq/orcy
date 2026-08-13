@@ -87,7 +87,6 @@ import { getDb } from "../db/index.js";
 import { scheduledTasks } from "../db/schema/index.js";
 import { logger } from "../lib/logger.js";
 import {
-  getOccurrenceWithClient,
   listOccurrencesWithExpiredLeasesWithClient,
   reclaimAndStampOccurrenceWithClient,
   type OccurrenceResultJson,

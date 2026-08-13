@@ -27,7 +27,7 @@ export function useTaskDelegate(task: Task | undefined): UseTaskDelegateResult {
     if (!task || !delegateAgentId) return;
     setDelegating(true);
     try {
-      const result = await api.tasks.delegate(task.id, delegateAgentId);
+      await api.tasks.delegate(task.id, delegateAgentId);
       queryClient.invalidateQueries({ queryKey: queryKeys.tasks.details(task.id) });
       const targetAgent = agents.find((a) => a.id === delegateAgentId);
       notify.success(`Task delegated to ${targetAgent?.name ?? "agent"}`);

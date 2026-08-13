@@ -1232,7 +1232,7 @@ function capturePublicationGuard(
   manifestDigest: string,
   habitatId: string | null,
   mode: "new" | "replacement",
-  existingHabitatSnapshot: ExistingHabitatSnapshot | null,
+  _existingHabitatSnapshot: ExistingHabitatSnapshot | null,
 ): ImportPublicationGuard {
   let targetHabitatUpdatedAt: string | null = null;
 

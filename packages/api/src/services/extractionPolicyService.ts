@@ -108,7 +108,7 @@ export function validatePolicyWindow(input: {
     }
   } catch (err) {
     if (err instanceof Error && err.message.startsWith("Policy schedule")) throw err;
-    throw new Error("Policy schedule must be a valid cron expression.");
+    throw new Error("Policy schedule must be a valid cron expression.", { cause: err });
   }
   if (
     !Number.isFinite(input.windowSeconds) ||

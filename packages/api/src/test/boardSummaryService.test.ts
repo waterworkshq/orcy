@@ -7,6 +7,7 @@ const repoMocks = vi.hoisted(() => ({
   getEventsByHabitatId: vi.fn(),
   getMissionEventsByHabitatId: vi.fn(),
   listAgents: vi.fn(),
+  getRemoteParticipantsByHabitat: vi.fn(),
 }));
 
 vi.mock("../repositories/habitat.js", () => ({
@@ -24,6 +25,9 @@ vi.mock("../repositories/event.js", () => ({
 }));
 vi.mock("../repositories/agent.js", () => ({
   listAgents: repoMocks.listAgents,
+}));
+vi.mock("../repositories/remoteParticipant.js", () => ({
+  getRemoteParticipantsByHabitat: repoMocks.getRemoteParticipantsByHabitat,
 }));
 
 import { generateHabitatSummary } from "../services/boardSummaryService.js";
@@ -55,6 +59,7 @@ function setupSummaryData(tasks: Array<Record<string, unknown>>) {
   repoMocks.getEventsByHabitatId.mockReturnValue({ events: [] });
   repoMocks.getMissionEventsByHabitatId.mockReturnValue({ events: [] });
   repoMocks.listAgents.mockReturnValue([]);
+  repoMocks.getRemoteParticipantsByHabitat.mockReturnValue([]);
 }
 
 describe("boardSummaryService", () => {

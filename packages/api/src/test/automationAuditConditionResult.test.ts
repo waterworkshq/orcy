@@ -200,7 +200,7 @@ describe("CS-56 T6 — audit + history conditionResult exposure across all branc
   });
 
   it("kill switch: run row + audit metadata carry skipped/disabled + TRUE conditionResult", async () => {
-    boardRepo.updateHabitat; // satisfy the import-side reference
+    void boardRepo.updateHabitat; // satisfy the import-side reference
     const h = setupHabitat();
     boardRepo.updateHabitat(h.id, { automationSettings: { executeActions: false } });
     const mission = setupMission(h.id);

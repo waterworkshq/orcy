@@ -72,9 +72,13 @@ vi.mock('../middleware/team.js', () => ({
   requireHabitatAccess: vi.fn((_req: any, _reply: any, done: any) => done()),
 }));
 
-vi.mock('../errors.js', () => ({
-  notFound: (msg: string) => new Error(msg),
-}));
+vi.mock('../errors.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../errors.js')>();
+  return {
+    ...actual,
+    notFound: (msg: string) => new Error(msg),
+  };
+});
 
 describe('prioritizationRoutes', () => {
   it('exports a function named prioritizationRoutes', () => {

@@ -3,7 +3,6 @@ import type {
   AutomationConditionResult,
   AutomationRule,
   TaskPriority,
-  Agent,
   PluginEvaluationContext,
 } from "@orcy/shared";
 import type { AutomationEvaluationContext } from "./automationContextBuilder.js";
