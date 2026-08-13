@@ -2,6 +2,69 @@
 
 > Older releases: see [git tags](https://github.com/waterworkshq/orcy/tags) and [GitHub Releases](https://github.com/waterworkshq/orcy/releases).
 
+## 0.39.0 — 2026-08-13
+
+### Documentation
+
+#### add v0.38.0 operator notes ([`69c958e`](https://github.com/waterworkshq/orcy/commit/69c958efd174e65471d9c57a9d71ed3f97951d6a))
+
+
+
+
+- Add the hand-written operator-facing release notes for the Learning Loop v1 minor release following the minor-release convention, and flip the roadmap entry and readme What's Next from release-pending to Shipped now that the tag has landed.
+
+
+
+
+#### add v0.39.0 operator notes ([`fe9e227`](https://github.com/waterworkshq/orcy/commit/fe9e2279d2e46dfdbbfc19b3de0d90bc30789556))
+
+
+
+
+- Hand-written operator-facing notes for the Habitat Shared Room minor: co-presence, Pulse as shared memory, agent-mail supervision, and the mission Communication tab.
+
+
+
+
+
+### Features
+
+#### surface habitat co-presence and Pulse as a shared board ([`32b0e65`](https://github.com/waterworkshq/orcy/commit/32b0e652d8142ef10f8332e311c96c5da3af1919))
+
+
+
+
+- Live viewers distinguish humans from agents with "in habitat" copy, and Pulse chrome states the board is shared, while skills keep the digest required and habitat SSE subscribe optional.
+
+
+
+
+#### notify recipient agents of habitat mail via Notification V2 ([`230aa62`](https://github.com/waterworkshq/orcy/commit/230aa626e86066af90c31f5c83e942abe1cdb490))
+
+
+
+
+- Sending mail enqueues a subject-only agent.message_received event for the recipient when a subscription exists, without putting the body on the wire or failing the send.
+
+
+
+
+#### merge mission Pulse and comments into Communication (#8) ([`1bc5a37`](https://github.com/waterworkshq/orcy/commit/1bc5a37ab90220876fdcaf3224a6a649bf6bd4e4))
+
+
+
+
+- feat(ui): merge mission Pulse and comments into Communication
+
+
+
+
+- Mission detail lists existing Pulse and comment queries in one tab. Query construction, merge, row labels, and list chrome stay in separate modules so the board only orchestrates filters and composers. Pulse-only filter hides the comment composer so a posted comment cannot vanish from the visible list.
+
+
+
+
+
 ## 0.38.0 — 2026-08-13
 
 ### Bug Fixes
@@ -576,28 +639,3 @@
 
 
 - Establishes the first test coverage for the installer package (previously none) as a behavior baseline for upcoming transactional-installer work. Pins current observable behavior across install, uninstall, update, install-twice idempotency, and a partial-failure case, so later changes land as explicit reviewable deltas rather than silent behavior shifts. Uses a temp-directory harness with the shared ORCY_PATHS redirected, real fs operations, and stubbed execSync/fetch/prompts.
-
-
-
-
-
-## 0.36.1 — 2026-08-09
-
-### Bug Fixes
-
-#### strip field-level .default() from patch sub-schemas + extract publishHabitatUpdate helper ([`cf0da86`](https://github.com/waterworkshq/orcy/commit/cf0da86e42ce9248500eeed04e4f1be9820403c9))
-
-
-
-
-- Remove .default() from anomalySettingsSchema and autoAssignSettingsSchema   sub-fields so partial PATCHes don't silently reset unspecified fields to   Zod-injected defaults before the service deep-merge runs (CS-20)
-
-
-
-
-- Remove .default(false) from codeReviewSettingsSchema.autoApproveOnMerge —   same data-loss pattern
-
-
-
-
-- Extract publishHabitatUpdate(habitatId, habitat) helper in habitatService   centralizing mask + cache rebuild + SSE broadcast; route all 3 habitat-   change paths through it so side effects stay consistent (CS-21)
