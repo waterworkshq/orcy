@@ -58,6 +58,12 @@ import { pathToFileURL } from "node:url";
 import { logger } from "../lib/logger.js";
 import * as enrollmentRepo from "../repositories/pluginEnrollment.js";
 import * as runRepo from "../repositories/pluginRun.js";
+import {
+  checkAndRecordDetection,
+  checkSignalHourQuota,
+  recordSignalsEmitted,
+  resetDetectorRateLimits,
+} from "./detectorRateLimiter.js";
 import * as quarantineRepo from "../repositories/pluginQuarantine.js";
 import { sseBroadcaster } from "../sse/broadcaster.js";
 import * as pulseService from "../services/pulseService.js";
@@ -769,6 +775,37 @@ function buildRuntimeDeps(ctxRef: {
     withTimeout,
     acquireDetectorSlot: acquireConcurrencySlot,
     releaseDetectorSlot: releaseConcurrencySlot,
+    checkDetectorRateLimit: (habitatId, target) => {
+      const defaults = target.contribution.rateLimitDefaults;
+      if (!defaults) return { allowed: true };
+      if (defaults.maxDetectionsPerMinute) {
+        const admitted = checkAndRecordDetection(
+          habitatId,
+          target.canonicalKey,
+          defaults.maxDetectionsPerMinute,
+        );
+        if (!admitted) {
+          return {
+            allowed: false,
+            reason: `Exceeded maxDetectionsPerMinute (${defaults.maxDetectionsPerMinute})`,
+          };
+        }
+      }
+      if (defaults.maxSignalsPerHour) {
+        const hasQuota = checkSignalHourQuota(
+          habitatId,
+          target.canonicalKey,
+          defaults.maxSignalsPerHour,
+        );
+        if (!hasQuota) {
+          return {
+            allowed: false,
+            reason: `Exceeded maxSignalsPerHour (${defaults.maxSignalsPerHour})`,
+          };
+        }
+      }
+      return { allowed: true };
+    },
     logger: {
       error: (msg, meta) => logger.error(meta ?? {}, msg),
       warn: (msg, meta) => logger.warn(meta ?? {}, msg),
@@ -845,12 +882,17 @@ function invokeDetectorThroughRuntime(
     triggerEventId: ref.sourceId,
     triggerType: ref.kind,
     source: ref,
-    onResult: async (signals) =>
-      persistDetectedSignalBatch(signals, {
+    onResult: async (signals) => {
+      const written = persistDetectedSignalBatch(signals, {
         habitatId: ref.habitatId,
         pluginId: target.pluginId,
         runId: ctxRef.ctx?.runId,
-      }),
+      });
+      if (written > 0) {
+        recordSignalsEmitted(ref.habitatId, target.canonicalKey, written);
+      }
+      return written;
+    },
   };
   return runtime.invokeManaged(request);
 }
@@ -1278,6 +1320,7 @@ export function resetPlugins(): void {
   quarantineSet.clear();
   errorCounters.clear();
   activeRuns.clear();
+  resetDetectorRateLimits();
 }
 
 /**

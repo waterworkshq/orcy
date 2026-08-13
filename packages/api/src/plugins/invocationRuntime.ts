@@ -631,6 +631,11 @@ export interface RuntimeDeps {
   acquireDetectorSlot: (habitatId: string) => boolean;
   /** Detector concurrency slot release (attached to underlying handler settlement — Q12). */
   releaseDetectorSlot: (habitatId: string) => void;
+  /** Evaluates detector rate policy (PLG-5: detections/min and signals/hour). Returns false if throttled. */
+  checkDetectorRateLimit?: (
+    habitatId: string,
+    target: DetectorTarget,
+  ) => { allowed: boolean; reason?: string };
   logger: RuntimeLogger;
 }
 
@@ -905,7 +910,7 @@ export function createInvocationRuntime(deps: RuntimeDeps): InvocationRuntime {
       return buildSkippedOutcome(kind, runId, !ff);
     }
 
-    // 3. Detector concurrency capacity (Q12, Q14 — rate_limited is capacity-only).
+    // 3. Detector concurrency capacity & rate limits (Q12, Q14, PLG-5).
     let slotAcquired = false;
     if (kind === "signalDetector") {
       slotAcquired = deps.acquireDetectorSlot(habitatId);
@@ -913,6 +918,16 @@ export function createInvocationRuntime(deps: RuntimeDeps): InvocationRuntime {
         const ff = safeFinishRun(runId, "rate_limited");
         if (!ff) safeDeleteRun(runId);
         return buildRateLimitedOutcome(kind, runId, !ff);
+      }
+
+      if (deps.checkDetectorRateLimit) {
+        const rateCheck = deps.checkDetectorRateLimit(habitatId, target as DetectorTarget);
+        if (!rateCheck.allowed) {
+          deps.releaseDetectorSlot(habitatId);
+          const ff = safeFinishRun(runId, "rate_limited", undefined, rateCheck.reason);
+          if (!ff) safeDeleteRun(runId);
+          return buildRateLimitedOutcome(kind, runId, !ff);
+        }
       }
     }
 
