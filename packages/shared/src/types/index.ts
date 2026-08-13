@@ -285,9 +285,15 @@ export type {
   AutomationTriggerContext,
   CreateAutomationRuleInput,
   UpdateAutomationRuleInput,
+  AutomationRuleDraft,
 } from "./automation.js";
 
-export { buildFingerprint } from "./automation.js";
+export {
+  AUTOMATION_EVENT_TYPES,
+  AUTOMATION_SCAN_TYPES,
+  AUTOMATION_ACTION_TYPES,
+  buildFingerprint,
+} from "./automation.js";
 
 export type {
   PodAffiliation,

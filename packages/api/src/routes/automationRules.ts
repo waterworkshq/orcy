@@ -8,6 +8,10 @@ import {
   automationConditionSchema,
   validatePersistedCondition,
 } from "../models/automationConditionSchema.js";
+import {
+  createAutomationRuleSchema,
+  updateAutomationRuleSchema,
+} from "../models/automationRuleSchema.js";
 import { attemptRuleRun } from "../services/automationAttemptLifecycle.js";
 import {
   agentHasHabitatWork,
@@ -19,34 +23,10 @@ import { checkHabitatAccess } from "../middleware/realtimeAuth.js";
 import { notFound, badRequest } from "../errors.js";
 import type { AutomationTargetType } from "@orcy/shared";
 
-// CS-56 T2: every rule boundary uses the shared recursive discriminated
-// condition schema. The trigger remains passthrough because its shape
-// (event vs scan, eventType vs scanType) is small and constrained; condition
-// is the structurally rich tree that required validation depth.
-
-const createRuleSchema = z.object({
-  name: z.string().min(1).max(200),
-  description: z.string().optional(),
-  enabled: z.boolean().optional(),
-  priority: z.number().int().nonnegative().optional(),
-  trigger: z.object({}).passthrough(),
-  condition: automationConditionSchema.optional(),
-  actions: z.array(z.object({}).passthrough()).min(1).max(10),
-  cooldownSeconds: z.number().int().nonnegative().optional(),
-  maxRunsPerHour: z.number().int().positive().optional(),
-});
-
-const updateRuleSchema = z.object({
-  name: z.string().min(1).max(200).optional(),
-  description: z.string().optional(),
-  enabled: z.boolean().optional(),
-  priority: z.number().int().nonnegative().optional(),
-  trigger: z.object({}).passthrough().optional(),
-  condition: automationConditionSchema.optional(),
-  actions: z.array(z.object({}).passthrough()).min(1).max(10).optional(),
-  cooldownSeconds: z.number().int().nonnegative().optional(),
-  maxRunsPerHour: z.number().int().positive().optional(),
-});
+// CS-56 T2 & LL-RM-1: every rule boundary uses strict discriminated schemas
+// for trigger, condition, and actions.
+const createRuleSchema = createAutomationRuleSchema;
+const updateRuleSchema = updateAutomationRuleSchema;
 
 const simulateSchema = z.object({
   overrideCondition: automationConditionSchema.optional(),

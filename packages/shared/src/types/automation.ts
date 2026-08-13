@@ -1,32 +1,40 @@
 import type { CausalContext } from "./causalContext.js";
 
+/** Real-time events that can fire an automation rule. */
+export const AUTOMATION_EVENT_TYPES = [
+  "task.rejected",
+  "task.overdue",
+  "task.priority_changed",
+  "task.review_assigned",
+  "task.review_completed",
+  "task.created",
+  "mission.status_changed",
+  "mission.progress",
+  "pulse.signal_posted",
+  "scheduled_task.failed",
+  "code_evidence.updated",
+  "anomaly.detected",
+  "sprint.started",
+  "sprint.completed",
+  "release.shipped",
+] as const;
+
 /** Discriminator for real-time events that can fire an automation rule. */
-export type AutomationEventType =
-  | "task.rejected"
-  | "task.overdue"
-  | "task.priority_changed"
-  | "task.review_assigned"
-  | "task.review_completed"
-  | "task.created"
-  | "mission.status_changed"
-  | "mission.progress"
-  | "pulse.signal_posted"
-  | "scheduled_task.failed"
-  | "code_evidence.updated"
-  | "anomaly.detected"
-  | "sprint.started"
-  | "sprint.completed"
-  | "release.shipped";
+export type AutomationEventType = (typeof AUTOMATION_EVENT_TYPES)[number];
+
+/** Periodic scans that can fire an automation rule. */
+export const AUTOMATION_SCAN_TYPES = [
+  "mission_blocked",
+  "sprint_ending",
+  "agent_silent",
+  "evidence_gap_open",
+  "signal_pattern_clustered",
+  "agent_quality_degraded",
+  "orphan_mission_unmapped",
+] as const;
 
 /** Discriminator for periodic scans that can fire an automation rule. */
-export type AutomationScanType =
-  | "mission_blocked"
-  | "sprint_ending"
-  | "agent_silent"
-  | "evidence_gap_open"
-  | "signal_pattern_clustered"
-  | "agent_quality_degraded"
-  | "orphan_mission_unmapped";
+export type AutomationScanType = (typeof AUTOMATION_SCAN_TYPES)[number];
 
 /** Union of all trigger discriminators, combining events and scans. */
 export type AutomationTriggerType = AutomationEventType | AutomationScanType;
@@ -73,18 +81,22 @@ export type AutomationCondition =
   | { type: "domain_is"; domain: string }
   | { type: "plugin"; conditionId: string; params?: Record<string, unknown> };
 
+/** Concrete action discriminators a rule executes when its condition matches. */
+export const AUTOMATION_ACTION_TYPES = [
+  "notify",
+  "create_signal",
+  "create_task",
+  "change_priority",
+  "assign",
+  "release_assignment",
+  "request_review",
+  "call_webhook",
+  "mark_risk",
+  "plugin",
+] as const;
+
 /** Discriminator for the concrete action a rule executes when its condition matches. */
-export type AutomationActionType =
-  | "notify"
-  | "create_signal"
-  | "create_task"
-  | "change_priority"
-  | "assign"
-  | "release_assignment"
-  | "request_review"
-  | "call_webhook"
-  | "mark_risk"
-  | "plugin";
+export type AutomationActionType = (typeof AUTOMATION_ACTION_TYPES)[number];
 
 /** Resolvable destination for an automation notification — a role-based group or an explicit agent/human reference. */
 export type AutomationRecipient =
@@ -319,6 +331,19 @@ export interface UpdateAutomationRuleInput {
   trigger?: AutomationTrigger;
   condition?: AutomationCondition;
   actions?: AutomationAction[];
+  cooldownSeconds?: number;
+  maxRunsPerHour?: number;
+}
+
+/** Authoring draft for creating or updating an automation rule, machine-readable across UI, recommendations, and API. */
+export interface AutomationRuleDraft {
+  name: string;
+  description?: string;
+  enabled?: boolean;
+  priority?: number;
+  trigger: AutomationTrigger;
+  condition?: AutomationCondition;
+  actions: AutomationAction[];
   cooldownSeconds?: number;
   maxRunsPerHour?: number;
 }
