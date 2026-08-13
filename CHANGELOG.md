@@ -2,6 +2,27 @@
 
 > Older releases: see [git tags](https://github.com/waterworkshq/orcy/tags) and [GitHub Releases](https://github.com/waterworkshq/orcy/releases).
 
+## 0.39.7 — 2026-08-13
+
+### Bug Fixes
+
+#### validate and emit structured automation rule draft recommendations ([`6313db7`](https://github.com/waterworkshq/orcy/commit/6313db73bd9d77b395c1629274933b6cfc6a29ce))
+
+
+
+
+- Validate rule recommendation payloads against the shared automation rule draft schema, emit structured rule drafts upon triage pattern detection, and render draft previews in the finding view.
+
+
+
+
+
+### Documentation
+
+#### add v0.39.7 operator notes ([`c6f5f36`](https://github.com/waterworkshq/orcy/commit/c6f5f36644ab58d446d6f33373657efccb4a4b4f))
+
+
+
 ## 0.39.6 — 2026-08-13
 
 ### Bug Fixes
@@ -41,22 +62,3 @@
 ### Documentation
 
 #### add v0.39.5 operator notes ([`90d49f7`](https://github.com/waterworkshq/orcy/commit/90d49f7bea8e53b8707e657e57f7fa8c167b100d))
-
-
-
-## 0.39.4 — 2026-08-13
-
-### Documentation
-
-#### add v0.39.4 operator notes ([`2aba8d9`](https://github.com/waterworkshq/orcy/commit/2aba8d98075d930229643d682173bc627a9e055f))
-
-
-
-### Refactors
-
-#### migrate non-habitat tool schemas and client interfaces to habitatId ([`50523f4`](https://github.com/waterworkshq/orcy/commit/50523f464cca2ffbd5d61fadcb0b05e98e2308e9))
-
-
-
-
-- Align all non-habitat MCP dispatch tool schemas, handler contracts, and client interfaces with the canonical habitatId naming convention introduced in v0.36.0, replacing remaining boardId references while maintaining transparent fallback compatibility for legacy callers and tests.
