@@ -12,6 +12,8 @@ interface PulseFilterBarProps {
   onToggleShowExperience: () => void;
   resultCount: number;
   onClearAll: () => void;
+  /** When hide-auto matches this, it is the board default rather than an extra filter. */
+  defaultHideAuto?: boolean;
 }
 
 export function PulseFilterBar({
@@ -23,8 +25,10 @@ export function PulseFilterBar({
   onToggleShowExperience,
   resultCount,
   onClearAll,
+  defaultHideAuto = false,
 }: PulseFilterBarProps) {
-  const hasFilters = activeTypes.length > 0 || hideAuto || !showExperience;
+  const hasFilters =
+    activeTypes.length > 0 || hideAuto !== defaultHideAuto || !showExperience;
   const visibleSignalTypes = SIGNAL_TYPES.filter((type) => type !== "experience");
 
   return (

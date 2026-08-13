@@ -7,7 +7,6 @@ import { Button } from "../components/ui/Button.js";
 import {
   ArrowLeft,
   AlertCircle,
-  Radio,
   Activity,
   ListTodo,
   MessageSquare,
@@ -26,8 +25,7 @@ import { RiskAnalysisSidebar } from "../components/habitat/RiskAnalysisSidebar.j
 import { CodeReviewSection } from "../components/habitat/CodeReviewSection.js";
 import { AgentReasoningTrace } from "../components/habitat/AgentReasoningTrace.js";
 import { CommentInputBar } from "../components/habitat/CommentInputBar.js";
-import { MissionCommentSection } from "../components/habitat/MissionCommentSection.js";
-import { PulseBoard } from "../components/habitat/PulseBoard.js";
+import { MissionCommunicationBoard } from "../components/habitat/MissionCommunicationBoard.js";
 import { WorkflowDagView } from "../components/workflow/WorkflowDagView.js";
 import type { MissionEvent } from "../types/index.js";
 
@@ -118,7 +116,7 @@ function ErrorView({ message, onBack }: { message: string; onBack: () => void })
 export function MissionDetailPage() {
   const { id } = useParams<{ id: string }>();
   const [activeTab, setActiveTab] = useState<
-    "tasks" | "pulse" | "activity" | "comments" | "workflow"
+    "tasks" | "communication" | "activity" | "workflow"
   >("tasks");
   const [editOpen, setEditOpen] = useState(false);
 
@@ -159,8 +157,7 @@ export function MissionDetailPage() {
   const tabs = [
     { key: "tasks" as const, label: "Tasks", icon: ListTodo },
     { key: "workflow" as const, label: "Workflow", icon: GitBranch },
-    { key: "pulse" as const, label: "Pulse", icon: Radio },
-    { key: "comments" as const, label: "Comments", icon: MessageSquare },
+    { key: "communication" as const, label: "Communication", icon: MessageSquare },
     { key: "activity" as const, label: "Activity", icon: Activity },
   ];
 
@@ -215,9 +212,9 @@ export function MissionDetailPage() {
               </div>
             )}
 
-            {activeTab === "pulse" && id && <PulseBoard missionId={id} />}
-
-            {activeTab === "comments" && id && <MissionCommentSection missionId={id} />}
+            {activeTab === "communication" && id && (
+              <MissionCommunicationBoard missionId={id} />
+            )}
 
             {activeTab === "activity" && (
               <div className="p-6">
