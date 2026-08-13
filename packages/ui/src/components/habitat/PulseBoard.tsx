@@ -1,15 +1,13 @@
 import React, { useState, useCallback } from "react";
-import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { Plus } from "lucide-react";
 import { api } from "../../api/index.js";
 import { queryKeys } from "../../lib/queryKeys.js";
+import { useMissionPulseFeed } from "../../hooks/useMissionPulseFeed.js";
 import { PulseFilterBar } from "./PulseFilterBar.js";
 import { PulseTimeline } from "./PulseTimeline.js";
 import { PulseComposeDialog } from "./PulseComposeDialog.js";
-import { SIGNAL_TYPES } from "../../lib/signalConfig.js";
 import type { SignalType } from "../../types/index.js";
-
-const PAGE_SIZE = 20;
 
 interface PulseBoardProps {
   missionId: string;
@@ -29,36 +27,12 @@ export function PulseBoard({ missionId }: PulseBoardProps) {
   const defaultShowExperience = userData?.user?.role !== "agent";
   const showExperience = showExperienceOverride ?? defaultShowExperience;
 
-  const { data, isLoading, isFetchingNextPage, fetchNextPage, hasNextPage } = useInfiniteQuery({
-    initialPageParam: 0,
-    queryKey: [...queryKeys.pulse.byMission(missionId), { activeTypes, hideAuto, showExperience }],
-    queryFn: ({ pageParam = 0 }) => {
-      const params: Record<string, string | number> = {
-        limit: PAGE_SIZE,
-        offset: (pageParam as number) * PAGE_SIZE,
-      };
-      const filteredTypes = activeTypes.filter((type) => showExperience || type !== "experience");
-      if (filteredTypes.length > 0) {
-        params.signalTypes = filteredTypes.join(",");
-      } else if (!showExperience) {
-        params.signalTypes = SIGNAL_TYPES.filter((type) => type !== "experience").join(",");
-      }
-      if (hideAuto) {
-        params.isAuto = "false";
-      }
-      return api.pulse.listByMission(missionId, params);
-    },
-    getNextPageParam: (lastPage, allPages) => {
-      if (!lastPage || !lastPage.items) return undefined;
-      return lastPage.items.length < PAGE_SIZE ? undefined : allPages.length;
-    },
+  const feed = useMissionPulseFeed(missionId, {
+    activeTypes,
+    hideAuto,
+    showExperience,
     enabled: !isUserLoading,
-    staleTime: 15 * 1000,
   });
-
-  const pulses = data?.pages.flatMap((page) => page.items) ?? [];
-  const total = data?.pages[0]?.total ?? 0;
-  const hasMore = hasNextPage;
 
   const toggleType = useCallback((type: SignalType) => {
     setActiveTypes((prev) =>
@@ -86,18 +60,18 @@ export function PulseBoard({ missionId }: PulseBoardProps) {
         }}
         showExperience={showExperience}
         onToggleShowExperience={() => setShowExperienceOverride(!showExperience)}
-        resultCount={total}
+        resultCount={feed.total}
         onClearAll={clearAll}
       />
 
       <div className="flex-1 overflow-y-auto">
         <PulseTimeline
-          pulses={pulses}
-          isLoading={isUserLoading || isLoading}
+          pulses={feed.pulses}
+          isLoading={isUserLoading || feed.isLoading}
           missionId={missionId}
-          hasMore={hasMore}
-          onLoadMore={() => fetchNextPage()}
-          loadingMore={isFetchingNextPage}
+          hasMore={!!feed.hasNextPage}
+          onLoadMore={() => feed.fetchNextPage()}
+          loadingMore={feed.isFetchingNextPage}
         />
       </div>
 

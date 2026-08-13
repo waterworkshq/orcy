@@ -140,6 +140,10 @@ vi.mock("../store/habitatStore.js", () => ({
   useHabitatStore: (selector: any) => selector({ agents: [] }),
 }));
 
+vi.mock("../components/habitat/MissionCommunicationBoard.js", () => ({
+  MissionCommunicationBoard: () => <div data-testid="mission-communication-board" />,
+}));
+
 vi.mock("../components/ui/Button.js", () => ({
   Button: ({ children, onClick, ...props }: any) => (
     <button onClick={onClick} {...props}>
@@ -757,6 +761,28 @@ describe("MissionDetailPage integration", () => {
     expect(screen.getByText("Risk Analysis")).toBeTruthy();
     expect(screen.getByText("Code Review")).toBeTruthy();
     expect(screen.getByText("Agent Reasoning Trace")).toBeTruthy();
+    expect(screen.getByRole("button", { name: /communication/i })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /^pulse$/i })).toBeNull();
+  });
+
+  it("opens the Communication board from the tab", async () => {
+    const feature = makeMission({ id: "feat-123" });
+    mockFeatureDetails.mockResolvedValue({
+      mission: feature,
+      tasks: [],
+      events: [],
+      progress: { completed: 0, total: 0, percentage: 0, byStatus: {} },
+      dependencies: { dependsOn: [], blocks: [] },
+    });
+
+    renderWithProviders();
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /communication/i })).toBeTruthy();
+    });
+    fireEvent.click(screen.getByRole("button", { name: /communication/i }));
+    expect(screen.getByTestId("mission-communication-board")).toBeTruthy();
+    expect(screen.queryByPlaceholderText("Add a review comment...")).toBeNull();
   });
 
   it("task click in pipeline sidebar opens TaskDetailModal", async () => {

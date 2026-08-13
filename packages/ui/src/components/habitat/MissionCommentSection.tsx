@@ -10,17 +10,11 @@ import { ConfirmDialog } from "../ui/ConfirmDialog.js";
 import { MessageSquare, Bot, User, Pencil, Trash2, Reply, X, Send } from "lucide-react";
 import { MarkdownContent } from "../ui/MarkdownContent.js";
 import { useMissionComments } from "../../lib/useHabitatData.js";
+import { missionCommentAuthorLabel } from "./missionCommentAuthor.js";
 import type { MissionComment } from "../../types/index.js";
 
 interface MissionCommentSectionProps {
   missionId: string;
-}
-
-function getAuthorLabel(comment: MissionComment): string {
-  if (comment.authorType === "agent") return comment.authorId.slice(0, 8);
-  if (comment.authorType === "remote_human") return `Remote: ${comment.authorId.slice(0, 8)}`;
-  if (comment.authorType === "remote_orcy") return `Remote Or: ${comment.authorId.slice(0, 8)}`;
-  return "Human";
 }
 
 export function MissionCommentSection({ missionId }: MissionCommentSectionProps) {
@@ -152,7 +146,7 @@ export function MissionCommentSection({ missionId }: MissionCommentSectionProps)
                     <User className="h-4 w-4 text-[var(--primary)]" />
                   )}
                   <span className="text-xs font-semibold text-[var(--on-surface)]">
-                    {getAuthorLabel(comment)}
+                    {missionCommentAuthorLabel(comment)}
                   </span>
                   <span className="text-[10px] text-[var(--on-surface-variant)]">
                     {formatRelativeTime(comment.createdAt, { fallbackToDate: true })}
