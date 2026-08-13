@@ -2,6 +2,27 @@
 
 > Older releases: see [git tags](https://github.com/waterworkshq/orcy/tags) and [GitHub Releases](https://github.com/waterworkshq/orcy/releases).
 
+## 0.39.3 — 2026-08-13
+
+### Documentation
+
+#### add v0.39.3 operator notes ([`9d28a01`](https://github.com/waterworkshq/orcy/commit/9d28a0154181822d5d7dc74729df167ecf2b94db))
+
+
+
+### Features
+
+#### add lost status and operator recovery action for stale plugin runs ([`1d37ee6`](https://github.com/waterworkshq/orcy/commit/1d37ee66ad148f3b1381336b4f9ac6840b5eca04))
+
+
+
+
+- Add lost terminal status to plugin runs, treat lost runs as durably accounted in trigger-event dedup, and introduce a staleness-guarded admin action to mark stale runs lost.
+
+
+
+
+
 ## 0.39.2 — 2026-08-13
 
 ### Documentation
@@ -42,66 +63,3 @@
 
 
 - Support multi-page comments via infinite query and surface query error states with retry actions in the communication board.
-
-
-
-
-
-## 0.39.0 — 2026-08-13
-
-### Documentation
-
-#### add v0.38.0 operator notes ([`69c958e`](https://github.com/waterworkshq/orcy/commit/69c958efd174e65471d9c57a9d71ed3f97951d6a))
-
-
-
-
-- Add the hand-written operator-facing release notes for the Learning Loop v1 minor release following the minor-release convention, and flip the roadmap entry and readme What's Next from release-pending to Shipped now that the tag has landed.
-
-
-
-
-#### add v0.39.0 operator notes ([`fe9e227`](https://github.com/waterworkshq/orcy/commit/fe9e2279d2e46dfdbbfc19b3de0d90bc30789556))
-
-
-
-
-- Hand-written operator-facing notes for the Habitat Shared Room minor: co-presence, Pulse as shared memory, agent-mail supervision, and the mission Communication tab.
-
-
-
-
-
-### Features
-
-#### surface habitat co-presence and Pulse as a shared board ([`32b0e65`](https://github.com/waterworkshq/orcy/commit/32b0e652d8142ef10f8332e311c96c5da3af1919))
-
-
-
-
-- Live viewers distinguish humans from agents with "in habitat" copy, and Pulse chrome states the board is shared, while skills keep the digest required and habitat SSE subscribe optional.
-
-
-
-
-#### notify recipient agents of habitat mail via Notification V2 ([`230aa62`](https://github.com/waterworkshq/orcy/commit/230aa626e86066af90c31f5c83e942abe1cdb490))
-
-
-
-
-- Sending mail enqueues a subject-only agent.message_received event for the recipient when a subscription exists, without putting the body on the wire or failing the send.
-
-
-
-
-#### merge mission Pulse and comments into Communication (#8) ([`1bc5a37`](https://github.com/waterworkshq/orcy/commit/1bc5a37ab90220876fdcaf3224a6a649bf6bd4e4))
-
-
-
-
-- feat(ui): merge mission Pulse and comments into Communication
-
-
-
-
-- Mission detail lists existing Pulse and comment queries in one tab. Query construction, merge, row labels, and list chrome stay in separate modules so the board only orchestrates filters and composers. Pulse-only filter hides the comment composer so a posted comment cannot vanish from the visible list.
