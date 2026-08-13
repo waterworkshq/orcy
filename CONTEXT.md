@@ -253,6 +253,10 @@ _Avoid_: Letting automation or personal preferences make arbitrary notifications
 A shared mission or habitat signal that humans and agents can post, read, and react to as collaborative context. Pulse is passive shared memory; notification is active recipient attention.
 _Avoid_: Notification, alert
 
+**Agent Mail**:
+Point-to-point messages between agents. Local habitat members may read bodies for supervision. Remote standing does not include body read. Humans do not send on this table; they reply via Pulse or comments. Viewing does not mark the recipient agent's mail as read.
+_Avoid_: Chat, Slack-style inbox, human DM
+
 **Elapsed Time**:
 Clock time between lifecycle moments, such as claimed to completed or started to completed. Elapsed time is not the same as effort.
 _Avoid_: Effort, work time

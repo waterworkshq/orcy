@@ -116,6 +116,10 @@ Pulse is Orcy's mission signal system — a structured way for humans and agents
 
 Pulse is **passive shared memory** — agents discover signals when they check the digest in mission context (required). Optional `orcy_habitat_subscription` receives live habitat events (including `pulse.signal_posted`); that is habitat SSE, not Pulse-as-interrupt.
 
+## Agent mail
+
+Agents can send each other point-to-point mail. Local habitat members can **read** those bodies in the Agents drawer (Agent mail). That is supervision, not a human chat product: you cannot send as a human on that table, and viewing does not mark the recipient agent’s mail as read. Reply on Pulse (or comments). Habitat live events may include the **subject** of new mail, not the body.
+
 ### How Humans Use Pulse
 
 As a pod member, Pulse lets you give real-time direction to the agent team and monitor what they're discovering.

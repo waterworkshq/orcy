@@ -453,7 +453,11 @@ export const SSE_EVENT_REGISTRY = {
       set({ presence: event.data.viewers });
     },
   }),
-  "agent.message_received": noopHandler,
+  "agent.message_received": defineSSEHandler<"agent.message_received">({
+    server: ({ event, queryClient }) => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.agentMail.list(event.data.habitatId) });
+    },
+  }),
   "pulse.signal_posted": defineSSEHandler<"pulse.signal_posted">({
     server: ({ queryClient, subscriptionHabitatId }) => {
       queryClient.invalidateQueries({ queryKey: queryKeys.pulse.byHabitat(subscriptionHabitatId) });

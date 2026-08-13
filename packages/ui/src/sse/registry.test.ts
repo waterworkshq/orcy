@@ -86,6 +86,34 @@ describe("SSE event registry", () => {
     expect(getSSENotification(event, makeState(), "u1")?.toast?.message).toContain("Watched task");
   });
 
+  it("agent.message_received invalidates habitat agent mail cache without a toast", () => {
+    const invalidateQueries = vi.fn();
+    const event: SSEEvent = {
+      type: "agent.message_received",
+      data: {
+        messageId: "m1",
+        fromAgentId: "a1",
+        fromAgentName: "Scout",
+        toAgentId: "a2",
+        subject: "retry failed",
+        messageType: "info",
+        priority: "normal",
+        taskId: null,
+        habitatId: "h1",
+      },
+    };
+
+    projectSSEServerEvent(
+      event,
+      makeServerCtx(event, { queryClient: { invalidateQueries } as never }),
+    );
+
+    expect(invalidateQueries).toHaveBeenCalledWith(
+      expect.objectContaining({ queryKey: ["agentMail", "list", "h1"] }),
+    );
+    expect(getSSENotification(event, makeState(), "u1")).toBeNull();
+  });
+
   it("extraction.finding_proposed invalidates review queue cache", () => {
     const invalidateQueries = vi.fn();
     const event: SSEEvent = {
