@@ -9,7 +9,7 @@ export const SUGGEST_DISPATCH_TOOL: Tool = createDispatchTool({
     "Suggest next task: recommend the next task for the calling agent based on skills, board state, and priority weighting",
   actions: ["suggest-next-task"],
   sharedParams: {
-    boardId: { type: "string", description: "The UUID of the Orcy habitat" },
+    habitatId: { type: "string", description: "The UUID of the Orcy habitat" },
     limit: {
       type: "number",
       description: "Maximum number of suggestions to return (default: 3, max: 20)",

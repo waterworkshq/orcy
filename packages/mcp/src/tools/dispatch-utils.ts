@@ -57,7 +57,12 @@ function validateRequired(
   const required = requiredFor[action];
   if (!required) return null;
   const missing = required.filter(
-    (param) => args[param] === undefined || args[param] === null || args[param] === "",
+    (param) => {
+      if (param === "habitatId" && args["boardId"] !== undefined && args["boardId"] !== null && args["boardId"] !== "") {
+        return false;
+      }
+      return args[param] === undefined || args[param] === null || args[param] === "";
+    },
   );
   if (missing.length === 0) return null;
   return `Action "${action}" is missing required parameters: ${missing.join(", ")}`;

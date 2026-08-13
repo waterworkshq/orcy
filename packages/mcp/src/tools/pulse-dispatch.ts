@@ -14,7 +14,7 @@ export const PULSE_DISPATCH_TOOL: Tool = createDispatchTool({
     'Use action="post" to share discoveries, report blockers (auto-creates clearance tasks), ' +
     'offer results, ask questions, or issue directives. Use action="check" to read signals ' +
     "filtered by mission or signal type. When no missionId is provided, returns your cross-mission inbox. " +
-    'Use scope="habitat" with boardId to post or read habitat-level signals visible across all missions. ' +
+    'Use scope="habitat" with habitatId to post or read habitat-level signals visible across all missions. ' +
     'Use action="promote" to promote a valuable signal to a persistent project insight. ' +
     "Use signalType='experience' with the 'experience' param to self-report internal state " +
     "(stuck, confused, surprised, etc.) during autonomous work — these feed habitat skills and " +
@@ -25,9 +25,9 @@ export const PULSE_DISPATCH_TOOL: Tool = createDispatchTool({
       type: "string",
       description: "Mission ID (required for post with mission scope, optional for check)",
     },
-    boardId: {
+    habitatId: {
       type: "string",
-      description: 'Board/habitat ID (required when scope="habitat")',
+      description: 'Habitat ID (required when scope="habitat")',
     },
     scope: {
       type: "string",

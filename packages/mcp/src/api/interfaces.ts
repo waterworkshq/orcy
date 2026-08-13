@@ -405,17 +405,17 @@ export interface TaskClient {
   deleteSubtask(taskId: string, subtaskId: string): Promise<void>;
   getWorktree(taskId: string): Promise<unknown>;
   batchAssignTasks(
-    boardId: string,
+    habitatId: string,
     taskIds: string[],
     agentId: string,
   ): Promise<{ successCount: number; failureCount: number; results: unknown[] }>;
   batchSetTaskPriority(
-    boardId: string,
+    habitatId: string,
     taskIds: string[],
     priority: string,
   ): Promise<{ successCount: number; failureCount: number; results: unknown[] }>;
   batchDeleteTasks(
-    boardId: string,
+    habitatId: string,
     taskIds: string[],
   ): Promise<{ successCount: number; failureCount: number; results: unknown[] }>;
 }
@@ -537,7 +537,7 @@ export interface CodeEvidenceClient {
 }
 
 export interface SkillClient {
-  getHabitatSkill(boardId: string): Promise<{
+  getHabitatSkill(habitatId: string): Promise<{
     skill: {
       id: string;
       content: string;
@@ -548,11 +548,11 @@ export interface SkillClient {
     } | null;
   }>;
   refreshHabitatSkill(
-    boardId: string,
+    habitatId: string,
   ): Promise<{ success: boolean; message: string; signalCount: number }>;
-  contributeHabitatSkill(boardId: string, input: Record<string, unknown>): Promise<unknown>;
+  contributeHabitatSkill(habitatId: string, input: Record<string, unknown>): Promise<unknown>;
   listSkillSignals(
-    boardId: string,
+    habitatId: string,
     options?: { limit?: number; offset?: number },
   ): Promise<{ signals: unknown[] }>;
 }
@@ -568,7 +568,7 @@ export interface AgentClient {
   getAgentStats(agentId: string): Promise<{ stats: AgentStats }>;
   getSuggestions(
     agentId: string,
-    boardId: string,
+    habitatId: string,
     limit?: number,
   ): Promise<{ suggestions: unknown[]; agentWorkload: unknown }>;
 }
@@ -637,7 +637,8 @@ export interface MessageClient {
   sendMessage(
     toAgentId: string,
     input: {
-      boardId: string;
+      habitatId?: string;
+      boardId?: string;
       taskId?: string;
       subject: string;
       body: string;
@@ -678,7 +679,7 @@ export interface AuditClient {
     options?: { format?: string; fromDate?: string; toDate?: string },
   ): Promise<unknown>;
   getAuditSummary(
-    boardId: string,
+    habitatId: string,
     options?: { since?: string; until?: string },
   ): Promise<Record<string, unknown>>;
   getTaskAuditBundle(taskId: string): Promise<unknown>;
@@ -687,7 +688,7 @@ export interface AuditClient {
 
 export interface InsightClient {
   promoteInsight(
-    boardId: string,
+    habitatId: string,
     input: {
       sourcePulseId: string;
       relevanceTags?: string[];
@@ -699,7 +700,7 @@ export interface InsightClient {
     habitatId: string,
     options?: { limit?: number; offset?: number },
   ): Promise<{ insights: ProjectInsight[] }>;
-  deactivateInsight(boardId: string, insightId: string): Promise<void>;
+  deactivateInsight(habitatId: string, insightId: string): Promise<void>;
   getRelevantInsights(habitatId: string, tags: string[]): Promise<ProjectInsight[]>;
 }
 
@@ -734,7 +735,7 @@ export interface DependencyClient {
 
 export interface HealthClient {
   getHabitatHealth(habitatId: string): Promise<unknown>;
-  getHabitatHealthHistory(boardId: string, days?: number): Promise<unknown>;
+  getHabitatHealthHistory(habitatId: string, days?: number): Promise<unknown>;
 }
 
 export interface DashboardClient {

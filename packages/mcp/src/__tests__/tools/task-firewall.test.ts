@@ -109,7 +109,7 @@ describe("orcy_habitat_task — ListTools descriptor (firewall)", () => {
         "action",
         "taskId",
         "missionId",
-        "boardId",
+        "habitatId",
         "title",
         "description",
         "priority",
@@ -260,10 +260,6 @@ describe("orcy_habitat_task — ListTools descriptor (firewall)", () => {
               "description": "Agent UUID to assign subtask to (action=create-subtask) or batch-assign tasks to (action=batch-assign)",
               "type": "string",
             },
-            "boardId": {
-              "description": "Habitat UUID (action=list-in-mission, action=batch-assign, action=batch-set-priority, action=batch-delete)",
-              "type": "string",
-            },
             "branchBaseBranch": {
               "description": "Branch base branch (action=link-code)",
               "type": "string",
@@ -349,6 +345,10 @@ describe("orcy_habitat_task — ListTools descriptor (firewall)", () => {
             },
             "gapReasonNote": {
               "description": "Freeform reason note for gap (action=report-gap)",
+              "type": "string",
+            },
+            "habitatId": {
+              "description": "Habitat UUID (action=list-in-mission, action=batch-assign, action=batch-set-priority, action=batch-delete)",
               "type": "string",
             },
             "includeCorrections": {

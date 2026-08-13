@@ -25,7 +25,7 @@ export const REVIEW_DISPATCH_TOOL: Tool = createDispatchTool({
     "remove_reviewer",
   ],
   sharedParams: {
-    boardId: { type: "string", description: "Habitat UUID (used with list_rules, create_rule)" },
+    habitatId: { type: "string", description: "Habitat UUID (used with list_rules, create_rule)" },
     ruleId: {
       type: "string",
       description: "Review rule UUID (used with update_rule, delete_rule)",
@@ -99,8 +99,8 @@ export const REVIEW_ACTIONS: Record<string, Handler> = {
 
 /** Per-action required parameters, validated by {@link createDispatchHandler} before the handler runs. */
 export const REVIEW_REQUIRED_PARAMS: Record<string, string[]> = {
-  list_rules: ["boardId"],
-  create_rule: ["boardId", "name"],
+  list_rules: ["habitatId"],
+  create_rule: ["habitatId", "name"],
   update_rule: ["ruleId"],
   delete_rule: ["ruleId"],
   list_reviewers: ["taskId"],

@@ -61,7 +61,7 @@ const f = {
   missionId: field.string({
     description: "Mission UUID (action=list-in-mission, action=create-in-mission)",
   }),
-  boardId: field.string({
+  habitatId: field.string({
     description:
       "Habitat UUID (action=list-in-mission, action=batch-assign, action=batch-set-priority, action=batch-delete)",
   }),
@@ -320,27 +320,27 @@ const TASK = defineActions({
     },
     "get-audit-bundle": { args: { taskId: f.taskId }, execute: habitatGetTaskAuditBundle },
     "batch-assign": {
-      args: { boardId: f.boardId, taskIds: f.taskIds, assigneeId: f.assigneeId },
+      args: { habitatId: f.habitatId, taskIds: f.taskIds, assigneeId: f.assigneeId },
       execute: (client: KanbanApiClient, args) =>
         habitatBatchAssignTasks(client, {
-          boardId: args.boardId,
+          habitatId: args.habitatId,
           taskIds: args.taskIds,
           agentId: args.assigneeId,
         }),
     },
     "batch-set-priority": {
-      args: { boardId: f.boardId, taskIds: f.taskIds, priority: f.priority },
+      args: { habitatId: f.habitatId, taskIds: f.taskIds, priority: f.priority },
       execute: (client: KanbanApiClient, args) =>
         habitatBatchSetTaskPriority(client, {
-          boardId: args.boardId,
+          habitatId: args.habitatId,
           taskIds: args.taskIds,
           priority: args.priority,
         }),
     },
     "batch-delete": {
-      args: { boardId: f.boardId, taskIds: f.taskIds },
+      args: { habitatId: f.habitatId, taskIds: f.taskIds },
       execute: (client: KanbanApiClient, args) =>
-        habitatBatchDeleteTasks(client, { boardId: args.boardId, taskIds: args.taskIds }),
+        habitatBatchDeleteTasks(client, { habitatId: args.habitatId, taskIds: args.taskIds }),
     },
   },
 });

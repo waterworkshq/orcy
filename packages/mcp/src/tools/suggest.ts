@@ -15,7 +15,7 @@ export const BOARD_SUGGEST_NEXT_TASK_TOOL: Tool = {
   inputSchema: {
     type: 'object',
     properties: {
-      boardId: {
+      habitatId: {
         type: 'string',
         description: 'The UUID of the Kanban board',
       },
@@ -26,7 +26,7 @@ export const BOARD_SUGGEST_NEXT_TASK_TOOL: Tool = {
         maximum: 20,
       },
     },
-    required: ['boardId'],
+    required: ['habitatId'],
   },
 };
 
@@ -35,7 +35,8 @@ export const BOARD_SUGGEST_NEXT_TASK_TOOL: Tool = {
  */
 export async function habitatSuggestNextTask(
   client: AgentClient,
-  args: { boardId: string; limit?: number }
+  args: { habitatId?: string; boardId?: string; limit?: number }
 ) {
-  return client.getSuggestions(getCurrentAgentId(), args.boardId, args.limit ?? 3);
+  const habitatId = args.habitatId ?? args.boardId ?? '';
+  return client.getSuggestions(getCurrentAgentId(), habitatId, args.limit ?? 3);
 }

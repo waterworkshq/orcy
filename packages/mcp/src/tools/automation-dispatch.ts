@@ -9,7 +9,7 @@ export const AUTOMATION_DISPATCH_TOOL: Tool = createDispatchTool({
     "Automation operations (read/simulate/history-only): list, get, simulate, list_runs, get_rule_runs. No create/update/delete/enable/disable allowed.",
   actions: ["list", "get", "simulate", "list_runs", "get_rule_runs"],
   sharedParams: {
-    boardId: { type: "string", description: "Habitat UUID (for list, list_runs)" },
+    habitatId: { type: "string", description: "Habitat UUID (for list, list_runs)" },
     ruleId: {
       type: "string",
       description: "Automation rule UUID (for get, simulate, get_rule_runs)",

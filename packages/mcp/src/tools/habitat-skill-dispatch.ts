@@ -10,7 +10,7 @@ export const HABITAT_SKILL_DISPATCH_TOOL: Tool = createDispatchTool({
     "Habitat skill — the living knowledge document that grows as agents work. Read accumulated knowledge (conventions, patterns, pitfalls) before starting work on a habitat.",
   actions: ["get", "refresh", "contribute"],
   sharedParams: {
-    boardId: { type: "string", description: "The UUID of the Orcy habitat" },
+    habitatId: { type: "string", description: "The UUID of the Orcy habitat" },
     insight: { type: "string", description: "The insight text to add (contribute action)" },
     skillCategory: {
       type: "string",

@@ -14,9 +14,9 @@ export const BOARD_BATCH_ASSIGN_TASKS_TOOL: Tool = {
   inputSchema: {
     type: 'object',
     properties: {
-      boardId: {
+      habitatId: {
         type: 'string',
-        description: 'The UUID of the board containing the tasks',
+        description: 'The UUID of the habitat containing the tasks',
       },
       taskIds: {
         type: 'array',
@@ -30,7 +30,7 @@ export const BOARD_BATCH_ASSIGN_TASKS_TOOL: Tool = {
         description: 'The UUID of the agent to assign the tasks to',
       },
     },
-    required: ['boardId', 'taskIds', 'agentId'],
+    required: ['habitatId', 'taskIds', 'agentId'],
   },
 };
 
@@ -46,9 +46,9 @@ export const BOARD_BATCH_SET_TASK_PRIORITY_TOOL: Tool = {
   inputSchema: {
     type: 'object',
     properties: {
-      boardId: {
+      habitatId: {
         type: 'string',
-        description: 'The UUID of the board containing the tasks',
+        description: 'The UUID of the habitat containing the tasks',
       },
       taskIds: {
         type: 'array',
@@ -63,7 +63,7 @@ export const BOARD_BATCH_SET_TASK_PRIORITY_TOOL: Tool = {
         description: 'New priority level for the tasks',
       },
     },
-    required: ['boardId', 'taskIds', 'priority'],
+    required: ['habitatId', 'taskIds', 'priority'],
   },
 };
 
@@ -72,9 +72,10 @@ export const BOARD_BATCH_SET_TASK_PRIORITY_TOOL: Tool = {
  */
 export async function habitatBatchAssignTasks(
   client: TaskClient,
-  args: { boardId: string; taskIds: string[]; agentId: string }
+  args: { habitatId?: string; boardId?: string; taskIds: string[]; agentId: string }
 ) {
-  return client.batchAssignTasks(args.boardId, args.taskIds, args.agentId);
+  const habitatId = args.habitatId ?? args.boardId ?? '';
+  return client.batchAssignTasks(habitatId, args.taskIds, args.agentId);
 }
 
 /**
@@ -82,9 +83,10 @@ export async function habitatBatchAssignTasks(
  */
 export async function habitatBatchSetTaskPriority(
   client: TaskClient,
-  args: { boardId: string; taskIds: string[]; priority: string }
+  args: { habitatId?: string; boardId?: string; taskIds: string[]; priority: string }
 ) {
-  return client.batchSetTaskPriority(args.boardId, args.taskIds, args.priority);
+  const habitatId = args.habitatId ?? args.boardId ?? '';
+  return client.batchSetTaskPriority(habitatId, args.taskIds, args.priority);
 }
 
 /**
@@ -99,9 +101,9 @@ export const BOARD_BATCH_DELETE_TASKS_TOOL: Tool = {
   inputSchema: {
     type: 'object',
     properties: {
-      boardId: {
+      habitatId: {
         type: 'string',
-        description: 'The UUID of the board containing the tasks',
+        description: 'The UUID of the habitat containing the tasks',
       },
       taskIds: {
         type: 'array',
@@ -111,7 +113,7 @@ export const BOARD_BATCH_DELETE_TASKS_TOOL: Tool = {
         description: 'Array of task UUIDs to delete',
       },
     },
-    required: ['boardId', 'taskIds'],
+    required: ['habitatId', 'taskIds'],
   },
 };
 
@@ -120,7 +122,8 @@ export const BOARD_BATCH_DELETE_TASKS_TOOL: Tool = {
  */
 export async function habitatBatchDeleteTasks(
   client: TaskClient,
-  args: { boardId: string; taskIds: string[] }
+  args: { habitatId?: string; boardId?: string; taskIds: string[] }
 ) {
-  return client.batchDeleteTasks(args.boardId, args.taskIds);
+  const habitatId = args.habitatId ?? args.boardId ?? '';
+  return client.batchDeleteTasks(habitatId, args.taskIds);
 }

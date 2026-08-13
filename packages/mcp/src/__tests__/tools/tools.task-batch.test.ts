@@ -26,9 +26,9 @@ describe("TASK_DISPATCH_TOOL batch schema", () => {
     expect(action.enum).toContain("batch-delete");
   });
 
-  it("has boardId, taskIds, assigneeId in shared params", () => {
+  it("has habitatId, taskIds, assigneeId in shared params", () => {
     const props = TASK_DISPATCH_TOOL.inputSchema.properties as Record<string, unknown>;
-    expect(props).toHaveProperty("boardId");
+    expect(props).toHaveProperty("habitatId");
     expect(props).toHaveProperty("taskIds");
     expect(props).toHaveProperty("assigneeId");
   });
@@ -76,7 +76,7 @@ describe("task dispatch batch-assign", () => {
 
     const raw = await TASK_DISPATCH_HANDLER(client, {
       action: "batch-assign",
-      boardId: "board-1",
+      habitatId: "board-1",
       taskIds: ["task-1", "task-2"],
       assigneeId: "agent-42",
     });
@@ -105,7 +105,7 @@ describe("task dispatch batch-assign", () => {
 
     const raw = await TASK_DISPATCH_HANDLER(client, {
       action: "batch-assign",
-      boardId: "board-1",
+      habitatId: "board-1",
       taskIds: ["task-1", "task-2"],
       assigneeId: "agent-99",
     });
@@ -128,7 +128,7 @@ describe("task dispatch batch-assign", () => {
 
     const raw = await TASK_DISPATCH_HANDLER(client, {
       action: "batch-assign",
-      boardId: "board-1",
+      habitatId: "board-1",
       taskIds: [],
       assigneeId: "agent-42",
     });
@@ -161,7 +161,7 @@ describe("task dispatch batch-set-priority", () => {
 
     const raw = await TASK_DISPATCH_HANDLER(client, {
       action: "batch-set-priority",
-      boardId: "board-1",
+      habitatId: "board-1",
       taskIds: ["task-1", "task-2"],
       priority: "high",
     });
@@ -190,7 +190,7 @@ describe("task dispatch batch-set-priority", () => {
 
     const raw = await TASK_DISPATCH_HANDLER(client, {
       action: "batch-set-priority",
-      boardId: "board-1",
+      habitatId: "board-1",
       taskIds: ["task-1", "task-2"],
       priority: "low",
     });
@@ -213,7 +213,7 @@ describe("task dispatch batch-set-priority", () => {
 
     const raw = await TASK_DISPATCH_HANDLER(client, {
       action: "batch-set-priority",
-      boardId: "board-1",
+      habitatId: "board-1",
       taskIds: [],
       priority: "critical",
     });
@@ -246,7 +246,7 @@ describe("task dispatch batch-delete", () => {
 
     const raw = await TASK_DISPATCH_HANDLER(client, {
       action: "batch-delete",
-      boardId: "board-1",
+      habitatId: "board-1",
       taskIds: ["task-1", "task-2"],
     });
     const result = JSON.parse(raw.content[0].text);
@@ -270,7 +270,7 @@ describe("task dispatch batch-delete", () => {
 
     const raw = await TASK_DISPATCH_HANDLER(client, {
       action: "batch-delete",
-      boardId: "board-1",
+      habitatId: "board-1",
       taskIds: ["task-1", "task-2"],
     });
     const result = JSON.parse(raw.content[0].text);
@@ -290,7 +290,7 @@ describe("task dispatch batch-delete", () => {
 
     const raw = await TASK_DISPATCH_HANDLER(client, {
       action: "batch-delete",
-      boardId: "board-1",
+      habitatId: "board-1",
       taskIds: [],
     });
     const result = JSON.parse(raw.content[0].text);

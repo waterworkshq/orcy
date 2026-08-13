@@ -49,7 +49,7 @@ export const MISSION_DISPATCH_TOOL: Tool = createDispatchTool({
     "get-audit-bundle",
   ],
   sharedParams: {
-    boardId: { type: "string", description: "Habitat UUID (used with action=list, action=create)" },
+    habitatId: { type: "string", description: "Habitat UUID (used with action=list, action=create)" },
     missionId: {
       type: "string",
       description:
@@ -205,7 +205,7 @@ export const MISSION_ACTIONS: Record<string, Handler> = {
 };
 
 const MISSION_REQUIRED_PARAMS: Record<string, string[]> = {
-  create: ["boardId", "title"],
+  create: ["habitatId", "title"],
   delete: ["missionId"],
   archive: ["missionId"],
   unarchive: ["missionId"],

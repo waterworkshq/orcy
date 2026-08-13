@@ -5,9 +5,10 @@ import type { ScheduledTaskClient } from '../api/interfaces.js';
  */
 export async function adminListScheduledTasks(
   client: ScheduledTaskClient,
-  args: { boardId: string }
+  args: { habitatId?: string; boardId?: string }
 ) {
-  return client.listScheduledTasks(args.boardId);
+  const habitatId = args.habitatId ?? args.boardId ?? '';
+  return client.listScheduledTasks(habitatId);
 }
 
 /**
@@ -16,7 +17,8 @@ export async function adminListScheduledTasks(
 export async function adminCreateScheduledTask(
   client: ScheduledTaskClient,
   args: {
-    boardId: string;
+    habitatId?: string;
+    boardId?: string;
     name: string;
     description?: string;
     scheduleType: 'once' | 'interval' | 'cron';
@@ -39,7 +41,8 @@ export async function adminCreateScheduledTask(
     }>;
   }
 ) {
-  return client.createScheduledTask(args.boardId, args);
+  const habitatId = args.habitatId ?? args.boardId ?? '';
+  return client.createScheduledTask(habitatId, args);
 }
 
 /**

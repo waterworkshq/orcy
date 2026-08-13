@@ -1,8 +1,12 @@
 import type { KanbanApiClient } from "../api.js";
 
 /** Lists {@link AutomationRule} definitions registered for a board. */
-export async function listRules(client: KanbanApiClient, args: { boardId: string }) {
-  return client.listAutomationRules(args.boardId);
+export async function listRules(
+  client: KanbanApiClient,
+  args: { habitatId?: string; boardId?: string },
+) {
+  const habitatId = args.habitatId ?? args.boardId ?? "";
+  return client.listAutomationRules(habitatId);
 }
 
 /** Fetches a single {@link AutomationRule} by its ID. */
@@ -32,9 +36,10 @@ export async function simulateRule(
 /** Lists recent {@link AutomationRuleRun} executions for a board, paginated by limit/offset. */
 export async function listRuns(
   client: KanbanApiClient,
-  args: { boardId: string; limit?: number; offset?: number },
+  args: { habitatId?: string; boardId?: string; limit?: number; offset?: number },
 ) {
-  return client.listAutomationRuns(args.boardId, { limit: args.limit, offset: args.offset });
+  const habitatId = args.habitatId ?? args.boardId ?? "";
+  return client.listAutomationRuns(habitatId, { limit: args.limit, offset: args.offset });
 }
 
 /** Lists {@link AutomationRuleRun} executions for a single rule, paginated by limit/offset. */

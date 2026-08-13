@@ -16,9 +16,10 @@ function parseStrategy(s: string | undefined): ReviewRuleStrategy | undefined {
  */
 export async function listReviewRules(
   client: ReviewClient,
-  args: { boardId: string }
+  args: { habitatId?: string; boardId?: string }
 ): Promise<{ reviewRules: ReviewRule[] }> {
-  return client.listReviewRules(args.boardId);
+  const habitatId = args.habitatId ?? args.boardId ?? '';
+  return client.listReviewRules(habitatId);
 }
 
 /**
@@ -27,7 +28,8 @@ export async function listReviewRules(
 export async function createReviewRule(
   client: ReviewClient,
   args: {
-    boardId: string;
+    habitatId?: string;
+    boardId?: string;
     name: string;
     enabled?: number;
     priority?: number;
@@ -40,7 +42,8 @@ export async function createReviewRule(
     fixedReviewerIds?: string[];
   }
 ): Promise<{ reviewRule: ReviewRule }> {
-  return client.createReviewRule(args.boardId, {
+  const habitatId = args.habitatId ?? args.boardId ?? '';
+  return client.createReviewRule(habitatId, {
     name: args.name,
     enabled: args.enabled,
     priority: args.priority,

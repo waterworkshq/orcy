@@ -13,12 +13,12 @@ export const BOARD_LIST_TEMPLATES_TOOL: Tool = {
   inputSchema: {
     type: 'object',
     properties: {
-      boardId: {
+      habitatId: {
         type: 'string',
         description: 'The UUID of the Kanban board',
       },
     },
-    required: ['boardId'],
+    required: ['habitatId'],
   },
 };
 
@@ -27,9 +27,10 @@ export const BOARD_LIST_TEMPLATES_TOOL: Tool = {
  */
 export async function habitatListTemplates(
   client: TemplateClient,
-  args: { boardId: string }
+  args: { habitatId?: string; boardId?: string }
 ) {
-  const result = await client.listTemplates(args.boardId);
+  const habitatId = args.habitatId ?? args.boardId ?? '';
+  const result = await client.listTemplates(habitatId);
   return { templates: result.templates };
 }
 
@@ -44,7 +45,7 @@ export const BOARD_CREATE_TEMPLATE_TOOL: Tool = {
   inputSchema: {
     type: 'object',
     properties: {
-      boardId: {
+      habitatId: {
         type: 'string',
         description: 'The UUID of the Kanban board',
       },
@@ -75,7 +76,7 @@ export const BOARD_CREATE_TEMPLATE_TOOL: Tool = {
         description: 'Default required domain for tasks created from this template',
       },
     },
-    required: ['boardId', 'name'],
+    required: ['habitatId', 'name'],
   },
 };
 
@@ -85,7 +86,8 @@ export const BOARD_CREATE_TEMPLATE_TOOL: Tool = {
 export async function habitatCreateTemplate(
   client: TemplateClient,
   args: {
-    boardId: string;
+    habitatId?: string;
+    boardId?: string;
     name: string;
     titlePattern?: string;
     descriptionPattern?: string;
@@ -94,7 +96,8 @@ export async function habitatCreateTemplate(
     domain?: string;
   }
 ) {
-  const result = await client.createTemplate(args.boardId, {
+  const habitatId = args.habitatId ?? args.boardId ?? '';
+  const result = await client.createTemplate(habitatId, {
     name: args.name,
     titlePattern: args.titlePattern,
     descriptionPattern: args.descriptionPattern,

@@ -25,9 +25,9 @@ export const BOARD_SEND_MESSAGE_TOOL: Tool = {
         type: 'string',
         description: 'The name of the recipient agent (required if toAgentId not provided — will be resolved automatically)',
       },
-      boardId: {
+      habitatId: {
         type: 'string',
-        description: 'The UUID of the board context for this message',
+        description: 'The UUID of the habitat context for this message',
       },
       taskId: {
         type: 'string',
@@ -52,7 +52,7 @@ export const BOARD_SEND_MESSAGE_TOOL: Tool = {
         description: 'Message priority (default: normal)',
       },
     },
-    required: ['boardId', 'subject', 'body'],
+    required: ['habitatId', 'subject', 'body'],
   },
 };
 
@@ -62,7 +62,7 @@ export const BOARD_SEND_MESSAGE_TOOL: Tool = {
  */
 export async function habitatSendMessage(
   client: KanbanApiClient,
-  args: { toAgentId?: string; toAgentName?: string; boardId: string; taskId?: string; subject: string; body: string; messageType?: 'info' | 'request' | 'response' | 'alert'; priority?: 'low' | 'normal' | 'high' | 'urgent' }
+  args: { toAgentId?: string; toAgentName?: string; habitatId?: string; boardId?: string; taskId?: string; subject: string; body: string; messageType?: 'info' | 'request' | 'response' | 'alert'; priority?: 'low' | 'normal' | 'high' | 'urgent' }
 ) {
   let toAgentId = args.toAgentId;
 
@@ -83,6 +83,7 @@ export async function habitatSendMessage(
   }
 
   return client.sendMessage(toAgentId, {
+    habitatId: args.habitatId,
     boardId: args.boardId,
     taskId: args.taskId,
     subject: args.subject,

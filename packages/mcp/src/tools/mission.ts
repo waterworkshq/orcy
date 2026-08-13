@@ -17,7 +17,7 @@ export const HABITAT_CREATE_MISSION_TOOL: Tool = {
   inputSchema: {
     type: "object",
     properties: {
-      boardId: {
+      habitatId: {
         type: "string",
         description: "Habitat ID",
       },
@@ -64,7 +64,7 @@ export const HABITAT_CREATE_MISSION_TOOL: Tool = {
         description: "Mission IDs that this mission blocks",
       },
     },
-    required: ["boardId", "title"],
+    required: ["habitatId", "title"],
   },
 };
 
@@ -75,7 +75,8 @@ export const HABITAT_CREATE_MISSION_TOOL: Tool = {
 export async function habitatCreateMission(
   client: KanbanApiClient,
   args: {
-    boardId: string;
+    habitatId?: string;
+    boardId?: string;
     title: string;
     description?: string;
     acceptanceCriteria?: string;
@@ -87,7 +88,8 @@ export async function habitatCreateMission(
     blocks?: string[];
   },
 ) {
-  const result = await client.createMission(args.boardId, {
+  const habitatId = args.habitatId ?? args.boardId ?? "";
+  const result = await client.createMission(habitatId, {
     title: args.title,
     description: args.description,
     acceptanceCriteria: args.acceptanceCriteria,
@@ -112,7 +114,7 @@ export const HABITAT_LIST_MISSIONS_TOOL: Tool = {
   inputSchema: {
     type: "object",
     properties: {
-      boardId: {
+      habitatId: {
         type: "string",
         description: "Habitat ID",
       },
@@ -136,7 +138,7 @@ export const HABITAT_LIST_MISSIONS_TOOL: Tool = {
           "Set to true to retrieve archived missions instead of active ones (default: false)",
       },
     },
-    required: ["boardId"],
+    required: ["habitatId"],
   },
 };
 
@@ -147,14 +149,16 @@ export const HABITAT_LIST_MISSIONS_TOOL: Tool = {
 export async function habitatListMissions(
   client: KanbanApiClient,
   args: {
-    boardId: string;
+    habitatId?: string;
+    boardId?: string;
     status?: string;
     priority?: string;
     limit?: number;
     isArchived?: boolean;
   },
 ) {
-  return client.listMissions(args.boardId, {
+  const habitatId = args.habitatId ?? args.boardId ?? "";
+  return client.listMissions(habitatId, {
     status: args.status,
     priority: args.priority,
     limit: args.limit,
@@ -962,12 +966,12 @@ export const HABITAT_LIST_ARCHIVED_MISSIONS_TOOL: Tool = {
   inputSchema: {
     type: "object",
     properties: {
-      boardId: {
+      habitatId: {
         type: "string",
         description: "Habitat ID",
       },
     },
-    required: ["boardId"],
+    required: ["habitatId"],
   },
 };
 
@@ -977,9 +981,10 @@ export const HABITAT_LIST_ARCHIVED_MISSIONS_TOOL: Tool = {
  */
 export async function habitatListArchivedMissions(
   client: KanbanApiClient,
-  args: { boardId: string },
+  args: { habitatId?: string; boardId?: string },
 ) {
-  return client.listMissions(args.boardId, {
+  const habitatId = args.habitatId ?? args.boardId ?? "";
+  return client.listMissions(habitatId, {
     isArchived: true,
   });
 }

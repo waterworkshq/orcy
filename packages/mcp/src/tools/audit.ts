@@ -26,7 +26,8 @@ export const adminExportAuditLog: Handler = (client, args) => {
   if (args.entityTypes && args.entityType) {
     throw new Error("Cannot specify both entityTypes and entityType. Use one or the other.");
   }
-  return client.exportAuditLog(args.boardId, {
+  const habitatId = args.habitatId ?? args.boardId ?? "";
+  return client.exportAuditLog(habitatId, {
     format: args.format ?? "json",
     since: args.since,
     until: args.until,
@@ -51,8 +52,10 @@ export const adminExportAuditLog: Handler = (client, args) => {
  * Admin handler that returns an aggregated audit summary for a board over an optional
  * `since`/`until` time window.
  */
-export const adminGetAuditSummary: Handler = (client, args) =>
-  client.getAuditSummary(args.boardId, {
+export const adminGetAuditSummary: Handler = (client, args) => {
+  const habitatId = args.habitatId ?? args.boardId ?? "";
+  return client.getAuditSummary(habitatId, {
     since: args.since,
     until: args.until,
   });
+};

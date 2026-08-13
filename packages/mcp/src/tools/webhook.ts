@@ -12,12 +12,12 @@ export const BOARD_LIST_WEBHOOKS_TOOL: Tool = {
   inputSchema: {
     type: 'object',
     properties: {
-      boardId: {
+      habitatId: {
         type: 'string',
         description: 'The UUID of the Kanban board',
       },
     },
-    required: ['boardId'],
+    required: ['habitatId'],
   },
 };
 
@@ -26,9 +26,10 @@ export const BOARD_LIST_WEBHOOKS_TOOL: Tool = {
  */
 export async function habitatListWebhooks(
   client: WebhookClient,
-  args: { boardId: string }
+  args: { habitatId?: string; boardId?: string }
 ) {
-  const result = await client.listWebhooks(args.boardId);
+  const habitatId = args.habitatId ?? args.boardId ?? '';
+  const result = await client.listWebhooks(habitatId);
   return { webhooks: result.webhooks };
 }
 
@@ -44,7 +45,7 @@ export const BOARD_CREATE_WEBHOOK_TOOL: Tool = {
   inputSchema: {
     type: 'object',
     properties: {
-      boardId: {
+      habitatId: {
         type: 'string',
         description: 'The UUID of the Kanban board',
       },
@@ -67,7 +68,7 @@ export const BOARD_CREATE_WEBHOOK_TOOL: Tool = {
         description: 'Webhook payload format (default: standard)',
       },
     },
-    required: ['boardId', 'name', 'url', 'events'],
+    required: ['habitatId', 'name', 'url', 'events'],
   },
 };
 
@@ -76,9 +77,10 @@ export const BOARD_CREATE_WEBHOOK_TOOL: Tool = {
  */
 export async function habitatCreateWebhook(
   client: WebhookClient,
-  args: { boardId: string; name: string; url: string; events: string[]; format?: 'standard' | 'slack' | 'discord' }
+  args: { habitatId?: string; boardId?: string; name: string; url: string; events: string[]; format?: 'standard' | 'slack' | 'discord' }
 ) {
-  const result = await client.createWebhook(args.boardId, {
+  const habitatId = args.habitatId ?? args.boardId ?? '';
+  const result = await client.createWebhook(habitatId, {
     name: args.name,
     url: args.url,
     events: args.events,

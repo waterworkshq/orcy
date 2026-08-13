@@ -39,7 +39,7 @@ export const SPRINT_DISPATCH_TOOL: Tool = createDispatchTool({
     "remove_mission",
   ],
   sharedParams: {
-    boardId: { type: "string", description: "Habitat UUID (used with list, get_active, create)" },
+    habitatId: { type: "string", description: "Habitat UUID (used with list, get_active, create)" },
     sprintId: {
       type: "string",
       description:

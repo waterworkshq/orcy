@@ -15,12 +15,12 @@ export const BOARD_SUBSCRIBE_TOOL: Tool = {
   inputSchema: {
     type: 'object',
     properties: {
-      boardId: {
+      habitatId: {
         type: 'string',
         description: 'The UUID of the Kanban board to subscribe to',
       },
     },
-    required: ['boardId'],
+    required: ['habitatId'],
   },
 };
 
@@ -29,14 +29,15 @@ export const BOARD_SUBSCRIBE_TOOL: Tool = {
  */
 export async function habitatSubscribe(
   client: KanbanApiClient,
-  args: { boardId: string }
+  args: { habitatId?: string; boardId?: string }
 ) {
   const agentId = getCurrentAgentId();
   if (!agentId) {
     throw new Error('ORCY_AGENT_ID not configured');
   }
+  const habitatId = args.habitatId ?? args.boardId ?? '';
   const { subscribe } = await import('../subscriptions.js');
-  return subscribe(client, args.boardId, agentId);
+  return subscribe(client, habitatId, agentId);
 }
 
 /**
@@ -50,12 +51,12 @@ export const BOARD_UNSUBSCRIBE_TOOL: Tool = {
   inputSchema: {
     type: 'object',
     properties: {
-      boardId: {
+      habitatId: {
         type: 'string',
         description: 'The UUID of the Kanban board to unsubscribe from',
       },
     },
-    required: ['boardId'],
+    required: ['habitatId'],
   },
 };
 
@@ -64,12 +65,13 @@ export const BOARD_UNSUBSCRIBE_TOOL: Tool = {
  */
 export async function habitatUnsubscribe(
   _client: KanbanApiClient,
-  args: { boardId: string }
+  args: { habitatId?: string; boardId?: string }
 ) {
   const agentId = getCurrentAgentId();
   if (!agentId) {
     throw new Error('ORCY_AGENT_ID not configured');
   }
+  const habitatId = args.habitatId ?? args.boardId ?? '';
   const { unsubscribe } = await import('../subscriptions.js');
-  return unsubscribe(args.boardId, agentId);
+  return unsubscribe(habitatId, agentId);
 }

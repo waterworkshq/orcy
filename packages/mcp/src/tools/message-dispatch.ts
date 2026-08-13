@@ -15,7 +15,7 @@ export const MESSAGE_DISPATCH_TOOL: Tool = createDispatchTool({
       type: "string",
       description: "The name of the recipient agent — resolved to UUID automatically (action=send)",
     },
-    boardId: { type: "string", description: "The UUID of the habitat context (action=send)" },
+    habitatId: { type: "string", description: "The UUID of the habitat context (action=send)" },
     taskId: {
       type: "string",
       description: "Optional task UUID to scope the message to (action=send, action=get-messages)",

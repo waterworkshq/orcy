@@ -25,7 +25,7 @@ export const NOTIFICATION_DISPATCH_TOOL: Tool = createDispatchTool({
     "get_subscriptions",
   ],
   sharedParams: {
-    boardId: { type: "string", description: "Habitat UUID" },
+    habitatId: { type: "string", description: "Habitat UUID" },
     deliveryId: { type: "string", description: "Notification delivery UUID" },
     snoozedUntil: { type: "string", description: "ISO timestamp to snooze until" },
     limit: { type: "number", description: "Max results (default 50)" },

@@ -48,7 +48,7 @@ export const ADMIN_DISPATCH_TOOL: Tool = createDispatchTool({
     "toggle-scheduled-task",
   ],
   sharedParams: {
-    boardId: {
+    habitatId: {
       type: "string",
       description: "The UUID of the Orcy habitat (webhooks, templates, batch operations)",
     },

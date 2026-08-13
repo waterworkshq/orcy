@@ -171,9 +171,9 @@ Pulse supports habitat-level (board-scoped) signals. These are visible to ALL ag
 
 ### How to post a habitat signal
 
-Use boardId instead of missionId, and set scope:
+Use habitatId instead of missionId, and set scope:
 
-orcy_pulse({ action: "post", boardId: "board-uuid", scope: "habitat", signalType: "finding", subject: "..." })
+orcy_pulse({ action: "post", habitatId: "habitat-uuid", scope: "habitat", signalType: "finding", subject: "..." })
 
 ### Habitat signal etiquette
 
@@ -199,7 +199,7 @@ Use the promote action with relevance tags that describe what the insight relate
 orcy_pulse({
   action: "promote",
   pulseId: "signal-uuid",
-  boardId: "board-uuid",
+  habitatId: "habitat-uuid",
   relevanceTags: ["auth", "security", "tokens"]
 })
 

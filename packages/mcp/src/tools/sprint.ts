@@ -6,9 +6,10 @@ import type { Sprint } from "@orcy/shared";
  */
 export async function listSprints(
   client: KanbanApiClient,
-  args: { boardId: string },
+  args: { habitatId?: string; boardId?: string },
 ): Promise<{ sprints: Sprint[] }> {
-  return client.listSprints(args.boardId);
+  const habitatId = args.habitatId ?? args.boardId ?? "";
+  return client.listSprints(habitatId);
 }
 
 /**
@@ -16,9 +17,10 @@ export async function listSprints(
  */
 export async function getActiveSprint(
   client: KanbanApiClient,
-  args: { boardId: string },
+  args: { habitatId?: string; boardId?: string },
 ): Promise<{ sprint: Sprint | null }> {
-  return client.getActiveSprint(args.boardId);
+  const habitatId = args.habitatId ?? args.boardId ?? "";
+  return client.getActiveSprint(habitatId);
 }
 
 /**
@@ -75,7 +77,8 @@ export async function getSprintCarryOver(
 export async function createSprint(
   client: KanbanApiClient,
   args: {
-    boardId: string;
+    habitatId?: string;
+    boardId?: string;
     name: string;
     goal?: string;
     startDate: string;
@@ -84,7 +87,8 @@ export async function createSprint(
     notes?: string;
   },
 ): Promise<{ sprint: Sprint }> {
-  return client.createSprint(args.boardId, {
+  const habitatId = args.habitatId ?? args.boardId ?? "";
+  return client.createSprint(habitatId, {
     name: args.name,
     goal: args.goal,
     startDate: args.startDate,

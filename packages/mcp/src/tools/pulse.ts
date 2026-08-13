@@ -39,6 +39,7 @@ export async function pulsePost(
   client: KanbanApiClient,
   args: {
     missionId?: string;
+    habitatId?: string;
     boardId?: string;
     scope?: "mission" | "habitat";
     signalType: (typeof SIGNAL_TYPES)[number];
@@ -61,7 +62,6 @@ export async function pulsePost(
   }
 
   let toAgentId: string | undefined;
-
   if (args.toAgentName) {
     const agentsResp = await client.listAgents();
     const agents = Array.isArray(agentsResp.agents)
@@ -96,10 +96,11 @@ export async function pulsePost(
   const isHabitat = args.scope === "habitat";
 
   if (isHabitat) {
-    if (!args.boardId) {
-      throw new Error("boardId is required for habitat-scoped signals");
+    const habitatId = args.habitatId ?? args.boardId;
+    if (!habitatId) {
+      throw new Error("habitatId is required for habitat-scoped signals");
     }
-    return client.postHabitatPulse(args.boardId, {
+    return client.postHabitatPulse(habitatId, {
       signalType: args.signalType,
       subject: args.subject,
       body: args.body,
@@ -113,7 +114,7 @@ export async function pulsePost(
 
   if (!args.missionId) {
     throw new Error(
-      'missionId is required for mission-scoped signals (or use scope="habitat" with boardId)',
+      'missionId is required for mission-scoped signals (or use scope="habitat" with habitatId)',
     );
   }
 
@@ -137,6 +138,7 @@ export async function pulseCheck(
   client: KanbanApiClient,
   args: {
     missionId?: string;
+    habitatId?: string;
     boardId?: string;
     scope?: "mission" | "habitat";
     signalType?: (typeof SIGNAL_TYPES)[number];
@@ -144,8 +146,9 @@ export async function pulseCheck(
     offset?: number;
   },
 ) {
-  if (args.scope === "habitat" && args.boardId) {
-    return client.getHabitatPulses(args.boardId, {
+  const habitatId = args.habitatId ?? args.boardId;
+  if (args.scope === "habitat" && habitatId) {
+    return client.getHabitatPulses(habitatId, {
       signalType: args.signalType,
       scope: "habitat",
       limit: args.limit,

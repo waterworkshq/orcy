@@ -9,7 +9,7 @@ export const SUBSCRIPTION_DISPATCH_TOOL: Tool = createDispatchTool({
     "Subscription operations: subscribe to real-time board events via MCP notifications, or unsubscribe to stop receiving events",
   actions: ["subscribe", "unsubscribe"],
   sharedParams: {
-    boardId: {
+    habitatId: {
       type: "string",
       description: "The UUID of the Orcy habitat to subscribe to or unsubscribe from",
     },
