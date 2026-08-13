@@ -1,6 +1,7 @@
 import React from "react";
 import { describe, expect, it, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import "@testing-library/jest-dom/vitest";
 import { CommunicationFeedItemView } from "./CommunicationFeedItem.js";
 import type { CommunicationFeedItem } from "./mergeCommunicationFeed.js";
@@ -12,6 +13,16 @@ vi.mock("./PulseSignalCard.js", () => ({
 
 vi.mock("./PulseReplyThread.js", () => ({
   PulseReplyThread: () => null,
+}));
+
+vi.mock("../../api/index.js", () => ({
+  api: {
+    missionComments: {
+      update: vi.fn(),
+      delete: vi.fn(),
+      create: vi.fn(),
+    },
+  },
 }));
 
 function commentItem(authorType: MissionComment["authorType"]): CommunicationFeedItem {
@@ -33,9 +44,16 @@ function commentItem(authorType: MissionComment["authorType"]): CommunicationFee
 
 describe("CommunicationFeedItemView", () => {
   it("does not label a remote orcy as Human", () => {
-    render(<CommunicationFeedItemView item={commentItem("remote_orcy")} missionId="m1" />);
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={client}>
+        <CommunicationFeedItemView item={commentItem("remote_orcy")} missionId="m1" />
+      </QueryClientProvider>,
+    );
     expect(screen.getByText(/Remote Or: abcd1234/)).toBeInTheDocument();
     expect(screen.queryByText(/^Human$/)).not.toBeInTheDocument();
     expect(screen.getByText("Comment")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Edit comment" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Delete comment" })).toBeInTheDocument();
   });
 });

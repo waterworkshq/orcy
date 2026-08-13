@@ -24,10 +24,10 @@ glossary types. Communication is not a domain noun.
 
 3. **Seams stay split.** Pulse listing lives in `useMissionPulseFeed`. Merge
    lives in `mergeCommunicationFeed`. Row render lives in
-   `CommunicationFeedItem`. List chrome lives in `MergedFeed`. The board only
-   orchestrates filters, composers, and defaults. `PulseBoard` /
-   `PulseTimeline` keep Pulse-only composition on top of those modules until a
-   later deletion.
+   `CommunicationFeedItem`. Comment rows keep create/edit/delete/reply on
+   `MissionCommentCard` (the Comments tab is gone; that CRUD is not deferred
+   to another surface). List chrome lives in `MergedFeed`. The board only
+   orchestrates filters, composers, and defaults.
 
 4. **Defaults.** Hide auto Pulse on this tab. Comments always listed. Comment
    composer is hidden in Pulse-only filter mode so a post cannot vanish from

@@ -18,6 +18,8 @@ vi.mock("../../api/index.js", () => ({
     missionComments: {
       list: (...args: unknown[]) => listComments(...args),
       create: (...args: unknown[]) => createComment(...args),
+      update: vi.fn(),
+      delete: vi.fn(),
     },
   },
 }));
@@ -113,6 +115,8 @@ describe("MissionCommunicationBoard", () => {
     expect(screen.getByText(/advisory feedback/i)).toBeInTheDocument();
     expect(screen.getByPlaceholderText(/comment/i)).toBeInTheDocument();
     expect(screen.getByText("Post Signal")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Edit comment" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Delete comment" })).toBeInTheDocument();
   });
 
   it("posts a comment from All and keeps Pulse-only mode without a comment composer", async () => {
