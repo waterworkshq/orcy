@@ -1,3 +1,4 @@
+export { agentMailApi } from "./agentMail.js";
 export { agentsApi } from "./agents.js";
 export { attachmentsApi } from "./attachments.js";
 export { auditApi } from "./audit.js";

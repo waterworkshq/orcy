@@ -11,6 +11,7 @@ import { X, Plus } from "lucide-react";
 import { Drawer } from "../ui/Drawer.js";
 import { AgentCard } from "./AgentCard.js";
 import { AgentQualityPanel } from "./AgentQualityPanel.js";
+import { HabitatAgentMailInbox } from "./HabitatAgentMailInbox.js";
 import { DaemonSection } from "./DaemonSection.js";
 import { DaemonSetupDialog } from "./DaemonSetupDialog.js";
 import type { Agent } from "../../types/index.js";
@@ -103,6 +104,7 @@ export function AgentPanel({ onClose, habitatId }: AgentPanelProps) {
             <DaemonSection onSetup={board ? () => setShowDaemonSetup(true) : undefined} />
           </div>
           {board && <AgentQualityPanel habitatId={board.id} />}
+          {board && <HabitatAgentMailInbox habitatId={board.id} />}
           {agentsQuery.isLoading ? (
             <div className="rounded-lg border border-border bg-card p-4 text-sm text-muted-foreground">
               Loading agents...

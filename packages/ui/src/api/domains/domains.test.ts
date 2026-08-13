@@ -3,6 +3,7 @@ import * as domains from "./index.js";
 import { api } from "../index.js";
 
 const expectedDomains = [
+  ["agentMail", "agentMailApi"],
   ["agents", "agentsApi"],
   ["attachments", "attachmentsApi"],
   ["audit", "auditApi"],

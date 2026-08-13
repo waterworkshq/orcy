@@ -4,6 +4,7 @@
  * Imports per-domain API modules and re-exports them as the `api` object.
  * Contains NO endpoint implementations — all logic lives in domain modules.
  */
+import { agentMailApi } from "./domains/agentMail.js";
 import { agentsApi } from "./domains/agents.js";
 import { attachmentsApi } from "./domains/attachments.js";
 import { auditApi } from "./domains/audit.js";
@@ -50,6 +51,7 @@ import { wikiApi } from "./domains/wiki.js";
 import { workflowsApi } from "./domains/workflows.js";
 
 export const api = {
+  agentMail: agentMailApi,
   agents: agentsApi,
   attachments: attachmentsApi,
   audit: auditApi,

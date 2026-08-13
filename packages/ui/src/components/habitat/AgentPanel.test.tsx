@@ -92,6 +92,10 @@ vi.mock("./AgentCard.js", () => ({
   ),
 }));
 
+vi.mock("./HabitatAgentMailInbox.js", () => ({
+  HabitatAgentMailInbox: () => <div data-testid="habitat-agent-mail-inbox" />,
+}));
+
 vi.mock("./DaemonSection.js", () => ({
   DaemonSection: () => <div data-testid="daemon-section" />,
 }));
@@ -190,6 +194,7 @@ describe("AgentPanel", () => {
     renderWithQC(<AgentPanel habitatId="board-1" onClose={vi.fn()} />);
     expect(screen.getByTestId("agent-card-agent-1")).toBeTruthy();
     expect(screen.getByTestId("agent-card-agent-2")).toBeTruthy();
+    expect(screen.getByTestId("habitat-agent-mail-inbox")).toBeTruthy();
   });
 
   it("renders agent names", () => {

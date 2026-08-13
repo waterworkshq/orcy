@@ -65,6 +65,10 @@ export const queryKeys = {
     stats: (agentId: string) => [...queryKeys.agents.all, "stats", agentId] as const,
     listWithTasks: () => [...queryKeys.agents.all, "listWithTasks"] as const,
   },
+  agentMail: {
+    all: ["agentMail"] as const,
+    list: (habitatId: string) => [...queryKeys.agentMail.all, "list", habitatId] as const,
+  },
   dashboard: {
     all: ["dashboard"] as const,
     stats: () => [...queryKeys.dashboard.all, "stats"] as const,
