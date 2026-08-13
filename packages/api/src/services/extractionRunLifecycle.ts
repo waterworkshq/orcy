@@ -748,9 +748,14 @@ export function runExtraction(input: RunExtractionInput): ExtractionRunDispositi
     leaseExpiresAt,
   });
 
-  const attempt = attemptResult.outcome === "created"
-    ? attemptResult.attempt
-    : attemptResult.attempt; // `already_exists` returns the raced winner.
+  if (attemptResult.outcome !== "created") {
+    return {
+      kind: "deduplicated",
+      workItem,
+      attempt: null,
+    };
+  }
+  const attempt = attemptResult.attempt;
 
   // -------------------------------------------------------------------------
   // Step 5 — collect each source up to its captured boundary.
@@ -762,7 +767,17 @@ export function runExtraction(input: RunExtractionInput): ExtractionRunDispositi
   for (let i = 0; i < adapters.length; i++) {
     const adapter = adapters[i]!;
     // I3 fix: Look up token by sourceType from the Map, not by position.
-    const token = boundaryTokenMap.get(adapter.type) ?? undefined;
+    const token = boundaryTokenMap.get(adapter.type);
+    if (token == null) {
+      sourceSnapshots.push({
+        sourceType: adapter.type,
+        completeness: "partial",
+        observationCount: 0,
+        warnings: ["boundary_capture_failed"],
+        watermarkAdvanced: false,
+      });
+      continue;
+    }
 
     let batch: SourceBatch;
     try {

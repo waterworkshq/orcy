@@ -299,6 +299,7 @@ export interface ExtractionWorkItemRow {
   windowTo: string;
   sourceBoundaryTokens: Record<string, unknown>;
   logicalWorkKey: string;
+  deliveryMode: ExtractionDeliveryMode;
   rerunGeneration: number;
   supersedesWorkId: string | null;
   freshReason: string | null;

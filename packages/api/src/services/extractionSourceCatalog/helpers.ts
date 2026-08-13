@@ -49,14 +49,30 @@ export function makeBoundaryToken(
  * its `occurredAt` is within `[windowFrom, windowTo)` AND at or below the
  * captured `highWaterMark`. Rows arriving after capture wait for later work.
  */
+/** Parse ISO or SQLite `datetime('now')` (`YYYY-MM-DD HH:MM:SS`) to epoch ms. */
+function toEpochMs(value: string): number | null {
+  const normalized = value.includes("T")
+    ? value
+    : `${value.replace(" ", "T")}${value.endsWith("Z") ? "" : "Z"}`;
+  const ms = Date.parse(normalized);
+  return Number.isNaN(ms) ? null : ms;
+}
+
 export function isWithinWindow(
   occurredAt: string,
   request: SourceWindowRequest,
   highWaterMark: string,
 ): boolean {
-  if (occurredAt < request.windowFrom) return false;
-  if (request.windowTo !== undefined && occurredAt >= request.windowTo) return false;
-  return occurredAt <= highWaterMark;
+  const occurredMs = toEpochMs(occurredAt);
+  const fromMs = toEpochMs(request.windowFrom);
+  const hwmMs = toEpochMs(highWaterMark);
+  if (occurredMs === null || fromMs === null || hwmMs === null) return false;
+  if (occurredMs < fromMs) return false;
+  if (request.windowTo !== undefined) {
+    const toMs = toEpochMs(request.windowTo);
+    if (toMs === null || occurredMs >= toMs) return false;
+  }
+  return occurredMs <= hwmMs;
 }
 
 /** Strip a known `prefix:` from a source ID, returning the underlying ID. */

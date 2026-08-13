@@ -14,11 +14,13 @@
  * `initDetectorScan()`.
  */
 import { eq } from "drizzle-orm";
+import { CronExpressionParser } from "cron-parser";
 import { getDb } from "../db/index.js";
 import { learningLoopPolicies } from "../db/schema/index.js";
 import { logger } from "../lib/logger.js";
 import { isLearningLoopGloballyEnabled } from "./extractionPolicyService.js";
 import { runExtraction } from "./extractionRunLifecycle.js";
+import { getWorkItemsByHabitatWithClient } from "../repositories/extraction/index.js";
 import type { LearningLoopPolicyRow } from "@orcy/shared";
 
 // ---------------------------------------------------------------------------
@@ -76,6 +78,25 @@ function getEnabledPolicies(): LearningLoopPolicyRow[] {
   }));
 }
 
+/** Whether a scheduled policy is due based on its cron expression and last run. */
+export function isScheduledPolicyDue(policy: LearningLoopPolicyRow, now = new Date()): boolean {
+  try {
+    const expr = CronExpressionParser.parse(policy.schedule, {
+      currentDate: now,
+      tz: "UTC",
+    });
+    const prev = expr.prev().toDate();
+    const items = getWorkItemsByHabitatWithClient(getDb(), policy.habitatId).filter(
+      (w) => w.policyId === policy.id && w.deliveryMode === "scheduled",
+    );
+    if (items.length === 0) return true;
+    const last = items.toSorted((a, b) => b.createdAt.localeCompare(a.createdAt))[0]!;
+    return Date.parse(last.createdAt) < prev.getTime();
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Run one scheduled scan pass. For each enabled policy, call `runExtraction`
  * with `deliveryMode: "scheduled"`.
@@ -87,6 +108,13 @@ export async function runExtractionScan(): Promise<void> {
   if (policies.length === 0) return;
 
   for (const policy of policies) {
+    if (!isScheduledPolicyDue(policy)) {
+      logger.debug(
+        { policyId: policy.id, habitatId: policy.habitatId },
+        "Extraction scheduled scan skipped — policy not due",
+      );
+      continue;
+    }
     try {
       const disposition = runExtraction({
         habitatId: policy.habitatId,

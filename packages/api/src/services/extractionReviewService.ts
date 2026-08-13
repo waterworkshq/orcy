@@ -19,6 +19,7 @@ import {
   getFindingByIdWithClient,
   getFindingsByHabitatWithClient,
   getCitationsByFindingWithClient,
+  getScopeRefsByFindingWithClient,
   type ReviewCasInput,
 } from "../repositories/extraction/index.js";
 import { getAdapter, type ResolveRef, type ViewerContext } from "./extractionSourceCatalog/index.js";
@@ -108,6 +109,7 @@ export interface FindingDetail {
   finding: ExtractedFindingRow;
   citations: CitationSummary[];
   reviews: ExtractedFindingReviewRow[];
+  scopeRefs: ReturnType<typeof getScopeRefsByFindingWithClient>;
 }
 
 /**
@@ -128,9 +130,10 @@ export function getFindingDetail(
 
   const citations = getCitationsByFindingWithClient(getDb(), findingId);
   const reviews = getReviewsByFindingWithClient(getDb(), findingId);
+  const scopeRefs = getScopeRefsByFindingWithClient(getDb(), findingId);
   const citationSummaries = resolveCitationSummaries(citations, habitatId);
 
-  return { finding, citations: citationSummaries, reviews };
+  return { finding, citations: citationSummaries, reviews, scopeRefs };
 }
 
 // ---------------------------------------------------------------------------
@@ -168,6 +171,14 @@ export function listAcceptedFindings(
 
   if (filters?.findingType) {
     findings = findings.filter((f) => f.findingType === filters.findingType);
+  }
+  if (filters?.domain) {
+    const domain = filters.domain.toLowerCase();
+    findings = findings.filter((f) =>
+      getScopeRefsByFindingWithClient(getDb(), f.id).some(
+        (r) => r.scopeType === "domain" && r.scopeId.toLowerCase() === domain,
+      ),
+    );
   }
   if (filters?.maxAgeSeconds) {
     const cutoff = new Date(Date.now() - filters.maxAgeSeconds * 1000).toISOString();

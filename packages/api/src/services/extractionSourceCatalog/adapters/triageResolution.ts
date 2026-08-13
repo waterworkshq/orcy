@@ -78,7 +78,10 @@ export const triageResolutionAdapter: ExtractionSourceAdapter = {
   type: SOURCE_TYPE,
 
   captureBoundary(request: SourceWindowRequest): SourceBoundaryToken {
-    const rows = listByHabitat(request.habitatId);
+    const rows = listByHabitat(request.habitatId, {
+      from: request.windowFrom,
+      to: request.windowTo,
+    });
     const highWaterMark = rows.reduce(
       (max, row) => (row.resolvedAt > max ? row.resolvedAt : max),
       EPOCH_ISO,
@@ -89,7 +92,10 @@ export const triageResolutionAdapter: ExtractionSourceAdapter = {
     let boundaryToken = request.boundaryToken;
     try {
       boundaryToken = boundaryToken ?? this.captureBoundary(request);
-      const rows = listByHabitat(request.habitatId).filter((row) =>
+      const rows = listByHabitat(request.habitatId, {
+        from: request.windowFrom,
+        to: request.windowTo,
+      }).filter((row) =>
         isWithinWindow(row.resolvedAt, request, boundaryToken!.highWaterMark),
       );
       return {

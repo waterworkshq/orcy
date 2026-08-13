@@ -72,7 +72,7 @@ export type TerminalizeWorkItemResult =
 
 /** Outcome of persisting one candidate finding transactionally. */
 export type PersistCandidateResult =
-  | { outcome: "created"; finding: ExtractedFindingRow }
+  | { outcome: "created"; finding: ExtractedFindingRow; citations: ExtractedFindingSourceRow[]; scopeRefs: ExtractedFindingScopeRefRow[] }
   | { outcome: "recurrence"; finding: ExtractedFindingRow }
   | { outcome: "fence_mismatch"; attempt: ExtractionAttemptRow };
 

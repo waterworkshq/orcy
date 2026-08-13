@@ -12,6 +12,7 @@
  * (`EXTRACTION_SOURCE_TYPES`); the validator rejects broadening by runtime
  * input.
  */
+import { CronExpressionParser } from "cron-parser";
 import { getDb } from "../db/index.js";
 import {
   createPolicyWithClient,
@@ -95,6 +96,19 @@ export function validatePolicyWindow(input: {
 }): void {
   if (!input.schedule || typeof input.schedule !== "string") {
     throw new Error("Policy schedule must be a non-empty string.");
+  }
+  try {
+    const it = CronExpressionParser.parse(input.schedule, { tz: "UTC" });
+    const first = it.next().toDate().getTime();
+    const second = it.next().toDate().getTime();
+    if ((second - first) / 1000 < MIN_SCHEDULE_SECONDS) {
+      throw new Error(
+        `Policy schedule interval must be ≥ ${MIN_SCHEDULE_SECONDS} seconds (5 minutes).`,
+      );
+    }
+  } catch (err) {
+    if (err instanceof Error && err.message.startsWith("Policy schedule")) throw err;
+    throw new Error("Policy schedule must be a valid cron expression.");
   }
   if (
     !Number.isFinite(input.windowSeconds) ||

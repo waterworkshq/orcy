@@ -73,7 +73,10 @@ function rowToObservation(run: PluginRunRow): ExtractionObservation {
     occurredAt: occurredAt(run),
     // Operational record: carries its own entity ref only. Never projects
     // task/mission/domain scope (habitat-wide operational evidence).
-    entityRefs: [{ type: "plugin_run", id: run.id }],
+    entityRefs: [
+      { type: "plugin_run", id: run.id },
+      { type: "plugin", id: run.pluginId },
+    ],
     domains: [],
     digest,
     contractVersion: CONTRACT_VERSION,

@@ -1,6 +1,6 @@
 import { getDb } from "../db/index.js";
 import { triageResolutions } from "../db/schema/index.js";
-import { eq, and, desc } from "drizzle-orm";
+import { eq, and, desc, gte, lt } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 import type { ResolutionKind, TriageActorType } from "@orcy/shared";
 import { repositoryCreateError, repositoryNotFoundError } from "../errors/repository.js";
@@ -123,12 +123,18 @@ export function findByClusterKey(habitatId: string, clusterKey: string): TriageR
  * construction — it is written only on resolution). No implicit traversal to
  * source pulses or non-terminal Engineering Findings.
  */
-export function listByHabitat(habitatId: string): TriageResolution[] {
+export function listByHabitat(
+  habitatId: string,
+  window?: { from?: string; to?: string },
+): TriageResolution[] {
   const db = getDb();
+  const conditions = [eq(triageResolutions.habitatId, habitatId)];
+  if (window?.from) conditions.push(gte(triageResolutions.resolvedAt, window.from));
+  if (window?.to) conditions.push(lt(triageResolutions.resolvedAt, window.to));
   return db
     .select()
     .from(triageResolutions)
-    .where(eq(triageResolutions.habitatId, habitatId))
+    .where(and(...conditions))
     .orderBy(desc(triageResolutions.resolvedAt))
     .all()
     .map(rowToTriageResolution);

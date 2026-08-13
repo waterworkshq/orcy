@@ -64,7 +64,10 @@ export async function learningListAccepted(
   }
   if (args.maxAgeSeconds !== undefined && args.maxAgeSeconds !== null) {
     const n = Number(args.maxAgeSeconds);
-    if (Number.isFinite(n) && n > 0) filters.maxAgeSeconds = Math.floor(n);
+    if (Number.isFinite(n) && n > 0) {
+      const MAX_AGE_SECONDS = 10 * 365 * 24 * 60 * 60;
+      filters.maxAgeSeconds = Math.min(Math.floor(n), MAX_AGE_SECONDS);
+    }
   }
   // Clamp limit ≤25 — backstop even though REST validates.
   const limit = clampLimit(args.limit);

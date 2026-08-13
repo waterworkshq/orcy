@@ -42,7 +42,7 @@ export interface TerminalizeAttemptInput {
   workItemId: string;
   leaseOwner: string;
   leaseGeneration: number;
-  status: ExtractionAttemptStatus;
+  status: Exclude<ExtractionAttemptStatus, "running">;
   candidateCount?: number;
   persistedCount?: number;
   deduplicatedCount?: number;

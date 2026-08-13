@@ -154,6 +154,7 @@ export const taskLifecycleAuditAdapter: ExtractionSourceAdapter = {
         digest: computeDigest({
           action: event.action,
           taskId: event.taskId,
+          missionId: task?.missionId,
           timestamp: event.timestamp,
           actorType: event.actorType,
           actorId: event.actorId,

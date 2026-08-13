@@ -1660,6 +1660,7 @@ import type {
   LearningLoopPolicyRow,
   ExtractedFindingRow,
   ExtractedFindingReviewRow,
+  ExtractedFindingScopeRefRow,
   ExtractionFindingType,
   ExtractionVisibilityClass,
   CitationResolutionState,
@@ -1714,6 +1715,7 @@ export interface ExtractionFindingDetailView {
   finding: ExtractedFindingRow;
   citations: ExtractionCitationSummary[];
   reviews: ExtractedFindingReviewRow[];
+  scopeRefs: ExtractedFindingScopeRefRow[];
 }
 
 /** Accepted-finding summary — mirrors extractionReviewService.HumanFindingSummary. */

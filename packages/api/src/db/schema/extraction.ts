@@ -408,5 +408,6 @@ export const extractedFindingPromotions = sqliteTable(
       table.destinationKey,
     ),
     index("idx_extracted_finding_promotions_status").on(table.status),
+    index("idx_extracted_finding_promotions_target_status").on(table.targetId, table.status),
   ],
 );

@@ -86,9 +86,15 @@ export const missionLifecycleAuditAdapter: ExtractionSourceAdapter = {
     let boundaryToken = request.boundaryToken;
     try {
       boundaryToken = boundaryToken ?? this.captureBoundary(request);
-      const rows = listBoundedRows(request.habitatId).filter((row) =>
-        isWithinWindow(row.timestamp, request, boundaryToken!.highWaterMark),
-      );
+      const rows = listBoundedRows(request.habitatId)
+        .filter((row) => {
+          const habitatId = row.missionHabitatId
+            ?? (typeof row.metadata.habitatId === "string" ? row.metadata.habitatId : null);
+          return habitatId === request.habitatId;
+        })
+        .filter((row) =>
+          isWithinWindow(row.timestamp, request, boundaryToken!.highWaterMark),
+        );
       return {
         sourceType: SOURCE_TYPE,
         observations: rows.map((row) => rowToObservation(row, request.habitatId)),

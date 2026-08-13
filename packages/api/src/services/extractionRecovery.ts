@@ -143,7 +143,10 @@ function hasCommittedFindings(
   const result = db
     .select({ count: sql<number>`count(*)` })
     .from(extractedFindings)
-    .where(eq(extractedFindings.firstAttemptId, attemptId))
+    .where(
+      sql`${extractedFindings.firstAttemptId} = ${attemptId}
+        OR ${extractedFindings.lastSeenAttemptId} = ${attemptId}`,
+    )
     .all()[0];
   return (result?.count ?? 0) > 0;
 }
@@ -274,21 +277,25 @@ export function runExtractionReconciliationPass(): ExtractionRecoverySummary {
       continue;
     }
 
-    // Terminal (succeeded/partial/failed) — repair work item if it has findings.
-    if (latest.persistedCount > 0 || hasCommittedFindings(db, latest.id)) {
-      const workStatus = latest.status === "failed" ? "partial" : latest.status;
+    // Terminal succeeded/partial — repair even when persistedCount is 0
+    // (empty-but-complete runs that crashed between attempt and work-item
+    // terminalization). Recurrence-only commits are detected via lastSeenAttemptId.
+    if (latest.status === "succeeded" || latest.status === "partial") {
       const result = terminalizeWorkItemWithClient(db, {
         workItemId: workItem.id,
         attemptId: latest.id,
-        status: workStatus as "succeeded" | "partial" | "failed",
+        status: latest.status,
       });
       if (result.outcome === "terminalized") summary.repairedWorkItems++;
     } else if (latest.status === "failed") {
-      // Failed with no findings — mark the work item as failed.
+      const workStatus =
+        latest.persistedCount > 0 || hasCommittedFindings(db, latest.id)
+          ? "partial"
+          : "failed";
       const result = terminalizeWorkItemWithClient(db, {
         workItemId: workItem.id,
         attemptId: latest.id,
-        status: "failed",
+        status: workStatus,
       });
       if (result.outcome === "terminalized") summary.repairedWorkItems++;
     }
@@ -326,10 +333,12 @@ function resolvePolicyFromWorkItem(
     extractorKey: workItem.extractorKey,
     enabled: true, // Recovery forces re-evaluation regardless.
     sourceTypes: (snapshot.sourceTypes as ExtractionSourceType[]) ?? [],
-    schedule: (snapshot.schedule as string) ?? "* * * * *",
-    windowSeconds: (snapshot.windowSeconds as number) ?? workItem.windowTo
-      ? Math.round((Date.parse(workItem.windowTo) - Date.parse(workItem.windowFrom)) / 1000)
-      : 604800,
+    schedule: (snapshot.schedule as string) ?? "0 */5 * * *",
+    windowSeconds: (snapshot.windowSeconds as number) ?? (
+      workItem.windowTo
+        ? Math.round((Date.parse(workItem.windowTo) - Date.parse(workItem.windowFrom)) / 1000)
+        : 604800
+    ),
     lookbackSeconds: (snapshot.lookbackSeconds as number) ?? Math.round(
       (Date.parse(workItem.windowTo) - Date.parse(workItem.windowFrom)) / 1000,
     ),
@@ -357,6 +366,7 @@ function mapWorkItemRow(row: typeof extractionWorkItems.$inferSelect): Extractio
     windowTo: row.windowTo,
     sourceBoundaryTokens: row.sourceBoundaryTokens,
     logicalWorkKey: row.logicalWorkKey,
+    deliveryMode: row.deliveryMode as ExtractionWorkItemRow["deliveryMode"],
     rerunGeneration: row.rerunGeneration,
     supersedesWorkId: row.supersedesWorkId,
     freshReason: row.freshReason,

@@ -17,6 +17,7 @@ import * as columnRepo from "../repositories/column.js";
 import * as missionRepo from "../repositories/mission.js";
 import * as taskRepo from "../repositories/task.js";
 import * as eventRepo from "../repositories/events/index.js";
+import * as lifecycleEvents from "../repositories/auditProjection/lifecycleEvents.js";
 import * as ruleRepo from "../repositories/automationRule.js";
 import * as runRepo from "../repositories/automationRuleRun.js";
 import * as pluginRunRepo from "../repositories/pluginRun.js";
@@ -908,36 +909,16 @@ describe("failed source honesty", () => {
     vi.setSystemTime(new Date("2026-01-01T00:00:00.000Z"));
     const f = createFixture();
     const adapter = getAdapter("task_lifecycle_audit");
-    // Force the list repo to throw by deleting the tasks table join target out
-    // from under the query is fragile; instead, stub the adapter's capture then
-    // corrupt the boundary so isWithinWindow never throws. We directly verify
-    // the catch path by throwing inside a subclass-style override.
-    const batch = (
-      adapter as unknown as {
-        collect: (req: SourceWindowRequest) => {
-          observations: unknown[];
-          completeness: string;
-          warnings: string[];
-        };
-      }
-    ).collect({
+    vi.spyOn(lifecycleEvents, "listTaskEventsForAudit").mockImplementation(() => {
+      throw new Error("source unavailable");
+    });
+    const batch = adapter.collect({
       habitatId: f.habitat.id,
       windowFrom: WINDOW_FROM,
-      // Force the inner list to throw: pass an invalid habitat so the repository
-      // boundary stays intact but the try/catch honesty path is exercised via
-      // a corrupt token that points at a poisoned source.
-      boundaryToken: {
-        sourceType: "task_lifecycle_audit",
-        highWaterMark: "not-an-iso",
-        capturedAt: "x",
-      },
     });
-    // The adapter wraps repository failures into partial snapshots. With a valid
-    // habitat the happy path returns complete; this assertion documents that the
-    // failure shape is non-empty warnings when the path fails.
-    void batch;
-    // Real failure simulation: temporarily make listTaskEventsForAudit throw.
-    expect(typeof adapter.collect).toBe("function");
+    expect(batch.completeness).toBe("partial");
+    expect(batch.warnings.length).toBeGreaterThan(0);
+    expect(batch.collectionOutcome).toBe("failed");
   });
 });
 

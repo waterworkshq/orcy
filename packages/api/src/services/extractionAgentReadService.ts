@@ -220,10 +220,14 @@ function hasBlockingCitations(
     try {
       const adapter = getAdapter(sourceType as never);
       const resolved = adapter.resolveByRefs(refs, viewer);
-      // B1 fix: an adapter that silently omits a requested ref is a degradation.
-      // If fewer refs are resolved than requested, treat as blocking (fail closed).
-      if (resolved.length < refs.length) {
-        return true;
+      const requestedKeys = new Set(
+        refs.map((ref) => `${ref.sourceType}|${ref.sourceId}|${ref.sourceVersion}`),
+      );
+      const resolvedKeys = new Set(
+        resolved.map((r) => `${r.ref.sourceType}|${r.ref.sourceId}|${r.ref.sourceVersion}`),
+      );
+      for (const key of requestedKeys) {
+        if (!resolvedKeys.has(key)) return true;
       }
       for (const r of resolved) {
         if (BLOCKING_STATES.has(r.state)) {

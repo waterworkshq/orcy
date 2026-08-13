@@ -118,6 +118,7 @@ const proposedFinding = {
     },
   ],
   reviews: [],
+  scopeRefs: [],
 };
 
 const aggregateFinding = {

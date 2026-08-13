@@ -125,6 +125,14 @@ export function checkPromotionEligibility(
     }
   }
 
+  if (citations.length === 0) {
+    return {
+      eligible: false,
+      blockingCitations: [],
+      caveats: ["Finding has no citations"],
+    };
+  }
+
   return {
     eligible: blockingCitations.length === 0,
     blockingCitations,

@@ -9,7 +9,7 @@
  * Every `*WithClient` primitive accepts the caller-supplied client and never
  * calls `getDb()`, opens a nested transaction, or emits hooks/SSE/audit.
  */
-import { eq, and } from "drizzle-orm";
+import { eq, and, asc } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 import {
   extractedFindings,
@@ -170,6 +170,7 @@ export function getReviewsByFindingWithClient(
     .select()
     .from(extractedFindingReviews)
     .where(eq(extractedFindingReviews.findingId, findingId))
+    .orderBy(asc(extractedFindingReviews.createdAt))
     .all()
     .map(mapReviewRow);
 }

@@ -30,11 +30,14 @@ import {
 import { promoteToWikiDraft, isPageExcludedFromSources, type WikiPromotionResult, type PromotionDisabledResult } from "../services/extractionWikiDestination.js";
 import * as wikiPageLinkRepo from "../repositories/wikiPageLink.js";
 import * as wikiPageRepo from "../repositories/wikiPage.js";
+import * as taskRepo from "../repositories/task.js";
+import * as eventRepo from "../repositories/events/index.js";
 import {
   habitats,
   columns,
   missions,
   extractedFindings,
+  extractedFindingSources,
   extractedFindingPromotions,
   wikiPages,
   wikiPageLinks,
@@ -129,6 +132,34 @@ function insertFinding(opts: {
     lastSeenAt: now,
     occurrenceCount: 1,
     caveats: [],
+  }).run();
+
+  const task = taskRepo.createTask({
+    missionId: `mis-${opts.habitatId}`,
+    title: "Wiki promotion fixture task",
+    createdBy: "test-user",
+  });
+  const event = eventRepo.createEvent({
+    taskId: task.id,
+    actorType: "human",
+    actorId: "test-user",
+    action: "created",
+  });
+  db.insert(extractedFindingSources).values({
+    id: uuid(),
+    findingId,
+    sourceType: "task_lifecycle_audit",
+    sourceId: `task_event:${event.id}`,
+    sourceVersion: "lifecycle-task-v1",
+    role: "supporting",
+    sourceDigest: "test-digest",
+    occurredAt: event.timestamp,
+    entityRefs: [
+      { type: "task", id: task.id },
+      { type: "mission", id: `mis-${opts.habitatId}` },
+    ],
+    completeness: "complete",
+    visibilityClass: "habitat_member",
   }).run();
 
   return findingId;
@@ -284,7 +315,7 @@ describe("Wiki draft promotion — acceptance gates", () => {
     const destKey = `wiki:hab-A`;
 
     // Simulate: reservation created, page created, target recorded, but
-    // terminalization never happened (crash). Then the promotion was marked failed.
+    // terminalization never happened (crash). The promotion stays pending.
     const reserveResult = reservePromotionWithClient(db, {
       findingId,
       destinationType: "wiki_draft",
@@ -316,7 +347,8 @@ describe("Wiki draft promotion — acceptance gates", () => {
       updatedAt: now,
     }).run();
 
-    // Record the target on the promotion
+    // Record the target on the promotion, then leave it pending — the real
+    // crash window between recordTarget and terminalize.
     recordPromotionTargetWithClient(db, {
       promotionId: reserveResult.promotion.id,
       leaseOwner: "human:prior",
@@ -326,18 +358,14 @@ describe("Wiki draft promotion — acceptance gates", () => {
       targetVersion: "1",
     });
 
-    // Mark as failed
-    terminalizePromotionWithClient(db, {
-      promotionId: reserveResult.promotion.id,
-      leaseOwner: "human:prior",
-      leaseGeneration: 1000,
-      status: "failed",
-      error: "Crash after page creation",
-    });
+    db.update(extractedFindingPromotions)
+      .set({ updatedAt: new Date(Date.now() - 60_000).toISOString() })
+      .where(eq(extractedFindingPromotions.id, reserveResult.promotion.id))
+      .run();
 
     expect(countWikiPages("hab-A")).toBe(1);
 
-    // Retry — should detect existing page via targetId, NOT create a new one
+    // Retry — should re-arm the stale pending lease and reuse targetId
     const result = asPromotionResult(promoteToWikiDraft("hab-A", findingId, "user-1"));
     expect(result.outcome).toBe("promoted");
     expect(result.pageId).toBe(pageId);

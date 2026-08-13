@@ -161,12 +161,16 @@ export function validateFloorOverride(
  * Whether the extraction window meets the minimum duration. Windows shorter
  * than 7 days are ineligible for Experience extraction.
  */
-export function isWindowEligible(windowFrom: string, windowTo: string | undefined): boolean {
+export function isWindowEligible(
+  windowFrom: string,
+  windowTo: string | undefined,
+  minWindowMs: number = MIN_WINDOW_MS,
+): boolean {
   const fromMs = Date.parse(windowFrom);
   if (Number.isNaN(fromMs)) return false;
   const toMs = windowTo ? Date.parse(windowTo) : Date.now();
   if (Number.isNaN(toMs)) return false;
-  return toMs - fromMs >= MIN_WINDOW_MS;
+  return toMs - fromMs >= minWindowMs;
 }
 
 /**
@@ -337,9 +341,9 @@ export function computeExperienceDigest(aggregate: {
  * may appear in subject text despite not being in the structured ID fields.
  */
 const ID_PATTERNS: readonly RegExp[] = [
-  /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi, // UUIDs
-  /\btask-[0-9a-f]+/gi, // task IDs
-  /\bmission-[0-9a-f]+/gi, // mission IDs
+  /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i, // UUIDs
+  /\btask-[0-9a-f]+/i, // task IDs
+  /\bmission-[0-9a-f]+/i, // mission IDs
 ];
 
 /**
@@ -402,8 +406,8 @@ export function projectExperienceSignals(
 
   if (experienceSignals.length === 0) return [];
 
-  // Step 2: window eligibility.
-  if (!isWindowEligible(windowFrom, windowTo)) return [];
+  // Step 2: window eligibility (habitat floor may raise the 7-day minimum).
+  if (!isWindowEligible(windowFrom, windowTo, floor.minWindowMs)) return [];
 
   // Step 3: build transient denylist from ALL raw identifiers.
   const denylist = buildTransientDenylist(experienceSignals);

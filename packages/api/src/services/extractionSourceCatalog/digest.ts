@@ -20,6 +20,9 @@ import { createHash } from "node:crypto";
  */
 export function canonicalStringify(value: unknown): string {
   if (value === null || typeof value !== "object") {
+    if (value === undefined || typeof value === "function" || typeof value === "symbol") {
+      return "null";
+    }
     return JSON.stringify(value);
   }
   if (Array.isArray(value)) {

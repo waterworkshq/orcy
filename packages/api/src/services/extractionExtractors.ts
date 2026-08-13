@@ -171,20 +171,23 @@ const detectRisks: PatternDetector = (ctx) => {
     (o) => o.sourceType === "automation_run_audit",
   );
 
-  // Need at least 3 automation run observations to detect a pattern.
-  if (automationRuns.length < 3) return candidates;
+  // Need at least 3 failed/error automation runs to detect a risk pattern.
+  const failedRuns = automationRuns.filter((o) =>
+    o.entityRefs.some((r) => r.type === "run_status" && (r.id === "failed" || r.id === "error")),
+  );
+  if (failedRuns.length < 3) return candidates;
 
-  // Emit a risk candidate for the batch of automation runs.
+  // Emit a risk candidate for the batch of failed automation runs.
   candidates.push({
     clientKey: `risk-automation-batch`,
     findingType: "risk",
-    subject: `${automationRuns.length} terminal automation runs observed in window`,
-    body: `${automationRuns.length} automation runs reached terminal status in this extraction window. Reviewing their outcomes may reveal systemic risks in the automation configuration.`,
+    subject: `${failedRuns.length} failed automation runs observed in window`,
+    body: `${failedRuns.length} automation runs failed in this extraction window. Reviewing their outcomes may reveal systemic risks in the automation configuration.`,
     confidence: 0.5,
-    sampleSize: automationRuns.length,
+    sampleSize: failedRuns.length,
     completeness: "complete",
     caveats: [],
-    citations: automationRuns.slice(0, 10).map((o) => ({
+    citations: failedRuns.slice(0, 10).map((o) => ({
       observationId: o.observationId,
       role: "supporting" as const,
     })),
@@ -207,25 +210,24 @@ const detectAnomalies: PatternDetector = (ctx) => {
 
   if (pluginRuns.length < 2) return candidates;
 
-  // Group by collectorFamily to see if any single plugin dominates.
-  const byFamily = new Map<string, number>();
+  const byPlugin = new Map<string, number>();
   for (const run of pluginRuns) {
-    byFamily.set(run.collectorFamily, (byFamily.get(run.collectorFamily) ?? 0) + 1);
+    const pluginId = run.entityRefs.find((r) => r.type === "plugin")?.id ?? run.underlyingId;
+    byPlugin.set(pluginId, (byPlugin.get(pluginId) ?? 0) + 1);
   }
 
-  // If a single plugin family accounts for >80% of runs, flag it.
   const total = pluginRuns.length;
-  for (const [family, count] of byFamily) {
+  for (const [pluginId, count] of byPlugin) {
     if (count / total > 0.8 && count >= 3) {
       const cited = pluginRuns
-        .filter((o) => o.collectorFamily === family)
+        .filter((o) => (o.entityRefs.find((r) => r.type === "plugin")?.id ?? o.underlyingId) === pluginId)
         .map((o) => o.observationId);
 
       candidates.push({
-        clientKey: `anomaly-plugin-${family}`,
+        clientKey: `anomaly-plugin-${pluginId}`,
         findingType: "anomaly",
-        subject: `Plugin family "${family}" dominates plugin run volume (${count}/${total})`,
-        body: `Plugin family "${family}" accounts for ${Math.round((count / total) * 100)}% of all plugin runs in this window. This concentration may indicate over-reliance or a misconfigured plugin.`,
+        subject: `Plugin "${pluginId}" dominates plugin run volume (${count}/${total})`,
+        body: `Plugin "${pluginId}" accounts for ${Math.round((count / total) * 100)}% of all plugin runs in this window. This concentration may indicate over-reliance or a misconfigured plugin.`,
         confidence: 0.45,
         sampleSize: count,
         completeness: "partial",

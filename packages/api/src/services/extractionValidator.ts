@@ -165,7 +165,10 @@ function validateShape(candidate: ExtractionCandidate): string[] {
   if (candidate.completeness !== "complete" && candidate.completeness !== "partial") {
     errors.push(`invalid_completeness:${String(candidate.completeness)}`);
   }
-  if (!Array.isArray(candidate.caveats)) {
+  if (
+    !Array.isArray(candidate.caveats) ||
+    candidate.caveats.some((c) => typeof c !== "string")
+  ) {
     errors.push("invalid_caveats");
   }
   if (!Array.isArray(candidate.citations) || candidate.citations.length === 0) {
@@ -173,6 +176,10 @@ function validateShape(candidate: ExtractionCandidate): string[] {
     return errors; // Can't check citation details without any.
   }
   for (const cite of candidate.citations) {
+    if (!cite || typeof cite !== "object") {
+      errors.push("citation_malformed");
+      break;
+    }
     if (!cite.observationId || typeof cite.observationId !== "string") {
       errors.push("citation_missing_observationId");
       break;

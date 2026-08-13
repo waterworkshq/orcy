@@ -9,7 +9,7 @@
  * Every `*WithClient` primitive accepts the caller-supplied client and never
  * calls `getDb()`, opens a nested transaction, or emits hooks/SSE/audit.
  */
-import { eq, and, sql } from "drizzle-orm";
+import { eq, and } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 import { extractedFindingPromotions } from "../../db/schema/index.js";
 import { repositoryCreateError, repositoryUpdateError } from "../../errors/repository.js";
@@ -301,6 +301,7 @@ export function reArmPromotionWithClient(
         leaseOwner: input.leaseOwner,
         leaseGeneration: input.leaseGeneration,
         error: null,
+        completedAt: null,
         updatedAt: now,
       })
       .where(
@@ -348,13 +349,14 @@ export type ReArmPendingPromotionResult =
  * row with null `target_id`. A retry must update the lease to reach the
  * tag-recovery path and find the already-created page.
  *
- * CAS predicate: `id = promotionId AND status = 'pending' AND target_id IS NULL
+ * CAS predicate: `id = promotionId AND status = 'pending'
  * AND lease_owner = expectedLeaseOwner
  * AND lease_generation = expectedLeaseGeneration`.
  * This is safe because:
  * - A succeeded/failed promotion fails the CAS (no mutation).
- * - A pending promotion with a target_id (already recorded) fails — the caller
- *   should use the existing target via the succeeded/already_promoted path.
+ * - Pending rows with or without a recorded target can be recovered after a
+ *   crash; the caller reuses `targetId` when present and otherwise finds the
+ *   page by promotion tag.
  *
  * Only one concurrent retry can win the CAS; the loser sees `fence_mismatch`.
  */
@@ -374,7 +376,6 @@ export function reArmPendingPromotionLeaseWithClient(
         and(
           eq(extractedFindingPromotions.id, input.promotionId),
           eq(extractedFindingPromotions.status, "pending"),
-          sql`${extractedFindingPromotions.targetId} IS NULL`,
           eq(extractedFindingPromotions.leaseOwner, input.expectedLeaseOwner),
           eq(extractedFindingPromotions.leaseGeneration, input.expectedLeaseGeneration),
         ),

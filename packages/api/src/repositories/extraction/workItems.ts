@@ -13,6 +13,7 @@ import { eq, and, sql } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 import {
   extractionWorkItems,
+  extractionAttempts,
 } from "../../db/schema/index.js";
 import {
   repositoryCreateError,
@@ -46,7 +47,7 @@ export interface ReserveWorkItemInput {
 export interface TerminalizeWorkItemInput {
   workItemId: string;
   attemptId: string;
-  status: ExtractionWorkStatus;
+  status: Exclude<ExtractionWorkStatus, "pending" | "running">;
 }
 
 // ---------------------------------------------------------------------------
@@ -169,6 +170,21 @@ export function terminalizeWorkItemWithClient(
   | { outcome: "fence_mismatch"; workItem: ExtractionWorkItemRow }
 {
   const now = new Date().toISOString();
+  const attemptRow = db
+    .select({ id: extractionAttempts.id, workItemId: extractionAttempts.workItemId })
+    .from(extractionAttempts)
+    .where(eq(extractionAttempts.id, input.attemptId))
+    .all()[0];
+  if (!attemptRow || attemptRow.workItemId !== input.workItemId) {
+    const row = db
+      .select()
+      .from(extractionWorkItems)
+      .where(eq(extractionWorkItems.id, input.workItemId))
+      .all()[0];
+    if (!row) return { outcome: "not_found" };
+    return { outcome: "fence_mismatch", workItem: mapWorkItemRow(row) };
+  }
+
   try {
     db.update(extractionWorkItems)
       .set({
@@ -225,6 +241,7 @@ function mapWorkItemRow(row: WorkItemDbRow): ExtractionWorkItemRow {
     windowTo: row.windowTo,
     sourceBoundaryTokens: row.sourceBoundaryTokens,
     logicalWorkKey: row.logicalWorkKey,
+    deliveryMode: row.deliveryMode as ExtractionDeliveryMode,
     rerunGeneration: row.rerunGeneration,
     supersedesWorkId: row.supersedesWorkId,
     freshReason: row.freshReason,

@@ -79,7 +79,10 @@ function rowToObservation(row: AutomationRunAuditRow): ExtractionObservation {
     // Operational record: carries its own entity ref only. Target-derived
     // task/mission refs are intentionally NOT projected, so an automation-run
     // citation never establishes task/mission/domain scope (habitat-wide only).
-    entityRefs: [{ type: "automation_run", id: run.id }],
+    entityRefs: [
+      { type: "automation_run", id: run.id },
+      { type: "run_status", id: String(run.status) },
+    ],
     domains: [],
     digest,
     contractVersion: CONTRACT_VERSION,

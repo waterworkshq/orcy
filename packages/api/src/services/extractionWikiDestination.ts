@@ -55,6 +55,15 @@ export interface PromotionDisabledResult {
   reason: "global_kill_switch" | "habitat_not_enrolled";
 }
 
+/** Pending leases younger than this are treated as live (no steal). */
+const PROMOTION_LEASE_STALE_MS = 30_000;
+
+function isPromotionLeaseStale(promotion: ExtractedFindingPromotionRow, now = Date.now()): boolean {
+  const updated = Date.parse(promotion.updatedAt);
+  if (Number.isNaN(updated)) return true;
+  return now - updated >= PROMOTION_LEASE_STALE_MS;
+}
+
 // ---------------------------------------------------------------------------
 // Page content derivation
 // ---------------------------------------------------------------------------
@@ -198,33 +207,28 @@ export function promoteToWikiDraft(
       }
       promotion = reArmed.promotion;
     } else if (promotion.status === "pending") {
-      // Pending — check if we hold the lease (resume after crash).
+      const sameOwner = promotion.leaseOwner === leaseOwner;
+      const leaseStale = isPromotionLeaseStale(promotion);
       if (promotion.leaseOwner !== leaseOwner || promotion.leaseGeneration !== leaseGeneration) {
-        // B5 fix: A pending promotion with null target_id may be a crash
-        // window (createPage succeeded, recordTarget didn't). Re-arm the lease
-        // so we can reach the tag-recovery path and find the already-created
-        // page instead of creating a duplicate. The tag is the idempotency
-        // authority for the created page, not the lease.
-        if (!promotion.targetId) {
-          const reArmed = reArmPendingPromotionLeaseWithClient(db, {
-            promotionId: promotion.id,
-            leaseOwner,
-            leaseGeneration,
-            expectedLeaseOwner: promotion.leaseOwner,
-            expectedLeaseGeneration: promotion.leaseGeneration,
-          });
-          if (reArmed.outcome !== "re_armed") {
-            throw conflict("Promotion is already in progress", {
-              promotionId: promotion.id,
-              state: reArmed.outcome,
-            });
-          }
-          promotion = reArmed.promotion;
-        } else {
+        if (!sameOwner && !leaseStale) {
           throw conflict("Promotion is already in progress", {
             promotionId: promotion.id,
           });
         }
+        const reArmed = reArmPendingPromotionLeaseWithClient(db, {
+          promotionId: promotion.id,
+          leaseOwner,
+          leaseGeneration,
+          expectedLeaseOwner: promotion.leaseOwner,
+          expectedLeaseGeneration: promotion.leaseGeneration,
+        });
+        if (reArmed.outcome !== "re_armed") {
+          throw conflict("Promotion is already in progress", {
+            promotionId: promotion.id,
+            state: reArmed.outcome,
+          });
+        }
+        promotion = reArmed.promotion;
       }
     }
   }

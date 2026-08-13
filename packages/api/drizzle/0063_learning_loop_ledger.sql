@@ -252,3 +252,6 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_extracted_finding_promotions_finding_dest
 --> statement-breakpoint
 CREATE INDEX IF NOT EXISTS idx_extracted_finding_promotions_status
   ON extracted_finding_promotions(status);
+--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS idx_extracted_finding_promotions_target_status
+  ON extracted_finding_promotions(target_id, status);

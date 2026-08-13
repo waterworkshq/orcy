@@ -20,7 +20,7 @@
  *
  * See authorization-review §Experience-signal privacy for the binding contract.
  */
-import { and, inArray, gte, lt } from "drizzle-orm";
+import { and, eq, inArray, gte, lt } from "drizzle-orm";
 import { getAllSignalsByHabitat } from "../../../repositories/habitatSkill.js";
 import { pulses } from "../../../db/schema/pulse.js";
 import { getDb } from "../../../db/index.js";
@@ -100,6 +100,7 @@ function readRawSignals(habitatId: string) {
  */
 function computeWindowScopedCounts(
   signals: readonly ReturnType<typeof readRawSignals>[number][],
+  habitatId: string,
   windowFrom: string,
   windowTo: string | undefined,
 ): Map<string, WindowScopedCounts> {
@@ -141,6 +142,7 @@ function computeWindowScopedCounts(
   const pulseIdsArr = [...allPulseIds];
   const conditions = [
     inArray(pulses.id, pulseIdsArr),
+    eq(pulses.habitatId, habitatId),
     gte(pulses.createdAt, windowFrom),
   ];
   if (windowTo !== undefined) {
@@ -183,17 +185,12 @@ export const experienceAggregateAdapter: ExtractionSourceAdapter = {
   type: SOURCE_TYPE,
 
   captureBoundary(request: SourceWindowRequest): SourceBoundaryToken {
-    try {
-      const signals = readRawSignals(request.habitatId);
-      // High-water mark is the latest lastSeenAt across all signals.
-      const highWaterMark = signals.reduce(
-        (max, s) => (s.lastSeenAt > max ? s.lastSeenAt : max),
-        EPOCH_ISO,
-      );
-      return makeBoundaryToken(SOURCE_TYPE, highWaterMark);
-    } catch {
-      return makeBoundaryToken(SOURCE_TYPE, EPOCH_ISO);
-    }
+    const signals = readRawSignals(request.habitatId);
+    const highWaterMark = signals.reduce(
+      (max, s) => (s.lastSeenAt > max ? s.lastSeenAt : max),
+      EPOCH_ISO,
+    );
+    return makeBoundaryToken(SOURCE_TYPE, highWaterMark);
   },
 
   collect(request: SourceWindowRequest): SourceBatch {
@@ -211,6 +208,7 @@ export const experienceAggregateAdapter: ExtractionSourceAdapter = {
       // Compute window-scoped counts from underlying pulses (B2 fix).
       const windowCounts = computeWindowScopedCounts(
         boundedSignals,
+        request.habitatId,
         request.windowFrom,
         request.windowTo,
       );
@@ -290,6 +288,7 @@ export const experienceAggregateAdapter: ExtractionSourceAdapter = {
         const windowTo = coarseWindowEnd(coarseWindow);
         const windowCounts = computeWindowScopedCounts(
           allSignals,
+          viewer.habitatId,
           coarseWindow,
           windowTo,
         );

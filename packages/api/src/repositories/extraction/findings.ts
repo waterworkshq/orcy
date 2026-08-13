@@ -34,6 +34,7 @@ import type {
   ExtractionScopeType,
 } from "@orcy/shared";
 import type { ExtractionDbClient } from "./types.js";
+import { isUniqueConstraintViolation } from "./types.js";
 import type { ExtractionAttemptRow } from "@orcy/shared";
 
 // ---------------------------------------------------------------------------
@@ -251,6 +252,40 @@ export function persistCandidateWithClient(
       })
       .run();
   } catch (err) {
+    if (isUniqueConstraintViolation(err)) {
+      const raced = db
+        .select()
+        .from(extractedFindings)
+        .where(
+          and(
+            eq(extractedFindings.habitatId, input.habitatId),
+            eq(extractedFindings.extractorKey, input.extractorKey),
+            eq(extractedFindings.extractorVersion, input.extractorVersion),
+            eq(extractedFindings.fingerprint, input.fingerprint),
+            eq(extractedFindings.evidenceDigest, input.evidenceDigest),
+          ),
+        )
+        .all()[0];
+      if (raced) {
+        const racedNow = new Date().toISOString();
+        db.update(extractedFindings)
+          .set({
+            lastSeenAt: racedNow,
+            lastSeenAttemptId: input.attemptId,
+            occurrenceCount: raced.occurrenceCount + 1,
+            updatedAt: racedNow,
+          })
+          .where(eq(extractedFindings.id, raced.id))
+          .run();
+        const updated = db
+          .select()
+          .from(extractedFindings)
+          .where(eq(extractedFindings.id, raced.id))
+          .all()[0];
+        if (!updated) throw repositoryCreateError("extractedFinding", undefined, raced.id);
+        return { outcome: "recurrence", finding: mapFindingRow(updated) };
+      }
+    }
     throw repositoryCreateError("extractedFinding", err as Error, findingId);
   }
 

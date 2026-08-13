@@ -49,6 +49,8 @@ import {
   computeExperienceSourceId,
 } from "../services/extractionSourceCatalog/experiencePrivacy.js";
 import * as wikiService from "../services/wikiService.js";
+import * as taskRepo from "../repositories/task.js";
+import * as eventRepo from "../repositories/events/index.js";
 import { logger } from "../lib/logger.js";
 import {
   habitats,
@@ -131,6 +133,28 @@ function insertProposedFinding(
     firstSeenAt: now, lastSeenAt: now, occurrenceCount: 1, caveats: [],
   }).run();
   return id;
+}
+
+function makeResolvableCitation(findingId: string, habitatId: string): void {
+  const db = getDb();
+  const task = taskRepo.createTask({
+    missionId: `mis-${habitatId}`,
+    title: "Discriminating fixture task",
+    createdBy: "test-user",
+  });
+  const event = eventRepo.createEvent({
+    taskId: task.id,
+    actorType: "human",
+    actorId: "test-user",
+    action: "created",
+  });
+  db.insert(extractedFindingSources).values({
+    id: uuid(), findingId, sourceType: "task_lifecycle_audit",
+    sourceId: `task_event:${event.id}`, sourceVersion: "lifecycle-task-v1", role: "supporting",
+    sourceDigest: null, occurredAt: event.timestamp,
+    entityRefs: [{ type: "task", id: task.id }, { type: "mission", id: `mis-${habitatId}` }],
+    completeness: "complete", visibilityClass: "habitat_member",
+  }).run();
 }
 
 function makeCitation(findingId: string): void {
@@ -440,6 +464,7 @@ describe("Learning Loop discriminating tests (remediation round 3)", () => {
     it("throw after createPage → retry reaches tag recovery → exactly one page", () => {
       const db = getDb();
       const findingId = insertProposedFinding("hab-A", "accepted");
+      makeResolvableCitation(findingId, "hab-A");
       setupPolicy({ habitatId: "hab-A", enabled: true });
 
       // B5 genuine test: inject failure AFTER createPage succeeds but BEFORE
@@ -467,6 +492,11 @@ describe("Learning Loop discriminating tests (remediation round 3)", () => {
         .where(eq(extractedFindingPromotions.findingId, findingId)).all()[0];
       expect(promoRow?.status).toBe("pending");
       expect(promoRow?.targetId).toBeNull();
+
+      db.update(extractedFindingPromotions)
+        .set({ updatedAt: new Date(Date.now() - 60_000).toISOString() })
+        .where(eq(extractedFindingPromotions.findingId, findingId))
+        .run();
 
       // One page was created by the crashed attempt.
       const pagesAfterCrash = db.select().from(wikiPages)

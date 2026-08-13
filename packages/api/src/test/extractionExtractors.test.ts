@@ -40,7 +40,10 @@ function makeAutomationRunObs(overrides: Partial<ExtractionObservation> = {}): E
     sourceType: "automation_run_audit",
     underlyingId: `run-${Math.random().toString(36).slice(2, 10)}`,
     collectorFamily: "automation",
-    entityRefs: [{ type: "automation_run", id: `ar-${Math.random().toString(36).slice(2, 10)}` }],
+    entityRefs: [
+      { type: "automation_run", id: `ar-${Math.random().toString(36).slice(2, 10)}` },
+      { type: "run_status", id: "failed" },
+    ],
     ...overrides,
   });
 }
@@ -50,7 +53,10 @@ function makePluginRunObs(overrides: Partial<ExtractionObservation> = {}): Extra
     sourceType: "plugin_run_audit",
     underlyingId: `prun-${Math.random().toString(36).slice(2, 10)}`,
     collectorFamily: "detector",
-    entityRefs: [{ type: "plugin_run", id: `pr-${Math.random().toString(36).slice(2, 10)}` }],
+    entityRefs: [
+      { type: "plugin_run", id: `pr-${Math.random().toString(36).slice(2, 10)}` },
+      { type: "plugin", id: "plugin-concentrated" },
+    ],
     ...overrides,
   });
 }

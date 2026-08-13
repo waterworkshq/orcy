@@ -440,6 +440,9 @@ try {
 const { initExtractionScan } = await import("./services/extractionScheduler.js");
 initExtractionScan();
 
+const { registerExtractionAuditEmitter } = await import("./services/extractionAuditEmitter.js");
+registerExtractionAuditEmitter();
+
 try {
   await fastify.listen({ port: PORT, host: HOST });
   fastify.log.info(`Orcy API running at http://${HOST}:${PORT}`);
