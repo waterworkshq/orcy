@@ -33,6 +33,7 @@ import { attachmentRoutes } from "../routes/attachments.js";
 import { notificationPrefRoutes } from "../routes/notificationPreferences.js";
 import { chatIntegrationRoutes } from "../routes/chatIntegration.js";
 import { agentMessageRoutes } from "../routes/agentMessages.js";
+import { habitatAgentMailRoutes } from "../routes/habitatAgentMail.js";
 import { codeReviewWebhookRoutes } from "../routes/codeReviewWebhooks.js";
 import { ciCdWebhookRoutes } from "../routes/ciCdWebhooks.js";
 import { organizationRoutes } from "../routes/organizations.js";
@@ -60,6 +61,7 @@ async function registerApiRoutes(f: FastifyInstance) {
   await f.register(notificationPrefRoutes);
   await f.register(chatIntegrationRoutes);
   await f.register(agentMessageRoutes);
+  await f.register(habitatAgentMailRoutes);
   await f.register(codeReviewWebhookRoutes);
   await f.register(ciCdWebhookRoutes);
   await f.register(organizationRoutes);
