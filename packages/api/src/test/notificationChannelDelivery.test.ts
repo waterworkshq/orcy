@@ -463,10 +463,7 @@ describe("ADR-0039 R5: plugin channel consumer path (dispatchChannel → pluginM
     // Match the in-tree contract: only the in-app channel moves `delivery.status`
     // to "delivered". A plugin channel returning success:true still leaves
     // delivery.status as "pending" — that contract is preserved through the
-    // consumer seam. Attempt-record persistence is the in-tree channels'
-    // concern (each channel handler persists its own attempt); the plugin
-    // channel returns a `ChannelHandlerResult` and the consumer merely
-    // surfaces it.
+    // consumer seam.
     await writeChannelPlugin(
       "chan-delivered",
       "r5-delivered",
@@ -485,5 +482,53 @@ describe("ADR-0039 R5: plugin channel consumer path (dispatchChannel → pluginM
     // Delivery status stays "pending" — only in-app channel promotes to "delivered".
     const updated = deliveryRepo.getNotificationDeliveryById(delivery.id);
     expect(updated!.status).toBe("pending");
+  });
+
+  it("PLG-3: plugin channel delivery persists and updates notification_delivery_attempts record", async () => {
+    await writeChannelPlugin(
+      "chan-attempts",
+      "r5-attempt-test",
+      `async () => ({ success: true, statusCode: 200 })`,
+    );
+    const habitat = setupHabitat();
+    const event = createTestEvent(habitat.id);
+    const delivery = createTestDelivery(habitat.id, event.id, [
+      "r5-attempt-test" as NotificationChannel,
+    ]);
+
+    const result = await deliverNotification(delivery.id);
+    expect(result.results[0].success).toBe(true);
+    expect(result.results[0].attemptId).toBeDefined();
+
+    const attempts = attemptRepo.getDeliveryAttemptsByDelivery(delivery.id);
+    expect(attempts).toHaveLength(1);
+    expect(attempts[0].channel).toBe("r5-attempt-test");
+    expect(attempts[0].status).toBe("sent");
+    expect(attempts[0].statusCode).toBe(200);
+    expect(attempts[0].finishedAt).not.toBeNull();
+  });
+
+  it("PLG-3: failed plugin channel delivery records failed notification_delivery_attempts record with error", async () => {
+    await writeChannelPlugin(
+      "chan-fail-attempt",
+      "r5-fail-chan",
+      `async () => ({ success: false, error: "remote endpoint rejected payload", statusCode: 502 })`,
+    );
+    const habitat = setupHabitat();
+    const event = createTestEvent(habitat.id);
+    const delivery = createTestDelivery(habitat.id, event.id, [
+      "r5-fail-chan" as NotificationChannel,
+    ]);
+
+    const result = await deliverNotification(delivery.id);
+    expect(result.results[0].success).toBe(false);
+
+    const attempts = attemptRepo.getDeliveryAttemptsByDelivery(delivery.id);
+    expect(attempts).toHaveLength(1);
+    expect(attempts[0].channel).toBe("r5-fail-chan");
+    expect(attempts[0].status).toBe("failed");
+    expect(attempts[0].statusCode).toBe(502);
+    expect(attempts[0].error).toContain("remote endpoint rejected payload");
+    expect(attempts[0].finishedAt).not.toBeNull();
   });
 });

@@ -1,9 +1,11 @@
 import * as deliveryRepo from "../repositories/notificationDelivery.js";
 import * as eventRepo from "../repositories/notificationEvent.js";
+import * as attemptRepo from "../repositories/notificationDeliveryAttempt.js";
 import { deliverInApp } from "./notification-channels/inApp.js";
 import { deliverWebhook } from "./notification-channels/webhook.js";
 import { deliverSlack } from "./notification-channels/slack.js";
 import { deliverDiscord } from "./notification-channels/discord.js";
+import { redactError } from "./notification-channels/truncate.js";
 import * as pluginManager from "../plugins/pluginManager.js";
 import type { NotificationDelivery, NotificationEvent, NotificationChannel } from "@orcy/shared";
 
@@ -54,7 +56,31 @@ async function dispatchChannel(
   // invoke it and return. Miss falls through to the in-tree switch below unchanged.
   const pluginResult = await pluginManager.dispatchToChannelPlugin(channel, delivery, event);
   if (pluginResult) {
-    return { channel, ...pluginResult };
+    let attemptId = pluginResult.attemptId;
+    if (attemptId && attemptRepo.getDeliveryAttemptById(attemptId)) {
+      attemptRepo.updateDeliveryAttempt(attemptId, {
+        status: pluginResult.success ? "sent" : "failed",
+        statusCode: pluginResult.statusCode,
+        error: pluginResult.error ? redactError(pluginResult.error) : undefined,
+        finishedAt: new Date().toISOString(),
+      });
+    } else {
+      const attempt = attemptRepo.createDeliveryAttempt({
+        deliveryId: delivery.id,
+        channel,
+        attempt: 1,
+        status: pluginResult.success ? "sent" : "failed",
+        statusCode: pluginResult.statusCode,
+        error: pluginResult.error ? redactError(pluginResult.error) : undefined,
+      });
+      attemptRepo.updateDeliveryAttempt(attempt.id, {
+        finishedAt: new Date().toISOString(),
+      });
+      if (!attemptId) {
+        attemptId = attempt.id;
+      }
+    }
+    return { channel, ...pluginResult, attemptId };
   }
 
   switch (channel) {
