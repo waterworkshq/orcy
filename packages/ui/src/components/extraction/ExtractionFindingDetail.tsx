@@ -281,14 +281,33 @@ export function ExtractionFindingDetail({
         )}
       </div>
 
-      {/* Rule recommendation prose-only notice */}
+      {/* Rule recommendation display */}
       {isRuleRec && (
-        <div className="rounded border border-blue-500/30 bg-blue-500/5 p-3" data-testid="rule-recommendation-notice">
-          <p className="text-xs text-blue-700">
-            This is a recommendation rendered as prose. It is not an executable
-            Automation Rule and cannot be prefilled or enabled from this view.
-          </p>
-        </div>
+        finding.structuredPayload ? (
+          <div className="rounded border border-blue-500/30 bg-blue-500/5 p-4 space-y-2" data-testid="rule-recommendation-draft">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-semibold uppercase tracking-wider text-blue-700">
+                Structured Rule Recommendation
+              </span>
+              <span className="text-xs text-muted-foreground">Draft Proposal</span>
+            </div>
+            {typeof (finding.structuredPayload as Record<string, unknown>).name === "string" && (
+              <p className="text-sm font-medium text-blue-900 dark:text-blue-200">
+                {(finding.structuredPayload as Record<string, unknown>).name as string}
+              </p>
+            )}
+            <p className="text-xs text-muted-foreground">
+              This recommendation includes a machine-readable Automation Rule draft. Operators can review the suggested trigger and actions before creating the rule.
+            </p>
+          </div>
+        ) : (
+          <div className="rounded border border-blue-500/30 bg-blue-500/5 p-3" data-testid="rule-recommendation-notice">
+            <p className="text-xs text-blue-700">
+              This is a recommendation rendered as prose. It is not an executable
+              Automation Rule and cannot be prefilled or enabled from this view.
+            </p>
+          </div>
+        )
       )}
 
       {/* Citations */}

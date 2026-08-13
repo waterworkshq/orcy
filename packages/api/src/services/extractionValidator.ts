@@ -28,6 +28,7 @@ import type {
   ExtractionVisibilityClass,
   LearningLoopPolicyRow,
 } from "@orcy/shared";
+import { automationRuleDraftSchema } from "../models/automationRuleSchema.js";
 import type { ExtractionObservation } from "./extractionSourceCatalog/types.js";
 
 // ---------------------------------------------------------------------------
@@ -200,9 +201,8 @@ function validateShape(candidate: ExtractionCandidate): string[] {
 /**
  * Validate finding-type-specific payload rules.
  *
- * `rule_recommendation` MUST be prose-only: `structuredPayload` must be
- * `null` or `undefined`. No machine-readable trigger/condition/action payload
- * is allowed (PATCH-CONSTRAINTS §Disallowed scope, X4).
+ * `rule_recommendation` payloads may either be `null` (prose-only recommendation)
+ * or a valid `AutomationRuleDraft` object validated against `automationRuleDraftSchema` (LL-RM-1 Phase 2).
  */
 function validateFindingTypePayload(candidate: ExtractionCandidate): string[] {
   const errors: string[] = [];
@@ -211,7 +211,10 @@ function validateFindingTypePayload(candidate: ExtractionCandidate): string[] {
     candidate.findingType === "rule_recommendation" &&
     candidate.structuredPayload != null
   ) {
-    errors.push("rule_recommendation_has_structured_payload");
+    const result = automationRuleDraftSchema.safeParse(candidate.structuredPayload);
+    if (!result.success) {
+      errors.push("invalid_rule_recommendation_payload");
+    }
   }
 
   return errors;

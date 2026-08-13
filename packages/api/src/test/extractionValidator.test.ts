@@ -178,21 +178,46 @@ describe("Learning Loop candidate validator", () => {
   });
 
   // -------------------------------------------------------------------------
-  // 7. Rule recommendation with structured payload
+  // 7. Rule recommendation with structured payload (LL-RM-1 Phase 2)
   // -------------------------------------------------------------------------
 
-  it("rejects a rule_recommendation with a machine-readable structured payload", () => {
+  it("accepts a rule_recommendation with a valid AutomationRuleDraft structured payload", () => {
     const result = validateCandidate(
       makeCandidate({
         findingType: "rule_recommendation",
-        structuredPayload: { trigger: "task_completed", action: "send_notification" },
+        structuredPayload: {
+          name: "Auto-reassign overdue tasks",
+          trigger: { type: "event", eventType: "task.overdue" },
+          condition: { type: "always" },
+          actions: [
+            {
+              type: "notify",
+              recipients: [{ type: "habitat_admins" }],
+              template: "Task {{task.id}} overdue",
+            },
+          ],
+        },
+      }),
+      makeBatch(makeObservation()),
+      makePolicy(),
+      "hab-A",
+    );
+    expect(result.valid).toBe(true);
+    expect(result.errors).toEqual([]);
+  });
+
+  it("rejects a rule_recommendation with an invalid structured payload", () => {
+    const result = validateCandidate(
+      makeCandidate({
+        findingType: "rule_recommendation",
+        structuredPayload: { invalidField: true },
       }),
       makeBatch(makeObservation()),
       makePolicy(),
       "hab-A",
     );
     expect(result.valid).toBe(false);
-    expect(result.errors).toContain("rule_recommendation_has_structured_payload");
+    expect(result.errors).toContain("invalid_rule_recommendation_payload");
   });
 
   // -------------------------------------------------------------------------

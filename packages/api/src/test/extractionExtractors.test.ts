@@ -153,7 +153,7 @@ describe("Learning Loop built-in extractors", () => {
     expect(anomalies.length).toBeGreaterThanOrEqual(1);
   });
 
-  it("produces rule_recommendation candidates that are PROSE-ONLY", () => {
+  it("produces rule_recommendation candidates with structured AutomationRuleDraft payload", () => {
     const observations = [
       makeTriageObs({ observationId: "tri-1" }),
       makeTriageObs({ observationId: "tri-2", underlyingId: "tri-2" }),
@@ -169,9 +169,12 @@ describe("Learning Loop built-in extractors", () => {
     const ruleRecs = candidates.filter((c) => c.findingType === "rule_recommendation");
     expect(ruleRecs.length).toBeGreaterThanOrEqual(1);
 
-    // PROSE-ONLY: structuredPayload must be null.
     for (const rec of ruleRecs) {
-      expect(rec.structuredPayload).toBeNull();
+      expect(rec.structuredPayload).not.toBeNull();
+      const payload = rec.structuredPayload as Record<string, unknown>;
+      expect(payload.name).toBeDefined();
+      expect(payload.trigger).toBeDefined();
+      expect(Array.isArray(payload.actions)).toBe(true);
     }
   });
 

@@ -17,7 +17,7 @@
  *
  * See architecture §Extractor contract for the settled boundary.
  */
-import type { ExtractionCandidate } from "@orcy/shared";
+import type { ExtractionCandidate, AutomationRuleDraft } from "@orcy/shared";
 import type { ExtractionObservation } from "./extractionSourceCatalog/types.js";
 
 // ---------------------------------------------------------------------------
@@ -244,14 +244,13 @@ const detectAnomalies: PatternDetector = (ctx) => {
 };
 
 // ---------------------------------------------------------------------------
-// Rule recommendation detector — PROSE ONLY
+// Rule recommendation detector — structured AutomationRuleDraft
 // ---------------------------------------------------------------------------
 
 /**
  * Detect rule recommendation opportunities from triage resolutions.
- * Rule recommendations are **prose-only**: `structuredPayload` is always
- * `null`. No machine-readable trigger/condition/action payload, no rule
- * prefill/persist/enable.
+ * Emits machine-readable `AutomationRuleDraft` payload for prefilling rule
+ * authoring upon operator review (LL-RM-1 Phase 2).
  */
 const detectRuleRecommendations: PatternDetector = (ctx) => {
   const candidates: ExtractionCandidate[] = [];
@@ -261,6 +260,28 @@ const detectRuleRecommendations: PatternDetector = (ctx) => {
 
   if (triageResolutions.length < 2) return candidates;
 
+  const structuredDraft: AutomationRuleDraft = {
+    name: `Auto-triage recurring resolutions (${triageResolutions.length} observed)`,
+    description: `Rule drafted by Learning Loop pattern detector after observing ${triageResolutions.length} triage resolutions.`,
+    enabled: false,
+    trigger: {
+      type: "event",
+      eventType: "task.created",
+    },
+    condition: {
+      type: "always",
+    },
+    actions: [
+      {
+        type: "notify",
+        recipients: [{ type: "habitat_admins" }],
+        template: `Task {{task.id}} flagged for triage per Learning Loop recommendation.`,
+      },
+    ],
+    cooldownSeconds: 300,
+    maxRunsPerHour: 30,
+  };
+
   candidates.push({
     clientKey: `rule-rec-triage-batch`,
     findingType: "rule_recommendation",
@@ -269,14 +290,14 @@ const detectRuleRecommendations: PatternDetector = (ctx) => {
       `${triageResolutions.length} terminal triage resolutions were observed in this window.`,
       "If these resolutions follow a recurring pattern, an Automation Rule could be proposed to handle similar cases automatically.",
       "",
-      "This is a prose recommendation only. No rule trigger, condition, or action is specified.",
+      "A structured Automation Rule draft has been generated for review and prefilling.",
       "A human reviewer should evaluate whether the pattern is stable enough to warrant automation.",
     ].join("\n"),
-    structuredPayload: null,
+    structuredPayload: structuredDraft as unknown as Record<string, unknown>,
     confidence: 0.4,
     sampleSize: triageResolutions.length,
     completeness: "partial",
-    caveats: ["prose_only_recommendation", "no_machine_readable_payload"],
+    caveats: ["requires_human_review", "recommendation_draft"],
     citations: triageResolutions.slice(0, 10).map((o) => ({
       observationId: o.observationId,
       role: "supporting" as const,
