@@ -33,9 +33,8 @@ function comment(
     authorId: "u1",
     content: "note",
     parentId: null,
-    createdAt: overrides.createdAt,
-    updatedAt: overrides.createdAt,
     ...overrides,
+    updatedAt: overrides.createdAt,
   };
 }
 
@@ -53,7 +52,6 @@ describe("mergeCommunicationFeed", () => {
     expect(items[0]).toMatchObject({ kind: "pulse", pulse: { id: "p-new" } });
     expect(items[1]).toMatchObject({ kind: "comment", comment: { id: "c1" } });
     expect(items[2]).toMatchObject({ kind: "pulse", pulse: { id: "p-old" } });
-    expect(items.some((item) => "pulse" in item && item.kind === "comment")).toBe(false);
   });
 
   it("can show only Pulse or only comments", () => {

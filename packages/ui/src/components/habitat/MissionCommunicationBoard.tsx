@@ -193,7 +193,7 @@ export function MissionCommunicationBoard({ missionId }: MissionCommunicationBoa
                 </article>
               ),
             )}
-            {kind !== "comment" && pulseQuery.hasNextPage && (
+            {pulseQuery.hasNextPage && (
               <div className="flex justify-center pt-2">
                 <button
                   type="button"
