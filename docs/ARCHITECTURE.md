@@ -1648,3 +1648,97 @@ The promotion loop is gated by two AND'd switches, both defaulting to on: the gl
 | `api/src/repositories/findingTriage.ts` | `findReleaseMatched` (cascading-type + version-pin query) + `promote` |
 | `api/src/routes/triage.ts` | `POST /triage/release-trigger` + `targetReleaseType` on `PATCH /triage/findings/:id` |
 | `cli/src/commands/triage.ts` | `orcy triage release-trigger` CLI (sets `detectedBy: "cli"`) |
+
+## Learning Loop (implementation complete; release pending)
+
+A bounded, human-governed proposal loop that converts an allowlist of trustworthy Orcy history into immutable, cited findings that agents may read through a task-bound query. Dormant by default (`ORCY_LEARNING_LOOP_ENABLED` global env + per-Habitat `enabled` policy flag); disabling new runs/promotions does not erase accepted reads.
+
+See [ADR-0044](adr/0044-learning-loop-ledger-citations-and-lineage.md) (ledger, citations, lineage) and [ADR-0045](adr/0045-learning-loop-authorization-and-privacy-propagation.md) (authorization, privacy propagation).
+
+### Source Allowlist (Closed)
+
+The Learning Loop extracts from a fixed set of source types — no arbitrary data is ingested:
+
+| Source | What it provides | Privacy |
+|--------|-----------------|---------|
+| Task lifecycle audit events | Creation, transitions, completion, rejection | Direct entity refs |
+| Mission lifecycle audit events | Mission state changes, dependencies | Direct entity refs |
+| Terminal Automation Run audit events | Rule evaluations, action outcomes | Terminal-only (completed/failed) |
+| Terminal Plugin Run audit events | Detector/action/channel runs | Terminal-only (completed/failed) |
+| Terminal Triage Resolutions | Pattern clusters, routing decisions | Terminal-only (resolved/wontfix) |
+| Experience aggregates (privacy-projected) | k-anonymous experience signal bands | ≥5 signals / ≥3 agents / ≥7-day coarse windows; all isolating fields suppressed before extractor input |
+
+### Lifecycle
+
+All extraction runs through one fenced seam (`extractionRunLifecycle.ts`):
+
+1. **Scheduled + manual `ensure`** — replay-safe: the `logical_work_key` excludes delivery mode, so a scheduled and manual run for the same window converge on one work item.
+2. **Human-only `fresh_rerun`** — requires a reason; creates a new `rerun_generation` and a new logical key linked to the prior work.
+3. **`dry_run`** — resolves sources and candidates without persisting findings.
+4. **Boot recovery** — reconciles committed findings without duplicating them; stale lease-fenced attempts are closed as losing.
+
+Physical attempts are separate rows with monotonic `attempt_no`. Lease generation fencing ensures only the attempt holding `(lease_owner, lease_generation)` may write or complete. Completion belongs only to the successful owned `running → terminal` transition.
+
+### Finding Revisions and CAS Review
+
+Content, cited source set, extractor identity, confidence, and completeness never mutate on an existing revision. Same `fingerprint` + `evidence_digest` increments recurrence only (`last_seen_at`, `occurrence_count`). Changed evidence or content creates a new immutable revision linked through `(lineage_root_id, revision)` and `supersedes_finding_id`.
+
+The decision envelope (`status`, `decision_version`) is mutable only through CAS: every human decision supplies `expectedDecisionVersion`. Two concurrent decisions with the same expected version yield one success and one 409. Accept and reject require a reason.
+
+### Citation Degradation
+
+Each citation stores `(source_type, source_id, source_version)`. Resolvers return `available`, `dangling`, `unauthorized`, or `changed`:
+
+| Condition | Agent read | Promotion |
+|-----------|-----------|-----------|
+| Available + unchanged | Show citation summary | Allowed if other gates pass |
+| Dangling | Hide source details | **Blocked** |
+| Changed digest | Mark stale | **Blocked** |
+| Unauthorized | Hide finding if ceiling disallows | **Blocked** |
+| Aggregate-only | Bands/caveats only; no drill-down | Human may accept; destination policy may block |
+
+A finding can become stale without being deleted. A dangling citation does not erase prior review; it blocks new promotion.
+
+### Authorization (ADR-0045)
+
+**Human-only operations:** Policy CRUD, review queue/list/detail, accept/reject/request-revision/withdraw, citation refresh, promotion, run history, manual execution controls (`ensure`/`fresh_rerun`/`dry_run`). All require `humanAuth + requireHabitatAccess`.
+
+**Agent reads:** `list_accepted` and `get` execute ONE joined SQL statement that returns an accepted finding only when ALL hold:
+
+1. The supplied `taskId` exists, is assigned to the agent, and status is `claimed | in_progress | submitted`.
+2. The task's Mission belongs to the requested Habitat and `finding.habitat_id` matches.
+3. The finding is `accepted`, not `stale`/`withdrawn`, and visibility allows agent use (`habitat_member` only).
+4. ≥1 server-derived scope ref matches: `task:<taskId>`, `mission:<task.missionId>`, or `domain:<task.requiredDomain>` (when non-null).
+
+No Habitat-wide fallback: findings with no scope refs are human-only. Collapsed denial: not-found and forbidden are indistinguishable. The predicate eliminates the TOCTOU race a middleware precheck would create.
+
+### Destinations
+
+Accepted findings create at most one Habitat Wiki **draft** (never auto-published). The successful promotion row — keyed to `(finding_id, destination_type, destination_key)` — is the permanent derivation record. It survives wiki link removal, page edits, and publication, permanently excluding the promotion target from future source batches.
+
+### Deferred (Not Shipped in v1)
+
+- Plugin extractors (require a separate accepted ADR/release).
+- Notification Events/Deliveries sources (require a sealing/composite-versioning ADR).
+- Non-terminal Engineering Findings (Triage retains ownership).
+- Machine-readable Automation Rule drafts (v1 recommendations are prose-only).
+- Automatic promotion or publication.
+- Direct Project Insight / Habitat Skill writes.
+- Remote participant access beyond local agent task-scoped reads; no `knowledge.read` remote scope; no cross-Habitat learning.
+- Event-triggered extraction, embeddings, model training.
+- Durable extraction audit-projection collector: extraction lifecycle events are emitted via SSE; the queryable durable audit-projection collector is a post-v1 refinement.
+
+### Key Files
+
+| File | Role |
+|------|------|
+| `api/src/routes/extraction.ts` | REST surface (policy CRUD, review, decisions, agent reads, promotion, execution controls, run history) |
+| `api/src/services/extractionRunLifecycle.ts` | One fenced seam for all extraction runs |
+| `api/src/services/extractionPolicyService.ts` | Policy CRUD + enable |
+| `api/src/services/extractionReviewService.ts` | Review queue, finding detail, decisions, citation refresh |
+| `api/src/services/extractionPromotionService.ts` | Promotion eligibility checks |
+| `api/src/services/extractionWikiDestination.ts` | Wiki draft promotion adapter |
+| `api/src/repositories/extraction/` | Ledger repository (predicate-enforced agent reads) |
+| `api/src/db/schema/learningLoop.ts` | 8 ledger tables |
+| `mcp/src/tools/learning.ts` + `learning-dispatch.ts` | `orcy_learning` MCP tool (`list_accepted`/`get`) |
+| `mcp/src/tools/instructions.ts` | Agent skill guide entry for `orcy_learning` |

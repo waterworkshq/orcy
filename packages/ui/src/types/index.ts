@@ -1646,3 +1646,104 @@ export interface ClonePreparationView {
   subtasks: readonly ClonePreparationSubtaskView[];
   dependencySuggestions: readonly CloneDependencySuggestionView[];
 }
+
+// ---------------------------------------------------------------------------
+// Learning Loop / Extraction view-model interfaces
+//
+// Mirror the REST route outputs at packages/api/src/routes/extraction.ts and
+// the service-level projections at extractionReviewService.ts. The shared row
+// types (LearningLoopPolicyRow, ExtractedFindingRow, etc.) are re-exported
+// from @orcy/shared; the projections below are UI-specific view-models.
+// ---------------------------------------------------------------------------
+
+import type {
+  LearningLoopPolicyRow,
+  ExtractedFindingRow,
+  ExtractedFindingReviewRow,
+  ExtractedFindingScopeRefRow,
+  ExtractionFindingType,
+  ExtractionVisibilityClass,
+  CitationResolutionState,
+  ExtractionFindingStatus,
+  ExtractionWorkStatus,
+  ExtractionAttemptStatus,
+  ExtractionDeliveryMode,
+} from "@orcy/shared";
+
+export type {
+  LearningLoopPolicyRow,
+  ExtractedFindingRow,
+  ExtractedFindingReviewRow,
+  ExtractionFindingType,
+  ExtractionVisibilityClass,
+  CitationResolutionState,
+  ExtractionFindingStatus,
+  ExtractionWorkStatus,
+  ExtractionAttemptStatus,
+  ExtractionDeliveryMode,
+};
+
+/** Review queue entry — mirrors extractionReviewService.ReviewQueueEntry. */
+export interface ExtractionReviewQueueEntry {
+  id: string;
+  findingType: string;
+  subject: string;
+  confidence: number;
+  sampleSize: number;
+  completeness: string;
+  visibilityCeiling: string;
+  decisionVersion: number;
+  firstSeenAt: string;
+  lastSeenAt: string;
+  occurrenceCount: number;
+}
+
+/** Citation summary — mirrors extractionReviewService.CitationSummary. */
+export interface ExtractionCitationSummary {
+  id: string;
+  sourceType: string;
+  role: string;
+  visibilityClass: string;
+  completeness: string;
+  resolutionState: string;
+  occurredAt: string | null;
+  entityRefs: Array<{ type: string; id: string }> | null;
+}
+
+/** Finding detail envelope — mirrors extractionReviewService.FindingDetail. */
+export interface ExtractionFindingDetailView {
+  finding: ExtractedFindingRow;
+  citations: ExtractionCitationSummary[];
+  reviews: ExtractedFindingReviewRow[];
+  scopeRefs: ExtractedFindingScopeRefRow[];
+}
+
+/** Accepted-finding summary — mirrors extractionReviewService.HumanFindingSummary. */
+export interface ExtractionFindingSummary {
+  id: string;
+  findingType: string;
+  subject: string;
+  confidence: number;
+  sampleSize: number;
+  completeness: string;
+  visibilityCeiling: string;
+  citationCount: number;
+  firstSeenAt: string;
+  lastSeenAt: string;
+}
+
+/** Run/work history entry — projection of extraction_attempts joined to work items. */
+export interface ExtractionRunHistoryEntry {
+  id: string;
+  workItemId: string;
+  status: string;
+  deliveryMode: string;
+  extractorKey: string;
+  candidateCount: number;
+  persistedCount: number;
+  deduplicatedCount: number;
+  error: string | null;
+  startedAt: string | null;
+  completedAt: string | null;
+  createdAt: string;
+}

@@ -69,6 +69,7 @@ import { taskCreationAttemptRoutes } from "./routes/taskCreationAttempts.js";
 import { taskPublicationRoutes } from "./routes/taskPublication.js";
 import { taskClonePublicationRoutes } from "./routes/taskClonePublication.js";
 import { scheduledOccurrenceRepairRoutes } from "./routes/scheduledOccurrenceRepair.js";
+import { extractionRoutes } from "./routes/extraction.js";
 import { registerCreationDispatchAdapters } from "./services/taskCreationDispatchAdapters.js";
 import { startOccurrenceLeaseRecoveryWorker } from "./services/scheduledOccurrenceRecovery.js";
 import { startCreationDispatchWorker } from "./services/creationDispatchWorker.js";
@@ -84,6 +85,7 @@ import { startAllSchedulers } from "./services/scheduler.js";
 import { initSkillHooks } from "./services/habitatSkillService.js";
 import { initWorkflowService } from "./services/workflowService.js";
 import { runRecoveryReconciliationPass } from "./services/workflow/recoveryCoordinator.js";
+import { runExtractionReconciliationPass } from "./services/extractionRecovery.js";
 import { initWikiScheduler } from "./services/wikiSchedulerService.js";
 import { initDb } from "./db/index.js";
 
@@ -240,6 +242,7 @@ async function registerApiRoutes(f: FastifyInstance) {
   await f.register(taskClonePublicationRoutes);
   await f.register(taskPublicationRoutes);
   await f.register(scheduledOccurrenceRepairRoutes);
+  await f.register(extractionRoutes);
 }
 
 await fastify.register(
@@ -396,6 +399,8 @@ fastify.addHook("onClose", async () => {
   if (occurrenceRecoveryHandle) clearInterval(occurrenceRecoveryHandle);
   const { shutdownAll } = await import("./services/daemonEngine.js");
   shutdownAll();
+  const { stopExtractionScan } = await import("./services/extractionScheduler.js");
+  stopExtractionScan();
 });
 
 pluginManager.loadQuarantinesFromDb();
@@ -422,6 +427,21 @@ try {
 } catch (err) {
   fastify.log.error({ err }, "Failed to reconcile workflow recovery handoffs at boot");
 }
+
+try {
+  // Boot-only extraction recovery: reconcile stale running attempts whose
+  // lease has expired (mark failed + one fenced child attempt) and repair
+  // work items whose finalization failed after candidate commit.
+  runExtractionReconciliationPass();
+} catch (err) {
+  fastify.log.error({ err }, "Failed to reconcile extraction stale leases at boot");
+}
+
+const { initExtractionScan } = await import("./services/extractionScheduler.js");
+initExtractionScan();
+
+const { registerExtractionAuditEmitter } = await import("./services/extractionAuditEmitter.js");
+registerExtractionAuditEmitter();
 
 try {
   await fastify.listen({ port: PORT, host: HOST });

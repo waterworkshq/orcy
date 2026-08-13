@@ -49,6 +49,7 @@ Complete reference for the Orcy REST API.
 - [Code Evidence](#code-evidence)
 - [Auth](#auth)
 - [SSE Streaming](#sse-streaming)
+- [Learning Loop Extraction](#learning-loop-extraction)
 
 ---
 
@@ -6554,3 +6555,214 @@ The two-layer kill switch (global `ORCY_RELEASE_AUTO_PROMOTE` env var AND habita
 - `erroredCount` — promoted findings whose mission creation failed (per-finding isolation; the batch still completes)
 
 **CLI:** `orcy triage release-trigger <habitat-id> --version <version> [--type <type>] [--notes <notes>]` (sets `detectedBy: "cli"`).
+
+## Learning Loop Extraction
+
+> **Implementation complete; release pending.** Dormant by default — both `ORCY_LEARNING_LOOP_ENABLED` (global) and the per-policy `enabled` flag must be true. See [ADR-0044](../adr/0044-learning-loop-ledger-citations-and-lineage.md) and [ADR-0045](../adr/0045-learning-loop-authorization-and-privacy-propagation.md).
+
+**Auth model:** Policy CRUD, review queue/list/detail, decisions, citation refresh, promotion eligibility, promotion, and manual execution controls are **human-only** (`humanAuth + requireHabitatAccess`). Agent accepted-finding reads (`list_accepted`, `get`) are `agentOrHumanAuth + requireHabitatAccess` but require a current `taskId` — the repository predicate is the sole authorization boundary.
+
+### Policy CRUD
+
+#### GET /habitats/:habitatId/extraction/policies
+
+List extraction policies for a habitat.
+
+**Response:** `{ policies: ExtractionPolicy[] }`
+
+#### POST /habitats/:habitatId/extraction/policies
+
+Create a new extraction policy.
+
+| Body Field | Required | Description |
+|------------|----------|-------------|
+| `extractorKey` | Yes | Extractor identifier |
+| `sourceTypes` | Yes | Array of allowed source type keys (min 1) |
+| `schedule` | Yes | Cron-style schedule expression |
+| `windowSeconds` | Yes | Extraction window duration (positive integer) |
+| `lookbackSeconds` | Yes | Lookback duration (positive integer) |
+| `minConfidence` | No | Minimum confidence threshold (0–1, nullable) |
+| `minSampleSize` | No | Minimum sample size threshold (positive integer, nullable) |
+| `config` | No | Extractor config object |
+
+**Response:** `201 Created` — `{ policy: ExtractionPolicy }`
+
+#### GET /habitats/:habitatId/extraction/policies/:policyId
+
+Get a single extraction policy.
+
+**Response:** `{ policy: ExtractionPolicy }`
+
+#### PATCH /habitats/:habitatId/extraction/policies/:policyId
+
+Update an extraction policy. CAS-protected via `expectedVersion`.
+
+| Body Field | Required | Description |
+|------------|----------|-------------|
+| `expectedVersion` | Yes | Current policy version for CAS |
+| `enabled` | No | Enable/disable the policy |
+| `sourceTypes` | No | Array of allowed source type keys |
+| `schedule` | No | Cron-style schedule expression |
+| `windowSeconds` | No | Extraction window duration |
+| `lookbackSeconds` | No | Lookback duration |
+| `minConfidence` | No | Minimum confidence threshold (0–1, nullable) |
+| `minSampleSize` | No | Minimum sample size threshold (nullable) |
+| `config` | No | Extractor config object |
+
+**Response:** `{ policy: ExtractionPolicy }`
+
+### Review Queue and Finding Detail
+
+#### GET /habitats/:habitatId/extraction/review/queue
+
+List findings awaiting review (`proposed` status).
+
+| Query Param | Required | Description |
+|-------------|----------|-------------|
+| `findingType` | No | Filter by finding type |
+| `limit` | No | Max results (default varies, max 100) |
+
+**Response:** `{ findings: ExtractedFindingView[] }`
+
+#### GET /habitats/:habitatId/extraction/findings
+
+List accepted findings for human review/display.
+
+| Query Param | Required | Description |
+|-------------|----------|-------------|
+| `findingType` | No | Filter by finding type |
+| `domain` | No | Filter by domain |
+| `maxAgeSeconds` | No | Exclude findings older than this |
+| `limit` | No | Max results (max 100) |
+
+**Response:** `{ findings: ExtractedFindingView[] }`
+
+#### GET /habitats/:habitatId/extraction/findings/:findingId
+
+Get full finding detail including citations, scope refs, and review history.
+
+**Response:** `{ finding, citations, scopeRefs, reviews }` (full detail view)
+
+### Decisions (Human-Only, CAS-Protected)
+
+All decision routes require `expectedDecisionVersion` for CAS. Accept and reject require a reason. Two concurrent decisions with the same expected version yield one success and one `409 Conflict`.
+
+| Body Field | Required | Description |
+|------------|----------|-------------|
+| `expectedDecisionVersion` | Yes | Expected current decision version |
+| `reason` | Conditional | Required for `accept` and `reject` |
+
+#### POST /habitats/:habitatId/extraction/findings/:findingId/accept
+
+Accept a proposed finding. Transitions `proposed → accepted`.
+
+**Response:** `{ finding: ExtractedFindingView }`
+
+#### POST /habitats/:habitatId/extraction/findings/:findingId/reject
+
+Reject a proposed finding. Transitions `proposed → rejected`.
+
+**Response:** `{ finding: ExtractedFindingView }`
+
+#### POST /habitats/:habitatId/extraction/findings/:findingId/revise
+
+Request revision of a proposed finding. Records feedback only — the finding stays in `proposed` status with an incremented `decisionVersion`.
+
+**Response:** revision result
+
+#### POST /habitats/:habitatId/extraction/findings/:findingId/withdraw
+
+Withdraw an accepted finding. Transitions to `withdrawn`. Disabling new runs/promotions does not erase accepted reads — withdrawal is the explicit revoke.
+
+**Response:** `{ finding: ExtractedFindingView }`
+
+### Citation Refresh
+
+#### POST /habitats/:habitatId/extraction/findings/:findingId/citations/refresh
+
+Re-resolve all citation states for a finding. Returns the current `(available | dangling | unauthorized | changed)` status of each citation. Dangling or changed citations make the finding stale for new promotion but do not delete prior review.
+
+**Response:** `{ citations: CitationStateView[] }`
+
+### Promotion
+
+#### GET /habitats/:habitatId/extraction/findings/:findingId/promotion-eligibility
+
+Check whether a finding is eligible for promotion. Returns eligibility status and blocking reasons (e.g., citation degradation, review state, existing promotion).
+
+**Response:** promotion eligibility view
+
+#### POST /habitats/:habitatId/extraction/findings/:findingId/promote
+
+Promote an accepted finding to a destination. In v1, only `wiki_draft` is supported — creates a Habitat Wiki **draft** (never auto-published). The promotion row is the permanent derivation record; it survives wiki link removal, page edits, and publication.
+
+| Body Field | Required | Description |
+|------------|----------|-------------|
+| `destinationType` | Yes | `wiki_draft` (only supported value in v1) |
+
+**Response:** `201 Created` (if promoted) — promotion result with `{ outcome, findingId, destinationType, ... }`
+
+### Agent Accepted-Finding Reads
+
+> Agent-accessible routes (`agentOrHumanAuth + requireHabitatAccess`). The handler passes `(agentId, taskId, habitatId, filters)` to the repository, which applies the actor-bound predicate — NOT a middleware precheck. Collapsed denial: not-found and forbidden are indistinguishable (same `404`, no detail).
+
+#### GET /habitats/:habitatId/extraction/agent/findings
+
+List accepted findings readable by the calling agent in the context of the supplied task. The repository predicate ensures the task is assigned to the agent, is active (`claimed | in_progress | submitted`), belongs to the requested Habitat, and that ≥1 server-derived scope ref matches.
+
+| Query Param | Required | Description |
+|-------------|----------|-------------|
+| `taskId` | Yes | The agent's current active task ID |
+| `findingType` | No | Filter by finding type (narrows only) |
+| `domain` | No | Filter by domain (narrows only) |
+| `maxAgeSeconds` | No | Exclude findings older than this |
+| `limit` | No | Max results (default 10, hard limit 25) |
+| `maxChars` | No | Server-owned total character budget for subject+body combined (default 4000, hard max 8000) |
+
+**Response:** `{ findings: AgentFindingView[] }` — bounded summaries, no drill-down for aggregate-only findings.
+
+#### GET /habitats/:habitatId/extraction/agent/findings/:findingId
+
+Get a single accepted finding readable by the calling agent. Same predicate as list. Collapsed denial: returns `404` if the finding doesn't exist, the agent lacks scope, the Habitat is wrong, or the finding is stale/withdrawn — no existence oracle.
+
+| Query Param | Required | Description |
+|-------------|----------|-------------|
+| `taskId` | Yes | The agent's current active task ID |
+
+**Response:** `{ finding: AgentFindingView }`
+
+### Manual Execution Controls (Human-Only)
+
+#### POST /habitats/:habitatId/extraction/policies/:policyId/ensure
+
+Manually trigger an extraction run for the policy's current window. Replay-safe: converges with any scheduled run for the same window.
+
+**Response:** `{ result: RunResult }`
+
+#### POST /habitats/:habitatId/extraction/policies/:policyId/fresh-rerun
+
+Trigger a fresh extraction run that ignores replay-safety and creates a new logical work item linked to the prior one. Requires a reason.
+
+| Body Field | Required | Description |
+|------------|----------|-------------|
+| `reason` | Yes | Human-supplied reason for the fresh rerun |
+
+**Response:** `{ result: RunResult }`
+
+#### POST /habitats/:habitatId/extraction/policies/:policyId/dry-run
+
+Run extraction in dry-run mode: resolves sources and produces candidate findings without persisting them.
+
+**Response:** `{ result: DryRunResult }`
+
+### Run History (Human-Only)
+
+#### GET /habitats/:habitatId/extraction/runs
+
+List recent extraction work items with their latest attempt metadata (status, delivery mode, candidate/persisted/dedup counts, timestamps).
+
+**Response:** `{ runs: RunHistoryView[] }`
+
+### MCP Tool
+
+The `orcy_learning` MCP tool (`list_accepted`, `get`) wraps the agent accepted-finding reads above. It requires `habitatId` + active `taskId` and calls the same REST surface — the repository predicate is the sole authorization authority. The tool is documented in the agent skill guide (`orcy_wiki_instructions`).

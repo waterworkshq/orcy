@@ -1,6 +1,6 @@
 import { getDb } from "../db/index.js";
 import { triageResolutions } from "../db/schema/index.js";
-import { eq, and, desc } from "drizzle-orm";
+import { eq, and, desc, gte, lt } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 import type { ResolutionKind, TriageActorType } from "@orcy/shared";
 import { repositoryCreateError, repositoryNotFoundError } from "../errors/repository.js";
@@ -111,6 +111,30 @@ export function findByClusterKey(habitatId: string, clusterKey: string): TriageR
     .where(
       and(eq(triageResolutions.habitatId, habitatId), eq(triageResolutions.clusterKey, clusterKey)),
     )
+    .orderBy(desc(triageResolutions.resolvedAt))
+    .all()
+    .map(rowToTriageResolution);
+}
+
+/**
+ * List every terminal resolution in a habitat, newest-first. The Learning Loop
+ * source catalog uses this as the direct family-specific collection lookup for
+ * `triage_resolution` citations (every `triage_resolutions` row is terminal by
+ * construction — it is written only on resolution). No implicit traversal to
+ * source pulses or non-terminal Engineering Findings.
+ */
+export function listByHabitat(
+  habitatId: string,
+  window?: { from?: string; to?: string },
+): TriageResolution[] {
+  const db = getDb();
+  const conditions = [eq(triageResolutions.habitatId, habitatId)];
+  if (window?.from) conditions.push(gte(triageResolutions.resolvedAt, window.from));
+  if (window?.to) conditions.push(lt(triageResolutions.resolvedAt, window.to));
+  return db
+    .select()
+    .from(triageResolutions)
+    .where(and(...conditions))
     .orderBy(desc(triageResolutions.resolvedAt))
     .all()
     .map(rowToTriageResolution);

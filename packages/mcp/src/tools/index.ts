@@ -25,6 +25,8 @@ export * from "./lifecycle-gaps.js";
 export * from "./task-batch.js";
 export * from "./review.js";
 export * from "./review-dispatch.js";
+export * from "./learning.js";
+export * from "./learning-dispatch.js";
 export * from "./sprint.js";
 export * from "./sprint-dispatch.js";
 export * from "./habitat-skill.js";
@@ -57,6 +59,7 @@ import {
   SUBSCRIPTION_DISPATCH_HANDLER,
 } from "./subscription-dispatch.js";
 import { REVIEW_DISPATCH_TOOL, REVIEW_DISPATCH_HANDLER } from "./review-dispatch.js";
+import { LEARNING_DISPATCH_TOOL, LEARNING_DISPATCH_HANDLER } from "./learning-dispatch.js";
 import { SPRINT_DISPATCH_TOOL, SPRINT_DISPATCH_HANDLER } from "./sprint-dispatch.js";
 import {
   HABITAT_SKILL_DISPATCH_TOOL,
@@ -92,6 +95,7 @@ export {
   PULSE_DISPATCH_HANDLER,
   SUBSCRIPTION_DISPATCH_HANDLER,
   REVIEW_DISPATCH_HANDLER,
+  LEARNING_DISPATCH_HANDLER,
   SPRINT_DISPATCH_HANDLER,
   HABITAT_SKILL_DISPATCH_HANDLER,
   NOTIFICATION_DISPATCH_HANDLER,
@@ -113,6 +117,7 @@ export {
   PULSE_DISPATCH_TOOL,
   SUBSCRIPTION_DISPATCH_TOOL,
   REVIEW_DISPATCH_TOOL,
+  LEARNING_DISPATCH_TOOL,
   SPRINT_DISPATCH_TOOL,
   HABITAT_SKILL_DISPATCH_TOOL,
   NOTIFICATION_DISPATCH_TOOL,
@@ -137,6 +142,7 @@ export const ALL_TOOLS: Tool[] = [
   PULSE_DISPATCH_TOOL,
   SUBSCRIPTION_DISPATCH_TOOL,
   REVIEW_DISPATCH_TOOL,
+  LEARNING_DISPATCH_TOOL,
   SPRINT_DISPATCH_TOOL,
   HABITAT_SKILL_DISPATCH_TOOL,
   NOTIFICATION_DISPATCH_TOOL,

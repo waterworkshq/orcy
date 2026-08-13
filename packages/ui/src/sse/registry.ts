@@ -93,6 +93,9 @@ export const SSE_EVENT_TYPES = [
   "plugin.quarantined",
   "triage.finding_created",
   "triage.finding_updated",
+  "extraction.finding_proposed",
+  "extraction.decision_changed",
+  "extraction.finding_withdrawn",
 ] as const satisfies readonly SSEEventType[];
 
 export type SSEEventRegistryMissingEvents = AssertNever<
@@ -644,6 +647,36 @@ export const SSE_EVENT_REGISTRY = {
   "triage.finding_updated": defineSSEHandler<"triage.finding_updated">({
     server: ({ queryClient }) => {
       queryClient.invalidateQueries({ queryKey: queryKeys.triage.all });
+    },
+  }),
+  "extraction.finding_proposed": defineSSEHandler<"extraction.finding_proposed">({
+    server: ({ queryClient, subscriptionHabitatId }) => {
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.extraction.reviewQueue(subscriptionHabitatId),
+      });
+    },
+  }),
+  "extraction.decision_changed": defineSSEHandler<"extraction.decision_changed">({
+    server: ({ queryClient, subscriptionHabitatId }) => {
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.extraction.reviewQueue(subscriptionHabitatId),
+      });
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.extraction.acceptedFindings(subscriptionHabitatId),
+      });
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.extraction.all,
+      });
+    },
+  }),
+  "extraction.finding_withdrawn": defineSSEHandler<"extraction.finding_withdrawn">({
+    server: ({ queryClient, subscriptionHabitatId }) => {
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.extraction.reviewQueue(subscriptionHabitatId),
+      });
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.extraction.all,
+      });
     },
   }),
 } satisfies Record<SSEEventType, SSEEventHandler>;

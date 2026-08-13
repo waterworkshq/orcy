@@ -17,6 +17,7 @@ import { daemonsApi } from "./domains/daemons.js";
 import { dashboardApi } from "./domains/dashboard.js";
 import { dependenciesApi } from "./domains/dependencies.js";
 import { effortApi } from "./domains/effort.js";
+import { extractionApi } from "./domains/extraction.js";
 import { habitatsApi } from "./domains/habitats.js";
 import { healthApi } from "./domains/health.js";
 import { importsApi } from "./domains/imports.js";
@@ -62,6 +63,7 @@ export const api = {
   dashboard: dashboardApi,
   dependencies: dependenciesApi,
   effort: effortApi,
+  extraction: extractionApi,
   habitats: habitatsApi,
   health: healthApi,
   imports: importsApi,

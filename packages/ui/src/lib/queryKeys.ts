@@ -262,4 +262,17 @@ export const queryKeys = {
     listForHabitat: (habitatId: string) =>
       [...queryKeys.imports.all, "list", habitatId] as const,
   },
+  extraction: {
+    all: ["extraction"] as const,
+    policies: (habitatId: string) =>
+      [...queryKeys.extraction.all, "policies", habitatId] as const,
+    reviewQueue: (habitatId: string, filters?: { findingType?: string }) =>
+      [...queryKeys.extraction.all, "reviewQueue", habitatId, filters ?? {}] as const,
+    findingDetail: (habitatId: string, findingId: string) =>
+      [...queryKeys.extraction.all, "findingDetail", habitatId, findingId] as const,
+    acceptedFindings: (habitatId: string, filters?: { findingType?: string }) =>
+      [...queryKeys.extraction.all, "acceptedFindings", habitatId, filters ?? {}] as const,
+    runHistory: (habitatId: string) =>
+      [...queryKeys.extraction.all, "runHistory", habitatId] as const,
+  },
 };

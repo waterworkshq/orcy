@@ -29,6 +29,7 @@ The dispatch tools are:
 - **orcy_subscription** — event subscriptions (subscribe, unsubscribe)
 - **orcy_worktree** — git worktree info (get-worktree)
 - **orcy_habitat_skill** — habitat knowledge (get, refresh, contribute) — read accumulated conventions, patterns, pitfalls before starting work
+- **orcy_learning** — read-only contextual knowledge from accepted Learning Loop findings (list_accepted, get) — requires your active taskId; returns bounded summaries scoped to your task context only
 
 ## Task Status Lifecycle
 

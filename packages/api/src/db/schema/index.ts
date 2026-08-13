@@ -119,6 +119,16 @@ export {
   type PluginQuarantineInsert,
 } from "./plugin.js";
 export {
+  learningLoopPolicies,
+  extractionWorkItems,
+  extractionAttempts,
+  extractedFindings,
+  extractedFindingSources,
+  extractedFindingScopeRefs,
+  extractedFindingReviews,
+  extractedFindingPromotions,
+} from "./extraction.js";
+export {
   habitatsRelations,
   columnsRelations,
   missionsRelations,

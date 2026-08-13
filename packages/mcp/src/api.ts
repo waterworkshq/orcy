@@ -2623,4 +2623,52 @@ export class KanbanApiClient
     if (limit !== undefined) params.set("limit", String(limit));
     return this.request("GET", `/api/triage/clusters/top?${params.toString()}`);
   }
+
+  // ---------------------------------------------------------------------------
+  // Learning Loop agent accepted-finding reads
+  // (v0.39 / Learning Loop Ticket 8 — backs the `orcy_learning` MCP dispatch tool)
+  // Routes mounted at `/api/habitats/:habitatId/extraction/agent/findings` by
+  // `packages/api/src/routes/extraction.ts`. Both are `agentOrHumanAuth` +
+  // `requireHabitatAccess` — agent-auth accessible via `X-Agent-API-Key`.
+  // The repository applies the actor-bound predicate (NOT a middleware precheck).
+  // ---------------------------------------------------------------------------
+
+  /**
+   * List accepted findings scoped to the calling agent's active task.
+   * Calls `GET /api/habitats/:habitatId/extraction/agent/findings?taskId=…`.
+   * The REST route applies the actor-bound predicate server-side.
+   */
+  async listAcceptedFindings(
+    habitatId: string,
+    taskId: string,
+    filters?: {
+      findingType?: string;
+      domain?: string;
+      maxAgeSeconds?: number;
+      limit?: number;
+      maxChars?: number;
+    },
+  ): Promise<{ findings: unknown[] }> {
+    const params = new URLSearchParams({ taskId });
+    if (filters?.findingType) params.set("findingType", filters.findingType);
+    if (filters?.domain) params.set("domain", filters.domain);
+    if (filters?.maxAgeSeconds !== undefined)
+      params.set("maxAgeSeconds", String(filters.maxAgeSeconds));
+    if (filters?.limit !== undefined) params.set("limit", String(filters.limit));
+    if (filters?.maxChars !== undefined) params.set("maxChars", String(filters.maxChars));
+    return this.request("GET", `/api/habitats/${habitatId}/extraction/agent/findings?${params.toString()}`);
+  }
+
+  /**
+   * Get one accepted finding scoped to the calling agent's active task.
+   * Calls `GET /api/habitats/:habitatId/extraction/agent/findings/:findingId?taskId=…`.
+   * Returns 404 for ALL denial cases (not-found, forbidden, wrong scope).
+   */
+  async getAcceptedFinding(
+    habitatId: string,
+    findingId: string,
+    taskId: string,
+  ): Promise<{ finding: unknown }> {
+    return this.request("GET", `/api/habitats/${habitatId}/extraction/agent/findings/${findingId}?taskId=${encodeURIComponent(taskId)}`);
+  }
 }

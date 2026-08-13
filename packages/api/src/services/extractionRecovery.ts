@@ -1,0 +1,379 @@
+/**
+ * Learning Loop extraction boot recovery.
+ *
+ * Mirrors `recoveryCoordinator.ts`'s boot-only, no-periodic-timer shape.
+ * Two reconciliation passes at boot:
+ *
+ * 1. **Stale lease reconciliation** — find `running` attempts whose lease has
+ *    expired, mark them `failed`, and create exactly one fenced child attempt
+ *    on the same logical work item (next `attempt_no`, new lease generation).
+ *    The child attempt re-runs extraction through `runExtraction`.
+ *
+ * 2. **Finalization reconciliation** — find work items in `running` status
+ *    whose latest attempt has committed findings (persisted_count > 0) but
+ *    the attempt/work terminalization failed (crash-after-commit-before-
+ *    finalization). Repair terminal status/counts **without re-running or
+ *    duplicating findings**. Findings remain discoverable through
+ *    `first_attempt_id`.
+ *
+ * No periodic timer is scheduled; operators/tests may call the exported pass
+ * on demand. The boot wiring in `index.ts` calls it once at startup.
+ */
+import { eq, and, lt, sql } from "drizzle-orm";
+import { getDb } from "../db/index.js";
+import {
+  extractionAttempts,
+  extractionWorkItems,
+  extractedFindings,
+} from "../db/schema/index.js";
+import { logger } from "../lib/logger.js";
+import {
+  terminalizeWorkItemWithClient,
+  getLatestAttemptWithClient,
+  getPolicyByIdWithClient,
+} from "../repositories/extraction/index.js";
+import { getChanges } from "../repositories/extraction/types.js";
+import type { ExtractionDbClient } from "../repositories/extraction/types.js";
+import type { LearningLoopPolicyRow, ExtractionWorkItemRow, ExtractionSourceType } from "@orcy/shared";
+import { runExtraction } from "./extractionRunLifecycle.js";
+
+// ---------------------------------------------------------------------------
+// Summary types
+// ---------------------------------------------------------------------------
+
+export interface ExtractionRecoverySummary {
+  /** Stale running attempts discovered. */
+  staleAttempts: number;
+  /** Stale attempts marked failed. */
+  failedAttempts: number;
+  /** Child attempts created for stale-lease work items. */
+  childAttemptsCreated: number;
+  /** Work items in running status examined for finalization repair. */
+  runningWorkItems: number;
+  /** Work items whose terminal status was repaired. */
+  repairedWorkItems: number;
+}
+
+// ---------------------------------------------------------------------------
+// Stale-lease reconciliation
+// ---------------------------------------------------------------------------
+
+/**
+ * Find `running` attempts whose lease has expired.
+ * Returns rows with their parent work items for child-attempt creation.
+ */
+function findStaleRunningAttempts(
+  db: ExtractionDbClient,
+  nowIso: string,
+): Array<{ attempt: typeof extractionAttempts.$inferSelect; workItem: typeof extractionWorkItems.$inferSelect }> {
+  return db
+    .select({
+      attempt: extractionAttempts,
+      workItem: extractionWorkItems,
+    })
+    .from(extractionAttempts)
+    .innerJoin(extractionWorkItems, eq(extractionAttempts.workItemId, extractionWorkItems.id))
+    .where(
+      and(
+        eq(extractionAttempts.status, "running"),
+        lt(extractionAttempts.leaseExpiresAt, nowIso),
+      ),
+    )
+    .all();
+}
+
+/**
+ * Mark a stale attempt as failed. B7(b) fix: CAS-guarded on status = 'running'
+ * so a concurrently terminalized attempt (succeeded/partial/failed) is NOT
+ * overwritten. Uses `SELECT changes()` for portable affected-row classification.
+ */
+function markAttemptFailed(
+  db: ExtractionDbClient,
+  attemptId: string,
+  error: string,
+): boolean {
+  const now = new Date().toISOString();
+  db.update(extractionAttempts)
+    .set({
+      status: "failed",
+      error,
+      completedAt: now,
+      updatedAt: now,
+    })
+    .where(
+      and(
+        eq(extractionAttempts.id, attemptId),
+        eq(extractionAttempts.status, "running"),
+      ),
+    )
+    .run();
+  return getChanges(db) === 1;
+}
+
+// ---------------------------------------------------------------------------
+// Finalization reconciliation
+// ---------------------------------------------------------------------------
+
+/**
+ * Find work items in `running` status whose latest attempt has terminalized
+ * with committed findings but the work item itself was never terminalized
+ * (crash-after-commit-before-finalization).
+ */
+function findUnfinalizedWorkItems(
+  db: ExtractionDbClient,
+): Array<{ workItem: typeof extractionWorkItems.$inferSelect }> {
+  // Work items still in running/pending status that have terminal attempts
+  // with persisted findings.
+  return db
+    .select({ workItem: extractionWorkItems })
+    .from(extractionWorkItems)
+    .where(
+      sql`${extractionWorkItems.status} IN ('running', 'pending')`,
+    )
+    .all();
+}
+
+/**
+ * Check whether a work item has committed findings from a given attempt.
+ */
+function hasCommittedFindings(
+  db: ExtractionDbClient,
+  attemptId: string,
+): boolean {
+  const result = db
+    .select({ count: sql<number>`count(*)` })
+    .from(extractedFindings)
+    .where(
+      sql`${extractedFindings.firstAttemptId} = ${attemptId}
+        OR ${extractedFindings.lastSeenAttemptId} = ${attemptId}`,
+    )
+    .all()[0];
+  return (result?.count ?? 0) > 0;
+}
+
+// ---------------------------------------------------------------------------
+// Main reconciliation pass
+// ---------------------------------------------------------------------------
+
+/**
+ * Run the boot-only extraction recovery reconciliation pass.
+ *
+ * This is intentionally bounded and idempotent: boot and operators/tests
+ * may invoke it, but there is no periodic timer. It mirrors
+ * `runRecoveryReconciliationPass` in `recoveryCoordinator.ts`.
+ */
+export function runExtractionReconciliationPass(): ExtractionRecoverySummary {
+  const db = getDb();
+  const nowIso = new Date().toISOString();
+
+  const summary: ExtractionRecoverySummary = {
+    staleAttempts: 0,
+    failedAttempts: 0,
+    childAttemptsCreated: 0,
+    runningWorkItems: 0,
+    repairedWorkItems: 0,
+  };
+
+  // --- Pass 1: stale-lease reconciliation ---
+
+  const staleRows = findStaleRunningAttempts(db, nowIso);
+  summary.staleAttempts = staleRows.length;
+
+  for (const row of staleRows) {
+    const attempt = row.attempt;
+    const workItem = row.workItem;
+
+    // Mark the stale attempt as failed.
+    const failed = markAttemptFailed(db, attempt.id, "lease_expired_boot_recovery");
+    if (!failed) {
+      // Another process already terminalized this attempt.
+      continue;
+    }
+    summary.failedAttempts++;
+
+    // B7 fix: Query committed findings by stale attempt ID BEFORE deciding to
+    // rerun, regardless of persisted tallies. The attempt's persistedCount may
+    // be 0 if candidate persistence committed but attempt terminalization/count
+    // update did not.
+    const hasCommitted = hasCommittedFindings(db, attempt.id);
+
+    if (hasCommitted) {
+      // The attempt committed findings before crashing. Repair the work item
+      // terminal status based on the committed outcome rather than creating
+      // a child re-run (findings remain discoverable via first_attempt_id).
+      const workStatus = attempt.persistedCount > 0 && attempt.candidateCount > attempt.persistedCount
+        ? "partial"
+        : "succeeded";
+      const workResult = terminalizeWorkItemWithClient(db, {
+        workItemId: workItem.id,
+        attemptId: attempt.id,
+        status: workStatus,
+      });
+      if (workResult.outcome === "terminalized") {
+        summary.repairedWorkItems++;
+      }
+      continue;
+    }
+
+    // No committed findings — resume through the canonical lifecycle.
+    // B7 fix: previously created an inert child attempt that never executed.
+    // Now we re-run extraction on the existing work item so the work completes.
+    try {
+      const policy = resolvePolicyFromWorkItem(workItem);
+      if (policy) {
+        runExtraction({
+          habitatId: workItem.habitatId,
+          policy,
+          deliveryMode: "boot_recovery",
+          actorType: "system",
+          actorId: `boot_recovery:${process.pid ?? "unknown"}`,
+          isBootRecovery: true,
+          existingWorkItem: mapWorkItemRow(workItem),
+        });
+        summary.childAttemptsCreated++;
+      } else {
+        // Policy was deleted — terminalize the work item as failed.
+        terminalizeWorkItemWithClient(db, {
+          workItemId: workItem.id,
+          attemptId: attempt.id,
+          status: "failed",
+        });
+        logger.warn(
+          { workItemId: workItem.id },
+          "Boot recovery: policy not found, work item terminalized as failed",
+        );
+      }
+    } catch (err) {
+      logger.error(
+        { err, workItemId: workItem.id, staleAttemptId: attempt.id },
+        "Failed to resume boot-recovery work item through lifecycle",
+      );
+    }
+  }
+
+  // --- Pass 2: finalization reconciliation ---
+
+  const unfinalized = findUnfinalizedWorkItems(db);
+  summary.runningWorkItems = unfinalized.length;
+
+  for (const row of unfinalized) {
+    const workItem = row.workItem;
+
+    // Get the latest attempt for this work item.
+    const latest = getLatestAttemptWithClient(db, workItem.id);
+    if (!latest) continue;
+
+    // If the latest attempt is terminal and has committed findings, repair
+    // the work item status.
+    if (latest.status === "running") continue; // Still running, skip.
+    if (latest.status === "skipped") {
+      // A skipped attempt means the work item should be skipped too.
+      const result = terminalizeWorkItemWithClient(db, {
+        workItemId: workItem.id,
+        attemptId: latest.id,
+        status: "skipped",
+      });
+      if (result.outcome === "terminalized") summary.repairedWorkItems++;
+      continue;
+    }
+
+    // Terminal succeeded/partial — repair even when persistedCount is 0
+    // (empty-but-complete runs that crashed between attempt and work-item
+    // terminalization). Recurrence-only commits are detected via lastSeenAttemptId.
+    if (latest.status === "succeeded" || latest.status === "partial") {
+      const result = terminalizeWorkItemWithClient(db, {
+        workItemId: workItem.id,
+        attemptId: latest.id,
+        status: latest.status,
+      });
+      if (result.outcome === "terminalized") summary.repairedWorkItems++;
+    } else if (latest.status === "failed") {
+      const workStatus =
+        latest.persistedCount > 0 || hasCommittedFindings(db, latest.id)
+          ? "partial"
+          : "failed";
+      const result = terminalizeWorkItemWithClient(db, {
+        workItemId: workItem.id,
+        attemptId: latest.id,
+        status: workStatus,
+      });
+      if (result.outcome === "terminalized") summary.repairedWorkItems++;
+    }
+  }
+
+  if (summary.staleAttempts > 0 || summary.repairedWorkItems > 0) {
+    logger.info(summary, "Extraction boot recovery reconciliation completed");
+  }
+
+  return summary;
+}
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Resolve a policy from a work item's policyId (or reconstruct a minimal one
+ * from the policy snapshot if the policy was deleted).
+ */
+function resolvePolicyFromWorkItem(
+  workItem: typeof extractionWorkItems.$inferSelect,
+): LearningLoopPolicyRow | null {
+  const db = getDb();
+  if (workItem.policyId) {
+    const policy = getPolicyByIdWithClient(db, workItem.policyId);
+    if (policy) return policy;
+  }
+  // Policy was deleted — reconstruct a minimal policy from the work item's snapshot.
+  const snapshot = workItem.policySnapshot as Record<string, unknown>;
+  if (!snapshot) return null;
+  return {
+    id: workItem.policyId ?? "recovered",
+    habitatId: workItem.habitatId,
+    extractorKey: workItem.extractorKey,
+    enabled: true, // Recovery forces re-evaluation regardless.
+    sourceTypes: (snapshot.sourceTypes as ExtractionSourceType[]) ?? [],
+    schedule: (snapshot.schedule as string) ?? "0 */5 * * *",
+    windowSeconds: (snapshot.windowSeconds as number) ?? (
+      workItem.windowTo
+        ? Math.round((Date.parse(workItem.windowTo) - Date.parse(workItem.windowFrom)) / 1000)
+        : 604800
+    ),
+    lookbackSeconds: (snapshot.lookbackSeconds as number) ?? Math.round(
+      (Date.parse(workItem.windowTo) - Date.parse(workItem.windowFrom)) / 1000,
+    ),
+    minConfidence: (snapshot.minConfidence as number | null) ?? null,
+    minSampleSize: (snapshot.minSampleSize as number | null) ?? null,
+    config: {},
+    version: workItem.policyVersion,
+    createdByType: "system",
+    createdById: null,
+    createdAt: workItem.createdAt,
+    updatedAt: workItem.updatedAt,
+  };
+}
+
+/** Map a raw work-item DB row to the typed projection. */
+function mapWorkItemRow(row: typeof extractionWorkItems.$inferSelect): ExtractionWorkItemRow {
+  return {
+    id: row.id,
+    habitatId: row.habitatId,
+    policyId: row.policyId,
+    extractorKey: row.extractorKey,
+    extractorVersion: row.extractorVersion,
+    policyVersion: row.policyVersion,
+    windowFrom: row.windowFrom,
+    windowTo: row.windowTo,
+    sourceBoundaryTokens: row.sourceBoundaryTokens,
+    logicalWorkKey: row.logicalWorkKey,
+    deliveryMode: row.deliveryMode as ExtractionWorkItemRow["deliveryMode"],
+    rerunGeneration: row.rerunGeneration,
+    supersedesWorkId: row.supersedesWorkId,
+    freshReason: row.freshReason,
+    status: row.status,
+    completedByAttemptId: row.completedByAttemptId,
+    policySnapshot: row.policySnapshot,
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
+  };
+}

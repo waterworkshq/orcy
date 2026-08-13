@@ -2199,6 +2199,211 @@ Per-habitat release activation settings added via migration `0049_release_settin
 
 ---
 
+### Learning Loop Ledger (implementation complete; release pending)
+
+The Learning Loop v1 adds 8 ledger tables that own the complete extraction lifecycle: habitat-scoped policies, replay-safe logical work items, lease-fenced physical attempts, immutable cited findings with mutable CAS decision envelopes, polymorphic citations, server-derived scope refs, append-only human reviews, and at-most-once promotion records. All tables ship empty — the feature is dormant until wired. See [ADR-0044](adr/0044-learning-loop-ledger-citations-and-lineage.md) and [ADR-0045](adr/0045-learning-loop-authorization-and-privacy-propagation.md).
+
+**Migration:** `0063_learning_loop_ledger.sql`
+
+**Cascade design:** `habitat_id → habitats CASCADE` (no cross-Habitat orphans); `policy_id → learning_loop_policies SET NULL` (work history survives policy deletion); `work_item_id → extraction_work_items CASCADE` (attempts belong to work); `finding_id → extracted_findings CASCADE` (subordinate rows belong to the finding revision). Cross-chain provenance pointers (`first_attempt_id`, `last_seen_attempt_id`, `completed_by_attempt_id`, `parent_attempt_id`, `supersedes_*`, `lineage_root_id`, `derived_from_source_id`) are plain TEXT columns with NO FK constraint — they mirror the 0054 task-publication design. The habitat CASCADE chain ensures no orphan rows survive Habitat deletion; provenance referential integrity is enforced at the application layer.
+
+#### `learning_loop_policies`
+
+Habitat-scoped enrollment and schedule per extractor. One row per `(habitat_id, extractor_key)`. Enabled defaults to 0 (off); both the global `ORCY_LEARNING_LOOP_ENABLED` env var and the per-policy `enabled` flag must be true for extraction to run.
+
+**Source:** `packages/api/src/db/schema/extraction.ts`
+**Migration:** `0063_learning_loop_ledger.sql`
+
+| Column | Type | Constraints | Description |
+|--------|------|-------------|-------------|
+| `id` | TEXT | PK | Record identifier (UUID) |
+| `habitat_id` | TEXT | NOT NULL FK → habitats(id) ON DELETE CASCADE | Parent habitat |
+| `extractor_key` | TEXT | NOT NULL | Extractor identifier |
+| `enabled` | INTEGER | NOT NULL DEFAULT 0 | Per-policy enable flag (0 = off) |
+| `source_types` | TEXT | NOT NULL DEFAULT '[]' | JSON array of allowed source type keys |
+| `schedule` | TEXT | NOT NULL | Cron-style schedule expression |
+| `window_seconds` | INTEGER | NOT NULL | Extraction window duration |
+| `lookback_seconds` | INTEGER | NOT NULL | How far back to look from the window start |
+| `min_confidence` | REAL | | Minimum confidence threshold for candidate findings |
+| `min_sample_size` | INTEGER | | Minimum sample size threshold |
+| `config` | TEXT | NOT NULL DEFAULT '{}' | JSON extractor config blob |
+| `version` | INTEGER | NOT NULL DEFAULT 1 | Optimistic-concurrency version for CAS updates |
+| `created_by_type` / `created_by_id` | TEXT | | Creation attribution |
+| `created_at`, `updated_at` | TEXT | NOT NULL DEFAULT datetime('now') | Timestamps |
+
+**Indexes:** UNIQUE `(habitat_id, extractor_key)`, `(habitat_id)`, `(habitat_id, enabled)`
+
+#### `extraction_work_items`
+
+One logical, replay-safe unit of extraction. The `logical_work_key` excludes delivery mode — a scheduled delivery and a manual `ensure` for the same window, extractor, policy, and boundary tokens converge on one work item. A `fresh_rerun` creates a new `rerun_generation` and a new logical key linked to the prior work via `supersedes_work_id`.
+
+**Source:** `packages/api/src/db/schema/extraction.ts`
+
+| Column | Type | Constraints | Description |
+|--------|------|-------------|-------------|
+| `id` | TEXT | PK | Record identifier (UUID) |
+| `habitat_id` | TEXT | NOT NULL FK → habitats(id) ON DELETE CASCADE | Parent habitat |
+| `policy_id` | TEXT | FK → learning_loop_policies(id) ON DELETE SET NULL | Owning policy (null if deleted; work history survives) |
+| `extractor_key` | TEXT | NOT NULL | Extractor identifier |
+| `extractor_version` / `policy_version` | INTEGER | NOT NULL | Version snapshots at creation time |
+| `window_from` / `window_to` | TEXT | NOT NULL | Extraction window bounds |
+| `source_boundary_tokens` | TEXT | NOT NULL DEFAULT '{}' | JSON tokens identifying the source-set boundary |
+| `logical_work_key` | TEXT | NOT NULL | Replay-safe dedup key (excludes delivery mode) |
+| `delivery_mode` | TEXT | NOT NULL | `scheduled`, `manual`, or `boot_recovery` |
+| `rerun_generation` | INTEGER | NOT NULL DEFAULT 0 | Increments on each fresh rerun |
+| `supersedes_work_id` | TEXT | | Prior work item this one supersedes (fresh rerun) |
+| `fresh_reason` | TEXT | | Human-supplied reason for a fresh rerun |
+| `status` | TEXT | NOT NULL DEFAULT 'pending' | Work item lifecycle state |
+| `completed_by_attempt_id` | TEXT | | Winning attempt that completed this work item |
+| `policy_snapshot` | TEXT | NOT NULL DEFAULT '{}' | Frozen policy config at creation time |
+| `created_at`, `updated_at` | TEXT | NOT NULL DEFAULT datetime('now') | Timestamps |
+
+**Indexes:** UNIQUE `(logical_work_key)`, `(habitat_id, status)`, `(policy_id)`, `(habitat_id, extractor_key)`
+
+#### `extraction_attempts`
+
+One physical attempt to complete a work item. Lease-fenced: only the attempt holding the current `(lease_owner, lease_generation)` may write or complete. A stale fence returns a closed `fence_mismatch` outcome and changes nothing. Completion belongs only to the successful owned `running → terminal` transition.
+
+**Source:** `packages/api/src/db/schema/extraction.ts`
+
+| Column | Type | Constraints | Description |
+|--------|------|-------------|-------------|
+| `id` | TEXT | PK | Record identifier (UUID) |
+| `work_item_id` | TEXT | NOT NULL FK → extraction_work_items(id) ON DELETE CASCADE | Parent work item |
+| `attempt_no` | INTEGER | NOT NULL | Monotonic per-work-item attempt number |
+| `parent_attempt_id` | TEXT | | Prior attempt this one continues (recovery) |
+| `delivery_mode` | TEXT | NOT NULL | Inherited from the triggering run |
+| `lease_owner` | TEXT | NOT NULL | Current lease holder identifier |
+| `lease_generation` | INTEGER | NOT NULL | Fencing token for lease validity |
+| `lease_expires_at` | TEXT | NOT NULL | Lease expiry timestamp |
+| `source_snapshot` | TEXT | NOT NULL DEFAULT '[]' | JSON array of per-source diagnostics (sourceType, completeness, observationCount, warnings, watermarkAdvanced) |
+| `status` | TEXT | NOT NULL DEFAULT 'running' | `running`, `succeeded`, `partial`, `failed`, `skipped` |
+| `candidate_count` / `persisted_count` / `deduplicated_count` | INTEGER | NOT NULL DEFAULT 0 | Finding pipeline tallies |
+| `error` | TEXT | | Error message on failure |
+| `started_at` / `completed_at` | TEXT | | Attempt execution timestamps |
+| `created_at`, `updated_at` | TEXT | NOT NULL DEFAULT datetime('now') | Timestamps |
+
+**Indexes:** UNIQUE `(work_item_id, attempt_no)`, `(work_item_id, status)`, `(status, lease_expires_at)` [recovery scan], `(lease_owner, status)`
+
+#### `extracted_findings`
+
+Immutable content/evidence revision with a mutable CAS decision envelope. Content, cited source set, extractor identity, confidence, and completeness never mutate on an existing revision. The decision envelope (`status`, `decision_version`) is mutable only through CAS: two reviewers using one expected version yield one decision and one conflict. Same `fingerprint` plus `evidence_digest` increments recurrence only; changed evidence or content creates a new immutable revision linked through `(lineage_root_id, revision)` and `supersedes_finding_id`.
+
+**Source:** `packages/api/src/db/schema/extraction.ts`
+
+| Column | Type | Constraints | Description |
+|--------|------|-------------|-------------|
+| `id` | TEXT | PK | Record identifier (UUID) |
+| `habitat_id` | TEXT | NOT NULL FK → habitats(id) ON DELETE CASCADE | Parent habitat |
+| `first_attempt_id` / `last_seen_attempt_id` | TEXT | NOT NULL | Provenance to extraction attempts (no FK) |
+| `lineage_root_id` | TEXT | NOT NULL | Root finding of the revision chain |
+| `supersedes_finding_id` | TEXT | | Prior finding revision this one supersedes |
+| `revision` | INTEGER | NOT NULL | Revision number within the lineage chain |
+| `extractor_key` / `extractor_version` | TEXT/INTEGER | NOT NULL | Extractor provenance |
+| `finding_type` | TEXT | NOT NULL | Categorical finding type |
+| `subject` | TEXT | NOT NULL | Short finding title/summary |
+| `body` | TEXT | NOT NULL | Full finding content |
+| `structured_payload` | TEXT | | Optional JSON structured data |
+| `confidence` | REAL | NOT NULL | Extractor confidence score (0–1) |
+| `sample_size` | INTEGER | NOT NULL | Number of source observations contributing |
+| `completeness` | TEXT | NOT NULL | Completeness assessment |
+| `visibility_ceiling` | TEXT | NOT NULL | Most restrictive visibility class among sources |
+| `fingerprint` | TEXT | NOT NULL | Content fingerprint for recurrence detection |
+| `evidence_digest` | TEXT | NOT NULL | Evidence-set digest for recurrence detection |
+| `status` | TEXT | NOT NULL DEFAULT 'proposed' | `proposed`, `accepted`, `rejected`, `superseded`, `withdrawn` |
+| `decision_version` | INTEGER | NOT NULL DEFAULT 1 | CAS version for review decisions |
+| `first_seen_at` / `last_seen_at` | TEXT | NOT NULL | First and most recent observation timestamps |
+| `occurrence_count` | INTEGER | NOT NULL DEFAULT 1 | Times this fingerprint+evidence has been seen |
+| `caveats` | TEXT | NOT NULL DEFAULT '[]' | JSON array of caveat strings |
+| `created_at`, `updated_at` | TEXT | NOT NULL DEFAULT datetime('now') | Timestamps |
+
+**Indexes:** UNIQUE `(habitat_id, extractor_key, extractor_version, fingerprint, evidence_digest)` [recurrence defender], UNIQUE `(lineage_root_id, revision)`, `(habitat_id, status)`, `(habitat_id, finding_type)`, `(fingerprint, evidence_digest)`, `(first_attempt_id)`
+
+#### `extracted_finding_sources`
+
+Polymorphic citations with read-time resolution. Each row stores `(source_type, source_id, source_version)` — a stable catalog-owned reference. Source version is empty for immutable sources. Resolvers batch by `source_type` and return `available`, `dangling`, `unauthorized`, or `changed`. A changed mutable source compares its current normalized digest with the stored `source_digest`.
+
+**Source:** `packages/api/src/db/schema/extraction.ts`
+
+| Column | Type | Constraints | Description |
+|--------|------|-------------|-------------|
+| `id` | TEXT | PK | Record identifier (UUID) |
+| `finding_id` | TEXT | NOT NULL FK → extracted_findings(id) ON DELETE CASCADE | Parent finding |
+| `source_type` | TEXT | NOT NULL | Catalog source type key |
+| `source_id` | TEXT | NOT NULL | Source entity identifier |
+| `source_version` | TEXT | NOT NULL DEFAULT '' | Source version (empty for immutable sources) |
+| `role` | TEXT | NOT NULL | Citation role (e.g. `primary`, `supporting`) |
+| `source_digest` | TEXT | | Normalized digest for mutable-source change detection |
+| `occurred_at` | TEXT | | When the source observation occurred |
+| `entity_refs` | TEXT | NOT NULL DEFAULT '[]' | JSON array of resolved entity references (task/mission IDs) |
+| `completeness` | TEXT | NOT NULL DEFAULT 'complete' | Source resolution completeness |
+| `visibility_class` | TEXT | NOT NULL | Visibility class contributed by this source |
+| `created_at` | TEXT | NOT NULL DEFAULT datetime('now') | Creation timestamp |
+
+**Indexes:** UNIQUE `(finding_id, source_type, source_id, source_version)`, `(finding_id)`
+
+#### `extracted_finding_scope_refs`
+
+Server-derived authorization/query scope. Scope refs (`scope_type: task | mission | domain`) are derived transactionally from successfully resolved cited-source entity refs. A Task ref also derives its owning Mission ref. A domain ref is created only when a source adapter explicitly projects that domain. Extractor payloads, free text, labels, and subject text never grant scope. Findings with no scope refs are human-only.
+
+**Source:** `packages/api/src/db/schema/extraction.ts`
+
+| Column | Type | Constraints | Description |
+|--------|------|-------------|-------------|
+| `id` | TEXT | PK | Record identifier (UUID) |
+| `finding_id` | TEXT | NOT NULL FK → extracted_findings(id) ON DELETE CASCADE | Parent finding |
+| `scope_type` | TEXT | NOT NULL | `task`, `mission`, or `domain` |
+| `scope_id` | TEXT | NOT NULL | The task, mission, or domain identifier |
+| `derived_from_source_id` | TEXT | NOT NULL | Citation row that established this scope (no FK) |
+| `created_at` | TEXT | NOT NULL DEFAULT datetime('now') | Creation timestamp |
+
+**Indexes:** UNIQUE `(finding_id, scope_type, scope_id)`, `(scope_type, scope_id)`
+
+#### `extracted_finding_reviews`
+
+Append-only human review decisions. Every decision uses `expectedDecisionVersion` CAS — two concurrent decisions with the same expected version yield one success and one 409. Accept and reject require a reason. Review history is append-only; the old revision remains queryable for audit.
+
+**Source:** `packages/api/src/db/schema/extraction.ts`
+
+| Column | Type | Constraints | Description |
+|--------|------|-------------|-------------|
+| `id` | TEXT | PK | Record identifier (UUID) |
+| `finding_id` | TEXT | NOT NULL FK → extracted_findings(id) ON DELETE CASCADE | Parent finding |
+| `decision` | TEXT | NOT NULL | `accept`, `reject`, `request_revision`, or `withdraw` |
+| `reason` | TEXT | | Human-supplied reason (required for accept and reject) |
+| `reviewer_type` / `reviewer_id` | TEXT | NOT NULL | Reviewer attribution |
+| `expected_decision_version` | INTEGER | NOT NULL | CAS expected version supplied by the caller |
+| `resulting_decision_version` | INTEGER | NOT NULL | New decision version after this decision |
+| `resolved_citation_states` | TEXT | NOT NULL DEFAULT '[]' | JSON snapshot of citation states at decision time |
+| `created_at` | TEXT | NOT NULL DEFAULT datetime('now') | Decision timestamp |
+
+**Indexes:** `(finding_id)`, `(finding_id, created_at)`
+
+#### `extracted_finding_promotions`
+
+At-most-once destination promotion records. The successful promotion row — keyed to `(finding_id, destination_type, destination_key)` — is the permanent derivation record. It survives wiki link removal, page edits, and publication, permanently excluding the promotion target from future source batches. Promotion terminalization is lease-fenced like extraction attempts.
+
+**Source:** `packages/api/src/db/schema/extraction.ts`
+
+| Column | Type | Constraints | Description |
+|--------|------|-------------|-------------|
+| `id` | TEXT | PK | Record identifier (UUID) |
+| `finding_id` | TEXT | NOT NULL FK → extracted_findings(id) ON DELETE CASCADE | Parent finding |
+| `destination_type` | TEXT | NOT NULL | Destination kind (v1: `wiki_draft` only) |
+| `destination_key` | TEXT | NOT NULL | Destination-specific key |
+| `status` | TEXT | NOT NULL DEFAULT 'pending' | `pending`, `succeeded`, `failed`, `superseded` |
+| `idempotency_key` | TEXT | NOT NULL | Idempotency token for at-most-once guarantee |
+| `lease_owner` | TEXT | NOT NULL | Current lease holder |
+| `lease_generation` | INTEGER | NOT NULL | Fencing token |
+| `target_type` / `target_id` / `target_version` | TEXT | | Produced destination entity reference |
+| `consumed_finding_revision` | INTEGER | NOT NULL | Finding revision at promotion time |
+| `error` | TEXT | | Error message on failure |
+| `created_at`, `updated_at`, `completed_at` | TEXT | | Lifecycle timestamps |
+
+**Indexes:** UNIQUE `(finding_id, destination_type, destination_key)`, `(status)`
+
+---
+
 ## Schema Workflow
 
 This section explains **how to edit the database schema** correctly. Read this before adding columns, tables, indexes, or constraints.
