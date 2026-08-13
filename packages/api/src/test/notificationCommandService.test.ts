@@ -66,6 +66,7 @@ describe("notificationSubscriptionResolver", () => {
         "automation.action_failed",
         "digest.ready",
         "pulse.signal_posted",
+        "agent.message_received",
       ];
       for (const t of validTypes) {
         expect(() => resolver.validateEventType(t)).not.toThrow();
@@ -386,6 +387,28 @@ describe("notificationTemplateService", () => {
     expect(result.body).toContain("Deploy complete");
   });
 
+  it("renders agent.message_received from subject and sender, never mail body", () => {
+    const secretBody = "CLASSIFIED_MAIL_BODY_XYZ";
+    const result = templateService.renderNotification({
+      eventType: "agent.message_received",
+      sourceType: "agent",
+      severity: "info",
+      recipientType: "agent",
+      payload: {
+        fromAgentName: "Ada",
+        subject: "Need review",
+        secretBody,
+        body: secretBody,
+      },
+    });
+    expect(result.title).toContain("Need review");
+    expect(result.title).toContain("Ada");
+    expect(result.body).toContain("Need review");
+    expect(result.body).toContain("Ada");
+    expect(result.title).not.toContain(secretBody);
+    expect(result.body).not.toContain(secretBody);
+  });
+
   it("includes payload metadata in rendered output", () => {
     const result = templateService.renderNotification({
       eventType: "task.assigned",
@@ -584,6 +607,7 @@ describe("notificationCommandService", () => {
       { type: "automation.action_failed", source: "automation" },
       { type: "digest.ready", source: "digest" },
       { type: "pulse.signal_posted", source: "pulse" },
+      { type: "agent.message_received", source: "agent" },
     ];
 
     for (const { type, source } of eventTypes) {
@@ -823,6 +847,88 @@ describe("pulse.signal_posted opt-in bridge", () => {
     expect(result.deliveries).toHaveLength(0);
     expect(result.suppressed).toHaveLength(1);
     expect(result.suppressed[0].reason).toBe("no_default");
+  });
+});
+
+describe("agent.message_received opt-in bridge", () => {
+  beforeEach(async () => {
+    await initTestDb();
+  });
+  afterEach(() => closeDb());
+
+  it("delivers agent mail only when subscription exists", () => {
+    const habitat = setupHabitat();
+    createDefaultSubscription(habitat.id, "agent.message_received", {
+      channels: ["in_app"],
+    });
+
+    const result = commandService.enqueueNotification({
+      habitatId: habitat.id,
+      eventType: "agent.message_received",
+      sourceType: "agent",
+      sourceId: "msg-1",
+      targetType: "agent",
+      targetId: "agent-b",
+      severity: "info",
+      payload: { fromAgentName: "Ada", subject: "Need review", messageId: "msg-1" },
+      createdByType: "agent",
+      createdById: "agent-a",
+      explicitRecipients: [{ recipientType: "agent", recipientId: "agent-b" }],
+    });
+
+    expect(result.deliveries).toHaveLength(1);
+    expect(result.deliveries[0].recipientType).toBe("agent");
+    expect(result.deliveries[0].recipientId).toBe("agent-b");
+    expect(result.deliveries[0].channels).toEqual(["in_app"]);
+  });
+
+  it("suppresses agent mail when no subscription exists", () => {
+    const habitat = setupHabitat();
+
+    const result = commandService.enqueueNotification({
+      habitatId: habitat.id,
+      eventType: "agent.message_received",
+      sourceType: "agent",
+      severity: "info",
+      createdByType: "agent",
+      createdById: "agent-a",
+      explicitRecipients: [{ recipientType: "agent", recipientId: "agent-b" }],
+    });
+
+    expect(result.deliveries).toHaveLength(0);
+    expect(result.suppressed).toHaveLength(1);
+    expect(result.suppressed[0].reason).toBe("no_default");
+  });
+
+  it("does not copy secretBody onto the stored event body or payload", () => {
+    // Mutate-and-revert: interpolating payload.body / payload.secretBody in EVENT_BODIES
+    // makes result.event.body contain CLASSIFIED_MAIL_BODY_XYZ. Copying a `body` field
+    // onto the enqueue payload makes JSON.stringify(result.event.payload) contain it.
+    const habitat = setupHabitat();
+    createDefaultSubscription(habitat.id, "agent.message_received");
+    const secretBody = "CLASSIFIED_MAIL_BODY_XYZ";
+
+    const result = commandService.enqueueNotification({
+      habitatId: habitat.id,
+      eventType: "agent.message_received",
+      sourceType: "agent",
+      sourceId: "msg-1",
+      severity: "info",
+      payload: {
+        fromAgentName: "Ada",
+        subject: "Need review",
+        secretBody,
+      },
+      createdByType: "agent",
+      createdById: "agent-a",
+      explicitRecipients: [{ recipientType: "agent", recipientId: "agent-b" }],
+    });
+
+    expect(result.event.title).toContain("Need review");
+    expect(result.event.body).not.toContain(secretBody);
+    // command.payload is persisted as-is by enqueueNotification (do not edit that hub).
+    // Route-level tests assert the mail `body` string is never placed on payload.
+    expect(result.event.payload).not.toHaveProperty("body");
   });
 });
 

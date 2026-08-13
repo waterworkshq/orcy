@@ -16,6 +16,7 @@ const V18_EVENT_CATALOG: Set<string> = new Set([
   "automation.action_failed",
   "digest.ready",
   "pulse.signal_posted",
+  "agent.message_received",
   "workflow.recovery_started",
   "workflow.recovery_succeeded",
   "workflow.recovery_unrecoverable",

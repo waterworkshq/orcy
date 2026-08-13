@@ -8,6 +8,7 @@ export type NotificationEventType =
   | "automation.action_failed"
   | "digest.ready"
   | "pulse.signal_posted"
+  | "agent.message_received"
   | "workflow.recovery_started"
   | "workflow.recovery_succeeded"
   | "workflow.recovery_unrecoverable"
@@ -22,7 +23,8 @@ export type NotificationSourceType =
   | "pulse"
   | "workflow"
   | "digest"
-  | "system";
+  | "system"
+  | "agent";
 
 /** Describes the kind of entity a notification is about. */
 export type NotificationTargetType =

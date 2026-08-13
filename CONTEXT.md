@@ -206,7 +206,7 @@ A recipient-scoped attention request for a human or agent to notice, acknowledge
 _Avoid_: Pulse signal, toast
 
 **Notification Event**:
-The shared reason a notification exists, such as a task becoming blocked, an automation rule matching, a review being requested, or a digest becoming ready.
+The shared reason a notification exists, such as a task becoming blocked, an automation rule matching, a review being requested, a digest becoming ready, or an agent receiving habitat mail.
 _Avoid_: Delivery, channel attempt
 
 **Notification Delivery**:

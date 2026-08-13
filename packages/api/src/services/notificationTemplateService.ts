@@ -37,6 +37,8 @@ const EVENT_TITLES: Record<string, (ctx: TemplateContext) => string> = {
   "digest.ready": (ctx) => `Notification digest: ${ctx.payload?.digestSummary ?? "Summary"}`,
   "pulse.signal_posted": (ctx) =>
     `Pulse signal: ${ctx.payload?.signalContent ?? ctx.sourceId ?? "New signal"}`,
+  "agent.message_received": (ctx) =>
+    `Agent mail from ${ctx.payload?.fromAgentName ?? "an agent"}: ${ctx.payload?.subject ?? ctx.sourceId ?? "New message"}`,
 };
 
 const EVENT_BODIES: Record<string, (ctx: TemplateContext) => string> = {
@@ -79,6 +81,11 @@ const EVENT_BODIES: Record<string, (ctx: TemplateContext) => string> = {
     const author = ctx.payload?.authorName ?? "Someone";
     const content = ctx.payload?.signalContent ?? "";
     return `${author} posted: ${content}`;
+  },
+  "agent.message_received": (ctx) => {
+    const from = ctx.payload?.fromAgentName ?? "An agent";
+    const subject = ctx.payload?.subject ?? "a message";
+    return `${from} sent: ${subject}`;
   },
 };
 
