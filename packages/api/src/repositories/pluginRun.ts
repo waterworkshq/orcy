@@ -21,13 +21,14 @@ export type StartRunInput = Omit<PluginRunInsert, "id" | "status" | "fingerprint
  *   - `failed`       — handler attempted and failed (runtime fault or domain failure)
  *   - `rate_limited` — Detector could not acquire habitat concurrency capacity
  *   - `skipped`      — quarantine blocked this attempt
+ *   - `lost`         — stale running run marked lost by operator (ADR-005)
  *
  * Source of truth for {@link finishRun}'s `status` parameter narrowing
  * (ADR-0039 — finishRun type tightening: non-breaking compile-time improvement).
  * Also consumed by the Plugin Invocation Runtime
  * (see `invocationRuntime.ts`).
  */
-export type PluginRunStatus = "running" | "succeeded" | "failed" | "rate_limited" | "skipped";
+export type PluginRunStatus = "running" | "succeeded" | "failed" | "rate_limited" | "skipped" | "lost";
 
 /** Inserts a plugin run row in `status: "running"` and returns the created record. */
 export function startRun(input: StartRunInput): PluginRunRow {
@@ -198,7 +199,7 @@ export function existsForTriggerEvent(
         eq(pluginRuns.contributionKind, contributionKind),
         eq(pluginRuns.contributionId, contributionId),
         eq(pluginRuns.triggerEventId, triggerEventId),
-        inArray(pluginRuns.status, ["running", "succeeded", "failed"]),
+        inArray(pluginRuns.status, ["running", "succeeded", "failed", "lost"]),
       ),
     )
     .get();

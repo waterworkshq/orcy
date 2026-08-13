@@ -251,6 +251,7 @@ describe("pluginRun repo", () => {
         "failed",
         "rate_limited",
         "skipped",
+        "lost",
       ];
       const { id } = setupHabitat();
       for (const status of validStatuses) {
@@ -310,9 +311,9 @@ describe("pluginRun repo", () => {
   });
 
   describe("existsForTriggerEvent (T4 status-aware + Q9 kind-safe dedup)", () => {
-    it("returns true for running, succeeded, and failed (durably accounted)", () => {
+    it("returns true for running, succeeded, failed, and lost (durably accounted)", () => {
       const { id } = setupHabitat();
-      const durablyAccounted: PluginRunStatus[] = ["running", "succeeded", "failed"];
+      const durablyAccounted: PluginRunStatus[] = ["running", "succeeded", "failed", "lost"];
       for (const status of durablyAccounted) {
         const run = runRepo.startRun(
           makeRunInput(id, { contributionId: `det-${status}`, triggerEventId: `evt-${status}` }),

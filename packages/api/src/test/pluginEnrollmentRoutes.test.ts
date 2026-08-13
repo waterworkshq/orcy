@@ -10,6 +10,8 @@ vi.mock("../repositories/pluginEnrollment.js", () => ({
 
 vi.mock("../repositories/pluginRun.js", () => ({
   listByHabitat: vi.fn(),
+  getById: vi.fn(),
+  finishRun: vi.fn(),
 }));
 
 vi.mock("../plugins/pluginManager.js", async (importOriginal) => {
@@ -37,6 +39,7 @@ import * as runRepo from "../repositories/pluginRun.js";
 import * as pluginManager from "../plugins/pluginManager.js";
 import { sseBroadcaster } from "../sse/broadcaster.js";
 import { AppError } from "../errors.js";
+import type { PluginRunRow } from "../db/schema/index.js";
 import { z } from "zod";
 
 const detectorManifest = {
@@ -460,10 +463,104 @@ describe("pluginEnrollmentService", () => {
       }
     });
   });
+
+  describe("markPluginRunLost", () => {
+    function makeRunRow(overrides: Partial<PluginRunRow> = {}): PluginRunRow {
+      return {
+        id: "run-1",
+        habitatId: "hab-1",
+        pluginId: "ref-detector",
+        contributionId: "det-1",
+        contributionKind: "signalDetector",
+        triggerEventId: "evt-1",
+        triggerType: "pulseCreated",
+        status: "running",
+        fingerprint: "hab-1:ref-detector:det-1:pulseCreated:evt-1",
+        signalsEmitted: null,
+        error: null,
+        startedAt: new Date(Date.now() - 40 * 60_000).toISOString(),
+        finishedAt: null,
+        ...overrides,
+      };
+    }
+
+    it("transitions a stale running run to lost status", () => {
+      const run = makeRunRow();
+      (runRepo.getById as any).mockReturnValue(run);
+      (runRepo.finishRun as any).mockReturnValue({ ...run, status: "lost", finishedAt: new Date().toISOString() });
+
+      const result = service.markPluginRunLost("hab-1", "run-1");
+
+      expect(runRepo.finishRun).toHaveBeenCalledWith("run-1", "lost", 0, "Marked lost by operator");
+      expect(result.status).toBe("lost");
+    });
+
+    it("rejects a fresh run with 400 when force is not set", () => {
+      const freshRun = makeRunRow({
+        startedAt: new Date(Date.now() - 5 * 60_000).toISOString(),
+      });
+      (runRepo.getById as any).mockReturnValue(freshRun);
+
+      try {
+        service.markPluginRunLost("hab-1", "run-1");
+        fail("expected throw");
+      } catch (err) {
+        expect((err as AppError).statusCode).toBe(400);
+        expect((err as AppError).message).toContain("minimum required is 30m");
+      }
+    });
+
+    it("allows marking a fresh run lost when force=true is passed", () => {
+      const freshRun = makeRunRow({
+        startedAt: new Date(Date.now() - 5 * 60_000).toISOString(),
+      });
+      (runRepo.getById as any).mockReturnValue(freshRun);
+      (runRepo.finishRun as any).mockReturnValue({ ...freshRun, status: "lost" });
+
+      const result = service.markPluginRunLost("hab-1", "run-1", { force: true });
+      expect(runRepo.finishRun).toHaveBeenCalledWith("run-1", "lost", 0, "Marked lost by operator");
+      expect(result.status).toBe("lost");
+    });
+
+    it("rejects with 400 when run is not running", () => {
+      const terminalRun = makeRunRow({ status: "succeeded" });
+      (runRepo.getById as any).mockReturnValue(terminalRun);
+
+      try {
+        service.markPluginRunLost("hab-1", "run-1");
+        fail("expected throw");
+      } catch (err) {
+        expect((err as AppError).statusCode).toBe(400);
+        expect((err as AppError).message).toContain("current status is 'succeeded'");
+      }
+    });
+
+    it("returns 404 when run does not exist", () => {
+      (runRepo.getById as any).mockReturnValue(null);
+
+      try {
+        service.markPluginRunLost("hab-1", "missing");
+        fail("expected throw");
+      } catch (err) {
+        expect((err as AppError).statusCode).toBe(404);
+      }
+    });
+
+    it("returns 404 when run belongs to a different habitat", () => {
+      (runRepo.getById as any).mockReturnValue(makeRunRow({ habitatId: "other-hab" }));
+
+      try {
+        service.markPluginRunLost("hab-1", "run-1");
+        fail("expected throw");
+      } catch (err) {
+        expect((err as AppError).statusCode).toBe(404);
+      }
+    });
+  });
 });
 
 describe("pluginRoutes", () => {
-  it("registers 8 routes with agentOrHumanAuth + requireHabitatAccess prehandlers", async () => {
+  it("registers 9 routes with agentOrHumanAuth + requireHabitatAccess prehandlers", async () => {
     const { pluginRoutes } = await import("../routes/plugins.js");
     const { agentOrHumanAuth } = await import("../middleware/auth.js");
 
@@ -485,7 +582,7 @@ describe("pluginRoutes", () => {
 
     await pluginRoutes(fakeFastify);
 
-    expect(routes).toHaveLength(8);
+    expect(routes).toHaveLength(9);
     for (const r of routes) {
       expect(r.preHandler[0]).toBe(agentOrHumanAuth);
       if (r.path === "/plugins") {
@@ -505,6 +602,7 @@ describe("pluginRoutes", () => {
     expect(paths).toContain("DELETE /habitats/:habitatId/plugins/enrollments/:id");
     expect(paths).toContain("GET /habitats/:habitatId/plugins/runs");
     expect(paths).toContain("GET /habitats/:habitatId/plugins/stale-runs");
+    expect(paths).toContain("POST /habitats/:habitatId/plugins/runs/:id/lost");
   });
 });
 

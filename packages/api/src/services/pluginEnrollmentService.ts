@@ -261,3 +261,54 @@ export function deleteEnrollment(habitatId: string, enrollmentId: string): boole
   }
   return deleted;
 }
+
+export interface MarkRunLostOptions {
+  force?: boolean;
+  minAgeMinutes?: number;
+}
+
+/**
+ * Transitions a stale `running` Plugin Run to terminal `lost` status (ADR-005).
+ *
+ * Enforces:
+ * 1. Existence and habitat ownership.
+ * 2. Current status must be `running` (terminal lock — no resurrecting or re-classifying terminal runs).
+ * 3. Staleness threshold guard (age >= minAgeMinutes, default 30 min) unless `force: true` is passed.
+ */
+export function markPluginRunLost(
+  habitatId: string,
+  runId: string,
+  options?: MarkRunLostOptions,
+): PluginRunRow {
+  const run = runRepo.getById(runId);
+  if (!run || run.habitatId !== habitatId) {
+    throw notFound("Plugin run not found");
+  }
+
+  if (run.status !== "running") {
+    throw badRequest(`Cannot mark run lost: current status is '${run.status}' (expected 'running')`);
+  }
+
+  const minAgeMinutes = options?.minAgeMinutes ?? getStalePluginRunThresholdMinutes();
+  const elapsedMs = Date.now() - new Date(run.startedAt).getTime();
+  const minAgeMs = minAgeMinutes * 60_000;
+
+  if (elapsedMs < minAgeMs && !options?.force) {
+    throw badRequest(
+      `Plugin run has only been running for ${Math.floor(elapsedMs / 1000)}s (minimum required is ${minAgeMinutes}m). Use force=true to override.`,
+    );
+  }
+
+  const updated = runRepo.finishRun(
+    runId,
+    "lost",
+    run.signalsEmitted ?? 0,
+    "Marked lost by operator",
+  );
+  if (!updated) {
+    throw notFound("Plugin run not found");
+  }
+
+  return updated;
+}
+

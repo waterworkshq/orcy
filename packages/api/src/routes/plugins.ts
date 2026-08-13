@@ -105,6 +105,21 @@ export async function pluginRoutes(fastify: FastifyInstance): Promise<void> {
     },
   );
 
+  fastify.post<{ Params: { habitatId: string; id: string }; Body?: { force?: boolean } }>(
+    "/habitats/:habitatId/plugins/runs/:id/lost",
+    { preHandler: [agentOrHumanAuth, requireHabitatAccess] },
+    async (request, _reply) => {
+      const parsed = z.object({ force: z.boolean().optional() }).safeParse(request.body ?? {});
+      if (!parsed.success) {
+        throw badRequest("Validation failed", parsed.error.flatten());
+      }
+      const run = service.markPluginRunLost(request.params.habitatId, request.params.id, {
+        force: parsed.data.force,
+      });
+      return { run };
+    },
+  );
+
   // Plugin catalog: lists loaded plugins (ids, versions, descriptions) and load errors.
   // Authenticated but not habitat-scoped — it's a global catalog available to any authenticated user.
   fastify.get("/plugins", { preHandler: [agentOrHumanAuth] }, async (_request, _reply) => {
