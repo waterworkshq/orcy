@@ -41,6 +41,7 @@ import { notificationRoutes } from "./routes/notifications.js";
 import { automationRoutes } from "./routes/automationRules.js";
 import { chatIntegrationRoutes } from "./routes/chatIntegration.js";
 import { agentMessageRoutes } from "./routes/agentMessages.js";
+import { habitatAgentMailRoutes } from "./routes/habitatAgentMail.js";
 import { pulseRoutes } from "./routes/pulse.js";
 import { insightsRoutes } from "./routes/insights.js";
 import { codeReviewWebhookRoutes } from "./routes/codeReviewWebhooks.js";
@@ -211,6 +212,7 @@ async function registerApiRoutes(f: FastifyInstance) {
   await f.register(automationRoutes);
   await f.register(chatIntegrationRoutes);
   await f.register(agentMessageRoutes);
+  await f.register(habitatAgentMailRoutes);
   await f.register(pulseRoutes);
   await f.register(insightsRoutes);
   await f.register(codeReviewWebhookRoutes);

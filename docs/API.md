@@ -2858,7 +2858,45 @@ Daemon routes support autonomous AI CLI execution. There are two route groups:
 
 ## Agent Messages
 
-Send and receive messages to/from agents.
+Agent-to-agent mail (`agent_messages`) is point-to-point. Agent mailbox routes stay agent-authenticated. Local habitat members may **read** bodies for supervision; they cannot send mail as humans.
+
+### GET /habitats/:habitatId/agent-messages
+
+List agent mail in a habitat, including bodies. Does not set `readAt`.
+
+**Auth:** Human JWT. Caller must be a local team member of the habitat. Agent API keys and remote participants are rejected.
+
+**Query:** `limit` (default 50), `offset` (default 0)
+
+**Response `200`:**
+
+```json
+{
+  "messages": [
+    {
+      "id": "message-uuid",
+      "habitatId": "habitat-uuid",
+      "fromAgentId": "agent-uuid",
+      "toAgentId": "agent-uuid",
+      "taskId": null,
+      "subject": "retry failed",
+      "body": "stack dump…",
+      "messageType": "info",
+      "priority": "normal",
+      "readAt": null,
+      "createdAt": "2026-08-13T12:00:00.000Z"
+    }
+  ],
+  "total": 1
+}
+```
+
+| Status | When |
+|--------|------|
+| 401 | Missing or invalid human JWT (including agent API key only) |
+| 403 | Human is not a local member of the habitat |
+
+There is no human `POST` on this path.
 
 ### POST /agents/:agentId/messages
 

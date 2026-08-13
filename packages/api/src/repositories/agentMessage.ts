@@ -105,6 +105,32 @@ export function getMessagesByAgent(
   return { messages, total };
 }
 
+/** Habitat-scoped projection for local human supervision. Does not filter by agent mailbox. */
+export function getMessagesByHabitat(
+  habitatId: string,
+  filters?: { limit?: number; offset?: number },
+): { messages: AgentMessage[]; total: number } {
+  const db = getDb();
+  const where = eq(agentMessages.habitatId, habitatId);
+
+  const totalRows = db.select({ total: count() }).from(agentMessages).where(where).all();
+  const total = totalRows[0]?.total ?? 0;
+
+  const limit = filters?.limit ?? 50;
+  const offset = filters?.offset ?? 0;
+
+  const messages = db
+    .select()
+    .from(agentMessages)
+    .where(where)
+    .orderBy(sql`${agentMessages.createdAt} DESC`)
+    .limit(limit)
+    .offset(offset)
+    .all() as AgentMessage[];
+
+  return { messages, total };
+}
+
 export function getUnreadCount(agentId: string): number {
   const db = getDb();
   const rows = db
