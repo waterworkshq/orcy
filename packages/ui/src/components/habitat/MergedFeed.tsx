@@ -1,11 +1,14 @@
 import React from "react";
-import { Radio } from "lucide-react";
+import { AlertCircle, Radio, RotateCw } from "lucide-react";
 import { CommunicationFeedItemView } from "./CommunicationFeedItem.js";
 import type { CommunicationFeedItem } from "./mergeCommunicationFeed.js";
 
 interface MergedFeedProps {
   items: CommunicationFeedItem[];
   isLoading: boolean;
+  isError?: boolean;
+  error?: Error | null;
+  onRetry?: () => void;
   missionId: string;
   hasMore: boolean;
   onLoadMore: () => void;
@@ -17,6 +20,9 @@ interface MergedFeedProps {
 export function MergedFeed({
   items,
   isLoading,
+  isError,
+  error,
+  onRetry,
   missionId,
   hasMore,
   onLoadMore,
@@ -44,6 +50,27 @@ export function MergedFeed({
     );
   }
 
+  if (isError && items.length === 0) {
+    return (
+      <div className="flex h-64 flex-col items-center justify-center gap-3 p-4 text-center text-[var(--on-surface-variant)]">
+        <AlertCircle className="h-10 w-10 text-[var(--error,#ef4444)] opacity-80" />
+        <p className="text-sm font-medium text-[var(--on-surface)]">
+          {error?.message || "Failed to load communication feed"}
+        </p>
+        {onRetry && (
+          <button
+            type="button"
+            onClick={onRetry}
+            className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--outline-variant)] bg-[var(--surface-container)] px-3 py-1.5 text-xs font-medium text-[var(--on-surface-variant)] hover:bg-[var(--surface-container-high)]"
+          >
+            <RotateCw className="h-3.5 w-3.5" />
+            Retry
+          </button>
+        )}
+      </div>
+    );
+  }
+
   if (items.length === 0) {
     return (
       <div className="flex h-64 flex-col items-center justify-center gap-3 text-[var(--on-surface-variant)]">
@@ -63,7 +90,25 @@ export function MergedFeed({
           missionId={missionId}
         />
       ))}
-      {hasMore && (
+      {isError && (
+        <div className="flex items-center justify-between rounded-lg border border-[var(--error,#ef4444)]/20 bg-[var(--error-container,#fee2e2)]/30 p-2.5 text-xs text-[var(--on-error-container,#991b1b)]">
+          <div className="flex items-center gap-2">
+            <AlertCircle className="h-4 w-4 text-[var(--error,#ef4444)]" />
+            <span>{error?.message || "Failed to load additional items"}</span>
+          </div>
+          {onRetry && (
+            <button
+              type="button"
+              onClick={onRetry}
+              className="inline-flex items-center gap-1 font-semibold underline hover:no-underline"
+            >
+              <RotateCw className="h-3 w-3" />
+              Retry
+            </button>
+          )}
+        </div>
+      )}
+      {hasMore && !isError && (
         <div className="flex justify-center pt-2">
           <button
             type="button"

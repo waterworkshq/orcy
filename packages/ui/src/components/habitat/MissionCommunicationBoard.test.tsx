@@ -156,4 +156,45 @@ describe("MissionCommunicationBoard", () => {
     renderBoard();
     expect(await screen.findByRole("button", { name: /load more/i })).toBeInTheDocument();
   });
+
+  it("offers load more when another Comments page exists", async () => {
+    listComments.mockResolvedValue({
+      comments: Array.from({ length: 50 }, (_, i) =>
+        comment({
+          id: `c${i}`,
+          createdAt: "2026-08-13T11:00:00.000Z",
+          content: `comment ${i}`,
+        }),
+      ),
+      total: 51,
+    });
+    renderBoard();
+    const loadMoreBtn = await screen.findByRole("button", { name: /load more/i });
+    expect(loadMoreBtn).toBeInTheDocument();
+
+    fireEvent.click(loadMoreBtn);
+    await waitFor(() => {
+      expect(listComments).toHaveBeenCalledWith("m1", { limit: 50, offset: 50 });
+    });
+  });
+
+  it("renders error message and retry button when query fails, and retries on click", async () => {
+    listByMission.mockRejectedValue(new Error("Network connection lost"));
+    renderBoard();
+
+    expect(await screen.findByText("Network connection lost")).toBeInTheDocument();
+    expect(screen.queryByText("No Pulse signals or comments yet")).not.toBeInTheDocument();
+
+    const retryBtn = screen.getByRole("button", { name: /retry/i });
+    expect(retryBtn).toBeInTheDocument();
+
+    listByMission.mockResolvedValue({
+      items: [pulse({ id: "p1", createdAt: "2026-08-13T12:00:00.000Z", subject: "retry succeeded" })],
+      total: 1,
+    });
+
+    fireEvent.click(retryBtn);
+    expect(await screen.findByText("retry succeeded")).toBeInTheDocument();
+  });
 });
+

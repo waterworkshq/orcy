@@ -73,5 +73,8 @@ export function useMissionPulseFeed(
     isFetchingNextPage: query.isFetchingNextPage,
     fetchNextPage: query.fetchNextPage,
     hasNextPage: query.hasNextPage,
+    isError: query.isError,
+    error: query.error,
+    refetch: query.refetch,
   };
 }

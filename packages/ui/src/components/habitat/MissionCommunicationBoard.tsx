@@ -5,7 +5,7 @@ import { api } from "../../api/index.js";
 import { queryKeys } from "../../lib/queryKeys.js";
 import { notify } from "../../lib/toast.js";
 import { useMissionPulseFeed } from "../../hooks/useMissionPulseFeed.js";
-import { useMissionComments } from "../../lib/useHabitatData.js";
+import { useMissionCommentsFeed } from "../../hooks/useMissionCommentsFeed.js";
 import { Button } from "../ui/Button.js";
 import { PulseFilterBar } from "./PulseFilterBar.js";
 import { PulseComposeDialog } from "./PulseComposeDialog.js";
@@ -44,8 +44,10 @@ export function MissionCommunicationBoard({ missionId }: MissionCommunicationBoa
     showExperience,
     enabled: !isUserLoading,
   });
-  const commentsQuery = useMissionComments(missionId);
-  const items = mergeCommunicationFeed(pulseFeed.pulses, commentsQuery.data?.comments ?? [], {
+  const commentsFeed = useMissionCommentsFeed(missionId, {
+    enabled: !isUserLoading,
+  });
+  const items = mergeCommunicationFeed(pulseFeed.pulses, commentsFeed.comments, {
     kind,
   });
 
@@ -54,6 +56,41 @@ export function MissionCommunicationBoard({ missionId }: MissionCommunicationBoa
       prev.includes(type) ? prev.filter((t) => t !== type) : [...prev, type],
     );
   }, []);
+
+  const handleRetry = useCallback(() => {
+    if (kind !== "comment") pulseFeed.refetch();
+    if (kind !== "pulse") commentsFeed.refetch();
+  }, [kind, pulseFeed, commentsFeed]);
+
+  const hasMore =
+    kind === "pulse"
+      ? !!pulseFeed.hasNextPage
+      : kind === "comment"
+        ? !!commentsFeed.hasNextPage
+        : !!pulseFeed.hasNextPage || !!commentsFeed.hasNextPage;
+
+  const handleLoadMore = useCallback(() => {
+    if (kind === "pulse") {
+      pulseFeed.fetchNextPage();
+    } else if (kind === "comment") {
+      commentsFeed.fetchNextPage();
+    } else {
+      if (pulseFeed.hasNextPage) pulseFeed.fetchNextPage();
+      if (commentsFeed.hasNextPage) commentsFeed.fetchNextPage();
+    }
+  }, [kind, pulseFeed, commentsFeed]);
+
+  const loadingMore =
+    kind === "pulse"
+      ? pulseFeed.isFetchingNextPage
+      : kind === "comment"
+        ? commentsFeed.isFetchingNextPage
+        : pulseFeed.isFetchingNextPage || commentsFeed.isFetchingNextPage;
+
+  const isError =
+    (kind !== "comment" && pulseFeed.isError) || (kind !== "pulse" && commentsFeed.isError);
+  const queryError =
+    (kind !== "comment" && pulseFeed.error) || (kind !== "pulse" && commentsFeed.error) || null;
 
   async function handleComment() {
     if (!commentContent.trim() || kind === "pulse") return;
@@ -124,11 +161,14 @@ export function MissionCommunicationBoard({ missionId }: MissionCommunicationBoa
       <div className="flex-1 overflow-y-auto">
         <MergedFeed
           items={items}
-          isLoading={isUserLoading || pulseFeed.isLoading || commentsQuery.isLoading}
+          isLoading={isUserLoading || pulseFeed.isLoading || commentsFeed.isLoading}
+          isError={isError}
+          error={queryError}
+          onRetry={handleRetry}
           missionId={missionId}
-          hasMore={kind !== "comment" && !!pulseFeed.hasNextPage}
-          onLoadMore={() => pulseFeed.fetchNextPage()}
-          loadingMore={pulseFeed.isFetchingNextPage}
+          hasMore={hasMore}
+          onLoadMore={handleLoadMore}
+          loadingMore={loadingMore}
           emptyTitle="No Pulse signals or comments yet"
         />
       </div>

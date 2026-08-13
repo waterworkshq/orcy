@@ -118,7 +118,7 @@ describe("SSE event registry", () => {
     const invalidateQueries = vi.fn();
     const event: SSEEvent = {
       type: "extraction.finding_proposed",
-      data: { habitatId: "h1", findingId: "f1", findingType: "lesson", subject: "test", confidence: 0.85 },
+      data: { habitatId: "h1", findingId: "f1", findingType: "lesson" },
     };
 
     projectSSEServerEvent(
