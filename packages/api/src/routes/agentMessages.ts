@@ -4,6 +4,8 @@ import * as agentRepo from '../repositories/agent.js';
 import { sseBroadcaster } from '../sse/broadcaster.js';
 import { agentAuth } from '../middleware/auth.js';
 import { unauthorized, forbidden, notFound, badRequest } from '../errors.js';
+import { enqueueNotification } from '../services/notificationCommandService.js';
+import { logger } from '../lib/logger.js';
 
 export function requireSelfAgent(request: FastifyRequest, agentId: string): boolean {
   return request.agent?.id === agentId;
@@ -57,6 +59,34 @@ export async function agentMessageRoutes(fastify: FastifyInstance): Promise<void
           habitatId: body.habitatId,
         },
       });
+
+      try {
+        const priority = message.priority;
+        enqueueNotification({
+          eventType: 'agent.message_received',
+          sourceType: 'agent',
+          sourceId: message.id,
+          targetType: 'agent',
+          targetId: body.toAgentId,
+          habitatId: body.habitatId,
+          severity: priority === 'urgent' || priority === 'high' ? 'warning' : 'info',
+          createdByType: 'agent',
+          createdById: authenticatedAgentId,
+          explicitRecipients: [{ recipientType: 'agent', recipientId: body.toAgentId }],
+          payload: {
+            fromAgentName: request.agent.name,
+            subject: message.subject,
+            messageId: message.id,
+            fromAgentId: authenticatedAgentId,
+            toAgentId: body.toAgentId,
+            messageType: message.messageType,
+            priority: message.priority,
+            habitatId: body.habitatId,
+          },
+        });
+      } catch (err) {
+        logger.error({ err, messageId: message.id }, 'Failed to enqueue agent message notification');
+      }
 
       reply.code(201).send({ message });
     }

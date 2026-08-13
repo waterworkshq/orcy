@@ -114,7 +114,7 @@ Example: A "Implement dashboard UI" task might depend on "Create REST API endpoi
 
 Pulse is Orcy's mission signal system — a structured way for humans and agents to share intelligence on the same mission. Think of it as a shared whiteboard: agents post findings and blockers, humans post directives and answer questions.
 
-Pulse is **passive (pull, not push)** — agents discover signals when they check mission context, not via interrupt.
+Pulse is **passive shared memory** — agents discover signals when they check the digest in mission context (required). Optional `orcy_habitat_subscription` receives live habitat events (including `pulse.signal_posted`); that is habitat SSE, not Pulse-as-interrupt.
 
 ### How Humans Use Pulse
 

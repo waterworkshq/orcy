@@ -275,6 +275,17 @@ describe("pulse-dispatch — experience wiring", () => {
 });
 
 describe("pulse-skill — Self-Reporting section", () => {
+  it("PULSE_SKILL_TEXT keeps Pulse as passive shared memory with digest required and subscribe optional", () => {
+    expect(PULSE_SKILL_TEXT).toMatch(/passive shared memory/i);
+    expect(PULSE_SKILL_TEXT).toMatch(/orcy_habitat_subscription/);
+    expect(PULSE_SKILL_TEXT).toMatch(/optional/i);
+    expect(PULSE_SKILL_TEXT).toMatch(/digest/i);
+    expect(PULSE_SKILL_TEXT).toMatch(/required/i);
+    expect(PULSE_SKILL_TEXT).not.toMatch(/Pulse is a notification/i);
+    expect(PULSE_SKILL_TEXT).not.toMatch(/create V2 notification/i);
+    expect(PULSE_SKILL_TEXT).not.toMatch(/Pulse becoming a push inbox/i);
+  });
+
   it("PULSE_SKILL_TEXT contains a Self-Reporting section header", () => {
     expect(PULSE_SKILL_TEXT).toMatch(/## Self-Reporting/i);
   });

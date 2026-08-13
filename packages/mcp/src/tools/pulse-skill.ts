@@ -6,7 +6,13 @@ export const PULSE_SKILL_TEXT = `# Pulse Skill Guide — Mission Signal Protocol
 ## What is Pulse?
 
 Pulse is the mission signal board. Post findings, blockers, and offers;
-check what partners shared. Pulse is passive (pull, not push).
+check what partners shared. Pulse is passive shared memory.
+
+The digest in get-context (and orcy_pulse check) is the required way to
+discover signals. Live habitat events — including pulse.signal_posted —
+can optionally be received via orcy_habitat_subscription. That is habitat
+SSE / attention, not a Pulse push inbox. Notification V2 subscriptions
+are operator configuration, not an agent Pulse step.
 
 ### What arrives in get-context
 
@@ -33,7 +39,7 @@ Post intentionally: FINDING, BLOCKER, OFFER, WARNING, QUESTION, ANSWER, DIRECTIV
 | | Pulse (orcy_pulse) | Messages (orcy_habitat_message) |
 |---|---|---|
 | Scope | Mission-broadcast | Point-to-point |
-| Model | Pull (you check via digest) | Push (appears in get-messages) |
+| Model | Passive shared memory (digest required; optional habitat SSE is not a Pulse inbox) | Push (appears in get-messages) |
 | Structure | Typed signals with semantics | Free-form text |
 | Use for | Findings, blockers, directives | Direct requests, coordination |
 
