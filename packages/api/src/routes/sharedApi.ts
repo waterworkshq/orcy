@@ -16,10 +16,13 @@ import {
 } from "../services/sharedGrantVisibilityService.js";
 import {
   badRequest,
+  badRequestWithCode,
   forbidden,
   notFound,
   unauthorized,
   conflict,
+  conflictWithCode,
+  AppError,
   InterceptorVetoError,
 } from "../errors.js";
 import { logger } from "../lib/logger.js";
@@ -230,8 +233,18 @@ export async function sharedApiRoutes(fastify: FastifyInstance): Promise<void> {
   // Every route requires remote participant auth
   fastify.addHook("preHandler", remoteParticipantAuth);
 
-  fastify.addHook("onError", async (request, _reply) => {
+  fastify.addHook("onError", async (request, _reply, error) => {
     if (request.remoteIdempotency) {
+      // A retryable busy 503 leaves the envelope pending so a client retry with
+      // the same Idempotency-Key can re-execute; only non-retryable errors
+      // finalize the envelope as failed.
+      if (
+        error instanceof AppError &&
+        error.statusCode === 503 &&
+        error.code === "LIFECYCLE_BUSY"
+      ) {
+        return;
+      }
       failRemoteIdempotency(request, "Route handler error");
     }
   });
@@ -894,7 +907,10 @@ export async function sharedApiRoutes(fastify: FastifyInstance): Promise<void> {
   fastify.post<{ Params: { deliveryId: string } }>(
     "/notifications/deliveries/:deliveryId/ack",
     {
-      preHandler: [remoteActionScope("notification.write"), idempotentRemoteWrite("notification.ack")],
+      preHandler: [
+        remoteActionScope("notification.write"),
+        idempotentRemoteWrite("notification.ack"),
+      ],
     },
     async (request: FastifyRequest<{ Params: { deliveryId: string } }>, reply: FastifyReply) => {
       const ctx = requireRemoteContext(request);
@@ -921,7 +937,10 @@ export async function sharedApiRoutes(fastify: FastifyInstance): Promise<void> {
   fastify.post<{ Params: { deliveryId: string } }>(
     "/notifications/deliveries/:deliveryId/snooze",
     {
-      preHandler: [remoteActionScope("notification.write"), idempotentRemoteWrite("notification.snooze")],
+      preHandler: [
+        remoteActionScope("notification.write"),
+        idempotentRemoteWrite("notification.snooze"),
+      ],
     },
     async (request: FastifyRequest<{ Params: { deliveryId: string } }>, reply: FastifyReply) => {
       const ctx = requireRemoteContext(request);
@@ -1084,7 +1103,10 @@ export async function sharedApiRoutes(fastify: FastifyInstance): Promise<void> {
       });
 
       // Map the lifecycle outcome to the HTTP response. Anti-probing keeps
-      // not-found and not-authorized collapsed into a single 403.
+      // not-found and not-authorized collapsed into a single 403. Typed
+      // lifecycle codes and message strings mirror the local mapper
+      // (`routes/triage.ts` `mapLifecycleOutcome`) 1:1 so remote clients can
+      // branch on stable codes.
       if (outcome.outcome === "applied" || outcome.outcome === "replayed") {
         const responseBody = { finding: outcome.value };
         completeRemoteIdempotency(request, 200, responseBody);
@@ -1092,12 +1114,16 @@ export async function sharedApiRoutes(fastify: FastifyInstance): Promise<void> {
         return;
       }
       if (outcome.outcome === "busy") {
+        // Contract (plan + T4): busy → 503 + Retry-After. The idempotency
+        // envelope is NOT finalized as failed — a retry with the same key may
+        // succeed. The onError hook above skips LIFECYCLE_BUSY for the same
+        // reason, so the record stays pending.
         const retryAfterSeconds = Math.max(1, Math.ceil(outcome.retryAfterMs / 1000));
         reply.header("Retry-After", String(retryAfterSeconds));
-        failRemoteIdempotency(request, `LIFECYCLE_BUSY_${retryAfterSeconds}`);
-        throw conflict(
-          `Lifecycle writer reservation exhausted; retry after ${retryAfterSeconds}s`,
+        throw new AppError(
+          503,
           "LIFECYCLE_BUSY",
+          `Lifecycle writer reservation exhausted; retry after ${retryAfterSeconds}s`,
         );
       }
 
@@ -1109,31 +1135,30 @@ export async function sharedApiRoutes(fastify: FastifyInstance): Promise<void> {
       }
       if (reason === "terminal") {
         failRemoteIdempotency(request, "Finding terminal");
-        throw conflict(
-          "Finding is in terminal state. Recurrence creates a new row.",
+        throw conflictWithCode(
           "FINDING_TERMINAL",
+          `Finding is in terminal state (${typeof outcome.current === "string" ? outcome.current : "resolved|wontfix"}). Recurrence creates a new row.`,
         );
       }
       if (reason === "legacy_lineage_repair_required") {
         failRemoteIdempotency(request, "Legacy lineage repair required");
-        throw conflict(
-          "Finding legacy lineage repair required before automatic routing.",
+        throw conflictWithCode(
           "LEGACY_LINEAGE_REPAIR_REQUIRED",
+          "Finding legacy lineage repair required before automatic routing; operator action needed.",
         );
       }
       if (reason === "different_route") {
         failRemoteIdempotency(request, "Different route");
-        throw conflict(
-          "Finding already routed with a different bucket/fingerprint.",
+        throw conflictWithCode(
           "DIFFERENT_ROUTE",
+          "Finding already routed with a different bucket/fingerprint.",
         );
       }
       if (reason === "invalid_input") {
         failRemoteIdempotency(request, "Invalid input");
-        throw badRequest(
-          typeof outcome.current === "string"
-            ? outcome.current
-            : "Invalid triage command input",
+        throw badRequestWithCode(
+          "INVALID_INPUT",
+          typeof outcome.current === "string" ? outcome.current : "Invalid triage command input",
         );
       }
       if (reason === "invalid_dependency") {
@@ -1149,10 +1174,10 @@ export async function sharedApiRoutes(fastify: FastifyInstance): Promise<void> {
             ? `Dependency at position ${index} is not a valid same-Habitat Mission.`
             : "One or more dependencies are not valid same-Habitat Missions.";
         failRemoteIdempotency(request, "Invalid dependency");
-        throw conflict(message, "INVALID_DEPENDENCY");
+        throw conflictWithCode("INVALID_DEPENDENCY", message);
       }
       failRemoteIdempotency(request, "Conflict");
-      throw conflict("Triage command conflict", "TRIAGE_CONFLICT");
+      throw conflictWithCode("TRIAGE_CONFLICT", "Triage command conflict");
       // No outer catch: the success/conflict branches above explicitly
       // terminalize the idempotency record. The plugin-level onError hook
       // (registered at the top of sharedApiRoutes) marks the record as failed

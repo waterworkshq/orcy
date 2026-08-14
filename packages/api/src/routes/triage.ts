@@ -38,7 +38,15 @@ import { agentOrHumanAuth } from "../middleware/auth.js";
 import { getHabitatById } from "../repositories/habitat.js";
 import * as missionRepo from "../repositories/mission.js";
 import { isTeamMemberByHabitatId } from "../repositories/teamMember.js";
-import { notFound, badRequest, forbidden, unauthorized, conflict, AppError } from "../errors.js";
+import {
+  AppError,
+  notFound,
+  badRequest,
+  badRequestWithCode,
+  forbidden,
+  unauthorized,
+  conflictWithCode,
+} from "../errors.js";
 import { sseBroadcaster } from "../sse/broadcaster.js";
 import { logger } from "../lib/logger.js";
 
@@ -84,9 +92,11 @@ function mapLifecycleOutcome<T>(
   if (outcome.outcome === "busy") {
     const retryAfterSeconds = Math.max(1, Math.ceil(outcome.retryAfterMs / 1000));
     reply.header("Retry-After", String(retryAfterSeconds));
-    throw conflict(
-      `Lifecycle writer reservation exhausted; retry after ${retryAfterSeconds}s`,
+    // Contract (plan + T4): busy → 503 + Retry-After — matches the remote mapper.
+    throw new AppError(
+      503,
       "LIFECYCLE_BUSY",
+      `Lifecycle writer reservation exhausted; retry after ${retryAfterSeconds}s`,
     );
   }
 
@@ -239,20 +249,6 @@ function authorizeLocalRoute(args: {
     throw forbidden(result.message, result.code);
   }
   return { finding: args.finding, actor };
-}
-
-/**
- * Conflict (409) with a specific error code. The {@link conflict} helper in
- * `errors.ts` defaults the code to `"CONFLICT"` and accepts only `details`,
- * so callers that want a granular diagnostic code create an `AppError` here.
- */
-function conflictWithCode(code: string, message: string): AppError {
-  return new AppError(409, code, message);
-}
-
-/** 400 with a specific error code (badRequest() hardcodes VALIDATION_ERROR). */
-function badRequestWithCode(code: string, message: string): AppError {
-  return new AppError(400, code, message);
 }
 
 /**

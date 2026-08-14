@@ -70,6 +70,22 @@ export function conflict(message: string, details?: unknown): AppError {
   return new AppError(409, ErrorCodes.CONFLICT, message, details);
 }
 
+/**
+ * Conflict (409) with a specific error code. {@link conflict} hardcodes the
+ * code to `"CONFLICT"` and accepts only `details`, so callers that want a
+ * granular diagnostic code reachable by clients create an `AppError` here
+ * instead. Used by the local and remote triage lifecycle outcome mappers so
+ * both surfaces emit byte-identical typed codes.
+ */
+export function conflictWithCode(code: string, message: string): AppError {
+  return new AppError(409, code, message);
+}
+
+/** 400 with a specific error code (badRequest() hardcodes VALIDATION_ERROR). */
+export function badRequestWithCode(code: string, message: string): AppError {
+  return new AppError(400, code, message);
+}
+
 export function rateLimited(message = "Too many requests"): AppError {
   return new AppError(429, ErrorCodes.RATE_LIMITED, message);
 }

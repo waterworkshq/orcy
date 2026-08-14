@@ -1306,3 +1306,157 @@ describe("T4 — Remote /api/shared route command + claim-bound authority", () =
     expect(probeCrossHabitat.body).toBe(probeMissing.body);
   });
 });
+
+// ===========================================================================
+// FU5 — Remote outcome mapper mirrors local typed lifecycle codes 1:1
+// ===========================================================================
+
+describe("FU5 — remote route returns typed lifecycle codes byte-equal to local", () => {
+  let localApp: FastifyInstance | null = null;
+  let remoteApp: FastifyInstance | null = null;
+
+  beforeEach(async () => {
+    localApp = await buildApp();
+    remoteApp = await buildSharedApp();
+  });
+  afterEach(async () => {
+    if (localApp) await localApp.close();
+    if (remoteApp) await remoteApp.close();
+  });
+
+  const humanToken = () => makeToken({ sub: "user-1", username: "test", role: "admin" });
+  const noWork = { bucket: "document_as_known_limitation" };
+  const investigation = { bucket: "needs_investigation" };
+  const fixNowBadDep = {
+    bucket: "fix_now",
+    missionTitle: "Fix",
+    missionDescription: "Desc",
+    dependencies: ["missing-dep-1"],
+  };
+
+  async function localRoute(findingId: string, payload: object) {
+    return localApp!.inject({
+      method: "POST",
+      url: `/api/triage/findings/${findingId}/route`,
+      payload,
+      headers: { authorization: `Bearer ${humanToken()}` },
+    });
+  }
+
+  async function remoteRoute(
+    findingId: string,
+    payload: object,
+    setup: RemoteSetup,
+    key: string,
+  ) {
+    return remoteApp!.inject({
+      method: "POST",
+      url: `/api/shared/triage/findings/${findingId}/route`,
+      payload,
+      headers: {
+        "x-orcy-remote-key": setup.credentialSecret,
+        "idempotency-key": key,
+      },
+    });
+  }
+
+  /** The wire error shape clients branch on (status + code + message). */
+  function errorShape(res: { statusCode: number; body: string }) {
+    const body = JSON.parse(res.body) as { code?: string; message?: string };
+    return { status: res.statusCode, code: body.code, message: body.message };
+  }
+
+  function claimRemotely(setup: RemoteSetup, taskId: string) {
+    const claimRes = taskStateMachine.claimTaskByRemoteParticipant(taskId, setup.participantId);
+    expect(claimRes.success).toBe(true);
+  }
+
+  function forceTerminal(findingId: string) {
+    const db = getDb();
+    db.update(findingTriage)
+      .set({
+        status: "resolved",
+        resolvedAt: new Date().toISOString(),
+        resolvedByType: "human",
+        resolvedById: "user-1",
+        updatedAt: new Date().toISOString(),
+      })
+      .where(eq(findingTriage.id, findingId))
+      .run();
+  }
+
+  function setLegacyRepair(findingId: string) {
+    getDb().run(sql`UPDATE finding_triage SET legacy_lineage_repair_required = 1 WHERE id = ${findingId}`);
+  }
+
+  it("terminal → 409 FINDING_TERMINAL (status + code + message byte-equal)", async () => {
+    const lf = seedAdmittedFinding();
+    forceTerminal(lf.finding.id);
+    const localRes = await localRoute(lf.finding.id, noWork);
+    expect(errorShape(localRes)).toEqual({
+      status: 409,
+      code: "FINDING_TERMINAL",
+      message: "Finding is in terminal state (resolved). Recurrence creates a new row.",
+    });
+
+    const rf = seedAdmittedFinding();
+    const setup = setupRemote(habitatId, { addTaskTarget: rf.investigateTask.id });
+    claimRemotely(setup, rf.investigateTask.id);
+    forceTerminal(rf.finding.id);
+    const remoteRes = await remoteRoute(rf.finding.id, noWork, setup, "fu5-terminal");
+    expect(errorShape(remoteRes)).toEqual(errorShape(localRes));
+  });
+
+  it("different_route → 409 DIFFERENT_ROUTE (status + code + message byte-equal)", async () => {
+    const lf = seedAdmittedFinding();
+    expect((await localRoute(lf.finding.id, noWork)).statusCode).toBe(200);
+    const localRes = await localRoute(lf.finding.id, investigation);
+    expect(errorShape(localRes)).toEqual({
+      status: 409,
+      code: "DIFFERENT_ROUTE",
+      message: "Finding already routed with a different bucket/fingerprint.",
+    });
+
+    const rf = seedAdmittedFinding();
+    const setup = setupRemote(habitatId, { addTaskTarget: rf.investigateTask.id });
+    claimRemotely(setup, rf.investigateTask.id);
+    expect((await remoteRoute(rf.finding.id, noWork, setup, "fu5-dr-1")).statusCode).toBe(200);
+    const remoteRes = await remoteRoute(rf.finding.id, investigation, setup, "fu5-dr-2");
+    expect(errorShape(remoteRes)).toEqual(errorShape(localRes));
+  });
+
+  it("legacy_lineage_repair_required → 409 LEGACY_LINEAGE_REPAIR_REQUIRED (byte-equal)", async () => {
+    const lf = seedAdmittedFinding();
+    setLegacyRepair(lf.finding.id);
+    const localRes = await localRoute(lf.finding.id, noWork);
+    expect(errorShape(localRes)).toEqual({
+      status: 409,
+      code: "LEGACY_LINEAGE_REPAIR_REQUIRED",
+      message:
+        "Finding legacy lineage repair required before automatic routing; operator action needed.",
+    });
+
+    const rf = seedAdmittedFinding();
+    const setup = setupRemote(habitatId, { addTaskTarget: rf.investigateTask.id });
+    claimRemotely(setup, rf.investigateTask.id);
+    setLegacyRepair(rf.finding.id);
+    const remoteRes = await remoteRoute(rf.finding.id, noWork, setup, "fu5-legacy");
+    expect(errorShape(remoteRes)).toEqual(errorShape(localRes));
+  });
+
+  it("invalid_dependency → 409 INVALID_DEPENDENCY (status + code + message byte-equal)", async () => {
+    const lf = seedAdmittedFinding();
+    const localRes = await localRoute(lf.finding.id, fixNowBadDep);
+    expect(errorShape(localRes)).toEqual({
+      status: 409,
+      code: "INVALID_DEPENDENCY",
+      message: "Dependency at position 0 is not a valid same-Habitat Mission.",
+    });
+
+    const rf = seedAdmittedFinding();
+    const setup = setupRemote(habitatId, { addTaskTarget: rf.investigateTask.id });
+    claimRemotely(setup, rf.investigateTask.id);
+    const remoteRes = await remoteRoute(rf.finding.id, fixNowBadDep, setup, "fu5-dep-1");
+    expect(errorShape(remoteRes)).toEqual(errorShape(localRes));
+  });
+});
