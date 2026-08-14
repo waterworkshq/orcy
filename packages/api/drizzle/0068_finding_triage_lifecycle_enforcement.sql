@@ -18,11 +18,14 @@
 --      source_id) on triage_resolutions WHERE source = 'finding_triage'.
 --      Cluster Resolution (source='cluster_triage') is deliberately unchanged.
 --   3. Restrictive FKs: finding_triage.pulse_id and finding_triage.
---      triage_mission_id, and both finding_triage_evidence FKs, convert from
---      CASCADE/SET NULL to RESTRICT so referenced Pulse/Mission deletion can
---      no longer erase terminal evidence or history. Service-level guards
---      (findingTriageHistoryGuards.ts) remain the first line; these FKs catch
---      direct-SQL mistakes.
+--      triage_mission_id, both finding_triage_evidence FKs, AND the
+--      investigation-provenance columns (admitted_by_triage_mission_id →
+--      missions, admitted_by_investigation_task_id → tasks on BOTH rebuilt
+--      tables) convert from CASCADE/SET NULL/unreferenced TEXT to RESTRICT
+--      so referenced Pulse/Mission/Task deletion can no longer erase
+--      terminal evidence or provenance. Service-level guards
+--      (findingTriageHistoryGuards.ts) remain the first line; these FKs
+--      catch direct-SQL mistakes.
 --
 -- Table rebuilds use transaction-local backup tables: any failure rolls the
 -- whole migration back and leaves the additive schema intact, so an
@@ -34,12 +37,23 @@ CREATE TEMP TABLE IF NOT EXISTS __triage_enforcement_guard (
 );
 --> statement-breakpoint
 -- Guard 1: a clean versioned attestation for THIS enforcement migration must
--- exist. 0 when present, 1 when missing/stale.
+-- exist. 0 when present, 1 when missing/stale. Beyond migration id +
+-- preflight version + clean, the guard PINS the attested contract:
+--   - schema_version must equal the additive watermark's schema ('0067');
+--   - anomaly_query_digest must equal the deterministic SHA-256 digest of the
+--     CURRENT preflight's anomaly-query construction (emitted by the staged
+--     runner via computeAnomalyQueryDigest() in findingTriagePreflight.ts).
+-- A stale preflight (different schema or different anomaly queries) writing
+-- a clean attestation therefore aborts enforcement instead of passing. The
+-- pinned literals below are asserted against the live constants by the
+-- stagedEnforcementMigration parity test — regenerate them together.
 INSERT INTO __triage_enforcement_guard (check_name, anomaly_count)
 SELECT 'clean_attestation', CASE WHEN EXISTS (
   SELECT 1 FROM migration_preflight_attestations
   WHERE enforcement_migration_id = '0068_finding_triage_lifecycle_enforcement'
-    AND preflight_version = '002'
+    AND preflight_version = '003'
+    AND schema_version = '0067'
+    AND anomaly_query_digest = '9d1492e92d766e2d45db782502ce734fc34e09c0fb90eb047359fc8b013735b9'
     AND clean = 1
 ) THEN 0 ELSE 1 END;
 --> statement-breakpoint
@@ -87,8 +101,8 @@ CREATE TABLE finding_triage (
   target_release_type TEXT,
   triage_mission_id TEXT REFERENCES missions(id) ON DELETE RESTRICT,
   corroborating_pulse_ids TEXT,
-  admitted_by_triage_mission_id TEXT,
-  admitted_by_investigation_task_id TEXT,
+  admitted_by_triage_mission_id TEXT REFERENCES missions(id) ON DELETE RESTRICT,
+  admitted_by_investigation_task_id TEXT REFERENCES tasks(id) ON DELETE RESTRICT,
   recurrence_of_id TEXT,
   legacy_lineage_repair_required INTEGER NOT NULL DEFAULT 0,
   route_fingerprint TEXT,
@@ -132,12 +146,15 @@ DROP TABLE finding_triage_enforcement_backup;
 --> statement-breakpoint
 -- finding_triage_evidence rebuilt with RESTRICT on both FKs: referenced
 -- Pulse or Finding deletion can no longer cascade away terminal evidence.
+-- The investigation-provenance columns are RESTRICT-referenced as well:
+-- deleting the admitting Mission/Task would leave unprovable admission
+-- history (advisory anomaly unprovable_investigation_provenance).
 CREATE TABLE finding_triage_evidence (
   finding_triage_id TEXT NOT NULL REFERENCES finding_triage(id) ON DELETE RESTRICT,
   pulse_id TEXT NOT NULL REFERENCES pulses(id) ON DELETE RESTRICT,
   role TEXT NOT NULL CHECK (role IN ('source', 'corroborating', 'legacy_observed')),
-  admitted_by_triage_mission_id TEXT,
-  admitted_by_investigation_task_id TEXT,
+  admitted_by_triage_mission_id TEXT REFERENCES missions(id) ON DELETE RESTRICT,
+  admitted_by_investigation_task_id TEXT REFERENCES tasks(id) ON DELETE RESTRICT,
   admitted_at TEXT,
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
   PRIMARY KEY (finding_triage_id, pulse_id)

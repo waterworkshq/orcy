@@ -355,13 +355,16 @@ describe("Preflight / doctor diagnostics", () => {
     expect(ntAnomalies.length).toBeGreaterThanOrEqual(1);
   });
 
-  it("computes deterministic anomaly query digest", () => {
+  it("computes deterministic anomaly query contract digest (data-independent)", () => {
     seedFinding({ id: "ft-d1", clusterKey: "digest", findingKind: "bug" });
-    const r1 = runPreflight();
-    const d1 = computeAnomalyQueryDigest(r1);
-    const r2 = runPreflight();
-    const d2 = computeAnomalyQueryDigest(r2);
-    expect(d1).toBe(d2);
+    runPreflight();
+    const d1 = computeAnomalyQueryDigest();
+    // Same database state -> identical digest...
+    runPreflight();
+    expect(computeAnomalyQueryDigest()).toBe(d1);
+    // ...and the digest is a construction constant: it does not vary with the
+    // anomaly RESULTS (only with the query contract / version / schema).
+    expect(d1).toMatch(/^[0-9a-f]{64}$/);
   });
 });
 

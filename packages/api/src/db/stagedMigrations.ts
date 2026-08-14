@@ -10,15 +10,17 @@
  *   does: (hash = sha256(raw SQL file), created_at = journal `when`).
  *
  *   Preflight gate — run the versioned preflight against the now-present
- *   schema and write a database-local attestation (preflight version +
- *   deterministic SHA-256 anomaly-query digest). Blocking anomalies (the
- *   uniqueness-collision classes the enforcement constraints cannot be
- *   created over) STOP before enforcement: the failure is logged with the
- *   stable code TRIAGE_ENFORCEMENT_PREFLIGHT_DIRTY, the full machine-readable
- *   anomaly report is persisted in the attestation row, the server keeps
- *   booting on the additive schema (service-level guards remain the first
- *   line), and enforcement is retried on the next startup after remediation.
- *   Advisory diagnostics never block.
+ *   schema and write a database-local attestation (preflight version,
+ *   additive schema version, and the deterministic SHA-256 anomaly-query
+ *   CONTRACT digest — a data-independent constant for the current preflight
+ *   construction, which the enforcement migration's guard pins). Blocking
+ *   anomalies (the uniqueness-collision classes the enforcement constraints
+ *   cannot be created over) STOP before enforcement: the failure is logged
+ *   with the stable code TRIAGE_ENFORCEMENT_PREFLIGHT_DIRTY, the full
+ *   machine-readable anomaly report is persisted in the attestation row, the
+ *   server keeps booting on the additive schema (service-level guards remain
+ *   the first line), and enforcement is retried on the next startup after
+ *   remediation. Advisory diagnostics never block.
  *
  *   Stage 2 — apply + commit the enforcement entry and every later entry.
  *
@@ -219,7 +221,9 @@ export function runStagedProductionMigrations(
 
   // --- Preflight gate: versioned preflight + database-local attestation.
   const result = runPreflight();
-  const digest = computeAnomalyQueryDigest(result);
+  // Contract digest: data-independent constant pinning the CURRENT preflight
+  // construction; the enforcement migration's guard verifies this exact value.
+  const digest = computeAnomalyQueryDigest();
   const blocking = result.anomalies.filter((a) => BLOCKING_ANOMALY_CODES.has(a.code));
   const clean = blocking.length === 0;
   writeAttestation(sqlite, {

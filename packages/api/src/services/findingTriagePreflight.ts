@@ -20,13 +20,19 @@ import { sql } from "drizzle-orm";
 import { createHash } from "crypto";
 
 /**
- * Preflight version — bumped when anomaly queries change.
+ * Preflight version — bumped when the preflight construction changes.
  *
  * 002: digest is SHA-256 (was a 32-bit non-crypto hash), the additive schema
  * watermark extends through 0067, and the Finding-source Resolution duplicate
  * collision check was added.
+ *
+ * 003: the anomaly-query digest now pins the anomaly-query CONTRACT (the
+ * exact static SQL of every check, plus version/schema/blocking policy) as a
+ * data-independent constant, and the enforcement migration guard verifies
+ * schema_version + anomaly_query_digest in addition to the version + clean
+ * flag. Attestations written by older constructions fail the guard.
  */
-export const PREFLIGHT_VERSION = "002";
+export const PREFLIGHT_VERSION = "003";
 
 /**
  * Schema version for the additive lifecycle chain. The additive watermark
@@ -72,6 +78,144 @@ export interface PreflightAnomaly {
   findingKind: string;
   detail: string;
 }
+
+// --- Anomaly-query contract (pinned by the enforcement attestation guard) ---
+//
+// The static SQL below IS the executable primary query of each check — the
+// checks run these exact strings via sql.raw(), so the registry cannot drift
+// from what executes. computeAnomalyQueryDigest() hashes this registry (plus
+// PREFLIGHT_VERSION, ADDITIVE_SCHEMA_VERSION and the blocking policy) into
+// the constant the enforcement migration's guard pins: any change here
+// changes the digest, and clean attestations written by an older
+// construction abort enforcement instead of passing. Parametrized follow-up
+// queries (per-group member enumeration, per-row cycle traversal) are
+// deliberately outside the contract — they only elaborate anomalies already
+// surfaced by these primary queries.
+
+const CHECK_ACTIVE_IDENTITY_DUPLICATES_SQL = `SELECT id, habitat_id, cluster_key, finding_kind
+          FROM finding_triage
+          WHERE status NOT IN ('resolved', 'wontfix')
+          GROUP BY habitat_id, cluster_key, finding_kind
+          HAVING COUNT(*) > 1`;
+
+const CHECK_FINDING_RESOLUTION_DUPLICATES_SQL = `SELECT tr.source_id, tr.habitat_id, tr.cluster_key,
+                 (SELECT ft.finding_kind FROM finding_triage ft WHERE ft.id = tr.source_id) AS finding_kind
+          FROM triage_resolutions tr
+          WHERE tr.source = 'finding_triage'
+          GROUP BY tr.source_id
+          HAVING COUNT(*) > 1`;
+
+const CHECK_MALFORMED_EVIDENCE_JSON_SQL = `SELECT id, habitat_id, cluster_key, finding_kind, corroborating_pulse_ids
+          FROM finding_triage
+          WHERE corroborating_pulse_ids IS NOT NULL
+            AND corroborating_pulse_ids != ''
+            AND (
+              json_valid(corroborating_pulse_ids) = 0
+              OR json_type(corroborating_pulse_ids) != 'array'
+            )`;
+
+const CHECK_TERMINAL_WITHOUT_RESOLUTION_RECORD_SQL = `SELECT ft.id, ft.habitat_id, ft.cluster_key, ft.finding_kind
+          FROM finding_triage ft
+          WHERE ft.status IN ('resolved', 'wontfix')
+            AND NOT EXISTS (
+              SELECT 1 FROM triage_resolutions tr
+              WHERE tr.source = 'finding_triage'
+                AND tr.source_id = ft.id
+            )`;
+
+const CHECK_UNUSABLE_MISSION_LINK_SQL = `SELECT ft.id, ft.habitat_id, ft.cluster_key, ft.finding_kind, ft.triage_mission_id
+          FROM finding_triage ft
+          WHERE ft.triage_mission_id IS NOT NULL
+            AND ft.status NOT IN ('resolved', 'wontfix')
+            AND NOT EXISTS (
+              SELECT 1 FROM missions m
+              WHERE m.id = ft.triage_mission_id
+                AND m.is_archived = 0
+            )`;
+
+const CHECK_UNPROVABLE_PROVENANCE_MISSION_SQL = `SELECT ft.id, ft.habitat_id, ft.cluster_key, ft.finding_kind, ft.admitted_by_triage_mission_id
+          FROM finding_triage ft
+          WHERE ft.admitted_by_triage_mission_id IS NOT NULL
+            AND NOT EXISTS (
+              SELECT 1 FROM missions m WHERE m.id = ft.admitted_by_triage_mission_id
+            )`;
+
+const CHECK_UNPROVABLE_PROVENANCE_TASK_SQL = `SELECT ft.id, ft.habitat_id, ft.cluster_key, ft.finding_kind, ft.admitted_by_investigation_task_id
+          FROM finding_triage ft
+          WHERE ft.admitted_by_investigation_task_id IS NOT NULL
+            AND NOT EXISTS (
+              SELECT 1 FROM tasks t WHERE t.id = ft.admitted_by_investigation_task_id
+            )`;
+
+const CHECK_RECURRENCE_MISSING_PREDECESSOR_SQL = `SELECT ft.id, ft.habitat_id, ft.cluster_key, ft.finding_kind, ft.recurrence_of_id
+          FROM finding_triage ft
+          WHERE ft.recurrence_of_id IS NOT NULL
+            AND NOT EXISTS (
+              SELECT 1 FROM finding_triage ft2 WHERE ft2.id = ft.recurrence_of_id
+            )`;
+
+const CHECK_RECURRENCE_SELF_EDGE_SQL = `SELECT id, habitat_id, cluster_key, finding_kind
+          FROM finding_triage
+          WHERE recurrence_of_id = id`;
+
+const CHECK_RECURRENCE_CROSS_IDENTITY_SQL = `SELECT ft.id, ft.habitat_id, ft.cluster_key, ft.finding_kind, ft.recurrence_of_id
+          FROM finding_triage ft
+          JOIN finding_triage pred ON ft.recurrence_of_id = pred.id
+          WHERE ft.recurrence_of_id IS NOT NULL
+            AND (ft.habitat_id != pred.habitat_id
+                 OR ft.cluster_key != pred.cluster_key
+                 OR ft.finding_kind != pred.finding_kind)`;
+
+const CHECK_RECURRENCE_NON_TERMINAL_PRED_SQL = `SELECT ft.id, ft.habitat_id, ft.cluster_key, ft.finding_kind, ft.recurrence_of_id
+          FROM finding_triage ft
+          JOIN finding_triage pred ON ft.recurrence_of_id = pred.id
+          WHERE pred.status NOT IN ('resolved', 'wontfix')`;
+
+const CHECK_RECURRENCE_BRANCHED_SQL = `SELECT ft.id, ft.habitat_id, ft.cluster_key, ft.finding_kind, ft.recurrence_of_id
+          FROM finding_triage ft
+          WHERE ft.recurrence_of_id IN (
+            SELECT recurrence_of_id
+            FROM finding_triage
+            WHERE recurrence_of_id IS NOT NULL
+            GROUP BY recurrence_of_id
+            HAVING COUNT(*) > 1
+          )`;
+
+const CHECK_RECURRENCE_CYCLE_ROWS_SQL = `SELECT id, habitat_id, cluster_key, finding_kind, recurrence_of_id
+        FROM finding_triage WHERE recurrence_of_id IS NOT NULL`;
+
+/**
+ * Ordered registry of every anomaly check's primary queries. Order matches
+ * runPreflight() execution order; the digest hashes entries in this order.
+ */
+const ANOMALY_CHECK_CONTRACT: readonly {
+  code: AnomalyCode;
+  queries: readonly string[];
+}[] = [
+  { code: "active_identity_duplicate", queries: [CHECK_ACTIVE_IDENTITY_DUPLICATES_SQL] },
+  { code: "finding_resolution_duplicate", queries: [CHECK_FINDING_RESOLUTION_DUPLICATES_SQL] },
+  { code: "malformed_evidence_json", queries: [CHECK_MALFORMED_EVIDENCE_JSON_SQL] },
+  {
+    code: "terminal_without_resolution_record",
+    queries: [CHECK_TERMINAL_WITHOUT_RESOLUTION_RECORD_SQL],
+  },
+  { code: "unusable_mission_link", queries: [CHECK_UNUSABLE_MISSION_LINK_SQL] },
+  {
+    code: "unprovable_investigation_provenance",
+    queries: [CHECK_UNPROVABLE_PROVENANCE_MISSION_SQL, CHECK_UNPROVABLE_PROVENANCE_TASK_SQL],
+  },
+  {
+    code: "invalid_recurrence_edge",
+    queries: [
+      CHECK_RECURRENCE_MISSING_PREDECESSOR_SQL,
+      CHECK_RECURRENCE_SELF_EDGE_SQL,
+      CHECK_RECURRENCE_CROSS_IDENTITY_SQL,
+      CHECK_RECURRENCE_NON_TERMINAL_PRED_SQL,
+      CHECK_RECURRENCE_BRANCHED_SQL,
+      CHECK_RECURRENCE_CYCLE_ROWS_SQL,
+    ],
+  },
+];
 
 /** Aggregate preflight result. */
 export interface PreflightResult {
@@ -146,13 +290,7 @@ type SqlRows = SqlRow[];
  * human-only.
  */
 function checkActiveIdentityDuplicates(db: DbClient): PreflightAnomaly[] {
-  const groups = db.all(
-    sql`SELECT id, habitat_id, cluster_key, finding_kind
-          FROM finding_triage
-          WHERE status NOT IN ('resolved', 'wontfix')
-          GROUP BY habitat_id, cluster_key, finding_kind
-          HAVING COUNT(*) > 1`,
-  ) as SqlRows;
+  const groups = db.all(sql.raw(CHECK_ACTIVE_IDENTITY_DUPLICATES_SQL)) as SqlRows;
 
   const anomalies: PreflightAnomaly[] = [];
   for (const group of groups) {
@@ -186,14 +324,7 @@ function checkActiveIdentityDuplicates(db: DbClient): PreflightAnomaly[] {
  * rejects — it must be resolved before enforcement.
  */
 function checkFindingResolutionDuplicates(db: DbClient): PreflightAnomaly[] {
-  const groups = db.all(
-    sql`SELECT tr.source_id, tr.habitat_id, tr.cluster_key,
-                 (SELECT ft.finding_kind FROM finding_triage ft WHERE ft.id = tr.source_id) AS finding_kind
-          FROM triage_resolutions tr
-          WHERE tr.source = 'finding_triage'
-          GROUP BY tr.source_id
-          HAVING COUNT(*) > 1`,
-  ) as SqlRows;
+  const groups = db.all(sql.raw(CHECK_FINDING_RESOLUTION_DUPLICATES_SQL)) as SqlRows;
   return groups.map((row) => ({
     code: "finding_resolution_duplicate" as const,
     findingTriagId: row.source_id as string,
@@ -208,16 +339,7 @@ function checkFindingResolutionDuplicates(db: DbClient): PreflightAnomaly[] {
  * corroborating_pulse_ids that fail JSON.parse or don't produce a string[].
  */
 function checkMalformedEvidenceJson(db: DbClient): PreflightAnomaly[] {
-  const rows = db.all(
-    sql`SELECT id, habitat_id, cluster_key, finding_kind, corroborating_pulse_ids
-          FROM finding_triage
-          WHERE corroborating_pulse_ids IS NOT NULL
-            AND corroborating_pulse_ids != ''
-            AND (
-              json_valid(corroborating_pulse_ids) = 0
-              OR json_type(corroborating_pulse_ids) != 'array'
-            )`,
-  ) as SqlRows;
+  const rows = db.all(sql.raw(CHECK_MALFORMED_EVIDENCE_JSON_SQL)) as SqlRows;
   return rows.map((row) => ({
     code: "malformed_evidence_json" as const,
     findingTriagId: row.id as string,
@@ -233,16 +355,7 @@ function checkMalformedEvidenceJson(db: DbClient): PreflightAnomaly[] {
  * (source='finding_triage', sourceId=finding_triage.id).
  */
 function checkTerminalWithoutResolutionRecord(db: DbClient): PreflightAnomaly[] {
-  const rows = db.all(
-    sql`SELECT ft.id, ft.habitat_id, ft.cluster_key, ft.finding_kind
-          FROM finding_triage ft
-          WHERE ft.status IN ('resolved', 'wontfix')
-            AND NOT EXISTS (
-              SELECT 1 FROM triage_resolutions tr
-              WHERE tr.source = 'finding_triage'
-                AND tr.source_id = ft.id
-            )`,
-  ) as SqlRows;
+  const rows = db.all(sql.raw(CHECK_TERMINAL_WITHOUT_RESOLUTION_RECORD_SQL)) as SqlRows;
   return rows.map((row) => ({
     code: "terminal_without_resolution_record" as const,
     findingTriagId: row.id as string,
@@ -258,17 +371,7 @@ function checkTerminalWithoutResolutionRecord(db: DbClient): PreflightAnomaly[] 
  * while the Finding is non-terminal.
  */
 function checkUnusableMissionLink(db: DbClient): PreflightAnomaly[] {
-  const rows = db.all(
-    sql`SELECT ft.id, ft.habitat_id, ft.cluster_key, ft.finding_kind, ft.triage_mission_id
-          FROM finding_triage ft
-          WHERE ft.triage_mission_id IS NOT NULL
-            AND ft.status NOT IN ('resolved', 'wontfix')
-            AND NOT EXISTS (
-              SELECT 1 FROM missions m
-              WHERE m.id = ft.triage_mission_id
-                AND m.is_archived = 0
-            )`,
-  ) as SqlRows;
+  const rows = db.all(sql.raw(CHECK_UNUSABLE_MISSION_LINK_SQL)) as SqlRows;
   return rows.map((row) => ({
     code: "unusable_mission_link" as const,
     findingTriagId: row.id as string,
@@ -287,43 +390,29 @@ function checkUnprovableInvestigationProvenance(db: DbClient): PreflightAnomaly[
   const anomalies: PreflightAnomaly[] = [];
 
   // Check admitted_by_triage_mission_id references
-  const brokenMission = (
-    db.all(
-      sql`SELECT ft.id, ft.habitat_id, ft.cluster_key, ft.finding_kind, ft.admitted_by_triage_mission_id
-          FROM finding_triage ft
-          WHERE ft.admitted_by_triage_mission_id IS NOT NULL
-            AND NOT EXISTS (
-              SELECT 1 FROM missions m WHERE m.id = ft.admitted_by_triage_mission_id
-            )`,
-    ) as SqlRows
-  ).map((row) => ({
-    code: "unprovable_investigation_provenance" as const,
-    findingTriagId: row.id as string,
-    habitatId: row.habitat_id as string,
-    clusterKey: row.cluster_key as string,
-    findingKind: row.finding_kind as string,
-    detail: `admitted_by_triage_mission_id ${row.admitted_by_triage_mission_id} does not exist`,
-  }));
+  const brokenMission = (db.all(sql.raw(CHECK_UNPROVABLE_PROVENANCE_MISSION_SQL)) as SqlRows).map(
+    (row) => ({
+      code: "unprovable_investigation_provenance" as const,
+      findingTriagId: row.id as string,
+      habitatId: row.habitat_id as string,
+      clusterKey: row.cluster_key as string,
+      findingKind: row.finding_kind as string,
+      detail: `admitted_by_triage_mission_id ${row.admitted_by_triage_mission_id} does not exist`,
+    }),
+  );
   anomalies.push(...brokenMission);
 
   // Check admitted_by_investigation_task_id references
-  const brokenTask = (
-    db.all(
-      sql`SELECT ft.id, ft.habitat_id, ft.cluster_key, ft.finding_kind, ft.admitted_by_investigation_task_id
-          FROM finding_triage ft
-          WHERE ft.admitted_by_investigation_task_id IS NOT NULL
-            AND NOT EXISTS (
-              SELECT 1 FROM tasks t WHERE t.id = ft.admitted_by_investigation_task_id
-            )`,
-    ) as SqlRows
-  ).map((row) => ({
-    code: "unprovable_investigation_provenance" as const,
-    findingTriagId: row.id as string,
-    habitatId: row.habitat_id as string,
-    clusterKey: row.cluster_key as string,
-    findingKind: row.finding_kind as string,
-    detail: `admitted_by_investigation_task_id ${row.admitted_by_investigation_task_id} does not exist`,
-  }));
+  const brokenTask = (db.all(sql.raw(CHECK_UNPROVABLE_PROVENANCE_TASK_SQL)) as SqlRows).map(
+    (row) => ({
+      code: "unprovable_investigation_provenance" as const,
+      findingTriagId: row.id as string,
+      habitatId: row.habitat_id as string,
+      clusterKey: row.cluster_key as string,
+      findingKind: row.finding_kind as string,
+      detail: `admitted_by_investigation_task_id ${row.admitted_by_investigation_task_id} does not exist`,
+    }),
+  );
   anomalies.push(...brokenTask);
 
   return anomalies;
@@ -338,33 +427,20 @@ function checkInvalidRecurrenceEdges(db: DbClient): PreflightAnomaly[] {
   const anomalies: PreflightAnomaly[] = [];
 
   // Missing predecessor
-  const missing = (
-    db.all(
-      sql`SELECT ft.id, ft.habitat_id, ft.cluster_key, ft.finding_kind, ft.recurrence_of_id
-          FROM finding_triage ft
-          WHERE ft.recurrence_of_id IS NOT NULL
-            AND NOT EXISTS (
-              SELECT 1 FROM finding_triage ft2 WHERE ft2.id = ft.recurrence_of_id
-            )`,
-    ) as SqlRows
-  ).map((row) => ({
-    code: "invalid_recurrence_edge" as const,
-    findingTriagId: row.id as string,
-    habitatId: row.habitat_id as string,
-    clusterKey: row.cluster_key as string,
-    findingKind: row.finding_kind as string,
-    detail: `recurrence_of_id ${row.recurrence_of_id} points to non-existent finding`,
-  }));
+  const missing = (db.all(sql.raw(CHECK_RECURRENCE_MISSING_PREDECESSOR_SQL)) as SqlRows).map(
+    (row) => ({
+      code: "invalid_recurrence_edge" as const,
+      findingTriagId: row.id as string,
+      habitatId: row.habitat_id as string,
+      clusterKey: row.cluster_key as string,
+      findingKind: row.finding_kind as string,
+      detail: `recurrence_of_id ${row.recurrence_of_id} points to non-existent finding`,
+    }),
+  );
   anomalies.push(...missing);
 
   // Self-edge
-  const selfEdge = (
-    db.all(
-      sql`SELECT id, habitat_id, cluster_key, finding_kind
-          FROM finding_triage
-          WHERE recurrence_of_id = id`,
-    ) as SqlRows
-  ).map((row) => ({
+  const selfEdge = (db.all(sql.raw(CHECK_RECURRENCE_SELF_EDGE_SQL)) as SqlRows).map((row) => ({
     code: "invalid_recurrence_edge" as const,
     findingTriagId: row.id as string,
     habitatId: row.habitat_id as string,
@@ -375,58 +451,33 @@ function checkInvalidRecurrenceEdges(db: DbClient): PreflightAnomaly[] {
   anomalies.push(...selfEdge);
 
   // Cross-habitat or cross-kind edge
-  const crossIdentity = (
-    db.all(
-      sql`SELECT ft.id, ft.habitat_id, ft.cluster_key, ft.finding_kind, ft.recurrence_of_id
-          FROM finding_triage ft
-          JOIN finding_triage pred ON ft.recurrence_of_id = pred.id
-          WHERE ft.recurrence_of_id IS NOT NULL
-            AND (ft.habitat_id != pred.habitat_id
-                 OR ft.cluster_key != pred.cluster_key
-                 OR ft.finding_kind != pred.finding_kind)`,
-    ) as SqlRows
-  ).map((row) => ({
-    code: "invalid_recurrence_edge" as const,
-    findingTriagId: row.id as string,
-    habitatId: row.habitat_id as string,
-    clusterKey: row.cluster_key as string,
-    findingKind: row.finding_kind as string,
-    detail: `recurrence_of_id crosses habitat/cluster/kind identity`,
-  }));
+  const crossIdentity = (db.all(sql.raw(CHECK_RECURRENCE_CROSS_IDENTITY_SQL)) as SqlRows).map(
+    (row) => ({
+      code: "invalid_recurrence_edge" as const,
+      findingTriagId: row.id as string,
+      habitatId: row.habitat_id as string,
+      clusterKey: row.cluster_key as string,
+      findingKind: row.finding_kind as string,
+      detail: `recurrence_of_id crosses habitat/cluster/kind identity`,
+    }),
+  );
   anomalies.push(...crossIdentity);
 
   // Non-terminal predecessor
-  const nonTerminalPred = (
-    db.all(
-      sql`SELECT ft.id, ft.habitat_id, ft.cluster_key, ft.finding_kind, ft.recurrence_of_id
-          FROM finding_triage ft
-          JOIN finding_triage pred ON ft.recurrence_of_id = pred.id
-          WHERE pred.status NOT IN ('resolved', 'wontfix')`,
-    ) as SqlRows
-  ).map((row) => ({
-    code: "invalid_recurrence_edge" as const,
-    findingTriagId: row.id as string,
-    habitatId: row.habitat_id as string,
-    clusterKey: row.cluster_key as string,
-    findingKind: row.finding_kind as string,
-    detail: `predecessor ${row.recurrence_of_id} is not terminal`,
-  }));
+  const nonTerminalPred = (db.all(sql.raw(CHECK_RECURRENCE_NON_TERMINAL_PRED_SQL)) as SqlRows).map(
+    (row) => ({
+      code: "invalid_recurrence_edge" as const,
+      findingTriagId: row.id as string,
+      habitatId: row.habitat_id as string,
+      clusterKey: row.cluster_key as string,
+      findingKind: row.finding_kind as string,
+      detail: `predecessor ${row.recurrence_of_id} is not terminal`,
+    }),
+  );
   anomalies.push(...nonTerminalPred);
 
   // Branched: predecessor with >1 child
-  const branched = (
-    db.all(
-      sql`SELECT ft.id, ft.habitat_id, ft.cluster_key, ft.finding_kind, ft.recurrence_of_id
-          FROM finding_triage ft
-          WHERE ft.recurrence_of_id IN (
-            SELECT recurrence_of_id
-            FROM finding_triage
-            WHERE recurrence_of_id IS NOT NULL
-            GROUP BY recurrence_of_id
-            HAVING COUNT(*) > 1
-          )`,
-    ) as SqlRows
-  ).map((row) => ({
+  const branched = (db.all(sql.raw(CHECK_RECURRENCE_BRANCHED_SQL)) as SqlRows).map((row) => ({
     code: "invalid_recurrence_edge" as const,
     findingTriagId: row.id as string,
     habitatId: row.habitat_id as string,
@@ -449,10 +500,7 @@ function checkInvalidRecurrenceEdges(db: DbClient): PreflightAnomaly[] {
  */
 function detectCycles(db: DbClient): PreflightAnomaly[] {
   const MAX_DEPTH = 100;
-  const rowsWithRecurrence = db.all(
-    sql`SELECT id, habitat_id, cluster_key, finding_kind, recurrence_of_id
-        FROM finding_triage WHERE recurrence_of_id IS NOT NULL`,
-  ) as SqlRows;
+  const rowsWithRecurrence = db.all(sql.raw(CHECK_RECURRENCE_CYCLE_ROWS_SQL)) as SqlRows;
 
   const anomalies: PreflightAnomaly[] = [];
   for (const row of rowsWithRecurrence) {
@@ -491,18 +539,25 @@ function detectCycles(db: DbClient): PreflightAnomaly[] {
 // --- Digest for attestation ---
 
 /**
- * Compute a deterministic SHA-256 digest of the anomaly query results for
- * attestation purposes. The same database state always produces the same digest.
+ * Compute the deterministic SHA-256 digest of the anomaly-query CONTRACT:
+ * preflight version, additive schema version, every check's code and primary
+ * SQL (in execution order), and the blocking policy. The value is a
+ * data-independent constant for a given preflight construction — the
+ * enforcement migration's attestation guard pins it, so a clean attestation
+ * written by any other construction (different schema watermark or different
+ * anomaly queries) aborts enforcement. Preflight version 001/002 hashed the
+ * anomaly RESULTS instead (data-dependent, unpinnable); 003 pins the
+ * construction.
  */
-export function computeAnomalyQueryDigest(result: PreflightResult): string {
-  // Deterministic serialization: sort anomalies by (code, findingTriagId)
-  const sorted = [...result.anomalies].sort((a, b) => {
-    if (a.code !== b.code) return a.code.localeCompare(b.code);
-    return a.findingTriagId.localeCompare(b.findingTriagId);
-  });
-  const lines = sorted.map((a) => `${a.code}:${a.findingTriagId}:${a.detail}`);
-  // SHA-256 over the canonical serialization. Preflight version 001 used a
-  // 32-bit non-crypto hash; 002 hardens the digest to SHA-256 so the
-  // database-local attestation is collision-resistant.
+export function computeAnomalyQueryDigest(): string {
+  const lines = [
+    `preflight_version:${PREFLIGHT_VERSION}`,
+    `schema_version:${ADDITIVE_SCHEMA_VERSION}`,
+    ...ANOMALY_CHECK_CONTRACT.flatMap((c) => [
+      `check:${c.code}`,
+      ...c.queries.map((q) => `sql:${q}`),
+    ]),
+    ...[...BLOCKING_ANOMALY_CODES].sort().map((c) => `blocking:${c}`),
+  ];
   return createHash("sha256").update(lines.join("\n")).digest("hex");
 }

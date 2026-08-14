@@ -18,10 +18,14 @@
  *     the normal Drizzle ledger; ledger rows are hash/timestamp-identical to
  *     what Drizzle migrate() writes.
  *   - Post-enforcement invariants: partial-unique active identity, partial-
- *     unique Finding Resolution, RESTRICT FKs — while Cluster Resolution and
- *     habitat CASCADE stay operational.
+ *     unique Finding Resolution, RESTRICT FKs — including the investigation-
+ *     provenance FKs (admitting Mission/Task) on BOTH rebuilt tables — while
+ *     Cluster Resolution and habitat CASCADE stay operational.
  *   - CHECK-guard / attestation discriminators applied DIRECTLY (bypassing
- *     the runner) abort the enforcement transaction.
+ *     the runner) abort the enforcement transaction: missing, stale-version,
+ *     wrong-schema_version, and wrong-anomaly-query-digest clean
+ *     attestations all abort; a parity test pins the guard's literals to the
+ *     live preflight constants the runner emits.
  */
 import { vi, describe, it, expect, beforeEach, afterEach } from "vitest";
 
@@ -39,7 +43,11 @@ import {
   ADDITIVE_WATERMARK_TAG,
   TRIAGE_ENFORCEMENT_PREFLIGHT_DIRTY_CODE,
 } from "../db/stagedMigrations.js";
-import { PREFLIGHT_VERSION, ADDITIVE_SCHEMA_VERSION } from "../services/findingTriagePreflight.js";
+import {
+  PREFLIGHT_VERSION,
+  ADDITIVE_SCHEMA_VERSION,
+  computeAnomalyQueryDigest,
+} from "../services/findingTriagePreflight.js";
 
 const PACKAGE_ROOT = join(import.meta.dirname, "..", "..");
 const DRIZZLE_DIR = join(PACKAGE_ROOT, "drizzle");
@@ -111,19 +119,29 @@ interface TriageWorldIds {
   habitatId: string;
   pulseId: string;
   missionId: string;
+  /** Mission referenced ONLY via finding provenance (admitted_by_triage_mission_id). */
+  admitMissionId: string;
+  /** Task referenced ONLY via finding provenance (admitted_by_investigation_task_id). */
+  invTaskId: string;
 }
 
 /**
  * Seed a minimal clean triage world on a database that already has the
  * schema through 0064+ (finding_triage additive columns exist): one active
  * finding, one terminal finding WITH a Resolution Record, and one terminal
- * finding WITHOUT one (advisory pre-cutover anomaly — must not block).
+ * finding WITHOUT one (advisory pre-cutover anomaly — must not block). The
+ * active finding also carries investigation provenance (a separate admitting
+ * Mission + investigation Task) so the enforcement provenance FKs have live
+ * references. No finding_triage_evidence rows are seeded here — evidence
+ * rows intentionally live only in tests that do not delete the habitat.
  */
 function seedCleanTriageWorld(dbPath: string, prefix: string): TriageWorldIds {
   const db = new Database(dbPath);
   const now = new Date().toISOString();
   const habitatId = `${prefix}-hab`;
   const missionId = `${prefix}-mission`;
+  const admitMissionId = `${prefix}-admit-mission`;
+  const invTaskId = `${prefix}-inv-task`;
   const pulseBase = `${prefix}-pulse`;
   db.prepare(
     "INSERT OR IGNORE INTO habitats (id, name, created_at, updated_at) VALUES (?, ?, ?, ?)",
@@ -131,10 +149,20 @@ function seedCleanTriageWorld(dbPath: string, prefix: string): TriageWorldIds {
   db.prepare(
     `INSERT OR IGNORE INTO columns (id, habitat_id, name, "order") VALUES (?, ?, ?, ?)`,
   ).run(`${prefix}-col`, habitatId, "Todo", 0);
+  for (const mid of [missionId, admitMissionId]) {
+    db.prepare(
+      `INSERT OR IGNORE INTO missions (id, habitat_id, column_id, title, labels, depends_on, blocks, created_by, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    ).run(mid, habitatId, `${prefix}-col`, "Corrective", "[]", "[]", "[]", "system", now, now);
+  }
+  // The investigation Task lives on the CORRECTIVE mission (never deleted in
+  // these tests), NOT on the admitting Mission: a task on the admitting
+  // Mission would cascade on its deletion and mask the provenance FK under
+  // test behind the task-FK chain.
   db.prepare(
-    `INSERT OR IGNORE INTO missions (id, habitat_id, column_id, title, labels, depends_on, blocks, created_by, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-  ).run(missionId, habitatId, `${prefix}-col`, "Corrective", "[]", "[]", "[]", "system", now, now);
+    `INSERT OR IGNORE INTO tasks (id, mission_id, title, labels, required_capabilities, artifacts, created_by)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+  ).run(invTaskId, missionId, "Investigate", "[]", "[]", "[]", "system");
 
   const insertFinding = db.prepare(
     `INSERT INTO finding_triage
@@ -178,8 +206,21 @@ function seedCleanTriageWorld(dbPath: string, prefix: string): TriageWorldIds {
     // i === 2 stays terminal WITHOUT a Resolution Record — advisory anomaly
     // common in pre-cutover data; must NOT block enforcement.
   }
+  // Investigation provenance on the active finding: the admitting Mission
+  // and investigation Task exist, so the preflight provenance check stays
+  // clean while the enforcement provenance FKs get live references. Only
+  // possible on a schema that already has the 0064+ additive columns
+  // (watermark-prepared databases); 0063-era seeds stay provenance-free and
+  // tests that need post-enforcement provenance set it after initDb.
+  const columns = db.prepare("PRAGMA table_info(finding_triage)").all() as { name: string }[];
+  if (columns.some((c) => c.name === "admitted_by_triage_mission_id")) {
+    db.prepare(
+      `UPDATE finding_triage SET admitted_by_triage_mission_id = ?, admitted_by_investigation_task_id = ?
+       WHERE id = ?`,
+    ).run(admitMissionId, invTaskId, `${prefix}-ft-0`);
+  }
   db.close();
-  return { habitatId, pulseId: `${pulseBase}-0`, missionId };
+  return { habitatId, pulseId: `${pulseBase}-0`, missionId, admitMissionId, invTaskId };
 }
 
 function openRaw(dbPath: string): Database.Database {
@@ -252,6 +293,9 @@ describe("Staged enforcement — production initDb discriminators", () => {
       expect(att!.preflight_version).toBe(PREFLIGHT_VERSION);
       expect(att!.schema_version).toBe(ADDITIVE_SCHEMA_VERSION);
       expect(att!.clean).toBe(1);
+      // The runner emits the CONTRACT digest the enforcement guard pins —
+      // schema_version + digest arms would abort enforcement on drift.
+      expect(att!.anomaly_query_digest).toBe(computeAnomalyQueryDigest());
 
       // Ledger parity with Drizzle migrate(): every journal entry recorded
       // with sha256(raw SQL) at the journal `when`.
@@ -566,6 +610,69 @@ describe("Staged enforcement — production initDb discriminators", () => {
       expect((raw.prepare("SELECT COUNT(*) as n FROM finding_triage").get() as any).n).toBe(0);
       raw.close();
     });
+
+    it("rejects deleting the admitting Mission/Task referenced via investigation provenance on BOTH rebuilt tables", async () => {
+      const ids = await enforced("pk");
+      const now = new Date().toISOString();
+      const raw = openRaw(dbPath);
+      // Post-enforcement provenance on the active finding (the enforced()
+      // seed runs against the 0063-era schema, before the additive columns).
+      raw
+        .prepare(
+          `UPDATE finding_triage SET admitted_by_triage_mission_id = ?, admitted_by_investigation_task_id = ?
+           WHERE id = ?`,
+        )
+        .run(ids.admitMissionId, ids.invTaskId, "pk-ft-0");
+      // Evidence row whose provenance points at a Mission/Task referenced
+      // ONLY through finding_triage_evidence (isolates the evidence-table
+      // provenance FKs from the finding-table ones). evMission hosts no
+      // tasks and evTask lives on the corrective mission so each delete
+      // discriminates exactly one FK.
+      const evMission = "pk-ev-mission";
+      const evTask = "pk-ev-task";
+      raw
+        .prepare(
+          `INSERT INTO missions (id, habitat_id, column_id, title, labels, depends_on, blocks, created_by, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        )
+        .run(evMission, ids.habitatId, "pk-col", "Admit", "[]", "[]", "[]", "system", now, now);
+      raw
+        .prepare(
+          `INSERT INTO tasks (id, mission_id, title, labels, required_capabilities, artifacts, created_by)
+           VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        )
+        .run(evTask, ids.missionId, "Investigate", "[]", "[]", "[]", "system");
+      raw
+        .prepare(
+          `INSERT INTO finding_triage_evidence
+             (finding_triage_id, pulse_id, role, admitted_by_triage_mission_id, admitted_by_investigation_task_id, admitted_at)
+           VALUES (?, ?, 'source', ?, ?, ?)`,
+        )
+        .run("pk-ft-0", ids.pulseId, evMission, evTask, now);
+
+      // finding_triage provenance FKs (references from the active finding).
+      expect(() =>
+        raw.prepare("DELETE FROM missions WHERE id = ?").run(ids.admitMissionId),
+      ).toThrow(/FOREIGN KEY/i);
+      expect(() => raw.prepare("DELETE FROM tasks WHERE id = ?").run(ids.invTaskId)).toThrow(
+        /FOREIGN KEY/i,
+      );
+      // finding_triage_evidence provenance FKs (references from the evidence row).
+      expect(() => raw.prepare("DELETE FROM missions WHERE id = ?").run(evMission)).toThrow(
+        /FOREIGN KEY/i,
+      );
+      expect(() => raw.prepare("DELETE FROM tasks WHERE id = ?").run(evTask)).toThrow(
+        /FOREIGN KEY/i,
+      );
+      // And the evidence row itself still RESTRICTs its Finding/Pulse.
+      expect(() => raw.prepare("DELETE FROM pulses WHERE id = ?").run(ids.pulseId)).toThrow(
+        /FOREIGN KEY/i,
+      );
+      expect(() => raw.prepare("DELETE FROM finding_triage WHERE id = ?").run("pk-ft-0")).toThrow(
+        /FOREIGN KEY/i,
+      );
+      raw.close();
+    });
   });
 
   // ------------------------------------------------------------------
@@ -633,9 +740,14 @@ describe("Staged enforcement — production initDb discriminators", () => {
         .prepare(
           `INSERT INTO migration_preflight_attestations
             (enforcement_migration_id, schema_version, preflight_version, anomaly_query_digest, clean, attested_at)
-           VALUES (?, ?, ?, 'clean', 1, datetime('now'))`,
+           VALUES (?, ?, ?, ?, 1, datetime('now'))`,
         )
-        .run(ENFORCEMENT_MIGRATION_TAG, ADDITIVE_SCHEMA_VERSION, PREFLIGHT_VERSION);
+        .run(
+          ENFORCEMENT_MIGRATION_TAG,
+          ADDITIVE_SCHEMA_VERSION,
+          PREFLIGHT_VERSION,
+          computeAnomalyQueryDigest(),
+        );
       // Anomaly introduced AFTER the attestation: duplicate active identity.
       const now = new Date().toISOString();
       for (const fid of ["gd-dup-1", "gd-dup-2"]) {
@@ -682,14 +794,75 @@ describe("Staged enforcement — production initDb discriminators", () => {
         .prepare(
           `INSERT INTO migration_preflight_attestations
             (enforcement_migration_id, schema_version, preflight_version, anomaly_query_digest, clean, attested_at)
-           VALUES (?, ?, ?, 'clean', 1, datetime('now'))`,
+           VALUES (?, ?, ?, ?, 1, datetime('now'))`,
         )
-        .run(ENFORCEMENT_MIGRATION_TAG, ADDITIVE_SCHEMA_VERSION, PREFLIGHT_VERSION);
+        .run(
+          ENFORCEMENT_MIGRATION_TAG,
+          ADDITIVE_SCHEMA_VERSION,
+          PREFLIGHT_VERSION,
+          computeAnomalyQueryDigest(),
+        );
       seed.close();
       const raw = openRaw(dbPath);
       expect(() => applyEnforcementDirectly(raw)).not.toThrow();
       expect(hasEnforcement(dbPath)).toBe(true);
       raw.close();
+    });
+
+    it("aborts with a clean attestation carrying the WRONG schema_version (digest + version correct)", () => {
+      cleanupDb(dbPath);
+      prepareLedgerThrough(dbPath, ADDITIVE_WATERMARK_TAG);
+      seedCleanTriageWorld(dbPath, "gw");
+      const seed = openRaw(dbPath);
+      seed
+        .prepare(
+          `INSERT INTO migration_preflight_attestations
+            (enforcement_migration_id, schema_version, preflight_version, anomaly_query_digest, clean, attested_at)
+           VALUES (?, ?, ?, ?, 1, datetime('now'))`,
+        )
+        // Attested against a DIFFERENT schema watermark (e.g. an older
+        // preflight run against the 0064-era schema): the guard must reject
+        // it even though preflight version, digest and clean are right.
+        .run(ENFORCEMENT_MIGRATION_TAG, "0064", PREFLIGHT_VERSION, computeAnomalyQueryDigest());
+      seed.close();
+      const raw = openRaw(dbPath);
+      expect(() => applyEnforcementDirectly(raw)).toThrow(/CHECK constraint failed/i);
+      expect(hasEnforcement(dbPath)).toBe(false);
+      raw.close();
+    });
+
+    it("aborts with a clean attestation carrying the WRONG anomaly-query digest (schema + version correct)", () => {
+      cleanupDb(dbPath);
+      prepareLedgerThrough(dbPath, ADDITIVE_WATERMARK_TAG);
+      seedCleanTriageWorld(dbPath, "gx");
+      const seed = openRaw(dbPath);
+      seed
+        .prepare(
+          `INSERT INTO migration_preflight_attestations
+            (enforcement_migration_id, schema_version, preflight_version, anomaly_query_digest, clean, attested_at)
+           VALUES (?, ?, ?, ?, 1, datetime('now'))`,
+        )
+        // Attested by a DIFFERENT preflight construction (different anomaly
+        // queries): schema version, preflight version and clean all look
+        // right, but the contract digest does not match the current
+        // construction — enforcement must abort, not trust the stale scan.
+        .run(ENFORCEMENT_MIGRATION_TAG, ADDITIVE_SCHEMA_VERSION, PREFLIGHT_VERSION, "deadbeef");
+      seed.close();
+      const raw = openRaw(dbPath);
+      expect(() => applyEnforcementDirectly(raw)).toThrow(/CHECK constraint failed/i);
+      expect(hasEnforcement(dbPath)).toBe(false);
+      raw.close();
+    });
+
+    it("guard SQL pins the LIVE preflight constants (schema version, preflight version, contract digest)", () => {
+      // Parity between the 0068 guard literals and the code constants the
+      // staged runner emits. If the preflight construction changes without
+      // regenerating the guard, every future enforcement would abort — this
+      // fails first with a precise diff instead.
+      const sqlText = readFileSync(join(DRIZZLE_DIR, `${ENFORCEMENT_MIGRATION_TAG}.sql`), "utf-8");
+      expect(sqlText).toContain(`preflight_version = '${PREFLIGHT_VERSION}'`);
+      expect(sqlText).toContain(`schema_version = '${ADDITIVE_SCHEMA_VERSION}'`);
+      expect(sqlText).toContain(`anomaly_query_digest = '${computeAnomalyQueryDigest()}'`);
     });
   });
 
