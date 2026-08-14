@@ -144,6 +144,21 @@ function mapLifecycleOutcome<T>(
     );
   }
 
+  if (reason === "invalid_dependency") {
+    // Anti-probing: missing-id and cross-Habitat produce ONE indistinguishable
+    // 409 — never the id, never which condition failed, only the position.
+    const index =
+      current && typeof current === "object" && "index" in current
+        ? (current as { index: number }).index
+        : null;
+    throw conflictWithCode(
+      "INVALID_DEPENDENCY",
+      typeof index === "number"
+        ? `Dependency at position ${index} is not a valid same-Habitat Mission.`
+        : "One or more dependencies are not valid same-Habitat Missions.",
+    );
+  }
+
   // Activation-specific conflicts (restored lifecycle T5).
   if (reason === "missing_link") {
     throw conflictWithCode(
@@ -274,20 +289,23 @@ const listFindingsQuerySchema = z.object({
     .optional(),
 });
 
-const patchFindingBodySchema = z.object({
-  status: z
-    .enum(FINDING_TRIAGE_STATUSES as unknown as [FindingTriageStatus, ...FindingTriageStatus[]])
-    .optional(),
-  bucket: z
-    .enum(SUGGESTED_BUCKETS as unknown as [SuggestedBucket, ...SuggestedBucket[]])
-    .optional(),
-  targetRelease: z.string().max(100).nullable().optional(),
-  targetReleaseType: z
-    .enum(RELEASE_TYPES as unknown as [ReleaseType, ...ReleaseType[]])
-    .nullable()
-    .optional(),
-  triageMissionId: z.string().max(200).nullable().optional(),
-});
+const patchFindingBodySchema = z
+  .object({
+    status: z
+      .enum(FINDING_TRIAGE_STATUSES as unknown as [FindingTriageStatus, ...FindingTriageStatus[]])
+      .optional(),
+    bucket: z
+      .enum(SUGGESTED_BUCKETS as unknown as [SuggestedBucket, ...SuggestedBucket[]])
+      .optional(),
+    targetRelease: z.string().max(100).nullable().optional(),
+    targetReleaseType: z
+      .enum(RELEASE_TYPES as unknown as [ReleaseType, ...ReleaseType[]])
+      .nullable()
+      .optional(),
+    triageMissionId: z.string().max(200).nullable().optional(),
+    expectedMissionVersion: z.number().int().nonnegative().optional(),
+  })
+  .strict();
 
 const resolutionsQuerySchema = z.object({
   habitatId: z.string().min(1),
@@ -310,29 +328,37 @@ const releaseTriggerBodySchema = z.object({
 // Local intent route payloads (restored lifecycle T4)
 // ---------------------------------------------------------------------------
 
-const fixNowRouteSchema = z.object({
-  bucket: z.literal("fix_now"),
-  missionTitle: z.string().min(1).max(500),
-  missionDescription: z.string().min(1).max(20000),
-  dependencies: z.array(z.string().max(200)).max(50).optional(),
-});
+const fixNowRouteSchema = z
+  .object({
+    bucket: z.literal("fix_now"),
+    missionTitle: z.string().min(1).max(500),
+    missionDescription: z.string().min(1).max(20000),
+    dependencies: z.array(z.string().max(200)).max(50).optional(),
+  })
+  .strict();
 
-const deferRouteSchema = z.object({
-  bucket: z.enum(["defer_to_patch", "defer_to_release"]),
-  missionTitle: z.string().min(1).max(500),
-  missionDescription: z.string().min(1).max(20000),
-  dependencies: z.array(z.string().max(200)).max(50).optional(),
-  releaseGateType: z.enum(["patch", "minor", "major"]),
-  releaseGateVersion: z.string().min(1).max(64),
-});
+const deferRouteSchema = z
+  .object({
+    bucket: z.enum(["defer_to_patch", "defer_to_release"]),
+    missionTitle: z.string().min(1).max(500),
+    missionDescription: z.string().min(1).max(20000),
+    dependencies: z.array(z.string().max(200)).max(50).optional(),
+    releaseGateType: z.enum(["patch", "minor", "major"]),
+    releaseGateVersion: z.string().min(1).max(64),
+  })
+  .strict();
 
-const noWorkRouteSchema = z.object({
-  bucket: z.literal("document_as_known_limitation"),
-});
+const noWorkRouteSchema = z
+  .object({
+    bucket: z.literal("document_as_known_limitation"),
+  })
+  .strict();
 
-const investigationRouteSchema = z.object({
-  bucket: z.literal("needs_investigation"),
-});
+const investigationRouteSchema = z
+  .object({
+    bucket: z.literal("needs_investigation"),
+  })
+  .strict();
 
 const routeFindingBodySchema = z.union([
   fixNowRouteSchema,
@@ -341,19 +367,25 @@ const routeFindingBodySchema = z.union([
   investigationRouteSchema,
 ]);
 
-const resolveFindingBodySchema = z.object({
-  resolution: z.string().min(1).max(10000),
-  resolutionKind: z.enum(RESOLUTION_KINDS as unknown as [ResolutionKind, ...ResolutionKind[]]),
-  rootCause: z.string().max(10000).optional(),
-});
+const resolveFindingBodySchema = z
+  .object({
+    resolution: z.string().min(1).max(10000),
+    resolutionKind: z.enum(RESOLUTION_KINDS as unknown as [ResolutionKind, ...ResolutionKind[]]),
+    rootCause: z.string().max(10000).optional(),
+  })
+  .strict();
 
-const wontfixFindingBodySchema = z.object({
-  reason: z.string().min(1).max(10000),
-});
+const wontfixFindingBodySchema = z
+  .object({
+    reason: z.string().min(1).max(10000),
+  })
+  .strict();
 
-const activateFindingBodySchema = z.object({
-  expectedMissionVersion: z.number().int().nonnegative().optional(),
-});
+const activateFindingBodySchema = z
+  .object({
+    expectedMissionVersion: z.number().int().nonnegative().optional(),
+  })
+  .strict();
 
 /**
  * REST surface for the triage domain (ADR-0024 / ADR-0026 / ADR-0027). Finding
@@ -536,8 +568,7 @@ export async function triageRoutes(fastify: FastifyInstance): Promise<void> {
       // ---------------------------------------------------------------
       // Link-only shape: {triageMissionId, expectedMissionVersion} or unlink.
       // ---------------------------------------------------------------
-      const expectedVersion = (request.body as { expectedMissionVersion?: unknown })
-        ?.expectedMissionVersion;
+      const expectedVersion = parsed.data.expectedMissionVersion;
       if (parsed.data.triageMissionId === null) {
         // Unlink (RM-10 compatibility). Reject if Finding is in a terminal
         // state — terminal rows are immutable.

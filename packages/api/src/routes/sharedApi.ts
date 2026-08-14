@@ -1135,6 +1135,21 @@ export async function sharedApiRoutes(fastify: FastifyInstance): Promise<void> {
             : "Invalid triage command input",
         );
       }
+      if (reason === "invalid_dependency") {
+        // Anti-probing: missing-id and cross-Habitat produce ONE
+        // indistinguishable 409 — never the id, never which condition failed,
+        // only the position.
+        const index =
+          outcome.current && typeof outcome.current === "object" && "index" in outcome.current
+            ? (outcome.current as { index: number }).index
+            : null;
+        const message =
+          typeof index === "number"
+            ? `Dependency at position ${index} is not a valid same-Habitat Mission.`
+            : "One or more dependencies are not valid same-Habitat Missions.";
+        failRemoteIdempotency(request, "Invalid dependency");
+        throw conflict(message, "INVALID_DEPENDENCY");
+      }
       failRemoteIdempotency(request, "Conflict");
       throw conflict("Triage command conflict", "TRIAGE_CONFLICT");
       // No outer catch: the success/conflict branches above explicitly

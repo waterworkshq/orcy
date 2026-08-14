@@ -75,6 +75,7 @@ export type ConflictReason =
   | "different_payload"
   | "not_authorized"
   | "invalid_input"
+  | "invalid_dependency"
   // Activation-specific reasons (restored lifecycle T5).
   | "missing_link"
   | "stale_mission_version"
@@ -485,6 +486,31 @@ export function routeFinding(
 
     // 4. Compute fingerprint
     const fingerprint = computeRouteFingerprint(input.route);
+
+    // 4.5 Validate dependencies for work-bearing routes: every id must exist
+    // AND belong to the Finding's Habitat. Missing and cross-Habitat produce
+    // ONE indistinguishable `invalid_dependency` conflict naming the index —
+    // never the id, never distinguishing missing vs cross-Habitat — to keep
+    // this command from being a cross-Habitat Mission existence oracle.
+    if (
+      input.route.bucket === "fix_now" ||
+      input.route.bucket === "defer_to_patch" ||
+      input.route.bucket === "defer_to_release"
+    ) {
+      const deps = input.route.dependencies;
+      if (deps) {
+        for (let i = 0; i < deps.length; i++) {
+          const depMission = getMissionByIdWithClient(client, deps[i]);
+          if (!depMission || depMission.habitatId !== finding.habitatId) {
+            return {
+              outcome: "conflict" as const,
+              reason: "invalid_dependency" as ConflictReason,
+              current: { index: i },
+            };
+          }
+        }
+      }
+    }
 
     // 5. Replay / conflict detection
     if (finding.routeFingerprint !== null) {
