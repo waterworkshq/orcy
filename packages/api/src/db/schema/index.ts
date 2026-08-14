@@ -105,7 +105,15 @@ export {
   failureContexts,
 } from "./workflow.js";
 export { wikiPages, wikiPageVersions, wikiPageLinks, wikiCoverageMarkers } from "./wiki.js";
-export { findingTriage, triageResolutions, triageClusterMissions } from "./triage.js";
+export {
+  findingTriage,
+  triageResolutions,
+  triageClusterMissions,
+  findingTriageEvidence,
+  findingTriageLineageRepairs,
+  findingTriageLineageBaselineEvidence,
+  migrationPreflightAttestations,
+} from "./triage.js";
 export { releases } from "./release.js";
 export {
   pluginEnrollments,
@@ -213,6 +221,9 @@ export {
   remoteIdempotencyKeysRelations,
   remoteWebhookEndpointsRelations,
   findingTriageRelations,
+  findingTriageEvidenceRelations,
+  findingTriageLineageRepairsRelations,
+  findingTriageLineageBaselineEvidenceRelations,
   triageResolutionsRelations,
   triageClusterMissionsRelations,
   releasesRelations,

@@ -1,8 +1,13 @@
 import { getDb } from "../db/index.js";
-import { findingTriage } from "../db/schema/index.js";
+import { findingTriage, findingTriageEvidence } from "../db/schema/index.js";
 import { eq, and, desc, notInArray, inArray, sql } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
-import type { FindingTriageStatus, SuggestedBucket, TriageActorType } from "@orcy/shared";
+import type {
+  FindingTriageStatus,
+  SuggestedBucket,
+  TriageActorType,
+  ActivationCause,
+} from "@orcy/shared";
 import { FINDING_TRIAGE_TRANSITIONS } from "@orcy/shared";
 import {
   repositoryCreateError,
@@ -23,8 +28,31 @@ export interface FindingTriage {
   bucket: SuggestedBucket | null;
   targetRelease: string | null;
   targetReleaseType: string | null;
+  /** Canonical name for the corrective Mission. Same physical column as triageMissionId. */
+  correctiveMissionId: string | null;
+  /** @deprecated Use {@link correctiveMissionId}. Preserved as read alias during migration. */
   triageMissionId: string | null;
   corroboratingPulseIds: string[];
+  /** Bounded investigation Mission identity. */
+  admittedByTriageMissionId: string | null;
+  /** Exact Task whose live claim authorizes agent routing. */
+  admittedByInvestigationTaskId: string | null;
+  /** Nullable predecessor link. */
+  recurrenceOfId: string | null;
+  /** Blocks automatic recurrence/agent mutation for ambiguous migrated lineage. */
+  legacyLineageRepairRequired: boolean;
+  /** Normalized immutable route fingerprint. */
+  routeFingerprint: string | null;
+  /** Activation timestamp. */
+  activatedAt: string | null;
+  /** Activation actor type. */
+  activatedByType: string | null;
+  /** Activation actor id. */
+  activatedById: string | null;
+  /** Activation cause: manual or release. */
+  activationCause: ActivationCause | null;
+  /** Release identity when activation_cause is 'release'. */
+  activationReleaseId: string | null;
   triagedByType: TriageActorType | null;
   triagedById: string | null;
   triagedAt: string | null;
@@ -74,8 +102,20 @@ function rowToFindingTriage(row: Record<string, unknown>): FindingTriage {
     bucket: (row.bucket as SuggestedBucket | null) ?? null,
     targetRelease: (row.targetRelease as string | null) ?? null,
     targetReleaseType: (row.targetReleaseType as string | null) ?? null,
+    // Physical column stays triage_mission_id; expose canonical alias.
+    correctiveMissionId: (row.triageMissionId as string | null) ?? null,
     triageMissionId: (row.triageMissionId as string | null) ?? null,
     corroboratingPulseIds,
+    admittedByTriageMissionId: (row.admittedByTriageMissionId as string | null) ?? null,
+    admittedByInvestigationTaskId: (row.admittedByInvestigationTaskId as string | null) ?? null,
+    recurrenceOfId: (row.recurrenceOfId as string | null) ?? null,
+    legacyLineageRepairRequired: Boolean(row.legacyLineageRepairRequired ?? 0),
+    routeFingerprint: (row.routeFingerprint as string | null) ?? null,
+    activatedAt: (row.activatedAt as string | null) ?? null,
+    activatedByType: (row.activatedByType as string | null) ?? null,
+    activatedById: (row.activatedById as string | null) ?? null,
+    activationCause: (row.activationCause as ActivationCause | null) ?? null,
+    activationReleaseId: (row.activationReleaseId as string | null) ?? null,
     triagedByType: (row.triagedByType as TriageActorType | null) ?? null,
     triagedById: (row.triagedById as string | null) ?? null,
     triagedAt: (row.triagedAt as string | null) ?? null,

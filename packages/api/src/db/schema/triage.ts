@@ -1,4 +1,4 @@
-import { sqliteTable, text, index } from "drizzle-orm/sqlite-core";
+import { sqliteTable, text, integer, index } from "drizzle-orm/sqlite-core";
 import { sql } from "drizzle-orm";
 import { habitats, missions } from "./habitat.js";
 import { pulses } from "./pulse.js";
@@ -39,6 +39,31 @@ export const findingTriage = sqliteTable(
       onDelete: "set null",
     }),
     corroboratingPulseIds: text("corroborating_pulse_ids"),
+
+    // --- Restored lifecycle additive provenance/lineage/activation fields ---
+    /** Bounded Triage Mission identity for the investigation (distinct from corrective work). */
+    admittedByTriageMissionId: text("admitted_by_triage_mission_id"),
+    /** Exact Task whose live claim authorizes agent routing. */
+    admittedByInvestigationTaskId: text("admitted_by_investigation_task_id"),
+    /** Nullable predecessor link; traversal defines the complete lineage. */
+    recurrenceOfId: text("recurrence_of_id"),
+    /** Blocks automatic recurrence/agent mutation for ambiguous migrated lineage. */
+    legacyLineageRepairRequired: integer("legacy_lineage_repair_required")
+      .notNull()
+      .default(0),
+    /** Normalized immutable route fingerprint excluding actor/timestamps/Mission version. */
+    routeFingerprint: text("route_fingerprint"),
+    /** Activation timestamp. */
+    activatedAt: text("activated_at"),
+    /** Activation actor type. */
+    activatedByType: text("activated_by_type"),
+    /** Activation actor id. */
+    activatedById: text("activated_by_id"),
+    /** Activation cause: manual or release. */
+    activationCause: text("activation_cause"),
+    /** Release identity when activation_cause is 'release'. */
+    activationReleaseId: text("activation_release_id"),
+    // --- End restored lifecycle additive fields ---
 
     triagedByType: text("triaged_by_type", {
       enum: ["human", "agent", "system", "remote_human", "remote_orcy", "remote_pod"],
@@ -161,4 +186,134 @@ export const triageClusterMissions = sqliteTable(
     ),
     index("idx_triage_cluster_missions_mission").on(table.missionId),
   ],
+);
+
+/**
+ * finding_triage_evidence — normalized Finding–Pulse evidence membership.
+ *
+ * Authoritative membership store. Each row links a finding triage record to a
+ * Pulse with a role classifying the relationship. FKs use CASCADE for now;
+ * a later enforcement migration changes them to RESTRICT.
+ */
+export const findingTriageEvidence = sqliteTable(
+  "finding_triage_evidence",
+  {
+    findingTriageId: text("finding_triage_id")
+      .notNull()
+      .references(() => findingTriage.id, { onDelete: "cascade" }),
+    pulseId: text("pulse_id")
+      .notNull()
+      .references(() => pulses.id, { onDelete: "cascade" }),
+    role: text("role", {
+      enum: ["source", "corroborating", "legacy_observed"],
+    }).notNull(),
+    admittedByTriageMissionId: text("admitted_by_triage_mission_id"),
+    admittedByInvestigationTaskId: text("admitted_by_investigation_task_id"),
+    admittedAt: text("admitted_at"),
+    createdAt: text("created_at")
+      .notNull()
+      .default(sql`(datetime('now'))`),
+  },
+  (table) => [
+    index("idx_finding_triage_evidence_finding").on(table.findingTriageId),
+    index("idx_finding_triage_evidence_pulse").on(table.pulseId),
+    index("idx_finding_triage_evidence_role").on(table.role),
+  ],
+);
+
+/**
+ * finding_triage_lineage_repairs — append-only audit ledger for offline
+ * lineage repair operations. Each row records one repair event with
+ * mode, affected identity, operator, reason, before/after mapping, and
+ * input snapshot digest for replay verification.
+ */
+export const findingTriageLineageRepairs = sqliteTable(
+  "finding_triage_lineage_repairs",
+  {
+    id: text("id").primaryKey(),
+    habitatId: text("habitat_id")
+      .notNull()
+      .references(() => habitats.id, { onDelete: "cascade" }),
+    clusterKey: text("cluster_key").notNull(),
+    findingKind: text("finding_kind").notNull(),
+    mode: text("mode", {
+      enum: ["predecessor_mapping", "evidence_baselined_root"],
+    }).notNull(),
+    affectedIdentity: text("affected_identity").notNull(),
+    actorType: text("actor_type").notNull(),
+    actorId: text("actor_id").notNull(),
+    reason: text("reason").notNull(),
+    repairTime: text("repair_time")
+      .notNull()
+      .default(sql`(datetime('now'))`),
+    beforeMapping: text("before_mapping", { mode: "json" })
+      .$type<Record<string, unknown>>()
+      .notNull()
+      .default(sql`'{}'`)
+      .$defaultFn(() => ({})),
+    afterMapping: text("after_mapping", { mode: "json" })
+      .$type<Record<string, unknown>>()
+      .notNull()
+      .default(sql`'{}'`)
+      .$defaultFn(() => ({})),
+    inputSnapshotDigest: text("input_snapshot_digest").notNull(),
+    cutoffTimestamp: text("cutoff_timestamp"),
+    createdAt: text("created_at")
+      .notNull()
+      .default(sql`(datetime('now'))`),
+  },
+  (table) => [
+    index("idx_finding_triage_lineage_repairs_habitat").on(
+      table.habitatId,
+      table.clusterKey,
+    ),
+    index("idx_finding_triage_lineage_repairs_identity").on(
+      table.habitatId,
+      table.clusterKey,
+      table.findingKind,
+    ),
+  ],
+);
+
+/**
+ * finding_triage_lineage_baseline_evidence — normalized (repair_id, pulse_id)
+ * evidence baseline for evidence-baselined-root repairs. Each row carries
+ * a digest of the baseline content for replay verification.
+ */
+export const findingTriageLineageBaselineEvidence = sqliteTable(
+  "finding_triage_lineage_baseline_evidence",
+  {
+    repairId: text("repair_id")
+      .notNull()
+      .references(() => findingTriageLineageRepairs.id, { onDelete: "cascade" }),
+    pulseId: text("pulse_id").notNull(),
+    digest: text("digest").notNull(),
+    createdAt: text("created_at")
+      .notNull()
+      .default(sql`(datetime('now'))`),
+  },
+  (table) => [
+    index("idx_finding_triage_baseline_repair").on(table.repairId),
+  ],
+);
+
+/**
+ * migration_preflight_attestations — DB-local clean-result attestation keyed
+ * by enforcement migration id + schema/preflight version. Records THIS
+ * database's local preflight result and timestamp. NOT a fleet assertion.
+ */
+export const migrationPreflightAttestations = sqliteTable(
+  "migration_preflight_attestations",
+  {
+    enforcementMigrationId: text("enforcement_migration_id").notNull(),
+    schemaVersion: text("schema_version").notNull(),
+    preflightVersion: text("preflight_version").notNull(),
+    anomalyQueryDigest: text("anomaly_query_digest").notNull(),
+    clean: integer("clean").notNull(),
+    anomalyReport: text("anomaly_report"),
+    attestedAt: text("attested_at")
+      .notNull()
+      .default(sql`(datetime('now'))`),
+  },
+  (table) => [],
 );

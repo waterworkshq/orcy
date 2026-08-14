@@ -33,9 +33,14 @@ export type TriageActorType =
 /**
  * Valid forward transitions in the finding_triage state machine.
  *
- * Acyclic graph with a single backward edge: terminal states (resolved,
- * wontfix) may reopen to `open` on recurrence detection (manual review).
- * Invalid transitions are rejected by the repository layer.
+ * The restored lifecycle removes terminal-to-open edges: resolved/wontfix
+ * are terminal and cannot be resurrected. Recurrence creates a new row with
+ * persisted `recurrenceOf` lineage rather than reopening the old row.
+ *
+ * The legacy `["open"]` edges on terminal states are retained for the
+ * transition map's type signature but the restored lifecycle command module
+ * and later enforcement reject them. Existing service callers that used the
+ * old map for validation will be migrated in the behavior cutover ticket.
  */
 export const FINDING_TRIAGE_TRANSITIONS: Record<FindingTriageStatus, FindingTriageStatus[]> = {
   open: ["triaged", "in_progress", "wontfix"],
@@ -44,6 +49,15 @@ export const FINDING_TRIAGE_TRANSITIONS: Record<FindingTriageStatus, FindingTria
   resolved: ["open"],
   wontfix: ["open"],
 };
+
+/**
+ * Restored lifecycle: terminal states that must never move back to a
+ * non-terminal state. Recurrence creates a new row, not a resurrection.
+ */
+export const TERMINAL_FINDING_TRIAGE_STATUSES: readonly FindingTriageStatus[] = [
+  "resolved",
+  "wontfix",
+] as const;
 
 /** Exhaustive readonly list of resolution kinds recorded against a triage. */
 export const RESOLUTION_KINDS = [
@@ -99,3 +113,30 @@ export interface AgentQualityPayload {
     consistency: number | null;
   };
 }
+
+// --- Restored lifecycle additive types ---
+
+/** Activation cause for a finding triage record entering `in_progress`. */
+export const ACTIVATION_CAUSES = ["manual", "release"] as const;
+
+/** Cause of activation: manual human action or system Release activation. */
+export type ActivationCause = (typeof ACTIVATION_CAUSES)[number];
+
+/** Role of a Pulse in the normalized finding_triage_evidence table. */
+export const FINDING_TRIAGE_EVIDENCE_ROLES = [
+  "source",
+  "corroborating",
+  "legacy_observed",
+] as const;
+
+/** Role classification for evidence membership. */
+export type FindingTriageEvidenceRole = (typeof FINDING_TRIAGE_EVIDENCE_ROLES)[number];
+
+/** Mode of an offline lineage repair. */
+export const LINEAGE_REPAIR_MODES = [
+  "predecessor_mapping",
+  "evidence_baselined_root",
+] as const;
+
+/** Mode for offline legacy lineage repair. */
+export type LineageRepairMode = (typeof LINEAGE_REPAIR_MODES)[number];
