@@ -428,6 +428,69 @@ describe("PATCH /missions/:missionId — gate-edit guards", () => {
     expect(JSON.parse(res.body).code).toBe("MISSION_GATE_CHANGE_BLOCKED");
   });
 
+  it("rejects a VERSION-ONLY gate addition while linked findings are in_progress", async () => {
+    const finding = seedDeferredFinding("Gate version-add guard target");
+    const missionId = finding.correctiveMissionId!;
+    // Activate through the kernel — manual activation clears BOTH gate
+    // dimensions and leaves the group in_progress.
+    const activated = activateCorrectiveMission({
+      findingId: finding.id,
+      actor: ACTOR,
+      expectedMissionVersion: missionRepo.getMissionById(missionId)!.version,
+    });
+    expect(activated.outcome).toBe("applied");
+    const mission = missionRepo.getMissionById(missionId)!;
+    expect(mission.releaseGateType).toBeNull();
+    expect(mission.releaseGateVersion).toBeNull();
+
+    // Version-only: releaseGateType untouched (undefined in the payload).
+    const res = await app.inject({
+      method: "PATCH",
+      url: `/api/missions/${missionId}`,
+      payload: { releaseGateVersion: "2.0.0", version: mission.version },
+      headers: AUTH,
+    });
+    expect(res.statusCode).toBe(409);
+    expect(JSON.parse(res.body).code).toBe("MISSION_GATE_CHANGE_BLOCKED");
+    expect(missionRepo.getMissionById(missionId)!.releaseGateVersion).toBeNull();
+  });
+
+  it("rejects a SAME-TYPE version replacement while linked findings are in_progress", async () => {
+    const finding = seedDeferredFinding("Gate version-replace guard target");
+    const missionId = finding.correctiveMissionId!;
+    // Seeded gate is {patch, 9.9.9}; move the link to in_progress.
+    findingTriageRepo.transitionStatus(finding.id, "in_progress", ACTOR);
+    const mission = missionRepo.getMissionById(missionId)!;
+
+    // Same type (untouched), different version.
+    const res = await app.inject({
+      method: "PATCH",
+      url: `/api/missions/${missionId}`,
+      payload: { releaseGateVersion: "8.8.8", version: mission.version },
+      headers: AUTH,
+    });
+    expect(res.statusCode).toBe(409);
+    expect(JSON.parse(res.body).code).toBe("MISSION_GATE_CHANGE_BLOCKED");
+    expect(missionRepo.getMissionById(missionId)!.releaseGateVersion).toBe("9.9.9");
+  });
+
+  it("ALLOWS version-only gate edits while linked findings are triaged", async () => {
+    const finding = seedDeferredFinding("Gate version edit allowed target");
+    const missionId = finding.correctiveMissionId!;
+    const mission = missionRepo.getMissionById(missionId)!;
+
+    const res = await app.inject({
+      method: "PATCH",
+      url: `/api/missions/${missionId}`,
+      payload: { releaseGateVersion: "8.8.8", version: mission.version },
+      headers: AUTH,
+    });
+    expect(res.statusCode).toBe(200);
+    const updated = missionRepo.getMissionById(missionId)!;
+    expect(updated.releaseGateVersion).toBe("8.8.8");
+    expect(updated.releaseGateType).toBe("patch");
+  });
+
   it("ALLOWS non-null→non-null gate changes while linked findings are triaged", async () => {
     const finding = seedDeferredFinding("Gate replace allowed target");
     const missionId = finding.correctiveMissionId!;

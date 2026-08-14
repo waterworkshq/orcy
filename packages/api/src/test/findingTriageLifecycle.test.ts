@@ -567,6 +567,85 @@ describe("resolveFinding", () => {
     expect(countResolutions()).toBe(1);
   });
 
+  it("replays an identical retry that includes the SAME root cause", () => {
+    const finding = seedOpenFinding();
+
+    const first = resolveFinding({
+      findingId: finding.id,
+      actor: ACTOR,
+      resolution: "Same resolution",
+      resolutionKind: "code_fix",
+      rootCause: "Same root cause",
+    });
+    expect(first.outcome).toBe("applied");
+
+    const retry = resolveFinding({
+      findingId: finding.id,
+      actor: ACTOR,
+      resolution: "Same resolution",
+      resolutionKind: "code_fix",
+      rootCause: "Same root cause",
+    });
+    expect(retry.outcome).toBe("replayed");
+    expect(countResolutions()).toBe(1);
+  });
+
+  it("conflicts on a ROOT-CAUSE-ONLY divergence and returns the persisted payload", () => {
+    const finding = seedOpenFinding();
+
+    const first = resolveFinding({
+      findingId: finding.id,
+      actor: ACTOR,
+      resolution: "Same resolution",
+      resolutionKind: "code_fix",
+      rootCause: "Original root cause",
+    });
+    expect(first.outcome).toBe("applied");
+
+    const diverged = resolveFinding({
+      findingId: finding.id,
+      actor: ACTOR,
+      resolution: "Same resolution",
+      resolutionKind: "code_fix",
+      rootCause: "DIFFERENT root cause",
+    });
+    expect(diverged.outcome).toBe("conflict");
+    if (diverged.outcome === "conflict") {
+      expect(diverged.reason).toBe("different_payload");
+      expect(diverged.current).toEqual({
+        existingResolution: "Same resolution",
+        existingKind: "code_fix",
+        existingRootCause: "Original root cause",
+      });
+    }
+    expect(countResolutions()).toBe(1);
+  });
+
+  it("conflicts when a retry DROPS a previously persisted root cause (null ≠ value)", () => {
+    const finding = seedOpenFinding();
+
+    const first = resolveFinding({
+      findingId: finding.id,
+      actor: ACTOR,
+      resolution: "Same resolution",
+      resolutionKind: "code_fix",
+      rootCause: "Original root cause",
+    });
+    expect(first.outcome).toBe("applied");
+
+    const dropped = resolveFinding({
+      findingId: finding.id,
+      actor: ACTOR,
+      resolution: "Same resolution",
+      resolutionKind: "code_fix",
+    });
+    expect(dropped.outcome).toBe("conflict");
+    if (dropped.outcome === "conflict") {
+      expect(dropped.reason).toBe("different_payload");
+    }
+    expect(countResolutions()).toBe(1);
+  });
+
   it("rejects non-human actors", () => {
     const finding = seedOpenFinding();
     const result = resolveFinding({

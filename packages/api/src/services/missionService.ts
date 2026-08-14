@@ -245,7 +245,10 @@ export function updateMission(
   if (!current) return { success: false, notFound: true };
   if (current.isArchived) return { success: false, archived: true };
 
-  const gateGuard = guardMissionGateEdit(missionId, current, input.releaseGateType);
+  const gateGuard = guardMissionGateEdit(missionId, current, {
+    releaseGateType: input.releaseGateType,
+    releaseGateVersion: input.releaseGateVersion,
+  });
   if (!gateGuard.allowed) {
     return {
       success: false,

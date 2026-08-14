@@ -1298,9 +1298,14 @@ export function resolveFinding(
     // Idempotency: check existing Finding-sourced Resolution
     const existing = findByFindingSourceWithClient(client, finding.habitatId, input.findingId);
     if (existing) {
+      // Replay equality covers the COMPLETE terminal payload: text, kind, and
+      // root cause. `input.rootCause ?? null` normalizes to exactly the shape
+      // `createResolutionWithClient` persists (`rootCause ?? null`), so a
+      // root-cause-only divergence conflicts instead of replaying.
       if (
         existing.resolution === input.resolution &&
-        existing.resolutionKind === input.resolutionKind
+        existing.resolutionKind === input.resolutionKind &&
+        existing.rootCause === (input.rootCause ?? null)
       ) {
         // Same payload — replay
         const current = getByIdWithClient(client, input.findingId);
@@ -1312,6 +1317,7 @@ export function resolveFinding(
         current: {
           existingResolution: existing.resolution,
           existingKind: existing.resolutionKind,
+          existingRootCause: existing.rootCause,
         },
       };
     }

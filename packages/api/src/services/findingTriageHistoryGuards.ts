@@ -130,40 +130,75 @@ export type MissionGateEditGuardResult =
     };
 
 /**
+ * The effective Mission release gate — both dimensions. A gate is PRESENT
+ * when either dimension is non-null (mirrors the release-gate satisfaction
+ * check in `@orcy/shared/semver`).
+ */
+export interface MissionGateSnapshot {
+  releaseGateType: "patch" | "minor" | "major" | null;
+  releaseGateVersion: string | null;
+}
+
+/**
  * Generic Mission update gate rules (activation owns gate clearing):
  *
- * - CLEARING the last gate while any linked Finding is non-terminal is
- *   rejected — humans are directed to activation, which clears the gate and
- *   activates the group atomically.
- * - ADDING/REPLACING a gate while any linked Finding is `in_progress` is
- *   rejected (a future reroute command may define this).
+ * - CLEARING the effective gate (either dimension non-null → both null)
+ *   while any linked Finding is non-terminal is rejected — humans are
+ *   directed to activation, which clears the gate and activates the group
+ *   atomically.
+ * - ADDING/REPLACING any gate dimension while any linked Finding is
+ *   `in_progress` is rejected — including version-only additions and
+ *   same-type-new-version replacements (a future reroute command may
+ *   define this).
  * - Non-null-to-non-null gate changes and dependency edits remain ordinary
  *   versioned Mission edits while the linked Findings are `triaged`.
  *
- * `current` is the Mission's live gate BEFORE the edit; `next` is the
- * incoming `releaseGateType` from the update payload (undefined = untouched).
+ * `current` is the Mission's live `{type, version}` gate BEFORE the edit;
+ * each `next` field is the incoming value from the update payload
+ * (undefined = untouched — the current value carries over).
  */
 export function guardMissionGateEdit(
   missionId: string,
-  current: { releaseGateType: "patch" | "minor" | "major" | null },
-  next: "patch" | "minor" | "major" | null | undefined,
+  current: MissionGateSnapshot,
+  next: {
+    releaseGateType?: "patch" | "minor" | "major" | null;
+    releaseGateVersion?: string | null;
+  },
 ): MissionGateEditGuardResult {
-  if (next === undefined) return { allowed: true };
+  const typeTouched = next.releaseGateType !== undefined;
+  const versionTouched = next.releaseGateVersion !== undefined;
+  if (!typeTouched && !versionTouched) return { allowed: true };
+
+  // Effective AFTER gate: touched fields from the payload, untouched fields
+  // carried over from the live Mission.
+  const afterType = typeTouched ? next.releaseGateType! : current.releaseGateType;
+  const afterVersion = versionTouched ? next.releaseGateVersion! : current.releaseGateVersion;
+
+  const beforePresent = current.releaseGateType !== null || current.releaseGateVersion !== null;
+  const afterPresent = afterType !== null || afterVersion !== null;
 
   const linked = findingTriageRepo.findByTriageMissionId(missionId);
 
-  // CLEAR: non-null → null while any linked Finding is non-terminal.
-  if (current.releaseGateType !== null && next === null) {
+  // CLEAR: effective gate removed while any linked Finding is non-terminal.
+  if (beforePresent && !afterPresent) {
     const blocking = linked.filter((f) => !isTerminal(f));
     if (blocking.length > 0) {
-      return { allowed: false, reason: "gate_clear_blocked", findingIds: blocking.map((f) => f.id) };
+      return {
+        allowed: false,
+        reason: "gate_clear_blocked",
+        findingIds: blocking.map((f) => f.id),
+      };
     }
     return { allowed: true };
   }
 
-  // ADD (null → non-null) or REPLACE (non-null → different non-null) while
-  // any linked Finding is in_progress.
-  if (next !== null && next !== current.releaseGateType) {
+  // ADD (absent → present) or REPLACE (present → different present) in ANY
+  // dimension — including version-only additions and same-type-new-version
+  // replacements — while any linked Finding is in_progress.
+  if (
+    afterPresent &&
+    (afterType !== current.releaseGateType || afterVersion !== current.releaseGateVersion)
+  ) {
     const blocking = linked.filter((f) => f.status === "in_progress");
     if (blocking.length > 0) {
       return {
