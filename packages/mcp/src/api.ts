@@ -184,7 +184,6 @@ export interface HabitatHealthResponse {
   warnings: AnalyticsWarning[];
 }
 
-
 export class KanbanApiClient
   implements
     TaskClientIface,
@@ -527,10 +526,7 @@ export class KanbanApiClient
    */
   async getClonePreparation(sourceTaskId: string): Promise<ClonePreparation> {
     sourceTaskId = normalizeTaskId(sourceTaskId);
-    return this.request<ClonePreparation>(
-      "GET",
-      `/api/tasks/${sourceTaskId}/clone-preparation`,
-    );
+    return this.request<ClonePreparation>("GET", `/api/tasks/${sourceTaskId}/clone-preparation`);
   }
 
   /**
@@ -972,7 +968,10 @@ export class KanbanApiClient
     const params = new URLSearchParams();
     if (name) params.set("name", name);
     const query = params.toString();
-    return this.request<{ habitats: PublicHabitat[] }>("GET", `/api/habitats${query ? `?${query}` : ""}`);
+    return this.request<{ habitats: PublicHabitat[] }>(
+      "GET",
+      `/api/habitats${query ? `?${query}` : ""}`,
+    );
   }
 
   async getHabitat(habitatId: string): Promise<{ habitat: PublicHabitat }> {
@@ -1045,11 +1044,11 @@ export class KanbanApiClient
     description?: string;
     defaultColumns?: boolean;
   }): Promise<{ success: true; habitat: PublicHabitat; columns: PublicHabitat["columns"] }> {
-    return this.request<{ success: true; habitat: PublicHabitat; columns: PublicHabitat["columns"] }>(
-      "POST",
-      "/api/habitats/agent",
-      input,
-    );
+    return this.request<{
+      success: true;
+      habitat: PublicHabitat;
+      columns: PublicHabitat["columns"];
+    }>("POST", "/api/habitats/agent", input);
   }
 
   async delegateTask(taskId: string, toAgentId: string, reason?: string): Promise<{ task: Task }> {
@@ -1392,7 +1391,11 @@ export class KanbanApiClient
       format?: "standard" | "slack" | "discord";
     },
   ): Promise<CreateWebhookResponse> {
-    return this.request<CreateWebhookResponse>("POST", `/api/habitats/${habitatId}/webhooks`, input);
+    return this.request<CreateWebhookResponse>(
+      "POST",
+      `/api/habitats/${habitatId}/webhooks`,
+      input,
+    );
   }
 
   async deleteWebhook(webhookId: string): Promise<void> {
@@ -2564,25 +2567,37 @@ export class KanbanApiClient
   }
 
   /**
-   * Updates a finding triage record (v0.25 Phase 3). Supports status/bucket
-   * transitions, release-target pinning, and `triageMissionId` linkage — the
-   * last is the seam used by the `insert_deferred_mission` triage action to
-   * back-link a newly created gated mission onto its source finding.
+   * Routes a finding through the lifecycle route intent (restored lifecycle
+   * T8): ONE atomic command that creates + links the corrective Mission
+   * (work-bearing buckets) or commits the no-work bucket. Replaces the old
+   * two-call create-Mission-then-PATCH-link flow, whose failure between calls
+   * could leave an orphaned gated Mission.
+   *
+   * Wire names map 1:1 onto the backend Zod schema (`missionTitle`,
+   * `missionDescription`, `dependencies`, `releaseGateType`,
+   * `releaseGateVersion`) EXCEPT `dependsOn`, which the MCP wire uses — the
+   * tools/triage.ts handler performs the explicit wire→backend mapping.
    */
-  async updateTriageFinding(
+  async routeTriageFinding(
     id: string,
-    input: {
-      status?: string;
-      bucket?: string;
-      targetRelease?: string | null;
-      targetReleaseType?: string | null;
-      triageMissionId?: string;
+    route: {
+      bucket:
+        | "fix_now"
+        | "defer_to_patch"
+        | "defer_to_release"
+        | "document_as_known_limitation"
+        | "needs_investigation";
+      missionTitle?: string;
+      missionDescription?: string;
+      dependencies?: string[];
+      releaseGateType?: "patch" | "minor" | "major";
+      releaseGateVersion?: string;
     },
   ): Promise<{ finding: Record<string, unknown> }> {
     return this.request<{ finding: Record<string, unknown> }>(
-      "PATCH",
-      `/api/triage/findings/${id}`,
-      input,
+      "POST",
+      `/api/triage/findings/${id}/route`,
+      route,
     );
   }
 
@@ -2648,7 +2663,10 @@ export class KanbanApiClient
       params.set("maxAgeSeconds", String(filters.maxAgeSeconds));
     if (filters?.limit !== undefined) params.set("limit", String(filters.limit));
     if (filters?.maxChars !== undefined) params.set("maxChars", String(filters.maxChars));
-    return this.request("GET", `/api/habitats/${habitatId}/extraction/agent/findings?${params.toString()}`);
+    return this.request(
+      "GET",
+      `/api/habitats/${habitatId}/extraction/agent/findings?${params.toString()}`,
+    );
   }
 
   /**
@@ -2661,6 +2679,9 @@ export class KanbanApiClient
     findingId: string,
     taskId: string,
   ): Promise<{ finding: unknown }> {
-    return this.request("GET", `/api/habitats/${habitatId}/extraction/agent/findings/${findingId}?taskId=${encodeURIComponent(taskId)}`);
+    return this.request(
+      "GET",
+      `/api/habitats/${habitatId}/extraction/agent/findings/${findingId}?taskId=${encodeURIComponent(taskId)}`,
+    );
   }
 }

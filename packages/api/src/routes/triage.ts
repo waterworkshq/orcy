@@ -16,11 +16,8 @@ import {
 import * as findingTriageRepo from "../repositories/findingTriage.js";
 import * as triageResolutionsRepo from "../repositories/triageResolutions.js";
 import * as triageClusterMissionsRepo from "../repositories/triageClusterMissions.js";
-import * as pulseRepo from "../repositories/pulse.js";
-import * as featureService from "../services/missionService.js";
 import { getDb } from "../db/index.js";
 import { findingTriage as findingTriageTable } from "../db/schema/index.js";
-import * as findingTriageService from "../services/findingTriageService.js";
 import * as releaseTriggerService from "../services/releaseTriggerService.js";
 import {
   routeFinding as routeFindingLifecycle,
@@ -137,10 +134,7 @@ function mapLifecycleOutcome<T>(
   }
 
   if (reason === "different_payload") {
-    throw conflictWithCode(
-      "DIFFERENT_PAYLOAD",
-      "Resolution payload differs from existing record.",
-    );
+    throw conflictWithCode("DIFFERENT_PAYLOAD", "Resolution payload differs from existing record.");
   }
 
   if (reason === "invalid_input") {
@@ -459,10 +453,7 @@ export async function triageRoutes(fastify: FastifyInstance): Promise<void> {
 
       // Terminal status via PATCH without a full Resolution payload is rejected —
       // the resolve/wontfix endpoints own the canonical terminalization shape.
-      if (
-        parsed.data.status === "resolved" ||
-        parsed.data.status === "wontfix"
-      ) {
+      if (parsed.data.status === "resolved" || parsed.data.status === "wontfix") {
         logger.warn(
           { findingId: request.params.id, status: parsed.data.status },
           "triage legacy PATCH: terminal status without full Resolution payload rejected",
@@ -545,7 +536,8 @@ export async function triageRoutes(fastify: FastifyInstance): Promise<void> {
       // ---------------------------------------------------------------
       // Link-only shape: {triageMissionId, expectedMissionVersion} or unlink.
       // ---------------------------------------------------------------
-      const expectedVersion = (request.body as { expectedMissionVersion?: unknown })?.expectedMissionVersion;
+      const expectedVersion = (request.body as { expectedMissionVersion?: unknown })
+        ?.expectedMissionVersion;
       if (parsed.data.triageMissionId === null) {
         // Unlink (RM-10 compatibility). Reject if Finding is in a terminal
         // state — terminal rows are immutable.
@@ -567,7 +559,11 @@ export async function triageRoutes(fastify: FastifyInstance): Promise<void> {
 
       // Non-null link requires expectedMissionVersion + same-Habitat +
       // version-matched + non-archived + non-terminal gated Mission.
-      if (typeof expectedVersion !== "number" || !Number.isInteger(expectedVersion) || expectedVersion < 0) {
+      if (
+        typeof expectedVersion !== "number" ||
+        !Number.isInteger(expectedVersion) ||
+        expectedVersion < 0
+      ) {
         throw badRequestWithCode(
           "LEGACY_LINK_VERSION_REQUIRED",
           "Legacy link-only PATCH requires `expectedMissionVersion` (non-negative integer).",
@@ -635,10 +631,7 @@ export async function triageRoutes(fastify: FastifyInstance): Promise<void> {
           "Cannot link a terminal-status mission.",
         );
       }
-      if (
-        targetMission.releaseGateType === null ||
-        targetMission.releaseGateVersion === null
-      ) {
+      if (targetMission.releaseGateType === null || targetMission.releaseGateVersion === null) {
         throw conflictWithCode(
           "LEGACY_LINK_NOT_GATED",
           "Legacy link-only first apply requires a gated Mission (non-null releaseGateType/Version).",
@@ -648,15 +641,13 @@ export async function triageRoutes(fastify: FastifyInstance): Promise<void> {
       // ---- HOMOGENEOUS GROUP CHECK ----
       // Every other linked (non-terminal) Finding on this Mission must also be
       // triaged and group-eligible. Mixed groups reject before write.
-      const allLinked = findingTriageRepo.findByHabitat(existing.habitatId, {}).filter(
-        (f) => f.correctiveMissionId === targetMission.id && f.id !== existing.id,
-      );
+      const allLinked = findingTriageRepo
+        .findByHabitat(existing.habitatId, {})
+        .filter((f) => f.correctiveMissionId === targetMission.id && f.id !== existing.id);
       const nonTerminalLinked = allLinked.filter(
         (f) => !(TERMINAL_FINDING_TRIAGE_STATUSES as readonly string[]).includes(f.status),
       );
-      const mixedGroup = nonTerminalLinked.some(
-        (f) => f.status !== "triaged",
-      );
+      const mixedGroup = nonTerminalLinked.some((f) => f.status !== "triaged");
       if (mixedGroup) {
         throw conflictWithCode(
           "LEGACY_LINK_MIXED_GROUP",
@@ -674,9 +665,7 @@ export async function triageRoutes(fastify: FastifyInstance): Promise<void> {
       // expectedMissionVersion) — it intentionally EXCLUDES actor and
       // timestamps and matches the canonical route fingerprint shape.
       const legacyFingerprint = createHash("sha256")
-        .update(
-          `${request.params.id}|${targetMission.id}|${expectedVersion}|legacy_link`,
-        )
+        .update(`${request.params.id}|${targetMission.id}|${expectedVersion}|legacy_link`)
         .digest("hex");
       const db = getDb();
       db.update(findingTriageTable)
@@ -831,7 +820,8 @@ export async function triageRoutes(fastify: FastifyInstance): Promise<void> {
       }
 
       // Lifecycle actor type comes from the auth context, never the request body.
-      const lifecycleActor = actor.type === "human" ? { type: "human" as const, id: actor.id } : null;
+      const lifecycleActor =
+        actor.type === "human" ? { type: "human" as const, id: actor.id } : null;
       if (!lifecycleActor) {
         // Already gated by checkManualCommandAuthority; defensive only.
         throw forbidden("Resolve is human-only");
@@ -881,7 +871,8 @@ export async function triageRoutes(fastify: FastifyInstance): Promise<void> {
         throw forbidden(result.message, result.code);
       }
 
-      const lifecycleActor = actor.type === "human" ? { type: "human" as const, id: actor.id } : null;
+      const lifecycleActor =
+        actor.type === "human" ? { type: "human" as const, id: actor.id } : null;
       if (!lifecycleActor) {
         throw forbidden("Wontfix is human-only");
       }
@@ -898,70 +889,13 @@ export async function triageRoutes(fastify: FastifyInstance): Promise<void> {
     },
   );
 
-  /**
-   * POST /triage/findings/:id/promote — manually promote a deferred (triaged)
-   * finding into active corrective work. Transitions `triaged → in_progress`
-   * and creates a corrective mission sourced from the finding's pulse, then
-   * links the mission back onto the finding triage record.
-   */
-  fastify.post<{ Params: { id: string } }>(
-    "/triage/findings/:id/promote",
-    { preHandler: agentOrHumanAuth },
-    async (request) => {
-      const existing = findingTriageRepo.getById(request.params.id);
-      if (!existing) throw notFound("Finding not found");
-      verifyHabitatAccess(request, existing.habitatId);
-
-      const actor = actorFromRequest(request);
-      findingTriageService.promote(request.params.id, actor);
-
-      // Build the corrective mission from the finding's source pulse so the
-      // daemon agent has the original signal context for investigation.
-      const pulse = pulseRepo.getPulseById(existing.pulseId);
-      const title = `Corrective: ${pulse?.subject ?? existing.clusterKey}`;
-      const description = [
-        "## Finding Triage",
-        `- Cluster: ${existing.clusterKey}`,
-        `- Kind: ${existing.findingKind}`,
-        `- Bucket: ${existing.bucket ?? "—"}`,
-        `- Finding triage id: ${existing.id}`,
-        "",
-        "## Source Pulse",
-        pulse?.body ?? "—",
-        "",
-        "## Task",
-        "Address the deferred finding captured in the source pulse. Resolve or document and close the triage record.",
-      ].join("\n");
-
-      const mission = featureService.createMission({
-        habitatId: existing.habitatId,
-        title,
-        description,
-        labels: ["triage", existing.findingKind],
-        createdBy: actor.id,
-      });
-
-      try {
-        findingTriageRepo.setTriageMissionId(request.params.id, mission.id);
-      } catch {
-        // Mission created but back-link failed — the mission is usable, just
-        // unlinked from the finding_triage record. Non-critical: the finding is
-        // already promoted (in_progress) and the mission exists for work.
-      }
-
-      const finding = findingTriageRepo.getById(request.params.id);
-      sseBroadcaster.publish(existing.habitatId, {
-        type: "triage.finding_updated",
-        data: {
-          habitatId: existing.habitatId,
-          findingId: request.params.id,
-          status: finding?.status ?? "in_progress",
-          bucket: finding?.bucket ?? null,
-        },
-      });
-      return { finding, missionId: mission.id };
-    },
-  );
+  // NOTE (writer closure, restored lifecycle T8): the superseded
+  // `POST /triage/findings/:id/promote` route was REMOVED. It promoted the
+  // Finding and then created a REPLACEMENT corrective Mission with a
+  // swallow-on-failure back-link (the partial-state defect from the candidate
+  // investigation). Manual activation now crosses
+  // `POST /triage/findings/:id/activate`, which activates the Finding's
+  // EXISTING corrective Mission and never creates or replaces the link.
 
   /** GET /triage/resolutions — proactive lookup of historical resolutions. */
   fastify.get<{ Querystring: { habitatId: string; clusterKey: string } }>(

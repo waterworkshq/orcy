@@ -112,7 +112,10 @@ export async function triageInvestigate(
   }
 
   const hasActiveMission = clusterSummary?.status === "under_investigation";
-  const clusterMissionId = openFindings.find((f) => f.triageMissionId)?.triageMissionId ?? null;
+  // Canonical read: correctiveMissionId (the physical column's canonical name,
+  // ADR-0048). The deprecated triageMissionId alias is not consumed here.
+  const clusterMissionId =
+    openFindings.find((f) => f.correctiveMissionId)?.correctiveMissionId ?? null;
 
   return {
     clusterKey,
@@ -131,8 +134,7 @@ export async function triageInvestigate(
       findingKind: f.findingKind,
       status: f.status,
       bucket: f.bucket,
-      targetRelease: f.targetRelease,
-      triageMissionId: f.triageMissionId,
+      correctiveMissionId: f.correctiveMissionId ?? f.triageMissionId ?? null,
       corroboratingPulseIds: f.corroboratingPulseIds,
       createdAt: f.createdAt,
     })),
@@ -203,16 +205,24 @@ export async function triageResolutionLookup(
 /**
  * @requires TriageClient
  *
- * The bootstrapping path (ADR-0033). Creates a gated corrective mission
- * positioned in the habitat's roadmap DAG and links the source finding to it.
- * The mission carries `releaseGateType` / `releaseGateVersion` so the gate
- * resolution derived at read-time controls when it becomes actionable, and a
- * `dependsOn` list so the agent can place it after the in-flight work it
- * corrects. The finding's `triageMissionId` is set so subsequent investigations
- * surface the mission as the cluster's active corrective track.
+ * The bootstrapping path (ADR-0033). Performs EXACTLY ONE command request:
+ * `POST /triage/findings/:id/route` with a deferred route payload. The
+ * lifecycle kernel atomically creates the gated corrective Mission, positions
+ * its dependencies, links the source finding, and commits the routing state —
+ * the old two-call flow (create Mission, then PATCH the link) is gone, so a
+ * mid-flow failure can no longer leave an orphaned Mission or an unlinked
+ * finding.
  *
- * Returns the created mission, the updated finding, and a placementNote that
- * the daemon agent echoes into its investigation output pulse.
+ * Wire→backend mapping (guarded explicitly at this seam — wire names are
+ * agent-facing and drift from the backend Zod schema):
+ *   - `dependsOn` (wire)            → `dependencies` (backend)
+ *   - `releaseGateType` (wire)      → derives the route bucket:
+ *       patch            → `defer_to_patch`
+ *       minor | major    → `defer_to_release`
+ *   - `missionTitle` / `missionDescription` / `releaseGateVersion` map 1:1.
+ *
+ * Returns the updated finding (with the linked corrective Mission id) and a
+ * placementNote the daemon agent echoes into its investigation output pulse.
  */
 export async function triageInsertDeferredMission(
   client: KanbanApiClient,
@@ -229,39 +239,49 @@ export async function triageInsertDeferredMission(
   const habitatId = requireHabitatId(args);
   const findingId = args.findingId;
   const missionTitle = args.missionTitle;
+  const missionDescription = args.missionDescription;
   const releaseGateType = args.releaseGateType;
+  const releaseGateVersion = args.releaseGateVersion;
   if (!findingId || typeof findingId !== "string") {
     throw new Error("findingId is required");
   }
   if (!missionTitle || typeof missionTitle !== "string") {
     throw new Error("missionTitle is required");
   }
-  if (!releaseGateType) {
+  if (!missionDescription || typeof missionDescription !== "string") {
+    throw new Error("missionDescription is required");
+  }
+  if (!releaseGateType || !["patch", "minor", "major"].includes(releaseGateType)) {
     throw new Error("releaseGateType is required (patch | minor | major)");
   }
+  if (!releaseGateVersion || typeof releaseGateVersion !== "string") {
+    throw new Error(
+      'releaseGateVersion is required (e.g. "v0.25" — the version the gate waits on)',
+    );
+  }
 
-  const { mission } = await client.createMission(habitatId, {
-    title: missionTitle,
-    description: args.missionDescription,
-    labels: ["triage", "deferred"],
-    dependsOn: args.dependsOn,
+  // Explicit wire→backend mapping — never rest-spread `args` (wire-name drift
+  // trap; see habitatCorrectTaskEvidenceLink precedent).
+  const { finding } = await client.routeTriageFinding(findingId, {
+    bucket: releaseGateType === "patch" ? "defer_to_patch" : "defer_to_release",
+    missionTitle,
+    missionDescription,
+    dependencies: args.dependsOn,
     releaseGateType,
-    releaseGateVersion: args.releaseGateVersion,
-  });
-
-  const { finding } = await client.updateTriageFinding(findingId, {
-    triageMissionId: mission.id,
+    releaseGateVersion,
   });
 
   const depsList = (args.dependsOn ?? []).length;
   const placementNote =
-    `Inserted deferred mission ${mission.id} gated on ${releaseGateType}` +
-    (args.releaseGateVersion ? `@${args.releaseGateVersion}` : "") +
-    ` with ${depsList} dependency edge(s); linked to finding ${findingId}.`;
+    `Routed finding ${findingId} to ${releaseGateType === "patch" ? "defer_to_patch" : "defer_to_release"}` +
+    ` with one gated corrective mission (${releaseGateType}` +
+    (releaseGateVersion ? `@${releaseGateVersion}` : "") +
+    `) carrying ${depsList} dependency edge(s); the mission, its placement, and the finding link committed atomically.`;
 
   return {
-    mission,
+    habitatId,
     finding,
+    correctiveMissionId: (finding as { correctiveMissionId?: unknown }).correctiveMissionId ?? null,
     placementNote,
   };
 }

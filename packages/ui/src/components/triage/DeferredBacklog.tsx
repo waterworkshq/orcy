@@ -1,49 +1,40 @@
 import React from "react";
-import type { FindingTriageView, ReleaseType } from "../../types/index.js";
-import { useFindingTriage, usePromoteFinding } from "../../hooks/useTriage.js";
+import type { FindingTriageView } from "../../types/index.js";
+import { useQuery } from "@tanstack/react-query";
+import { api } from "../../api/index.js";
+import { useFindingTriage, useActivateFinding } from "../../hooks/useTriage.js";
 
 interface DeferredBacklogProps {
   habitatId: string;
-  onPromoted?: (finding: FindingTriageView, missionId: string) => void;
+  /** Called after a finding's corrective Mission is activated. */
+  onActivated?: (finding: FindingTriageView) => void;
 }
 
 interface BacklogGroup {
-  targetRelease: string;
+  key: string;
+  label: string;
   findings: FindingTriageView[];
 }
 
-const RELEASE_TYPE_BADGE: Record<ReleaseType, string> = {
-  patch: "bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-200",
-  minor: "bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200",
-  major: "bg-rose-100 text-rose-800 dark:bg-rose-900/40 dark:text-rose-200",
-};
-
 /**
  * View of deferred findings (bucket = defer_to_patch or defer_to_release),
- * grouped by `targetRelease`. Each item exposes a "Promote" action that calls
- * {@link usePromoteFinding} to spin up a corrective mission.
+ * grouped by their corrective Mission. Each item exposes an "Activate" action
+ * backed by the manual-activation lifecycle command
+ * (POST /triage/findings/:id/activate) on the finding's EXISTING corrective
+ * Mission — it never creates or replaces the Mission. The UI supplies the
+ * Mission `version` it observed (CAS); a stale version returns 409 with
+ * X-Current-Version, contention returns 409 LIFECYCLE_BUSY (retry), and both
+ * are rendered inline for the human instead of replacing anything.
  */
-export function DeferredBacklog({ habitatId, onPromoted }: DeferredBacklogProps) {
-  const promote = usePromoteFinding();
-
+export function DeferredBacklog({ habitatId, onActivated }: DeferredBacklogProps) {
   // Fetch all deferred findings; we filter both defer buckets client-side so a
-  // single query backs the grouped view (the API filters on a single bucket).
-  const [patchFindings, setPatchFilters] = useDeferQuery(habitatId, "defer_to_patch");
-  const [releaseFindings, setReleaseFilters] = useDeferQuery(habitatId, "defer_to_release");
+  // single query per bucket backs the grouped view.
+  const patchQuery = useFindingTriage(habitatId, { bucket: "defer_to_patch" });
+  const releaseQuery = useFindingTriage(habitatId, { bucket: "defer_to_release" });
 
-  const isLoading = !patchFindings || !releaseFindings;
-  const combined = [...(patchFindings ?? []), ...(releaseFindings ?? [])];
-  const groups = groupByRelease(combined);
-
-  const handlePromote = (finding: FindingTriageView) => {
-    promote.mutate(finding.id, {
-      onSuccess: (missionId) => {
-        onPromoted?.(finding, missionId);
-        setPatchFilters({});
-        setReleaseFilters({});
-      },
-    });
-  };
+  const isLoading = patchQuery.isLoading || releaseQuery.isLoading;
+  const combined = [...(patchQuery.data ?? []), ...(releaseQuery.data ?? [])];
+  const groups = groupByCorrectiveMission(combined);
 
   if (isLoading) {
     return <p className="text-sm text-muted-foreground">Loading deferred findings…</p>;
@@ -56,72 +47,112 @@ export function DeferredBacklog({ habitatId, onPromoted }: DeferredBacklogProps)
   return (
     <div className="space-y-4">
       {groups.map((group) => (
-        <div key={group.targetRelease}>
-          <h3 className="mb-1.5 text-sm font-semibold">
-            {group.targetRelease}
-            <span className="ml-1.5 text-xs font-normal text-muted-foreground">
-              ({group.findings.length})
-            </span>
-          </h3>
-          <ul className="divide-y divide-border rounded-lg border border-border">
-            {group.findings.map((f) => (
-              <li key={f.id} className="flex items-center justify-between gap-3 px-3 py-2">
-                <div className="min-w-0">
-                  <p className="truncate text-sm font-medium">{f.clusterKey}</p>
-                  <p className="truncate text-xs text-muted-foreground">
-                    {f.findingKind} · bucket: {f.bucket ?? "—"}
-                    {f.targetReleaseType && (
-                      <>
-                        {" · "}
-                        <span
-                          className={`inline-flex items-center rounded px-1 py-0.5 text-[10px] font-medium ${RELEASE_TYPE_BADGE[f.targetReleaseType]}`}
-                        >
-                          {f.targetReleaseType}
-                        </span>
-                      </>
-                    )}
-                  </p>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => handlePromote(f)}
-                  disabled={promote.isPending}
-                  className="shrink-0 rounded bg-primary px-2.5 py-1 text-xs font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
-                >
-                  {promote.isPending ? "Promoting…" : "Promote"}
-                </button>
-              </li>
-            ))}
-          </ul>
-        </div>
+        <MissionGateGroup key={group.key} group={group} onActivated={onActivated} />
       ))}
     </div>
   );
 }
 
-/** Small helper hook returning [data, refetchTriggerSetter] for a single defer bucket. */
-function useDeferQuery(
-  habitatId: string,
-  bucket: "defer_to_patch" | "defer_to_release",
-): [FindingTriageView[] | undefined, (next: Record<string, never>) => void] {
-  const query = useFindingTriage(habitatId, { bucket });
-  // The refetch trigger is implicit via React Query invalidation in
-  // usePromoteFinding; the setter exists so callers can force a refetch.
-  const noop = React.useCallback(() => {
-    void query.refetch();
-  }, [query]);
-  return [query.data, noop];
+/**
+ * One corrective-Mission group. The Activate button supplies the Mission
+ * version the UI observed from the shared missions read model, so the
+ * server-side CAS has a real expected version (never a guessed 0).
+ */
+function MissionGateGroup({
+  group,
+  onActivated,
+}: {
+  group: BacklogGroup;
+  onActivated?: (finding: FindingTriageView) => void;
+}) {
+  const missionId = group.findings[0]?.correctiveMissionId ?? null;
+  const missionQuery = useQuery({
+    queryKey: ["missions", "detail", missionId ?? ""],
+    queryFn: ({ signal }) => api.missions.get(missionId!, signal),
+    enabled: !!missionId,
+    staleTime: 15_000,
+  });
+  const activate = useActivateFinding();
+
+  const observedVersion = missionQuery.data?.mission.version;
+  const busy = activate.isPending;
+  const conflict = activate.isError ? (activate.error as Error) : null;
+
+  return (
+    <div>
+      <h3 className="mb-1.5 text-sm font-semibold">
+        {group.label}
+        <span className="ml-1.5 text-xs font-normal text-muted-foreground">
+          ({group.findings.length})
+        </span>
+      </h3>
+      <ul className="divide-y divide-border rounded-lg border border-border">
+        {group.findings.map((f) => {
+          const canActivate = !!f.correctiveMissionId && observedVersion !== undefined;
+          return (
+            <li key={f.id} className="flex items-center justify-between gap-3 px-3 py-2">
+              <div className="min-w-0">
+                <p className="truncate text-sm font-medium">{f.clusterKey}</p>
+                <p className="truncate text-xs text-muted-foreground">
+                  {f.findingKind} · bucket: {f.bucket ?? "—"}
+                  {f.correctiveMissionId ? (
+                    <> · mission: {f.correctiveMissionId.slice(0, 8)}…</>
+                  ) : (
+                    <> · no corrective mission (route first)</>
+                  )}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  if (!f.correctiveMissionId || observedVersion === undefined) return;
+                  activate.mutate(
+                    { id: f.id, expectedMissionVersion: observedVersion },
+                    { onSuccess: () => onActivated?.(f) },
+                  );
+                }}
+                disabled={!canActivate || busy}
+                title={
+                  canActivate
+                    ? `Activate the existing corrective mission (observed version ${observedVersion})`
+                    : "Waiting for the corrective mission read model…"
+                }
+                className="shrink-0 rounded bg-primary px-2.5 py-1 text-xs font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+              >
+                {busy ? "Activating…" : "Activate"}
+              </button>
+            </li>
+          );
+        })}
+      </ul>
+      {conflict && (
+        <p className="mt-1 text-xs text-red-600" role="alert">
+          {conflict.message}
+          <button type="button" className="ml-2 underline" onClick={() => missionQuery.refetch()}>
+            Refresh mission version
+          </button>
+        </p>
+      )}
+    </div>
+  );
 }
 
-function groupByRelease(findings: FindingTriageView[]): BacklogGroup[] {
-  const map = new Map<string, FindingTriageView[]>();
+/** Groups deferred findings by their corrective Mission (the gate's owner). */
+function groupByCorrectiveMission(findings: FindingTriageView[]): BacklogGroup[] {
+  const map = new Map<string, BacklogGroup>();
   for (const f of findings) {
-    const key = f.targetRelease ?? "Unscheduled";
-    const arr = map.get(key) ?? [];
-    arr.push(f);
-    map.set(key, arr);
+    const key = f.correctiveMissionId ?? "unlinked";
+    const entry =
+      map.get(key) ??
+      ({
+        key,
+        label: f.correctiveMissionId
+          ? `Corrective mission ${f.correctiveMissionId.slice(0, 8)}…`
+          : "Unlinked (route to a work-bearing bucket first)",
+        findings: [],
+      } satisfies BacklogGroup);
+    entry.findings.push(f);
+    map.set(key, entry);
   }
-  return [...map.entries()]
-    .map(([targetRelease, items]) => ({ targetRelease, findings: items }))
-    .toSorted((a, b) => a.targetRelease.localeCompare(b.targetRelease));
+  return [...map.values()];
 }

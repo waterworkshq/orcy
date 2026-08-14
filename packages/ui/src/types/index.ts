@@ -1237,8 +1237,13 @@ export interface FindingTriageView {
   findingKind: string;
   status: FindingTriageStatus;
   bucket: SuggestedBucket | null;
+  /** @deprecated Superseded by Mission release gates; retained for legacy-row display only. */
   targetRelease: string | null;
+  /** @deprecated Superseded by Mission release gates; retained for legacy-row display only. */
   targetReleaseType: ReleaseType | null;
+  /** Canonical corrective Mission link (ADR-0048). */
+  correctiveMissionId: string | null;
+  /** @deprecated Read alias of {@link correctiveMissionId}; new code reads the canonical field. */
   triageMissionId: string | null;
   corroboratingPulseIds: string[];
   triagedByType: TriageActorType | null;
@@ -1251,6 +1256,45 @@ export interface FindingTriageView {
   metadata: Record<string, unknown>;
   createdAt: string;
   updatedAt: string;
+}
+
+// ---------------------------------------------------------------------------
+// Triage lifecycle command payloads (restored lifecycle T8) — mirror the
+// discriminated route payload accepted by POST /api/triage/findings/:id/route
+// ---------------------------------------------------------------------------
+
+/** `fix_now` — creates one ungated corrective Mission. */
+export interface FixNowRouteCommand {
+  bucket: "fix_now";
+  missionTitle: string;
+  missionDescription: string;
+  dependencies?: string[];
+}
+
+/** Deferred routes — creates one gated corrective Mission with placement. */
+export interface DeferRouteCommand {
+  bucket: "defer_to_patch" | "defer_to_release";
+  missionTitle: string;
+  missionDescription: string;
+  dependencies?: string[];
+  releaseGateType: "patch" | "minor" | "major";
+  releaseGateVersion: string;
+}
+
+/** No-work routes — sets `triaged` without manufacturing work. */
+export type NoWorkRouteCommand =
+  | { bucket: "document_as_known_limitation" }
+  | { bucket: "needs_investigation" };
+
+/** Discriminated union of every route intent payload. */
+export type TriageRouteCommand = FixNowRouteCommand | DeferRouteCommand | NoWorkRouteCommand;
+
+/** Manual-activation response — mirrors POST /api/triage/findings/:id/activate. */
+export interface TriageActivationView {
+  /** The SAME corrective Mission — never a replacement; its id never changes. */
+  mission: Mission;
+  /** Every activated Finding (the complete eligible group), post-activation. */
+  findings: FindingTriageView[];
 }
 
 /** Resolution record — mirrors GET /api/triage/resolutions response rows. */
@@ -1596,9 +1640,11 @@ export interface TaskCreationAttemptView {
   terminalOutcome: string | null;
   /** Structured terminal result (the same shape the adapter returns on the
    *  `replayed` branch). `null` while the attempt is non-terminal. */
-  terminalResult: (Record<string, unknown> & {
-    assignmentFailure?: TaskAssignmentFailureView;
-  }) | null;
+  terminalResult:
+    | (Record<string, unknown> & {
+        assignmentFailure?: TaskAssignmentFailureView;
+      })
+    | null;
   leaseOwner: string | null;
   leaseExpiresAt: string | null;
 }

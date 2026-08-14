@@ -20,7 +20,8 @@ export const TRIAGE_DISPATCH_TOOL: Tool = createDispatchTool({
     "(findings, affected tasks, agent IDs, historical resolution, roadmap DAG) for an " +
     'in-progress investigation. Use action="resolution_lookup" with a clusterKey to retrieve ' +
     'prior resolutions for a recurring pain point. Use action="insert_deferred_mission" to ' +
-    "create a gated corrective mission positioned in the DAG and link it to a finding " +
+    "route a finding to a deferred bucket through ONE atomic lifecycle command — the gated " +
+    "corrective mission, its dependency placement, and the finding link commit together " +
     '(bootstrapping path, ADR-0033). Use action="map_orphan_mission" to position an ' +
     "existing orphan mission in the DAG (set its dependencies/gate) — paired with an " +
     'orphan-mission:{id} investigation. Use action="set_focus_mission" to designate ' +
@@ -60,24 +61,25 @@ export const TRIAGE_DISPATCH_TOOL: Tool = createDispatchTool({
     },
     missionDescription: {
       type: "string",
-      description: "Optional description body for the deferred corrective mission",
+      description:
+        "Description body for the corrective mission — required for insert_deferred_mission",
     },
     dependsOn: {
       type: "array",
       items: { type: "string" },
       description:
-        "Mission IDs the inserted mission depends on (positions it after the in-flight work it corrects)",
+        "Mission IDs the corrective mission depends on (positions it after the in-flight work it corrects) — sent as the route command's `dependencies`",
     },
     releaseGateType: {
       type: "string",
       enum: ["patch", "minor", "major"],
       description:
-        "Release-class gate that must be satisfied for the mission to become actionable — required for insert_deferred_mission",
+        "Release-class gate the corrective mission waits on — required for insert_deferred_mission (patch → defer_to_patch; minor/major → defer_to_release)",
     },
     releaseGateVersion: {
       type: "string",
       description:
-        'Optional version-pin gate (e.g. "v0.25" or "v0.25.0") — either-match semantics with releaseGateType',
+        'Version the gate waits on (e.g. "v0.25" or "v0.25.0") — required for insert_deferred_mission',
     },
     missionId: {
       type: "string",
@@ -102,7 +104,14 @@ export const TRIAGE_DISPATCH_HANDLER = createDispatchHandler(TRIAGE_ACTIONS, {
   investigate: ["habitatId", "clusterKey"],
   top_issues: ["habitatId"],
   resolution_lookup: ["habitatId", "clusterKey"],
-  insert_deferred_mission: ["habitatId", "findingId", "missionTitle", "releaseGateType"],
+  insert_deferred_mission: [
+    "habitatId",
+    "findingId",
+    "missionTitle",
+    "missionDescription",
+    "releaseGateType",
+    "releaseGateVersion",
+  ],
   map_orphan_mission: ["habitatId", "missionId"],
   set_focus_mission: ["habitatId"],
 });

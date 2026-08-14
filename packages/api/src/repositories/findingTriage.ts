@@ -316,6 +316,45 @@ export function findByBucket(habitatId: string, bucket: SuggestedBucket): Findin
     .map(rowToFindingTriage);
 }
 
+// ---------------------------------------------------------------------------
+// RAW LIFECYCLE WRITER INVENTORY (restored lifecycle T8 writer-closure audit)
+// ---------------------------------------------------------------------------
+// Literal repository-wide audit (gitnexus impact/context + serena/semble +
+// literal grep) of every direct writer of finding-triage status / bucket /
+// corrective link / promotion / target-release, with disposition. The
+// canonical production mutation path is `services/findingTriageLifecycle.ts`
+// (`routeFinding` / `activateCorrectiveMission` / `resolveFinding` /
+// `markFindingWontfix`); these setters must NOT gain new production callers.
+//
+// | Writer                          | Production callers at audit time        | Disposition |
+// |---------------------------------|-----------------------------------------|-------------|
+// | `transitionStatus`              | `findingTriageService.{confirmBucket,   | Legacy service seam, TEST-ONLY callers |
+// |                                 | resolve,promote}` — test-only           | (characterization suites); superseded by |
+// |                                 |                                         | the lifecycle kernel. Terminal-guarded. |
+// | `setBucket`                     | `findingTriageService.confirmBucket`    | Legacy service seam, TEST-ONLY. |
+// | `setTargetRelease`              | NONE                                    | Superseded by Mission release gates;   |
+// | `setTargetReleaseType`          | NONE                                    | PATCH rejects the shape with           |
+// |                                 |                                         | LEGACY_PATCH_TARGET_RELEASE_SUPERSEDED. |
+// | `setTriageMissionId` (link)     | `routes/triage.ts` legacy link-only     | RETAINED: announced strict PATCH       |
+// |                                 | PATCH adapter ONLY                      | compatibility adapter (fingerprint +   |
+// |                                 |                                         | deprecation telemetry).               |
+// | `setTriageMissionId` (unlink)   | `routes/triage.ts` legacy unlink PATCH  | RETAINED: announced adapter (RM-10).   |
+// | `promote`                       | `findingTriageService.promote` —        | Legacy service seam, TEST-ONLY. The   |
+// |                                 | HTTP `/promote` route REMOVED (T8)      | superseded route is gone; manual       |
+// |                                 |                                         | activation is `POST .../activate`.    |
+// | Supplied-client writers below   | `findingTriageLifecycle.ts` kernel +    | Canonical — the only production write |
+// | (`routeWithClient`,             | cluster admission participant +         | authority (plus the Release kernel's  |
+// | `terminalizeWithClient`,        | internal Release reconciliation kernel  | `activateCorrectiveMissionForRelease`).|
+// | `activateGroupWithClient`,      |                                         |                                        |
+// | `admitWithClient`)              |                                         |                                        |
+//
+// UI cutover (T8): `packages/ui` sends ONLY lifecycle command requests
+// (`/route`, `/activate`, `/resolve`, `/wontfix`) — the state-shaped PATCH
+// client was deleted. MCP cutover (T8): `insert_deferred_mission` performs
+// exactly ONE `POST /triage/findings/:id/route` request; the two-call
+// create-Mission-then-PATCH-link flow (and its orphan-Mission window) no
+// longer exists, and the PATCH-shaped MCP client was deleted.
+
 /**
  * Enforces {@link FINDING_TRIAGE_TRANSITIONS}. Throws `conflict(...)` on invalid
  * transitions. Sets triage/resolution attribution columns when entering the
@@ -785,10 +824,7 @@ export function listEvidenceWithClient(
  * callers pass the `recurrenceOfId` chain one hop at a time and must bound
  * traversal themselves).
  */
-export function getByIdsWithClient(
-  client: SuppliedClient,
-  ids: string[],
-): FindingTriage[] {
+export function getByIdsWithClient(client: SuppliedClient, ids: string[]): FindingTriage[] {
   if (ids.length === 0) return [];
   return client
     .select()
@@ -938,11 +974,7 @@ export function appendEvidenceWithClient(
           .where(eq(findingTriage.id, input.findingTriageId))
           .run();
       } catch (err) {
-        throw repositoryUpdateError(
-          "findingTriage",
-          err as Error,
-          input.findingTriageId,
-        );
+        throw repositoryUpdateError("findingTriage", err as Error, input.findingTriageId);
       }
     }
   }
