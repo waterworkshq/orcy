@@ -169,6 +169,29 @@ export function findByFindingSource(
 }
 
 /**
+ * Supplied-client variant of {@link findByFindingSource}. Reads within the
+ * caller's immediate transaction for idempotency checks before terminal writes.
+ */
+export function findByFindingSourceWithClient(
+  client: SuppliedClient,
+  habitatId: string,
+  findingId: string,
+): TriageResolution | null {
+  const row = client
+    .select()
+    .from(triageResolutions)
+    .where(
+      and(
+        eq(triageResolutions.habitatId, habitatId),
+        eq(triageResolutions.source, "finding_triage"),
+        eq(triageResolutions.sourceId, findingId),
+      ),
+    )
+    .get();
+  return row ? rowToTriageResolution(row) : null;
+}
+
+/**
  * Proactive-match lookup (PRD AC-PROACTIVE). Returns all historical resolutions
  * for `(habitatId, clusterKey)` ordered newest-first. Multiple resolutions are
  * possible over time (a cluster may re-emerge after an earlier fix).

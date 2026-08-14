@@ -138,6 +138,95 @@ export function createMission(input: CreateMissionInput): Mission {
   return mission;
 }
 
+/** Supplied-client type for transaction participation. */
+type MissionDbClient = ReturnType<typeof getDb>;
+
+/**
+ * Supplied-client variant of {@link createMission}. The caller owns the
+ * transaction (manual `BEGIN IMMEDIATE`); this primitive does NOT wrap its
+ * own `db.transaction()`. Inserts the Mission row + dependency edges directly
+ * on the supplied client so they commit atomically with lifecycle writes.
+ */
+export function createMissionWithClient(
+  client: MissionDbClient,
+  input: CreateMissionInput,
+): Mission {
+  const id = uuid();
+  const now = new Date().toISOString();
+
+  let columnId = input.columnId;
+  if (!columnId) {
+    const habitatColumns = client
+      .select()
+      .from(columns)
+      .where(eq(columns.habitatId, input.habitatId))
+      .orderBy(columns.order)
+      .all();
+    columnId = habitatColumns[0]?.id;
+    if (!columnId) throw badRequest("Habitat has no columns");
+  }
+
+  let displayOrder = input.displayOrder;
+  if (displayOrder === undefined) {
+    const result = client
+      .select({ maxOrder: max(missions.displayOrder) })
+      .from(missions)
+      .where(eq(missions.columnId, columnId))
+      .get();
+    displayOrder = (result?.maxOrder ?? -1) + 1;
+  }
+
+  try {
+    client
+      .insert(missions)
+      .values({
+        id,
+        habitatId: input.habitatId,
+        columnId,
+        title: input.title,
+        description: input.description ?? "",
+        acceptanceCriteria: input.acceptanceCriteria ?? "",
+        priority: input.priority ?? "medium",
+        labels: input.labels ?? [],
+        status: "not_started",
+        displayOrder,
+        dependsOn: input.dependsOn ?? [],
+        blocks: input.blocks ?? [],
+        dueAt: input.dueAt ?? null,
+        slaMinutes: input.slaMinutes ?? null,
+        createdBy: input.createdBy,
+        createdAt: now,
+        updatedAt: now,
+        version: 1,
+        releaseGateType: input.releaseGateType ?? null,
+        releaseGateVersion: input.releaseGateVersion ?? null,
+        releaseDeadlineType: input.releaseDeadlineType ?? null,
+        releaseDeadlineVersion: input.releaseDeadlineVersion ?? null,
+      })
+      .run();
+
+    if (input.dependsOn && input.dependsOn.length > 0) {
+      client
+        .insert(missionDependencies)
+        .values(input.dependsOn.map((depId) => ({ missionId: id, dependsOnId: depId })))
+        .run();
+    }
+
+    if (input.blocks && input.blocks.length > 0) {
+      client
+        .insert(missionDependencies)
+        .values(input.blocks.map((blockedId) => ({ missionId: blockedId, dependsOnId: id })))
+        .run();
+    }
+  } catch (err) {
+    throw repositoryCreateError("mission", err as Error, id);
+  }
+
+  const mission = client.select().from(missions).where(eq(missions.id, id)).get() as Mission | null;
+  if (!mission) throw repositoryNotFoundError("mission", id);
+  return mission;
+}
+
 export function getMissionById(id: string): Mission | null {
   const db = getDb();
   const { exact, withPrefix } = normalizeMissionId(id);

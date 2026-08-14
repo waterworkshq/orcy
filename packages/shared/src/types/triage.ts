@@ -33,21 +33,17 @@ export type TriageActorType =
 /**
  * Valid forward transitions in the finding_triage state machine.
  *
- * The restored lifecycle removes terminal-to-open edges: resolved/wontfix
- * are terminal and cannot be resurrected. Recurrence creates a new row with
- * persisted `recurrenceOf` lineage rather than reopening the old row.
- *
- * The legacy `["open"]` edges on terminal states are retained for the
- * transition map's type signature but the restored lifecycle command module
- * and later enforcement reject them. Existing service callers that used the
- * old map for validation will be migrated in the behavior cutover ticket.
+ * Terminal states (`resolved`/`wontfix`) have NO outgoing edges. Recurrence
+ * creates a new `open` row with persisted `recurrenceOf` lineage rather than
+ * reopening the old row. No command, generic PATCH, repository transition, or
+ * compatibility adapter may move a terminal row back to non-terminal.
  */
 export const FINDING_TRIAGE_TRANSITIONS: Record<FindingTriageStatus, FindingTriageStatus[]> = {
   open: ["triaged", "in_progress", "wontfix"],
   triaged: ["in_progress", "resolved", "wontfix"],
   in_progress: ["resolved", "wontfix"],
-  resolved: ["open"],
-  wontfix: ["open"],
+  resolved: [],
+  wontfix: [],
 };
 
 /**
@@ -133,10 +129,7 @@ export const FINDING_TRIAGE_EVIDENCE_ROLES = [
 export type FindingTriageEvidenceRole = (typeof FINDING_TRIAGE_EVIDENCE_ROLES)[number];
 
 /** Mode of an offline lineage repair. */
-export const LINEAGE_REPAIR_MODES = [
-  "predecessor_mapping",
-  "evidence_baselined_root",
-] as const;
+export const LINEAGE_REPAIR_MODES = ["predecessor_mapping", "evidence_baselined_root"] as const;
 
 /** Mode for offline legacy lineage repair. */
 export type LineageRepairMode = (typeof LINEAGE_REPAIR_MODES)[number];

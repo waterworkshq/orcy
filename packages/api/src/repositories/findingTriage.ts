@@ -8,7 +8,7 @@ import type {
   TriageActorType,
   ActivationCause,
 } from "@orcy/shared";
-import { FINDING_TRIAGE_TRANSITIONS } from "@orcy/shared";
+import { FINDING_TRIAGE_TRANSITIONS, TERMINAL_FINDING_TRIAGE_STATUSES } from "@orcy/shared";
 import {
   repositoryCreateError,
   repositoryNotFoundError,
@@ -16,6 +16,9 @@ import {
 } from "../errors/repository.js";
 import { conflict } from "../errors.js";
 import { normalize } from "../services/habitatSkillService.js";
+
+/** Supplied-client type: same DrizzleDB but injected for transaction participation. */
+type SuppliedClient = ReturnType<typeof getDb>;
 
 /** Projected finding triage record (corroboratingPulseIds parsed to string[]). */
 export interface FindingTriage {
@@ -326,6 +329,14 @@ export function transitionStatus(
   const current = getById(id);
   if (!current) throw repositoryNotFoundError("findingTriage", id);
 
+  // Terminal immutability: terminal states never transition to any other state.
+  // Recurrence creates a new row; the old row stays immutable.
+  if ((TERMINAL_FINDING_TRIAGE_STATUSES as readonly string[]).includes(current.status)) {
+    throw conflict(
+      `Cannot transition terminal finding (${current.status}). Recurrence creates a new row.`,
+    );
+  }
+
   const allowed = FINDING_TRIAGE_TRANSITIONS[current.status];
   if (!allowed.includes(newStatus)) {
     throw conflict(`Invalid status transition: ${current.status} → ${newStatus}`);
@@ -450,4 +461,115 @@ export function promote(id: string, actor: { type: TriageActorType; id: string }
   const refreshed = getById(id);
   if (!refreshed) throw repositoryNotFoundError("findingTriage", id);
   return refreshed;
+}
+
+// ---------------------------------------------------------------------------
+// Supplied-client primitives — used by the lifecycle command module to ensure
+// all writes participate in one BEGIN IMMEDIATE transaction. Each primitive
+// accepts an injected Drizzle client and NEVER calls getDb() directly.
+// ---------------------------------------------------------------------------
+
+/**
+ * Reads a finding triage record on the supplied client. Used inside an
+ * immediate transaction so the read observes a consistent snapshot under the
+ * writer reservation.
+ */
+export function getByIdWithClient(client: SuppliedClient, id: string): FindingTriage | null {
+  const row = client.select().from(findingTriage).where(eq(findingTriage.id, id)).get();
+  return row ? rowToFindingTriage(row) : null;
+}
+
+/** Fields written by the lifecycle route command. */
+export interface RouteUpdate {
+  status: FindingTriageStatus;
+  bucket: SuggestedBucket;
+  routeFingerprint: string;
+  correctiveMissionId: string | null;
+  triagedAt: string | null;
+  triagedByType: TriageActorType | null;
+  triagedById: string | null;
+  activatedAt: string | null;
+  activatedByType: string | null;
+  activatedById: string | null;
+  activationCause: ActivationCause | null;
+  activationReleaseId: string | null;
+  updatedAt: string;
+}
+
+/**
+ * Writes route state, attribution, fingerprint, and corrective Mission link
+ * on the supplied client. The caller's transaction provides atomicity with
+ * Mission creation, dependencies, and the Mission event.
+ */
+export function routeWithClient(
+  client: SuppliedClient,
+  id: string,
+  update: RouteUpdate,
+): FindingTriage {
+  try {
+    client
+      .update(findingTriage)
+      .set({
+        status: update.status,
+        bucket: update.bucket,
+        routeFingerprint: update.routeFingerprint,
+        triageMissionId: update.correctiveMissionId,
+        triagedAt: update.triagedAt,
+        triagedByType: update.triagedByType,
+        triagedById: update.triagedById,
+        activatedAt: update.activatedAt,
+        activatedByType: update.activatedByType,
+        activatedById: update.activatedById,
+        activationCause: update.activationCause,
+        activationReleaseId: update.activationReleaseId,
+        updatedAt: update.updatedAt,
+      })
+      .where(eq(findingTriage.id, id))
+      .run();
+  } catch (err) {
+    throw repositoryUpdateError("findingTriage", err as Error, id);
+  }
+  const row = client.select().from(findingTriage).where(eq(findingTriage.id, id)).get();
+  if (!row) throw repositoryNotFoundError("findingTriage", id);
+  return rowToFindingTriage(row);
+}
+
+/** Fields written by the lifecycle terminalize commands (resolve/wontfix). */
+export interface TerminalizeUpdate {
+  status: "resolved" | "wontfix";
+  resolvedAt: string;
+  resolvedByType: TriageActorType;
+  resolvedById: string;
+  resolutionNote: string;
+  updatedAt: string;
+}
+
+/**
+ * Writes terminal Finding state on the supplied client. Commits atomically
+ * with the Resolution Record written by the same transaction.
+ */
+export function terminalizeWithClient(
+  client: SuppliedClient,
+  id: string,
+  update: TerminalizeUpdate,
+): FindingTriage {
+  try {
+    client
+      .update(findingTriage)
+      .set({
+        status: update.status,
+        resolvedAt: update.resolvedAt,
+        resolvedByType: update.resolvedByType,
+        resolvedById: update.resolvedById,
+        resolutionNote: update.resolutionNote,
+        updatedAt: update.updatedAt,
+      })
+      .where(eq(findingTriage.id, id))
+      .run();
+  } catch (err) {
+    throw repositoryUpdateError("findingTriage", err as Error, id);
+  }
+  const row = client.select().from(findingTriage).where(eq(findingTriage.id, id)).get();
+  if (!row) throw repositoryNotFoundError("findingTriage", id);
+  return rowToFindingTriage(row);
 }

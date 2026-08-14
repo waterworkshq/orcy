@@ -4,6 +4,7 @@ import {
   FINDING_TRIAGE_STATUSES,
   RELEASE_TYPES,
   SUGGESTED_BUCKETS,
+  TERMINAL_FINDING_TRIAGE_STATUSES,
   type FindingTriageStatus,
   type ReleaseType,
   type SuggestedBucket,
@@ -19,7 +20,7 @@ import { agentOrHumanAuth } from "../middleware/auth.js";
 import { getHabitatById } from "../repositories/habitat.js";
 import * as missionRepo from "../repositories/mission.js";
 import { isTeamMemberByHabitatId } from "../repositories/teamMember.js";
-import { notFound, badRequest, forbidden, unauthorized } from "../errors.js";
+import { notFound, badRequest, forbidden, unauthorized, conflict } from "../errors.js";
 import { sseBroadcaster } from "../sse/broadcaster.js";
 
 /** Actor shared across triage write paths — derived from request auth context. */
@@ -168,6 +169,19 @@ export async function triageRoutes(fastify: FastifyInstance): Promise<void> {
 
       const actor = actorFromRequest(request);
       let finding = existing;
+
+      // Terminal immutability: terminal findings cannot transition to any
+      // other status. Recurrence creates a new row.
+      if (
+        parsed.data.status !== undefined &&
+        parsed.data.status !== existing.status &&
+        (TERMINAL_FINDING_TRIAGE_STATUSES as readonly string[]).includes(existing.status)
+      ) {
+        throw conflict(
+          `Finding is in terminal state (${existing.status}). Recurrence creates a new row.`,
+        );
+      }
+
       if (parsed.data.status !== undefined) {
         finding = findingTriageRepo.transitionStatus(request.params.id, parsed.data.status, actor);
       }
