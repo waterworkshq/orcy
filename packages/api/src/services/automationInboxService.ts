@@ -43,6 +43,8 @@ import { sql } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 import { getDb } from "../db/index.js";
 import * as ruleRepo from "../repositories/automationRule.js";
+import * as runRepo from "../repositories/automationRuleRun.js";
+import * as outboxRepo from "../repositories/automationRunCompletionOutbox.js";
 import * as revisionRepo from "../repositories/automationRuleRevision.js";
 import type {
   AutomationRuleRevision,
@@ -54,12 +56,13 @@ import type {
   AutomationEventInboxRow,
 } from "../repositories/automationRuleDelivery.js";
 import { normalizeEventTrigger } from "./automationEventService.js";
+import { notifyAutomationRunCompleted } from "./automationExecutor.js";
 import {
   attemptRuleRun,
   type AutomationFrozenAttemptDisposition,
   type AutomationAttemptSource,
 } from "./automationAttemptLifecycle.js";
-import type { AutomationAction } from "@orcy/shared";
+import type { AutomationAction, AutomationRule, AutomationRunStatus } from "@orcy/shared";
 
 export const RELEASE_SHIPPED_EVENT_TYPE = "release.shipped";
 
@@ -155,7 +158,12 @@ export function admitReleaseShippedEventToInbox(
       db,
     );
     if (!inboxCreated) {
-      const deliveries = deliveryRepo.listDeliveriesForInbox(inbox.id);
+      const deliveries = deliveryRepo.listDeliveriesForInbox(inbox.id, db);
+      // A stranded pre-fix zero-delivery inbox (pending forever) reaches
+      // terminal on replay too — idempotent.
+      if (deliveries.length === 0) {
+        deliveryRepo.markInboxTerminalIfComplete(inbox.id, now, db);
+      }
       return { outcome: "replayed", inboxId: inbox.id, deliveries: deliveries.length };
     }
 
@@ -190,6 +198,12 @@ export function admitReleaseShippedEventToInbox(
       );
       deliveries++;
     }
+    // Zero matching rules → nothing to consume. Terminalize the inbox IN the
+    // admission transaction (FU2): otherwise it would stay `pending` forever
+    // (the drainer enumerates delivery ids and finds none).
+    if (deliveries === 0) {
+      deliveryRepo.markInboxTerminalIfComplete(inbox.id, now, db);
+    }
     return { outcome: "admitted", inboxId: inbox.id, deliveries };
   });
 }
@@ -217,12 +231,17 @@ export interface DrainAutomationInboxReport {
  * revision's ordered actions. `resume` requires every UNPROVED action to
  * declare an end-to-end idempotency contract; proved actions are skipped by
  * the lifecycle regardless.
+ *
+ * `checkpoints` MUST be the state observed under the recovery reservation
+ * (re-checked inside the `BEGIN IMMEDIATE`), so a checkpoint proved
+ * concurrently cannot silently flip the classification underneath the
+ * attention write.
  */
 function classifyStaleDelivery(
   delivery: AutomationRuleDeliveryRow,
   revision: AutomationRuleRevision,
+  checkpoints: deliveryRepo.AutomationActionCheckpointRow[],
 ): { resume: true } | { resume: false; reason: string } {
-  const checkpoints = deliveryRepo.listCheckpointsForDelivery(delivery.id);
   const proved = new Set(checkpoints.filter((c) => c.state === "proved").map((c) => c.actionIndex));
   const actions = (revision.actions ?? []) as Array<Record<string, unknown>>;
   for (let i = 0; i < actions.length; i++) {
@@ -239,6 +258,84 @@ function classifyStaleDelivery(
     }
   }
   return { resume: true };
+}
+
+/**
+ * Stale-lease recovery under ONE `BEGIN IMMEDIATE` reservation (FU2). The
+ * whole classify + (re-lease | mark-attention) decision is a single atomic
+ * unit, closing the TOCTOU where the old worker's `recordCheckpointOutcome`
+ * (which checks only the lease fence, not expiry) could land between the
+ * recovery's checkpoint read and its attention write:
+ *
+ *   - re-reads the delivery and its checkpoints INSIDE the reservation (a
+ *     concurrently-proved checkpoint is either already visible → resume, or
+ *     blocked until this reservation commits → its later write is rejected by
+ *     the now-cleared fence);
+ *   - the attention CAS is bound to the OBSERVED fence, so a delivery
+ *     re-leased under a newer fence can never be yanked to attention by a
+ *     stale observation.
+ *
+ * `revision` is the immutable frozen revision the caller already resolved.
+ */
+function recoverStaleDelivery(input: {
+  deliveryId: string;
+  revision: AutomationRuleRevision;
+  leaseOwner: string;
+  now: string;
+  ttlMs: number;
+}):
+  | { kind: "attention" }
+  | { kind: "lost" }
+  | { kind: "resume"; lease: { delivery: AutomationRuleDeliveryRow; fence: string } } {
+  return withInboxTransaction(undefined, (db) => {
+    // Consistent snapshot under the reservation.
+    const delivery = deliveryRepo.getDeliveryById(input.deliveryId, db);
+    if (!delivery) return { kind: "lost" };
+    // Re-validate drainability/staleness: a concurrently re-leased (live) or
+    // terminalized delivery is not ours to classify.
+    if (
+      delivery.state !== "leased" ||
+      delivery.leaseExpiresAt === null ||
+      delivery.leaseExpiresAt > input.now
+    ) {
+      return { kind: "lost" };
+    }
+    const observedFence = delivery.leaseFence;
+    if (observedFence === null) return { kind: "lost" };
+
+    // Re-read checkpoint state under the reservation — the classification
+    // input is the committed-at-reservation view, not a stale pre-read.
+    const checkpoints = deliveryRepo.listCheckpointsForDelivery(delivery.id, db);
+    const classification = classifyStaleDelivery(delivery, input.revision, checkpoints);
+
+    if (!classification.resume) {
+      const marked = deliveryRepo.markStaleDeliveryAttention(
+        {
+          deliveryId: delivery.id,
+          fence: observedFence,
+          now: input.now,
+          reason: classification.reason,
+          proofClassification: "unprovable",
+        },
+        db,
+      );
+      return marked ? { kind: "attention" } : { kind: "lost" };
+    }
+
+    // Resume-safe: re-lease under a NEW fence (superseding the stale worker's
+    // fence) inside the same reservation.
+    const lease = deliveryRepo.leaseDelivery(
+      {
+        deliveryId: delivery.id,
+        leaseOwner: input.leaseOwner,
+        now: input.now,
+        ttlMs: input.ttlMs,
+      },
+      db,
+    );
+    if (!lease.acquired) return { kind: "lost" };
+    return { kind: "resume", lease: { delivery: lease.delivery, fence: lease.fence } };
+  });
 }
 
 /** Rebuild the normalized trigger from the FROZEN payload at consumption time. */
@@ -280,47 +377,68 @@ export async function drainAutomationInbox(
     report.outcomes[kind] = (report.outcomes[kind] ?? 0) + 1;
   };
 
+  // Reconciliation sweep (FU2): pending inboxes stranded with ZERO deliveries
+  // (a zero-match admission from before the in-transaction terminalization,
+  // or an empty event-type match) reach `terminal` so they stop pending
+  // forever. The sweep's reads/writes are separate atomic statements, so a
+  // concurrent admission (one tx) never exposes a partially-admitted inbox to
+  // the sweep.
+  for (const inboxId of deliveryRepo.listPendingZeroDeliveryInboxIds()) {
+    deliveryRepo.markInboxTerminalIfComplete(inboxId, now);
+  }
+
   const ids = deliveryRepo.listDrainableDeliveryIds(now, limit);
   for (const id of ids) {
     report.considered++;
     const delivery = deliveryRepo.getDeliveryById(id);
     if (!delivery) continue;
 
-    // Stale lease: classify each ordered action checkpoint BEFORE acting.
+    let leased: AutomationRuleDeliveryRow;
+    let fence: string;
+
+    // Stale lease: classify + (re-lease | mark attention) under ONE
+    // `BEGIN IMMEDIATE` reservation (FU2 TOCTOU fix).
     if (delivery.state === "leased") {
       const revision = revisionRepo.getRuleRevisionById(delivery.ruleRevisionId);
       if (!revision) {
         report.errors.push(`Delivery ${id}: revision ${delivery.ruleRevisionId} is missing`);
         continue;
       }
-      const classification = classifyStaleDelivery(delivery, revision);
-      if (!classification.resume) {
-        const marked = deliveryRepo.markStaleDeliveryAttention({
-          deliveryId: delivery.id,
-          now,
-          reason: classification.reason,
-          proofClassification: "unprovable",
-        });
-        count(marked ? "attention_required" : "lost_lease");
+      const recovery = recoverStaleDelivery({
+        deliveryId: delivery.id,
+        revision,
+        leaseOwner,
+        now,
+        ttlMs,
+      });
+      if (recovery.kind === "attention") {
+        count("attention_required");
+        continue;
+      }
+      if (recovery.kind === "lost") {
+        count("lost_lease");
         continue;
       }
       count("stale_resume");
-      // fall through: leaseDelivery re-leases under a NEW fence; the stale
-      // worker's fence is superseded and can no longer terminalize.
-    }
-
-    const lease = deliveryRepo.leaseDelivery({
-      deliveryId: delivery.id,
-      leaseOwner,
-      now,
-      ttlMs,
-    });
-    if (!lease.acquired) {
-      count("lost_lease");
-      continue;
+      // The reservation re-leased under a NEW fence; the stale worker's fence
+      // is superseded and can no longer terminalize or forge proof.
+      leased = recovery.lease.delivery;
+      fence = recovery.lease.fence;
+    } else {
+      const lease = deliveryRepo.leaseDelivery({
+        deliveryId: delivery.id,
+        leaseOwner,
+        now,
+        ttlMs,
+      });
+      if (!lease.acquired) {
+        count("lost_lease");
+        continue;
+      }
+      leased = lease.delivery;
+      fence = lease.fence;
     }
     report.leased++;
-    const leased = lease.delivery;
 
     const revision = revisionRepo.getRuleRevisionById(leased.ruleRevisionId);
     const inbox = deliveryRepo.getInboxById(leased.inboxId);
@@ -333,16 +451,23 @@ export async function drainAutomationInbox(
 
     const trigger = rebuildTrigger(inbox);
     if (!trigger) {
-      // Unresolvable frozen payload — durable skip, never a silent drop.
-      const skipped = deliveryRepo.transitionLeasedDelivery({
-        deliveryId: leased.id,
-        fence: lease.fence,
-        targetState: "terminal",
-        terminalDisposition: "skipped:unresolvable_event",
-        terminalDetail: `payload could not be normalized for ${inbox.eventType}`,
-        now,
+      // Unresolvable frozen payload — durable skip, never a silent drop. The
+      // delivery transition + inbox terminality are one atomic unit.
+      const skipped = withInboxTransaction(undefined, (db) => {
+        const transitioned = deliveryRepo.transitionLeasedDelivery(
+          {
+            deliveryId: leased.id,
+            fence,
+            targetState: "terminal",
+            terminalDisposition: "skipped:unresolvable_event",
+            terminalDetail: `payload could not be normalized for ${inbox.eventType}`,
+            now,
+          },
+          db,
+        );
+        if (transitioned) deliveryRepo.markInboxTerminalIfComplete(inbox.id, now, db);
+        return transitioned;
       });
-      if (skipped) deliveryRepo.markInboxTerminalIfComplete(inbox.id, now);
       count(skipped ? "skipped" : "fenced_out");
       continue;
     }
@@ -365,7 +490,7 @@ export async function drainAutomationInbox(
           delivery: {
             id: leased.id,
             generation: leased.generation,
-            fence: lease.fence,
+            fence,
             eventDedupeKey: leased.eventDedupeKey,
           },
           inbox: { id: inbox.id, eventType: inbox.eventType, eventId: inbox.eventId },
@@ -380,7 +505,61 @@ export async function drainAutomationInbox(
     }
   }
 
+  // Deliver any durable completion outbox rows produced by this pass (or
+  // earlier crashed passes). Best-effort: the outbox rows stay undelivered
+  // and the next drain/boot retries them.
+  deliverAutomationCompletionOutbox({ now });
+
   return report;
+}
+
+// ---------------------------------------------------------------------------
+// Durable completion outbox delivery (FU2)
+// ---------------------------------------------------------------------------
+
+export interface DeliverCompletionOutboxOptions {
+  now?: string;
+  limit?: number;
+}
+
+/**
+ * Deliver pending durable automation-run completion rows. Each row was
+ * persisted in the crash-atomic terminal bundle; delivering here (at the end
+ * of every drain, which covers boot + interval + eager passes) fires the
+ * in-process `notifyAutomationRunCompleted` subscriber hooks exactly once and
+ * marks the row delivered. A crash mid-delivery leaves the row undelivered
+ * and the next drain retries it; the workflow-gate consumer is idempotent
+ * (CAS on satisfied), so a retried delivery converges.
+ *
+ * Rows whose run row is gone (live rule deleted after terminalization) are
+ * marked delivered-with-error — there is nothing left to notify.
+ */
+export function deliverAutomationCompletionOutbox(
+  options?: DeliverCompletionOutboxOptions,
+): number {
+  const now = options?.now ?? new Date().toISOString();
+  const rows = outboxRepo.listUndeliveredCompletions({ limit: options?.limit ?? 50 });
+  let delivered = 0;
+  for (const row of rows) {
+    const run = runRepo.getRuleRunById(row.runId);
+    if (!run) {
+      outboxRepo.markCompletionDeliveryError(row.id, "run row missing (rule deleted)", now);
+      continue;
+    }
+    // The completion hooks only need stable identity (`rule.id`, `run`'s
+    // target fields); the live rule may have been edited or deleted since the
+    // run terminalized, so fall back to the run row's own lineage.
+    const rule: AutomationRule =
+      ruleRepo.getAutomationRuleById(row.ruleId) ?? ({ id: row.ruleId } as AutomationRule);
+    notifyAutomationRunCompleted({
+      run,
+      rule,
+      outcome: row.outcome as AutomationRunStatus,
+      habitatId: row.habitatId,
+    });
+    if (outboxRepo.markCompletionDelivered(row.id, now)) delivered++;
+  }
+  return delivered;
 }
 
 // ---------------------------------------------------------------------------

@@ -172,8 +172,12 @@ export function listInboxEntriesForHabitat(
  * waived. `attention_required` keeps the inbox pending — it is visible and is
  * NOT success. Idempotent (guarded by `state = 'pending'`).
  */
-export function markInboxTerminalIfComplete(inboxId: string, now: string): boolean {
-  const db = getDb();
+export function markInboxTerminalIfComplete(
+  inboxId: string,
+  now: string,
+  client?: AutomationDbClient,
+): boolean {
+  const db = client ?? getDb();
   const result = db.run(sql`
     UPDATE automation_event_inbox
     SET state = 'terminal', terminal_at = ${now}
@@ -194,6 +198,29 @@ export function markInboxTerminalIfComplete(inboxId: string, now: string): boole
     .where(eq(automationEventInbox.id, inboxId))
     .get();
   return row != null && row.state === "terminal" && row.terminalAt === now;
+}
+
+/**
+ * Inboxes stranded as `pending` with ZERO deliveries (a zero-match admission
+ * from before the in-transaction terminalization, or an empty
+ * event-type match). The drain pass sweeps these so they reach `terminal`.
+ */
+export function listPendingZeroDeliveryInboxIds(client?: AutomationDbClient): string[] {
+  const db = client ?? getDb();
+  const rows = db
+    .select({ id: automationEventInbox.id })
+    .from(automationEventInbox)
+    .where(
+      and(
+        eq(automationEventInbox.state, "pending"),
+        sql`NOT EXISTS (
+          SELECT 1 FROM automation_rule_deliveries
+          WHERE inbox_id = ${automationEventInbox.id}
+        )`,
+      ),
+    )
+    .all();
+  return rows.map((r) => r.id);
 }
 
 // ---------------------------------------------------------------------------
@@ -284,8 +311,11 @@ export function getDeliveryById(
   return row ? (row as unknown as AutomationRuleDeliveryRow) : null;
 }
 
-export function listDeliveriesForInbox(inboxId: string): AutomationRuleDeliveryRow[] {
-  const db = getDb();
+export function listDeliveriesForInbox(
+  inboxId: string,
+  client?: AutomationDbClient,
+): AutomationRuleDeliveryRow[] {
+  const db = client ?? getDb();
   return db
     .select()
     .from(automationRuleDeliveries)
@@ -347,13 +377,16 @@ export function listDrainableDeliveryIds(now: string, limit: number): string[] {
  *     worker's fence is superseded and can no longer terminalize).
  * Returns `acquired: false` when a live lease or a concurrent winner holds it.
  */
-export function leaseDelivery(input: {
-  deliveryId: string;
-  leaseOwner: string;
-  now: string;
-  ttlMs: number;
-}): { delivery: AutomationRuleDeliveryRow; acquired: boolean; fence: string } {
-  const db = getDb();
+export function leaseDelivery(
+  input: {
+    deliveryId: string;
+    leaseOwner: string;
+    now: string;
+    ttlMs: number;
+  },
+  client?: AutomationDbClient,
+): { delivery: AutomationRuleDeliveryRow; acquired: boolean; fence: string } {
+  const db = client ?? getDb();
   const fence = uuid();
   const expiresAt = new Date(new Date(input.now).getTime() + input.ttlMs).toISOString();
 
@@ -395,17 +428,20 @@ export function leaseDelivery(input: {
  *   - a second worker cannot double-terminalize;
  *   - terminal/waived/attention rows are immutable to this call.
  */
-export function transitionLeasedDelivery(input: {
-  deliveryId: string;
-  fence: string;
-  targetState: Extract<AutomationDeliveryState, "terminal" | "attention_required">;
-  terminalDisposition?: string | null;
-  terminalDetail?: string | null;
-  proofClassification?: string | null;
-  automationRunId?: string | null;
-  now: string;
-}): boolean {
-  const db = getDb();
+export function transitionLeasedDelivery(
+  input: {
+    deliveryId: string;
+    fence: string;
+    targetState: Extract<AutomationDeliveryState, "terminal" | "attention_required">;
+    terminalDisposition?: string | null;
+    terminalDetail?: string | null;
+    proofClassification?: string | null;
+    automationRunId?: string | null;
+    now: string;
+  },
+  client?: AutomationDbClient,
+): boolean {
+  const db = client ?? getDb();
   const result = db.run(sql`
     UPDATE automation_rule_deliveries
     SET state = ${input.targetState},
@@ -478,20 +514,33 @@ export function waiveDelivery(input: {
 
 /**
  * Stale-lease attention transition (consumer-side proof-aware recovery).
- * CAS on `state = 'leased' AND lease_expires_at <= now`: only a genuinely
- * expired lease may be moved to `attention_required`, and a worker that
- * re-leased (new fence, new expiry) or terminalized first makes this fail.
+ *
+ * CAS is bound to the OBSERVED lease fence (not just `leased + expired`), so
+ * a delivery that was re-leased under a NEWER fence (by a competing recovery
+ * or by the OLD worker re-proving before classification committed) cannot be
+ * yanked to `attention_required` by a stale observation. Callers MUST run
+ * this under the recovery reservation (`BEGIN IMMEDIATE`) after re-reading
+ * the checkpoint state, so a concurrently-proved checkpoint is either seen
+ * (→ resume) or blocked until this commit clears the fence (→ the old
+ * worker's later proof is rejected, never leaving attention with a proved
+ * receipt).
+ *
  * `attention_required` is visible and is NOT success — it never
  * auto-executes; only an audited operator waive or a risk-acknowledged
  * successor generation resolves it.
  */
-export function markStaleDeliveryAttention(input: {
-  deliveryId: string;
-  now: string;
-  reason: string;
-  proofClassification: string;
-}): boolean {
-  const db = getDb();
+export function markStaleDeliveryAttention(
+  input: {
+    deliveryId: string;
+    /** The lease fence observed when the delivery was read. CAS is bound to it. */
+    fence: string;
+    now: string;
+    reason: string;
+    proofClassification: string;
+  },
+  client?: AutomationDbClient,
+): boolean {
+  const db = client ?? getDb();
   const result = db.run(sql`
     UPDATE automation_rule_deliveries
     SET state = 'attention_required',
@@ -504,6 +553,7 @@ export function markStaleDeliveryAttention(input: {
         terminal_at = ${input.now},
         updated_at = ${input.now}
     WHERE id = ${input.deliveryId}
+      AND lease_fence = ${input.fence}
       AND state = 'leased'
       AND lease_expires_at <= ${input.now}
   `);
@@ -618,8 +668,11 @@ export function ensureCheckpointRow(input: {
   return created as unknown as AutomationActionCheckpointRow;
 }
 
-export function listCheckpointsForDelivery(deliveryId: string): AutomationActionCheckpointRow[] {
-  const db = getDb();
+export function listCheckpointsForDelivery(
+  deliveryId: string,
+  client?: AutomationDbClient,
+): AutomationActionCheckpointRow[] {
+  const db = client ?? getDb();
   return db
     .select()
     .from(automationDeliveryActionCheckpoints)

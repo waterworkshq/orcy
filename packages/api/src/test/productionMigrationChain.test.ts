@@ -232,6 +232,7 @@ describe("F2: Production Drizzle migration chain", () => {
       for (const t of [
         "notification_events",
         "automation_rules",
+        "automation_run_completion_outbox",
         "remote_pods",
         "remote_webhook_deliveries",
         "workflows",

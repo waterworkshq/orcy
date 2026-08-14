@@ -28,6 +28,7 @@
  * through `attemptRuleRun`. The pre-CS-56 one-shot seam
  * `executeAndRecordRuleRun` was retired in T5.
  */
+import { sql } from "drizzle-orm";
 import type {
   AutomationRule,
   AutomationRuleRun,
@@ -39,9 +40,11 @@ import type {
   CausalContext,
 } from "@orcy/shared";
 import * as runRepo from "../repositories/automationRuleRun.js";
+import * as outboxRepo from "../repositories/automationRunCompletionOutbox.js";
 import {
   materializeRuleFromRevision,
   type AutomationRuleRevision,
+  type AutomationDbClient,
 } from "../repositories/automationRuleRevision.js";
 import * as deliveryRepo from "../repositories/automationRuleDelivery.js";
 import { validatePersistedCondition } from "../models/automationConditionSchema.js";
@@ -56,6 +59,7 @@ import {
 } from "./automationExecutor.js";
 import { logger } from "../lib/logger.js";
 import { isSqliteError } from "../errors/sqlite.js";
+import { getDb } from "../db/index.js";
 
 /** Origin of this attempt — used for guarded-skip metadata and future counter derivation. */
 export type AutomationAttemptSource = "event" | "scan" | "manual";
@@ -676,6 +680,109 @@ function isForeignKeyViolation(err: unknown): boolean {
   return false;
 }
 
+// ---------------------------------------------------------------------------
+// Crash-atomic terminal bundle (FU2)
+// ---------------------------------------------------------------------------
+
+/**
+ * Automation-scoped `BEGIN IMMEDIATE` wrapper (the
+ * `withInboxTransaction`/`scheduledOccurrenceReservation` precedent). The
+ * frozen pipeline runs on its own connection with no caller-supplied client,
+ * so the terminal bundle always opens a fresh writer reservation.
+ */
+function withImmediateTransaction<T>(fn: (db: AutomationDbClient) => T): T {
+  const db = getDb();
+  db.run(sql`BEGIN IMMEDIATE`);
+  try {
+    const result = fn(db);
+    db.run(sql`COMMIT`);
+    return result;
+  } catch (err) {
+    try {
+      db.run(sql`ROLLBACK`);
+    } catch {
+      // already rolled back
+    }
+    throw err;
+  }
+}
+
+/**
+ * The crash-atomic terminal unit for a frozen delivery generation. ONE
+ * `BEGIN IMMEDIATE` transaction performs:
+ *
+ *   1. the delivery fence CAS → `terminal`;
+ *   2. the run `running → terminal` transition (when a run row exists);
+ *   3. the durable completion outbox row (dedup on `run_id`) — so the
+ *      completion subscriber event survives crashes and replays exactly once;
+ *   4. the inbox terminality recompute.
+ *
+ * A crash can therefore no longer land between these former autocommits
+ * (delivery terminal but run `running`, inbox `pending`, completion lost).
+ * The completion is NOT emitted in-process here — it is persisted and
+ * delivered after commit by the outbox deliverer (retry on next drain/boot).
+ */
+function terminalizeDeliveryBundle(input: {
+  deliveryId: string;
+  fence: string;
+  terminalDisposition: string | null;
+  terminalDetail?: string | null;
+  run?: {
+    runId: string;
+    status: Exclude<AutomationRunStatus, "running" | "matched" | "simulated">;
+    skipReason?: AutomationSkipReason | null;
+    conditionResult?: AutomationConditionResult | null;
+    actionResults?: AutomationActionResult[] | null;
+    metadata?: Record<string, unknown> | null;
+    ruleId: string;
+    habitatId: string;
+    outcome: AutomationRunStatus;
+  } | null;
+  inboxId: string;
+  now: string;
+}): { transitioned: boolean } {
+  return withImmediateTransaction((db) => {
+    const transitioned = deliveryRepo.transitionLeasedDelivery(
+      {
+        deliveryId: input.deliveryId,
+        fence: input.fence,
+        targetState: "terminal",
+        terminalDisposition: input.terminalDisposition,
+        terminalDetail: input.terminalDetail ?? null,
+        automationRunId: input.run?.runId ?? null,
+        now: input.now,
+      },
+      db,
+    );
+    if (!transitioned) return { transitioned: false };
+
+    if (input.run) {
+      runRepo.terminalizeRuleRun({
+        runId: input.run.runId,
+        status: input.run.status,
+        skipReason: input.run.skipReason ?? null,
+        conditionResult: input.run.conditionResult ?? null,
+        actionResults: input.run.actionResults ?? null,
+        metadata: input.run.metadata ?? null,
+        finishedAt: input.now,
+        client: db,
+      });
+      outboxRepo.enqueueAutomationRunCompletion(
+        {
+          runId: input.run.runId,
+          ruleId: input.run.ruleId,
+          habitatId: input.run.habitatId,
+          outcome: input.run.outcome,
+          now: input.now,
+        },
+        db,
+      );
+    }
+    deliveryRepo.markInboxTerminalIfComplete(input.inboxId, input.now, db);
+    return { transitioned: true };
+  });
+}
+
 /**
  * Frozen-revision delivery pipeline. Mirrors the live pipeline's 10-step
  * ordering EXACTLY (target → cooldown → rate → reservation → condition
@@ -756,32 +863,26 @@ async function attemptFrozenRuleDelivery(
     metadata: Record<string, unknown>,
   ): Promise<AutomationFrozenAttemptDisposition> => {
     run = tryReserveRun();
-    const transitioned = deliveryRepo.transitionLeasedDelivery({
+    const bundle = terminalizeDeliveryBundle({
       deliveryId: frozen.delivery.id,
       fence: frozen.delivery.fence,
-      targetState: "terminal",
       terminalDisposition: `skipped:${reason}`,
       terminalDetail: JSON.stringify({ source: input.source, ...metadata }),
-      automationRunId: run?.id ?? null,
+      run: run
+        ? {
+            runId: run.id,
+            status: "skipped",
+            skipReason: reason,
+            metadata: { source: input.source, ...metadata },
+            ruleId: rule.id,
+            habitatId,
+            outcome: "skipped",
+          }
+        : null,
+      inboxId: frozen.inbox.id,
       now: nowIso,
     });
-    if (!transitioned) return { kind: "fenced_out" };
-    if (run) {
-      const { run: finalRun } = runRepo.terminalizeRuleRun({
-        runId: run.id,
-        status: "skipped",
-        skipReason: reason,
-        metadata: { source: input.source, ...metadata },
-        finishedAt: nowIso,
-      });
-      notifyAutomationRunCompleted({
-        run: finalRun,
-        rule,
-        habitatId,
-        outcome: "skipped",
-      });
-    }
-    deliveryRepo.markInboxTerminalIfComplete(frozen.inbox.id, nowIso);
+    if (!bundle.transitioned) return { kind: "fenced_out" };
     return { kind: "skipped", reason, runId: run?.id ?? null };
   };
 
@@ -921,33 +1022,26 @@ async function attemptFrozenRuleDelivery(
   }
 
   const composite = calculateRunStatus(succeededCount, failedCount, actionResults.length);
-  const transitioned = deliveryRepo.transitionLeasedDelivery({
+  const bundle = terminalizeDeliveryBundle({
     deliveryId: frozen.delivery.id,
     fence: frozen.delivery.fence,
-    targetState: "terminal",
     terminalDisposition: composite,
     terminalDetail: null,
-    automationRunId: run?.id ?? null,
+    run: run
+      ? {
+          runId: run.id,
+          status: composite as "succeeded" | "partial_failed" | "failed",
+          conditionResult,
+          actionResults,
+          ruleId: rule.id,
+          habitatId,
+          outcome: composite,
+        }
+      : null,
+    inboxId: frozen.inbox.id,
     now: nowIso,
   });
-  if (!transitioned) return { kind: "fenced_out" };
-  if (run) {
-    const terminalStatus = composite as "succeeded" | "partial_failed" | "failed";
-    const { run: finalRun } = runRepo.terminalizeRuleRun({
-      runId: run.id,
-      status: terminalStatus,
-      conditionResult,
-      actionResults,
-      finishedAt: nowIso,
-    });
-    notifyAutomationRunCompleted({
-      run: finalRun,
-      rule,
-      habitatId,
-      outcome: composite,
-    });
-  }
-  deliveryRepo.markInboxTerminalIfComplete(frozen.inbox.id, nowIso);
+  if (!bundle.transitioned) return { kind: "fenced_out" };
   return { kind: "executed", outcome: composite, actionResults, runId: run?.id ?? null };
 
   /** Shared terminal-failure path for condition-stage failures. */
@@ -958,32 +1052,26 @@ async function attemptFrozenRuleDelivery(
       detail: Record<string, unknown>;
     },
   ): AutomationFrozenAttemptDisposition {
-    const transitionedFailure = deliveryRepo.transitionLeasedDelivery({
+    const bundle = terminalizeDeliveryBundle({
       deliveryId: frozen.delivery.id,
       fence: frozen.delivery.fence,
-      targetState: "terminal",
       terminalDisposition: `failed:${stage}`,
       terminalDetail: JSON.stringify({ source: input.source, ...detail.detail }),
-      automationRunId: run?.id ?? null,
+      run: run
+        ? {
+            runId: run.id,
+            status: "failed",
+            conditionResult: detail.conditionResult,
+            metadata: { source: input.source, stage, ...detail.detail },
+            ruleId: rule.id,
+            habitatId,
+            outcome: "failed",
+          }
+        : null,
+      inboxId: frozen.inbox.id,
       now: nowIso,
     });
-    if (!transitionedFailure) return { kind: "fenced_out" };
-    if (run) {
-      const { run: finalRun } = runRepo.terminalizeRuleRun({
-        runId: run.id,
-        status: "failed",
-        conditionResult: detail.conditionResult,
-        metadata: { source: input.source, stage, ...detail.detail },
-        finishedAt: nowIso,
-      });
-      notifyAutomationRunCompleted({
-        run: finalRun,
-        rule,
-        habitatId,
-        outcome: "failed",
-      });
-    }
-    deliveryRepo.markInboxTerminalIfComplete(frozen.inbox.id, nowIso);
+    if (!bundle.transitioned) return { kind: "fenced_out" };
     return { kind: "failed", stage, runId: run?.id ?? null };
   }
 }

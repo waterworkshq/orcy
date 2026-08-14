@@ -231,3 +231,31 @@ export const automationDeliveryDispositions = sqliteTable(
   },
   (table) => [index("idx_automation_delivery_dispositions_delivery").on(table.deliveryId)],
 );
+
+/**
+ * Durable Automation rule-run completion outbox (FU2). One row per rule run,
+ * written in the SAME immediate transaction that terminalizes a delivery; a
+ * drain/boot pass delivers undelivered rows (retry-on-drain) so the
+ * completion subscriber hook is exactly-once even across crashes. `UNIQUE
+ * (run_id)` is the dedup key.
+ */
+export const automationRunCompletionOutbox = sqliteTable(
+  "automation_run_completion_outbox",
+  {
+    id: text("id").primaryKey(),
+    runId: text("run_id")
+      .notNull()
+      .references(() => automationRuleRuns.id, { onDelete: "cascade" }),
+    ruleId: text("rule_id").notNull(),
+    habitatId: text("habitat_id").notNull(),
+    outcome: text("outcome").notNull(),
+    createdAt: text("created_at").notNull().default("(datetime('now'))"),
+    deliveredAt: text("delivered_at"),
+    deliveryAttempts: integer("delivery_attempts").notNull().default(0),
+    lastError: text("last_error"),
+  },
+  (table) => [
+    uniqueIndex("uq_automation_completion_outbox_run").on(table.runId),
+    index("idx_automation_completion_outbox_undelivered").on(table.deliveredAt),
+  ],
+);

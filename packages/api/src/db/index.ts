@@ -364,15 +364,17 @@ async function getAdminHash(): Promise<string> {
 }
 
 function applyMigrations(testSqlite: any, migrationFolder: string): void {
-  // The test schema is bounded at the additive watermark: the enforcement
-  // migration (0068) is DELIBERATELY excluded from the test build. It
-  // requires a preflight attestation the file-scanner path never writes, and
-  // its partial UNIQUE indexes would make dirty-data fixtures (duplicate
-  // active identities, duplicate Finding resolutions — the exact anomalies
-  // the preflight reports) impossible to seed. Enforcement is proven on the
-  // production better-sqlite3 path (stagedEnforcementMigration.test.ts).
-  const enforcementNumber = parseInt(ENFORCEMENT_MIGRATION_TAG.slice(0, 4), 10);
-  const isBeforeEnforcement = (file: string) => parseInt(file.slice(0, 4), 10) < enforcementNumber;
+  // The enforcement migration (0068) is DELIBERATELY excluded from the test
+  // build BY TAG (not by number): it requires a preflight attestation the
+  // file-scanner path never writes, and its partial UNIQUE indexes would make
+  // dirty-data fixtures (duplicate active identities, duplicate Finding
+  // resolutions — the exact anomalies the preflight reports) impossible to
+  // seed. Enforcement is proven on the production better-sqlite3 path
+  // (stagedEnforcementMigration.test.ts). Every OTHER journaled migration —
+  // including later additive ones (0069+) — IS applied, so the sql.js test
+  // schema tracks the production additive schema.
+  const isEnforcementMigration = (file: string) =>
+    file === `${ENFORCEMENT_MIGRATION_TAG}.sql`;
 
   const schemaFile = join(migrationFolder, "0000_schema.sql");
   if (existsSync(schemaFile)) {
@@ -380,7 +382,7 @@ function applyMigrations(testSqlite: any, migrationFolder: string): void {
   }
   const incrementalMigrations = readdirSync(migrationFolder)
     .filter((f) => /^\d{4}_.*\.sql$/.test(f) && f !== "0000_schema.sql")
-    .filter(isBeforeEnforcement)
+    .filter((f) => !isEnforcementMigration(f))
     .toSorted();
   for (const migrationFile of incrementalMigrations) {
     runMigrationSql(testSqlite, readFileSync(join(migrationFolder, migrationFile), "utf-8"));

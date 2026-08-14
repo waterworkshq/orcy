@@ -17,6 +17,7 @@ import type {
   AutomationActionResult,
   AutomationTargetType,
 } from "@orcy/shared";
+import type { AutomationDbClient } from "./automationRuleRevision.js";
 
 export interface StartRuleRunInput {
   ruleId: string;
@@ -320,9 +321,9 @@ export interface TerminalizeRuleRunResult {
  * until T3 wires the canonical lifecycle end-to-end.
  */
 export function terminalizeRuleRun(
-  input: TerminalizeRuleRunInput,
+  input: TerminalizeRuleRunInput & { client?: AutomationDbClient },
 ): TerminalizeRuleRunResult {
-  const db = getDb();
+  const db = input.client ?? getDb();
   const finishedAt = input.finishedAt ?? new Date().toISOString();
 
   const set: Record<string, unknown> = {

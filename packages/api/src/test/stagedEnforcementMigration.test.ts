@@ -378,8 +378,11 @@ describe("Staged enforcement — production initDb discriminators", () => {
       expect(ledger.some((r) => r.hash === watermarkHash)).toBe(true);
       // ...and enforcement did NOT run.
       expect(ledger.some((r) => r.hash === enforcementHash)).toBe(false);
-      expect(ledger).toHaveLength(journal.entries.length - 1);
-      void journal;
+      // Stage 1 applied exactly the entries through the additive watermark
+      // (inclusive); enforcement AND any later entry (0069) stay unapplied.
+      const watermarkEntry = journal.entries.find((e) => e.tag === ADDITIVE_WATERMARK_TAG)!;
+      const appliedCount = journal.entries.filter((e) => e.when <= watermarkEntry.when).length;
+      expect(ledger).toHaveLength(appliedCount);
 
       // Stable code + machine-readable blocking report persisted.
       const att = attestation(dbPath);

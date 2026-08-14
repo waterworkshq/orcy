@@ -89,6 +89,7 @@ export {
   automationRuleDeliveries,
   automationDeliveryActionCheckpoints,
   automationDeliveryDispositions,
+  automationRunCompletionOutbox,
 } from "./automation.js";
 export {
   identityProviders,
