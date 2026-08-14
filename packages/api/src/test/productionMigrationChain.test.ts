@@ -17,7 +17,12 @@
  *   - Schema-parity / representative repository read-write across all
  *     post-consolidation domains.
  */
-import { describe, it, expect, afterEach, beforeEach } from "vitest";
+import { vi, describe, it, expect, afterEach, beforeEach } from "vitest";
+
+// Migration-chain tests build file-backed databases through the full journal
+// (now including the staged preflight/enforcement protocol) — allow headroom
+// under full-suite parallel contention.
+vi.setConfig({ testTimeout: 60_000 });
 import { closeDb, initDb, getDb } from "../db/index.js";
 import { join } from "node:path";
 import { existsSync, readFileSync, unlinkSync, mkdirSync } from "node:fs";

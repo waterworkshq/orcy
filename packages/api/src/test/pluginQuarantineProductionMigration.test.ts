@@ -17,7 +17,12 @@
  * migration 0033 (which adds `workflow_template`), so template seeding
  * succeeds on both fresh and upgraded databases.
  */
-import { describe, it, expect, afterEach } from "vitest";
+import { vi, describe, it, expect, afterEach } from "vitest";
+
+// Migration-chain tests build file-backed databases through the full journal
+// (now including the staged preflight/enforcement protocol) — allow headroom
+// under full-suite parallel contention.
+vi.setConfig({ testTimeout: 60_000 });
 import { closeDb, initDb, getDb } from "../db/index.js";
 import { pluginQuarantines } from "../db/schema/index.js";
 import { join } from "node:path";

@@ -22,7 +22,9 @@ export const findingTriage = sqliteTable(
       .references(() => habitats.id, { onDelete: "cascade" }),
     pulseId: text("pulse_id")
       .notNull()
-      .references(() => pulses.id, { onDelete: "cascade" }),
+      // RESTRICT since the 0068 enforcement migration: deleting the source
+      // Pulse of a Finding row can no longer cascade away lifecycle history.
+      .references(() => pulses.id, { onDelete: "restrict" }),
     clusterKey: text("cluster_key").notNull(),
     findingKind: text("finding_kind").notNull(),
 
@@ -35,8 +37,10 @@ export const findingTriage = sqliteTable(
     targetRelease: text("target_release"),
     targetReleaseType: text("target_release_type"),
 
+    // Physical column retained; domain mapper exposes it as canonical
+    // correctiveMissionId (ADR-0048). RESTRICT since 0068 enforcement.
     triageMissionId: text("triage_mission_id").references(() => missions.id, {
-      onDelete: "set null",
+      onDelete: "restrict",
     }),
     corroboratingPulseIds: text("corroborating_pulse_ids"),
 
@@ -48,9 +52,7 @@ export const findingTriage = sqliteTable(
     /** Nullable predecessor link; traversal defines the complete lineage. */
     recurrenceOfId: text("recurrence_of_id"),
     /** Blocks automatic recurrence/agent mutation for ambiguous migrated lineage. */
-    legacyLineageRepairRequired: integer("legacy_lineage_repair_required")
-      .notNull()
-      .default(0),
+    legacyLineageRepairRequired: integer("legacy_lineage_repair_required").notNull().default(0),
     /** Normalized immutable route fingerprint excluding actor/timestamps/Mission version. */
     routeFingerprint: text("route_fingerprint"),
     /** Activation timestamp. */
@@ -192,18 +194,22 @@ export const triageClusterMissions = sqliteTable(
  * finding_triage_evidence — normalized Finding–Pulse evidence membership.
  *
  * Authoritative membership store. Each row links a finding triage record to a
- * Pulse with a role classifying the relationship. FKs use CASCADE for now;
- * a later enforcement migration changes them to RESTRICT.
+ * Pulse with a role classifying the relationship. FKs are RESTRICT since the
+ * 0068 enforcement migration — referenced Pulse/Finding deletion cannot
+ * cascade away terminal evidence.
  */
 export const findingTriageEvidence = sqliteTable(
   "finding_triage_evidence",
   {
     findingTriageId: text("finding_triage_id")
       .notNull()
-      .references(() => findingTriage.id, { onDelete: "cascade" }),
+      // RESTRICT since the 0068 enforcement migration.
+      .references(() => findingTriage.id, { onDelete: "restrict" }),
     pulseId: text("pulse_id")
       .notNull()
-      .references(() => pulses.id, { onDelete: "cascade" }),
+      // RESTRICT since the 0068 enforcement migration: deleting the source
+      // Pulse of a Finding row can no longer cascade away lifecycle history.
+      .references(() => pulses.id, { onDelete: "restrict" }),
     role: text("role", {
       enum: ["source", "corroborating", "legacy_observed"],
     }).notNull(),
@@ -263,10 +269,7 @@ export const findingTriageLineageRepairs = sqliteTable(
       .default(sql`(datetime('now'))`),
   },
   (table) => [
-    index("idx_finding_triage_lineage_repairs_habitat").on(
-      table.habitatId,
-      table.clusterKey,
-    ),
+    index("idx_finding_triage_lineage_repairs_habitat").on(table.habitatId, table.clusterKey),
     index("idx_finding_triage_lineage_repairs_identity").on(
       table.habitatId,
       table.clusterKey,
@@ -292,9 +295,7 @@ export const findingTriageLineageBaselineEvidence = sqliteTable(
       .notNull()
       .default(sql`(datetime('now'))`),
   },
-  (table) => [
-    index("idx_finding_triage_baseline_repair").on(table.repairId),
-  ],
+  (table) => [index("idx_finding_triage_baseline_repair").on(table.repairId)],
 );
 
 /**
@@ -340,10 +341,7 @@ export const triagePublicationOccurrences = sqliteTable(
       .default(sql`(datetime('now'))`),
   },
   (table) => [
-    index("idx_triage_publication_occurrences_cluster").on(
-      table.habitatId,
-      table.clusterKey,
-    ),
+    index("idx_triage_publication_occurrences_cluster").on(table.habitatId, table.clusterKey),
     index("idx_triage_publication_occurrences_template").on(table.templateId),
   ],
 );

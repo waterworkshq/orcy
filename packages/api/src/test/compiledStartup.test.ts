@@ -34,6 +34,8 @@ import { createHash } from "node:crypto";
 import net from "node:net";
 import { tmpdir } from "node:os";
 import Database from "better-sqlite3";
+import { ENFORCEMENT_MIGRATION_TAG } from "../db/stagedMigrations.js";
+import { ADDITIVE_SCHEMA_VERSION, PREFLIGHT_VERSION } from "../services/findingTriagePreflight.js";
 
 const PACKAGE_ROOT = resolve(import.meta.dirname, "..", "..");
 const WORKSPACE_ROOT = resolve(PACKAGE_ROOT, "..", "..");
@@ -112,6 +114,17 @@ function prepareCurrentSchemaDatabase(dbPath: string): void {
     .filter((f) => /^\d{4}_.*\.sql$/.test(f) && f !== "0000_schema.sql")
     .toSorted();
   for (const file of incremental) {
+    if (file === `${ENFORCEMENT_MIGRATION_TAG}.sql`) {
+      // The enforcement migration's CHECK guard aborts without a clean
+      // preflight attestation — mirror what the staged production runner
+      // writes between the additive watermark and the enforcement stage.
+      db.prepare(
+        `INSERT OR REPLACE INTO migration_preflight_attestations
+          (enforcement_migration_id, schema_version, preflight_version,
+           anomaly_query_digest, clean, attested_at)
+         VALUES (?, ?, ?, 'compiled-startup-seed', 1, datetime('now'))`,
+      ).run(ENFORCEMENT_MIGRATION_TAG, ADDITIVE_SCHEMA_VERSION, PREFLIGHT_VERSION);
+    }
     applyMigrationSql(db, readFileSync(join(DRIZZLE_DIR, file), "utf-8"));
   }
 

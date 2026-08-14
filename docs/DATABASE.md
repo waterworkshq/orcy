@@ -2110,14 +2110,30 @@ Finding triage lifecycle record. Tracks an engineering finding's routing lifecyc
 | `status` | TEXT | NOT NULL DEFAULT 'open' | Lifecycle state: open, triaged, in_progress, resolved, wontfix |
 | `bucket` | TEXT | | Routing bucket: fix_now, defer_to_patch, defer_to_release, document_as_known_limitation, needs_investigation |
 | `target_release` | TEXT | | Free-text tag (e.g. "v0.24") for version-pinned deferred findings |
-| `target_release_type` | TEXT | | Release-type tag for semver-type-targeted deferrals: `patch`, `minor`, or `major` (cascading match, ADR-0029). Added by migration `0047_finding_triage_target_release_type.sql` |
-| `triage_mission_id` | TEXT | FK → features(id) ON DELETE SET NULL | Linked triage mission |
-| `corroborating_pulse_ids` | TEXT | | JSON array of pulse IDs linked as corroborating evidence |
+| `target_release_type` | TEXT | | Release-type tag for semver-type-targeted deferrals: `patch`, `minor`, or `major` (cascading match, ADR-0029). Added by migration `0047_finding_triage_target_release_type.sql`. Superseded read-only by the restored lifecycle (ADR-0048) — deferral is a release-gated Corrective Mission; mutations rejected |
+| `triage_mission_id` | TEXT | FK → features(id) ON DELETE RESTRICT | Linked corrective mission. Physical column retained; the domain mapper exposes it as canonical `correctiveMissionId` (deprecated equal alias `triageMissionId`). RESTRICT since the `0068` enforcement migration — Mission deletion cannot erase lifecycle history |
+| `corroborating_pulse_ids` | TEXT | | JSON array of pulse IDs linked as corroborating evidence (compatibility projection; `finding_triage_evidence` is the authoritative membership store) |
+| `admitted_by_triage_mission_id` | TEXT | | Bounded investigation Mission identity (ADR-0048; migration `0064`) |
+| `admitted_by_investigation_task_id` | TEXT | | Exact Task whose live claim authorizes agent routing (claim-bound routing) |
+| `recurrence_of_id` | TEXT | | Predecessor link; traversal defines the complete lineage |
+| `legacy_lineage_repair_required` | INTEGER | NOT NULL DEFAULT 0 | Blocks automatic recurrence/agent mutation for ambiguous migrated lineage until a valid repair commits |
+| `route_fingerprint` | TEXT | | Normalized immutable route fingerprint (excludes actor/timestamps/Mission version); replay wins before first-apply predicates |
+| `activated_at/by_type/by_id`, `activation_cause`, `activation_release_id` | TEXT | | Activation attribution (`manual` or `release`; Release identity when cause is `release`) |
 | `triaged_by_type/id`, `resolved_by_type/id`, `triaged_at`, `resolved_at`, `resolution_note` | TEXT | | Attribution fields mirroring `code_evidence_gaps` pattern |
 | `metadata` | TEXT | NOT NULL DEFAULT '{}' | JSON metadata |
 | `created_at`, `updated_at` | TEXT | NOT NULL DEFAULT datetime('now') | Timestamps |
 
-**Indexes:** `(habitat_id, status)`, `(habitat_id, bucket)`, `(pulse_id)`, `(habitat_id, cluster_key, finding_kind)` [dedup], `(triage_mission_id)`
+**Indexes:** `(habitat_id, status)`, `(habitat_id, bucket)`, `(pulse_id)`, `(habitat_id, cluster_key, finding_kind)` [dedup], `(triage_mission_id)`, `(admitted_by_triage_mission_id)`, `(admitted_by_investigation_task_id)`, `(recurrence_of_id)`, `(legacy_lineage_repair_required)`
+
+**Enforced invariants (migration `0068_finding_triage_lifecycle_enforcement.sql`, applied only through the staged runner after a clean preflight attestation):**
+
+- Partial UNIQUE `(habitat_id, cluster_key, finding_kind)` WHERE `status NOT IN ('resolved','wontfix')` — one ACTIVE lifecycle identity per habitat/cluster/kind (`idx_finding_triage_active_identity`).
+- `pulse_id` FK converted CASCADE → RESTRICT — the source Pulse of a Finding cannot be deleted while referenced.
+- Terminal rows are immutable at the command layer; recurrence creates a new row with `recurrence_of_id` lineage.
+
+`triage_resolutions` gains the partial UNIQUE `(source, source_id)` WHERE `source = 'finding_triage'` (`idx_triage_resolutions_finding_source`, migration `0068`) — one Resolution Record per Finding. Cluster Resolution (`source='cluster_triage'`) is deliberately unchanged (ADR-0048 out-of-scope).
+
+`finding_triage_evidence` FKs (finding + pulse) convert CASCADE → RESTRICT in `0068` — referenced Pulse or Finding deletion can no longer cascade away terminal evidence.
 
 #### `triage_resolutions`
 
@@ -2404,6 +2420,37 @@ At-most-once destination promotion records. The successful promotion row — key
 
 ---
 
+### Restored Finding Triage Lifecycle (ADR-0048)
+
+The restored lifecycle added storage in four additive migrations and enforcement in a staged fifth:
+
+**Additive chain (no enforcement; watermarked through `0067`):**
+
+- `0064_finding_triage_lifecycle_additive.sql` — nullable provenance/lineage/activation columns on `finding_triage` (see the table docs above); `finding_triage_evidence` (normalized Finding–Pulse evidence membership, authoritative); `finding_triage_lineage_repairs` + `finding_triage_lineage_baseline_evidence` (append-only offline repair audit ledger and evidence baselines); `migration_preflight_attestations` (database-local preflight attestation, below).
+- `0065_triage_publication_occurrences.sql` — `triage_publication_occurrences`: first-writer-frozen canonical occurrence store. `id` is a versioned digest (`tpo-v1:<sha256(JCS(candidate_snapshot))>`); `snapshot_digest` is UNIQUE (the lifecycle/pulse snapshot identity — winner classification is via the persisted snapshot, never re-derived); the winner freezes the first rendered payload and the COMPLETE prepared Mission/Task/workflow aggregate (including `PreparedTemplateTask.templateKey`). Changing the prepared-aggregate serialization requires a new occurrence-version prefix, never an in-place mutation.
+- `0066_automation_revision_inbox.sql` — immutable Automation rule revisions, the `(event_type, event_id)` event inbox, frozen revision sets, per-rule deliveries/generations, and per-action checkpoints for `release.shipped` handoff.
+- `0067_release_projection_epochs.sql` — Release rows + immutable activation epochs (cap, eligible groups, exact linked Finding ids, eligibility digest) and per-projection completion rows. Pre-cutover Release rows (no epoch) replay as a documented no-op.
+
+**Enforcement (`0068_finding_triage_lifecycle_enforcement.sql`, staged runner only):** the partial-unique/RESTRICT invariants documented under `finding_triage` above, guarded by a temporary-table `CHECK (anomaly_count = 0)` pattern that aborts the migration transaction BEFORE any table rebuild — no `RAISE()` in a bare SELECT.
+
+#### `migration_preflight_attestations`
+
+Database-local record that THIS database passed the versioned preflight immediately before enforcement. NOT a fleet or operator-memory assertion. Keyed `(enforcement_migration_id, schema_version)`.
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `enforcement_migration_id` | TEXT | The enforcement migration tag (`0068_finding_triage_lifecycle_enforcement`) |
+| `schema_version` | TEXT | Additive watermark the preflight ran against (`0067`) |
+| `preflight_version` | TEXT | Preflight query version (`002`) |
+| `anomaly_query_digest` | TEXT | SHA-256 of the deterministic anomaly-query serialization |
+| `clean` | INTEGER | 1 = no BLOCKING anomalies (safe to enforce); 0 = enforcement deferred |
+| `anomaly_report` | TEXT | Full machine-readable preflight report (JSON), including blocking anomalies |
+| `attested_at` | TEXT | Attestation time |
+
+**Source:** `packages/api/src/db/schema/triage.ts` — **Migrations:** `0064`, `0068`
+
+---
+
 ## Schema Workflow
 
 This section explains **how to edit the database schema** correctly. Read this before adding columns, tables, indexes, or constraints.
@@ -2442,6 +2489,8 @@ entries are:
 | `0000_schema` | `0000_schema.sql` | **Frozen consolidated baseline.** Contains the full pre-consolidation schema as it existed at commit `09d24f4`. Never regenerated or replaced. |
 | `0001`, `0002` | `0001_green_shadowcat`, `0002_purple_fallen_one` | Early post-baseline migrations, journaled normally. |
 | `0027`–`0053` | `0027_pod_bridge` … `0053_plugin_quarantine_kind_safe_reset` | Post-consolidation migrations, each registered exactly once in dependency order. |
+| `0054`–`0067` | `0054_task_publication.sql` … `0067_release_projection_epochs.sql` | Later hand-written semantic migrations (through the Finding Triage additive watermark). |
+| `0068` | `0068_finding_triage_lifecycle_enforcement.sql` | **Staged enforcement entry** — applied only by the staged production runner after a clean versioned preflight attestation; its internal CHECK guard aborts any attempt to apply it without one. |
 
 The gap `0003`–`0026` is **intentional**. Those migrations were consolidated
 into `0000_schema.sql` at the boundary commit and are deliberately NOT in the
@@ -2456,6 +2505,43 @@ journaled `0001_green_shadowcat.sql` and `0002_purple_fallen_one.sql`.
 `0053_snapshot.json` is the latest — it represents the full schema state after
 all migrations through 0053 and serves as Drizzle's diff baseline for the next
 `drizzle-kit generate`.
+
+### Staged Production Migration Runner (0068 enforcement protocol)
+
+The one-shot production call to Drizzle `migrate()` is replaced (in
+`packages/api/src/db/stagedMigrations.ts`) by a journal/hash/timestamp-compatible
+staged runner. When the enforcement entry is pending it:
+
+1. **Stage 1** — applies and commits every pending journal entry through the
+   declared additive watermark (`0067_release_projection_epochs`). Ledger rows
+   are written exactly like Drizzle does: `(sha256(raw SQL), journal when)`.
+2. **Preflight gate** — runs the versioned preflight
+   (`services/findingTriagePreflight.ts`, version `002`) against the
+   now-present schema and writes a database-local attestation into
+   `migration_preflight_attestations`. Only the BLOCKING anomaly classes (the
+   uniqueness collisions the enforcement indexes cannot be created over —
+   `active_identity_duplicate`, `finding_resolution_duplicate`) stop
+   enforcement; advisory diagnostics (e.g. pre-cutover terminal rows without
+   Resolution Records) never block. Dirty data stops BEFORE enforcement with
+   the stable log code `TRIAGE_ENFORCEMENT_PREFLIGHT_DIRTY` and the full
+   machine-readable report persisted in the attestation row; the server keeps
+   booting on the additive schema, and enforcement retries on the next
+   startup after remediation.
+3. **Stage 2** — applies the enforcement entry and every later entry in one
+   transaction. The enforcement SQL itself re-verifies the attestation and
+   anomaly counts through the temporary-table `CHECK (anomaly_count = 0)`
+   guard, so anomalies introduced after the attestation abort INSIDE the
+   transaction before any table rebuild.
+
+Preserved semantics: legacy `__migrations` ledger bridging, prerelease marker
+reconciliation, strictly increasing journal `when` timestamps recorded as
+`created_at`, `sha256(raw SQL)` hashes, workspace/compiled folder resolution,
+per-stage transaction atomicity (an interrupted stage restarts at the last
+committed ledger boundary), and current-schema startup no-op. A raw one-shot
+`migrate()` against a journal containing `0068` on a database without an
+attestation aborts at the CHECK guard by design — only the staged runner can
+legally apply enforcement. Remediation runbook: see
+[TROUBLESHOOTING.md](TROUBLESHOOTING.md).
 
 ### File Types and What They Mean
 
