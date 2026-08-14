@@ -43,8 +43,10 @@ import {
   intakeStructuredCluster,
   classifyClusterIdentities,
   buildOccurrenceCandidateSnapshot,
+  repairStrandedOccurrenceAttempts,
   type StructuredEvidencePulse,
 } from "../services/triageOccurrencePublication.js";
+import * as lifecycleModule from "../services/findingTriageLifecycle.js";
 import { runSignalPatternClusteredScan } from "../services/triageScanService.js";
 import { normalize } from "../services/habitatSkillService.js";
 import {
@@ -776,5 +778,166 @@ describe("suppression finalization + scan-time repair (real scan path)", () => {
     expect(missionCount()).toBe(1); // legacy createTriageMission path
     expect(occurrences()).toHaveLength(0); // no occurrence rows
     expect(findings()).toHaveLength(0); // no Finding admission
+  });
+});
+
+// ---------------------------------------------------------------------------
+// FU3 — the intake no-op reclassification race
+// ---------------------------------------------------------------------------
+// The pre-lock classification at the top of intake is ONLY a fast-path gate.
+// The actual no-op decision + corroboration re-run under ONE `BEGIN IMMEDIATE`
+// reservation. The discriminator below terminalizes the active Finding AFTER
+// the pre-lock classification observes it active but BEFORE the no-op
+// transaction's locked reclassification — exactly the window the cold review
+// demonstrated. Because the intake is synchronous, the injection happens on the
+// intake's FIRST writer reservation (the no-op transaction itself): a separate
+// connection's human terminalization is indistinguishable from this, since the
+// no-op tx re-reads under its own lock.
+describe("intake no-op reclassification race (FU3)", () => {
+  /** Installs the FU3 interleaving: terminalize `findingId` at the intake's first writer reservation. */
+  function terminalizeAtFirstReservation(findingId: string) {
+    type Tx = typeof lifecycleModule.withImmediateLifecycleTransaction;
+    const realTx = lifecycleModule.withImmediateLifecycleTransaction;
+    let terminalized = false;
+    vi.spyOn(lifecycleModule, "withImmediateLifecycleTransaction").mockImplementation(
+      ((fn, db) => {
+        if (!terminalized) {
+          terminalized = true;
+          const outcome = lifecycleModule.markFindingWontfix({
+            findingId,
+            actor: {
+              type: "human",
+              id: "human-1",
+              authority: { habitatAccess: { userHasHabitatWriteAccess: () => true } },
+            },
+            reason: "terminalized mid-intake",
+          });
+          expect(outcome.outcome).toBe("applied");
+        }
+        return realTx(fn, db);
+      }) as Tx,
+    );
+    return () => terminalized;
+  }
+
+  it("mid-flight terminalization + NOVEL pulse: the recurrence is admitted, never consumed onto the terminal row", () => {
+    const p1 = seedFindingPulse("bug");
+    const first = intake([p1]);
+    expect(first.outcome).toBe("published");
+    if (first.outcome !== "published") return;
+    const findingId = first.admittedFindingIds[0];
+    resolveJunctionFor(first.missionId);
+
+    const novel = seedFindingPulse("bug");
+
+    const wasTerminalized = terminalizeAtFirstReservation(findingId);
+    const second = intake([p1, novel]);
+    expect(wasTerminalized()).toBe(true);
+
+    // The locked reclassification saw the terminalized identity with a NOVEL
+    // pulse → the no-op branch aborted and restarted through publication. The
+    // recurrence is ADMITTED, not consumed as corroboration.
+    expect(second.outcome).toBe("published");
+    if (second.outcome !== "published") return;
+    expect(second.recurredFindingIds).toHaveLength(1);
+    const recurrence = findingTriageRepo.getById(second.recurredFindingIds[0])!;
+    expect(recurrence.status).toBe("open");
+    expect(recurrence.recurrenceOfId).toBe(findingId);
+    expect(evidenceFor(recurrence.id).map((e) => e.pulseId)).toEqual([novel.id]);
+
+    // The terminal predecessor received NO corroborating evidence.
+    const original = findingTriageRepo.getById(findingId)!;
+    expect(original.status).toBe("wontfix");
+    expect(original.corroboratingPulseIds).not.toContain(novel.id);
+    expect(evidenceFor(findingId).map((e) => e.pulseId)).not.toContain(novel.id);
+  });
+
+  it("mid-flight terminalization + lineage-accounted pulse: evidence_already_accounted with NO append to the terminal row", () => {
+    // F1 (open) → corroborated with the old pulse → resolved.
+    const p1 = seedFindingPulse("bug");
+    const first = intake([p1]);
+    expect(first.outcome).toBe("published");
+    if (first.outcome !== "published") return;
+    const f1Id = first.admittedFindingIds[0];
+    resolveJunctionFor(first.missionId);
+
+    const oldP = seedFindingPulse("bug");
+    const appended = findingTriageRepo.appendEvidenceWithClient(getDb(), {
+      findingTriageId: f1Id,
+      pulseIds: [oldP.id],
+      role: "corroborating",
+    });
+    expect(appended.appendedPulseIds).toEqual([oldP.id]);
+    getDb().run(sql`UPDATE finding_triage SET status='resolved' WHERE id = ${f1Id}`);
+
+    // F2 = recurrence of F1 (novel p2), currently OPEN/active.
+    const p2 = seedFindingPulse("bug");
+    const recurred = intake([p1, oldP, p2]);
+    expect(recurred.outcome).toBe("published");
+    if (recurred.outcome !== "published") return;
+    const f2Id = recurred.recurredFindingIds[0];
+    expect(f2Id).toBeTruthy();
+    resolveJunctionFor(recurred.missionId);
+
+    // The window pulse is lineage-accounted (lives on terminal F1) but unseen
+    // on active F2 — the pre-lock classification sees F2 active with the pulse
+    // as unseen corroboration. Terminalizing F2 mid-flight must make the
+    // LOCKED classification reclassify it as accounted (no publishable, no
+    // append) instead of appending onto the now-terminal row.
+    const wasTerminalized = terminalizeAtFirstReservation(f2Id);
+    const second = intake([p2, oldP]);
+    expect(wasTerminalized()).toBe(true);
+
+    expect(second).toMatchObject({
+      outcome: "suppressed",
+      reason: "evidence_already_accounted",
+      corroboratedPulseIds: [],
+    });
+    const terminal = findingTriageRepo.getById(f2Id)!;
+    expect(terminal.status).toBe("wontfix");
+    expect(terminal.corroboratingPulseIds).not.toContain(oldP.id);
+    expect(evidenceFor(f2Id).map((e) => e.pulseId)).toEqual([p2.id]);
+  });
+
+  it("scan-time repair rechecks publishability under the SAME writer reservation", () => {
+    const p1 = seedFindingPulse("bug");
+    const p2 = seedFindingPulse("bug");
+    const p3 = seedFindingPulse("bug");
+
+    // Freeze + crash: admission throws AFTER the freeze committed, leaving the
+    // occurrence's attempts pending (process-death equivalent).
+    vi.spyOn(findingTriageRepo, "admitWithClient").mockImplementation(() => {
+      throw new Error("injected: simulated crash");
+    });
+    expect(() => intake([p1, p2, p3])).toThrow(/injected: simulated crash/);
+    vi.restoreAllMocks();
+
+    const [occurrence] = occurrences();
+    expect(occurrence).toBeTruthy();
+    expect(attemptRows(occurrence.id).length).toBeGreaterThan(0);
+
+    // Make the frozen candidate non-publishable OUTSIDE the repair: the
+    // identity becomes ACTIVE via the concurrent-winner channel.
+    findingTriageRepo.createForPulse({
+      id: p1.id,
+      habitatId,
+      subject: "flaky deploy",
+      metadata: { findingKind: "bug" },
+    });
+    const active = findingTriageRepo.findByHabitatInStatus(habitatId, ["open"])[0];
+    expect(active).toBeTruthy();
+
+    // At the repair's finalize boundary, terminalize the active finding so the
+    // frozen evidence becomes a NOVEL recurrence again. The in-tx recheck must
+    // observe it and skip the finalization.
+    const wasTerminalized = terminalizeAtFirstReservation(active.id);
+    const finalized = repairStrandedOccurrenceAttempts(habitatId, CLUSTER_KEY);
+    expect(wasTerminalized()).toBe(true);
+
+    // FU3 repair: the "no candidate remains" decision and the terminalization
+    // share one reservation — nothing was finalized, the attempts stay pending.
+    expect(finalized).toHaveLength(0);
+    expect(attemptRows(occurrence.id).every((a) => a.state === "pending")).toBe(true);
+    expect(attemptRows(occurrence.id).some((a) => a.state === "batch_rejected")).toBe(false);
   });
 });

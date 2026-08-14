@@ -28,8 +28,14 @@
  *                                 `evidence_already_accounted`;
  *        - `legacy_lineage_repair_required` → human-only, never auto-recur.
  *   3. NO publishable candidate → classified no-op (`suppressed` /
- *      `evidence_already_accounted`) with same-transaction corroboration for
- *      active identities. No Triage Mission, no investigation.
+ *      `evidence_already_accounted`). The no-op DECISION and any corroboration
+ *      are made under ONE `BEGIN IMMEDIATE` writer reservation: classification
+ *      re-runs on the same client that appends, so a concurrent
+ *      terminalization can never consume a genuine recurrence's novel evidence
+ *      onto a terminal predecessor (FU3). If the LOCKED classification reveals
+ *      a publishable candidate (mid-flight terminalization + novel pulse), the
+ *      branch restarts through the publication path — the recurrence is
+ *      admitted, not consumed. No Triage Mission, no investigation otherwise.
  *   4. DERIVE the canonical occurrence identity: versioned JCS + SHA-256 over
  *      sorted lifecycle identities, predecessors, and sorted novel Pulse ids.
  *      Mutable template/display state is EXCLUDED from identity.
@@ -660,28 +666,70 @@ export class SuppressedActiveLifecycleError extends Error {
 }
 
 /**
+ * In-tx signal (FU3): the no-op branch's LOCKED reclassification found a
+ * publishable candidate that the pre-lock (unreserved) classification missed —
+ * e.g. an identity terminalized mid-flight and a pulse is genuinely novel. The
+ * no-op branch aborts (the transaction rolls back — reclassification is pure
+ * reads, so nothing is lost) and intake restarts through the normal
+ * freeze/participant publication path with the locked classification, so the
+ * recurrence is ADMITTED rather than consumed as corroboration on a terminal
+ * predecessor.
+ *
+ * NOT a recursion trigger: the publication path re-runs classification inside
+ * its own participant under the aggregate's write lock and never re-enters the
+ * no-op branch; a candidate that vanishes there is suppressed via
+ * {@link SuppressedActiveLifecycleError}.
+ */
+class NoOpRestartSignal extends Error {
+  constructor(public readonly classification: ClusterClassification) {
+    super(
+      "intake no-op: the locked reclassification found a publishable candidate; restarting through publication.",
+    );
+    this.name = "NoOpRestartSignal";
+  }
+}
+
+/**
+ * Terminalizes the whole pending attempt set for one occurrence scope on the
+ * SUPPLIED client (the caller holds the writer reservation). Idempotent:
+ * already-terminal attempts are `no_op` and never overwritten. Governance
+ * decisions live in a separate immutable ledger and are untouched.
+ */
+function finalizeSuppressedAttemptsWithClient(
+  client: TaskPublicationDbClient,
+  occurrenceId: string,
+): string[] {
+  const pending = listPendingTaskCreationAttemptsForScopeWithClient(client, occurrenceId);
+  const finalized: string[] = [];
+  for (const attempt of pending) {
+    const result = completeAttemptWithClient(client, attempt.id, {
+      finalState: "batch_rejected",
+      terminalOutcome: SUPPRESSED_TERMINAL_OUTCOME,
+      terminalResult: { outcome: SUPPRESSED_TERMINAL_OUTCOME, attemptId: attempt.id },
+    });
+    if (result.outcome === "completed" || result.outcome === "no_op") {
+      finalized.push(attempt.id);
+    }
+  }
+  return finalized;
+}
+
+/**
  * Terminalizes the whole pending attempt set for one occurrence scope in ONE
  * immediate transaction as the LEGAL `batch_rejected` final state +
  * `suppressed_active_lifecycle` terminal outcome. Idempotent: already-terminal
  * attempts are `no_op` and never overwritten. Governance decisions live in a
  * separate immutable ledger and are untouched.
+ *
+ * Used by the {@link SuppressedActiveLifecycleError} suppression path, where the
+ * "no publishable candidate remains" decision was already made authoritatively
+ * by the participant recheck under the publication transaction's write lock.
  */
 function finalizeSuppressedAttempts(occurrenceId: string): string[] {
-  const outcome = withImmediateLifecycleTransaction<string[]>((client) => {
-    const pending = listPendingTaskCreationAttemptsForScopeWithClient(client, occurrenceId);
-    const finalized: string[] = [];
-    for (const attempt of pending) {
-      const result = completeAttemptWithClient(client, attempt.id, {
-        finalState: "batch_rejected",
-        terminalOutcome: SUPPRESSED_TERMINAL_OUTCOME,
-        terminalResult: { outcome: SUPPRESSED_TERMINAL_OUTCOME, attemptId: attempt.id },
-      });
-      if (result.outcome === "completed" || result.outcome === "no_op") {
-        finalized.push(attempt.id);
-      }
-    }
-    return { outcome: "applied" as const, value: finalized };
-  });
+  const outcome = withImmediateLifecycleTransaction<string[]>((client) => ({
+    outcome: "applied" as const,
+    value: finalizeSuppressedAttemptsWithClient(client, occurrenceId),
+  }));
   return outcome.outcome === "applied" ? outcome.value : [];
 }
 
@@ -739,6 +787,12 @@ function frozenCandidateStillPublishable(
  * this cluster with pending attempts, recheck that no publishable candidate
  * remains; if none does, idempotently finalize the attempt set. A durable
  * occurrence row distinguishes this repair from unrelated pending work.
+ *
+ * FU3: the recheck and the terminalization share ONE writer reservation —
+ * {@link frozenCandidateStillPublishable} re-runs on the SAME client that
+ * completes the attempts, so a candidate that became publishable mid-flight
+ * (e.g. a concurrent terminalization made the frozen evidence novel again) is
+ * never suppressed.
  */
 export function repairStrandedOccurrenceAttempts(habitatId: string, clusterKey: string): string[] {
   const db = getDb();
@@ -748,9 +802,20 @@ export function repairStrandedOccurrenceAttempts(habitatId: string, clusterKey: 
     if (pending.length === 0) continue;
 
     const snapshot = JSON.parse(occurrence.candidateSnapshot) as OccurrenceCandidateSnapshot;
-    if (frozenCandidateStillPublishable(db, habitatId, clusterKey, snapshot)) continue;
 
-    finalized.push(...finalizeSuppressedAttempts(occurrence.id));
+    const outcome = withImmediateLifecycleTransaction<string[]>((client) => {
+      const stillPending = listPendingTaskCreationAttemptsForScopeWithClient(client, occurrence.id);
+      if (stillPending.length === 0) return { outcome: "replayed" as const, value: [] };
+      if (frozenCandidateStillPublishable(client, habitatId, clusterKey, snapshot)) {
+        return { outcome: "replayed" as const, value: [] };
+      }
+      return {
+        outcome: "applied" as const,
+        value: finalizeSuppressedAttemptsWithClient(client, occurrence.id),
+      };
+    });
+
+    if (outcome.outcome === "applied") finalized.push(...outcome.value);
   }
   return finalized;
 }
@@ -951,18 +1016,42 @@ export function intakeStructuredCluster(
   // 1. Scan-time repair of crash-stranded attempts (every intake path).
   const repairedAttempts = repairStrandedOccurrenceAttempts(input.habitatId, input.clusterKey);
 
-  // 2. Classify.
-  const classification = classifyClusterIdentities(db, input);
-  const publishable = publishableCandidates(classification);
+  // 2. Classify (unreserved fast-path gate — the common all-active /
+  //    all-accounted case). The DECISION to no-op is re-made under a writer
+  //    reservation in step 3 and never trusted from this read alone; the
+  //    publication fast path keeps using it because the freeze insert-or-read
+  //    winner protocol + the participant's in-lock recheck re-validate below.
+  let classification = classifyClusterIdentities(db, input);
+  let publishable = publishableCandidates(classification);
 
-  // 3. No publishable candidate → classified no-op (+ corroboration).
+  // 3. No publishable candidate → classified no-op (+ corroboration). The
+  //    classification and its corroboration now share ONE `BEGIN IMMEDIATE`
+  //    reservation: re-classify on the same client that will append, so a
+  //    concurrent terminalization can never make intake consume a genuine
+  //    recurrence's novel evidence onto a terminal predecessor (FU3). If the
+  //    LOCKED classification reveals a publishable candidate the pre-lock read
+  //    missed (e.g. an identity terminalized mid-flight and a pulse is
+  //    genuinely novel), the no-op branch ABORTS and intake restarts through
+  //    the normal freeze/participant publication path below with the locked
+  //    classification — the recurrence is admitted, never consumed. No
+  //    recursion: the publication path re-runs classification inside its own
+  //    participant under the aggregate's write lock and never re-enters this
+  //    branch.
   if (publishable.length === 0) {
-    const hasActive = classification.identities.some((identity) => identity.kind === "active");
+    let locked: ClusterClassification | null = null;
     let corroborated: string[] = [];
-    if (hasActive) {
+    try {
       const outcome = withImmediateLifecycleTransaction<string[]>((client) => {
+        locked = classifyClusterIdentities(client, {
+          habitatId: input.habitatId,
+          clusterKey: input.clusterKey,
+          pulses: input.pulses,
+        });
+        if (publishableCandidates(locked).length > 0) {
+          throw new NoOpRestartSignal(locked);
+        }
         const appended: string[] = [];
-        for (const identity of classification.identities) {
+        for (const identity of locked.identities) {
           if (identity.kind !== "active" || identity.unseenPulseIds.length === 0) continue;
           const result = appendEvidenceWithClient(client, {
             findingTriageId: identity.findingId,
@@ -973,14 +1062,36 @@ export function intakeStructuredCluster(
         }
         return { outcome: "applied" as const, value: appended };
       });
+      if (outcome.outcome === "busy") {
+        // The writer reservation was never acquired, so no classification ran
+        // under the lock. Never commit a STALE no-op decision — surface the
+        // contention and let the scan retry.
+        return { outcome: "busy", retryAfterMs: outcome.retryAfterMs };
+      }
       corroborated = outcome.outcome === "applied" ? outcome.value : [];
+    } catch (err) {
+      if (err instanceof NoOpRestartSignal) {
+        classification = err.classification;
+        publishable = publishableCandidates(classification);
+      } else {
+        throw err;
+      }
     }
-    return {
-      outcome: "suppressed",
-      reason: hasActive ? "all_active_lifecycles" : "evidence_already_accounted",
-      corroboratedPulseIds: corroborated,
-      finalizedAttempts: repairedAttempts,
-    };
+
+    if (publishable.length === 0) {
+      // Classified no-op under the reservation. Corroboration (if any) used
+      // the LOCKED classification's decisions: a row that terminalized
+      // mid-flight was reclassified (recurrence/accounted) and received NO
+      // corroborating evidence as if it were still active.
+      const hasActive = locked!.identities.some((identity) => identity.kind === "active");
+      return {
+        outcome: "suppressed",
+        reason: hasActive ? "all_active_lifecycles" : "evidence_already_accounted",
+        corroboratedPulseIds: corroborated,
+        finalizedAttempts: repairedAttempts,
+      };
+    }
+    // Else: fall through to publication with the LOCKED classification.
   }
 
   // 4. Canonical occurrence identity (template/display state EXCLUDED).
