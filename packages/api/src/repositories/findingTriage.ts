@@ -1,5 +1,5 @@
 import { getDb } from "../db/index.js";
-import { findingTriage, findingTriageEvidence } from "../db/schema/index.js";
+import { findingTriage, findingTriageEvidence, pulses } from "../db/schema/index.js";
 import { eq, and, desc, notInArray, inArray, sql } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 import type {
@@ -572,4 +572,261 @@ export function terminalizeWithClient(
   const row = client.select().from(findingTriage).where(eq(findingTriage.id, id)).get();
   if (!row) throw repositoryNotFoundError("findingTriage", id);
   return rowToFindingTriage(row);
+}
+
+// ---------------------------------------------------------------------------
+// Structured cluster-intake primitives — classification, admission,
+// corroboration, and evidence membership on the supplied client. Used by the
+// triage occurrence publication participant so Finding admission commits
+// atomically with the Mission/Task/workflow/junction aggregate.
+// ---------------------------------------------------------------------------
+
+/** One evidence-membership row projected from `finding_triage_evidence`. */
+export interface FindingTriageEvidenceRow {
+  findingTriageId: string;
+  pulseId: string;
+  role: "source" | "corroborating" | "legacy_observed";
+  admittedByTriageMissionId: string | null;
+  admittedByInvestigationTaskId: string | null;
+}
+
+/**
+ * All lifecycle rows for one structured identity `(habitatId, clusterKey,
+ * findingKind)` — every status, oldest first. Classification derives "latest"
+ * and active/terminal state from this list.
+ */
+export function findByIdentityWithClient(
+  client: SuppliedClient,
+  habitatId: string,
+  clusterKey: string,
+  findingKind: string,
+): FindingTriage[] {
+  return client
+    .select()
+    .from(findingTriage)
+    .where(
+      and(
+        eq(findingTriage.habitatId, habitatId),
+        eq(findingTriage.clusterKey, clusterKey),
+        eq(findingTriage.findingKind, findingKind),
+      ),
+    )
+    .orderBy(findingTriage.createdAt)
+    .all()
+    .map(rowToFindingTriage);
+}
+
+/** Every evidence-membership row for one finding, on the supplied client. */
+export function listEvidenceWithClient(
+  client: SuppliedClient,
+  findingTriageId: string,
+): FindingTriageEvidenceRow[] {
+  return client
+    .select()
+    .from(findingTriageEvidence)
+    .where(eq(findingTriageEvidence.findingTriageId, findingTriageId))
+    .all()
+    .map((row) => ({
+      findingTriageId: row.findingTriageId,
+      pulseId: row.pulseId,
+      role: row.role,
+      admittedByTriageMissionId: row.admittedByTriageMissionId ?? null,
+      admittedByInvestigationTaskId: row.admittedByInvestigationTaskId ?? null,
+    }));
+}
+
+/**
+ * Reads lifecycle rows by ids on the supplied client (lineage traversal —
+ * callers pass the `recurrenceOfId` chain one hop at a time and must bound
+ * traversal themselves).
+ */
+export function getByIdsWithClient(
+  client: SuppliedClient,
+  ids: string[],
+): FindingTriage[] {
+  if (ids.length === 0) return [];
+  return client
+    .select()
+    .from(findingTriage)
+    .where(inArray(findingTriage.id, ids))
+    .all()
+    .map(rowToFindingTriage);
+}
+
+/** Input for {@link admitWithClient} — one new `open` lifecycle row. */
+export interface AdmitInput {
+  habitatId: string;
+  clusterKey: string;
+  findingKind: string;
+  /** The source Pulse (earliest novel Pulse — deterministic). */
+  pulseId: string;
+  /**
+   * Compatibility projection (`corroboratingPulseIds`): the admission-evidence
+   * Pulse ids EXCLUDING the source Pulse. The evidence table stays the
+   * authoritative membership store; this column is a read projection only.
+   */
+  corroboratingPulseIds: string[];
+  /** Bounded investigation Mission identity (the admitting Triage Mission). */
+  admittedByTriageMissionId: string;
+  /** The exact committed investigation Task (from the templateKey→Task map). */
+  admittedByInvestigationTaskId: string;
+  /** Terminal predecessor link for a recurrence admission (null for new). */
+  recurrenceOfId: string | null;
+  metadata?: Record<string, unknown>;
+  createdAt: string;
+}
+
+/**
+ * Inserts one new `open` lifecycle row with investigation provenance on the
+ * supplied client. The caller writes the evidence rows (any role) and the
+ * Pulse pointer in the SAME transaction.
+ */
+export function admitWithClient(client: SuppliedClient, input: AdmitInput): FindingTriage {
+  const id = uuid();
+  try {
+    client
+      .insert(findingTriage)
+      .values({
+        id,
+        habitatId: input.habitatId,
+        pulseId: input.pulseId,
+        clusterKey: input.clusterKey,
+        findingKind: input.findingKind,
+        status: "open",
+        bucket: null,
+        targetRelease: null,
+        targetReleaseType: null,
+        triageMissionId: null,
+        corroboratingPulseIds: JSON.stringify(input.corroboratingPulseIds),
+        admittedByTriageMissionId: input.admittedByTriageMissionId,
+        admittedByInvestigationTaskId: input.admittedByInvestigationTaskId,
+        recurrenceOfId: input.recurrenceOfId,
+        metadata: input.metadata ?? {},
+        createdAt: input.createdAt,
+        updatedAt: input.createdAt,
+      })
+      .run();
+  } catch (err) {
+    throw repositoryCreateError("findingTriage", err as Error, id);
+  }
+  const row = client.select().from(findingTriage).where(eq(findingTriage.id, id)).get();
+  if (!row) throw repositoryNotFoundError("findingTriage", id);
+  return rowToFindingTriage(row);
+}
+
+/** Input for {@link appendEvidenceWithClient}. */
+export interface AppendEvidenceInput {
+  findingTriageId: string;
+  /** Pulse ids to record. Already-present ids are no-ops (ON CONFLICT DO NOTHING). */
+  pulseIds: string[];
+  role: "source" | "corroborating" | "legacy_observed";
+  /** Optional admitting Mission/Task provenance stamped on the evidence rows. */
+  admittedByTriageMissionId?: string | null;
+  admittedByInvestigationTaskId?: string | null;
+  admittedAt?: string | null;
+}
+
+/**
+ * Appends evidence-membership rows on the supplied client. Exact membership
+ * only: `(findingTriageId, pulseId)` conflicts are silently skipped — the
+ * authoritative store never duplicates. When the role is `corroborating`,
+ * the compatibility `corroboratingPulseIds` projection is extended with the
+ * genuinely-new ids (the caller holds the write reservation; the projection
+ * never includes a `source` Pulse).
+ */
+export function appendEvidenceWithClient(
+  client: SuppliedClient,
+  input: AppendEvidenceInput,
+): { appendedPulseIds: string[] } {
+  if (input.pulseIds.length === 0) return { appendedPulseIds: [] };
+
+  const before = new Set(
+    client
+      .select({ pulseId: findingTriageEvidence.pulseId })
+      .from(findingTriageEvidence)
+      .where(eq(findingTriageEvidence.findingTriageId, input.findingTriageId))
+      .all()
+      .map((row) => row.pulseId),
+  );
+
+  const now = new Date().toISOString();
+  const fresh = input.pulseIds.filter((id) => !before.has(id));
+  if (fresh.length === 0) return { appendedPulseIds: [] };
+
+  try {
+    client
+      .insert(findingTriageEvidence)
+      .values(
+        fresh.map((pulseId) => ({
+          findingTriageId: input.findingTriageId,
+          pulseId,
+          role: input.role,
+          admittedByTriageMissionId: input.admittedByTriageMissionId ?? null,
+          admittedByInvestigationTaskId: input.admittedByInvestigationTaskId ?? null,
+          admittedAt: input.admittedAt ?? now,
+        })),
+      )
+      .onConflictDoNothing()
+      .run();
+  } catch (err) {
+    throw repositoryCreateError("findingTriageEvidence", err as Error, input.findingTriageId);
+  }
+
+  if (input.role === "corroborating") {
+    // Extend the compatibility projection with the appended ids. Read-modify-
+    // write is safe here: the caller's transaction holds the write reservation.
+    const row = client
+      .select()
+      .from(findingTriage)
+      .where(eq(findingTriage.id, input.findingTriageId))
+      .get();
+    if (row) {
+      const existing = new Set(rowToFindingTriage(row).corroboratingPulseIds);
+      const merged = [...existing, ...fresh.filter((id) => !existing.has(id))];
+      try {
+        client
+          .update(findingTriage)
+          .set({
+            corroboratingPulseIds: JSON.stringify(merged),
+            updatedAt: now,
+          })
+          .where(eq(findingTriage.id, input.findingTriageId))
+          .run();
+      } catch (err) {
+        throw repositoryUpdateError(
+          "findingTriage",
+          err as Error,
+          input.findingTriageId,
+        );
+      }
+    }
+  }
+
+  return { appendedPulseIds: fresh };
+}
+
+/**
+ * Write-once `findingTriageId` pointer into the source Pulse's metadata, on
+ * the supplied client (atomic `json_set` on a COALESCE'd base; only the
+ * `findingTriageId` key is touched). Mirrors `findingTriageService`'s private
+ * pointer write so admission and pointer commit in one transaction. No-op if
+ * the pulse is gone or already carries a pointer.
+ */
+export function writeFindingTriageIdPointerWithClient(
+  client: SuppliedClient,
+  pulseId: string,
+  findingTriageId: string,
+): void {
+  client
+    .update(pulses)
+    .set({
+      metadata: sql`json_set(COALESCE(${pulses.metadata}, '{}'), '$.findingTriageId', ${findingTriageId})`,
+    })
+    .where(
+      and(
+        eq(pulses.id, pulseId),
+        sql`json_extract(COALESCE(${pulses.metadata}, '{}'), '$.findingTriageId') IS NULL`,
+      ),
+    )
+    .run();
 }

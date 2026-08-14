@@ -298,6 +298,57 @@ export const findingTriageLineageBaselineEvidence = sqliteTable(
 );
 
 /**
+ * triage_publication_occurrences — first-writer-frozen canonical occurrence
+ * store for structured Finding cluster intake.
+ *
+ * One row per canonical candidate identity (`id` = versioned digest of the
+ * canonical candidate snapshot; `snapshot_digest` UNIQUE enforces one row per
+ * lifecycle/pulse snapshot). The FIRST writer freezes the first rendered
+ * payload and the COMPLETE prepared Mission/Task/workflow aggregate; conflict
+ * losers and later replays publish ONLY the persisted snapshot — the mutable
+ * template is never reread after the winner commits.
+ */
+export const triagePublicationOccurrences = sqliteTable(
+  "triage_publication_occurrences",
+  {
+    /** Versioned canonical occurrence id: `tpo-v1:<sha256(JCS(candidate_snapshot))>`. */
+    id: text("id").primaryKey(),
+    habitatId: text("habitat_id")
+      .notNull()
+      .references(() => habitats.id, { onDelete: "cascade" }),
+    clusterKey: text("cluster_key").notNull(),
+    /** Occurrence identity schema version (bumped when the snapshot shape changes). */
+    occurrenceVersion: integer("occurrence_version").notNull(),
+    /** Canonical JSON of the candidate snapshot (sorted identities, predecessors, sorted novel Pulse ids). */
+    candidateSnapshot: text("candidate_snapshot").notNull(),
+    /** sha256 of the canonical candidate snapshot — the unique lifecycle/pulse snapshot identity. */
+    snapshotDigest: text("snapshot_digest").notNull().unique(),
+    /** Canonical JSON of the first rendered payload (title/description/variables). */
+    renderedPayload: text("rendered_payload").notNull(),
+    /** Canonical JSON of the COMPLETE prepared Mission/Task/workflow aggregate. */
+    preparedAggregate: text("prepared_aggregate").notNull(),
+    /** sha256 of the canonical prepared aggregate. */
+    preparedDigest: text("prepared_digest").notNull(),
+    /** The mission template the winner rendered from. */
+    templateId: text("template_id").notNull(),
+    /** sha256 of the canonical template-definition snapshot (provenance only — never identity). */
+    templateDigest: text("template_digest").notNull(),
+    /** Distinguishes the winning insert from a conflicting re-reader (portable winner detection). */
+    winnerNonce: text("winner_nonce").notNull(),
+    createdAt: text("created_at")
+      .notNull()
+      .default(sql`(datetime('now'))`),
+  },
+  (table) => [
+    index("idx_triage_publication_occurrences_cluster").on(
+      table.habitatId,
+      table.clusterKey,
+    ),
+    index("idx_triage_publication_occurrences_template").on(table.templateId),
+  ],
+);
+
+/**
  * migration_preflight_attestations — DB-local clean-result attestation keyed
  * by enforcement migration id + schema/preflight version. Records THIS
  * database's local preflight result and timestamp. NOT a fleet assertion.

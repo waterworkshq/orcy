@@ -112,6 +112,7 @@ export {
   findingTriageEvidence,
   findingTriageLineageRepairs,
   findingTriageLineageBaselineEvidence,
+  triagePublicationOccurrences,
   migrationPreflightAttestations,
 } from "./triage.js";
 export { releases } from "./release.js";
@@ -224,6 +225,7 @@ export {
   findingTriageEvidenceRelations,
   findingTriageLineageRepairsRelations,
   findingTriageLineageBaselineEvidenceRelations,
+  triagePublicationOccurrencesRelations,
   triageResolutionsRelations,
   triageClusterMissionsRelations,
   releasesRelations,

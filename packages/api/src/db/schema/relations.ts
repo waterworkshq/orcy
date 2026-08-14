@@ -91,6 +91,7 @@ import {
   findingTriageEvidence,
   findingTriageLineageRepairs,
   findingTriageLineageBaselineEvidence,
+  triagePublicationOccurrences,
 } from "./triage.js";
 import { releases } from "./release.js";
 import {
@@ -1080,6 +1081,16 @@ export const findingTriageLineageBaselineEvidenceRelations = relations(
     repair: one(findingTriageLineageRepairs, {
       fields: [findingTriageLineageBaselineEvidence.repairId],
       references: [findingTriageLineageRepairs.id],
+    }),
+  }),
+);
+
+export const triagePublicationOccurrencesRelations = relations(
+  triagePublicationOccurrences,
+  ({ one }) => ({
+    habitat: one(habitats, {
+      fields: [triagePublicationOccurrences.habitatId],
+      references: [habitats.id],
     }),
   }),
 );

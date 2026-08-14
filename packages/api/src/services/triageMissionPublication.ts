@@ -400,7 +400,7 @@ export type { PublishTemplateAggregateOutcome } from "./templateAggregatePublica
  * dispatches on `input.kind` then runs the shared prepare → reserve → publish
  * → map core.
  */
-interface DerivedTriageScope {
+export interface DerivedTriageScope {
   /** The junction row's `clusterKey` + the causal-root id. */
   clusterKey: string;
   /** The attempt-reservation scope kind (`triage_cluster` / `orphan_mission`). */
@@ -427,7 +427,16 @@ interface DerivedTriageScope {
  * `buildMissionDescription` performs. The lookup is a read; it runs BEFORE
  * the publication tx opens (no atomicity coupling).
  */
-function deriveClusterScope(habitatId: string, payload: ClusterPayload): DerivedTriageScope {
+/**
+ * Derives the cluster-triage render scope (title/description/variables) from
+ * the payload. Exported so the structured-occurrence publication path reuses
+ * this EXACT derivation — an occurrence winner and an ordinary cluster spawn
+ * render identically from the same payload.
+ */
+export function deriveClusterScope(
+  habitatId: string,
+  payload: ClusterPayload,
+): DerivedTriageScope {
   const variables: Record<string, string> = {
     clusterSubject: payload.clusterKey,
     signalCount: String(payload.signalCount),

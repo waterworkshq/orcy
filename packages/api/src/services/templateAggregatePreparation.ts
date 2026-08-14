@@ -121,6 +121,15 @@ export interface ProspectiveMissionData {
 export interface PreparedTemplateTask {
   /** Canonical proposal (kernel shape) — consumable by the publication kernel. */
   proposal: CanonicalTaskPublicationProposal;
+  /**
+   * The immutable template-entry key (`entry.key ?? task_${i+1}`), carried
+   * through preparation and publication. Consumers map committed Tasks back
+   * to template keys via this field (aligned by index with the committed
+   * publications) — e.g. the triage admission participant resolves the
+   * exactly-one `investigate` Task for investigation provenance. Never
+   * derived from a template reread after preparation.
+   */
+  templateKey: string;
   /** Per-Task optimistic publication guard snapshot (prospective Mission). */
   guard: PublicationGuard;
   /**
@@ -642,6 +651,10 @@ export function prepareTemplateAggregate(
 
     return {
       proposal,
+      // The immutable template-entry key — same defaulting as
+      // `buildTaskKeyMaps` (`entry.key ?? task_${i+1}`) so gate/join-spec key
+      // resolution and the committed templateKey map agree.
+      templateKey: entry.key ?? `task_${i + 1}`,
       guard,
       templateEntryMetadata: {
         initialStatus: entry.initialStatus ?? "pending",
