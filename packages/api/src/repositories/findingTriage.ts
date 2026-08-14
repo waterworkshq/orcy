@@ -575,6 +575,151 @@ export function terminalizeWithClient(
 }
 
 // ---------------------------------------------------------------------------
+// Activation primitives (restored lifecycle T5). The activation kernel reads
+// the homogeneous linked group and writes the group activation on the SAME
+// supplied client so the Mission gate-CAS, the Mission audit event, and every
+// Finding activation commit (or roll back) together.
+// ---------------------------------------------------------------------------
+
+/**
+ * Every NON-TERMINAL Finding linked to one corrective Mission, on the
+ * supplied client. The activation kernel requires this set to be a
+ * homogeneous `triaged` group — mixed states conflict before any write.
+ */
+export function listNonTerminalByCorrectiveMissionIdWithClient(
+  client: SuppliedClient,
+  missionId: string,
+): FindingTriage[] {
+  return client
+    .select()
+    .from(findingTriage)
+    .where(
+      and(
+        eq(findingTriage.triageMissionId, missionId),
+        notInArray(findingTriage.status, ["resolved", "wontfix"]),
+      ),
+    )
+    .all()
+    .map(rowToFindingTriage);
+}
+
+/** Activation attribution written onto every member of an activated group. */
+export interface GroupActivationUpdate {
+  activatedAt: string;
+  activatedByType: TriageActorType;
+  activatedById: string;
+  activationCause: ActivationCause;
+  /** Release identity; null unless `activationCause` is `release`. */
+  activationReleaseId: string | null;
+  updatedAt: string;
+}
+
+/**
+ * `activate-many`: transitions the whole homogeneous group to `in_progress`
+ * with activation attribution in ONE atomic statement on the supplied client.
+ *
+ * The `status = 'triaged'` term is an in-transaction race guard — the kernel
+ * verified the group under the writer reservation, so the WHERE term can only
+ * go unmatched if the read was inconsistent; a short count is a hard error
+ * that rolls back the entire activation (all-or-none, never partial).
+ */
+export function activateGroupWithClient(
+  client: SuppliedClient,
+  findingIds: string[],
+  activation: GroupActivationUpdate,
+): FindingTriage[] {
+  if (findingIds.length === 0) return [];
+  try {
+    client
+      .update(findingTriage)
+      .set({
+        status: "in_progress",
+        activatedAt: activation.activatedAt,
+        activatedByType: activation.activatedByType,
+        activatedById: activation.activatedById,
+        activationCause: activation.activationCause,
+        activationReleaseId: activation.activationReleaseId,
+        updatedAt: activation.updatedAt,
+      })
+      .where(and(inArray(findingTriage.id, findingIds), eq(findingTriage.status, "triaged")))
+      .run();
+    const affected = client.get<{ n: number }>(sql`SELECT changes() AS n`)?.n ?? 0;
+    if (affected !== findingIds.length) {
+      throw new Error(
+        `activate-many short count: expected ${findingIds.length}, matched ${affected} (group state changed inside the transaction)`,
+      );
+    }
+  } catch (err) {
+    throw repositoryUpdateError("findingTriage", err as Error, findingIds.join(","));
+  }
+  return client
+    .select()
+    .from(findingTriage)
+    .where(inArray(findingTriage.id, findingIds))
+    .all()
+    .map(rowToFindingTriage);
+}
+
+// ---------------------------------------------------------------------------
+// Inverse-mutation reference queries (restored lifecycle T5). Read-only
+// helpers backing the service-level Pulse/Mission history guards that run
+// BEFORE the later FK enforcement migration (T9).
+// ---------------------------------------------------------------------------
+
+/** One evidence-membership reference from a Finding to a Pulse. */
+export interface PulseEvidenceReference {
+  findingTriageId: string;
+  role: "source" | "corroborating" | "legacy_observed";
+}
+
+/**
+ * Every normalized evidence-membership row referencing the Pulse, any role
+ * (`finding_triage_evidence` is the authoritative membership store). A Pulse
+ * referenced by ANY Finding — terminal or not — cannot be deleted.
+ */
+export function listEvidenceReferencesForPulse(pulseId: string): PulseEvidenceReference[] {
+  const db = getDb();
+  return db
+    .select()
+    .from(findingTriageEvidence)
+    .where(eq(findingTriageEvidence.pulseId, pulseId))
+    .all()
+    .map((row) => ({
+      findingTriageId: row.findingTriageId,
+      role: row.role,
+    }));
+}
+
+/**
+ * Findings whose source-Pulse pointer (`finding_triage.pulse_id`) is the
+ * given Pulse. Covers pre-evidence-table legacy rows where the source Pulse
+ * lives only on the row itself.
+ */
+export function findBySourcePulseId(pulseId: string): FindingTriage[] {
+  const db = getDb();
+  return db
+    .select()
+    .from(findingTriage)
+    .where(eq(findingTriage.pulseId, pulseId))
+    .all()
+    .map(rowToFindingTriage);
+}
+
+/**
+ * Findings admitted by a given Triage Mission (bounded investigation link).
+ * Mission deletion rejects while ANY such link exists, terminal or not.
+ */
+export function findByAdmittedByTriageMissionId(missionId: string): FindingTriage[] {
+  const db = getDb();
+  return db
+    .select()
+    .from(findingTriage)
+    .where(eq(findingTriage.admittedByTriageMissionId, missionId))
+    .all()
+    .map(rowToFindingTriage);
+}
+
+// ---------------------------------------------------------------------------
 // Structured cluster-intake primitives — classification, admission,
 // corroboration, and evidence membership on the supplied client. Used by the
 // triage occurrence publication participant so Finding admission commits

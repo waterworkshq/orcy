@@ -26,6 +26,7 @@ import {
   routeFinding as routeFindingLifecycle,
   resolveFinding as resolveFindingLifecycle,
   markFindingWontfix as markFindingWontfixLifecycle,
+  activateCorrectiveMission as activateCorrectiveMissionLifecycle,
   type RoutePayload,
   type LifecycleOutcome,
 } from "../services/findingTriageLifecycle.js";
@@ -146,6 +147,49 @@ function mapLifecycleOutcome<T>(
     throw badRequestWithCode(
       "INVALID_INPUT",
       typeof current === "string" ? current : "Invalid triage command input",
+    );
+  }
+
+  // Activation-specific conflicts (restored lifecycle T5).
+  if (reason === "missing_link") {
+    throw conflictWithCode(
+      "FINDING_NOT_LINKED",
+      typeof current === "string"
+        ? current
+        : "Finding has no corrective Mission link; route it to a work-bearing bucket first.",
+    );
+  }
+
+  if (reason === "stale_mission_version") {
+    const currentVersion =
+      current && typeof current === "object" && "currentVersion" in current
+        ? String((current as { currentVersion: number }).currentVersion)
+        : "unknown";
+    reply.header("X-Current-Version", currentVersion);
+    throw conflictWithCode(
+      "MISSION_VERSION_MISMATCH",
+      `Corrective Mission version mismatch (current ${currentVersion}); reload and retry.`,
+    );
+  }
+
+  if (reason === "mission_not_activatable") {
+    throw conflictWithCode(
+      "MISSION_NOT_ACTIVATABLE",
+      "Corrective Mission is archived or terminal and cannot be activated.",
+    );
+  }
+
+  if (reason === "mixed_group") {
+    throw conflictWithCode(
+      "MIXED_LINKED_GROUP",
+      "Every Finding linked to this corrective Mission must be `triaged` and eligible to activate as one group; mixed states reject without writes.",
+    );
+  }
+
+  if (reason === "gate_proof_mismatch") {
+    throw conflictWithCode(
+      "GATE_PROOF_MISMATCH",
+      "Release gate proof does not match the Mission's live gate.",
     );
   }
 
@@ -692,12 +736,15 @@ export async function triageRoutes(fastify: FastifyInstance): Promise<void> {
   );
 
   /**
-   * POST /triage/findings/:id/activate — manual activation (T5 kernel stub).
+   * POST /triage/findings/:id/activate — manual activation of the Finding's
+   * EXISTING corrective Mission (restored lifecycle T5).
    *
-   * The shared kernel that performs homogeneous-group activation is delivered
-   * in ticket 5. Until that lands, this endpoint accepts the request shape,
-   * validates authority, and returns 501 so callers see a clean error instead
-   * of a silent no-op.
+   * Backed ONLY by `activateCorrectiveMission`: one immediate transaction
+   * over the Mission and ALL its linked non-terminal Findings. The Mission id
+   * never changes, only the gate fields clear, and the complete eligible
+   * group activates atomically. Human-only (Habitat write); the transport
+   * derives the actor from the auth context and cannot supply actor type/id
+   * or a Release attribution (Release activation is internal-only).
    */
   fastify.post<{ Params: { id: string } }>(
     "/triage/findings/:id/activate",
@@ -726,16 +773,30 @@ export async function triageRoutes(fastify: FastifyInstance): Promise<void> {
         throw forbidden(result.message, result.code);
       }
 
-      // T5 will supply `activateCorrectiveMission(input)` here. For now we
-      // surface 501 — the route + transport + authority + outcome mapping
-      // shape is wired so T5 only needs to drop in the kernel call.
-      void parsed.data.expectedMissionVersion;
-      reply.code(501);
-      return {
-        error: "NOT_IMPLEMENTED",
-        message:
-          "Manual activation kernel is delivered in ticket 5; transport and authority are in place.",
-      };
+      if (parsed.data.expectedMissionVersion === undefined) {
+        throw badRequestWithCode(
+          "EXPECTED_MISSION_VERSION_REQUIRED",
+          "Manual activation requires `expectedMissionVersion` (the Mission version the caller observed).",
+        );
+      }
+
+      // Lifecycle actor type comes from the auth context, never the body.
+      const lifecycleActor =
+        actor.type === "human" ? { type: "human" as const, id: actor.id } : null;
+      if (!lifecycleActor) {
+        // Already gated by checkManualCommandAuthority; defensive only.
+        throw forbidden("Activate is human-only");
+      }
+      const outcome = activateCorrectiveMissionLifecycle({
+        findingId: existing.id,
+        actor: lifecycleActor,
+        expectedMissionVersion: parsed.data.expectedMissionVersion,
+      });
+      const activation = mapLifecycleOutcome(outcome, reply, {
+        actorId: lifecycleActor.id,
+        findingId: existing.id,
+      });
+      return { activation };
     },
   );
 

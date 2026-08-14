@@ -28,10 +28,16 @@ import {
   getByIdWithClient,
   routeWithClient,
   terminalizeWithClient,
+  activateGroupWithClient,
+  listNonTerminalByCorrectiveMissionIdWithClient,
   type FindingTriage,
   type RouteUpdate,
 } from "../repositories/findingTriage.js";
-import { createMissionWithClient } from "../repositories/mission.js";
+import {
+  createMissionWithClient,
+  getMissionByIdWithClient,
+  activationVersionCasWithClient,
+} from "../repositories/mission.js";
 import { createMissionEventWithClient } from "../repositories/events/event-feature.js";
 import {
   createWithClient as createResolutionWithClient,
@@ -45,7 +51,7 @@ import type {
   SuggestedBucket,
   TriageActorType,
 } from "@orcy/shared";
-import type { ActorType, MissionEventAction } from "../models/index.js";
+import type { ActorType, Mission, MissionEventAction } from "../models/index.js";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -68,7 +74,13 @@ export type ConflictReason =
   | "different_route"
   | "different_payload"
   | "not_authorized"
-  | "invalid_input";
+  | "invalid_input"
+  // Activation-specific reasons (restored lifecycle T5).
+  | "missing_link"
+  | "stale_mission_version"
+  | "mission_not_activatable"
+  | "mixed_group"
+  | "gate_proof_mismatch";
 
 /**
  * Outcome of a lifecycle command.
@@ -150,6 +162,49 @@ export interface WontfixFindingInput {
   findingId: string;
   actor: LifecycleActor;
   reason: string;
+}
+
+// ---------------------------------------------------------------------------
+// Activation payload types (restored lifecycle T5)
+// ---------------------------------------------------------------------------
+
+/** Result of a successful (or replayed) activation command. */
+export interface ActivationResult {
+  /** The SAME corrective Mission — never a replacement; its id never changes. */
+  mission: Mission;
+  /** Every activated Finding (the complete eligible group), post-activation. */
+  findings: FindingTriage[];
+}
+
+/** Input accepted by {@link activateCorrectiveMission} (manual, human-only). */
+export interface ManualActivateInput {
+  findingId: string;
+  /** Authenticated human actor (transport derives identity; body cannot supply it). */
+  actor: LifecycleActor;
+  /** The Mission version the caller observed; CASed against the live row. */
+  expectedMissionVersion: number;
+}
+
+/**
+ * Input accepted by {@link activateCorrectiveMissionForRelease} (internal
+ * Release-mode activation).
+ *
+ * `gateProof` is the caller's proof that the Mission's gate is satisfied by
+ * Release history: the Release reconciler derives the satisfied gate
+ * (type + version) from persisted Release history BEFORE calling, and the
+ * kernel re-verifies the proof against the Mission's LIVE gate inside the
+ * transaction — a gate that changed, or a proof for a different gate, is a
+ * `gate_proof_mismatch` conflict with zero writes.
+ */
+export interface ReleaseActivateInput {
+  findingId: string;
+  /** Persisted Release identity; attribution on every activated row. */
+  releaseId: string;
+  /** Proof the Mission's gate is satisfied by this Release's history. */
+  gateProof: {
+    releaseGateType: "patch" | "minor" | "major";
+    releaseGateVersion: string;
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -524,6 +579,333 @@ export function routeFinding(
     publishRouteSse(outcome.value.habitatId, outcome.value.id, outcome.value.status, outcome.value.bucket ?? "needs_investigation");
   }
 
+  return outcome;
+}
+
+// ---------------------------------------------------------------------------
+// activateCorrectiveMission (manual + internal Release-mode kernel)
+// ---------------------------------------------------------------------------
+
+/**
+ * Publishes SSE after a successful activation command. After-commit
+ * projection only — never authority.
+ */
+function publishActivationSse(outcome: LifecycleOutcome<ActivationResult>): void {
+  if (outcome.outcome !== "applied" && outcome.outcome !== "replayed") return;
+  for (const finding of outcome.value.findings) {
+    if (finding.status !== "in_progress") continue;
+    sseBroadcaster.publish(finding.habitatId, {
+      type: "triage.finding_updated",
+      data: {
+        habitatId: finding.habitatId,
+        findingId: finding.id,
+        status: finding.status,
+        bucket: finding.bucket,
+      },
+    });
+  }
+}
+
+/** Arguments for the shared activation kernel (manual and Release modes). */
+interface ActivationKernelArgs {
+  findingId: string;
+  mode: "manual" | "release";
+  /** Event-store actor type: `human` (manual) or `system` (Release). */
+  actorType: ActorType;
+  actorId: string;
+  /** Manual: the caller-observed version, CASed. Release: the in-tx read. */
+  expectedMissionVersion: number | null;
+  releaseId: string | null;
+  gateProof: ReleaseActivateInput["gateProof"] | null;
+}
+
+/**
+ * The shared activation kernel. Runs inside ONE immediate lifecycle
+ * transaction over the corrective Mission and ALL its linked non-terminal
+ * Findings:
+ *
+ * 1. reads the Finding, rejects terminal / repair-required / missing link;
+ * 2. replays when the complete group is already activated (manual/release
+ *    races converge here — the loser's `BEGIN IMMEDIATE` serializes behind
+ *    the winner and then reads the winner's committed group);
+ * 3. rejects archived/terminal Missions, mixed group states, and partial
+ *    eligibility with ZERO writes;
+ * 4. compare-and-swaps the Mission version (manual additionally clears ONLY
+ *    `releaseGateType`/`releaseGateVersion`; Release retains the gate);
+ * 5. writes ONE same-transaction Mission `updated` audit event (failure
+ *    rolls back the activation);
+ * 6. activates the whole homogeneous group in one atomic statement.
+ *
+ * No Mission field other than gate/version/updatedAt changes; dependencies,
+ * deadlines, Tasks, and status are retained. The Mission id never changes
+ * and no replacement Mission is created.
+ */
+function runActivationCommand(
+  client: LifecycleDbClient,
+  args: ActivationKernelArgs,
+): CommandResult<ActivationResult> {
+  const finding = getByIdWithClient(client, args.findingId);
+  if (!finding) {
+    return { outcome: "conflict" as const, reason: "not_found" as ConflictReason };
+  }
+  if (finding.status === "resolved" || finding.status === "wontfix") {
+    return {
+      outcome: "conflict" as const,
+      reason: "terminal" as ConflictReason,
+      current: finding.status,
+    };
+  }
+  if (finding.legacyLineageRepairRequired) {
+    return {
+      outcome: "conflict" as const,
+      reason: "legacy_lineage_repair_required" as ConflictReason,
+    };
+  }
+
+  const missionId = finding.correctiveMissionId;
+  if (!missionId) {
+    return {
+      outcome: "conflict" as const,
+      reason: "missing_link" as ConflictReason,
+      current: "Finding has no corrective Mission link",
+    };
+  }
+  const mission = getMissionByIdWithClient(client, missionId);
+  if (!mission) {
+    return {
+      outcome: "conflict" as const,
+      reason: "missing_link" as ConflictReason,
+      current: "Linked corrective Mission no longer exists",
+    };
+  }
+
+  const group = listNonTerminalByCorrectiveMissionIdWithClient(client, missionId);
+
+  // Replay: the complete group is already activated. This is where a
+  // manual/Release race converges — the loser reads the winner's committed
+  // activation and returns it without a second write.
+  if (finding.status === "in_progress" && finding.activatedAt !== null) {
+    if (group.every((f) => f.status === "in_progress")) {
+      return { outcome: "replayed" as const, value: { mission, findings: group } };
+    }
+    return {
+      outcome: "conflict" as const,
+      reason: "mixed_group" as ConflictReason,
+      current: { findingStatus: "in_progress", groupStatuses: group.map((f) => f.status) },
+    };
+  }
+
+  if (mission.isArchived || mission.status === "done" || mission.status === "failed") {
+    return {
+      outcome: "conflict" as const,
+      reason: "mission_not_activatable" as ConflictReason,
+      current: { status: mission.status, isArchived: mission.isArchived },
+    };
+  }
+
+  // Homogeneous group: EVERY linked non-terminal Finding must be `triaged`
+  // and eligible as ONE group. Mixed states or partial eligibility reject
+  // with zero writes — activation is all-or-none over the shared Mission.
+  const ineligible = group.filter(
+    (f) => f.status !== "triaged" || f.legacyLineageRepairRequired,
+  );
+  if (ineligible.length > 0) {
+    return {
+      outcome: "conflict" as const,
+      reason: "mixed_group" as ConflictReason,
+      current: {
+        ineligible: ineligible.map((f) => ({
+          id: f.id,
+          status: f.status,
+          legacyLineageRepairRequired: f.legacyLineageRepairRequired,
+        })),
+      },
+    };
+  }
+
+  // Release mode: the caller's gate proof must match the Mission's LIVE gate.
+  // The reconciler derives the proof from Release history; a changed gate or
+  // a proof for a different gate conflicts before any write.
+  if (args.mode === "release") {
+    if (
+      mission.releaseGateType !== args.gateProof?.releaseGateType ||
+      mission.releaseGateVersion !== args.gateProof?.releaseGateVersion
+    ) {
+      return {
+        outcome: "conflict" as const,
+        reason: "gate_proof_mismatch" as ConflictReason,
+        current: {
+          missionGate: {
+            releaseGateType: mission.releaseGateType,
+            releaseGateVersion: mission.releaseGateVersion,
+          },
+          proof: args.gateProof ?? null,
+        },
+      };
+    }
+  }
+
+  // Gate/version compare-and-swap. Manual clears ONLY the gate fields;
+  // Release retains them. Manual CASes the caller-observed version; Release
+  // CASes the version read under this same writer reservation.
+  const expectedVersion =
+    args.mode === "manual" ? (args.expectedMissionVersion as number) : mission.version;
+  const priorGate =
+    mission.releaseGateType !== null
+      ? {
+          releaseGateType: mission.releaseGateType,
+          releaseGateVersion: mission.releaseGateVersion,
+        }
+      : null;
+  const cas = activationVersionCasWithClient(client, missionId, expectedVersion, {
+    clearReleaseGate: args.mode === "manual",
+  });
+  if (cas.status === "not_found") {
+    return {
+      outcome: "conflict" as const,
+      reason: "missing_link" as ConflictReason,
+      current: "Linked corrective Mission no longer exists",
+    };
+  }
+  if (cas.status === "version_mismatch") {
+    return {
+      outcome: "conflict" as const,
+      reason: "stale_mission_version" as ConflictReason,
+      current: { currentVersion: cas.currentVersion },
+    };
+  }
+
+  // Same-transaction Mission `updated` audit event. A failure here throws and
+  // rolls back the gate-CAS AND the group activation (fail-closed).
+  createMissionEventWithClient(client, {
+    missionId,
+    actorType: args.actorType,
+    actorId: args.actorId,
+    action: "updated" as MissionEventAction,
+    metadata: {
+      source:
+        args.mode === "manual"
+          ? "finding_triage_manual_activation"
+          : "finding_triage_release_activation",
+      findingIds: group.map((f) => f.id),
+      ...(args.releaseId !== null ? { releaseId: args.releaseId } : {}),
+      priorGate,
+      changedFields:
+        args.mode === "manual"
+          ? ["releaseGateType", "releaseGateVersion", "version"]
+          : ["version"],
+    },
+  });
+
+
+  // Activate the complete eligible group in ONE atomic statement.
+  const now = new Date().toISOString();
+  const findings = activateGroupWithClient(
+    client,
+    group.map((f) => f.id),
+    {
+      activatedAt: now,
+      activatedByType: args.mode === "manual" ? "human" : "system",
+      activatedById: args.actorId,
+      activationCause: args.mode === "manual" ? "manual" : "release",
+      activationReleaseId: args.mode === "release" ? args.releaseId : null,
+      updatedAt: now,
+    },
+  );
+
+  return { outcome: "applied" as const, value: { mission: cas.mission, findings } };
+}
+
+/**
+ * Manual activation of the Finding's EXISTING corrective Mission (human-only).
+ *
+ * The preferred manual flow: activate the existing linked Mission — never
+ * create a replacement, never clear dependencies, never force Mission/Task
+ * status. Oversized groups are ALLOWED (no cap on manual activation),
+ * attributed `manual`, and consume no Release budget.
+ *
+ * The immediate transaction requires every linked non-terminal Finding to be
+ * `triaged` and eligible as ONE homogeneous group, compare-and-swaps
+ * `expectedMissionVersion`, clears ONLY `releaseGateType`/`releaseGateVersion`,
+ * writes a same-transaction Mission `updated` audit event, and activates the
+ * whole group. An already-activated group replays.
+ */
+export function activateCorrectiveMission(
+  input: ManualActivateInput,
+  db?: LifecycleDbClient,
+): LifecycleOutcome<ActivationResult> {
+  if (input.actor.type !== "human") {
+    return {
+      outcome: "conflict",
+      reason: "not_authorized",
+      current: "activate is human-only",
+    };
+  }
+  if (
+    typeof input.expectedMissionVersion !== "number" ||
+    !Number.isInteger(input.expectedMissionVersion) ||
+    input.expectedMissionVersion < 0
+  ) {
+    return {
+      outcome: "conflict",
+      reason: "invalid_input",
+      current: "expectedMissionVersion (non-negative integer) is required",
+    };
+  }
+
+  const outcome = withImmediateLifecycleTransaction<ActivationResult>(
+    (client) =>
+      runActivationCommand(client, {
+        findingId: input.findingId,
+        mode: "manual",
+        actorType: "human",
+        actorId: input.actor.id,
+        expectedMissionVersion: input.expectedMissionVersion,
+        releaseId: null,
+        gateProof: null,
+      }),
+    db,
+  );
+
+  publishActivationSse(outcome);
+  return outcome;
+}
+
+/**
+ * Internal Release-mode activation (restored lifecycle T5).
+ *
+ * Same kernel and transaction shape as manual activation, but:
+ * - the satisfied gate is RETAINED (Release history is never cleared);
+ * - every activated row is attributed to the Release
+ *   (`activation_cause='release'`, `activation_release_id`);
+ * - the caller MUST prove the gate is satisfied by Release history via
+ *   `gateProof`, re-verified against the Mission's live gate in-transaction.
+ *
+ * NOT HTTP-reachable. Callable ONLY from the internal Release service
+ * boundary (the T7 reconciler) — no public actor may spoof Release
+ * attribution.
+ *
+ * @internal
+ */
+export function activateCorrectiveMissionForRelease(
+  input: ReleaseActivateInput,
+  db?: LifecycleDbClient,
+): LifecycleOutcome<ActivationResult> {
+  const outcome = withImmediateLifecycleTransaction<ActivationResult>(
+    (client) =>
+      runActivationCommand(client, {
+        findingId: input.findingId,
+        mode: "release",
+        actorType: "system",
+        actorId: input.releaseId,
+        expectedMissionVersion: null,
+        releaseId: input.releaseId,
+        gateProof: input.gateProof,
+      }),
+    db,
+  );
+
+  publishActivationSse(outcome);
   return outcome;
 }
 

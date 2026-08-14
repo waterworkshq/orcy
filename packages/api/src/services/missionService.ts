@@ -4,6 +4,11 @@ import * as columnRepo from "../repositories/column.js";
 import * as eventRepo from "../repositories/event.js";
 import { sseBroadcaster } from "../sse/broadcaster.js";
 import { emitMissionAuditEvent } from "./auditEventEmitter.js";
+import {
+  guardMissionDelete,
+  guardCorrectiveMissionArchive,
+  guardMissionGateEdit,
+} from "./findingTriageHistoryGuards.js";
 import type { Mission, MissionStatus, Task, TaskPriority } from "../models/index.js";
 
 /** Input payload accepted by {@link createMission} describing the initial fields of a new mission. */
@@ -220,7 +225,7 @@ export function createMission(input: CreateMissionInput): Mission {
   return mission;
 }
 
-/** Updates editable fields of a mission with optimistic-concurrency version checks; side effects: persists the change, emits an `updated` mission event listing changed fields, and broadcasts a `mission.updated` SSE event. */
+/** Updates editable fields of a mission with optimistic-concurrency version checks; side effects: persists the change, emits an `updated` mission event listing changed fields, and broadcasts a `mission.updated` SSE event. Generic gate edits are additionally guarded: clearing the last gate while linked Findings are non-terminal, or adding/replacing a gate while linked Findings are `in_progress`, reject before write (activation owns gate clearing — see `findingTriageHistoryGuards`). */
 export function updateMission(
   missionId: string,
   input: Parameters<typeof missionRepo.updateMission>[1] & { version?: number },
@@ -233,10 +238,21 @@ export function updateMission(
       versionMismatch?: true;
       currentVersion?: number;
       archived?: true;
+      gateGuard?: "gate_clear_blocked" | "gate_change_blocked";
+      gateGuardFindingIds?: string[];
     } {
   const current = missionRepo.getMissionById(missionId);
   if (!current) return { success: false, notFound: true };
   if (current.isArchived) return { success: false, archived: true };
+
+  const gateGuard = guardMissionGateEdit(missionId, current, input.releaseGateType);
+  if (!gateGuard.allowed) {
+    return {
+      success: false,
+      gateGuard: gateGuard.reason,
+      gateGuardFindingIds: gateGuard.findingIds,
+    };
+  }
 
   const { version, ...updateFields } = input;
   const result = missionRepo.updateMission(missionId, updateFields, version);
@@ -258,7 +274,7 @@ export function updateMission(
   return result;
 }
 
-/** Deletes a mission when no other mission depends on it; side effects: emits a `deleted` audit event carrying the prior status and metadata, deletes the row, and broadcasts a `mission.deleted` SSE event to the habitat. */
+/** Deletes a mission when no other mission depends on it AND no Finding links it as investigation or corrective work (any Finding state — deletion erases history; archive is the reversible alternative); side effects: emits a `deleted` audit event carrying the prior status and metadata, deletes the row, and broadcasts a `mission.deleted` SSE event to the habitat. */
 export function deleteMission(
   missionId: string,
   actorId = "system",
@@ -270,6 +286,13 @@ export function deleteMission(
   const dependents = missionRepo.getMissionsByDependency(missionId);
   if (dependents.length > 0) {
     return { success: false, reason: "has_dependents" };
+  }
+
+  // Inverse guard (restored lifecycle T5): any investigation or corrective
+  // Finding link — terminal or not — blocks deletion.
+  const deleteGuard = guardMissionDelete(missionId);
+  if (deleteGuard.blocked) {
+    return { success: false, reason: "has_finding_links" };
   }
 
   emitMissionAuditEvent({
@@ -403,7 +426,7 @@ export function listMissions(
   return { missions: missionsWithProgress, total };
 }
 
-/** Archives a mission that is already in the `done` status; side effects: flips `isArchived`, emits an `updated` mission event with `archived` reason metadata, and broadcasts a `mission.updated` SSE event. */
+/** Archives a mission that is already in the `done` status AND has no non-terminal corrective Finding links (restored lifecycle T5 inverse guard — archive is allowed once every linked Finding is terminal, and the link stays queryable); side effects: flips `isArchived`, emits an `updated` mission event with `archived` reason metadata, and broadcasts a `mission.updated` SSE event. */
 export function archiveMission(
   missionId: string,
   actorId: string,
@@ -412,6 +435,13 @@ export function archiveMission(
   if (!mission) return { success: false, reason: "not_found" };
   if (mission.status !== "done") return { success: false, reason: "not_done" };
   if (mission.isArchived) return { success: false, reason: "already_archived" };
+
+  // Inverse guard: a corrective Mission with ANY non-terminal linked Finding
+  // cannot be archived.
+  const archiveGuard = guardCorrectiveMissionArchive(missionId);
+  if (archiveGuard.blocked) {
+    return { success: false, reason: archiveGuard.reason };
+  }
 
   const result = missionRepo.updateMission(missionId, { isArchived: true });
   if (!result.success) return { success: false, reason: "update_failed" };

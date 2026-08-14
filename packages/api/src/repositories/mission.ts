@@ -227,6 +227,75 @@ export function createMissionWithClient(
   return mission;
 }
 
+/**
+ * Supplied-client exact-id Mission read. Used inside the lifecycle activation
+ * transaction so the read observes a consistent snapshot under the writer
+ * reservation. No `mission-` prefix normalization — the kernel only ever
+ * reads canonical ids it loaded from `finding_triage`.
+ */
+export function getMissionByIdWithClient(client: MissionDbClient, id: string): Mission | null {
+  return (client.select().from(missions).where(eq(missions.id, id)).get() as Mission) ?? null;
+}
+
+/** Result of {@link activationVersionCasWithClient}. */
+export type ActivationVersionCasResult =
+  | { status: "ok"; mission: Mission }
+  | { status: "not_found" }
+  | { status: "version_mismatch"; currentVersion: number };
+
+/**
+ * Narrow activation gate-CAS primitive (restored lifecycle T5).
+ *
+ * ONE atomic conditional UPDATE: bumps `version`, stamps `updatedAt`, and —
+ * only when `clearReleaseGate` is set (manual activation) — nulls
+ * `releaseGateType`/`releaseGateVersion`. Every other Mission field
+ * (dependencies, status, deadlines, Tasks) is untouched. The version is part
+ * of the WHERE clause, so a Mission that moved between the kernel's read and
+ * this write matches zero rows and is classified below — there is no
+ * `WHERE id`-only fallback (mirrors {@link moveMission}'s enforceable
+ * optimistic-concurrency contract).
+ *
+ * Release-mode activation passes `clearReleaseGate: false` — the satisfied
+ * gate is RETAINED (history preserved) while the version still CASes.
+ */
+export function activationVersionCasWithClient(
+  client: MissionDbClient,
+  missionId: string,
+  expectedVersion: number,
+  opts: { clearReleaseGate: boolean },
+): ActivationVersionCasResult {
+  const now = new Date().toISOString();
+  const gateClear = opts.clearReleaseGate ? { releaseGateType: null, releaseGateVersion: null } : {};
+
+  try {
+    client
+      .update(missions)
+      .set({
+        updatedAt: now,
+        version: sql`${missions.version} + 1`,
+        ...gateClear,
+      })
+      .where(and(eq(missions.id, missionId), eq(missions.version, expectedVersion)))
+      .run();
+    const affected = client.get<{ n: number }>(sql`SELECT changes() AS n`)?.n ?? 0;
+    if (affected === 0) {
+      const current = client
+        .select({ version: missions.version })
+        .from(missions)
+        .where(eq(missions.id, missionId))
+        .get();
+      if (!current) return { status: "not_found" };
+      return { status: "version_mismatch", currentVersion: current.version };
+    }
+  } catch (err) {
+    throw repositoryUpdateError("mission", err as Error, missionId);
+  }
+
+  const mission = getMissionByIdWithClient(client, missionId);
+  if (!mission) return { status: "not_found" };
+  return { status: "ok", mission };
+}
+
 export function getMissionById(id: string): Mission | null {
   const db = getDb();
   const { exact, withPrefix } = normalizeMissionId(id);

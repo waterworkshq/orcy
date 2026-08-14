@@ -4,6 +4,7 @@ import * as pulseService from "../services/pulseService.js";
 import * as reactionRepo from "../repositories/pulseReaction.js";
 import * as missionRepo from "../repositories/mission.js";
 import * as habitatRepo from "../repositories/habitat.js";
+import { assertPulseNotFindingEvidence } from "../services/findingTriageHistoryGuards.js";
 import { agentOrHumanAuth } from "../middleware/auth.js";
 import { badRequest, unauthorized, notFound, forbidden } from "../errors.js";
 import { getCallerInfo } from "./pulse-shared.js";
@@ -146,6 +147,11 @@ export async function pulseRoutes(fastify: FastifyInstance): Promise<void> {
     if (pulse.fromId !== caller.id) {
       throw forbidden("Only the author can delete a signal");
     }
+
+    // Inverse guard (restored lifecycle T5): a Pulse referenced as source or
+    // corroborating evidence by ANY Finding — terminal or not — cannot be
+    // deleted; deletion erases lifecycle history.
+    assertPulseNotFindingEvidence(id);
 
     pulseRepo.deletePulse(id);
     reply.code(204).send();

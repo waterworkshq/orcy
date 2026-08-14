@@ -6,7 +6,8 @@
  *   - Local agent: route succeeds ONLY when currently claiming the admitted
  *     Task; route denied otherwise (unrelated/stale/released/completed claim).
  *   - Human: route/activate/resolve/wontfix; resolve/wontfix human-only.
- *   - T5 stub: /activate returns 501.
+ *   - T5 activate transport: expectedMissionVersion required (400 when
+ *     omitted); activate is human-only (agent 403).
  *   - Legacy PATCH matrix: no-work accepted, work-bearing rejected, mixed
  *     rejected, target-release rejected, terminal-rejected, link-only first
  *     apply validated, stored-fingerprint replay before predicates.
@@ -346,9 +347,9 @@ describe("T4 — Local intent routes: route/resolve/wontfix", () => {
     expect(res.statusCode).toBe(403);
   });
 
-  // -------------------- activate (T5 stub) --------------------
+  // -------------------- activate (T5 kernel) --------------------
 
-  it("POST /activate returns 501 (T5 kernel not yet delivered)", async () => {
+  it("POST /activate requires expectedMissionVersion (400 when omitted)", async () => {
     const { finding } = seedAdmittedFinding();
     const token = makeToken({ sub: "user-1", username: "test", role: "admin" });
     const res = await app!.inject({
@@ -357,15 +358,16 @@ describe("T4 — Local intent routes: route/resolve/wontfix", () => {
       payload: {},
       headers: { authorization: `Bearer ${token}` },
     });
-    expect(res.statusCode).toBe(501);
+    expect(res.statusCode).toBe(400);
+    expect(JSON.parse(res.body).code).toBe("EXPECTED_MISSION_VERSION_REQUIRED");
   });
 
-  it("POST /activate is human-only: agent returns 403 even before 501", async () => {
+  it("POST /activate is human-only: agent returns 403", async () => {
     const { finding } = seedAdmittedFinding();
     const res = await app!.inject({
       method: "POST",
       url: `/api/triage/findings/${finding.id}/activate`,
-      payload: {},
+      payload: { expectedMissionVersion: 1 },
       headers: { "x-agent-api-key": agentApiKey },
     });
     expect(res.statusCode).toBe(403);

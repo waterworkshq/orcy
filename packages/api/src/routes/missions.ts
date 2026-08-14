@@ -156,6 +156,20 @@ export async function missionRoutes(fastify: FastifyInstance): Promise<void> {
           });
         } else if (result.archived) {
           throw forbidden("Cannot modify an archived mission");
+        } else if (result.gateGuard === "gate_clear_blocked") {
+          throw new AppError(
+            409,
+            "MISSION_GATE_CLEAR_BLOCKED",
+            "Cannot clear the release gate while linked findings are non-terminal; use POST /api/triage/findings/:id/activate to activate the corrective Mission (clears the gate and activates the group atomically).",
+            { findingTriageIds: result.gateGuardFindingIds },
+          );
+        } else if (result.gateGuard === "gate_change_blocked") {
+          throw new AppError(
+            409,
+            "MISSION_GATE_CHANGE_BLOCKED",
+            "Cannot add or replace a release gate while linked findings are in progress.",
+            { findingTriageIds: result.gateGuardFindingIds },
+          );
         }
         throw internalError("Failed to update mission");
       }
@@ -176,6 +190,12 @@ export async function missionRoutes(fastify: FastifyInstance): Promise<void> {
           if (result.reason === "not_done")
             throw badRequest("Only completed missions can be archived");
           if (result.reason === "already_archived") throw badRequest("Mission is already archived");
+          if (result.reason === "has_non_terminal_finding_links")
+            throw new AppError(
+              409,
+              "MISSION_ARCHIVE_HAS_NON_TERMINAL_FINDINGS",
+              "Cannot archive a corrective mission while linked findings are non-terminal; resolve or wontfix every linked finding first (the link stays queryable after archive).",
+            );
           throw internalError("Failed to archive mission");
         }
         return { mission: result.mission };
@@ -213,6 +233,13 @@ export async function missionRoutes(fastify: FastifyInstance): Promise<void> {
             throw notFound("Mission not found");
           } else if (result.reason === "has_dependents") {
             throw conflict("Mission has dependent missions", { dependents: true });
+          } else if (result.reason === "has_finding_links") {
+            throw new AppError(
+              409,
+              "MISSION_HAS_FINDING_LINKS",
+              "Mission is linked as investigation or corrective work by one or more finding triage records and cannot be deleted; archive is the reversible alternative.",
+              { findingLinks: true },
+            );
           }
           throw internalError("Failed to delete mission");
         }
