@@ -8,6 +8,7 @@ import {
   repositoryUpdateError,
   repositoryDeleteError,
 } from "../errors/repository.js";
+import { createRuleRevision, type RevisionAuthor } from "./automationRuleRevision.js";
 import type {
   AutomationRule,
   CreateAutomationRuleInput,
@@ -15,38 +16,73 @@ import type {
   AutomationTriggerType,
 } from "@orcy/shared";
 
+/**
+ * Author attribution for revisions minted by repository mutations when the
+ * caller does not supply one (the route layer passes the authenticated human).
+ */
+const REPOSITORY_FALLBACK_AUTHOR: RevisionAuthor = {
+  type: "system",
+  id: "automationRuleRepository",
+};
+
+/**
+ * Rule write + immutable-revision write in ONE manual `BEGIN IMMEDIATE`
+ * transaction (the `scheduledOccurrenceReservation` precedent — NOT drizzle's
+ * deferred `db.transaction`), so a revision always exists for every persisted
+ * rule state and no reader can observe the rule without its revision.
+ */
+function withRuleWriteTransaction<T>(fn: () => T): T {
+  const db = getDb();
+  db.run(sql`BEGIN IMMEDIATE`);
+  try {
+    const result = fn();
+    db.run(sql`COMMIT`);
+    return result;
+  } catch (err) {
+    try {
+      db.run(sql`ROLLBACK`);
+    } catch {
+      // already rolled back
+    }
+    throw err;
+  }
+}
+
 export function createAutomationRule(input: CreateAutomationRuleInput): AutomationRule {
   const db = getDb();
   const id = uuid();
   const now = new Date().toISOString();
 
-  try {
-    db.insert(automationRules)
-      .values({
-        id,
-        habitatId: input.habitatId,
-        name: input.name,
-        description: input.description ?? "",
-        enabled: input.enabled ?? false,
-        priority: input.priority ?? 0,
-        trigger: input.trigger as unknown as Record<string, unknown>,
-        condition: (input.condition ?? { type: "always" }) as unknown as Record<string, unknown>,
-        actions: input.actions as unknown as Record<string, unknown>[],
-        cooldownSeconds: input.cooldownSeconds ?? 300,
-        maxRunsPerHour: input.maxRunsPerHour ?? 30,
-        createdBy: input.createdBy,
-        createdAt: now,
-        updatedAt: now,
-        lastRunAt: null,
-      })
-      .run();
-  } catch (err) {
-    throw repositoryCreateError("automationRule", err as Error, id);
-  }
+  return withRuleWriteTransaction(() => {
+    try {
+      db.insert(automationRules)
+        .values({
+          id,
+          habitatId: input.habitatId,
+          name: input.name,
+          description: input.description ?? "",
+          enabled: input.enabled ?? false,
+          priority: input.priority ?? 0,
+          trigger: input.trigger as unknown as Record<string, unknown>,
+          condition: (input.condition ?? { type: "always" }) as unknown as Record<string, unknown>,
+          actions: input.actions as unknown as Record<string, unknown>[],
+          cooldownSeconds: input.cooldownSeconds ?? 300,
+          maxRunsPerHour: input.maxRunsPerHour ?? 30,
+          createdBy: input.createdBy,
+          createdAt: now,
+          updatedAt: now,
+          lastRunAt: null,
+        })
+        .run();
+    } catch (err) {
+      throw repositoryCreateError("automationRule", err as Error, id);
+    }
 
-  const created = getAutomationRuleById(id);
-  if (!created) throw repositoryNotFoundError("automationRule", id);
-  return created;
+    const created = getAutomationRuleById(id);
+    if (!created) throw repositoryNotFoundError("automationRule", id);
+    createRuleRevision(created, { type: "human", id: input.createdBy });
+    return created;
+  });
 }
 
 export function getAutomationRuleById(id: string): AutomationRule | null {
@@ -98,36 +134,46 @@ function matchesTriggerType(rule: AutomationRule, triggerType: AutomationTrigger
   return false;
 }
 
+/**
+ * Mutates the live rule and appends the new immutable executable revision in
+ * one immediate transaction. `author` attribution is additive: existing
+ * callers compile unchanged (the fallback author records the repository seam);
+ * route callers pass the authenticated human.
+ */
 export function updateAutomationRule(
   id: string,
   updates: UpdateAutomationRuleInput,
+  opts?: { author?: RevisionAuthor },
 ): AutomationRule {
   const db = getDb();
   const now = new Date().toISOString();
 
-  const set: Record<string, unknown> = { updatedAt: now };
-  if (updates.name !== undefined) set.name = updates.name;
-  if (updates.description !== undefined) set.description = updates.description;
-  if (updates.enabled !== undefined) set.enabled = updates.enabled;
-  if (updates.priority !== undefined) set.priority = updates.priority;
-  if (updates.trigger !== undefined)
-    set.trigger = updates.trigger as unknown as Record<string, unknown>;
-  if (updates.condition !== undefined)
-    set.condition = updates.condition as unknown as Record<string, unknown>;
-  if (updates.actions !== undefined)
-    set.actions = updates.actions as unknown as Record<string, unknown>[];
-  if (updates.cooldownSeconds !== undefined) set.cooldownSeconds = updates.cooldownSeconds;
-  if (updates.maxRunsPerHour !== undefined) set.maxRunsPerHour = updates.maxRunsPerHour;
+  return withRuleWriteTransaction(() => {
+    const set: Record<string, unknown> = { updatedAt: now };
+    if (updates.name !== undefined) set.name = updates.name;
+    if (updates.description !== undefined) set.description = updates.description;
+    if (updates.enabled !== undefined) set.enabled = updates.enabled;
+    if (updates.priority !== undefined) set.priority = updates.priority;
+    if (updates.trigger !== undefined)
+      set.trigger = updates.trigger as unknown as Record<string, unknown>;
+    if (updates.condition !== undefined)
+      set.condition = updates.condition as unknown as Record<string, unknown>;
+    if (updates.actions !== undefined)
+      set.actions = updates.actions as unknown as Record<string, unknown>[];
+    if (updates.cooldownSeconds !== undefined) set.cooldownSeconds = updates.cooldownSeconds;
+    if (updates.maxRunsPerHour !== undefined) set.maxRunsPerHour = updates.maxRunsPerHour;
 
-  try {
-    db.update(automationRules).set(set).where(eq(automationRules.id, id)).run();
-  } catch (err) {
-    throw repositoryUpdateError("automationRule", err as Error, id);
-  }
+    try {
+      db.update(automationRules).set(set).where(eq(automationRules.id, id)).run();
+    } catch (err) {
+      throw repositoryUpdateError("automationRule", err as Error, id);
+    }
 
-  const updated = getAutomationRuleById(id);
-  if (!updated) throw repositoryNotFoundError("automationRule", id);
-  return updated;
+    const updated = getAutomationRuleById(id);
+    if (!updated) throw repositoryNotFoundError("automationRule", id);
+    createRuleRevision(updated, opts?.author ?? REPOSITORY_FALLBACK_AUTHOR);
+    return updated;
+  });
 }
 
 export function setRuleEnabled(id: string, enabled: boolean): AutomationRule {

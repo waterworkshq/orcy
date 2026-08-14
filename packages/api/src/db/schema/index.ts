@@ -81,7 +81,15 @@ export {
   notificationDigestItems,
   notificationRetentionPolicies,
 } from "./notification.js";
-export { automationRules, automationRuleRuns } from "./automation.js";
+export {
+  automationRules,
+  automationRuleRuns,
+  automationRuleRevisions,
+  automationEventInbox,
+  automationRuleDeliveries,
+  automationDeliveryActionCheckpoints,
+  automationDeliveryDispositions,
+} from "./automation.js";
 export {
   identityProviders,
   identityProviderAuthStates,
@@ -98,12 +106,7 @@ export {
   remoteWebhookEndpoints,
 } from "./remote-pod.js";
 export { remoteWebhookDeliveries } from "./remote-webhook.js";
-export {
-  workflows,
-  taskWorkflowGates,
-  taskRecoveryHandoffs,
-  failureContexts,
-} from "./workflow.js";
+export { workflows, taskWorkflowGates, taskRecoveryHandoffs, failureContexts } from "./workflow.js";
 export { wikiPages, wikiPageVersions, wikiPageLinks, wikiCoverageMarkers } from "./wiki.js";
 export {
   findingTriage,

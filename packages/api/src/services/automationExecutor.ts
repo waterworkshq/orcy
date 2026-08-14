@@ -75,7 +75,14 @@ export async function executeActions(
   return { status, actionResults };
 }
 
-async function executeAction(
+/**
+ * Executes ONE action by definition. Exported (additively) so the frozen
+ * revision delivery path in `automationAttemptLifecycle` can interleave
+ * ordered action checkpoints between individual actions — it runs strictly
+ * AFTER the canonical guard pipeline, so this is not an `executeActions`
+ * bypass of the condition gate.
+ */
+export async function executeAction(
   action: AutomationAction,
   index: number,
   rule: AutomationRule,
@@ -560,7 +567,12 @@ function resolveNotifyEventType(rule: AutomationRule): NotificationEventType {
   return AUTOMATION_TRIGGER_TO_NOTIFY_EVENT[triggerType] ?? "automation.rule_matched";
 }
 
-function calculateRunStatus(succeeded: number, failed: number, total: number): AutomationRunStatus {
+/** Aggregates per-action outcomes into the composite run status. Exported additively so the frozen-delivery path of the canonical lifecycle derives the IDENTICAL composite semantics. */
+export function calculateRunStatus(
+  succeeded: number,
+  failed: number,
+  total: number,
+): AutomationRunStatus {
   if (total === 0) return "failed";
   if (failed === 0) return "succeeded";
   if (succeeded === 0) return "failed";

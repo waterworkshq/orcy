@@ -35,16 +35,9 @@ import * as missionRepo from "../repositories/mission.js";
 import * as pulseRepo from "../repositories/pulse.js";
 import * as sprintRepo from "../repositories/sprint.js";
 import * as taskRepo from "../repositories/taskCrud.js";
-import {
-  attemptRuleRun,
-  type AutomationAttemptInput,
-} from "./automationAttemptLifecycle.js";
+import { attemptRuleRun, type AutomationAttemptInput } from "./automationAttemptLifecycle.js";
 import { ACTIVE_TASK_STATUSES, tallyDisposition } from "./automationScanService.js";
-import type {
-  AutomationEventType,
-  AutomationTargetType,
-  CausalContext,
-} from "@orcy/shared";
+import type { AutomationEventType, AutomationTargetType, CausalContext } from "@orcy/shared";
 
 /** Runtime allowlist of event types this service will dispatch. New types in the `AutomationEventType` union still won't fire rules without an allowlist entry. */
 const EVENT_ALLOWLIST: Set<string> = new Set([
@@ -202,8 +195,13 @@ export function checkHabitatOwnership(
  * `trigger` field. Returns `null` ONLY when the event type cannot be
  * resolved at all (e.g., `code_evidence.updated` with a payload
  * `targetType` outside `{task, mission}`).
+ *
+ * Exported so the frozen-revision inbox consumer can rebuild the SAME
+ * normalized trigger from the immutable inbox payload at consumption time
+ * that admission would have produced — target resolution must not drift
+ * between admission and delivery.
  */
-function normalizeEventTrigger(
+export function normalizeEventTrigger(
   habitatId: string,
   event: IncomingEvent,
 ): NormalizedTrigger | null {
@@ -317,10 +315,7 @@ function normalizeEventTrigger(
           targetId: taskId,
         };
       }
-      if (
-        missionId &&
-        checkHabitatOwnership(habitatId, "mission", missionId) === "valid"
-      ) {
+      if (missionId && checkHabitatOwnership(habitatId, "mission", missionId) === "valid") {
         return {
           triggerType: event.type,
           triggerEventId,

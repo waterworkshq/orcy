@@ -2,6 +2,8 @@ import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import * as ruleRepo from "../repositories/automationRule.js";
 import * as runRepo from "../repositories/automationRuleRun.js";
+import * as deliveryRepo from "../repositories/automationRuleDelivery.js";
+import * as inboxService from "../services/automationInboxService.js";
 import * as simulationService from "../services/automationSimulationService.js";
 import { buildTriggerContext } from "../services/automationContextBuilder.js";
 import {
@@ -13,10 +15,7 @@ import {
   updateAutomationRuleSchema,
 } from "../models/automationRuleSchema.js";
 import { attemptRuleRun } from "../services/automationAttemptLifecycle.js";
-import {
-  agentHasHabitatWork,
-  checkHabitatOwnership,
-} from "../services/automationEventService.js";
+import { agentHasHabitatWork, checkHabitatOwnership } from "../services/automationEventService.js";
 import { humanAuth } from "../middleware/auth.js";
 import { requireHabitatAccess } from "../middleware/team.js";
 import { checkHabitatAccess } from "../middleware/realtimeAuth.js";
@@ -126,12 +125,16 @@ export async function automationRoutes(fastify: FastifyInstance): Promise<void> 
       }
       const existing = ruleRepo.getAutomationRuleById(request.params.ruleId);
       if (!existing) throw notFound("Rule not found");
-      return ruleRepo.updateAutomationRule(request.params.ruleId, {
-        ...parsed.data,
-        trigger: parsed.data.trigger as any,
-        condition: parsed.data.condition as any,
-        actions: parsed.data.actions as any,
-      });
+      return ruleRepo.updateAutomationRule(
+        request.params.ruleId,
+        {
+          ...parsed.data,
+          trigger: parsed.data.trigger as any,
+          condition: parsed.data.condition as any,
+          actions: parsed.data.actions as any,
+        },
+        { author: { type: "human", id: request.user!.id } },
+      );
     },
   );
 
@@ -242,8 +245,8 @@ export async function automationRoutes(fastify: FastifyInstance): Promise<void> 
       if (!parsed.success) {
         throw badRequest("Validation failed", parsed.error.flatten());
       }
-      const targetType: AutomationTargetType =
-        (parsed.data.targetType ?? "none") as AutomationTargetType;
+      const targetType: AutomationTargetType = (parsed.data.targetType ??
+        "none") as AutomationTargetType;
       const targetId = parsed.data.targetId ?? null;
 
       // targetId required unless targetType === "none".
@@ -252,9 +255,7 @@ export async function automationRoutes(fastify: FastifyInstance): Promise<void> 
       }
       // `integration` has no ownership resolver yet (decision §6).
       if (targetType === "integration") {
-        throw badRequest(
-          "integration target is not yet supported for manual runs",
-        );
+        throw badRequest("integration target is not yet supported for manual runs");
       }
 
       // Validate target ownership against the rule's Habitat.
@@ -265,16 +266,10 @@ export async function automationRoutes(fastify: FastifyInstance): Promise<void> 
       if (targetType !== "none" && targetId) {
         if (targetType === "agent") {
           if (!agentHasHabitatWork(targetId, rule.habitatId)) {
-            throw badRequest(
-              "Agent has no active Habitat work in the rule's Habitat",
-            );
+            throw badRequest("Agent has no active Habitat work in the rule's Habitat");
           }
         } else {
-          const ownership = checkHabitatOwnership(
-            rule.habitatId,
-            targetType,
-            targetId,
-          );
+          const ownership = checkHabitatOwnership(rule.habitatId, targetType, targetId);
           if (ownership !== "valid") {
             throw badRequest(
               ownership === "missing"
@@ -343,6 +338,89 @@ export async function automationRoutes(fastify: FastifyInstance): Promise<void> 
       const limit = request.query.limit ? Number(request.query.limit) : 50;
       const offset = request.query.offset ? Number(request.query.offset) : 0;
       return runRepo.listRunsByHabitat(habitatId, { limit, offset });
+    },
+  );
+
+  // ---------------------------------------------------------------------------
+  // Automation inbox — operator visibility + audited dispositions
+  // ---------------------------------------------------------------------------
+
+  const dispositionSchema = z.object({
+    reason: z.string().min(1),
+    ackDuplicateRisk: z.boolean().optional(),
+  });
+
+  // Inbox + delivery visibility for a habitat (attention_required must be
+  // visible — it is NOT success).
+  fastify.get<{ Params: { habitatId: string } }>(
+    "/habitats/:habitatId/automation-inbox",
+    { preHandler: [humanAuth, requireHabitatAccess] },
+    async (request, _reply) => {
+      return inboxService.listHabitatInbox(request.params.habitatId);
+    },
+  );
+
+  // Operator waive AFTER external reconciliation (audited).
+  fastify.post<{ Params: { deliveryId: string } }>(
+    "/automation-deliveries/:deliveryId/waive",
+    { preHandler: humanAuth },
+    async (request, reply) => {
+      const parsed = dispositionSchema.safeParse(request.body ?? {});
+      if (!parsed.success) {
+        throw badRequest("Validation failed", parsed.error.flatten());
+      }
+      const delivery = deliveryRepo.getDeliveryById(request.params.deliveryId);
+      if (!delivery) throw notFound("Delivery not found");
+      await checkHabitatAccess(request, delivery.habitatId);
+      const result = inboxService.waiveAutomationDelivery({
+        deliveryId: request.params.deliveryId,
+        actorType: "human",
+        actorId: request.user!.id,
+        reason: parsed.data.reason,
+      });
+      if (result.outcome === "not_found") throw notFound("Delivery not found");
+      if (result.outcome === "conflict") {
+        throw badRequest(
+          `Delivery is not attention_required (current state: ${result.state}) — waive applies only after external reconciliation of an attention delivery`,
+        );
+      }
+      reply.code(200);
+      return result;
+    },
+  );
+
+  // Explicit risk-acknowledged successor attempt generation (audited).
+  fastify.post<{ Params: { deliveryId: string } }>(
+    "/automation-deliveries/:deliveryId/retry",
+    { preHandler: humanAuth },
+    async (request, reply) => {
+      const parsed = dispositionSchema.safeParse(request.body ?? {});
+      if (!parsed.success) {
+        throw badRequest("Validation failed", parsed.error.flatten());
+      }
+      const delivery = deliveryRepo.getDeliveryById(request.params.deliveryId);
+      if (!delivery) throw notFound("Delivery not found");
+      await checkHabitatAccess(request, delivery.habitatId);
+      const result = inboxService.createAutomationDeliverySuccessorGeneration({
+        deliveryId: request.params.deliveryId,
+        actorType: "human",
+        actorId: request.user!.id,
+        reason: parsed.data.reason,
+        ackDuplicateRisk: parsed.data.ackDuplicateRisk === true,
+      });
+      if (result.outcome === "not_found") throw notFound("Delivery not found");
+      if (result.outcome === "risk_ack_required") {
+        throw badRequest(
+          "ackDuplicateRisk must be true — a successor generation re-executes unproved actions and may duplicate external effects",
+        );
+      }
+      if (result.outcome === "conflict") {
+        throw badRequest(
+          `Delivery cannot branch a successor from its current state (${result.state}) — only the latest attention_required generation may`,
+        );
+      }
+      reply.code(201);
+      return result;
     },
   );
 }

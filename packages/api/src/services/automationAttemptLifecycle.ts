@@ -39,17 +39,23 @@ import type {
   CausalContext,
 } from "@orcy/shared";
 import * as runRepo from "../repositories/automationRuleRun.js";
-import { validatePersistedCondition } from "../models/automationConditionSchema.js";
 import {
-  buildEvaluationContext,
-  buildTriggerContext,
-} from "./automationContextBuilder.js";
+  materializeRuleFromRevision,
+  type AutomationRuleRevision,
+} from "../repositories/automationRuleRevision.js";
+import * as deliveryRepo from "../repositories/automationRuleDelivery.js";
+import { validatePersistedCondition } from "../models/automationConditionSchema.js";
+import { buildEvaluationContext, buildTriggerContext } from "./automationContextBuilder.js";
 import { evaluateCondition } from "./automationEvaluator.js";
 import {
+  executeAction,
   executeActions,
   notifyAutomationRunCompleted,
   shouldExecuteActions,
+  calculateRunStatus,
 } from "./automationExecutor.js";
+import { logger } from "../lib/logger.js";
+import { isSqliteError } from "../errors/sqlite.js";
 
 /** Origin of this attempt — used for guarded-skip metadata and future counter derivation. */
 export type AutomationAttemptSource = "event" | "scan" | "manual";
@@ -61,6 +67,12 @@ export const CAUSAL_DEPTH_LIMIT = 32;
  * Structured input for the canonical lifecycle. Callers supply the rule,
  * already-normalized trigger identity, the optional trusted-envelope
  * dedupe key, and the source label for diagnostics.
+ *
+ * `frozen` (additive overload) routes the attempt down the frozen-revision
+ * delivery pipeline: the rule input MUST already be the materialization of
+ * `frozen.revision` (the consumer does this), and persistence lands on the
+ * delivery/checkpoint tables instead of the live run row alone. Existing
+ * callers omit `frozen` and keep the original behavior byte-for-byte.
  */
 export interface AutomationAttemptInput {
   rule: AutomationRule;
@@ -78,7 +90,60 @@ export interface AutomationAttemptInput {
   eventDedupeKey?: string | null;
   /** Override for the "now" timestamp (used by tests for deterministic cooldown). */
   now?: string;
+  /**
+   * Statically excluded on the live-rule input shape — pass a frozen
+   * revision via the `AutomationFrozenAttemptInput` overload instead.
+   */
+  frozen?: undefined;
 }
+
+/** Input of the frozen-revision delivery overload of {@link attemptRuleRun}. */
+export interface AutomationFrozenAttemptInput extends Omit<AutomationAttemptInput, "frozen"> {
+  frozen: AutomationFrozenAttemptContext;
+}
+
+/** Identity of the leased delivery generation this frozen attempt executes. */
+export interface AutomationFrozenDeliveryRef {
+  id: string;
+  generation: number;
+  /** The lease fence this worker holds; every persisted transition is CAS'd on it. */
+  fence: string;
+  /** Stable event lineage key of the delivery row. */
+  eventDedupeKey: string;
+}
+
+/** Inbox lineage needed for terminality bookkeeping after the attempt. */
+export interface AutomationFrozenInboxRef {
+  id: string;
+  eventType: string;
+  eventId: string;
+}
+
+/** Frozen-revision delivery context consumed by the canonical lifecycle. */
+export interface AutomationFrozenAttemptContext {
+  delivery: AutomationFrozenDeliveryRef;
+  inbox: AutomationFrozenInboxRef;
+  /** The FULL immutable executable revision — never the mutable live rule. */
+  revision: AutomationRuleRevision;
+}
+
+/**
+ * Frozen-delivery disposition. A delivery generation is terminal
+ * (`executed`/`skipped`/`failed`), needs an operator (`attention`), or was
+ * lost to a newer fence/generation (`fenced_out` — this worker changed
+ * nothing and must not complete anything).
+ */
+export type AutomationFrozenAttemptDisposition =
+  | {
+      kind: "executed";
+      outcome: AutomationRunStatus;
+      actionResults: AutomationActionResult[];
+      runId: string | null;
+    }
+  | { kind: "skipped"; reason: AutomationSkipReason; runId: string | null }
+  | { kind: "failed"; stage: "condition" | "actions"; runId: string | null }
+  | { kind: "attention"; reason: string; runId: string | null }
+  | { kind: "fenced_out" };
 
 /**
  * The 4-kind discriminated result. The disposition is the only basis for
@@ -91,7 +156,12 @@ export interface AutomationAttemptInput {
  *                     EXISTING owned row, not mutated by this call.
  */
 export type AutomationAttemptDisposition =
-  | { kind: "executed"; run: AutomationRuleRun; outcome: AutomationRunStatus; actionResults: AutomationActionResult[] }
+  | {
+      kind: "executed";
+      run: AutomationRuleRun;
+      outcome: AutomationRunStatus;
+      actionResults: AutomationActionResult[];
+    }
   | { kind: "skipped"; run: AutomationRuleRun; reason: AutomationSkipReason }
   | { kind: "failed"; run: AutomationRuleRun; stage: "condition" | "actions" }
   | { kind: "deduplicated"; run: AutomationRuleRun };
@@ -113,7 +183,10 @@ interface TargetValidation {
  * ownership rejection is intentionally NOT implemented in T3 — that's part of
  * the trigger-normalization cutover (T4) which centralizes the resolver.
  */
-function validateTarget(input: AutomationAttemptInput): TargetValidation {
+/** Input shape accepted by the shared pure-guard helpers (live or frozen). */
+type AnyAttemptInput = AutomationAttemptInput | AutomationFrozenAttemptInput;
+
+function validateTarget(input: AnyAttemptInput): TargetValidation {
   const { targetType, targetId } = input.trigger;
   if (targetType && targetType !== "none" && !targetId) {
     return {
@@ -132,7 +205,7 @@ function validateTarget(input: AutomationAttemptInput): TargetValidation {
  * blocks the attempt. Non-admitting: rejection rows do not count toward the
  * hourly budget.
  */
-function inCooldown(rule: AutomationRule, input: AutomationAttemptInput, nowIso: string): boolean {
+function inCooldown(rule: AutomationRule, input: AnyAttemptInput, nowIso: string): boolean {
   const { trigger } = input;
   const last = runRepo.getLastSuccessfulRunForFingerprint({
     habitatId: trigger.habitatId,
@@ -268,8 +341,30 @@ function syntheticInvalidConditionResult(diagnostic: string | null): AutomationC
  * The returned disposition is the only authoritative source for the run's
  * outcome; ingestion and scan counters (T4/T5) derive solely from it.
  * Dedupe losers never emit completion and never mutate the existing run.
+ *
+ * Overloads (additive — hub asymmetry honored):
+ *  - without `frozen`: the original live-rule pipeline, unchanged;
+ *  - with `frozen`: the frozen-revision delivery pipeline, which mirrors the
+ *    same 10-step ordering but persists through the delivery/checkpoint
+ *    tables under lease/fence CAS. No caller may bypass this seam — both
+ *    pipelines live behind it.
  */
 export async function attemptRuleRun(
+  input: AutomationAttemptInput,
+): Promise<AutomationAttemptDisposition>;
+export async function attemptRuleRun(
+  input: AutomationFrozenAttemptInput,
+): Promise<AutomationFrozenAttemptDisposition>;
+export async function attemptRuleRun(
+  input: AutomationAttemptInput | AutomationFrozenAttemptInput,
+): Promise<AutomationAttemptDisposition | AutomationFrozenAttemptDisposition> {
+  if (input.frozen) {
+    return attemptFrozenRuleDelivery(input);
+  }
+  return attemptLiveRuleRun(input);
+}
+
+async function attemptLiveRuleRun(
   input: AutomationAttemptInput,
 ): Promise<AutomationAttemptDisposition> {
   const { rule, trigger } = input;
@@ -560,5 +655,364 @@ export async function attemptRuleRun(
     run: finalRun,
     outcome: execution.status,
     actionResults: execution.actionResults,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Frozen-revision delivery pipeline
+// ---------------------------------------------------------------------------
+
+const FOREIGN_KEY_RE = /FOREIGN KEY constraint failed/i;
+
+function isForeignKeyViolation(err: unknown): boolean {
+  if (err instanceof Error && FOREIGN_KEY_RE.test(err.message)) return true;
+  const cause = (err as { cause?: unknown } | null)?.cause;
+  if (cause instanceof Error && FOREIGN_KEY_RE.test(cause.message)) return true;
+  if (isSqliteError(err) || isSqliteError(cause)) {
+    const code =
+      (err as { code?: string } | null)?.code ?? (cause as { code?: string } | null)?.code;
+    if (code === "SQLITE_CONSTRAINT_FOREIGNKEY") return true;
+  }
+  return false;
+}
+
+/**
+ * Frozen-revision delivery pipeline. Mirrors the live pipeline's 10-step
+ * ordering EXACTLY (target → cooldown → rate → reservation → condition
+ * validation → condition → causal → kill switch → ordered actions →
+ * terminalization + completion), with the persistence deltas the durable
+ * handoff requires:
+ *
+ *  - the executable rule is the PERSISTED immutable revision, never the
+ *    mutable live rule (later live-rule edit/delete cannot change execution);
+ *  - the delivery lease IS the reservation (step 4's CAS already happened in
+ *    the consumer's `leaseDelivery`); a run row is additionally recorded when
+ *    the live rule still exists, keyed by the delivery id so each generation
+ *    owns at most one run (a deleted live rule has no run row — the delivery
+ *    and its checkpoints are the durable history);
+ *  - every action outcome lands in an authoritative fenced checkpoint; a
+ *    proved checkpoint (this generation or carried forward from a
+ *    predecessor) is NEVER re-executed;
+ *  - terminalization is a lease-fence CAS on the delivery — a stale worker
+ *    can never complete a generation (or a successor) it no longer owns.
+ *
+ * Guard skips (missing_target / cooldown / rate_limited / condition_false /
+ * causal / disabled) are DURABLE terminal skips on the delivery: a one-shot
+ * inbox event is not re-queued for a guard state that the frozen revision
+ * itself produced.
+ */
+async function attemptFrozenRuleDelivery(
+  input: AutomationFrozenAttemptInput,
+): Promise<AutomationFrozenAttemptDisposition> {
+  const frozen = input.frozen;
+  const trigger = input.trigger;
+  const habitatId = trigger.habitatId;
+  const nowIso = input.now ?? new Date().toISOString();
+
+  // The persisted revision is the ONLY executable intent on this path —
+  // `input.rule` is advisory lineage only.
+  const rule = materializeRuleFromRevision(frozen.revision);
+
+  let run: AutomationRuleRun | null = null;
+
+  /** Attempt to record a run row; null when the live rule is gone. */
+  const tryReserveRun = (): AutomationRuleRun | null => {
+    try {
+      const { run: reserved } = runRepo.startRuleRun({
+        ruleId: rule.id,
+        habitatId,
+        triggerType: String(trigger.triggerType),
+        triggerEventId: trigger.triggerEventId,
+        targetType: trigger.targetType,
+        targetId: trigger.targetId,
+        // Per-delivery-generation reservation: the delivery id is unique per
+        // (event, revision, generation), so each generation owns exactly one
+        // run row and a crash-before-terminalization replays onto it.
+        eventDedupeKey: frozen.delivery.id,
+        now: nowIso,
+      });
+      // A dedupe loser means THIS generation's run row already exists (a
+      // prior worker crashed after run insert, before delivery
+      // terminalization). Reusing it is correct: run terminalization is a
+      // status='running' CAS, so an already-terminal row stays untouched.
+      return reserved;
+    } catch (err) {
+      if (isForeignKeyViolation(err)) {
+        // The live rule was deleted after admission. The frozen revision
+        // still executes; the delivery + checkpoints are the durable record.
+        logger.info(
+          { deliveryId: frozen.delivery.id, ruleId: rule.id },
+          "Frozen delivery executing without a live rule row (revision is authoritative)",
+        );
+        return null;
+      }
+      throw err;
+    }
+  };
+
+  /** Durable terminal skip for a pre-admission guard rejection. */
+  const skipDelivery = async (
+    reason: AutomationSkipReason,
+    metadata: Record<string, unknown>,
+  ): Promise<AutomationFrozenAttemptDisposition> => {
+    run = tryReserveRun();
+    const transitioned = deliveryRepo.transitionLeasedDelivery({
+      deliveryId: frozen.delivery.id,
+      fence: frozen.delivery.fence,
+      targetState: "terminal",
+      terminalDisposition: `skipped:${reason}`,
+      terminalDetail: JSON.stringify({ source: input.source, ...metadata }),
+      automationRunId: run?.id ?? null,
+      now: nowIso,
+    });
+    if (!transitioned) return { kind: "fenced_out" };
+    if (run) {
+      const { run: finalRun } = runRepo.terminalizeRuleRun({
+        runId: run.id,
+        status: "skipped",
+        skipReason: reason,
+        metadata: { source: input.source, ...metadata },
+        finishedAt: nowIso,
+      });
+      notifyAutomationRunCompleted({
+        run: finalRun,
+        rule,
+        habitatId,
+        outcome: "skipped",
+      });
+    }
+    deliveryRepo.markInboxTerminalIfComplete(frozen.inbox.id, nowIso);
+    return { kind: "skipped", reason, runId: run?.id ?? null };
+  };
+
+  // Step 1 — target validation.
+  const targetCheck = validateTarget(input);
+  if (!targetCheck.valid) {
+    return skipDelivery("missing_target", targetCheck.metadata ?? {});
+  }
+
+  // Step 2 — cooldown (fingerprint over the revision's stable rule lineage).
+  if (inCooldown(rule, input, nowIso)) {
+    return skipDelivery("cooldown", { guard: "cooldown" });
+  }
+
+  // Step 3 — admitted-attempt hourly cap.
+  const admitted = runRepo.countAdmittedAttemptsInWindow(rule.id, nowIso);
+  if (admitted >= rule.maxRunsPerHour) {
+    return skipDelivery("rate_limited", { guard: "rate_limited" });
+  }
+
+  // Step 4 — reservation. The lease is the delivery reservation; the run row
+  // is supplementary lineage (created here so guard skips above never strand
+  // a `running` row).
+  run = tryReserveRun();
+
+  // Steps 5-8 share the live pipeline's pure logic.
+  const validation = validatePersistedCondition(rule.condition);
+  if (!validation.valid) {
+    const synthetic = syntheticInvalidConditionResult(validation.diagnostic);
+    return finishFrozenFailure("condition", {
+      conditionResult: synthetic,
+      detail: { stage: "condition", diagnostic: validation.diagnostic },
+    });
+  }
+
+  const evalCtx = buildEvaluationContext(
+    buildTriggerContext({
+      triggerType: String(trigger.triggerType),
+      triggerEventId: trigger.triggerEventId,
+      habitatId,
+      targetType: trigger.targetType,
+      targetId: trigger.targetId,
+      payload: trigger.payload,
+      causalContext: trigger.causalContext,
+    }),
+  );
+  const conditionResult = evaluateCondition(rule.condition, evalCtx);
+  if (!conditionResult.matched) {
+    return skipDelivery("condition_false", { conditionResult });
+  }
+
+  const causalCheck = checkCausalChain(rule.id, trigger.causalContext);
+  if (causalCheck.cycle) {
+    return skipDelivery("causal_cycle", { conditionResult });
+  }
+  if (causalCheck.depthExceeded) {
+    return skipDelivery("causal_depth_limit", { conditionResult });
+  }
+
+  if (!shouldExecuteActions(habitatId)) {
+    return skipDelivery("disabled", { conditionResult });
+  }
+
+  // Step 9 — ordered actions under authoritative checkpoints. A proved
+  // checkpoint (this generation or a carried-forward predecessor row with the
+  // SAME action key) is never re-executed.
+  const actionResults: AutomationActionResult[] = [];
+  let succeededCount = 0;
+  let failedCount = 0;
+  const existingCheckpoints = deliveryRepo.listCheckpointsForDelivery(frozen.delivery.id);
+
+  for (let i = 0; i < (rule.actions ?? []).length; i++) {
+    const action = rule.actions![i];
+    const actionRecord = action as unknown as Record<string, unknown>;
+    const actionKey = deliveryRepo.computeActionKey(actionRecord);
+
+    const prior = existingCheckpoints.find(
+      (c) => c.actionIndex === i && c.actionKey === actionKey && c.state === "proved",
+    );
+    if (prior) {
+      // Carried-forward or already-proved in this generation: NEVER rerun.
+      actionResults.push({
+        actionType: action.type,
+        actionIndex: i,
+        status: "skipped",
+        result: prior.receipt ?? undefined,
+      });
+      succeededCount++;
+      continue;
+    }
+
+    const checkpoint = deliveryRepo.ensureCheckpointRow({
+      deliveryId: frozen.delivery.id,
+      actionIndex: i,
+      actionKey,
+      actionType: action.type,
+      now: nowIso,
+    });
+
+    let result: AutomationActionResult;
+    try {
+      result = await executeAction(
+        action,
+        i,
+        rule,
+        run ?? syntheticRunForExecution(input, rule),
+        evalCtx,
+      );
+    } catch (err) {
+      result = {
+        actionType: action.type,
+        actionIndex: i,
+        status: "failed",
+        error: err instanceof Error ? err.message : String(err),
+      };
+    }
+
+    // Fenced checkpoint write: if this worker's fence was superseded
+    // mid-execution, the recorded outcome must be rejected — the newer
+    // owner re-classifies this action from its unproved state (fail-safe).
+    const recorded = deliveryRepo.recordCheckpointOutcome({
+      checkpointId: checkpoint.id,
+      deliveryId: frozen.delivery.id,
+      fence: frozen.delivery.fence,
+      state: result.status === "succeeded" ? "proved" : "failed",
+      receipt: (result.result ?? null) as Record<string, unknown> | null,
+      terminalDisposition: result.status,
+      now: nowIso,
+    });
+    if (!recorded) {
+      return { kind: "fenced_out" };
+    }
+
+    actionResults.push(result);
+    if (result.status === "succeeded") succeededCount++;
+    else failedCount++;
+  }
+
+  const composite = calculateRunStatus(succeededCount, failedCount, actionResults.length);
+  const transitioned = deliveryRepo.transitionLeasedDelivery({
+    deliveryId: frozen.delivery.id,
+    fence: frozen.delivery.fence,
+    targetState: "terminal",
+    terminalDisposition: composite,
+    terminalDetail: null,
+    automationRunId: run?.id ?? null,
+    now: nowIso,
+  });
+  if (!transitioned) return { kind: "fenced_out" };
+  if (run) {
+    const terminalStatus = composite as "succeeded" | "partial_failed" | "failed";
+    const { run: finalRun } = runRepo.terminalizeRuleRun({
+      runId: run.id,
+      status: terminalStatus,
+      conditionResult,
+      actionResults,
+      finishedAt: nowIso,
+    });
+    notifyAutomationRunCompleted({
+      run: finalRun,
+      rule,
+      habitatId,
+      outcome: composite,
+    });
+  }
+  deliveryRepo.markInboxTerminalIfComplete(frozen.inbox.id, nowIso);
+  return { kind: "executed", outcome: composite, actionResults, runId: run?.id ?? null };
+
+  /** Shared terminal-failure path for condition-stage failures. */
+  function finishFrozenFailure(
+    stage: "condition" | "actions",
+    detail: {
+      conditionResult: AutomationConditionResult;
+      detail: Record<string, unknown>;
+    },
+  ): AutomationFrozenAttemptDisposition {
+    const transitionedFailure = deliveryRepo.transitionLeasedDelivery({
+      deliveryId: frozen.delivery.id,
+      fence: frozen.delivery.fence,
+      targetState: "terminal",
+      terminalDisposition: `failed:${stage}`,
+      terminalDetail: JSON.stringify({ source: input.source, ...detail.detail }),
+      automationRunId: run?.id ?? null,
+      now: nowIso,
+    });
+    if (!transitionedFailure) return { kind: "fenced_out" };
+    if (run) {
+      const { run: finalRun } = runRepo.terminalizeRuleRun({
+        runId: run.id,
+        status: "failed",
+        conditionResult: detail.conditionResult,
+        metadata: { source: input.source, stage, ...detail.detail },
+        finishedAt: nowIso,
+      });
+      notifyAutomationRunCompleted({
+        run: finalRun,
+        rule,
+        habitatId,
+        outcome: "failed",
+      });
+    }
+    deliveryRepo.markInboxTerminalIfComplete(frozen.inbox.id, nowIso);
+    return { kind: "failed", stage, runId: run?.id ?? null };
+  }
+}
+
+/**
+ * Minimal run-shaped object for executor actions that only read run identity
+ * (e.g., the create_task publication attempt key derives from run id + action
+ * index). Used ONLY when the live rule is gone and no run row exists; the
+ * delivery id stands in so attempt identity stays unique per generation.
+ */
+function syntheticRunForExecution(
+  input: AutomationFrozenAttemptInput,
+  rule: AutomationRule,
+): AutomationRuleRun {
+  return {
+    id: `delivery:${input.frozen.delivery.id}`,
+    ruleId: rule.id,
+    habitatId: input.trigger.habitatId,
+    triggerType: String(input.trigger.triggerType),
+    triggerEventId: input.trigger.triggerEventId,
+    targetType: input.trigger.targetType,
+    targetId: input.trigger.targetId,
+    fingerprint: `delivery:${input.frozen.delivery.id}`,
+    status: "running",
+    skipReason: null,
+    conditionResult: null,
+    actionResults: null,
+    metadata: null,
+    startedAt: new Date().toISOString(),
+    finishedAt: null,
   };
 }
