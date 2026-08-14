@@ -131,7 +131,15 @@ export type RemoteActionScope =
   | "submit"
   | "release"
   | "evidence_link"
-  | "notification.write";
+  | "notification.write"
+  /**
+   * Remote Finding-triage route intent. Granted together with an exact
+   * admitted-investigation Task target — Habitat/Mission-only grants and
+   * broader Task allowlists do not satisfy the predicate. Active
+   * `remote_contributor` standing only; grace / rule-based snapshots and
+   * pod/Habitat baselines never authorize this scope.
+   */
+  | "triage.route";
 
 // ---------------------------------------------------------------------------
 // Credentials & invites

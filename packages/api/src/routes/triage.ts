@@ -1,12 +1,16 @@
-import type { FastifyInstance, FastifyRequest } from "fastify";
+import type { FastifyInstance, FastifyRequest, FastifyReply } from "fastify";
+import { createHash } from "crypto";
+import { eq } from "drizzle-orm";
 import { z } from "zod";
 import {
   FINDING_TRIAGE_STATUSES,
   RELEASE_TYPES,
+  RESOLUTION_KINDS,
   SUGGESTED_BUCKETS,
   TERMINAL_FINDING_TRIAGE_STATUSES,
   type FindingTriageStatus,
   type ReleaseType,
+  type ResolutionKind,
   type SuggestedBucket,
 } from "@orcy/shared";
 import * as findingTriageRepo from "../repositories/findingTriage.js";
@@ -14,14 +18,31 @@ import * as triageResolutionsRepo from "../repositories/triageResolutions.js";
 import * as triageClusterMissionsRepo from "../repositories/triageClusterMissions.js";
 import * as pulseRepo from "../repositories/pulse.js";
 import * as featureService from "../services/missionService.js";
+import { getDb } from "../db/index.js";
+import { findingTriage as findingTriageTable } from "../db/schema/index.js";
 import * as findingTriageService from "../services/findingTriageService.js";
 import * as releaseTriggerService from "../services/releaseTriggerService.js";
+import {
+  routeFinding as routeFindingLifecycle,
+  resolveFinding as resolveFindingLifecycle,
+  markFindingWontfix as markFindingWontfixLifecycle,
+  type RoutePayload,
+  type LifecycleOutcome,
+} from "../services/findingTriageLifecycle.js";
+import {
+  checkRouteAuthority,
+  checkManualCommandAuthority,
+  defaultHabitatAccessChecker,
+  type AuthorityActor,
+  type AuthorityFindingShape,
+} from "../services/triageLifecycleAuthority.js";
 import { agentOrHumanAuth } from "../middleware/auth.js";
 import { getHabitatById } from "../repositories/habitat.js";
 import * as missionRepo from "../repositories/mission.js";
 import { isTeamMemberByHabitatId } from "../repositories/teamMember.js";
-import { notFound, badRequest, forbidden, unauthorized, conflict } from "../errors.js";
+import { notFound, badRequest, forbidden, unauthorized, conflict, AppError } from "../errors.js";
 import { sseBroadcaster } from "../sse/broadcaster.js";
+import { logger } from "../lib/logger.js";
 
 /** Actor shared across triage write paths — derived from request auth context. */
 type TriageActor = { type: "human" | "agent"; id: string };
@@ -33,6 +54,152 @@ function actorFromRequest(request: {
   if (request.agent) return { type: "agent", id: request.agent.id };
   if (request.user) return { type: "human", id: request.user.id };
   throw badRequest("Authenticated actor not found on request");
+}
+
+/**
+ * Derives the canonical lifecycle actor for a Finding write. Local agents map
+ * to `agent`; humans map to `human`. `system` is reserved for the Release
+ * Activation transport (T6) and never arrives from the HTTP surface.
+ */
+function authorityActorFromRequest(request: FastifyRequest): AuthorityActor {
+  if (request.agent) return { type: "agent", id: request.agent.id };
+  if (request.user) return { type: "human", id: request.user.id };
+  throw badRequest("Authenticated actor not found on request");
+}
+
+/**
+ * Map a {@link LifecycleOutcome} to the HTTP response. Lives at the transport
+ * seam so the lifecycle kernel stays free of HTTP concerns. Anti-probing:
+ * `not_found` and `not_authorized` are both surfaced as 403 (single code)
+ * when the caller is a remote participant (caller passes `isRemote`); the
+ * local surface maps not-found → 404 and not-authorized → 403.
+ */
+function mapLifecycleOutcome<T>(
+  outcome: LifecycleOutcome<T>,
+  reply: FastifyReply,
+  ctx: { actorId: string; findingId: string; isRemote?: boolean },
+): T | never {
+  if (outcome.outcome === "applied" || outcome.outcome === "replayed") {
+    return outcome.value;
+  }
+
+  if (outcome.outcome === "busy") {
+    const retryAfterSeconds = Math.max(1, Math.ceil(outcome.retryAfterMs / 1000));
+    reply.header("Retry-After", String(retryAfterSeconds));
+    throw conflict(
+      `Lifecycle writer reservation exhausted; retry after ${retryAfterSeconds}s`,
+      "LIFECYCLE_BUSY",
+    );
+  }
+
+  // outcome === "conflict"
+  const { reason, current } = outcome;
+
+  if (reason === "not_found") {
+    if (ctx.isRemote) {
+      // Anti-probing: collapse not-found into a generic 403 so the remote
+      // surface cannot be used as a Finding existence oracle.
+      throw forbidden("Triage action not permitted");
+    }
+    throw notFound("Finding not found");
+  }
+
+  if (reason === "not_authorized") {
+    if (ctx.isRemote) {
+      throw forbidden("Triage action not permitted");
+    }
+    throw forbidden(
+      typeof current === "string" ? current : "Not authorized for this triage action",
+      "TRIAGE_NOT_AUTHORIZED",
+    );
+  }
+
+  if (reason === "terminal") {
+    throw conflictWithCode(
+      "FINDING_TERMINAL",
+      `Finding is in terminal state (${typeof current === "string" ? current : "resolved|wontfix"}). Recurrence creates a new row.`,
+    );
+  }
+
+  if (reason === "legacy_lineage_repair_required") {
+    throw conflictWithCode(
+      "LEGACY_LINEAGE_REPAIR_REQUIRED",
+      "Finding legacy lineage repair required before automatic routing; operator action needed.",
+    );
+  }
+
+  if (reason === "different_route") {
+    throw conflictWithCode(
+      "DIFFERENT_ROUTE",
+      "Finding already routed with a different bucket/fingerprint.",
+    );
+  }
+
+  if (reason === "different_payload") {
+    throw conflictWithCode(
+      "DIFFERENT_PAYLOAD",
+      "Resolution payload differs from existing record.",
+    );
+  }
+
+  if (reason === "invalid_input") {
+    throw badRequestWithCode(
+      "INVALID_INPUT",
+      typeof current === "string" ? current : "Invalid triage command input",
+    );
+  }
+
+  throw conflictWithCode("TRIAGE_CONFLICT", "Triage command conflict");
+}
+
+/**
+ * Resolves the authority policy for a local route call. Returns the finding
+ * (re-read under the auth context) and the authority actor. Throws
+ * `notFound` for missing findings, `forbidden` for unauthorized actors, and
+ * `badRequest` for legacy-lineage rows whose admitted Task is null (humans
+ * with write access are allowed there; agents and unknown actors are not).
+ */
+function authorizeLocalRoute(args: {
+  finding: ReturnType<typeof findingTriageRepo.getById>;
+  request: FastifyRequest;
+}): {
+  finding: NonNullable<ReturnType<typeof findingTriageRepo.getById>>;
+  actor: AuthorityActor;
+} {
+  if (!args.finding) throw notFound("Finding not found");
+  verifyHabitatAccess(args.request, args.finding.habitatId);
+
+  const actor = authorityActorFromRequest(args.request);
+  const findingShape: AuthorityFindingShape = {
+    id: args.finding.id,
+    habitatId: args.finding.habitatId,
+    admittedByInvestigationTaskId: args.finding.admittedByInvestigationTaskId,
+  };
+
+  const result = checkRouteAuthority({
+    finding: findingShape,
+    actor,
+    access: defaultHabitatAccessChecker(),
+  });
+
+  if (result.kind === "deny") {
+    throw forbidden(result.message, result.code);
+  }
+  return { finding: args.finding, actor };
+}
+
+/**
+ * Conflict (409) with a specific error code. The {@link conflict} helper in
+ * `errors.ts` defaults the code to `"CONFLICT"` and accepts only `details`,
+ * so callers that want a granular diagnostic code create an `AppError` here.
+ */
+function conflictWithCode(code: string, message: string): AppError {
+  return new AppError(409, code, message);
+}
+
+/** 400 with a specific error code (badRequest() hardcodes VALIDATION_ERROR). */
+function badRequestWithCode(code: string, message: string): AppError {
+  return new AppError(400, code, message);
 }
 
 /**
@@ -101,6 +268,55 @@ const releaseTriggerBodySchema = z.object({
   releaseNotes: z.string().max(10000).optional(),
 });
 
+// ---------------------------------------------------------------------------
+// Local intent route payloads (restored lifecycle T4)
+// ---------------------------------------------------------------------------
+
+const fixNowRouteSchema = z.object({
+  bucket: z.literal("fix_now"),
+  missionTitle: z.string().min(1).max(500),
+  missionDescription: z.string().min(1).max(20000),
+  dependencies: z.array(z.string().max(200)).max(50).optional(),
+});
+
+const deferRouteSchema = z.object({
+  bucket: z.enum(["defer_to_patch", "defer_to_release"]),
+  missionTitle: z.string().min(1).max(500),
+  missionDescription: z.string().min(1).max(20000),
+  dependencies: z.array(z.string().max(200)).max(50).optional(),
+  releaseGateType: z.enum(["patch", "minor", "major"]),
+  releaseGateVersion: z.string().min(1).max(64),
+});
+
+const noWorkRouteSchema = z.object({
+  bucket: z.literal("document_as_known_limitation"),
+});
+
+const investigationRouteSchema = z.object({
+  bucket: z.literal("needs_investigation"),
+});
+
+const routeFindingBodySchema = z.union([
+  fixNowRouteSchema,
+  deferRouteSchema,
+  noWorkRouteSchema,
+  investigationRouteSchema,
+]);
+
+const resolveFindingBodySchema = z.object({
+  resolution: z.string().min(1).max(10000),
+  resolutionKind: z.enum(RESOLUTION_KINDS as unknown as [ResolutionKind, ...ResolutionKind[]]),
+  rootCause: z.string().max(10000).optional(),
+});
+
+const wontfixFindingBodySchema = z.object({
+  reason: z.string().min(1).max(10000),
+});
+
+const activateFindingBodySchema = z.object({
+  expectedMissionVersion: z.number().int().nonnegative().optional(),
+});
+
 /**
  * REST surface for the triage domain (ADR-0024 / ADR-0026 / ADR-0027). Finding
  * triage lifecycle, bucket routing, manual promotion (with corrective work
@@ -139,27 +355,95 @@ export async function triageRoutes(fastify: FastifyInstance): Promise<void> {
   );
 
   /**
-   * PATCH /triage/findings/:id — transition status and/or set bucket. At least
-   * one of `status` / `bucket` must be provided. Status transitions are gated
-   * by the state machine in the repository layer (throws conflict on invalid).
+   * PATCH /triage/findings/:id — strict legacy compatibility matrix
+   * (restored lifecycle T4). Only three narrow shapes are accepted:
+   *
+   *   1. No-work: `{status: 'triaged', bucket: 'document_as_known_limitation' | 'needs_investigation'}`
+   *   2. First link-only: `{triageMissionId: string, expectedMissionVersion: number}`
+   *   3. Unlink: `{triageMissionId: null}`
+   *
+   * Everything else is rejected before write with 400 + deprecation telemetry.
+   * Mixed/multi-intent shapes, target-release mutations, terminal→non-terminal
+   * transitions, fix_now/deferral-without-Mission-placement, and
+   * status=resolved/wontfix-without-Resolution are all rejected.
+   *
+   * Stored-fingerprint replay wins before the no-link/version predicates —
+   * a committed legacy link with a lost response replays despite later
+   * legitimate Mission edits.
    */
   fastify.patch<{ Params: { id: string } }>(
     "/triage/findings/:id",
     { preHandler: agentOrHumanAuth },
-    async (request) => {
+    async (request, reply) => {
       const parsed = patchFindingBodySchema.safeParse(request.body);
       if (!parsed.success) {
         throw badRequest("Validation failed", parsed.error.flatten());
       }
-      if (
-        parsed.data.status === undefined &&
-        parsed.data.bucket === undefined &&
-        parsed.data.targetRelease === undefined &&
-        parsed.data.targetReleaseType === undefined &&
-        parsed.data.triageMissionId === undefined
-      ) {
+
+      // Reject target-release mutations (superseded by the restored lifecycle).
+      if (parsed.data.targetRelease !== undefined || parsed.data.targetReleaseType !== undefined) {
+        logger.warn(
+          { findingId: request.params.id },
+          "triage legacy PATCH: target-release mutation superseded by POST /triage/findings/:id/route",
+        );
+        throw badRequestWithCode(
+          "LEGACY_PATCH_TARGET_RELEASE_SUPERSEDED",
+          "Target-release mutations are superseded; use POST /triage/findings/:id/route instead.",
+        );
+      }
+
+      const hasStatusOrBucket =
+        parsed.data.status !== undefined || parsed.data.bucket !== undefined;
+      const hasLink = parsed.data.triageMissionId !== undefined;
+      if (!hasStatusOrBucket && !hasLink) {
         throw badRequest(
-          "Provide at least one of `status`, `bucket`, `targetRelease`, `targetReleaseType`, or `triageMissionId`",
+          "Provide one of `status`+`bucket`, or `triageMissionId` (+ `expectedMissionVersion` for non-null link).",
+        );
+      }
+
+      // Mixed/multi-intent shapes are rejected before write.
+      if (hasStatusOrBucket && hasLink) {
+        logger.warn(
+          { findingId: request.params.id },
+          "triage legacy PATCH: mixed/multi-intent shape rejected",
+        );
+        throw badRequestWithCode(
+          "LEGACY_PATCH_MIXED",
+          "Mixed legacy PATCH shapes are rejected; use one of the dedicated intent endpoints.",
+        );
+      }
+
+      // Terminal status via PATCH without a full Resolution payload is rejected —
+      // the resolve/wontfix endpoints own the canonical terminalization shape.
+      if (
+        parsed.data.status === "resolved" ||
+        parsed.data.status === "wontfix"
+      ) {
+        logger.warn(
+          { findingId: request.params.id, status: parsed.data.status },
+          "triage legacy PATCH: terminal status without full Resolution payload rejected",
+        );
+        throw badRequestWithCode(
+          "LEGACY_PATCH_TERMINAL_REQUIRES_RESOLUTION",
+          "Terminal status requires full Resolution payload; use POST /triage/findings/:id/resolve or /wontfix.",
+        );
+      }
+
+      // Fix_now or deferral buckets via PATCH are illegal — they require complete
+      // Mission placement, which the lifecycle kernel owns.
+      if (
+        parsed.data.bucket !== undefined &&
+        (parsed.data.bucket === "fix_now" ||
+          parsed.data.bucket === "defer_to_patch" ||
+          parsed.data.bucket === "defer_to_release")
+      ) {
+        logger.warn(
+          { findingId: request.params.id, bucket: parsed.data.bucket },
+          "triage legacy PATCH: work-bearing bucket rejected — must route through POST /triage/findings/:id/route",
+        );
+        throw badRequestWithCode(
+          "LEGACY_PATCH_WORK_BEARING_REJECTED",
+          "Work-bearing buckets require complete Mission placement; use POST /triage/findings/:id/route.",
         );
       }
 
@@ -168,59 +452,388 @@ export async function triageRoutes(fastify: FastifyInstance): Promise<void> {
       verifyHabitatAccess(request, existing.habitatId);
 
       const actor = actorFromRequest(request);
-      let finding = existing;
 
-      // Terminal immutability: terminal findings cannot transition to any
-      // other status. Recurrence creates a new row.
+      // Terminal immutability: any status transition OUT of a terminal state
+      // is rejected (recurrence creates a new row).
       if (
         parsed.data.status !== undefined &&
         parsed.data.status !== existing.status &&
         (TERMINAL_FINDING_TRIAGE_STATUSES as readonly string[]).includes(existing.status)
       ) {
-        throw conflict(
+        throw conflictWithCode(
+          "FINDING_TERMINAL",
           `Finding is in terminal state (${existing.status}). Recurrence creates a new row.`,
         );
       }
 
-      if (parsed.data.status !== undefined) {
-        finding = findingTriageRepo.transitionStatus(request.params.id, parsed.data.status, actor);
-      }
-      if (parsed.data.bucket !== undefined) {
-        finding = findingTriageRepo.setBucket(request.params.id, parsed.data.bucket);
-      }
-      if (parsed.data.targetRelease !== undefined) {
-        finding = findingTriageRepo.setTargetRelease(request.params.id, parsed.data.targetRelease);
-      }
-      if (parsed.data.targetReleaseType !== undefined) {
-        finding = findingTriageRepo.setTargetReleaseType(
-          request.params.id,
-          parsed.data.targetReleaseType,
-        );
-      }
-      if (parsed.data.triageMissionId !== undefined) {
-        // null clears an existing link (RM-10 unlink). A non-null id must belong
-        // to the same habitat as the finding (R3 hardening).
-        if (parsed.data.triageMissionId !== null) {
-          const targetMission = missionRepo.getMissionById(parsed.data.triageMissionId);
-          if (!targetMission || targetMission.habitatId !== existing.habitatId) {
-            throw badRequest("Target mission must belong to the same habitat as the finding");
-          }
+      // ---------------------------------------------------------------
+      // No-work shape: dispatch through the lifecycle command kernel.
+      // ---------------------------------------------------------------
+      if (hasStatusOrBucket) {
+        if (parsed.data.status !== "triaged" || parsed.data.bucket === undefined) {
+          throw badRequestWithCode(
+            "LEGACY_PATCH_INVALID_NO_WORK",
+            "Legacy PATCH only accepts `{status:'triaged', bucket: <no-work>}` for the no-work shape.",
+          );
         }
-        finding = findingTriageRepo.setTriageMissionId(
-          request.params.id,
-          parsed.data.triageMissionId,
+        const routePayload: RoutePayload =
+          parsed.data.bucket === "document_as_known_limitation"
+            ? { bucket: "document_as_known_limitation" }
+            : { bucket: "needs_investigation" };
+
+        const { actor: authActor, finding } = authorizeLocalRoute({ finding: existing, request });
+        const outcome = routeFindingLifecycle({
+          findingId: finding.id,
+          actor: authActor,
+          route: routePayload,
+        });
+        const updated = mapLifecycleOutcome(outcome, reply, {
+          actorId: actor.id,
+          findingId: finding.id,
+        });
+        logger.info(
+          { findingId: finding.id, bucket: routePayload.bucket, outcome: outcome.outcome },
+          "triage legacy PATCH: no-work route dispatched",
+        );
+        return { finding: updated };
+      }
+
+      // ---------------------------------------------------------------
+      // Link-only shape: {triageMissionId, expectedMissionVersion} or unlink.
+      // ---------------------------------------------------------------
+      const expectedVersion = (request.body as { expectedMissionVersion?: unknown })?.expectedMissionVersion;
+      if (parsed.data.triageMissionId === null) {
+        // Unlink (RM-10 compatibility). Reject if Finding is in a terminal
+        // state — terminal rows are immutable.
+        if ((TERMINAL_FINDING_TRIAGE_STATUSES as readonly string[]).includes(existing.status)) {
+          throw conflictWithCode("FINDING_TERMINAL", "Terminal findings are immutable.");
+        }
+        const updated = findingTriageRepo.setTriageMissionId(request.params.id, null);
+        sseBroadcaster.publish(existing.habitatId, {
+          type: "triage.finding_updated",
+          data: {
+            habitatId: existing.habitatId,
+            findingId: updated.id,
+            status: updated.status,
+            bucket: updated.bucket,
+          },
+        });
+        return { finding: updated };
+      }
+
+      // Non-null link requires expectedMissionVersion + same-Habitat +
+      // version-matched + non-archived + non-terminal gated Mission.
+      if (typeof expectedVersion !== "number" || !Number.isInteger(expectedVersion) || expectedVersion < 0) {
+        throw badRequestWithCode(
+          "LEGACY_LINK_VERSION_REQUIRED",
+          "Legacy link-only PATCH requires `expectedMissionVersion` (non-negative integer).",
         );
       }
+
+      // ---- STORED-FINGERPRINT REPLAY (BEFORE no-link/version predicates) ----
+      // If the Finding already has a correctiveMissionId === requested AND a
+      // stored fingerprint, this is a lost-response replay — succeed even if
+      // the Mission has been edited since.
+      if (
+        existing.correctiveMissionId === parsed.data.triageMissionId &&
+        existing.routeFingerprint !== null
+      ) {
+        logger.info(
+          { findingId: existing.id, missionId: existing.correctiveMissionId },
+          "triage legacy PATCH: stored-fingerprint replay before no-link/version predicates",
+        );
+        return { finding: existing, replay: true };
+      }
+
+      // ---- NO-LINK PREDICATE: first apply requires no current link ----
+      if (existing.correctiveMissionId !== null) {
+        throw conflictWithCode(
+          "LEGACY_PATCH_ALREADY_LINKED",
+          "Finding already linked; legacy PATCH first-apply requires an unlinked Finding.",
+        );
+      }
+
+      // ---- First-apply validation: triaged deferral bucket ----
+      if (
+        existing.status !== "triaged" ||
+        (existing.bucket !== "defer_to_patch" && existing.bucket !== "defer_to_release")
+      ) {
+        throw badRequestWithCode(
+          "LEGACY_LINK_NOT_TRIAGED_DEFERRAL",
+          "Legacy link-only first apply requires a Finding in `triaged` state with a deferral bucket (defer_to_patch or defer_to_release).",
+        );
+      }
+
+      const targetMissionId: string = parsed.data.triageMissionId as string;
+      const targetMission = missionRepo.getMissionById(targetMissionId);
+      if (!targetMission) {
+        throw notFound("Target mission not found");
+      }
+      if (targetMission.habitatId !== existing.habitatId) {
+        throw badRequestWithCode(
+          "LEGACY_LINK_HABITAT_MISMATCH",
+          "Target mission must belong to the same habitat as the finding.",
+        );
+      }
+      if (targetMission.version !== expectedVersion) {
+        throw conflictWithCode(
+          "LEGACY_LINK_VERSION_MISMATCH",
+          `Target mission version mismatch (expected ${expectedVersion}, got ${targetMission.version}).`,
+        );
+      }
+      if (targetMission.isArchived) {
+        throw conflictWithCode("LEGACY_LINK_ARCHIVED", "Cannot link an archived mission.");
+      }
+      const missionTerminal = targetMission.status === "done" || targetMission.status === "failed";
+      if (missionTerminal) {
+        throw conflictWithCode(
+          "LEGACY_LINK_MISSION_TERMINAL",
+          "Cannot link a terminal-status mission.",
+        );
+      }
+      if (
+        targetMission.releaseGateType === null ||
+        targetMission.releaseGateVersion === null
+      ) {
+        throw conflictWithCode(
+          "LEGACY_LINK_NOT_GATED",
+          "Legacy link-only first apply requires a gated Mission (non-null releaseGateType/Version).",
+        );
+      }
+
+      // ---- HOMOGENEOUS GROUP CHECK ----
+      // Every other linked (non-terminal) Finding on this Mission must also be
+      // triaged and group-eligible. Mixed groups reject before write.
+      const allLinked = findingTriageRepo.findByHabitat(existing.habitatId, {}).filter(
+        (f) => f.correctiveMissionId === targetMission.id && f.id !== existing.id,
+      );
+      const nonTerminalLinked = allLinked.filter(
+        (f) => !(TERMINAL_FINDING_TRIAGE_STATUSES as readonly string[]).includes(f.status),
+      );
+      const mixedGroup = nonTerminalLinked.some(
+        (f) => f.status !== "triaged",
+      );
+      if (mixedGroup) {
+        throw conflictWithCode(
+          "LEGACY_LINK_MIXED_GROUP",
+          "Shared Mission has mixed linked Finding states; legacy first link cannot activate.",
+        );
+      }
+
+      // Apply the link via the repository writer so the column map stays
+      // canonical (correctiveMissionId = triageMissionId per ADR-0048).
+      findingTriageRepo.setTriageMissionId(request.params.id, targetMission.id);
+
+      // Stamp a stable legacy-link fingerprint so subsequent lost-response
+      // retries can replay before the version/no-link predicates. The
+      // fingerprint is a normalized hash of (findingId, targetMissionId,
+      // expectedMissionVersion) — it intentionally EXCLUDES actor and
+      // timestamps and matches the canonical route fingerprint shape.
+      const legacyFingerprint = createHash("sha256")
+        .update(
+          `${request.params.id}|${targetMission.id}|${expectedVersion}|legacy_link`,
+        )
+        .digest("hex");
+      const db = getDb();
+      db.update(findingTriageTable)
+        .set({ routeFingerprint: legacyFingerprint, updatedAt: new Date().toISOString() })
+        .where(eq(findingTriageTable.id, request.params.id))
+        .run();
+
+      const updated = findingTriageRepo.getById(request.params.id)!;
       sseBroadcaster.publish(existing.habitatId, {
         type: "triage.finding_updated",
         data: {
           habitatId: existing.habitatId,
-          findingId: finding.id,
-          status: finding.status,
-          bucket: finding.bucket,
+          findingId: updated.id,
+          status: updated.status,
+          bucket: updated.bucket,
         },
       });
-      return { finding };
+      logger.info(
+        {
+          findingId: updated.id,
+          missionId: targetMission.id,
+          expectedVersion: expectedVersion,
+        },
+        "triage legacy PATCH: first link-only applied",
+      );
+      return { finding: updated };
+    },
+  );
+
+  /**
+   * POST /triage/findings/:id/route — explicit lifecycle route intent.
+   * Backed ONLY by `routeFinding`. The transport cannot supply actor type/id
+   * or release activation cause; both are derived from the auth context.
+   */
+  fastify.post<{ Params: { id: string } }>(
+    "/triage/findings/:id/route",
+    { preHandler: agentOrHumanAuth },
+    async (request, reply) => {
+      const parsed = routeFindingBodySchema.safeParse(request.body);
+      if (!parsed.success) {
+        throw badRequest("Validation failed", parsed.error.flatten());
+      }
+      const existing = findingTriageRepo.getById(request.params.id);
+      const { actor, finding } = authorizeLocalRoute({ finding: existing, request });
+
+      const outcome = routeFindingLifecycle({
+        findingId: finding.id,
+        actor,
+        route: parsed.data,
+      });
+      const updated = mapLifecycleOutcome(outcome, reply, {
+        actorId: actor.id,
+        findingId: finding.id,
+      });
+      return { finding: updated };
+    },
+  );
+
+  /**
+   * POST /triage/findings/:id/activate — manual activation (T5 kernel stub).
+   *
+   * The shared kernel that performs homogeneous-group activation is delivered
+   * in ticket 5. Until that lands, this endpoint accepts the request shape,
+   * validates authority, and returns 501 so callers see a clean error instead
+   * of a silent no-op.
+   */
+  fastify.post<{ Params: { id: string } }>(
+    "/triage/findings/:id/activate",
+    { preHandler: agentOrHumanAuth },
+    async (request, reply) => {
+      const parsed = activateFindingBodySchema.safeParse(request.body ?? {});
+      if (!parsed.success) {
+        throw badRequest("Validation failed", parsed.error.flatten());
+      }
+      const existing = findingTriageRepo.getById(request.params.id);
+      if (!existing) throw notFound("Finding not found");
+      verifyHabitatAccess(request, existing.habitatId);
+
+      const actor = authorityActorFromRequest(request);
+      const result = checkManualCommandAuthority({
+        finding: {
+          id: existing.id,
+          habitatId: existing.habitatId,
+          admittedByInvestigationTaskId: existing.admittedByInvestigationTaskId,
+        },
+        actor,
+        access: defaultHabitatAccessChecker(),
+        command: "activate",
+      });
+      if (result.kind === "deny") {
+        throw forbidden(result.message, result.code);
+      }
+
+      // T5 will supply `activateCorrectiveMission(input)` here. For now we
+      // surface 501 — the route + transport + authority + outcome mapping
+      // shape is wired so T5 only needs to drop in the kernel call.
+      void parsed.data.expectedMissionVersion;
+      reply.code(501);
+      return {
+        error: "NOT_IMPLEMENTED",
+        message:
+          "Manual activation kernel is delivered in ticket 5; transport and authority are in place.",
+      };
+    },
+  );
+
+  /**
+   * POST /triage/findings/:id/resolve — terminal resolution (human-only).
+   */
+  fastify.post<{ Params: { id: string } }>(
+    "/triage/findings/:id/resolve",
+    { preHandler: agentOrHumanAuth },
+    async (request, reply) => {
+      const parsed = resolveFindingBodySchema.safeParse(request.body);
+      if (!parsed.success) {
+        throw badRequest("Validation failed", parsed.error.flatten());
+      }
+      const existing = findingTriageRepo.getById(request.params.id);
+      if (!existing) throw notFound("Finding not found");
+      verifyHabitatAccess(request, existing.habitatId);
+
+      const actor = authorityActorFromRequest(request);
+      const result = checkManualCommandAuthority({
+        finding: {
+          id: existing.id,
+          habitatId: existing.habitatId,
+          admittedByInvestigationTaskId: existing.admittedByInvestigationTaskId,
+        },
+        actor,
+        access: defaultHabitatAccessChecker(),
+        command: "resolve",
+      });
+      if (result.kind === "deny") {
+        throw forbidden(result.message, result.code);
+      }
+
+      // Lifecycle actor type comes from the auth context, never the request body.
+      const lifecycleActor = actor.type === "human" ? { type: "human" as const, id: actor.id } : null;
+      if (!lifecycleActor) {
+        // Already gated by checkManualCommandAuthority; defensive only.
+        throw forbidden("Resolve is human-only");
+      }
+      const outcome = resolveFindingLifecycle({
+        findingId: existing.id,
+        actor: lifecycleActor,
+        resolution: parsed.data.resolution,
+        resolutionKind: parsed.data.resolutionKind,
+        rootCause: parsed.data.rootCause,
+      });
+      const updated = mapLifecycleOutcome(outcome, reply, {
+        actorId: lifecycleActor.id,
+        findingId: existing.id,
+      });
+      return { finding: updated };
+    },
+  );
+
+  /**
+   * POST /triage/findings/:id/wontfix — terminal wontfix (human-only).
+   */
+  fastify.post<{ Params: { id: string } }>(
+    "/triage/findings/:id/wontfix",
+    { preHandler: agentOrHumanAuth },
+    async (request, reply) => {
+      const parsed = wontfixFindingBodySchema.safeParse(request.body);
+      if (!parsed.success) {
+        throw badRequest("Validation failed", parsed.error.flatten());
+      }
+      const existing = findingTriageRepo.getById(request.params.id);
+      if (!existing) throw notFound("Finding not found");
+      verifyHabitatAccess(request, existing.habitatId);
+
+      const actor = authorityActorFromRequest(request);
+      const result = checkManualCommandAuthority({
+        finding: {
+          id: existing.id,
+          habitatId: existing.habitatId,
+          admittedByInvestigationTaskId: existing.admittedByInvestigationTaskId,
+        },
+        actor,
+        access: defaultHabitatAccessChecker(),
+        command: "wontfix",
+      });
+      if (result.kind === "deny") {
+        throw forbidden(result.message, result.code);
+      }
+
+      const lifecycleActor = actor.type === "human" ? { type: "human" as const, id: actor.id } : null;
+      if (!lifecycleActor) {
+        throw forbidden("Wontfix is human-only");
+      }
+      const outcome = markFindingWontfixLifecycle({
+        findingId: existing.id,
+        actor: lifecycleActor,
+        reason: parsed.data.reason,
+      });
+      const updated = mapLifecycleOutcome(outcome, reply, {
+        actorId: lifecycleActor.id,
+        findingId: existing.id,
+      });
+      return { finding: updated };
     },
   );
 

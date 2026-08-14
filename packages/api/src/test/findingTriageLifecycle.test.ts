@@ -15,6 +15,7 @@
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import Fastify, { type FastifyInstance } from "fastify";
+import jwt from "jsonwebtoken";
 import { eq, sql } from "drizzle-orm";
 import { initTestDb, closeDb, getDb } from "../db/index.js";
 import { missions, missionEvents, pulses, triageResolutions } from "../db/schema/index.js";
@@ -707,16 +708,16 @@ describe("terminal closure", () => {
       resolutionKind: "code_fix",
     });
 
-    expect(() =>
-      findingTriageRepo.transitionStatus(resolvedFinding.id, "open", ACTOR),
-    ).toThrow(/terminal/i);
+    expect(() => findingTriageRepo.transitionStatus(resolvedFinding.id, "open", ACTOR)).toThrow(
+      /terminal/i,
+    );
 
     const wontfixFinding = seedOpenFinding("Terminal wontfix");
     markFindingWontfix({ findingId: wontfixFinding.id, actor: ACTOR, reason: "No" });
 
-    expect(() =>
-      findingTriageRepo.transitionStatus(wontfixFinding.id, "open", ACTOR),
-    ).toThrow(/terminal/i);
+    expect(() => findingTriageRepo.transitionStatus(wontfixFinding.id, "open", ACTOR)).toThrow(
+      /terminal/i,
+    );
   });
 
   it("legitimate transitions still work (open -> triaged, triaged -> resolved)", () => {
@@ -820,13 +821,21 @@ describe("terminal closure", () => {
       expect(res2.statusCode).toBe(409);
     });
 
-    it("PATCH non-terminal transitions still succeed (open -> triaged)", async () => {
+    it("PATCH non-terminal transitions still succeed (open -> triaged no-work)", async () => {
       const finding = seedOpenFinding("PATCH healthy");
+      // Human auth: under claim-bound authority, an agent cannot route a
+      // legacy-seeded finding without an admitted investigation Task.
+      const token = jwt.sign(
+        { sub: "user-1", username: "test", role: "admin" },
+        "dev-secret-change-in-production",
+        { issuer: "orcy" },
+      );
       const res = await app.inject({
         method: "PATCH",
         url: `/api/triage/findings/${finding.id}`,
-        payload: { status: "triaged" },
-        headers: { "x-agent-api-key": agentApiKey },
+        // Legacy compatibility shape: no-work routes require status+bucket.
+        payload: { status: "triaged", bucket: "needs_investigation" },
+        headers: { authorization: `Bearer ${token}` },
       });
       expect(res.statusCode).toBe(200);
       const body = JSON.parse(res.body);
@@ -874,11 +883,12 @@ describe("rollback injection", () => {
   });
 
   it("Finding link write failure rolls back the Mission AND the Mission event", async () => {
-    vi.spyOn(await import("../repositories/findingTriage.js"), "routeWithClient").mockImplementation(
-      () => {
-        throw new Error("injected: finding link failure");
-      },
-    );
+    vi.spyOn(
+      await import("../repositories/findingTriage.js"),
+      "routeWithClient",
+    ).mockImplementation(() => {
+      throw new Error("injected: finding link failure");
+    });
 
     const finding = seedOpenFinding();
     const missionsBefore = countMissions();

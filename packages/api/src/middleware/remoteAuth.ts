@@ -323,6 +323,7 @@ function isActionAllowedForStanding(
     "release",
     "evidence_link",
     "notification.write",
+    "triage.route",
   ];
 
   if (standing === "remote_observer") return observerActions.includes(action);

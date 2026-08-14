@@ -156,15 +156,43 @@ describe("Triage Route Authentication", () => {
     expect(res.statusCode).toBe(404);
   });
 
-  it("agent-authenticated PATCH /triage/findings/:id succeeds", async () => {
+  it("human-authenticated PATCH /triage/findings/:id succeeds (no-work shape)", async () => {
     const findings = findingTriageRepo.findByHabitat(habitatId);
+    const token = makeToken({ sub: "user-1", username: "test", role: "admin" });
+    const res = await app!.inject({
+      method: "PATCH",
+      url: `/api/triage/findings/${findings[0].id}`,
+      // Strict legacy PATCH matrix accepts only no-work buckets here. Work-bearing
+      // buckets must route through POST /triage/findings/:id/route.
+      payload: { bucket: "document_as_known_limitation", status: "triaged" },
+      headers: { authorization: `Bearer ${token}` },
+    });
+    expect(res.statusCode).toBe(200);
+  });
+
+  it("PATCH /triage/findings/:id with work-bearing bucket is rejected", async () => {
+    const findings = findingTriageRepo.findByHabitat(habitatId);
+    const token = makeToken({ sub: "user-1", username: "test", role: "admin" });
     const res = await app!.inject({
       method: "PATCH",
       url: `/api/triage/findings/${findings[0].id}`,
       payload: { bucket: "fix_now", status: "triaged" },
+      headers: { authorization: `Bearer ${token}` },
+    });
+    expect(res.statusCode).toBe(400);
+  });
+
+  it("agent-authenticated PATCH /triage/findings/:id no-work is denied (no admitted Task claim)", async () => {
+    // Legacy/un-admitted rows have `admittedByInvestigationTaskId = null`. Agents
+    // require a current claim on the exact admitted Task; null means denied.
+    const findings = findingTriageRepo.findByHabitat(habitatId);
+    const res = await app!.inject({
+      method: "PATCH",
+      url: `/api/triage/findings/${findings[0].id}`,
+      payload: { bucket: "document_as_known_limitation", status: "triaged" },
       headers: { "x-agent-api-key": agentApiKey },
     });
-    expect(res.statusCode).toBe(200);
+    expect(res.statusCode).toBe(403);
   });
 
   it("RM-10: agent-authenticated PATCH /triage/findings/:id with triageMissionId:null unlinks (no longer 400)", async () => {
