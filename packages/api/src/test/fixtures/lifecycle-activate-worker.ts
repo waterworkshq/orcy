@@ -56,7 +56,7 @@ async function main(): Promise<void> {
   // skew the race window.
   const { drizzle } = await import("drizzle-orm/better-sqlite3");
   const schemaModule = await import("../../db/schema/index.js");
-  const { activateCorrectiveMission, activateCorrectiveMissionForRelease } = await import(
+  const { activateCorrectiveMission, activateCorrectiveMissionForRelease, TEST_ONLY_SKIP_IN_TX_AUTHORITY } = await import(
     "../../services/findingTriageLifecycle.js"
   );
 
@@ -94,7 +94,7 @@ async function main(): Promise<void> {
         ? activateCorrectiveMission(
             {
               findingId,
-              actor: { type: "human", id: "concurrency-manual-worker" },
+              actor: { type: "human", id: "concurrency-manual-worker", authority: TEST_ONLY_SKIP_IN_TX_AUTHORITY },
               expectedMissionVersion: mode.expectedMissionVersion,
             },
             db,

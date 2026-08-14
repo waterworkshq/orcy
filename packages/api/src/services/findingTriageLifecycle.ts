@@ -89,17 +89,53 @@ export interface AuthorityContext {
   remote?: RemoteParticipantContext;
 }
 
+/**
+ * FU6 hardening — explicit TEST/INTERNAL-FIXTURE-ONLY opt-out of the in-tx
+ * authority re-check. `LifecycleActor.authority` is REQUIRED, so a transport
+ * can no longer silently forget it (a compile error, not a silent TOCTOU
+ * hole). Callers that genuinely accept no in-tx re-check (characterization
+ * tests, concurrency workers driving the kernel directly) must pass this
+ * sentinel — the branded field keeps any production misuse trivially
+ * greppable and review-visible. Production transports pass a real
+ * `AuthorityContext` (`{}` at minimum for local humans).
+ */
+export interface TestOnlySkipInTxAuthority {
+  readonly __testOnlyNoInTxAuthority: true;
+}
+
+/** The required authority baggage every lifecycle actor carries (FU6). */
+export type LifecycleActorAuthority = AuthorityContext | TestOnlySkipInTxAuthority;
+
+/** The single sanctioned {@link TestOnlySkipInTxAuthority} value. */
+export const TEST_ONLY_SKIP_IN_TX_AUTHORITY: TestOnlySkipInTxAuthority = {
+  __testOnlyNoInTxAuthority: true,
+};
+
+/** True unless the actor carries the test-only skip sentinel. */
+function inTxAuthorityCheckEnabled(actor: LifecycleActor): boolean {
+  return !(
+    typeof actor.authority === "object" &&
+    actor.authority !== null &&
+    "__testOnlyNoInTxAuthority" in actor.authority
+  );
+}
+
+/** The real AuthorityContext behind an actor's authority (undefined = skip). */
+function authorityContextOf(actor: LifecycleActor): AuthorityContext | undefined {
+  return inTxAuthorityCheckEnabled(actor) ? (actor.authority as AuthorityContext) : undefined;
+}
+
 /** Authenticated actor for lifecycle commands. */
 export interface LifecycleActor {
   type: TriageActorType;
   id: string;
   /**
-   * Optional authority context for the in-tx authority re-check (FU1).
-   * When `undefined`, the kernel skips the in-tx re-check — callers that
-   * bypass the transport seam (tests, internal automation) accept the
-   * absence of TOCTOU defense in exchange for simpler construction.
+   * REQUIRED (FU6) authority context for the in-tx authority re-check (FU1).
+   * Production transports must never omit it — the field is deliberately not
+   * optional so a forgotten context is a compile error. Test/internal callers
+   * that accept no TOCTOU defense pass {@link TEST_ONLY_SKIP_IN_TX_AUTHORITY}.
    */
-  authority?: AuthorityContext;
+  authority: LifecycleActorAuthority;
 }
 
 /** Discriminated reasons a lifecycle command cannot proceed. */
@@ -539,7 +575,8 @@ function runInTransactionAuthorityCheck(args: {
  */
 function runInTransactionHumanManualAuthorityCheck(args: {
   finding: FindingTriage;
-  actor: LifecycleActor;
+  /** Minimal actor identity — any `{type; id}` shape is accepted (FU6). */
+  actor: { type: TriageActorType; id: string };
   client: LifecycleDbClient;
   authorityContext?: AuthorityContext;
 }): AuthorityCheck {
@@ -655,12 +692,12 @@ export function routeFinding(
     // The in-tx predicate returns a single `not_authorized` conflict (no
     // distinguishing code in the wire response — anti-probing); the
     // internal `code` is logged for operator triage.
-    if (input.actor.authority !== undefined) {
+    if (inTxAuthorityCheckEnabled(input.actor)) {
       const authority = runInTransactionAuthorityCheck({
         finding,
         actor: input.actor,
         client,
-        authorityContext: input.actor.authority,
+        authorityContext: authorityContextOf(input.actor)!,
       });
       if (authority.kind === "deny") {
         return {
@@ -897,7 +934,7 @@ function runActivationCommand(
   if (args.mode === "manual") {
     const authority = runInTransactionHumanManualAuthorityCheck({
       finding,
-      actor: { type: "human", id: args.actorId, authority: undefined },
+      actor: { type: "human", id: args.actorId },
       client,
     });
     if (authority.kind === "deny") {
@@ -1233,12 +1270,12 @@ export function resolveFinding(
     // revocation between the transport precheck and the mutation cannot
     // escalate. Agents NEVER hold manual-command authority — the helper
     // short-circuits to `not_authorized`.
-    if (input.actor.authority !== undefined || input.actor.type === "human") {
+    if (input.actor.type === "human" || inTxAuthorityCheckEnabled(input.actor)) {
       const authority = runInTransactionHumanManualAuthorityCheck({
         finding,
         actor: input.actor,
         client,
-        authorityContext: input.actor.authority,
+        authorityContext: authorityContextOf(input.actor),
       });
       if (authority.kind === "deny") {
         return {
@@ -1343,12 +1380,12 @@ export function markFindingWontfix(
     }
 
     // FU1 — in-tx human Habitat write re-check (see `resolveFinding`).
-    if (input.actor.authority !== undefined || input.actor.type === "human") {
+    if (input.actor.type === "human" || inTxAuthorityCheckEnabled(input.actor)) {
       const authority = runInTransactionHumanManualAuthorityCheck({
         finding,
         actor: input.actor,
         client,
-        authorityContext: input.actor.authority,
+        authorityContext: authorityContextOf(input.actor),
       });
       if (authority.kind === "deny") {
         return {

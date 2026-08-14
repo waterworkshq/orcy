@@ -36,10 +36,12 @@ import {
   reconcileActivationGroups,
   finalizeActivationEpoch,
 } from "../services/releaseReconciliationService.js";
-import { activateCorrectiveMission } from "../services/findingTriageLifecycle.js";
+import {
+  TEST_ONLY_SKIP_IN_TX_AUTHORITY,
+ activateCorrectiveMission } from "../services/findingTriageLifecycle.js";
 import { handleGitHubReleaseEvent } from "../services/githubReleaseWebhook.js";
 
-const ACTOR = { type: "human" as const, id: "user-1" };
+const ACTOR = { type: "human" as const, id: "user-1", authority: TEST_ONLY_SKIP_IN_TX_AUTHORITY };
 let habitatId: string;
 let columnId: string;
 
@@ -330,7 +332,7 @@ describe("T7: reconciliation disposition matrix", () => {
     const version = missionRepo.getMissionById(seeded.missionId)!.version;
     const manual = activateCorrectiveMission({
       findingId: seeded.findingIds[0]!,
-      actor: { type: "human", id: "user-1" },
+      actor: { type: "human", id: "user-1", authority: TEST_ONLY_SKIP_IN_TX_AUTHORITY },
       expectedMissionVersion: version,
     });
     expect(manual.outcome).toBe("applied");

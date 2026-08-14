@@ -566,6 +566,29 @@ For `finding_resolution_duplicate`, delete or archive the redundant Resolution r
 
 ---
 
+### Old client gets 400 LEGACY_PATCH_UNLINK_REMOVED on triage PATCH
+
+**Problem:** A pre-cutover client sends `PATCH /api/triage/findings/:id` with `{triageMissionId: null}` and receives `400 LEGACY_PATCH_UNLINK_REMOVED`.
+
+**Cause:** The legacy unlink shape was removed. It was never part of the approved legacy PATCH compatibility matrix, had no production callers after the lifecycle cutover, and bypassed the actor matrix (any local agent key in an un-teamed habitat could sever another Finding's corrective Mission link). The API logs a deprecation warning (`triage legacy PATCH: unlink shape removed`) alongside the 400; no writes occur.
+
+**Fix:**
+
+- Remediation is a CLIENT UPGRADE, not a server change — do not re-add the shape
+- Corrective links are created via `POST /triage/findings/:id/route` (work-bearing buckets) or the retained link-only PATCH shape; they are activated/terminalized exclusively through the lifecycle commands (`route`/`activate`/`resolve`/`wontfix`)
+- There is intentionally no supported way to sever a committed corrective link via PATCH
+
+### Read-only user gets 403 on triage route/activate/resolve/wontfix
+
+**Problem:** A user with the `viewer` role receives 403 (`VIEWER_WRITE_DENIED` at the transport; `TRIAGE_NOT_AUTHORIZED` if caught by the in-transaction re-check) on the four triage lifecycle commands, including in un-teamed habitats where reads succeed.
+
+**Cause:** Lifecycle writes require human write capability (`admin`/`editor`). The `viewer` role is read-only by definition — the role check applies even where habitat membership alone would grant access (un-teamed habitats), and is re-verified inside the lifecycle transaction against the persisted `users.role`.
+
+**Fix:**
+
+- Grant the user `editor` (or `admin`) if they should triage; viewers keep full triage READ access
+- If a JWT claims `editor` but the 403 still fires, the persisted `users.role` was demoted after the token was issued — the in-transaction check caught it; have the user re-login after the role change
+
 ## Error Code Reference
 
 All API errors follow this format:

@@ -29,13 +29,15 @@ import * as triageResolutionsRepo from "../repositories/triageResolutions.js";
 import { triageRoutes } from "../routes/triage.js";
 import { registerErrorHandler } from "../errors/plugin.js";
 import {
+  TEST_ONLY_SKIP_IN_TX_AUTHORITY,
+
   routeFinding,
   resolveFinding,
   markFindingWontfix,
   computeRouteFingerprint,
 } from "../services/findingTriageLifecycle.js";
 
-const ACTOR = { type: "human" as const, id: "user-1" };
+const ACTOR = { type: "human" as const, id: "user-1", authority: TEST_ONLY_SKIP_IN_TX_AUTHORITY };
 
 let habitatId: string;
 let columnId: string;
@@ -444,7 +446,7 @@ describe("routeFinding — replay and conflict", () => {
     });
     expect(first.outcome).toBe("applied");
 
-    const otherActor = { type: "human" as const, id: "user-2" };
+    const otherActor = { type: "human" as const, id: "user-2", authority: TEST_ONLY_SKIP_IN_TX_AUTHORITY };
     const retry = routeFinding({
       findingId: finding.id,
       actor: otherActor,
@@ -569,7 +571,7 @@ describe("resolveFinding", () => {
     const finding = seedOpenFinding();
     const result = resolveFinding({
       findingId: finding.id,
-      actor: { type: "agent", id: "agent-1" },
+      actor: { type: "agent", id: "agent-1", authority: TEST_ONLY_SKIP_IN_TX_AUTHORITY },
       resolution: "Agent cannot resolve",
       resolutionKind: "code_fix",
     });
@@ -683,7 +685,7 @@ describe("markFindingWontfix", () => {
     const finding = seedOpenFinding();
     const agent = markFindingWontfix({
       findingId: finding.id,
-      actor: { type: "agent", id: "agent-1" },
+      actor: { type: "agent", id: "agent-1", authority: TEST_ONLY_SKIP_IN_TX_AUTHORITY },
       reason: "reason",
     });
     expect(agent.outcome).toBe("conflict");

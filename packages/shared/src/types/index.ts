@@ -295,6 +295,8 @@ export {
   buildFingerprint,
 } from "./automation.js";
 
+export { REMOTE_ACTION_SCOPES } from "./pod-bridge.js";
+
 export type {
   PodAffiliation,
   ParticipantStanding,

@@ -215,7 +215,6 @@ describe("T8 — client cutover discriminators (real routes + re-fetch)", () => 
     for (const payload of [
       { status: "open" },
       { status: "triaged", bucket: "needs_investigation" },
-      { triageMissionId: null },
     ]) {
       const res = await app!.inject({
         method: "PATCH",
@@ -225,6 +224,20 @@ describe("T8 — client cutover discriminators (real routes + re-fetch)", () => 
       });
       expect(res.statusCode).toBe(409);
       expect(JSON.parse(res.body).code).toBe("FINDING_TERMINAL");
+    }
+
+    // FU6: the unlink shape is REMOVED — it no longer reaches the terminal
+    // guard; the shape itself is a 400 with zero writes (deliberate update
+    // of the pre-FU6 expectation of 409 FINDING_TERMINAL).
+    {
+      const res = await app!.inject({
+        method: "PATCH",
+        url: `/api/triage/findings/${findingId}`,
+        payload: { triageMissionId: null },
+        headers: humanHeaders(),
+      });
+      expect(res.statusCode).toBe(400);
+      expect(JSON.parse(res.body).code).toBe("LEGACY_PATCH_UNLINK_REMOVED");
     }
 
     // The terminal row is untouched.

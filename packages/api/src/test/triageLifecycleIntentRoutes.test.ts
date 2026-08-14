@@ -23,6 +23,7 @@ import { validatorCompiler, serializerCompiler } from "fastify-type-provider-zod
 import jwt from "jsonwebtoken";
 import { initTestDb, closeDb } from "../db/index.js";
 import { triageRoutes } from "../routes/triage.js";
+import { remoteAccessRoutes } from "../routes/remoteAccess.js";
 import { sharedApiRoutes } from "../routes/sharedApi.js";
 import { perAgentRateLimit } from "../middleware/rateLimit.js";
 import * as habitatRepo from "../repositories/habitat.js";
@@ -35,10 +36,12 @@ import * as agentRepo from "../repositories/agent.js";
 import * as podRepo from "../repositories/remotePod.js";
 import * as participantRepo from "../repositories/remoteParticipant.js";
 import * as grantRepo from "../repositories/remoteGrant.js";
+import * as teamRepo from "../repositories/team.js";
+import * as memberRepo from "../repositories/teamMember.js";
 import * as credentialService from "../services/remoteCredentialService.js";
 import * as taskStateMachine from "../repositories/taskStateMachine.js";
 import { eq, sql } from "drizzle-orm";
-import { findingTriage, tasks } from "../db/schema/index.js";
+import { findingTriage, tasks, users, organizations, habitats, teamMembers } from "../db/schema/index.js";
 import { getDb } from "../db/index.js";
 import { routeFinding as routeFindingLifecycle } from "../services/findingTriageLifecycle.js";
 
@@ -1458,5 +1461,398 @@ describe("FU5 — remote route returns typed lifecycle codes byte-equal to local
     claimRemotely(setup, rf.investigateTask.id);
     const remoteRes = await remoteRoute(rf.finding.id, fixNowBadDep, setup, "fu5-dep-1");
     expect(errorShape(remoteRes)).toEqual(errorShape(localRes));
+  });
+});
+
+// ===========================================================================
+// FU6 — viewer role gate, triage.route provisioning, unlink removal, link
+// actor binding + atomicity
+// ===========================================================================
+
+async function buildAdminApp(): Promise<FastifyInstance> {
+  const app = Fastify({ logger: false });
+  app.setValidatorCompiler(validatorCompiler);
+  app.setSerializerCompiler(serializerCompiler);
+  await app.register(
+    async (f) => {
+      f.addHook("preHandler", perAgentRateLimit);
+      await f.register(remoteAccessRoutes);
+    },
+    { prefix: "/api" },
+  );
+  await app.ready();
+  return app;
+}
+
+/** Inserts a real users row (the in-tx gate re-reads `users.role`). */
+function seedUserRow(id: string, role: "admin" | "editor" | "viewer"): void {
+  getDb()
+    .insert(users)
+    .values({ id, username: `u-${id}`, passwordHash: "x", role })
+    .run();
+}
+
+/** Attaches a fresh team to the habitat; returns the team id. */
+function attachTeamToHabitat(habitatIdArg: string): string {
+  const db = getDb();
+  const suffix = Math.random().toString(36).slice(2, 10);
+  db.insert(organizations)
+    .values({ id: `org-${suffix}`, name: "Org", slug: `org-${suffix}` })
+    .run();
+  const team = teamRepo.createTeam({
+    organizationId: `org-${suffix}`,
+    name: "Team",
+    slug: `team-${suffix}`,
+  });
+  db.update(habitats)
+    .set({ teamId: team.id })
+    .where(eq(habitats.id, habitatIdArg))
+    .run();
+  return team.id;
+}
+
+/** Forces a finding into the legacy first-link-eligible state. */
+function forceDeferredTriaged(findingId: string): void {
+  getDb()
+    .update(findingTriage)
+    .set({ status: "triaged", bucket: "defer_to_patch", updatedAt: new Date().toISOString() })
+    .where(eq(findingTriage.id, findingId))
+    .run();
+}
+
+function createGatedMission() {
+  return missionRepo.createMission({
+    habitatId,
+    columnId,
+    title: "Gated Corrective",
+    createdBy: "user-1",
+    releaseGateType: "minor",
+    releaseGateVersion: "1.2.0",
+  } as Parameters<typeof missionRepo.createMission>[0]);
+}
+
+describe("FU6 — viewer role gate on all four intent endpoints", () => {
+  let app: FastifyInstance | null = null;
+
+  beforeEach(async () => {
+    app = await buildApp();
+  });
+  afterEach(async () => {
+    if (app) await app.close();
+  });
+
+  const viewerToken = () => makeToken({ sub: "viewer-1", username: "v", role: "viewer" });
+  const editorToken = () => makeToken({ sub: "editor-1", username: "e", role: "editor" });
+  const adminToken = () => makeToken({ sub: "user-1", username: "test", role: "admin" });
+
+  it("viewer is denied (403) on route/activate/resolve/wontfix in a NON-TEAM habitat", async () => {
+    const noWork = { bucket: "document_as_known_limitation" };
+
+    const rf = seedAdmittedFinding();
+    const routeRes = await app!.inject({
+      method: "POST",
+      url: `/api/triage/findings/${rf.finding.id}/route`,
+      payload: noWork,
+      headers: { authorization: `Bearer ${viewerToken()}` },
+    });
+    expect(routeRes.statusCode).toBe(403);
+
+    const af = seedAdmittedFinding();
+    const activateRes = await app!.inject({
+      method: "POST",
+      url: `/api/triage/findings/${af.finding.id}/activate`,
+      payload: {},
+      headers: { authorization: `Bearer ${viewerToken()}` },
+    });
+    expect(activateRes.statusCode).toBe(403);
+
+    const sf = seedAdmittedFinding();
+    const resolveRes = await app!.inject({
+      method: "POST",
+      url: `/api/triage/findings/${sf.finding.id}/resolve`,
+      payload: { resolution: "fixed elsewhere", resolutionKind: "code_fix" },
+      headers: { authorization: `Bearer ${viewerToken()}` },
+    });
+    expect(resolveRes.statusCode).toBe(403);
+
+    const wf = seedAdmittedFinding();
+    const wontfixRes = await app!.inject({
+      method: "POST",
+      url: `/api/triage/findings/${wf.finding.id}/wontfix`,
+      payload: { reason: "not worth it" },
+      headers: { authorization: `Bearer ${viewerToken()}` },
+    });
+    expect(wontfixRes.statusCode).toBe(403);
+
+    // Zero writes: every finding is still open.
+    for (const f of [rf.finding, af.finding, sf.finding, wf.finding]) {
+      expect(findingTriageRepo.getById(f.id)!.status).toBe("open");
+    }
+  });
+
+  it("editor and admin succeed on route in the same non-team habitat", async () => {
+    const ef = seedAdmittedFinding();
+    const editorRes = await app!.inject({
+      method: "POST",
+      url: `/api/triage/findings/${ef.finding.id}/route`,
+      payload: { bucket: "document_as_known_limitation" },
+      headers: { authorization: `Bearer ${editorToken()}` },
+    });
+    expect(editorRes.statusCode).toBe(200);
+
+    const af = seedAdmittedFinding();
+    const adminRes = await app!.inject({
+      method: "POST",
+      url: `/api/triage/findings/${af.finding.id}/route`,
+      payload: { bucket: "document_as_known_limitation" },
+      headers: { authorization: `Bearer ${adminToken()}` },
+    });
+    expect(adminRes.statusCode).toBe(200);
+  });
+
+  it("viewer is denied in a TEAM habitat too (even as a team member); editor member succeeds; viewer READ still allowed", async () => {
+    seedUserRow("viewer-1", "viewer");
+    seedUserRow("editor-1", "editor");
+    const teamId = attachTeamToHabitat(habitatId);
+    memberRepo.addMember({ teamId, userId: "viewer-1" });
+    memberRepo.addMember({ teamId, userId: "editor-1" });
+
+    // Read path is NOT gated by the write-capability check.
+    const listRes = await app!.inject({
+      method: "GET",
+      url: `/api/triage/findings?habitatId=${habitatId}`,
+      headers: { authorization: `Bearer ${viewerToken()}` },
+    });
+    expect(listRes.statusCode).toBe(200);
+
+    const vf = seedAdmittedFinding();
+    const viewerRes = await app!.inject({
+      method: "POST",
+      url: `/api/triage/findings/${vf.finding.id}/route`,
+      payload: { bucket: "document_as_known_limitation" },
+      headers: { authorization: `Bearer ${viewerToken()}` },
+    });
+    expect(viewerRes.statusCode).toBe(403);
+
+    const ef = seedAdmittedFinding();
+    const editorRes = await app!.inject({
+      method: "POST",
+      url: `/api/triage/findings/${ef.finding.id}/route`,
+      payload: { bucket: "document_as_known_limitation" },
+      headers: { authorization: `Bearer ${editorToken()}` },
+    });
+    expect(editorRes.statusCode).toBe(200);
+  });
+
+  it("in-tx gate: an editor JWT whose PERSISTED users.role is viewer is denied by the in-transaction re-check", async () => {
+    // Transport passes (JWT says editor); the authoritative in-tx re-read of
+    // users.role inside habitatAccessCheckerWithClient must deny.
+    seedUserRow("sneaky-editor", "viewer");
+    const f = seedAdmittedFinding();
+    const res = await app!.inject({
+      method: "POST",
+      url: `/api/triage/findings/${f.finding.id}/route`,
+      payload: { bucket: "document_as_known_limitation" },
+      headers: {
+        authorization: `Bearer ${makeToken({ sub: "sneaky-editor", username: "e", role: "editor" })}`,
+      },
+    });
+    expect(res.statusCode).toBe(403);
+    expect(findingTriageRepo.getById(f.finding.id)!.status).toBe("open");
+  });
+
+  it("a persisted EDITOR users row passes the in-tx re-check (control)", async () => {
+    seedUserRow("real-editor", "editor");
+    const f = seedAdmittedFinding();
+    const res = await app!.inject({
+      method: "POST",
+      url: `/api/triage/findings/${f.finding.id}/route`,
+      payload: { bucket: "document_as_known_limitation" },
+      headers: {
+        authorization: `Bearer ${makeToken({ sub: "real-editor", username: "e", role: "editor" })}`,
+      },
+    });
+    expect(res.statusCode).toBe(200);
+  });
+});
+
+describe("FU6 — legacy first-link actor binding + atomic single write", () => {
+  let app: FastifyInstance | null = null;
+
+  beforeEach(async () => {
+    app = await buildApp();
+  });
+  afterEach(async () => {
+    if (app) await app.close();
+  });
+
+  it("unprivileged local agent key cannot first-link (403, zero writes)", async () => {
+    const { finding } = seedAdmittedFinding();
+    forceDeferredTriaged(finding.id);
+    const corrective = createGatedMission();
+
+    const res = await app!.inject({
+      method: "PATCH",
+      url: `/api/triage/findings/${finding.id}`,
+      payload: {
+        triageMissionId: corrective.id,
+        expectedMissionVersion: corrective.version,
+      },
+      headers: { "x-agent-api-key": otherAgentApiKey },
+    });
+    expect(res.statusCode).toBe(403);
+    const after = findingTriageRepo.getById(finding.id)!;
+    expect(after.correctiveMissionId).toBeNull();
+    expect(after.routeFingerprint).toBeNull();
+  });
+
+  it("human editor first-link succeeds and lands link + fingerprint together (one write)", async () => {
+    const { finding } = seedAdmittedFinding();
+    forceDeferredTriaged(finding.id);
+    const corrective = createGatedMission();
+
+    const res = await app!.inject({
+      method: "PATCH",
+      url: `/api/triage/findings/${finding.id}`,
+      payload: {
+        triageMissionId: corrective.id,
+        expectedMissionVersion: corrective.version,
+      },
+      headers: {
+        authorization: `Bearer ${makeToken({ sub: "user-1", username: "test", role: "editor" })}`,
+      },
+    });
+    expect(res.statusCode).toBe(200);
+    const after = findingTriageRepo.getById(finding.id)!;
+    expect(after.correctiveMissionId).toBe(corrective.id);
+    // The atomic apply stamps BOTH columns in one UPDATE — a link with a null
+    // fingerprint (the old two-write crash window) can no longer exist.
+    expect(after.routeFingerprint).not.toBeNull();
+  });
+
+  it("rejected apply leaves ZERO partial writes (no link-without-fingerprint)", async () => {
+    const { finding } = seedAdmittedFinding();
+    forceDeferredTriaged(finding.id);
+    const corrective = createGatedMission();
+
+    const res = await app!.inject({
+      method: "PATCH",
+      url: `/api/triage/findings/${finding.id}`,
+      payload: {
+        triageMissionId: corrective.id,
+        expectedMissionVersion: corrective.version + 99,
+      },
+      headers: {
+        authorization: `Bearer ${makeToken({ sub: "user-1", username: "test", role: "admin" })}`,
+      },
+    });
+    expect(res.statusCode).toBe(409);
+    expect(JSON.parse(res.body).code).toBe("LEGACY_LINK_VERSION_MISMATCH");
+    const after = findingTriageRepo.getById(finding.id)!;
+    expect(after.correctiveMissionId).toBeNull();
+    expect(after.routeFingerprint).toBeNull();
+  });
+
+  it("stored-fingerprint replay still wins after the atomic apply", async () => {
+    const { finding } = seedAdmittedFinding();
+    forceDeferredTriaged(finding.id);
+    const corrective = createGatedMission();
+    const token = makeToken({ sub: "user-1", username: "test", role: "admin" });
+
+    const first = await app!.inject({
+      method: "PATCH",
+      url: `/api/triage/findings/${finding.id}`,
+      payload: {
+        triageMissionId: corrective.id,
+        expectedMissionVersion: corrective.version,
+      },
+      headers: { authorization: `Bearer ${token}` },
+    });
+    expect(first.statusCode).toBe(200);
+
+    // Replay with a STALE version still succeeds (fingerprint replay before
+    // the version/no-link predicates).
+    const replay = await app!.inject({
+      method: "PATCH",
+      url: `/api/triage/findings/${finding.id}`,
+      payload: {
+        triageMissionId: corrective.id,
+        expectedMissionVersion: corrective.version + 50,
+      },
+      headers: { authorization: `Bearer ${token}` },
+    });
+    expect(replay.statusCode).toBe(200);
+    expect(JSON.parse(replay.body).replay).toBe(true);
+  });
+});
+
+describe("FU6 — admin API provisions triage.route end-to-end", () => {
+  it("HTTP grant POST with triage.route → grant row → remote route authorized with it", async () => {
+    const { finding, investigateTask } = seedAdmittedFinding();
+
+    // Pod + participant + credential WITHOUT any grant (no direct grant writes).
+    const pod = podRepo.createRemotePod({ habitatId, name: "Admin Prov Pod" });
+    const activatedPod = podRepo.activateRemotePod(pod.id) ?? pod;
+    const participant = participantRepo.createRemoteParticipant({
+      remotePodId: activatedPod.id,
+      habitatId,
+      participantType: "remote_orcy",
+      displayName: "AdminProvisioned",
+      standing: "remote_contributor",
+    });
+    const activatedParticipant =
+      participantRepo.activateRemoteParticipant(participant.id) ?? participant;
+    const { plaintextSecret } = credentialService.createCredentialWithSecret({
+      remoteParticipantId: activatedParticipant.id,
+      habitatId,
+      credentialType: "api",
+      label: "admin-provisioned",
+    });
+
+    // Provision the grant through the REAL admin API.
+    const adminApp = await buildAdminApp();
+    const grantRes = await adminApp.inject({
+      method: "POST",
+      url: `/api/habitats/${habitatId}/remote-access/grants`,
+      payload: {
+        remotePodId: activatedPod.id,
+        remoteParticipantId: activatedParticipant.id,
+        grantType: "scoped_elevation",
+        standing: "remote_contributor",
+        actionScopes: ["triage.route"],
+        eligibilityMode: "allowlist",
+        targets: [{ targetType: "task", targetId: investigateTask.id }],
+      },
+      headers: {
+        authorization: `Bearer ${makeToken({ sub: "user-1", username: "test", role: "admin" })}`,
+      },
+    });
+    expect(grantRes.statusCode).toBe(201);
+    const grantId = (JSON.parse(grantRes.body) as { grant: { id: string } }).grant.id;
+    const grantRow = grantRepo.getRemoteGrantById(grantId);
+    expect(grantRow).not.toBeNull();
+    expect(grantRow!.actionScopes).toContain("triage.route");
+    await adminApp.close();
+
+    // The provisioned grant authorizes the remote route end-to-end.
+    const claimRes = taskStateMachine.claimTaskByRemoteParticipant(
+      investigateTask.id,
+      activatedParticipant.id,
+    );
+    expect(claimRes.success).toBe(true);
+
+    const sharedApp = await buildSharedApp();
+    const routeRes = await sharedApp.inject({
+      method: "POST",
+      url: `/api/shared/triage/findings/${finding.id}/route`,
+      payload: { bucket: "document_as_known_limitation" },
+      headers: {
+        "x-orcy-remote-key": plaintextSecret,
+        "idempotency-key": "fu6-admin-provisioned-grant",
+      },
+    });
+    expect(routeRes.statusCode).toBe(200);
+    expect(JSON.parse(routeRes.body).finding.status).toBe("triaged");
+    await sharedApp.close();
   });
 });

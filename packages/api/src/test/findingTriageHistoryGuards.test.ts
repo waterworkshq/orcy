@@ -36,6 +36,7 @@ import { missionRoutes } from "../routes/missions.js";
 import { pulseRoutes } from "../routes/pulse.js";
 import { registerErrorHandler } from "../errors/plugin.js";
 import {
+  TEST_ONLY_SKIP_IN_TX_AUTHORITY,
   routeFinding,
   resolveFinding,
   activateCorrectiveMission,
@@ -89,7 +90,7 @@ afterEach(async () => {
   closeDb();
 });
 
-const ACTOR = { type: "human" as const, id: USER_ID };
+const ACTOR = { type: "human" as const, id: USER_ID, authority: TEST_ONLY_SKIP_IN_TX_AUTHORITY };
 
 /** Seeds a `triaged` finding linked to its own gated corrective Mission. */
 function seedDeferredFinding(subject: string) {

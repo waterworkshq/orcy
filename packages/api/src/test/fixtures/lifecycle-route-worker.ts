@@ -55,7 +55,7 @@ async function main(): Promise<void> {
   // skew the race window.
   const { drizzle } = await import("drizzle-orm/better-sqlite3");
   const schemaModule = await import("../../db/schema/index.js");
-  const { routeFinding } = await import("../../services/findingTriageLifecycle.js");
+  const { routeFinding, TEST_ONLY_SKIP_IN_TX_AUTHORITY } = await import("../../services/findingTriageLifecycle.js");
 
   // Open the worker's OWN raw better-sqlite3 connection (NOT via `initDb` —
   // the parent already applied migrations; re-running them concurrently
@@ -93,7 +93,7 @@ async function main(): Promise<void> {
     const result = routeFinding(
       {
         findingId,
-        actor: { type: "human", id: "concurrency-worker" },
+        actor: { type: "human", id: "concurrency-worker", authority: TEST_ONLY_SKIP_IN_TX_AUTHORITY },
         route,
       },
       db,

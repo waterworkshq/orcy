@@ -195,10 +195,12 @@ describe("Triage Route Authentication", () => {
     expect(res.statusCode).toBe(403);
   });
 
-  it("RM-10: agent-authenticated PATCH /triage/findings/:id with triageMissionId:null unlinks (no longer 400)", async () => {
+  it("FU6: PATCH /triage/findings/:id with triageMissionId:null returns 400 LEGACY_PATCH_UNLINK_REMOVED with zero writes", async () => {
     const findings = findingTriageRepo.findByHabitat(habitatId);
     const findingId = findings[0].id;
-    // First link the finding to the seeded mission, then clear it.
+    // Seed a link, then attempt the REMOVED unlink shape. It used to bypass
+    // the actor matrix entirely (any local agent key could sever the link);
+    // FU6 removed the shape — assert the 400 + stable code + no writes.
     findingTriageRepo.setTriageMissionId(findingId, missionId);
     expect(findingTriageRepo.getById(findingId)!.triageMissionId).toBe(missionId);
 
@@ -208,8 +210,12 @@ describe("Triage Route Authentication", () => {
       payload: { triageMissionId: null },
       headers: { "x-agent-api-key": agentApiKey },
     });
-    expect(res.statusCode).toBe(200);
-    expect(findingTriageRepo.getById(findingId)!.triageMissionId).toBeNull();
+    expect(res.statusCode).toBe(400);
+    const body = JSON.parse(res.body) as { code?: string };
+    expect(body.code).toBe("LEGACY_PATCH_UNLINK_REMOVED");
+    // Zero writes: the link survives untouched.
+    const after = findingTriageRepo.getById(findingId)!;
+    expect(after.triageMissionId).toBe(missionId);
   });
 
   it("human-authenticated GET /triage/findings succeeds for non-team habitat", async () => {

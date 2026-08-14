@@ -335,18 +335,20 @@ export function findByBucket(habitatId: string, bucket: SuggestedBucket): Findin
 // | `setTargetRelease`              | NONE                                    | Superseded by Mission release gates;   |
 // | `setTargetReleaseType`          | NONE                                    | PATCH rejects the shape with           |
 // |                                 |                                         | LEGACY_PATCH_TARGET_RELEASE_SUPERSEDED. |
-// | `setTriageMissionId` (link)     | `routes/triage.ts` legacy link-only     | RETAINED: announced strict PATCH       |
-// |                                 | PATCH adapter ONLY                      | compatibility adapter (fingerprint +   |
-// |                                 |                                         | deprecation telemetry).               |
-// | `setTriageMissionId` (unlink)   | `routes/triage.ts` legacy unlink PATCH  | RETAINED: announced adapter (RM-10).   |
+// | `setTriageMissionId`            | NONE (FU6) — the link shape now writes  | TEST-ONLY (fixtures seed links); the   |
+// |                                 | via `applyLegacyLinkWithClient`; the    | unlink shape was REMOVED (400          |
+// |                                 |                                         | LEGACY_PATCH_UNLINK_REMOVED, zero     |
+// |                                 |                                         | writes).                              |
 // | `promote`                       | `findingTriageService.promote` —        | Legacy service seam, TEST-ONLY. The   |
 // |                                 | HTTP `/promote` route REMOVED (T8)      | superseded route is gone; manual       |
 // |                                 |                                         | activation is `POST .../activate`.    |
 // | Supplied-client writers below   | `findingTriageLifecycle.ts` kernel +    | Canonical — the only production write |
 // | (`routeWithClient`,             | cluster admission participant +         | authority (plus the Release kernel's  |
-// | `terminalizeWithClient`,        | internal Release reconciliation kernel  | `activateCorrectiveMissionForRelease`).|
-// | `activateGroupWithClient`,      |                                         |                                        |
-// | `admitWithClient`)              |                                         |                                        |
+// | `terminalizeWithClient`,        | internal Release reconciliation kernel  | `activateCorrectiveMissionForRelease`) |
+// | `activateGroupWithClient`,      | + `routes/triage.ts` legacy link        | and the retained legacy link adapter   |
+// | `admitWithClient`,              | adapter (FU6 `applyLegacyLinkWithClient`| (`applyLegacyLinkWithClient` is the    |
+// | `applyLegacyLinkWithClient`)    | ONLY)                                   | one-write form: link + fingerprint in  |
+// |                                 |                                         | a single UPDATE inside BEGIN IMMEDIATE).|
 //
 // UI cutover (T8): `packages/ui` sends ONLY lifecycle command requests
 // (`/route`, `/activate`, `/resolve`, `/wontfix`) — the state-shaped PATCH
@@ -563,6 +565,36 @@ export function routeWithClient(
         activationReleaseId: update.activationReleaseId,
         updatedAt: update.updatedAt,
       })
+      .where(eq(findingTriage.id, id))
+      .run();
+  } catch (err) {
+    throw repositoryUpdateError("findingTriage", err as Error, id);
+  }
+  const row = client.select().from(findingTriage).where(eq(findingTriage.id, id)).get();
+  if (!row) throw repositoryNotFoundError("findingTriage", id);
+  return rowToFindingTriage(row);
+}
+
+/**
+ * FU6 — retained legacy link adapter's ONE-WRITE apply: sets the corrective
+ * Mission link AND the stable legacy-link fingerprint in a SINGLE UPDATE on
+ * the supplied client, inside the caller's `BEGIN IMMEDIATE` reservation.
+ * Replaces the former two sequential writes (`setTriageMissionId` + a bare
+ * fingerprint UPDATE) whose inter-write crash window could commit a link
+ * with no fingerprint (breaking lost-response replay) — the single statement
+ * makes a partial link impossible by construction.
+ */
+export function applyLegacyLinkWithClient(
+  client: SuppliedClient,
+  id: string,
+  missionId: string,
+  routeFingerprint: string,
+): FindingTriage {
+  const now = new Date().toISOString();
+  try {
+    client
+      .update(findingTriage)
+      .set({ triageMissionId: missionId, routeFingerprint, updatedAt: now })
       .where(eq(findingTriage.id, id))
       .run();
   } catch (err) {

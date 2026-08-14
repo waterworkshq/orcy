@@ -9,7 +9,9 @@
  * pre-check) so a TOCTOU race cannot escalate an agent from "claimant" to
  * "completed/released" without losing authority.
  *
- * Authority matrix (per restored-lifecycle-tech-plan + ADR-0048):
+ * Authority matrix (per restored-lifecycle-tech-plan + ADR-0048; FU6 viewer
+ * gate: a human with `role === "viewer"` is a read-only principal and holds
+ * NO write authority on any command, teamed or un-teamed habitat):
  *
  *  | Actor                    | route | activate | resolve | wontfix |
  *  |--------------------------|-------|----------|---------|---------|
@@ -45,6 +47,7 @@ import {
   teamMembers,
   remoteParticipants,
   remotePods,
+  users,
 } from "../db/schema/index.js";
 import type { RemoteParticipantContext } from "../middleware/remoteAuth.js";
 import type { RemoteGrantRow, RemoteGrantTargetRow } from "../repositories/remoteGrant.js";
@@ -69,7 +72,13 @@ export interface AuthorityFindingShape {
 
 /** Authenticated actor passed by HTTP transport seam. */
 export type AuthorityActor =
-  | { type: "human"; id: string }
+  /**
+   * `role` is the JWT role claim (FU6). The transport populates it so the
+   * predicate can deny read-only viewers before the lifecycle kernel runs;
+   * the in-transaction re-check independently re-reads the persisted
+   * `users.role` under the writer reservation.
+   */
+  | { type: "human"; id: string; role?: "admin" | "editor" | "viewer" }
   | { type: "agent"; id: string }
   | { type: "system"; id: string };
 
@@ -125,12 +134,29 @@ export interface HumanHabitatAccessChecker {
  * `routes/triage.ts::verifyHabitatAccess` (team membership OR no-team = open)
  * but executes on the supplied client so it observes post-`BEGIN IMMEDIATE`
  * state.
+ *
+ * FU6 — viewer-role gate: this is the ONE authoritative place a human's write
+ * capability is decided in-transaction. A persisted `users.role === "viewer"`
+ * NEVER holds Habitat write authority, in teamed AND un-teamed habitats (an
+ * un-teamed habitat is open to authenticated humans, but a viewer is a
+ * read-only principal by definition — role caps what team membership or its
+ * absence could otherwise grant). The role row is re-read on the supplied
+ * client so a demotion to viewer between precheck and mutation is caught.
+ * A missing users row is NOT treated as viewer — local human identity is
+ * carried by the JWT (`middleware/jwt-verification.ts` does not consult the
+ * users table), so absence of a row follows the established token-trust model.
  */
 export function habitatAccessCheckerWithClient(
   client: AuthorityDbClient,
 ): HumanHabitatAccessChecker {
   return {
     userHasHabitatWriteAccess(userId: string, habitatId: string): boolean {
+      const user = client
+        .select({ role: users.role })
+        .from(users)
+        .where(eq(users.id, userId))
+        .get();
+      if (user?.role === "viewer") return false; // FU6: read-only principal
       const habitat = client
         .select({ teamId: habitats.teamId })
         .from(habitats)
@@ -192,6 +218,18 @@ export function checkRouteAuthority(args: {
    */
   client?: AuthorityDbClient;
 }): RouteAuthorityResult {
+  // FU6 — viewer-role gate (transport path). The actor's `role` comes from
+  // the JWT claim set by the transport; read-only viewers are denied before
+  // any other predicate, in teamed AND un-teamed habitats. The in-tx re-check
+  // independently re-reads `users.role` via `habitatAccessCheckerWithClient`.
+  if (args.actor.type === "human" && args.actor.role === "viewer") {
+    return deny(
+      "not_authorized",
+      "VIEWER_WRITE_DENIED",
+      "viewer role is read-only and cannot route findings",
+    );
+  }
+
   // Legacy / un-admitted rows: agent routing is forbidden. Humans with write
   // access may still route (operator repair path).
   if (args.finding.admittedByInvestigationTaskId === null) {
@@ -340,20 +378,29 @@ export function checkRemoteRouteAuthority(args: {
 // ---------------------------------------------------------------------------
 
 /**
- * Manual activate / resolve / wontfix are human-only with Habitat write
- * authority. The lifecycle kernel maps a denial to `not_authorized` conflict.
+ * Manual activate / resolve / wontfix (and the retained legacy first-link
+ * adapter, FU6) are human-only with Habitat write authority. The lifecycle
+ * kernel maps a denial to `not_authorized` conflict.
  */
 export function checkManualCommandAuthority(args: {
   finding: AuthorityFindingShape;
   actor: AuthorityActor;
   access?: HumanHabitatAccessChecker;
-  command: "activate" | "resolve" | "wontfix";
+  command: "activate" | "resolve" | "wontfix" | "link";
 }): AuthorityCheck {
   if (args.actor.type !== "human") {
     return deny(
       "not_authorized",
       `${args.command.toUpperCase()}_HUMAN_ONLY`,
       `${args.command} is human-only`,
+    );
+  }
+  // FU6 — viewer-role gate (transport path); see `checkRouteAuthority`.
+  if (args.actor.role === "viewer") {
+    return deny(
+      "not_authorized",
+      "VIEWER_WRITE_DENIED",
+      `viewer role is read-only and cannot ${args.command} findings`,
     );
   }
   if (
@@ -584,6 +631,12 @@ function findSingleGrantWithBothProofs(args: {
  * `routes/triage.ts::verifyHabitatAccess` — this helper is the canonical
  * seam the authority policy consumes so tests can stub it without touching
  * Fastify request shape.
+ *
+ * FU6: this checker does NOT need a viewer branch — the authority predicate
+ * itself denies `role === "viewer"` actors before consulting any checker
+ * (`checkRouteAuthority` / `checkManualCommandAuthority`), and the in-tx
+ * re-check uses the real `habitatAccessCheckerWithClient`, which re-reads
+ * `users.role`.
  */
 export function defaultHabitatAccessChecker(): HumanHabitatAccessChecker {
   return {

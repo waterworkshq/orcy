@@ -44,7 +44,9 @@ import * as columnRepo from "../repositories/column.js";
 import * as pulseRepo from "../repositories/pulse.js";
 import * as findingTriageRepo from "../repositories/findingTriage.js";
 import * as missionRepo from "../repositories/mission.js";
-import { routeFinding } from "../services/findingTriageLifecycle.js";
+import {
+  TEST_ONLY_SKIP_IN_TX_AUTHORITY,
+ routeFinding } from "../services/findingTriageLifecycle.js";
 
 const WORKER = join(import.meta.dirname, "fixtures", "lifecycle-activate-worker.ts");
 const TEMP_DIR = join(import.meta.dirname, "..", "..", ".test-lifecycle");
@@ -111,7 +113,7 @@ describe("activation — real cross-process manual vs Release race", () => {
     const seeded = findingTriageRepo.createForPulse(pulse);
     const routed = routeFinding({
       findingId: seeded.id,
-      actor: { type: "human", id: "user-1" },
+      actor: { type: "human", id: "user-1", authority: TEST_ONLY_SKIP_IN_TX_AUTHORITY },
       route: {
         bucket: "defer_to_patch",
         missionTitle: "Corrective: raced",

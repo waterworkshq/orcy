@@ -35,6 +35,8 @@ import * as pulseRepo from "../repositories/pulse.js";
 import * as findingTriageRepo from "../repositories/findingTriage.js";
 import { triageRoutes } from "../routes/triage.js";
 import {
+  TEST_ONLY_SKIP_IN_TX_AUTHORITY,
+
   routeFinding,
   resolveFinding,
   activateCorrectiveMission,
@@ -42,7 +44,7 @@ import {
 } from "../services/findingTriageLifecycle.js";
 import type { Mission } from "../models/index.js";
 
-const ACTOR = { type: "human" as const, id: "user-1" };
+const ACTOR = { type: "human" as const, id: "user-1", authority: TEST_ONLY_SKIP_IN_TX_AUTHORITY };
 
 const JWT_SECRET = "dev-secret-change-in-production";
 
@@ -429,7 +431,7 @@ describe("activateCorrectiveMission — manual", () => {
     const f1 = seedDeferredFinding("Agent activate target");
     const outcome = activateCorrectiveMission({
       findingId: f1.id,
-      actor: { type: "agent", id: "agent-1" },
+      actor: { type: "agent", id: "agent-1", authority: TEST_ONLY_SKIP_IN_TX_AUTHORITY },
       expectedMissionVersion: 1,
     });
     expect(outcome.outcome).toBe("conflict");

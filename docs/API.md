@@ -6534,11 +6534,13 @@ Get a single finding triage record.
 
 #### PATCH /triage/findings/:id (legacy compatibility adapter — deprecated)
 
-Retained STRICT PATCH compatibility for pre-cutover clients only. Accepts the legacy state-shaped body (`{status, bucket, targetRelease, targetReleaseType}` or link-only `{triageMissionId, expectedMissionVersion}`). Terminal-to-open transitions, `fix_now`/deferral without complete Mission placement, terminal status without a full Resolution payload, and any `targetRelease*` mutation are rejected. Stored-fingerprint replay wins before the no-link/version predicates — a committed legacy link with a lost response replays despite later legitimate Mission edits. New clients use the command routes below.
+Retained STRICT PATCH compatibility for pre-cutover clients only. Accepts the legacy state-shaped body (`{status, bucket}` for no-work buckets only) or link-only `{triageMissionId: string, expectedMissionVersion: number}`. Terminal-to-open transitions, `fix_now`/deferral without complete Mission placement, terminal status without a full Resolution payload, and any `targetRelease*` mutation are rejected. Stored-fingerprint replay wins before the no-link/version predicates — a committed legacy link with a lost response replays despite later legitimate Mission edits. The first-link shape requires human Habitat-write authority (`admin`/`editor`; viewers and local agent keys are denied) and applies the link + fingerprint as one atomic writer-reserved write. New clients use the command routes below.
+
+**Unlink shape REMOVED:** `{triageMissionId: null}` is rejected with `400 LEGACY_PATCH_UNLINK_REMOVED` (zero writes). The unlink shape was never part of the approved compatibility matrix, has no production callers since the lifecycle cutover, and bypassed the actor matrix. Old clients that still send it must be upgraded: corrective Mission links are created by `POST .../route` (work-bearing buckets) or the link-only shape above, and are activated/terminalized exclusively through the lifecycle commands (`route`/`activate`/`resolve`/`wontfix`). There is no supported way to sever a corrective link via PATCH; re-adding the shape is not the remediation.
 
 #### POST /triage/findings/:id/route
 
-Route a `triaged` finding into corrective work. Agent routing is claim-bound: the exact admitted investigation Task's current claimant may route; humans always may. Creates one gated corrective Mission + placement atomically, or replays from the stored immutable route fingerprint. Repeated identical intent replays; different intent conflicts (409).
+Route a `triaged` finding into corrective work. Agent routing is claim-bound: the exact admitted investigation Task's current claimant may route; humans always may (write capability required — `admin`/`editor`; read-only `viewer` JWTs are denied 403 on all four lifecycle commands, in teamed and un-teamed habitats alike). Creates one gated corrective Mission + placement atomically, or replays from the stored immutable route fingerprint. Repeated identical intent replays; different intent conflicts (409).
 
 #### POST /triage/findings/:id/activate
 
