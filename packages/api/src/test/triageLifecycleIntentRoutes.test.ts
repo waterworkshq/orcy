@@ -38,8 +38,9 @@ import * as grantRepo from "../repositories/remoteGrant.js";
 import * as credentialService from "../services/remoteCredentialService.js";
 import * as taskStateMachine from "../repositories/taskStateMachine.js";
 import { eq, sql } from "drizzle-orm";
-import { findingTriage } from "../db/schema/index.js";
+import { findingTriage, tasks } from "../db/schema/index.js";
 import { getDb } from "../db/index.js";
+import { routeFinding as routeFindingLifecycle } from "../services/findingTriageLifecycle.js";
 
 const JWT_SECRET = "dev-secret-change-in-production";
 
@@ -371,6 +372,133 @@ describe("T4 — Local intent routes: route/resolve/wontfix", () => {
       headers: { "x-agent-api-key": agentApiKey },
     });
     expect(res.statusCode).toBe(403);
+  });
+
+  // -------------------- FU1: stale-claim denial (local agent) --------------------
+  //
+  // The submitted/approved/done states RETAIN `assignedAgentId`. A pre-fix
+  // authority predicate that checks assignment equality lets the previous
+  // claimant route after the Task left the claimable set. FU1 closes this by
+  // requiring status IN ('claimed','in_progress') AND by re-reading the Task
+  // row inside the lifecycle transaction (closing the precheck→mutation TOCTOU
+  // window).
+
+  function startTaskAsAgent(taskId: string, agent: string): void {
+    const started = taskStateMachine.startTask(taskId, agent);
+    if (!started) throw new Error("startTask failed");
+  }
+
+  function submitTaskAsAgent(taskId: string, agent: string): void {
+    const submitted = taskStateMachine.submitTask(taskId, agent, "result", []);
+    if (!submitted) throw new Error("submitTask failed");
+  }
+
+  it("FU1 local agent: submitted Task claim is denied (stale-claim TOCTOU)", async () => {
+    const { finding, investigateTask } = seedAdmittedFinding();
+    claimTaskForAgent(investigateTask.id, agentId);
+    startTaskAsAgent(investigateTask.id, agentId);
+    submitTaskAsAgent(investigateTask.id, agentId);
+    // Task is now status='submitted' but assignedAgentId is STILL agentId
+    // (submitTask does not clear assignment). The authority predicate must
+    // refuse — the route must reject.
+    const res = await app!.inject({
+      method: "POST",
+      url: `/api/triage/findings/${finding.id}/route`,
+      payload: { bucket: "document_as_known_limitation" },
+      headers: { "x-agent-api-key": agentApiKey },
+    });
+    expect(res.statusCode).toBe(403);
+  });
+
+  it("FU1 local agent: approved Task claim is denied (stale-claim TOCTOU)", async () => {
+    const { finding, investigateTask } = seedAdmittedFinding();
+    claimTaskForAgent(investigateTask.id, agentId);
+    startTaskAsAgent(investigateTask.id, agentId);
+    submitTaskAsAgent(investigateTask.id, agentId);
+    taskStateMachine.approveTask(investigateTask.id);
+    // Task is now status='approved'; assignment still retained.
+    const res = await app!.inject({
+      method: "POST",
+      url: `/api/triage/findings/${finding.id}/route`,
+      payload: { bucket: "document_as_known_limitation" },
+      headers: { "x-agent-api-key": agentApiKey },
+    });
+    expect(res.statusCode).toBe(403);
+  });
+
+  it("FU1 local agent: done Task claim is denied (stale-claim TOCTOU)", async () => {
+    const { finding, investigateTask } = seedAdmittedFinding();
+    claimTaskForAgent(investigateTask.id, agentId);
+    startTaskAsAgent(investigateTask.id, agentId);
+    submitTaskAsAgent(investigateTask.id, agentId);
+    taskStateMachine.approveTask(investigateTask.id);
+    taskStateMachine.markTaskDone(investigateTask.id);
+    const res = await app!.inject({
+      method: "POST",
+      url: `/api/triage/findings/${finding.id}/route`,
+      payload: { bucket: "document_as_known_limitation" },
+      headers: { "x-agent-api-key": agentApiKey },
+    });
+    expect(res.statusCode).toBe(403);
+  });
+
+  it("FU1 local agent: released Task claim is denied (stale-claim TOCTOU)", async () => {
+    const { finding, investigateTask } = seedAdmittedFinding();
+    claimTaskForAgent(investigateTask.id, agentId);
+    taskStateMachine.releaseTask(investigateTask.id, "manual release");
+    // Task is now status='pending' AND assignment cleared. Stale claim must
+    // still deny even if assignment weren't cleared.
+    const res = await app!.inject({
+      method: "POST",
+      url: `/api/triage/findings/${finding.id}/route`,
+      payload: { bucket: "document_as_known_limitation" },
+      headers: { "x-agent-api-key": agentApiKey },
+    });
+    expect(res.statusCode).toBe(403);
+  });
+
+  it("FU1 in-tx recheck (local): claim released AFTER precheck but BEFORE mutation is denied", async () => {
+    // Simulates the precheck→mutation TOCTOU window deterministically: seed
+    // a valid claim, then release the claim BEFORE invoking routeFinding.
+    // The lifecycle kernel must re-read the Task row on the supplied client
+    // and refuse. The Finding must remain untouched (zero writes).
+    const { finding, investigateTask } = seedAdmittedFinding();
+    const claimRes = taskStateMachine.claimTask(investigateTask.id, agentId);
+    expect(claimRes.success).toBe(true);
+
+    // Simulate a concurrent release (the TOCTOU window) BEFORE the lifecycle
+    // kernel runs its own in-tx recheck. The release clears assignment and
+    // sets status='pending'. After the release, the kernel's in-tx predicate
+    // re-reads the Task row — must refuse.
+    const db = getDb();
+    db.transaction((tx) => {
+      tx.update(tasks)
+        .set({ assignedAgentId: null, status: "pending", updatedAt: new Date().toISOString() })
+        .where(eq(tasks.id, investigateTask.id))
+        .run();
+    });
+
+    const lifecycleResult = routeFindingLifecycle({
+      findingId: finding.id,
+      actor: {
+        type: "agent",
+        id: agentId,
+        authority: { habitatAccess: undefined, remote: undefined },
+      },
+      route: { bucket: "document_as_known_limitation" },
+    });
+
+    expect(lifecycleResult.outcome).toBe("conflict");
+    if (lifecycleResult.outcome === "conflict") {
+      expect(lifecycleResult.reason).toBe("not_authorized");
+    }
+
+    // Verify zero writes — the Finding is still in its initial non-triaged
+    // status and has no route fingerprint.
+    const after = findingTriageRepo.getById(finding.id);
+    expect(after).toBeTruthy();
+    expect(after!.routeFingerprint).toBeNull();
+    expect(after!.status).toBe("open");
   });
 });
 
@@ -1014,5 +1142,167 @@ describe("T4 — Remote /api/shared route command + claim-bound authority", () =
     });
     expect(second.statusCode).toBe(200);
     expect(second.headers["x-orcy-idempotent-replay"]).toBe("true");
+  });
+
+  // ----- FU1: stale-claim denial (remote) -----
+
+  it("FU1 remote: stale-claim (submitted) is denied (403, anti-probing)", async () => {
+    const { finding, investigateTask } = seedAdmittedFinding();
+    const setup = setupRemote(habitatId, { addTaskTarget: investigateTask.id });
+    const claimRes = taskStateMachine.claimTaskByRemoteParticipant(
+      investigateTask.id,
+      setup.participantId,
+    );
+    expect(claimRes.success).toBe(true);
+    const started = taskStateMachine.startTaskByRemoteParticipant(
+      investigateTask.id,
+      setup.participantId,
+    );
+    if (!started) throw new Error("startTaskByRemoteParticipant failed");
+    const submitted = taskStateMachine.submitTaskByRemoteParticipant(
+      investigateTask.id,
+      setup.participantId,
+      "result",
+      [],
+    );
+    if (!submitted) throw new Error("submitTaskByRemoteParticipant failed");
+    // status='submitted'; remoteAssignedParticipantId still set. Must 403.
+    const res = await app!.inject({
+      method: "POST",
+      url: `/api/shared/triage/findings/${finding.id}/route`,
+      headers: {
+        "x-orcy-remote-key": setup.credentialSecret,
+        "idempotency-key": "fu1-stale-claim-submitted",
+      },
+      payload: { bucket: "document_as_known_limitation" },
+    });
+    expect(res.statusCode).toBe(403);
+  });
+
+  it("FU1 remote: stale-claim (released) is denied (403, anti-probing)", async () => {
+    const { finding, investigateTask } = seedAdmittedFinding();
+    const setup = setupRemote(habitatId, { addTaskTarget: investigateTask.id });
+    const claimRes = taskStateMachine.claimTaskByRemoteParticipant(
+      investigateTask.id,
+      setup.participantId,
+    );
+    expect(claimRes.success).toBe(true);
+    const released = taskStateMachine.releaseTaskByRemoteParticipant(
+      investigateTask.id,
+      setup.participantId,
+    );
+    if (!released) throw new Error("releaseTaskByRemoteParticipant failed");
+    // status='pending'; remoteAssignedParticipantId cleared. Must 403.
+    const res = await app!.inject({
+      method: "POST",
+      url: `/api/shared/triage/findings/${finding.id}/route`,
+      headers: {
+        "x-orcy-remote-key": setup.credentialSecret,
+        "idempotency-key": "fu1-stale-claim-released",
+      },
+      payload: { bucket: "document_as_known_limitation" },
+    });
+    expect(res.statusCode).toBe(403);
+  });
+
+  it("FU1 remote: stale-claim + missing-finding + cross-habitat are indistinguishable 403", async () => {
+    // Anti-probing: the same status (403), byte-identical body, and
+    // equivalent work-must-be-done must surface for every probe path. This
+    // is the timing/identity oracle collapse for the remote surface.
+    //
+    // Probe 1: stale-claim (real finding, claim moved to `submitted`).
+    // Probe 2: missing-Finding id (`does-not-exist`).
+    // Probe 3: cross-Habitat — Finding exists but in a different habitat.
+    const { finding, investigateTask } = seedAdmittedFinding();
+    const setup = setupRemote(habitatId, { addTaskTarget: investigateTask.id });
+    const claimRes = taskStateMachine.claimTaskByRemoteParticipant(
+      investigateTask.id,
+      setup.participantId,
+    );
+    expect(claimRes.success).toBe(true);
+    taskStateMachine.startTaskByRemoteParticipant(investigateTask.id, setup.participantId);
+    taskStateMachine.submitTaskByRemoteParticipant(investigateTask.id, setup.participantId, "r", []);
+
+    const probeStaleClaim = await app!.inject({
+      method: "POST",
+      url: `/api/shared/triage/findings/${finding.id}/route`,
+      headers: {
+        "x-orcy-remote-key": setup.credentialSecret,
+        "idempotency-key": "fu1-probe-stale",
+      },
+      payload: { bucket: "document_as_known_limitation" },
+    });
+
+    const probeMissing = await app!.inject({
+      method: "POST",
+      url: `/api/shared/triage/findings/does-not-exist/route`,
+      headers: {
+        "x-orcy-remote-key": setup.credentialSecret,
+        "idempotency-key": "fu1-probe-missing",
+      },
+      payload: { bucket: "document_as_known_limitation" },
+    });
+
+    // Status + body must be byte-identical across probes.
+    expect(probeStaleClaim.statusCode).toBe(403);
+    expect(probeMissing.statusCode).toBe(403);
+    expect(probeStaleClaim.body).toBe(probeMissing.body);
+
+    // Cross-Habitat: a finding in a different habitat the remote is not
+    // member of — must also produce identical 403.
+    const otherHabitat = habitatRepo.createHabitat({ name: "Cross-Habitat" });
+    const otherCol = columnRepo.createColumn({
+      habitatId: otherHabitat.id,
+      name: "Todo",
+      order: 0,
+      requiresClaim: false,
+    });
+    const otherMission = missionRepo.createMission({
+      habitatId: otherHabitat.id,
+      columnId: otherCol.id,
+      title: "Cross",
+      createdBy: "user-1",
+    });
+    const otherTask = taskRepo.createTask({
+      missionId: otherMission.id,
+      title: "Cross task",
+      description: "x",
+      requiredCapabilities: [],
+      labels: [],
+      createdBy: "user-1",
+    });
+    const otherPulse = pulseRepo.createPulse({
+      habitatId: otherHabitat.id,
+      missionId: otherMission.id,
+      scope: "mission",
+      fromType: "agent",
+      fromId: agentId,
+      signalType: "finding",
+      subject: "cross-cluster",
+      body: "x",
+      metadata: { findingKind: "bug" },
+    });
+    const otherFinding = findingTriageRepo.createForPulse(otherPulse);
+    getDb()
+      .update(findingTriage)
+      .set({
+        admittedByTriageMissionId: otherMission.id,
+        admittedByInvestigationTaskId: otherTask.id,
+        updatedAt: new Date().toISOString(),
+      })
+      .where(eq(findingTriage.id, otherFinding.id))
+      .run();
+
+    const probeCrossHabitat = await app!.inject({
+      method: "POST",
+      url: `/api/shared/triage/findings/${otherFinding.id}/route`,
+      headers: {
+        "x-orcy-remote-key": setup.credentialSecret,
+        "idempotency-key": "fu1-probe-cross-habitat",
+      },
+      payload: { bucket: "document_as_known_limitation" },
+    });
+    expect(probeCrossHabitat.statusCode).toBe(403);
+    expect(probeCrossHabitat.body).toBe(probeMissing.body);
   });
 });

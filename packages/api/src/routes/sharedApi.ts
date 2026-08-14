@@ -1074,6 +1074,7 @@ export async function sharedApiRoutes(fastify: FastifyInstance): Promise<void> {
       const lifecycleActor = {
         type: authResult.actor,
         id: ctx.participant.id,
+        authority: { remote: ctx },
       } as const;
 
       const outcome = routeFindingLifecycle({

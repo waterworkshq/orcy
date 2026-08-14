@@ -35,14 +35,29 @@
  * denial (HTTP anti-probing collapse vs in-tx rollback error mapping).
  */
 
-import { eq } from "drizzle-orm";
+import { eq, and } from "drizzle-orm";
 import type { TriageActorType } from "@orcy/shared";
 
 import { getDb } from "../db/index.js";
-import { tasks } from "../db/schema/index.js";
+import {
+  tasks,
+  habitats,
+  teamMembers,
+  remoteParticipants,
+  remotePods,
+} from "../db/schema/index.js";
 import type { RemoteParticipantContext } from "../middleware/remoteAuth.js";
 import type { RemoteGrantRow, RemoteGrantTargetRow } from "../repositories/remoteGrant.js";
-import { getRemoteGrantTargets } from "../repositories/remoteGrant.js";
+import {
+  getRemoteGrantTargets,
+  listRemoteGrantTargetsByGrantIds,
+} from "../repositories/remoteGrant.js";
+
+/** Supplied-client type for transaction participation (FU1 in-tx re-check). */
+export type AuthorityDbClient = ReturnType<typeof getDb>;
+
+/** Task statuses that represent an ACTIVE claim (FU1 — stale-claim defense). */
+const ACTIVE_CLAIM_STATUSES = ["claimed", "in_progress"] as const;
 
 /** The minimal pre-shape of a triage finding needed for authority checks. */
 export interface AuthorityFindingShape {
@@ -101,6 +116,39 @@ export interface HumanHabitatAccessChecker {
 }
 
 /**
+ * Real Habitat write-access checker used for the in-tx re-check (FU1).
+ *
+ * The transport precheck (`defaultHabitatAccessChecker`) returns true because
+ * the transport layer already enforced `verifyHabitatAccess`. The in-tx
+ * re-check needs its OWN real read to be race-safe — a habitat team
+ * membership can be revoked between precheck and the in-tx mutation. Mirrors
+ * `routes/triage.ts::verifyHabitatAccess` (team membership OR no-team = open)
+ * but executes on the supplied client so it observes post-`BEGIN IMMEDIATE`
+ * state.
+ */
+export function habitatAccessCheckerWithClient(
+  client: AuthorityDbClient,
+): HumanHabitatAccessChecker {
+  return {
+    userHasHabitatWriteAccess(userId: string, habitatId: string): boolean {
+      const habitat = client
+        .select({ teamId: habitats.teamId })
+        .from(habitats)
+        .where(eq(habitats.id, habitatId))
+        .get();
+      if (!habitat) return false;
+      if (!habitat.teamId) return true; // un-teamed habitats = open write
+      const member = client
+        .select({ userId: teamMembers.userId })
+        .from(teamMembers)
+        .where(and(eq(teamMembers.teamId, habitat.teamId), eq(teamMembers.userId, userId)))
+        .get();
+      return member !== undefined;
+    },
+  };
+}
+
+/**
  * Result of the route authority check.
  *
  * - `allow` — the actor may proceed to dispatch the lifecycle command.
@@ -137,6 +185,12 @@ export function checkRouteAuthority(args: {
   actor: AuthorityActor;
   access?: HumanHabitatAccessChecker;
   remote?: RemoteAuthorityActor;
+  /**
+   * Optional supplied client (FU1). When provided, all reads in the predicate
+   * use this client so the in-tx re-check observes state under the writer
+   * reservation. When omitted (transport precheck), reads use `getDb()`.
+   */
+  client?: AuthorityDbClient;
 }): RouteAuthorityResult {
   // Legacy / un-admitted rows: agent routing is forbidden. Humans with write
   // access may still route (operator repair path).
@@ -172,6 +226,7 @@ export function checkRouteAuthority(args: {
     const agentClaim = isAgentCurrentClaimantOfTask(
       args.actor.id,
       args.finding.admittedByInvestigationTaskId,
+      args.client,
     );
     if (!agentClaim) {
       return deny(
@@ -204,12 +259,19 @@ export function checkRouteAuthority(args: {
 export function checkRemoteRouteAuthority(args: {
   finding: AuthorityFindingShape;
   remote: RemoteAuthorityActor;
+  /**
+   * Optional supplied client (FU1). When provided, all reads in the predicate
+   * use this client so the in-tx re-check observes state under the writer
+   * reservation. When omitted (transport precheck), reads use `getDb()`.
+   */
+  client?: AuthorityDbClient;
 }): RouteAuthorityResult {
-  const { finding, remote } = args;
+  const { finding, remote, client } = args;
   const ctx = remote.remoteParticipant;
 
   // Standing gate: only active remote_contributor. remote_observer and grace
-  // never authorize.
+  // never authorize. The auth middleware already loaded this; re-check here so
+  // a revocation between precheck and the in-tx re-check is caught.
   if (ctx.participant.standing !== "remote_contributor") {
     return deny(
       "not_authorized",
@@ -218,12 +280,18 @@ export function checkRemoteRouteAuthority(args: {
     );
   }
 
-  // Connection gate: credential/participant/pod must all be active.
-  if (ctx.participant.status !== "active") {
-    return deny("not_authorized", "PARTICIPANT_INACTIVE", "remote participant is not active");
-  }
-  if (ctx.pod.status !== "active") {
-    return deny("not_authorized", "POD_INACTIVE", "remote pod is not active");
+  // Connection gate: credential/participant/pod must all be active. Re-check
+  // on the supplied client (when provided) so a credential/pod disconnect
+  // between precheck and the in-tx mutation is caught.
+  const liveConnection = client
+    ? recheckRemoteConnectionOnClient(client, ctx)
+    : { active: ctx.participant.status === "active" && ctx.pod.status === "active" };
+  if (!liveConnection.active) {
+    return deny(
+      "not_authorized",
+      liveConnection.code ?? "PARTICIPANT_INACTIVE",
+      "remote participant or pod is not active",
+    );
   }
 
   // Admitted-Task gate
@@ -231,10 +299,14 @@ export function checkRemoteRouteAuthority(args: {
     return deny("not_found", "NO_ADMITTED_TASK", "finding has no admitted investigation Task");
   }
 
-  // Live exact claim on the admitted Task
+  // Live exact claim on the admitted Task (re-reads on the supplied client
+  // when provided, so a claim released between precheck and the in-tx
+  // mutation is caught). The helper enforces status IN
+  // ('claimed','in_progress') — submitted/approved/done/released claims fail.
   const claimed = isRemoteParticipantCurrentClaimantOfTask(
     ctx.participant.id,
     finding.admittedByInvestigationTaskId,
+    client,
   );
   if (!claimed) {
     return deny(
@@ -246,13 +318,16 @@ export function checkRemoteRouteAuthority(args: {
 
   // Same-grant predicate: exactly one active scoped_elevation or
   // permanent_execution grant must carry BOTH `triage.route` AND an explicit
-  // allowlist target equal to the exact admitted Task id.
-  const grantResult = findSingleGrantWithBothProofs(
-    ctx.grants,
-    "triage.route",
-    "task",
-    finding.admittedByInvestigationTaskId,
-  );
+  // allowlist target equal to the exact admitted Task id. When the supplied
+  // client is provided, targets are loaded in ONE batched read so the denial
+  // path is query-count-invariant — killing the timing/identity oracle.
+  const grantResult = findSingleGrantWithBothProofs({
+    grants: ctx.grants,
+    requiredScope: "triage.route",
+    targetType: "task",
+    exactTargetId: finding.admittedByInvestigationTaskId,
+    client,
+  });
   if (!grantResult.allowed) {
     return deny("not_authorized", grantResult.code, grantResult.reason);
   }
@@ -316,30 +391,42 @@ function deny(
 /**
  * True iff the local agent is the current claimant of the given Task AND the
  * Task is in a claimable state (claimed/in_progress). Released or completed
- * Tasks return false. The lifecycle kernel's in-tx recheck uses
- * `assignedAgentId === agentId` only — claim status is re-validated via the
- * lifecycle read on the same client.
+ * Tasks return false — submitted/approved/done states RETAIN
+ * `assignedAgentId` (see `taskStateMachine.ts:368-397`), so without the status
+ * filter the helper would still pass for stale claimants (FU1 stale-claim
+ * defense).
  */
-function isAgentCurrentClaimantOfTask(agentId: string, taskId: string): boolean {
-  const db = getDb();
+function isAgentCurrentClaimantOfTask(
+  agentId: string,
+  taskId: string,
+  client?: AuthorityDbClient,
+): boolean {
+  const db = client ?? getDb();
   const row = db
     .select({ assignedAgentId: tasks.assignedAgentId, status: tasks.status })
     .from(tasks)
     .where(eq(tasks.id, taskId))
     .get();
   if (!row) return false;
-  return row.assignedAgentId === agentId;
+  return (
+    row.assignedAgentId === agentId &&
+    (ACTIVE_CLAIM_STATUSES as readonly string[]).includes(row.status)
+  );
 }
 
 /**
  * True iff the remote participant is the current claimant of the given Task
- * AND the Task is in a claimable state (claimed/in_progress).
+ * AND the Task is in a claimable state (claimed/in_progress). Same
+ * stale-claim defense as the local helper — `remoteAssignedParticipantId` is
+ * preserved across submitted/approved/done/released states in the current
+ * `taskStateMachine.ts` implementation.
  */
 function isRemoteParticipantCurrentClaimantOfTask(
   remoteParticipantId: string,
   taskId: string,
+  client?: AuthorityDbClient,
 ): boolean {
-  const db = getDb();
+  const db = client ?? getDb();
   const row = db
     .select({
       remoteAssignedParticipantId: tasks.remoteAssignedParticipantId,
@@ -349,7 +436,42 @@ function isRemoteParticipantCurrentClaimantOfTask(
     .where(eq(tasks.id, taskId))
     .get();
   if (!row) return false;
-  return row.remoteAssignedParticipantId === remoteParticipantId;
+  return (
+    row.remoteAssignedParticipantId === remoteParticipantId &&
+    (ACTIVE_CLAIM_STATUSES as readonly string[]).includes(row.status)
+  );
+}
+
+/**
+ * Re-reads participant and pod status on the supplied client so the in-tx
+ * re-check catches a credential/pod disconnect that happened between the
+ * transport precheck and the lifecycle mutation.
+ *
+ * Returns `active: true` if BOTH are still active. On failure, returns the
+ * precise reason code for logging — callers collapse to `not_authorized` on
+ * the wire (anti-probing).
+ */
+function recheckRemoteConnectionOnClient(
+  client: AuthorityDbClient,
+  ctx: RemoteParticipantContext,
+): { active: boolean; code?: string } {
+  const participant = client
+    .select({ status: remoteParticipants.status })
+    .from(remoteParticipants)
+    .where(eq(remoteParticipants.id, ctx.participant.id))
+    .get();
+  if (!participant || participant.status !== "active") {
+    return { active: false, code: "PARTICIPANT_INACTIVE" };
+  }
+  const pod = client
+    .select({ status: remotePods.status })
+    .from(remotePods)
+    .where(eq(remotePods.id, ctx.pod.id))
+    .get();
+  if (!pod || pod.status !== "active") {
+    return { active: false, code: "POD_INACTIVE" };
+  }
+  return { active: true };
 }
 
 interface GrantSearchResult {
@@ -365,14 +487,22 @@ interface GrantSearchResult {
  * explicit allowlist target equal to the exact Task id. Baseline grants,
  * rule-based grants, frozen/hard-revoked/grace grants, broader Habitat/Mission
  * targets, and split grants (action in one row, target in another) all fail.
+ *
+ * FU1: when `client` is supplied, the target query is ONE batched read across
+ * all matching grant ids (not N per-grant reads). This makes the denial path
+ * query-count-invariant — killing the timing/identity oracle that varied by
+ * grant count.
  */
-function findSingleGrantWithBothProofs(
-  grants: RemoteGrantRow[],
-  requiredScope: string,
-  targetType: "task" | "mission" | "habitat",
-  exactTargetId: string,
-): GrantSearchResult {
+function findSingleGrantWithBothProofs(args: {
+  grants: RemoteGrantRow[];
+  requiredScope: string;
+  targetType: "task" | "mission" | "habitat";
+  exactTargetId: string;
+  client?: AuthorityDbClient;
+}): GrantSearchResult {
+  const { grants, requiredScope, targetType, exactTargetId, client } = args;
   const matches: { grant: RemoteGrantRow; targets: RemoteGrantTargetRow[] }[] = [];
+  const grantIdsToFetch: string[] = [];
 
   for (const grant of grants) {
     // Only active scoped_elevation or permanent_execution grants can
@@ -394,12 +524,33 @@ function findSingleGrantWithBothProofs(
     // on snapshot/rule matching, not explicit allowlists.
     if (grant.eligibilityMode !== "allowlist") continue;
 
-    const targets = getRemoteGrantTargets(grant.id);
+    grantIdsToFetch.push(grant.id);
+  }
+
+  if (grantIdsToFetch.length === 0) {
+    return {
+      allowed: false,
+      code: "NO_SAME_GRANT_WITH_TASK_TARGET",
+      reason: "no active grant carries both triage.route scope and the exact Task allowlist target",
+    };
+  }
+
+  // FU1: ONE batched read for ALL candidate grants' targets. The denial path
+  // for "no qualifying grant" is the same query count as "one qualifying
+  // grant" — query-count-invariant. When the supplied client is provided,
+  // this is a single SELECT on the in-tx client; when it is not, the
+  // repository helper issues ONE query internally.
+  const targetsByGrantId = client
+    ? listRemoteGrantTargetsByGrantIds(client, grantIdsToFetch)
+    : Object.fromEntries(grantIdsToFetch.map((id) => [id, getRemoteGrantTargets(id)] as const));
+
+  for (const grant of grants) {
+    if (!grantIdsToFetch.includes(grant.id)) continue;
+    const targets = targetsByGrantId[grant.id] ?? [];
     const hasExactTarget = targets.some(
       (t) => t.targetType === targetType && t.targetId === exactTargetId,
     );
     if (!hasExactTarget) continue;
-
     matches.push({ grant, targets });
   }
 

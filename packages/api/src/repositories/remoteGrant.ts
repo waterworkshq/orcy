@@ -5,7 +5,7 @@ import {
   remoteGrantRules,
   remoteGrantTaskSnapshots,
 } from "../db/schema/index.js";
-import { eq, and, lt } from "drizzle-orm";
+import { eq, and, lt, inArray } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 import {
   repositoryCreateError,
@@ -291,6 +291,35 @@ export function getRemoteGrantTargets(grantId: string): RemoteGrantTargetRow[] {
     .from(remoteGrantTargets)
     .where(eq(remoteGrantTargets.grantId, grantId))
     .all();
+}
+
+/**
+ * FU1: ONE batched read across many grant ids — replaces the per-grant
+ * `getRemoteGrantTargets(grantId)` loop inside the triage authority predicate.
+ * Returns a Map keyed by grantId so the caller iterates once over candidate
+ * grants and asks the map for each one's targets. The denial path's query
+ * count becomes invariant to the number of candidate grants, killing the
+ * timing oracle.
+ *
+ * Accepts an optional supplied client so the in-tx re-check re-reads targets
+ * on the writer reservation — a grant's targets can be revoked between the
+ * transport precheck and the lifecycle mutation.
+ */
+export function listRemoteGrantTargetsByGrantIds(
+  client: ReturnType<typeof getDb>,
+  grantIds: string[],
+): Record<string, RemoteGrantTargetRow[]> {
+  if (grantIds.length === 0) return {};
+  const rows = client
+    .select(targetFields)
+    .from(remoteGrantTargets)
+    .where(inArray(remoteGrantTargets.grantId, grantIds))
+    .all();
+  const grouped: Record<string, RemoteGrantTargetRow[]> = {};
+  for (const row of rows) {
+    (grouped[row.grantId] ??= []).push(row);
+  }
+  return grouped;
 }
 
 export function removeRemoteGrantTarget(grantId: string, targetId: string): void {

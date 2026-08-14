@@ -52,18 +52,54 @@ import type {
   TriageActorType,
 } from "@orcy/shared";
 import type { ActorType, Mission, MissionEventAction } from "../models/index.js";
+import {
+  checkRouteAuthority,
+  checkRemoteRouteAuthority,
+  habitatAccessCheckerWithClient,
+  type AuthorityCheck,
+  type AuthorityDbClient,
+  type HumanHabitatAccessChecker,
+  type RemoteAuthorityActor,
+} from "./triageLifecycleAuthority.js";
+import type { RemoteParticipantContext } from "../middleware/remoteAuth.js";
 
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
 /** Supplied-client type for transaction participation. */
-type LifecycleDbClient = ReturnType<typeof getDb>;
+type LifecycleDbClient = AuthorityDbClient;
+
+/**
+ * Optional authority context for the in-tx authority re-check (FU1).
+ *
+ * - `habitatAccess` — for human actors; runs a real Habitat write check on
+ *   the supplied client (NOT the always-true `defaultHabitatAccessChecker`,
+ *   which only works because the transport layer pre-ran `verifyHabitatAccess`).
+ * - `remote` — for remote actors; supplies the full remote participant
+ *   context so the in-tx predicate re-reads participant/pod/grants/targets
+ *   on the supplied client and catches revocations between precheck and
+ *   mutation.
+ *
+ * The transport layer constructs this from the authenticated `request` and
+ * passes it through to the lifecycle kernel.
+ */
+export interface AuthorityContext {
+  habitatAccess?: HumanHabitatAccessChecker;
+  remote?: RemoteParticipantContext;
+}
 
 /** Authenticated actor for lifecycle commands. */
 export interface LifecycleActor {
   type: TriageActorType;
   id: string;
+  /**
+   * Optional authority context for the in-tx authority re-check (FU1).
+   * When `undefined`, the kernel skips the in-tx re-check — callers that
+   * bypass the transport seam (tests, internal automation) accept the
+   * absence of TOCTOU defense in exchange for simpler construction.
+   */
+  authority?: AuthorityContext;
 }
 
 /** Discriminated reasons a lifecycle command cannot proceed. */
@@ -410,6 +446,125 @@ function mapActorType(type: TriageActorType): ActorType {
 }
 
 /**
+ * FU1 — local deny helper mirroring the authority module's `deny`. Used by
+ * the in-tx predicate path inside the lifecycle kernel; keeps the kernel
+ * self-contained for denial codes without re-exporting internals.
+ */
+function deny(
+  reason: "not_authorized",
+  code: string,
+  message: string,
+): AuthorityCheck {
+  return { kind: "deny", reason, code, message };
+}
+
+// ---------------------------------------------------------------------------
+// FU1 — In-transaction supplied-client authority re-check
+// ---------------------------------------------------------------------------
+
+/**
+ * Runs the actor-bound authority predicate on the supplied client under the
+ * active `BEGIN IMMEDIATE` reservation. Closes the precheck→mutation TOCTOU
+ * window by re-reading every claim-bound proof (Task status + assignment,
+ * remote participant/pod status, grant targets) on the SAME client that
+ * performs the upcoming mutation.
+ *
+ * Returns `allow` (passes through `result.actor`) or `deny` with a `code`
+ * for logging. The kernel maps `deny` → `not_authorized` conflict with zero
+ * writes (the `ROLLBACK` discards nothing because the conflict is raised
+ * before any mutation).
+ *
+ * Caller contract: the supplied `client` MUST already be inside an open
+ * `BEGIN IMMEDIATE` transaction (i.e. running inside `withImmediateLifecycleTransaction`).
+ */
+function runInTransactionAuthorityCheck(args: {
+  finding: FindingTriage;
+  actor: LifecycleActor;
+  client: LifecycleDbClient;
+  authorityContext: AuthorityContext;
+}): AuthorityCheck {
+  const shape = {
+    id: args.finding.id,
+    habitatId: args.finding.habitatId,
+    admittedByInvestigationTaskId: args.finding.admittedByInvestigationTaskId,
+  };
+
+  // Remote actors: route through the remote predicate (credential/participant/
+  // pod + contributor standing + exact claim + ONE same-grant predicate).
+  if (args.actor.type === "remote_human" || args.actor.type === "remote_orcy") {
+    if (!args.authorityContext.remote) {
+      return deny("not_authorized", "REMOTE_CONTEXT_MISSING", "remote actor missing participant context");
+    }
+    const remoteActor: RemoteAuthorityActor = {
+      type: args.actor.type,
+      id: args.actor.id,
+      habitatId: args.finding.habitatId,
+      remoteParticipant: args.authorityContext.remote,
+    };
+    const result = checkRemoteRouteAuthority({
+      finding: shape,
+      remote: remoteActor,
+      client: args.client,
+    });
+    return result;
+  }
+
+  // Local actors: human / agent / system. The in-tx predicate re-reads the
+  // Task row AND (for humans) the team membership on the supplied client.
+  // FU1: the in-tx check ALWAYS uses the real Habitat write checker —
+  // `defaultHabitatAccessChecker` is intentionally NOT honored here because
+  // its always-true return would defeat the precheck→mutation TOCTOU
+  // defense. Tests that want a custom checker pass `authorityContext.
+  // habitatAccess` explicitly; production callers omit it and rely on the
+  // real `habitatAccessCheckerWithClient(client)`.
+  const localAccess = habitatAccessCheckerWithClient(args.client);
+  const result = checkRouteAuthority({
+    finding: shape,
+    actor: { type: args.actor.type === "human" || args.actor.type === "agent" || args.actor.type === "system" ? args.actor.type : "system", id: args.actor.id },
+    access: localAccess,
+    client: args.client,
+  });
+  return result;
+}
+
+/**
+ * FU1 — re-verifies Habitat write authority on the supplied client for
+ * human-only commands (resolveFinding / markFindingWontfix / activateCorrectiveMission).
+ * Humans re-read team membership under `BEGIN IMMEDIATE` so a revocation
+ * between the transport precheck and the mutation cannot escalate.
+ *
+ * Returns `allow` if the human still has Habitat write authority on the
+ * Finding's habitat; `deny` otherwise. Agents NEVER hold manual-command
+ * authority — the kernel short-circuits to `deny` before reaching here.
+ */
+function runInTransactionHumanManualAuthorityCheck(args: {
+  finding: FindingTriage;
+  actor: LifecycleActor;
+  client: LifecycleDbClient;
+  authorityContext?: AuthorityContext;
+}): AuthorityCheck {
+  if (args.actor.type !== "human") {
+    return deny("not_authorized", "MANUAL_HUMAN_ONLY", "manual commands are human-only");
+  }
+  // FU1: ALWAYS use the real checker (race-safe re-read on supplied client).
+  // `defaultHabitatAccessChecker` is intentionally NOT honored here. The
+  // `authorityContext.habitatAccess` override exists for tests only.
+  const access =
+    args.authorityContext?.habitatAccess ?? habitatAccessCheckerWithClient(args.client);
+  const result = checkRouteAuthority({
+    finding: {
+      id: args.finding.id,
+      habitatId: args.finding.habitatId,
+      admittedByInvestigationTaskId: args.finding.admittedByInvestigationTaskId,
+    },
+    actor: { type: "human", id: args.actor.id },
+    access,
+    client: args.client,
+  });
+  return result;
+}
+
+/**
  * Publishes SSE after a successful route command. Called AFTER the transaction
  * commits — SSE is an after-commit projection and never authority.
  */
@@ -486,6 +641,35 @@ export function routeFinding(
 
     // 4. Compute fingerprint
     const fingerprint = computeRouteFingerprint(input.route);
+
+    // 4.6 FU1 — in-transaction authority re-check. The transport precheck
+    // (`routes/triage.ts::authorizeLocalRoute` /
+    // `routes/sharedApi.ts::checkRemoteRouteAuthority`) is for UX — clean
+    // errors, not authority. The authoritative claim check runs here, on
+    // the SAME supplied client under the active `BEGIN IMMEDIATE`
+    // reservation, AFTER all pre-mutation reads (Finding + dependencies)
+    // and BEFORE replay/mutation. This closes the precheck→mutation TOCTOU
+    // window — a claim released, grant revoked, or credential disconnected
+    // between precheck and reservation still denies here.
+    //
+    // The in-tx predicate returns a single `not_authorized` conflict (no
+    // distinguishing code in the wire response — anti-probing); the
+    // internal `code` is logged for operator triage.
+    if (input.actor.authority !== undefined) {
+      const authority = runInTransactionAuthorityCheck({
+        finding,
+        actor: input.actor,
+        client,
+        authorityContext: input.actor.authority,
+      });
+      if (authority.kind === "deny") {
+        return {
+          outcome: "conflict" as const,
+          reason: "not_authorized" as ConflictReason,
+          current: authority.code,
+        };
+      }
+    }
 
     // 4.5 Validate dependencies for work-bearing routes: every id must exist
     // AND belong to the Finding's Habitat. Missing and cross-Habitat produce
@@ -702,6 +886,29 @@ function runActivationCommand(
   if (!finding) {
     return { outcome: "conflict" as const, reason: "not_found" as ConflictReason };
   }
+
+  // FU1 — in-tx Habitat write re-check (manual mode only). The Release
+  // reconciler calls this kernel in `release` mode and supplies its own
+  // authority context if needed; the pre-tx gate in
+  // `activateCorrectiveMission` already ensures the public caller is human,
+  // but the in-tx check verifies Habitat membership under the writer
+  // reservation. Release mode (`args.mode === "release"`) skips the human
+  // check — system attribution does not consult Habitat write authority.
+  if (args.mode === "manual") {
+    const authority = runInTransactionHumanManualAuthorityCheck({
+      finding,
+      actor: { type: "human", id: args.actorId, authority: undefined },
+      client,
+    });
+    if (authority.kind === "deny") {
+      return {
+        outcome: "conflict" as const,
+        reason: "not_authorized" as ConflictReason,
+        current: authority.code,
+      };
+    }
+  }
+
   if (finding.status === "resolved" || finding.status === "wontfix") {
     return {
       outcome: "conflict" as const,
@@ -1021,6 +1228,27 @@ export function resolveFinding(
       return { outcome: "conflict" as const, reason: "not_found" as ConflictReason };
     }
 
+    // FU1 — in-tx human Habitat write re-check. Humans re-read team
+    // membership on the supplied client under the writer reservation so a
+    // revocation between the transport precheck and the mutation cannot
+    // escalate. Agents NEVER hold manual-command authority — the helper
+    // short-circuits to `not_authorized`.
+    if (input.actor.authority !== undefined || input.actor.type === "human") {
+      const authority = runInTransactionHumanManualAuthorityCheck({
+        finding,
+        actor: input.actor,
+        client,
+        authorityContext: input.actor.authority,
+      });
+      if (authority.kind === "deny") {
+        return {
+          outcome: "conflict" as const,
+          reason: "not_authorized" as ConflictReason,
+          current: authority.code,
+        };
+      }
+    }
+
     // Already wontfix — cannot re-resolve
     if (finding.status === "wontfix") {
       return {
@@ -1112,6 +1340,23 @@ export function markFindingWontfix(
     const finding = getByIdWithClient(client, input.findingId);
     if (!finding) {
       return { outcome: "conflict" as const, reason: "not_found" as ConflictReason };
+    }
+
+    // FU1 — in-tx human Habitat write re-check (see `resolveFinding`).
+    if (input.actor.authority !== undefined || input.actor.type === "human") {
+      const authority = runInTransactionHumanManualAuthorityCheck({
+        finding,
+        actor: input.actor,
+        client,
+        authorityContext: input.actor.authority,
+      });
+      if (authority.kind === "deny") {
+        return {
+          outcome: "conflict" as const,
+          reason: "not_authorized" as ConflictReason,
+          current: authority.code,
+        };
+      }
     }
 
     // Already resolved — cannot change to wontfix

@@ -551,7 +551,7 @@ export async function triageRoutes(fastify: FastifyInstance): Promise<void> {
         const { actor: authActor, finding } = authorizeLocalRoute({ finding: existing, request });
         const outcome = routeFindingLifecycle({
           findingId: finding.id,
-          actor: authActor,
+          actor: { ...authActor, authority: {} },
           route: routePayload,
         });
         const updated = mapLifecycleOutcome(outcome, reply, {
@@ -744,7 +744,7 @@ export async function triageRoutes(fastify: FastifyInstance): Promise<void> {
 
       const outcome = routeFindingLifecycle({
         findingId: finding.id,
-        actor,
+        actor: { ...actor, authority: {} },
         route: parsed.data,
       });
       const updated = mapLifecycleOutcome(outcome, reply, {
@@ -809,7 +809,7 @@ export async function triageRoutes(fastify: FastifyInstance): Promise<void> {
       }
       const outcome = activateCorrectiveMissionLifecycle({
         findingId: existing.id,
-        actor: lifecycleActor,
+        actor: { ...lifecycleActor, authority: {} },
         expectedMissionVersion: parsed.data.expectedMissionVersion,
       });
       const activation = mapLifecycleOutcome(outcome, reply, {
@@ -859,7 +859,7 @@ export async function triageRoutes(fastify: FastifyInstance): Promise<void> {
       }
       const outcome = resolveFindingLifecycle({
         findingId: existing.id,
-        actor: lifecycleActor,
+        actor: { ...lifecycleActor, authority: {} },
         resolution: parsed.data.resolution,
         resolutionKind: parsed.data.resolutionKind,
         rootCause: parsed.data.rootCause,
@@ -909,7 +909,7 @@ export async function triageRoutes(fastify: FastifyInstance): Promise<void> {
       }
       const outcome = markFindingWontfixLifecycle({
         findingId: existing.id,
-        actor: lifecycleActor,
+        actor: { ...lifecycleActor, authority: {} },
         reason: parsed.data.reason,
       });
       const updated = mapLifecycleOutcome(outcome, reply, {
