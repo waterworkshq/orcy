@@ -135,11 +135,7 @@ export interface InvestigationRoute {
 }
 
 /** Discriminated union of all route payloads. */
-export type RoutePayload =
-  | FixNowRoute
-  | DeferredRoute
-  | NoWorkRoute
-  | InvestigationRoute;
+export type RoutePayload = FixNowRoute | DeferredRoute | NoWorkRoute | InvestigationRoute;
 
 /** Input accepted by {@link routeFinding}. */
 export interface RouteFindingInput {
@@ -200,10 +196,16 @@ export interface ReleaseActivateInput {
   findingId: string;
   /** Persisted Release identity; attribution on every activated row. */
   releaseId: string;
-  /** Proof the Mission's gate is satisfied by this Release's history. */
+  /**
+   * Proof the Mission's gate is satisfied by this Release's history. The
+   * version is `string | null` because a Mission gate may be type-only
+   * (e.g. `releaseGateType: "minor"` with no pinned version) — the kernel
+   * compares the proof against the LIVE gate with strict equality, so a
+   * type-only gate requires a type-only proof.
+   */
   gateProof: {
-    releaseGateType: "patch" | "minor" | "major";
-    releaseGateVersion: string;
+    releaseGateType: "patch" | "minor" | "major" | null;
+    releaseGateVersion: string | null;
   };
 }
 
@@ -237,7 +239,11 @@ function isLifecycleBusyError(err: unknown): boolean {
   const cause = (err as { cause?: unknown }).cause;
   if (cause instanceof Error) {
     const causeCode = (cause as { code?: string }).code;
-    if (causeCode === "SQLITE_BUSY" || causeCode === "SQLITE_BUSY_RECOVERY" || causeCode === "SQLITE_LOCKED") {
+    if (
+      causeCode === "SQLITE_BUSY" ||
+      causeCode === "SQLITE_BUSY_RECOVERY" ||
+      causeCode === "SQLITE_LOCKED"
+    ) {
       return true;
     }
     if (/SQLITE_BUSY/i.test(cause.message)) return true;
@@ -390,7 +396,11 @@ export function computeRouteFingerprint(route: RoutePayload): string {
 
 /** True for routes that create a corrective Mission (fix_now, deferred). */
 function isWorkBearingRoute(route: RoutePayload): boolean {
-  return route.bucket === "fix_now" || route.bucket === "defer_to_patch" || route.bucket === "defer_to_release";
+  return (
+    route.bucket === "fix_now" ||
+    route.bucket === "defer_to_patch" ||
+    route.bucket === "defer_to_release"
+  );
 }
 
 /** Maps {@link TriageActorType} to the event-store {@link ActorType}. */
@@ -402,7 +412,12 @@ function mapActorType(type: TriageActorType): ActorType {
  * Publishes SSE after a successful route command. Called AFTER the transaction
  * commits — SSE is an after-commit projection and never authority.
  */
-function publishRouteSse(habitatId: string, findingId: string, status: FindingTriageStatus, bucket: SuggestedBucket): void {
+function publishRouteSse(
+  habitatId: string,
+  findingId: string,
+  status: FindingTriageStatus,
+  bucket: SuggestedBucket,
+): void {
   sseBroadcaster.publish(habitatId, {
     type: "triage.finding_updated",
     data: { habitatId, findingId, status, bucket },
@@ -412,7 +427,11 @@ function publishRouteSse(habitatId: string, findingId: string, status: FindingTr
 /**
  * Publishes SSE after a successful terminal command.
  */
-function publishTerminalSse(habitatId: string, findingId: string, status: FindingTriageStatus): void {
+function publishTerminalSse(
+  habitatId: string,
+  findingId: string,
+  status: FindingTriageStatus,
+): void {
   sseBroadcaster.publish(habitatId, {
     type: "triage.finding_updated",
     data: { habitatId, findingId, status, bucket: null },
@@ -522,7 +541,10 @@ export function routeFinding(
           routeBucket: input.route.bucket,
         },
       });
-    } else if (input.route.bucket === "defer_to_patch" || input.route.bucket === "defer_to_release") {
+    } else if (
+      input.route.bucket === "defer_to_patch" ||
+      input.route.bucket === "defer_to_release"
+    ) {
       const mission = createMissionWithClient(client, {
         habitatId: finding.habitatId,
         title: input.route.missionTitle,
@@ -551,7 +573,8 @@ export function routeFinding(
     }
 
     // 7. Write Finding route state
-    const newStatus: FindingTriageStatus = input.route.bucket === "fix_now" ? "in_progress" : "triaged";
+    const newStatus: FindingTriageStatus =
+      input.route.bucket === "fix_now" ? "in_progress" : "triaged";
     const now = new Date().toISOString();
 
     const update: RouteUpdate = {
@@ -576,7 +599,12 @@ export function routeFinding(
 
   // After-commit SSE projection
   if (outcome.outcome === "applied" || outcome.outcome === "replayed") {
-    publishRouteSse(outcome.value.habitatId, outcome.value.id, outcome.value.status, outcome.value.bucket ?? "needs_investigation");
+    publishRouteSse(
+      outcome.value.habitatId,
+      outcome.value.id,
+      outcome.value.status,
+      outcome.value.bucket ?? "needs_investigation",
+    );
   }
 
   return outcome;
@@ -706,9 +734,7 @@ function runActivationCommand(
   // Homogeneous group: EVERY linked non-terminal Finding must be `triaged`
   // and eligible as ONE group. Mixed states or partial eligibility reject
   // with zero writes — activation is all-or-none over the shared Mission.
-  const ineligible = group.filter(
-    (f) => f.status !== "triaged" || f.legacyLineageRepairRequired,
-  );
+  const ineligible = group.filter((f) => f.status !== "triaged" || f.legacyLineageRepairRequired);
   if (ineligible.length > 0) {
     return {
       outcome: "conflict" as const,
@@ -791,12 +817,9 @@ function runActivationCommand(
       ...(args.releaseId !== null ? { releaseId: args.releaseId } : {}),
       priorGate,
       changedFields:
-        args.mode === "manual"
-          ? ["releaseGateType", "releaseGateVersion", "version"]
-          : ["version"],
+        args.mode === "manual" ? ["releaseGateType", "releaseGateVersion", "version"] : ["version"],
     },
   });
-
 
   // Activate the complete eligible group in ONE atomic statement.
   const now = new Date().toISOString();
@@ -909,6 +932,36 @@ export function activateCorrectiveMissionForRelease(
   return outcome;
 }
 
+/**
+ * Reserved-client Release-mode kernel entry for the T7 epoch reconciler.
+ *
+ * Runs the SAME activation kernel (`runActivationCommand`) on a client that
+ * ALREADY holds the writer reservation (an outer `BEGIN IMMEDIATE` opened by
+ * the reconciler's per-group transaction) — no nested transaction is opened,
+ * so the kernel's writes and the epoch group's disposition commit atomically
+ * in the caller's transaction. The caller owns retry/busy mapping and SSE
+ * publication (SSE is an after-commit projection, never authority).
+ *
+ * @internal NOT HTTP-reachable; callable only from the Release reconciler.
+ */
+export function runReleaseActivationOnReservedClient(
+  client: LifecycleDbClient,
+  input: ReleaseActivateInput,
+):
+  | { outcome: "applied"; value: ActivationResult }
+  | { outcome: "replayed"; value: ActivationResult }
+  | { outcome: "conflict"; reason: ConflictReason; current?: unknown } {
+  return runActivationCommand(client, {
+    findingId: input.findingId,
+    mode: "release",
+    actorType: "system",
+    actorId: input.releaseId,
+    expectedMissionVersion: null,
+    releaseId: input.releaseId,
+    gateProof: input.gateProof,
+  });
+}
+
 // ---------------------------------------------------------------------------
 // resolveFinding
 // ---------------------------------------------------------------------------
@@ -929,7 +982,11 @@ export function resolveFinding(
     return { outcome: "conflict", reason: "not_authorized", current: "resolve is human-only" };
   }
   if (!input.resolution || input.resolution.trim().length === 0) {
-    return { outcome: "conflict", reason: "invalid_input", current: "non-empty resolution text required" };
+    return {
+      outcome: "conflict",
+      reason: "invalid_input",
+      current: "non-empty resolution text required",
+    };
   }
 
   const outcome = withImmediateLifecycleTransaction<FindingTriage>((client) => {

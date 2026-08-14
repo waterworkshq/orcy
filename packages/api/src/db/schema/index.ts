@@ -118,7 +118,16 @@ export {
   triagePublicationOccurrences,
   migrationPreflightAttestations,
 } from "./triage.js";
-export { releases } from "./release.js";
+export {
+  releases,
+  releaseProjectionDeliveries,
+  releaseActivationEpochs,
+  releaseActivationEpochGroups,
+  RELEASE_PROJECTION_KINDS,
+  type ReleaseProjectionKind,
+  EPOCH_GROUP_DISPOSITIONS,
+  type EpochGroupDisposition,
+} from "./release.js";
 export {
   pluginEnrollments,
   pluginRuns,

@@ -302,6 +302,13 @@
       "when": 1786210282000,
       "tag": "0066_automation_revision_inbox",
       "breakpoints": true
+    },
+    {
+      "idx": 43,
+      "version": "6",
+      "when": 1786296682000,
+      "tag": "0067_release_projection_epochs",
+      "breakpoints": true
     }
   ]
 }

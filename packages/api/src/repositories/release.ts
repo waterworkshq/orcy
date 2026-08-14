@@ -27,7 +27,8 @@ export interface CreateReleaseInput {
   metadata?: Record<string, unknown>;
 }
 
-function rowToRelease(row: Record<string, unknown>): Release {
+/** Maps a raw `releases` row to the projected {@link Release} (shared with the T7 projection repo). */
+export function rowToRelease(row: Record<string, unknown>): Release {
   return {
     id: row.id as string,
     habitatId: row.habitatId as string,
