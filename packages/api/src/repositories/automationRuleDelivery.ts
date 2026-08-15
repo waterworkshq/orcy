@@ -153,7 +153,7 @@ export function getInboxById(
 
 export function listInboxEntriesForHabitat(
   habitatId: string,
-  options?: { state?: "pending" | "terminal" },
+  options?: { state?: "pending" | "terminal"; limit?: number; offset?: number },
 ): AutomationEventInboxRow[] {
   const db = getDb();
   const conditions = [eq(automationEventInbox.habitatId, habitatId)];
@@ -163,7 +163,8 @@ export function listInboxEntriesForHabitat(
     .from(automationEventInbox)
     .where(and(...conditions))
     .orderBy(sql`${automationEventInbox.admittedAt} DESC`)
-    .limit(100)
+    .limit(options?.limit ?? 100)
+    .offset(options?.offset ?? 0)
     .all() as unknown as AutomationEventInboxRow[];
 }
 

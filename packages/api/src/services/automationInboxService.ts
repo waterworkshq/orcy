@@ -783,9 +783,12 @@ export function getInboxOverview(inboxId: string): InboxOverview | null {
 }
 
 /** List inbox entries for a habitat with per-delivery attention visibility. */
-export function listHabitatInbox(habitatId: string): InboxOverview[] {
+export function listHabitatInbox(
+  habitatId: string,
+  paging?: { limit?: number; offset?: number },
+): InboxOverview[] {
   return deliveryRepo
-    .listInboxEntriesForHabitat(habitatId)
+    .listInboxEntriesForHabitat(habitatId, paging)
     .map((inbox) => getInboxOverview(inbox.id))
     .filter((o): o is InboxOverview => o !== null);
 }

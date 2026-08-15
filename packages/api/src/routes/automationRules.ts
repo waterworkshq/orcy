@@ -19,7 +19,7 @@ import { agentHasHabitatWork, checkHabitatOwnership } from "../services/automati
 import { humanAuth } from "../middleware/auth.js";
 import { requireHabitatAccess } from "../middleware/team.js";
 import { checkHabitatAccess } from "../middleware/realtimeAuth.js";
-import { notFound, badRequest } from "../errors.js";
+import { notFound, badRequest, conflict } from "../errors.js";
 import type { AutomationTargetType } from "@orcy/shared";
 
 // CS-56 T2 & LL-RM-1: every rule boundary uses strict discriminated schemas
@@ -352,12 +352,26 @@ export async function automationRoutes(fastify: FastifyInstance): Promise<void> 
   });
 
   // Inbox + delivery visibility for a habitat (attention_required must be
-  // visible — it is NOT success).
-  fastify.get<{ Params: { habitatId: string } }>(
+  // visible — it is NOT success). Pagination is explicit: older
+  // attention-required work beyond the newest page stays reachable instead
+  // of silently disappearing.
+  fastify.get<{ Params: { habitatId: string }; Querystring: { limit?: string; offset?: string } }>(
     "/habitats/:habitatId/automation-inbox",
     { preHandler: [humanAuth, requireHabitatAccess] },
     async (request, _reply) => {
-      return inboxService.listHabitatInbox(request.params.habitatId);
+      const paging = z
+        .object({
+          limit: z.coerce.number().int().min(1).max(500).optional(),
+          offset: z.coerce.number().int().min(0).optional(),
+        })
+        .safeParse(request.query ?? {});
+      if (!paging.success) {
+        throw badRequest("Validation failed", paging.error.flatten());
+      }
+      return inboxService.listHabitatInbox(request.params.habitatId, {
+        limit: paging.data.limit,
+        offset: paging.data.offset,
+      });
     },
   );
 
@@ -381,7 +395,7 @@ export async function automationRoutes(fastify: FastifyInstance): Promise<void> 
       });
       if (result.outcome === "not_found") throw notFound("Delivery not found");
       if (result.outcome === "conflict") {
-        throw badRequest(
+        throw conflict(
           `Delivery is not attention_required (current state: ${result.state}) — waive applies only after external reconciliation of an attention delivery`,
         );
       }
@@ -421,7 +435,7 @@ export async function automationRoutes(fastify: FastifyInstance): Promise<void> 
         );
       }
       if (result.outcome === "conflict") {
-        throw badRequest(
+        throw conflict(
           `Delivery cannot branch a successor from its current state (${result.state}) — only the latest attention_required generation may`,
         );
       }
