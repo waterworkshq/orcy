@@ -133,7 +133,9 @@ interface TriageWorldIds {
  * active finding also carries investigation provenance (a separate admitting
  * Mission + investigation Task) so the enforcement provenance FKs have live
  * references. No finding_triage_evidence rows are seeded here — evidence
- * rows intentionally live only in tests that do not delete the habitat.
+ * rows are inserted post-enforcement by the tests that need them (including
+ * the habitat-cascade discriminator, which deletes the habitat with
+ * evidence rows present).
  */
 function seedCleanTriageWorld(dbPath: string, prefix: string): TriageWorldIds {
   const db = new Database(dbPath);
@@ -611,6 +613,45 @@ describe("Staged enforcement — production initDb discriminators", () => {
       raw.close();
     });
 
+    it("cascades evidence rows on habitat deletion while direct Pulse/Finding deletion still RESTRICT-fails", async () => {
+      const ids = await enforced("hc");
+      const now = new Date().toISOString();
+      const raw = openRaw(dbPath);
+      // Evidence on the active finding (source pulse) and a corroborating
+      // pulse from the same habitat.
+      raw
+        .prepare(
+          `INSERT INTO pulses (id, habitat_id, from_type, from_id, signal_type, subject, metadata)
+           VALUES ('hc-cor-pulse', ?, 'agent', 'system', 'finding', 'hc-ft-0', '{}')`,
+        )
+        .run(ids.habitatId);
+      const insertEvidence = raw.prepare(
+        `INSERT INTO finding_triage_evidence
+           (finding_triage_id, pulse_id, habitat_id, role, admitted_at)
+         VALUES (?, ?, ?, ?, ?)`,
+      );
+      insertEvidence.run("hc-ft-0", ids.pulseId, ids.habitatId, "source", now);
+      insertEvidence.run("hc-ft-0", "hc-cor-pulse", ids.habitatId, "corroborating", now);
+
+      // Direct Pulse/Finding deletion still RESTRICT-fails (shipped invariant).
+      expect(() => raw.prepare("DELETE FROM pulses WHERE id = ?").run(ids.pulseId)).toThrow(
+        /FOREIGN KEY/i,
+      );
+      expect(() =>
+        raw.prepare("DELETE FROM finding_triage WHERE id = ?").run("hc-ft-0"),
+      ).toThrow(/FOREIGN KEY/i);
+
+      // Habitat deletion now SUCCEEDS: evidence rows cascade away on their
+      // own habitat path instead of aborting the finding/pulse cascades.
+      raw.prepare("DELETE FROM habitats WHERE id = ?").run(ids.habitatId);
+      expect((raw.prepare("SELECT COUNT(*) as n FROM finding_triage").get() as any).n).toBe(0);
+      expect((raw.prepare("SELECT COUNT(*) as n FROM finding_triage_evidence").get() as any).n).toBe(
+        0,
+      );
+      expect((raw.prepare("SELECT COUNT(*) as n FROM pulses").get() as any).n).toBe(0);
+      raw.close();
+    });
+
     it("rejects deleting the admitting Mission/Task referenced via investigation provenance on BOTH rebuilt tables", async () => {
       const ids = await enforced("pk");
       const now = new Date().toISOString();
@@ -645,10 +686,10 @@ describe("Staged enforcement — production initDb discriminators", () => {
       raw
         .prepare(
           `INSERT INTO finding_triage_evidence
-             (finding_triage_id, pulse_id, role, admitted_by_triage_mission_id, admitted_by_investigation_task_id, admitted_at)
-           VALUES (?, ?, 'source', ?, ?, ?)`,
+             (finding_triage_id, pulse_id, habitat_id, role, admitted_by_triage_mission_id, admitted_by_investigation_task_id, admitted_at)
+           VALUES (?, ?, ?, 'source', ?, ?, ?)`,
         )
-        .run("pk-ft-0", ids.pulseId, evMission, evTask, now);
+        .run("pk-ft-0", ids.pulseId, ids.habitatId, evMission, evTask, now);
 
       // finding_triage provenance FKs (references from the active finding).
       expect(() =>

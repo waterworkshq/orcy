@@ -966,6 +966,16 @@ export function appendEvidenceWithClient(
   const fresh = input.pulseIds.filter((id) => !before.has(id));
   if (fresh.length === 0) return { appendedPulseIds: [] };
 
+  // habitat_id is the habitat-cascade anchor on evidence rows: always the
+  // referenced finding's habitat (derived here, never caller-supplied), so
+  // deleting the habitat cascades evidence away alongside its finding.
+  const finding = client
+    .select({ habitatId: findingTriage.habitatId })
+    .from(findingTriage)
+    .where(eq(findingTriage.id, input.findingTriageId))
+    .get();
+  if (!finding) throw repositoryNotFoundError("findingTriage", input.findingTriageId);
+
   try {
     client
       .insert(findingTriageEvidence)
@@ -973,6 +983,7 @@ export function appendEvidenceWithClient(
         fresh.map((pulseId) => ({
           findingTriageId: input.findingTriageId,
           pulseId,
+          habitatId: finding.habitatId,
           role: input.role,
           admittedByTriageMissionId: input.admittedByTriageMissionId ?? null,
           admittedByInvestigationTaskId: input.admittedByInvestigationTaskId ?? null,

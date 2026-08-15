@@ -1,4 +1,4 @@
-import { sqliteTable, text, integer, index, uniqueIndex } from "drizzle-orm/sqlite-core";
+import { sqliteTable, text, integer, index, uniqueIndex, check } from "drizzle-orm/sqlite-core";
 import { sql } from "drizzle-orm";
 import { habitats } from "./habitat.js";
 
@@ -131,6 +131,7 @@ export const automationEventInbox = sqliteTable(
   (table) => [
     uniqueIndex("uq_automation_event_inbox_identity").on(table.eventType, table.eventId),
     index("idx_automation_event_inbox_habitat").on(table.habitatId, table.state),
+    check("automation_event_inbox_state_check", sql`state IN ('pending', 'terminal')`),
   ],
 );
 
@@ -179,6 +180,10 @@ export const automationRuleDeliveries = sqliteTable(
     index("idx_automation_rule_deliveries_drain").on(table.state, table.leaseExpiresAt),
     index("idx_automation_rule_deliveries_rule").on(table.ruleId),
     index("idx_automation_rule_deliveries_predecessor").on(table.predecessorDeliveryId),
+    check(
+      "automation_rule_deliveries_state_check",
+      sql`state IN ('pending', 'leased', 'terminal', 'attention_required', 'waived')`,
+    ),
   ],
 );
 
@@ -209,6 +214,10 @@ export const automationDeliveryActionCheckpoints = sqliteTable(
   (table) => [
     uniqueIndex("uq_automation_delivery_checkpoints_index").on(table.deliveryId, table.actionIndex),
     index("idx_automation_delivery_checkpoints_delivery").on(table.deliveryId, table.actionIndex),
+    check(
+      "automation_delivery_checkpoints_state_check",
+      sql`state IN ('pending', 'proved', 'failed')`,
+    ),
   ],
 );
 
@@ -229,7 +238,10 @@ export const automationDeliveryDispositions = sqliteTable(
     outcome: text("outcome").notNull(),
     createdAt: text("created_at").notNull().default("(datetime('now'))"),
   },
-  (table) => [index("idx_automation_delivery_dispositions_delivery").on(table.deliveryId)],
+  (table) => [
+    index("idx_automation_delivery_dispositions_delivery").on(table.deliveryId),
+    check("automation_delivery_dispositions_kind_check", sql`kind IN ('waive', 'successor_generation')`),
+  ],
 );
 
 /**

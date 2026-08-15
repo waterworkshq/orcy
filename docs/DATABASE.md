@@ -2133,7 +2133,7 @@ Finding triage lifecycle record. Tracks an engineering finding's routing lifecyc
 
 `triage_resolutions` gains the partial UNIQUE `(source, source_id)` WHERE `source = 'finding_triage'` (`idx_triage_resolutions_finding_source`, migration `0068`) — one Resolution Record per Finding. Cluster Resolution (`source='cluster_triage'`) is deliberately unchanged (ADR-0048 out-of-scope).
 
-`finding_triage_evidence` FKs (finding + pulse) convert CASCADE → RESTRICT in `0068` — referenced Pulse or Finding deletion can no longer cascade away terminal evidence.
+`finding_triage_evidence` FKs (finding + pulse) convert CASCADE → RESTRICT in `0068` — referenced Pulse or Finding deletion can no longer cascade away terminal evidence. The table also carries `habitat_id NOT NULL REFERENCES habitats(id) ON DELETE CASCADE` (added in `0064`/`0068` before release): habitat deletion cascades evidence cleanly (evidence rows sit later in `sqlite_master` than `finding_triage`, guaranteed by the `0068` rebuild order, so the evidence habitat-cascade fires before the RESTRICT chain), while direct Pulse/Finding deletion stays restricted. The `admitted_by_*` provenance columns are RESTRICT-referenced to `missions(id)`/`tasks(id)` (`0068`). Writers derive `habitat_id` from the Finding row (`appendEvidenceWithClient`) — it is never caller-supplied.
 
 #### `triage_resolutions`
 

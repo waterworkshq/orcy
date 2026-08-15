@@ -1,6 +1,15 @@
-import { sqliteTable, text, integer, index } from "drizzle-orm/sqlite-core";
+import {
+  sqliteTable,
+  text,
+  integer,
+  index,
+  uniqueIndex,
+  primaryKey,
+  check,
+} from "drizzle-orm/sqlite-core";
 import { sql } from "drizzle-orm";
 import { habitats, missions } from "./habitat.js";
+import { tasks } from "./task.js";
 import { pulses } from "./pulse.js";
 import { SUGGESTED_BUCKETS } from "@orcy/shared";
 
@@ -45,10 +54,17 @@ export const findingTriage = sqliteTable(
     corroboratingPulseIds: text("corroborating_pulse_ids"),
 
     // --- Restored lifecycle additive provenance/lineage/activation fields ---
-    /** Bounded Triage Mission identity for the investigation (distinct from corrective work). */
-    admittedByTriageMissionId: text("admitted_by_triage_mission_id"),
-    /** Exact Task whose live claim authorizes agent routing. */
-    admittedByInvestigationTaskId: text("admitted_by_investigation_task_id"),
+    /** Bounded Triage Mission identity for the investigation (distinct from corrective work).
+     * RESTRICT since 0068 enforcement. */
+    admittedByTriageMissionId: text("admitted_by_triage_mission_id").references(() => missions.id, {
+      onDelete: "restrict",
+    }),
+    /** Exact Task whose live claim authorizes agent routing.
+     * RESTRICT since 0068 enforcement. */
+    admittedByInvestigationTaskId: text("admitted_by_investigation_task_id").references(
+      () => tasks.id,
+      { onDelete: "restrict" },
+    ),
     /** Nullable predecessor link; traversal defines the complete lineage. */
     recurrenceOfId: text("recurrence_of_id"),
     /** Blocks automatic recurrence/agent mutation for ambiguous migrated lineage. */
@@ -98,6 +114,15 @@ export const findingTriage = sqliteTable(
     index("idx_finding_triage_pulse").on(table.pulseId),
     index("idx_finding_triage_dedup").on(table.habitatId, table.clusterKey, table.findingKind),
     index("idx_finding_triage_mission").on(table.triageMissionId),
+    index("idx_finding_triage_admitted_triage_mission").on(table.admittedByTriageMissionId),
+    index("idx_finding_triage_admitted_investigation_task").on(table.admittedByInvestigationTaskId),
+    index("idx_finding_triage_recurrence").on(table.recurrenceOfId),
+    index("idx_finding_triage_lineage_repair").on(table.legacyLineageRepairRequired),
+    // Enforcement (0068): at most one ACTIVE lifecycle record per
+    // (habitat, cluster, kind); terminal states fall out of the unique key.
+    uniqueIndex("idx_finding_triage_active_identity")
+      .on(table.habitatId, table.clusterKey, table.findingKind)
+      .where(sql`status NOT IN ('resolved', 'wontfix')`),
   ],
 );
 
@@ -151,6 +176,11 @@ export const triageResolutions = sqliteTable(
   (table) => [
     index("idx_triage_resolutions_habitat_cluster").on(table.habitatId, table.clusterKey),
     index("idx_triage_resolutions_source").on(table.source, table.sourceId),
+    // Enforcement (0068): at most one Finding-source Resolution Record per
+    // finding; Cluster Resolution (source='cluster_triage') is unchanged.
+    uniqueIndex("idx_triage_resolutions_finding_source")
+      .on(table.source, table.sourceId)
+      .where(sql`source = 'finding_triage'`),
   ],
 );
 
@@ -196,7 +226,10 @@ export const triageClusterMissions = sqliteTable(
  * Authoritative membership store. Each row links a finding triage record to a
  * Pulse with a role classifying the relationship. FKs are RESTRICT since the
  * 0068 enforcement migration — referenced Pulse/Finding deletion cannot
- * cascade away terminal evidence.
+ * cascade away terminal evidence. `habitatId` (always the referenced
+ * finding's habitat) is the habitat-cascade anchor: deleting the habitat
+ * cascades evidence rows away by their own path instead of aborting on the
+ * RESTRICT FKs.
  */
 export const findingTriageEvidence = sqliteTable(
   "finding_triage_evidence",
@@ -210,20 +243,33 @@ export const findingTriageEvidence = sqliteTable(
       // RESTRICT since the 0068 enforcement migration: deleting the source
       // Pulse of a Finding row can no longer cascade away lifecycle history.
       .references(() => pulses.id, { onDelete: "restrict" }),
+    habitatId: text("habitat_id")
+      .notNull()
+      .references(() => habitats.id, { onDelete: "cascade" }),
     role: text("role", {
       enum: ["source", "corroborating", "legacy_observed"],
     }).notNull(),
-    admittedByTriageMissionId: text("admitted_by_triage_mission_id"),
-    admittedByInvestigationTaskId: text("admitted_by_investigation_task_id"),
+    admittedByTriageMissionId: text("admitted_by_triage_mission_id").references(() => missions.id, {
+      onDelete: "restrict",
+    }),
+    admittedByInvestigationTaskId: text("admitted_by_investigation_task_id").references(
+      () => tasks.id,
+      { onDelete: "restrict" },
+    ),
     admittedAt: text("admitted_at"),
     createdAt: text("created_at")
       .notNull()
       .default(sql`(datetime('now'))`),
   },
   (table) => [
+    primaryKey({ columns: [table.findingTriageId, table.pulseId] }),
     index("idx_finding_triage_evidence_finding").on(table.findingTriageId),
     index("idx_finding_triage_evidence_pulse").on(table.pulseId),
     index("idx_finding_triage_evidence_role").on(table.role),
+    check(
+      "finding_triage_evidence_role_check",
+      sql`role IN ('source', 'corroborating', 'legacy_observed')`,
+    ),
   ],
 );
 
@@ -275,6 +321,10 @@ export const findingTriageLineageRepairs = sqliteTable(
       table.clusterKey,
       table.findingKind,
     ),
+    check(
+      "finding_triage_lineage_repairs_mode_check",
+      sql`mode IN ('predecessor_mapping', 'evidence_baselined_root')`,
+    ),
   ],
 );
 
@@ -295,7 +345,10 @@ export const findingTriageLineageBaselineEvidence = sqliteTable(
       .notNull()
       .default(sql`(datetime('now'))`),
   },
-  (table) => [index("idx_finding_triage_baseline_repair").on(table.repairId)],
+  (table) => [
+    primaryKey({ columns: [table.repairId, table.pulseId] }),
+    index("idx_finding_triage_baseline_repair").on(table.repairId),
+  ],
 );
 
 /**
@@ -364,5 +417,5 @@ export const migrationPreflightAttestations = sqliteTable(
       .notNull()
       .default(sql`(datetime('now'))`),
   },
-  (table) => [],
+  (table) => [primaryKey({ columns: [table.enforcementMigrationId, table.schemaVersion] })],
 );

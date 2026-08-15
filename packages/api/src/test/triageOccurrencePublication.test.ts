@@ -528,10 +528,10 @@ describe("admission matrix (sequential intake calls)", () => {
           VALUES ('f-c', ${habitatId}, ${c1.id}, ${CLUSTER_KEY}, 'sec', 'resolved', '[]', '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z', '2026-01-02T00:00:00Z')`,
     );
     db.run(
-      sql`INSERT INTO finding_triage_evidence (finding_triage_id, pulse_id, role, admitted_at) VALUES ('f-b', ${b1.id}, 'source', '2026-01-01T00:00:00Z')`,
+      sql`INSERT INTO finding_triage_evidence (finding_triage_id, pulse_id, habitat_id, role, admitted_at) VALUES ('f-b', ${b1.id}, ${habitatId}, 'source', '2026-01-01T00:00:00Z')`,
     );
     db.run(
-      sql`INSERT INTO finding_triage_evidence (finding_triage_id, pulse_id, role, admitted_at) VALUES ('f-c', ${c1.id}, 'source', '2026-01-01T00:00:00Z')`,
+      sql`INSERT INTO finding_triage_evidence (finding_triage_id, pulse_id, habitat_id, role, admitted_at) VALUES ('f-c', ${c1.id}, ${habitatId}, 'source', '2026-01-01T00:00:00Z')`,
     );
 
     // New window: A pulses (new identity), one more B pulse (corroboration),

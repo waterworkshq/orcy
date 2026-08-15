@@ -39,10 +39,14 @@ CREATE INDEX IF NOT EXISTS idx_finding_triage_lineage_repair
   ON finding_triage(legacy_lineage_repair_required);
 --> statement-breakpoint
 
--- finding_triage_evidence: normalized Finding-Pulse evidence membership
+-- finding_triage_evidence: normalized Finding-Pulse evidence membership.
+-- habitat_id anchors the app-wide habitat-cascade convention: it is derived
+-- from the referenced finding's habitat and lets habitat deletion cascade
+-- evidence rows away alongside their findings.
 CREATE TABLE IF NOT EXISTS finding_triage_evidence (
   finding_triage_id TEXT NOT NULL REFERENCES finding_triage(id) ON DELETE CASCADE,
   pulse_id TEXT NOT NULL REFERENCES pulses(id) ON DELETE CASCADE,
+  habitat_id TEXT NOT NULL REFERENCES habitats(id) ON DELETE CASCADE,
   role TEXT NOT NULL CHECK (role IN ('source', 'corroborating', 'legacy_observed')),
   admitted_by_triage_mission_id TEXT,
   admitted_by_investigation_task_id TEXT,

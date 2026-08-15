@@ -23,9 +23,15 @@
 --      missions, admitted_by_investigation_task_id → tasks on BOTH rebuilt
 --      tables) convert from CASCADE/SET NULL/unreferenced TEXT to RESTRICT
 --      so referenced Pulse/Mission/Task deletion can no longer erase
---      terminal evidence or provenance. Service-level guards
+--      terminal evidence or provenance. Direct Pulse/Finding deletion still
+--      RESTRICT-fails when evidence references them. Service-level guards
 --      (findingTriageHistoryGuards.ts) remain the first line; these FKs
 --      catch direct-SQL mistakes.
+--   4. Habitat-cascade path for evidence: finding_triage_evidence gains a
+--      NOT NULL habitat_id column (backfilled from its finding) with
+--      REFERENCES habitats(id) ON DELETE CASCADE, so habitat deletion
+--      cascades evidence rows away instead of aborting on the RESTRICT
+--      FKs above (see the evidence rebuild note below).
 --
 -- Table rebuilds use transaction-local backup tables: any failure rolls the
 -- whole migration back and leaves the additive schema intact, so an
@@ -149,9 +155,21 @@ DROP TABLE finding_triage_enforcement_backup;
 -- The investigation-provenance columns are RESTRICT-referenced as well:
 -- deleting the admitting Mission/Task would leave unprovable admission
 -- history (advisory anomaly unprovable_investigation_provenance).
+--
+-- habitat_id (new column, backfilled from the rebuilt finding below) gives
+-- habitat deletion its own CASCADE path to evidence rows. Without it, the
+-- RESTRICT FKs above would also block DELETE FROM habitats: habitat deletion
+-- cascades the finding, and RESTRICT is checked immediately even mid-cascade,
+-- aborting while evidence rows still reference it. With the direct cascade,
+-- evidence rows are removed by their own habitat path before the finding's
+-- cascade runs. This relies on the rebuild order here (finding_triage is
+-- recreated BEFORE evidence, so evidence sits later in sqlite_master and its
+-- habitat-cascade trigger fires first) — keep the two CREATE TABLE statements
+-- in this order if this migration is ever edited again.
 CREATE TABLE finding_triage_evidence (
   finding_triage_id TEXT NOT NULL REFERENCES finding_triage(id) ON DELETE RESTRICT,
   pulse_id TEXT NOT NULL REFERENCES pulses(id) ON DELETE RESTRICT,
+  habitat_id TEXT NOT NULL REFERENCES habitats(id) ON DELETE CASCADE,
   role TEXT NOT NULL CHECK (role IN ('source', 'corroborating', 'legacy_observed')),
   admitted_by_triage_mission_id TEXT REFERENCES missions(id) ON DELETE RESTRICT,
   admitted_by_investigation_task_id TEXT REFERENCES tasks(id) ON DELETE RESTRICT,
@@ -161,13 +179,14 @@ CREATE TABLE finding_triage_evidence (
 );
 --> statement-breakpoint
 INSERT INTO finding_triage_evidence (
-  finding_triage_id, pulse_id, role, admitted_by_triage_mission_id,
+  finding_triage_id, pulse_id, habitat_id, role, admitted_by_triage_mission_id,
   admitted_by_investigation_task_id, admitted_at, created_at
 )
 SELECT
-  finding_triage_id, pulse_id, role, admitted_by_triage_mission_id,
-  admitted_by_investigation_task_id, admitted_at, created_at
-FROM finding_triage_evidence_enforcement_backup;
+  e.finding_triage_id, e.pulse_id, ft.habitat_id, e.role, e.admitted_by_triage_mission_id,
+  e.admitted_by_investigation_task_id, e.admitted_at, e.created_at
+FROM finding_triage_evidence_enforcement_backup e
+JOIN finding_triage ft ON ft.id = e.finding_triage_id;
 --> statement-breakpoint
 DROP TABLE finding_triage_evidence_enforcement_backup;
 --> statement-breakpoint

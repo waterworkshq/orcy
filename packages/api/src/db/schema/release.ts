@@ -1,4 +1,4 @@
-import { sqliteTable, text, integer, index, uniqueIndex } from "drizzle-orm/sqlite-core";
+import { sqliteTable, text, integer, index, uniqueIndex, check } from "drizzle-orm/sqlite-core";
 import { sql } from "drizzle-orm";
 import { habitats } from "./habitat.js";
 import type { ReleaseType, DetectorSource } from "@orcy/shared";
@@ -87,6 +87,11 @@ export const releaseProjectionDeliveries = sqliteTable(
   (table) => [
     uniqueIndex("idx_release_projection_release_kind").on(table.releaseId, table.projectionKind),
     index("idx_release_projection_state").on(table.state),
+    check(
+      "release_projection_deliveries_kind_check",
+      sql`projection_kind IN ('activation_reconciliation', 'deadline_notification', 'activation_notification', 'retrospective_pulse', 'release_shipped')`,
+    ),
+    check("release_projection_deliveries_state_check", sql`state IN ('pending', 'completed')`),
   ],
 );
 
@@ -166,5 +171,9 @@ export const releaseActivationEpochGroups = sqliteTable(
     uniqueIndex("idx_release_epoch_groups_epoch_mission").on(table.epochId, table.missionId),
     index("idx_release_epoch_groups_epoch").on(table.epochId, table.position),
     index("idx_release_epoch_groups_disposition").on(table.disposition),
+    check(
+      "release_activation_epoch_groups_disposition_check",
+      sql`disposition IN ('pending', 'activated', 'deferred_changed', 'deferred_oversized', 'deferred_budget')`,
+    ),
   ],
 );
