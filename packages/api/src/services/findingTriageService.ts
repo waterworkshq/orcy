@@ -2,9 +2,7 @@ import { getDb } from "../db/index.js";
 import { pulses } from "../db/schema/index.js";
 import { eq, and, sql } from "drizzle-orm";
 import { repositoryUpdateError } from "../errors/repository.js";
-import type { SuggestedBucket } from "@orcy/shared";
 import * as findingTriageRepo from "../repositories/findingTriage.js";
-import * as triageResolutionsRepo from "../repositories/triageResolutions.js";
 import { sseBroadcaster } from "../sse/broadcaster.js";
 
 /** Attribution actor shared across triage write paths. */
@@ -40,46 +38,6 @@ export function enterTriage(pulse: EnterTriagePulseInput): { findingTriageId: st
     data: { habitatId: pulse.habitatId, findingId: record.id, clusterKey: record.clusterKey },
   });
   return { findingTriageId: record.id };
-}
-
-/**
- * Confirm a routing bucket and transition `open → triaged`. The bucket captures
- * the human's routing decision (fix_now / defer_to_* / document / investigate).
- */
-export function confirmBucket(id: string, bucket: SuggestedBucket, actor: TriageActor): void {
-  findingTriageRepo.setBucket(id, bucket);
-  findingTriageRepo.transitionStatus(id, "triaged", actor);
-}
-
-/**
- * Resolve a finding: transition to `resolved` and write a {@link triageResolutions}
- * row keyed by clusterKey for proactive matching on future recurrences.
- */
-export function resolve(id: string, note: string, actor: TriageActor): void {
-  findingTriageRepo.transitionStatus(id, "resolved", actor);
-  const record = findingTriageRepo.getById(id);
-  if (!record) return;
-
-  triageResolutionsRepo.create({
-    habitatId: record.habitatId,
-    clusterKey: record.clusterKey,
-    skillCategory: "convention",
-    source: "finding_triage",
-    sourceId: id,
-    resolution: note,
-    resolvedByType: actor.type,
-    resolvedById: actor.id,
-  });
-}
-
-/**
- * Promote a triaged finding into active work (`triaged → in_progress`). Corrective
- * task/mission creation is delegated to the caller (Phase 5 routes) which has the
- * habitat's template context; this service owns the lifecycle transition only.
- */
-export function promote(id: string, actor: TriageActor): { missionId?: string } {
-  findingTriageRepo.promote(id, { type: actor.type, id: actor.id });
-  return {};
 }
 
 /**

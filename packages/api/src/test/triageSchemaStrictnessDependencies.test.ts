@@ -249,21 +249,6 @@ describe("FU7.A — strict local schemas reject unknown fields", () => {
     });
     expect(res.statusCode).toBe(400);
   });
-
-  it("legacy PATCH is now strict — unknown field → 400 (with `expectedMissionVersion` retained)", async () => {
-    // MUTATE/REVERT: removing `.strict()` from patchFindingBodySchema lets
-    // `expectedMissionVersion` slip through alongside an unknown field, and
-    // this test fails.
-    const { finding } = seedAdmittedFinding();
-    const token = makeToken({ sub: "user-1", username: "test", role: "admin" });
-    const res = await app!.inject({
-      method: "PATCH",
-      url: `/api/triage/findings/${finding.id}`,
-      payload: { status: "triaged", bucket: "needs_investigation", unknown: "x" },
-      headers: { authorization: `Bearer ${token}` },
-    });
-    expect(res.statusCode).toBe(400);
-  });
 });
 
 // ===========================================================================

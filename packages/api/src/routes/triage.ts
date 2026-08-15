@@ -1,12 +1,10 @@
 import type { FastifyInstance, FastifyRequest, FastifyReply } from "fastify";
-import { createHash } from "crypto";
 import { z } from "zod";
 import {
   FINDING_TRIAGE_STATUSES,
   RELEASE_TYPES,
   RESOLUTION_KINDS,
   SUGGESTED_BUCKETS,
-  TERMINAL_FINDING_TRIAGE_STATUSES,
   type FindingTriageStatus,
   type ReleaseType,
   type ResolutionKind,
@@ -21,21 +19,17 @@ import {
   resolveFinding as resolveFindingLifecycle,
   markFindingWontfix as markFindingWontfixLifecycle,
   activateCorrectiveMission as activateCorrectiveMissionLifecycle,
-  withImmediateLifecycleTransaction,
-  type RoutePayload,
   type LifecycleOutcome,
 } from "../services/findingTriageLifecycle.js";
 import {
   checkRouteAuthority,
   checkManualCommandAuthority,
   defaultHabitatAccessChecker,
-  habitatAccessCheckerWithClient,
   type AuthorityActor,
   type AuthorityFindingShape,
 } from "../services/triageLifecycleAuthority.js";
 import { agentOrHumanAuth } from "../middleware/auth.js";
 import { getHabitatById } from "../repositories/habitat.js";
-import * as missionRepo from "../repositories/mission.js";
 import { isTeamMemberByHabitatId } from "../repositories/teamMember.js";
 import {
   AppError,
@@ -46,20 +40,7 @@ import {
   unauthorized,
   conflictWithCode,
 } from "../errors.js";
-import { sseBroadcaster } from "../sse/broadcaster.js";
 import { logger } from "../lib/logger.js";
-
-/** Actor shared across triage write paths — derived from request auth context. */
-type TriageActor = { type: "human" | "agent"; id: string };
-
-function actorFromRequest(request: {
-  agent?: { id: string } | null;
-  user?: { id: string } | null;
-}): TriageActor {
-  if (request.agent) return { type: "agent", id: request.agent.id };
-  if (request.user) return { type: "human", id: request.user.id };
-  throw badRequest("Authenticated actor not found on request");
-}
 
 /**
  * Derives the canonical lifecycle actor for a Finding write. Local agents map
@@ -295,24 +276,6 @@ const listFindingsQuerySchema = z.object({
     .optional(),
 });
 
-const patchFindingBodySchema = z
-  .object({
-    status: z
-      .enum(FINDING_TRIAGE_STATUSES as unknown as [FindingTriageStatus, ...FindingTriageStatus[]])
-      .optional(),
-    bucket: z
-      .enum(SUGGESTED_BUCKETS as unknown as [SuggestedBucket, ...SuggestedBucket[]])
-      .optional(),
-    targetRelease: z.string().max(100).nullable().optional(),
-    targetReleaseType: z
-      .enum(RELEASE_TYPES as unknown as [ReleaseType, ...ReleaseType[]])
-      .nullable()
-      .optional(),
-    triageMissionId: z.string().max(200).nullable().optional(),
-    expectedMissionVersion: z.number().int().nonnegative().optional(),
-  })
-  .strict();
-
 const resolutionsQuerySchema = z.object({
   habitatId: z.string().min(1),
   clusterKey: z.string().min(1),
@@ -431,433 +394,30 @@ export async function triageRoutes(fastify: FastifyInstance): Promise<void> {
   );
 
   /**
-   * PATCH /triage/findings/:id — strict legacy compatibility matrix
-   * (restored lifecycle T4; unlink shape REMOVED in FU6). Only two narrow
-   * shapes are accepted:
+   * PATCH /triage/findings/:id — RETIRED (legacy adapter window closed).
    *
-   *   1. No-work: `{status: 'triaged', bucket: 'document_as_known_limitation' | 'needs_investigation'}`
-   *   2. First link-only: `{triageMissionId: string, expectedMissionVersion: number}`
-   *
-   * The former unlink shape `{triageMissionId: null}` is REJECTED with 400
-   * `LEGACY_PATCH_UNLINK_REMOVED` (zero writes) — it exceeded the approved
-   * compatibility matrix, had zero production callers post-T8, and bypassed
-   * the actor matrix. Corrective links are managed by the lifecycle commands.
-   *
-   * Everything else is rejected before write with 400 + deprecation telemetry.
-   * Mixed/multi-intent shapes, target-release mutations, terminal→non-terminal
-   * transitions, fix_now/deferral-without-Mission-placement, and
-   * status=resolved/wontfix-without-Resolution are all rejected.
-   *
-   * Stored-fingerprint replay wins before the no-link/version predicates —
-   * a committed legacy link with a lost response replays despite later
-   * legitimate Mission edits.
+   * The legacy compatibility window declared in v0.40.0 is closed: the two
+   * retained adapter shapes (no-work `{status:'triaged', bucket}` dispatch
+   * and first link-only `{triageMissionId, expectedMissionVersion}`) are
+   * gone, along with every shape-guard that existed only to serve them and
+   * the atomic link writer they used. EVERY legacy PATCH shape — no-work,
+   * link-only, unlink, mixed, terminal, target-release — gets ONE typed
+   * retirement response with ZERO writes; the body is not parsed. The four
+   * lifecycle command endpoints are the only Finding mutation surface.
+   * Remediation is a client upgrade (see docs/API.md + docs/TROUBLESHOOTING.md).
    */
   fastify.patch<{ Params: { id: string } }>(
     "/triage/findings/:id",
     { preHandler: agentOrHumanAuth },
-    async (request, reply) => {
-      const parsed = patchFindingBodySchema.safeParse(request.body);
-      if (!parsed.success) {
-        throw badRequest("Validation failed", parsed.error.flatten());
-      }
-
-      // Reject target-release mutations (superseded by the restored lifecycle).
-      if (parsed.data.targetRelease !== undefined || parsed.data.targetReleaseType !== undefined) {
-        logger.warn(
-          { findingId: request.params.id },
-          "triage legacy PATCH: target-release mutation superseded by POST /triage/findings/:id/route",
-        );
-        throw badRequestWithCode(
-          "LEGACY_PATCH_TARGET_RELEASE_SUPERSEDED",
-          "Target-release mutations are superseded; use POST /triage/findings/:id/route instead.",
-        );
-      }
-
-      const hasStatusOrBucket =
-        parsed.data.status !== undefined || parsed.data.bucket !== undefined;
-      const hasLink = parsed.data.triageMissionId !== undefined;
-      if (!hasStatusOrBucket && !hasLink) {
-        throw badRequest(
-          "Provide one of `status`+`bucket`, or `triageMissionId` (+ `expectedMissionVersion` for non-null link).",
-        );
-      }
-
-      // Mixed/multi-intent shapes are rejected before write.
-      if (hasStatusOrBucket && hasLink) {
-        logger.warn(
-          { findingId: request.params.id },
-          "triage legacy PATCH: mixed/multi-intent shape rejected",
-        );
-        throw badRequestWithCode(
-          "LEGACY_PATCH_MIXED",
-          "Mixed legacy PATCH shapes are rejected; use one of the dedicated intent endpoints.",
-        );
-      }
-
-      // FU6 — unlink shape REMOVED. `{triageMissionId: null}` was never part
-      // of the approved compatibility matrix, has zero production callers
-      // post-T8, and bypassed the actor matrix (any local agent key in a
-      // non-team Habitat could sever another Finding's corrective link).
-      // Rejected before any DB read/write with a stable code; remediation is
-      // a client upgrade, NOT re-adding the shape (see docs/API.md +
-      // docs/TROUBLESHOOTING.md).
-      if (parsed.data.triageMissionId === null) {
-        logger.warn(
-          { findingId: request.params.id },
-          "triage legacy PATCH: unlink shape removed (LEGACY_PATCH_UNLINK_REMOVED); use the lifecycle commands",
-        );
-        throw badRequestWithCode(
-          "LEGACY_PATCH_UNLINK_REMOVED",
-          "The legacy unlink shape (`triageMissionId: null`) was removed. Corrective Mission links are managed by the triage lifecycle commands (route/activate); upgrade the client.",
-        );
-      }
-
-      // Terminal status via PATCH without a full Resolution payload is rejected —
-      // the resolve/wontfix endpoints own the canonical terminalization shape.
-      if (parsed.data.status === "resolved" || parsed.data.status === "wontfix") {
-        logger.warn(
-          { findingId: request.params.id, status: parsed.data.status },
-          "triage legacy PATCH: terminal status without full Resolution payload rejected",
-        );
-        throw badRequestWithCode(
-          "LEGACY_PATCH_TERMINAL_REQUIRES_RESOLUTION",
-          "Terminal status requires full Resolution payload; use POST /triage/findings/:id/resolve or /wontfix.",
-        );
-      }
-
-      // Fix_now or deferral buckets via PATCH are illegal — they require complete
-      // Mission placement, which the lifecycle kernel owns.
-      if (
-        parsed.data.bucket !== undefined &&
-        (parsed.data.bucket === "fix_now" ||
-          parsed.data.bucket === "defer_to_patch" ||
-          parsed.data.bucket === "defer_to_release")
-      ) {
-        logger.warn(
-          { findingId: request.params.id, bucket: parsed.data.bucket },
-          "triage legacy PATCH: work-bearing bucket rejected — must route through POST /triage/findings/:id/route",
-        );
-        throw badRequestWithCode(
-          "LEGACY_PATCH_WORK_BEARING_REJECTED",
-          "Work-bearing buckets require complete Mission placement; use POST /triage/findings/:id/route.",
-        );
-      }
-
-      const existing = findingTriageRepo.getById(request.params.id);
-      if (!existing) throw notFound("Finding not found");
-      verifyHabitatAccess(request, existing.habitatId);
-
-      const actor = actorFromRequest(request);
-
-      // Terminal immutability: any status transition OUT of a terminal state
-      // is rejected (recurrence creates a new row).
-      if (
-        parsed.data.status !== undefined &&
-        parsed.data.status !== existing.status &&
-        (TERMINAL_FINDING_TRIAGE_STATUSES as readonly string[]).includes(existing.status)
-      ) {
-        throw conflictWithCode(
-          "FINDING_TERMINAL",
-          `Finding is in terminal state (${existing.status}). Recurrence creates a new row.`,
-        );
-      }
-
-      // ---------------------------------------------------------------
-      // No-work shape: dispatch through the lifecycle command kernel.
-      // ---------------------------------------------------------------
-      if (hasStatusOrBucket) {
-        if (parsed.data.status !== "triaged" || parsed.data.bucket === undefined) {
-          throw badRequestWithCode(
-            "LEGACY_PATCH_INVALID_NO_WORK",
-            "Legacy PATCH only accepts `{status:'triaged', bucket: <no-work>}` for the no-work shape.",
-          );
-        }
-        const routePayload: RoutePayload =
-          parsed.data.bucket === "document_as_known_limitation"
-            ? { bucket: "document_as_known_limitation" }
-            : { bucket: "needs_investigation" };
-
-        const { actor: authActor, finding } = authorizeLocalRoute({ finding: existing, request });
-        const outcome = routeFindingLifecycle({
-          findingId: finding.id,
-          actor: { ...authActor, authority: {} },
-          route: routePayload,
-        });
-        const updated = mapLifecycleOutcome(outcome, reply, {
-          actorId: actor.id,
-          findingId: finding.id,
-        });
-        logger.info(
-          { findingId: finding.id, bucket: routePayload.bucket, outcome: outcome.outcome },
-          "triage legacy PATCH: no-work route dispatched",
-        );
-        return { finding: updated };
-      }
-
-      // ---------------------------------------------------------------
-      // Link-only shape: {triageMissionId, expectedMissionVersion}.
-      // (The unlink shape is rejected above — FU6.)
-      // ---------------------------------------------------------------
-      const expectedVersion = parsed.data.expectedMissionVersion;
-
-      // ---- ACTOR MATRIX (FU6) ----
-      // First-link is human Habitat-write authority (editor/admin at minimum;
-      // viewers and local agent keys are denied — the legacy adapter used to
-      // perform only generic habitat visibility, letting any local agent key
-      // first-link an eligible deferral to an arbitrary gated Mission).
-      const linkActor = authorityActorFromRequest(request);
-      const linkAuthority = checkManualCommandAuthority({
-        finding: {
-          id: existing.id,
-          habitatId: existing.habitatId,
-          admittedByInvestigationTaskId: existing.admittedByInvestigationTaskId,
-        },
-        actor: linkActor,
-        access: defaultHabitatAccessChecker(),
-        command: "link",
-      });
-      if (linkAuthority.kind === "deny") {
-        throw forbidden(linkAuthority.message, linkAuthority.code);
-      }
-
-      // Non-null link requires expectedMissionVersion + same-Habitat +
-      // version-matched + non-archived + non-terminal gated Mission.
-      if (
-        typeof expectedVersion !== "number" ||
-        !Number.isInteger(expectedVersion) ||
-        expectedVersion < 0
-      ) {
-        throw badRequestWithCode(
-          "LEGACY_LINK_VERSION_REQUIRED",
-          "Legacy link-only PATCH requires `expectedMissionVersion` (non-negative integer).",
-        );
-      }
-
-      // ---- STORED-FINGERPRINT REPLAY (BEFORE no-link/version predicates) ----
-      // If the Finding already has a correctiveMissionId === requested AND a
-      // stored fingerprint, this is a lost-response replay — succeed even if
-      // the Mission has been edited since.
-      if (
-        existing.correctiveMissionId === parsed.data.triageMissionId &&
-        existing.routeFingerprint !== null
-      ) {
-        logger.info(
-          { findingId: existing.id, missionId: existing.correctiveMissionId },
-          "triage legacy PATCH: stored-fingerprint replay before no-link/version predicates",
-        );
-        return { finding: existing, replay: true };
-      }
-
-      // ---- NO-LINK PREDICATE: first apply requires no current link ----
-      if (existing.correctiveMissionId !== null) {
-        throw conflictWithCode(
-          "LEGACY_PATCH_ALREADY_LINKED",
-          "Finding already linked; legacy PATCH first-apply requires an unlinked Finding.",
-        );
-      }
-
-      // ---- First-apply validation: triaged deferral bucket ----
-      if (
-        existing.status !== "triaged" ||
-        (existing.bucket !== "defer_to_patch" && existing.bucket !== "defer_to_release")
-      ) {
-        throw badRequestWithCode(
-          "LEGACY_LINK_NOT_TRIAGED_DEFERRAL",
-          "Legacy link-only first apply requires a Finding in `triaged` state with a deferral bucket (defer_to_patch or defer_to_release).",
-        );
-      }
-
-      if (existing.legacyLineageRepairRequired) {
-        throw conflictWithCode(
-          "LEGACY_LINK_LINEAGE_REPAIR_REQUIRED",
-          "Legacy first link requires a Finding whose lineage is repaired.",
-        );
-      }
-
-      const targetMissionId: string = parsed.data.triageMissionId as string;
-      const targetMission = missionRepo.getMissionById(targetMissionId);
-      if (!targetMission) {
-        throw notFound("Target mission not found");
-      }
-      if (targetMission.habitatId !== existing.habitatId) {
-        throw badRequestWithCode(
-          "LEGACY_LINK_HABITAT_MISMATCH",
-          "Target mission must belong to the same habitat as the finding.",
-        );
-      }
-      if (targetMission.version !== expectedVersion) {
-        throw conflictWithCode(
-          "LEGACY_LINK_VERSION_MISMATCH",
-          `Target mission version mismatch (expected ${expectedVersion}, got ${targetMission.version}).`,
-        );
-      }
-      if (targetMission.isArchived) {
-        throw conflictWithCode("LEGACY_LINK_ARCHIVED", "Cannot link an archived mission.");
-      }
-      const missionTerminal = targetMission.status === "done" || targetMission.status === "failed";
-      if (missionTerminal) {
-        throw conflictWithCode(
-          "LEGACY_LINK_MISSION_TERMINAL",
-          "Cannot link a terminal-status mission.",
-        );
-      }
-      if (targetMission.releaseGateType === null || targetMission.releaseGateVersion === null) {
-        throw conflictWithCode(
-          "LEGACY_LINK_NOT_GATED",
-          "Legacy link-only first apply requires a gated Mission (non-null releaseGateType/Version).",
-        );
-      }
-
-      // ---- HOMOGENEOUS GROUP CHECK ----
-      // Every other linked (non-terminal) Finding on this Mission must also be
-      // triaged and group-eligible. Mixed groups reject before write.
-      const allLinked = findingTriageRepo.findByTriageMissionId(targetMission.id).filter(
-        (f) => f.id !== existing.id,
+    async (request) => {
+      logger.warn(
+        { findingId: request.params.id },
+        "triage legacy PATCH retired (LEGACY_PATCH_RETIRED); use the lifecycle command endpoints",
       );
-      const nonTerminalLinked = allLinked.filter(
-        (f) => !(TERMINAL_FINDING_TRIAGE_STATUSES as readonly string[]).includes(f.status),
+      throw badRequestWithCode(
+        "LEGACY_PATCH_RETIRED",
+        "The legacy PATCH /triage/findings/:id adapter was retired. Use POST /triage/findings/:id/route, /activate, /resolve, or /wontfix.",
       );
-      const mixedGroup = nonTerminalLinked.some(
-        (f) => f.status !== "triaged" || f.legacyLineageRepairRequired,
-      );
-      if (mixedGroup) {
-        throw conflictWithCode(
-          "LEGACY_LINK_MIXED_GROUP",
-          "Shared Mission has mixed linked Finding states; legacy first link cannot activate.",
-        );
-      }
-
-      // ---- ATOMIC APPLY (FU6) ----
-      // Link + fingerprint are ONE writer-reserved write: the load-bearing
-      // predicates (no current link, Mission version/archived/terminal/gate)
-      // are re-verified under `BEGIN IMMEDIATE` and both columns land in a
-      // single UPDATE (`applyLegacyLinkWithClient`). The former two
-      // sequential writes had a crash window that could commit a link with
-      // no fingerprint — impossible by construction now.
-      const legacyFingerprint = createHash("sha256")
-        .update(`${request.params.id}|${targetMission.id}|${expectedVersion}|legacy_link`)
-        .digest("hex");
-      const linkOutcome = withImmediateLifecycleTransaction((client) => {
-        const current = findingTriageRepo.getByIdWithClient(client, request.params.id);
-        if (!current) {
-          return { outcome: "conflict" as const, reason: "not_found" as const };
-        }
-        const inTxAuthority = checkManualCommandAuthority({
-          finding: {
-            id: current.id,
-            habitatId: current.habitatId,
-            admittedByInvestigationTaskId: current.admittedByInvestigationTaskId,
-          },
-          actor: linkActor,
-          access: habitatAccessCheckerWithClient(client),
-          command: "link",
-        });
-        if (inTxAuthority.kind === "deny") {
-          throw forbidden(inTxAuthority.message, inTxAuthority.code);
-        }
-        // Stored-fingerprint replay re-check under the reservation — BEFORE
-        // all state predicates (terminal included), matching the outer path:
-        // a same-link retry stays idempotent even if a concurrent
-        // terminalization, lineage repair, or other eligibility state moved
-        // under us between the precheck read and this reservation.
-        if (
-          current.correctiveMissionId === targetMission.id &&
-          current.routeFingerprint !== null
-        ) {
-          return { outcome: "replayed" as const, value: current };
-        }
-        if ((TERMINAL_FINDING_TRIAGE_STATUSES as readonly string[]).includes(current.status)) {
-          return {
-            outcome: "conflict" as const,
-            reason: "terminal" as const,
-            current: current.status,
-          };
-        }
-        if (
-          current.status !== "triaged" ||
-          (current.bucket !== "defer_to_patch" && current.bucket !== "defer_to_release")
-        ) {
-          throw badRequestWithCode(
-            "LEGACY_LINK_NOT_TRIAGED_DEFERRAL",
-            "Legacy link-only first apply requires a Finding in `triaged` state with a deferral bucket (defer_to_patch or defer_to_release).",
-          );
-        }
-        if (current.legacyLineageRepairRequired) {
-          throw conflictWithCode(
-            "LEGACY_LINK_LINEAGE_REPAIR_REQUIRED",
-            "Legacy first link requires a Finding whose lineage is repaired.",
-          );
-        }
-        if (current.correctiveMissionId !== null) {
-          throw conflictWithCode(
-            "LEGACY_PATCH_ALREADY_LINKED",
-            "Finding already linked; legacy PATCH first-apply requires an unlinked Finding.",
-          );
-        }
-        const peers = findingTriageRepo
-          .listNonTerminalByCorrectiveMissionIdWithClient(client, targetMission.id)
-          .filter((f) => f.id !== current.id);
-        if (peers.some((f) => f.status !== "triaged" || f.legacyLineageRepairRequired)) {
-          throw conflictWithCode(
-            "LEGACY_LINK_MIXED_GROUP",
-            "Shared Mission has mixed linked Finding states; legacy first link cannot activate.",
-          );
-        }
-        const mission = missionRepo.getMissionByIdWithClient(client, targetMission.id);
-        if (!mission) {
-          throw notFound("Target mission not found");
-        }
-        if (mission.version !== expectedVersion) {
-          throw conflictWithCode(
-            "LEGACY_LINK_VERSION_MISMATCH",
-            `Target mission version mismatch (expected ${expectedVersion}, got ${mission.version}).`,
-          );
-        }
-        if (mission.isArchived) {
-          throw conflictWithCode("LEGACY_LINK_ARCHIVED", "Cannot link an archived mission.");
-        }
-        if (mission.status === "done" || mission.status === "failed") {
-          throw conflictWithCode(
-            "LEGACY_LINK_MISSION_TERMINAL",
-            "Cannot link a terminal-status mission.",
-          );
-        }
-        if (mission.releaseGateType === null || mission.releaseGateVersion === null) {
-          throw conflictWithCode(
-            "LEGACY_LINK_NOT_GATED",
-            "Legacy link-only first apply requires a gated Mission (non-null releaseGateType/Version).",
-          );
-        }
-        const updatedFinding = findingTriageRepo.applyLegacyLinkWithClient(
-          client,
-          request.params.id,
-          targetMission.id,
-          legacyFingerprint,
-        );
-        return { outcome: "applied" as const, value: updatedFinding };
-      });
-      const updated = mapLifecycleOutcome(linkOutcome, reply, {
-        actorId: actor.id,
-        findingId: request.params.id,
-      });
-      sseBroadcaster.publish(existing.habitatId, {
-        type: "triage.finding_updated",
-        data: {
-          habitatId: existing.habitatId,
-          findingId: updated.id,
-          status: updated.status,
-          bucket: updated.bucket,
-        },
-      });
-      logger.info(
-        {
-          findingId: updated.id,
-          missionId: targetMission.id,
-          expectedVersion: expectedVersion,
-        },
-        "triage legacy PATCH: first link-only applied",
-      );
-      return { finding: updated };
     },
   );
 

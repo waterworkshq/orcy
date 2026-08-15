@@ -1,6 +1,6 @@
 /**
  * T4 — Restored Finding Triage lifecycle: intent-route authority, lifecycle
- * HTTP transport, and the strict legacy PATCH compatibility matrix.
+ * HTTP transport, and the RETIRED legacy PATCH surface (FU13).
  *
  * Covers:
  *   - Local agent: route succeeds ONLY when currently claiming the admitted
@@ -8,16 +8,16 @@
  *   - Human: route/activate/resolve/wontfix; resolve/wontfix human-only.
  *   - T5 activate transport: expectedMissionVersion required (400 when
  *     omitted); activate is human-only (agent 403).
- *   - Legacy PATCH matrix: no-work accepted, work-bearing rejected, mixed
- *     rejected, target-release rejected, terminal-rejected, link-only first
- *     apply validated, stored-fingerprint replay before predicates.
+ *   - FU13 legacy PATCH retirement: EVERY legacy shape gets the single typed
+ *     400 LEGACY_PATCH_RETIRED response with zero writes and one deprecation
+ *     telemetry line; the auth middleware stays on the stub.
  *   - Mutate/revert evidence for the exact-Task claim predicate and the
- *     stored-fingerprint-replay ordering.
+ *     stub's zero-write guarantee.
  *   - Remote /api/shared route: active contributor + same active grant with
  *     both proofs → 200; observer/grace/baseline/rule-based/split/stale/
  *     disconnected all → 403; missing-finding → 403 (anti-probing).
  */
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import Fastify, { type FastifyInstance } from "fastify";
 import { validatorCompiler, serializerCompiler } from "fastify-type-provider-zod";
 import jwt from "jsonwebtoken";
@@ -43,6 +43,7 @@ import * as taskStateMachine from "../repositories/taskStateMachine.js";
 import { eq, sql } from "drizzle-orm";
 import { findingTriage, tasks, users, organizations, habitats, teamMembers } from "../db/schema/index.js";
 import { getDb } from "../db/index.js";
+import { logger } from "../lib/logger.js";
 import { routeFinding as routeFindingLifecycle } from "../services/findingTriageLifecycle.js";
 
 const JWT_SECRET = "dev-secret-change-in-production";
@@ -506,10 +507,10 @@ describe("T4 — Local intent routes: route/resolve/wontfix", () => {
 });
 
 // ===========================================================================
-// Strict legacy PATCH compatibility matrix
+// FU13 — Legacy PATCH retirement stub
 // ===========================================================================
 
-describe("T4 — Strict legacy PATCH matrix", () => {
+describe("FU13 — legacy PATCH retirement: every shape gets one typed response, zero writes", () => {
   let app: FastifyInstance | null = null;
 
   beforeEach(async () => {
@@ -519,385 +520,63 @@ describe("T4 — Strict legacy PATCH matrix", () => {
     if (app) await app.close();
   });
 
-  it("accepts no-work {status:'triaged', bucket:'document_as_known_limitation'} for human", async () => {
+  const RETIRED_SHAPES: Array<{ name: string; payload: unknown }> = [
+    { name: "no-work", payload: { bucket: "document_as_known_limitation", status: "triaged" } },
+    { name: "no-work (needs_investigation)", payload: { bucket: "needs_investigation", status: "triaged" } },
+    { name: "work-bearing", payload: { bucket: "fix_now", status: "triaged" } },
+    { name: "link-only", payload: { triageMissionId: "some-mission", expectedMissionVersion: 1 } },
+    { name: "unlink", payload: { triageMissionId: null } },
+    { name: "mixed", payload: { bucket: "document_as_known_limitation", status: "triaged", triageMissionId: "some-mission" } },
+    { name: "terminal", payload: { status: "resolved" } },
+    { name: "terminal resurrection", payload: { status: "open" } },
+    { name: "target-release", payload: { targetRelease: "v1.0.0" } },
+    { name: "unknown-field", payload: { status: "triaged", bucket: "needs_investigation", unknown: "x" } },
+  ];
+
+  for (const shape of RETIRED_SHAPES) {
+    it(`retires the ${shape.name} legacy shape: 400 LEGACY_PATCH_RETIRED, zero writes, telemetry logged`, async () => {
+      const { finding } = seedAdmittedFinding();
+      const token = makeToken({ sub: "user-1", username: "test", role: "admin" });
+
+      const warnSpy = vi.spyOn(logger, "warn");
+      const res = await app!.inject({
+        method: "PATCH",
+        url: `/api/triage/findings/${finding.id}`,
+        payload: shape.payload as Record<string, unknown>,
+        headers: { authorization: `Bearer ${token}` },
+      });
+      expect(res.statusCode).toBe(400);
+      const body = JSON.parse(res.body);
+      expect(body.code).toBe("LEGACY_PATCH_RETIRED");
+      // The message names the four command endpoints (the remediation).
+      expect(String(body.message ?? body.error)).toContain("/route");
+
+      // Exactly one deprecation telemetry line per retired request (pino-style:
+      // the message string is the trailing argument).
+      const retirementCalls = warnSpy.mock.calls.filter((args) =>
+        args.some((arg) => typeof arg === "string" && arg.includes("LEGACY_PATCH_RETIRED")),
+      );
+      expect(retirementCalls).toHaveLength(1);
+      warnSpy.mockRestore();
+
+      // RE-FETCH proves ZERO writes: the row is byte-identical.
+      const after = findingTriageRepo.getById(finding.id)!;
+      expect(after.status).toBe(finding.status);
+      expect(after.bucket).toBe(finding.bucket);
+      expect(after.updatedAt).toBe(finding.updatedAt);
+      expect(after.routeFingerprint).toBeNull();
+      expect(after.correctiveMissionId).toBeNull();
+    });
+  }
+
+  it("anonymous PATCH is still auth-gated (401 before the retirement response)", async () => {
     const { finding } = seedAdmittedFinding();
-    const token = makeToken({ sub: "user-1", username: "test", role: "admin" });
     const res = await app!.inject({
       method: "PATCH",
       url: `/api/triage/findings/${finding.id}`,
-      payload: { bucket: "document_as_known_limitation", status: "triaged" },
-      headers: { authorization: `Bearer ${token}` },
+      payload: { bucket: "fix_now" },
     });
-    expect(res.statusCode).toBe(200);
-    expect(JSON.parse(res.body).finding.bucket).toBe("document_as_known_limitation");
-  });
-
-  it("accepts no-work {status:'triaged', bucket:'needs_investigation'} for human", async () => {
-    const { finding } = seedAdmittedFinding();
-    const token = makeToken({ sub: "user-1", username: "test", role: "admin" });
-    const res = await app!.inject({
-      method: "PATCH",
-      url: `/api/triage/findings/${finding.id}`,
-      payload: { bucket: "needs_investigation", status: "triaged" },
-      headers: { authorization: `Bearer ${token}` },
-    });
-    expect(res.statusCode).toBe(200);
-  });
-
-  it("rejects work-bearing bucket (fix_now/defer_to_*) via PATCH — must route through POST /:id/route", async () => {
-    const { finding } = seedAdmittedFinding();
-    const token = makeToken({ sub: "user-1", username: "test", role: "admin" });
-    const res = await app!.inject({
-      method: "PATCH",
-      url: `/api/triage/findings/${finding.id}`,
-      payload: { bucket: "fix_now", status: "triaged" },
-      headers: { authorization: `Bearer ${token}` },
-    });
-    expect(res.statusCode).toBe(400);
-    expect(JSON.parse(res.body).code).toBe("LEGACY_PATCH_WORK_BEARING_REJECTED");
-  });
-
-  it("rejects target-release mutations (superseded)", async () => {
-    const { finding } = seedAdmittedFinding();
-    const token = makeToken({ sub: "user-1", username: "test", role: "admin" });
-    const res = await app!.inject({
-      method: "PATCH",
-      url: `/api/triage/findings/${finding.id}`,
-      payload: { targetRelease: "v1.0.0" },
-      headers: { authorization: `Bearer ${token}` },
-    });
-    expect(res.statusCode).toBe(400);
-    expect(JSON.parse(res.body).code).toBe("LEGACY_PATCH_TARGET_RELEASE_SUPERSEDED");
-  });
-
-  it("rejects terminal status via PATCH (must use /resolve or /wontfix)", async () => {
-    const { finding } = seedAdmittedFinding();
-    const token = makeToken({ sub: "user-1", username: "test", role: "admin" });
-    const res = await app!.inject({
-      method: "PATCH",
-      url: `/api/triage/findings/${finding.id}`,
-      payload: { status: "resolved" },
-      headers: { authorization: `Bearer ${token}` },
-    });
-    expect(res.statusCode).toBe(400);
-    expect(JSON.parse(res.body).code).toBe("LEGACY_PATCH_TERMINAL_REQUIRES_RESOLUTION");
-  });
-
-  it("rejects mixed legacy PATCH shapes (status + link)", async () => {
-    const { finding } = seedAdmittedFinding();
-    const token = makeToken({ sub: "user-1", username: "test", role: "admin" });
-    const res = await app!.inject({
-      method: "PATCH",
-      url: `/api/triage/findings/${finding.id}`,
-      payload: {
-        bucket: "document_as_known_limitation",
-        status: "triaged",
-        triageMissionId: "some-mission",
-      },
-      headers: { authorization: `Bearer ${token}` },
-    });
-    expect(res.statusCode).toBe(400);
-    expect(JSON.parse(res.body).code).toBe("LEGACY_PATCH_MIXED");
-  });
-
-  it("rejects legacy link-only PATCH without expectedMissionVersion", async () => {
-    const { finding } = seedAdmittedFinding();
-    const token = makeToken({ sub: "user-1", username: "test", role: "admin" });
-    const res = await app!.inject({
-      method: "PATCH",
-      url: `/api/triage/findings/${finding.id}`,
-      payload: { triageMissionId: "some-mission" },
-      headers: { authorization: `Bearer ${token}` },
-    });
-    expect(res.statusCode).toBe(400);
-    expect(JSON.parse(res.body).code).toBe("LEGACY_LINK_VERSION_REQUIRED");
-  });
-
-  // ----- Link-only first apply -----
-
-  it("legacy link-only first apply rejects an un-triaged Finding", async () => {
-    const { finding } = seedAdmittedFinding();
-    const corrective = missionRepo.createMission({
-      habitatId,
-      columnId,
-      title: "Corrective",
-      createdBy: "user-1",
-    });
-    const token = makeToken({ sub: "user-1", username: "test", role: "admin" });
-    const res = await app!.inject({
-      method: "PATCH",
-      url: `/api/triage/findings/${finding.id}`,
-      payload: {
-        triageMissionId: corrective.id,
-        expectedMissionVersion: corrective.version,
-      },
-      headers: { authorization: `Bearer ${token}` },
-    });
-    expect(res.statusCode).toBe(400);
-    expect(JSON.parse(res.body).code).toBe("LEGACY_LINK_NOT_TRIAGED_DEFERRAL");
-  });
-
-  it("legacy link-only first apply rejects a non-gated Mission", async () => {
-    const { finding } = seedAdmittedFinding();
-    // Triaged deferral first (via PATCH no-work would set 'document_as_known_limitation';
-    // use the lifecycle kernel to route as a deferral bucket directly via the API).
-    const token = makeToken({ sub: "user-1", username: "test", role: "admin" });
-    const routeRes = await app!.inject({
-      method: "POST",
-      url: `/api/triage/findings/${finding.id}/route`,
-      payload: { bucket: "document_as_known_limitation" },
-      headers: { authorization: `Bearer ${token}` },
-    });
-    expect(routeRes.statusCode).toBe(200);
-
-    // Switch to a deferral bucket via PATCH (legal — bucket-only update).
-    // Actually, the route is locked once applied (different_route). Use SQL to
-    // force the bucket to defer_to_patch for the test.
-    const db = getDb();
-    db.update(findingTriage)
-      .set({ bucket: "defer_to_patch", updatedAt: new Date().toISOString() })
-      .where(eq(findingTriage.id, finding.id))
-      .run();
-
-    // Mission without releaseGateType — must be rejected.
-    const corrective = missionRepo.createMission({
-      habitatId,
-      columnId,
-      title: "Ungated Corrective",
-      createdBy: "user-1",
-    });
-
-    const res = await app!.inject({
-      method: "PATCH",
-      url: `/api/triage/findings/${finding.id}`,
-      payload: {
-        triageMissionId: corrective.id,
-        expectedMissionVersion: corrective.version,
-      },
-      headers: { authorization: `Bearer ${token}` },
-    });
-    expect(res.statusCode).toBe(409);
-    expect(JSON.parse(res.body).code).toBe("LEGACY_LINK_NOT_GATED");
-  });
-
-  it("legacy link-only first apply succeeds for valid deferral + gated + version-matched Mission", async () => {
-    const { finding } = seedAdmittedFinding();
-    // Set the finding to triaged + defer_to_patch via lifecycle kernel.
-    const token = makeToken({ sub: "user-1", username: "test", role: "admin" });
-    // We can't route via defer bucket in the current no-work only world — use
-    // the SQL direct set for the test (this is internal lifecycle state, the
-    // first-apply path validates against the persisted state).
-    const db = getDb();
-    db.update(findingTriage)
-      .set({
-        status: "triaged",
-        bucket: "defer_to_patch",
-        updatedAt: new Date().toISOString(),
-      })
-      .where(eq(findingTriage.id, finding.id))
-      .run();
-
-    const corrective = missionRepo.createMission({
-      habitatId,
-      columnId,
-      title: "Gated Corrective",
-      createdBy: "user-1",
-      releaseGateType: "minor",
-      releaseGateVersion: "1.2.0",
-    } as Parameters<typeof missionRepo.createMission>[0]);
-
-    const res = await app!.inject({
-      method: "PATCH",
-      url: `/api/triage/findings/${finding.id}`,
-      payload: {
-        triageMissionId: corrective.id,
-        expectedMissionVersion: corrective.version,
-      },
-      headers: { authorization: `Bearer ${token}` },
-    });
-    expect(res.statusCode).toBe(200);
-    expect(JSON.parse(res.body).finding.correctiveMissionId).toBe(corrective.id);
-  });
-
-  it("legacy link-only first apply rejects version mismatch", async () => {
-    const { finding } = seedAdmittedFinding();
-    const db = getDb();
-    db.update(findingTriage)
-      .set({
-        status: "triaged",
-        bucket: "defer_to_patch",
-        updatedAt: new Date().toISOString(),
-      })
-      .where(eq(findingTriage.id, finding.id))
-      .run();
-
-    const corrective = missionRepo.createMission({
-      habitatId,
-      columnId,
-      title: "Gated Corrective",
-      createdBy: "user-1",
-      releaseGateType: "minor",
-      releaseGateVersion: "1.2.0",
-    } as Parameters<typeof missionRepo.createMission>[0]);
-
-    const token = makeToken({ sub: "user-1", username: "test", role: "admin" });
-    const res = await app!.inject({
-      method: "PATCH",
-      url: `/api/triage/findings/${finding.id}`,
-      payload: {
-        triageMissionId: corrective.id,
-        expectedMissionVersion: corrective.version + 99,
-      },
-      headers: { authorization: `Bearer ${token}` },
-    });
-    expect(res.statusCode).toBe(409);
-    expect(JSON.parse(res.body).code).toBe("LEGACY_LINK_VERSION_MISMATCH");
-  });
-
-  it("legacy link-only first apply rejects cross-Habitat Mission", async () => {
-    const { finding } = seedAdmittedFinding();
-    const db = getDb();
-    db.update(findingTriage)
-      .set({
-        status: "triaged",
-        bucket: "defer_to_patch",
-        updatedAt: new Date().toISOString(),
-      })
-      .where(eq(findingTriage.id, finding.id))
-      .run();
-
-    const otherHabitat = habitatRepo.createHabitat({ name: "Other" });
-    const otherColumn = columnRepo.createColumn({
-      habitatId: otherHabitat.id,
-      name: "Todo",
-      order: 0,
-      requiresClaim: false,
-    });
-    const otherMission = missionRepo.createMission({
-      habitatId: otherHabitat.id,
-      columnId: otherColumn.id,
-      title: "Wrong Habitat",
-      createdBy: "user-1",
-      releaseGateType: "minor",
-      releaseGateVersion: "1.0.0",
-    } as Parameters<typeof missionRepo.createMission>[0]);
-
-    const token = makeToken({ sub: "user-1", username: "test", role: "admin" });
-    const res = await app!.inject({
-      method: "PATCH",
-      url: `/api/triage/findings/${finding.id}`,
-      payload: {
-        triageMissionId: otherMission.id,
-        expectedMissionVersion: otherMission.version,
-      },
-      headers: { authorization: `Bearer ${token}` },
-    });
-    expect(res.statusCode).toBe(400);
-    expect(JSON.parse(res.body).code).toBe("LEGACY_LINK_HABITAT_MISMATCH");
-  });
-
-  // ----- Stored-fingerprint replay before predicates -----
-
-  it("legacy link-only STORED-FINGERPRINT REPLAY succeeds BEFORE no-link/version predicates (mutate/revert ordering)", async () => {
-    const { finding } = seedAdmittedFinding();
-    const db = getDb();
-    db.update(findingTriage)
-      .set({
-        status: "triaged",
-        bucket: "defer_to_patch",
-        updatedAt: new Date().toISOString(),
-      })
-      .where(eq(findingTriage.id, finding.id))
-      .run();
-
-    const corrective = missionRepo.createMission({
-      habitatId,
-      columnId,
-      title: "Gated Corrective",
-      createdBy: "user-1",
-      releaseGateType: "minor",
-      releaseGateVersion: "1.2.0",
-    } as Parameters<typeof missionRepo.createMission>[0]);
-
-    // Commit the legacy link via PATCH (this writes a stored fingerprint + link).
-    const token = makeToken({ sub: "user-1", username: "test", role: "admin" });
-    const firstRes = await app!.inject({
-      method: "PATCH",
-      url: `/api/triage/findings/${finding.id}`,
-      payload: {
-        triageMissionId: corrective.id,
-        expectedMissionVersion: corrective.version,
-      },
-      headers: { authorization: `Bearer ${token}` },
-    });
-    expect(firstRes.statusCode).toBe(200);
-
-    // Now simulate a "lost response" — the client retries with a STALE
-    // expectedMissionVersion (the Mission has been bumped since the original
-    // commit). The stored-fingerprint replay must WIN before the version
-    // predicate; the stale version is ignored.
-    const stale = await app!.inject({
-      method: "PATCH",
-      url: `/api/triage/findings/${finding.id}`,
-      payload: {
-        triageMissionId: corrective.id,
-        expectedMissionVersion: corrective.version - 1,
-      },
-      headers: { authorization: `Bearer ${token}` },
-    });
-    expect(stale.statusCode).toBe(200);
-    expect(JSON.parse(stale.body).replay).toBe(true);
-  });
-
-  it("legacy link-only NON-MATCHING link falls through to the no-link predicate and rejects", async () => {
-    // Mutate/revert: ensure the no-link guard still rejects when the stored
-    // fingerprint does not match the requested mission id.
-    const { finding } = seedAdmittedFinding();
-    const committed = missionRepo.createMission({
-      habitatId,
-      columnId,
-      title: "Committed Corrective",
-      createdBy: "user-1",
-      releaseGateType: "minor",
-      releaseGateVersion: "1.2.0",
-    } as Parameters<typeof missionRepo.createMission>[0]);
-
-    const db = getDb();
-    db.update(findingTriage)
-      .set({
-        status: "triaged",
-        bucket: "defer_to_patch",
-        triageMissionId: committed.id,
-        routeFingerprint: "stored-fp",
-        updatedAt: new Date().toISOString(),
-      })
-      .where(eq(findingTriage.id, finding.id))
-      .run();
-
-    const token = makeToken({ sub: "user-1", username: "test", role: "admin" });
-    const corrective = missionRepo.createMission({
-      habitatId,
-      columnId,
-      title: "Different Corrective",
-      createdBy: "user-1",
-      releaseGateType: "minor",
-      releaseGateVersion: "1.2.0",
-    } as Parameters<typeof missionRepo.createMission>[0]);
-
-    const res = await app!.inject({
-      method: "PATCH",
-      url: `/api/triage/findings/${finding.id}`,
-      payload: {
-        triageMissionId: corrective.id,
-        expectedMissionVersion: corrective.version,
-      },
-      headers: { authorization: `Bearer ${token}` },
-    });
-    // Finding already has a stored link (committed); request for a different
-    // mission fails the stored-fingerprint match and is rejected by the
-    // no-link predicate (Finding is already linked).
-    expect(res.statusCode).toBe(409);
-    expect(JSON.parse(res.body).code).toBe("LEGACY_PATCH_ALREADY_LINKED");
+    expect(res.statusCode).toBe(401);
   });
 });
 
@@ -1511,26 +1190,6 @@ function attachTeamToHabitat(habitatIdArg: string): string {
   return team.id;
 }
 
-/** Forces a finding into the legacy first-link-eligible state. */
-function forceDeferredTriaged(findingId: string): void {
-  getDb()
-    .update(findingTriage)
-    .set({ status: "triaged", bucket: "defer_to_patch", updatedAt: new Date().toISOString() })
-    .where(eq(findingTriage.id, findingId))
-    .run();
-}
-
-function createGatedMission() {
-  return missionRepo.createMission({
-    habitatId,
-    columnId,
-    title: "Gated Corrective",
-    createdBy: "user-1",
-    releaseGateType: "minor",
-    releaseGateVersion: "1.2.0",
-  } as Parameters<typeof missionRepo.createMission>[0]);
-}
-
 describe("FU6 — viewer role gate on all four intent endpoints", () => {
   let app: FastifyInstance | null = null;
 
@@ -1673,245 +1332,6 @@ describe("FU6 — viewer role gate on all four intent endpoints", () => {
       },
     });
     expect(res.statusCode).toBe(200);
-  });
-});
-
-describe("FU6 — legacy first-link actor binding + atomic single write", () => {
-  let app: FastifyInstance | null = null;
-
-  beforeEach(async () => {
-    app = await buildApp();
-  });
-  afterEach(async () => {
-    if (app) await app.close();
-  });
-
-  it("unprivileged local agent key cannot first-link (403, zero writes)", async () => {
-    const { finding } = seedAdmittedFinding();
-    forceDeferredTriaged(finding.id);
-    const corrective = createGatedMission();
-
-    const res = await app!.inject({
-      method: "PATCH",
-      url: `/api/triage/findings/${finding.id}`,
-      payload: {
-        triageMissionId: corrective.id,
-        expectedMissionVersion: corrective.version,
-      },
-      headers: { "x-agent-api-key": otherAgentApiKey },
-    });
-    expect(res.statusCode).toBe(403);
-    const after = findingTriageRepo.getById(finding.id)!;
-    expect(after.correctiveMissionId).toBeNull();
-    expect(after.routeFingerprint).toBeNull();
-  });
-
-  it("human editor first-link succeeds and lands link + fingerprint together (one write)", async () => {
-    const { finding } = seedAdmittedFinding();
-    forceDeferredTriaged(finding.id);
-    const corrective = createGatedMission();
-
-    const res = await app!.inject({
-      method: "PATCH",
-      url: `/api/triage/findings/${finding.id}`,
-      payload: {
-        triageMissionId: corrective.id,
-        expectedMissionVersion: corrective.version,
-      },
-      headers: {
-        authorization: `Bearer ${makeToken({ sub: "user-1", username: "test", role: "editor" })}`,
-      },
-    });
-    expect(res.statusCode).toBe(200);
-    const after = findingTriageRepo.getById(finding.id)!;
-    expect(after.correctiveMissionId).toBe(corrective.id);
-    // The atomic apply stamps BOTH columns in one UPDATE — a link with a null
-    // fingerprint (the old two-write crash window) can no longer exist.
-    expect(after.routeFingerprint).not.toBeNull();
-  });
-
-  it("rejected apply leaves ZERO partial writes (no link-without-fingerprint)", async () => {
-    const { finding } = seedAdmittedFinding();
-    forceDeferredTriaged(finding.id);
-    const corrective = createGatedMission();
-
-    const res = await app!.inject({
-      method: "PATCH",
-      url: `/api/triage/findings/${finding.id}`,
-      payload: {
-        triageMissionId: corrective.id,
-        expectedMissionVersion: corrective.version + 99,
-      },
-      headers: {
-        authorization: `Bearer ${makeToken({ sub: "user-1", username: "test", role: "admin" })}`,
-      },
-    });
-    expect(res.statusCode).toBe(409);
-    expect(JSON.parse(res.body).code).toBe("LEGACY_LINK_VERSION_MISMATCH");
-    const after = findingTriageRepo.getById(finding.id)!;
-    expect(after.correctiveMissionId).toBeNull();
-    expect(after.routeFingerprint).toBeNull();
-  });
-
-  it("stored-fingerprint replay still wins after the atomic apply", async () => {
-    const { finding } = seedAdmittedFinding();
-    forceDeferredTriaged(finding.id);
-    const corrective = createGatedMission();
-    const token = makeToken({ sub: "user-1", username: "test", role: "admin" });
-
-    const first = await app!.inject({
-      method: "PATCH",
-      url: `/api/triage/findings/${finding.id}`,
-      payload: {
-        triageMissionId: corrective.id,
-        expectedMissionVersion: corrective.version,
-      },
-      headers: { authorization: `Bearer ${token}` },
-    });
-    expect(first.statusCode).toBe(200);
-
-    // Replay with a STALE version still succeeds (fingerprint replay before
-    // the version/no-link predicates).
-    const replay = await app!.inject({
-      method: "PATCH",
-      url: `/api/triage/findings/${finding.id}`,
-      payload: {
-        triageMissionId: corrective.id,
-        expectedMissionVersion: corrective.version + 50,
-      },
-      headers: { authorization: `Bearer ${token}` },
-    });
-    expect(replay.statusCode).toBe(200);
-    expect(JSON.parse(replay.body).replay).toBe(true);
-  });
-
-  it("a same-link retry still replays when a concurrent lineage repair has flagged the row", async () => {
-    const { finding } = seedAdmittedFinding();
-    forceDeferredTriaged(finding.id);
-    const corrective = createGatedMission();
-    const token = makeToken({ sub: "user-1", username: "test", role: "admin" });
-
-    const first = await app!.inject({
-      method: "PATCH",
-      url: `/api/triage/findings/${finding.id}`,
-      payload: {
-        triageMissionId: corrective.id,
-        expectedMissionVersion: corrective.version,
-      },
-      headers: { authorization: `Bearer ${token}` },
-    });
-    expect(first.statusCode).toBe(200);
-
-    // Simulate a lineage repair committing after the link: the row is now
-    // flagged for repair. A same-link retry must STILL replay — the replay
-    // contract wins over lineage eligibility. (This deterministic test
-    // exercises the OUTER replay short-circuit; the in-transaction replay
-    // re-check is only reachable under true concurrency.)
-    getDb()
-      .update(findingTriage)
-      .set({ legacyLineageRepairRequired: 1, updatedAt: new Date().toISOString() })
-      .where(eq(findingTriage.id, finding.id))
-      .run();
-
-    const replay = await app!.inject({
-      method: "PATCH",
-      url: `/api/triage/findings/${finding.id}`,
-      payload: {
-        triageMissionId: corrective.id,
-        expectedMissionVersion: corrective.version,
-      },
-      headers: { authorization: `Bearer ${token}` },
-    });
-    expect(replay.statusCode).toBe(200);
-    expect(JSON.parse(replay.body).replay).toBe(true);
-  });
-
-  it("in-tx gate: an editor JWT whose persisted users.role is viewer cannot first-link", async () => {
-    seedUserRow("sneaky-linker", "viewer");
-    const { finding } = seedAdmittedFinding();
-    forceDeferredTriaged(finding.id);
-    const corrective = createGatedMission();
-
-    const res = await app!.inject({
-      method: "PATCH",
-      url: `/api/triage/findings/${finding.id}`,
-      payload: {
-        triageMissionId: corrective.id,
-        expectedMissionVersion: corrective.version,
-      },
-      headers: {
-        authorization: `Bearer ${makeToken({ sub: "sneaky-linker", username: "e", role: "editor" })}`,
-      },
-    });
-    expect(res.statusCode).toBe(403);
-    const after = findingTriageRepo.getById(finding.id)!;
-    expect(after.correctiveMissionId).toBeNull();
-    expect(after.routeFingerprint).toBeNull();
-  });
-
-  it("rejects first-link onto a Mission whose existing member is already in_progress", async () => {
-    const linked = seedAdmittedFinding();
-    forceDeferredTriaged(linked.finding.id);
-    const corrective = createGatedMission();
-    const first = await app!.inject({
-      method: "PATCH",
-      url: `/api/triage/findings/${linked.finding.id}`,
-      payload: {
-        triageMissionId: corrective.id,
-        expectedMissionVersion: corrective.version,
-      },
-      headers: {
-        authorization: `Bearer ${makeToken({ sub: "user-1", username: "test", role: "admin" })}`,
-      },
-    });
-    expect(first.statusCode).toBe(200);
-    getDb()
-      .update(findingTriage)
-      .set({ status: "in_progress", updatedAt: new Date().toISOString() })
-      .where(eq(findingTriage.id, linked.finding.id))
-      .run();
-
-    const next = seedAdmittedFinding({ clusterKey: "other-cluster" });
-    forceDeferredTriaged(next.finding.id);
-    const res = await app!.inject({
-      method: "PATCH",
-      url: `/api/triage/findings/${next.finding.id}`,
-      payload: {
-        triageMissionId: corrective.id,
-        expectedMissionVersion: missionRepo.getMissionById(corrective.id)!.version,
-      },
-      headers: {
-        authorization: `Bearer ${makeToken({ sub: "user-1", username: "test", role: "admin" })}`,
-      },
-    });
-    expect(res.statusCode).toBe(409);
-    expect(JSON.parse(res.body).code).toBe("LEGACY_LINK_MIXED_GROUP");
-    expect(findingTriageRepo.getById(next.finding.id)!.correctiveMissionId).toBeNull();
-  });
-
-  it("rejects first-link when the Finding still requires lineage repair", async () => {
-    const { finding } = seedAdmittedFinding();
-    forceDeferredTriaged(finding.id);
-    getDb()
-      .update(findingTriage)
-      .set({ legacyLineageRepairRequired: 1, updatedAt: new Date().toISOString() })
-      .where(eq(findingTriage.id, finding.id))
-      .run();
-    const corrective = createGatedMission();
-    const res = await app!.inject({
-      method: "PATCH",
-      url: `/api/triage/findings/${finding.id}`,
-      payload: {
-        triageMissionId: corrective.id,
-        expectedMissionVersion: corrective.version,
-      },
-      headers: {
-        authorization: `Bearer ${makeToken({ sub: "user-1", username: "test", role: "admin" })}`,
-      },
-    });
-    expect(res.statusCode).toBe(409);
-    expect(JSON.parse(res.body).code).toBe("LEGACY_LINK_LINEAGE_REPAIR_REQUIRED");
-    expect(findingTriageRepo.getById(finding.id)!.correctiveMissionId).toBeNull();
   });
 });
 

@@ -9,9 +9,10 @@
  *     re-fetching `GET /triage/resolutions` after the call.
  *   - Wontfix persists the reason and `wontfix` kind the same way.
  *   - The `{status:'resolved'}`-only legacy shape (the documented UI data-loss
- *     defect) is rejected by the PATCH surface — no terminal-without-payload
- *     request can survive anywhere.
- *   - Terminal resurrection is rejected end-to-end through the legacy PATCH.
+ *     defect) is rejected by the retired PATCH surface — no
+ *     terminal-without-payload request can survive anywhere.
+ *   - Terminal resurrection through the legacy PATCH gets the single
+ *     retirement response (FU13) with zero writes.
  *   - The superseded `POST /triage/findings/:id/promote` route is RETIRED
  *     (404) — manual activation is `/activate` on the existing Mission.
  */
@@ -186,7 +187,7 @@ describe("T8 — client cutover discriminators (real routes + re-fetch)", () => 
     expect(resolutions[0].resolution).toContain("accepted trade-off");
   });
 
-  it("the {status:'resolved'}-only legacy shape is rejected — the data-loss defect cannot recur", async () => {
+  it("the {status:'resolved'}-only legacy shape is retired — the data-loss defect cannot recur", async () => {
     const findingId = seededFindingId();
     const res = await app!.inject({
       method: "PATCH",
@@ -195,14 +196,14 @@ describe("T8 — client cutover discriminators (real routes + re-fetch)", () => 
       headers: humanHeaders(),
     });
     expect(res.statusCode).toBe(400);
-    expect(JSON.parse(res.body).code).toBe("LEGACY_PATCH_TERMINAL_REQUIRES_RESOLUTION");
+    expect(JSON.parse(res.body).code).toBe("LEGACY_PATCH_RETIRED");
 
     // Nothing was written.
     const finding = findingTriageRepo.getById(findingId)!;
     expect(finding.status).toBe("open");
   });
 
-  it("terminal resurrection is rejected end-to-end through the legacy PATCH", async () => {
+  it("terminal resurrection through the legacy PATCH gets the single retirement response", async () => {
     const findingId = seededFindingId();
     const resolved = await app!.inject({
       method: "POST",
@@ -212,9 +213,13 @@ describe("T8 — client cutover discriminators (real routes + re-fetch)", () => 
     });
     expect(resolved.statusCode).toBe(200);
 
+    // FU13: the adapter is RETIRED — every legacy shape, including terminal
+    // resurrection attempts and the removed unlink shape, gets the SAME typed
+    // 400 with zero writes (the terminal row is never reached, never mutated).
     for (const payload of [
       { status: "open" },
       { status: "triaged", bucket: "needs_investigation" },
+      { triageMissionId: null },
     ]) {
       const res = await app!.inject({
         method: "PATCH",
@@ -222,22 +227,8 @@ describe("T8 — client cutover discriminators (real routes + re-fetch)", () => 
         payload,
         headers: humanHeaders(),
       });
-      expect(res.statusCode).toBe(409);
-      expect(JSON.parse(res.body).code).toBe("FINDING_TERMINAL");
-    }
-
-    // FU6: the unlink shape is REMOVED — it no longer reaches the terminal
-    // guard; the shape itself is a 400 with zero writes (deliberate update
-    // of the pre-FU6 expectation of 409 FINDING_TERMINAL).
-    {
-      const res = await app!.inject({
-        method: "PATCH",
-        url: `/api/triage/findings/${findingId}`,
-        payload: { triageMissionId: null },
-        headers: humanHeaders(),
-      });
       expect(res.statusCode).toBe(400);
-      expect(JSON.parse(res.body).code).toBe("LEGACY_PATCH_UNLINK_REMOVED");
+      expect(JSON.parse(res.body).code).toBe("LEGACY_PATCH_RETIRED");
     }
 
     // The terminal row is untouched.

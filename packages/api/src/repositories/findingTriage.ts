@@ -329,7 +329,8 @@ export function findByBucket(habitatId: string, bucket: SuggestedBucket): Findin
 }
 
 // ---------------------------------------------------------------------------
-// RAW LIFECYCLE WRITER INVENTORY (restored lifecycle T8 writer-closure audit)
+// RAW LIFECYCLE WRITER INVENTORY (restored lifecycle T8 writer-closure audit;
+// updated FU13 when the legacy PATCH adapter was retired)
 // ---------------------------------------------------------------------------
 // Literal repository-wide audit (gitnexus impact/context + serena/semble +
 // literal grep) of every direct writer of finding-triage status / bucket /
@@ -340,34 +341,36 @@ export function findByBucket(habitatId: string, bucket: SuggestedBucket): Findin
 //
 // | Writer                          | Production callers at audit time        | Disposition |
 // |---------------------------------|-----------------------------------------|-------------|
-// | `transitionStatus`              | `findingTriageService.{confirmBucket,   | Legacy service seam, TEST-ONLY callers |
-// |                                 | resolve,promote}` — test-only           | (characterization suites); superseded by |
-// |                                 |                                         | the lifecycle kernel. Terminal-guarded. |
-// | `setBucket`                     | `findingTriageService.confirmBucket`    | Legacy service seam, TEST-ONLY. |
-// | `setTargetRelease`              | NONE                                    | Superseded by Mission release gates;   |
-// | `setTargetReleaseType`          | NONE                                    | PATCH rejects the shape with           |
-// |                                 |                                         | LEGACY_PATCH_TARGET_RELEASE_SUPERSEDED. |
-// | `setTriageMissionId`            | NONE (FU6) — the link shape now writes  | TEST-ONLY (fixtures seed links); the   |
-// |                                 | via `applyLegacyLinkWithClient`; the    | unlink shape was REMOVED (400          |
-// |                                 |                                         | LEGACY_PATCH_UNLINK_REMOVED, zero     |
-// |                                 |                                         | writes).                              |
-// | `promote`                       | `findingTriageService.promote` —        | Legacy service seam, TEST-ONLY. The   |
-// |                                 | HTTP `/promote` route REMOVED (T8)      | superseded route is gone; manual       |
-// |                                 |                                         | activation is `POST .../activate`.    |
-// | Supplied-client writers below   | `findingTriageLifecycle.ts` kernel +    | Canonical — the only production write |
-// | (`routeWithClient`,             | cluster admission participant +         | authority (plus the Release kernel's  |
-// | `terminalizeWithClient`,        | internal Release reconciliation kernel  | `activateCorrectiveMissionForRelease`) |
-// | `activateGroupWithClient`,      | + `routes/triage.ts` legacy link        | and the retained legacy link adapter   |
-// | `admitWithClient`,              | adapter (FU6 `applyLegacyLinkWithClient`| (`applyLegacyLinkWithClient` is the    |
-// | `applyLegacyLinkWithClient`)    | ONLY)                                   | one-write form: link + fingerprint in  |
-// |                                 |                                         | a single UPDATE inside BEGIN IMMEDIATE).|
+// | `transitionStatus`              | NONE (FU13) — the test-only             | TEST-ONLY (characterization suites    |
+// |                                 | `findingTriageService` seams were       | call the repo directly); superseded   |
+// |                                 | deleted                                 | by the lifecycle kernel.             |
+// | `setBucket`                     | NONE (FU13) — same                       | TEST-ONLY. |
+// | `setTargetRelease`              | NONE                                    | Superseded by Mission release gates. |
+// | `setTargetReleaseType`          | NONE                                    | Superseded by Mission release gates. |
+// | `setTriageMissionId`            | NONE — retained ONLY as a TEST fixture  | TEST-ONLY (release-activation suites |
+// |                                 | writer (17 direct test callers seed     | seed corrective links); the legacy   |
+// |                                 | gated-mission links)                    | PATCH link adapter was RETIRED       |
+// |                                 |                                         | (FU13, 400 LEGACY_PATCH_RETIRED).   |
+// | `promote`                       | NONE (FU13) — the test-only service     | Superseded: the HTTP `/promote`      |
+// |                                 | seam was deleted                        | route was REMOVED (T8) and the       |
+// |                                 |                                         | legacy seam is gone; manual          |
+// |                                 |                                         | activation is `POST .../activate`.  |
+// | Supplied-client writers below   | `findingTriageLifecycle.ts` kernel +    | Canonical — the ONLY production      |
+// | (`routeWithClient`,             | cluster admission participant +         | write authority (plus the Release    |
+// | `terminalizeWithClient`,        | internal Release reconciliation kernel  | kernel's `activateGroupWithClient`). |
+// | `activateGroupWithClient`,      |                                         | The FU6 legacy link adapter          |
+// | `admitWithClient`)              |                                         | (`applyLegacyLinkWithClient`) was    |
+// |                                 |                                         | deleted with the retired PATCH       |
+// |                                 |                                         | surface (FU13).                      |
 //
 // UI cutover (T8): `packages/ui` sends ONLY lifecycle command requests
 // (`/route`, `/activate`, `/resolve`, `/wontfix`) — the state-shaped PATCH
 // client was deleted. MCP cutover (T8): `insert_deferred_mission` performs
 // exactly ONE `POST /triage/findings/:id/route` request; the two-call
 // create-Mission-then-PATCH-link flow (and its orphan-Mission window) no
-// longer exists, and the PATCH-shaped MCP client was deleted.
+// longer exists, and the PATCH-shaped MCP client was deleted. Legacy PATCH
+// retirement (FU13): `PATCH /triage/findings/:id` is a zero-write 400
+// `LEGACY_PATCH_RETIRED` stub for every legacy shape.
 
 /**
  * Enforces {@link FINDING_TRIAGE_TRANSITIONS}. Throws `conflict(...)` on invalid
@@ -467,6 +470,13 @@ export function setTargetReleaseType(id: string, targetReleaseType: string | nul
   return refreshed;
 }
 
+/**
+ * TEST-ONLY fixture writer (see the writer inventory above): zero production
+ * callers since the legacy PATCH link adapter was retired (FU13); retained
+ * solely because release-activation suites seed corrective links with it.
+ * Must NOT gain production callers — corrective links are written by the
+ * lifecycle kernel's `routeWithClient` / release `activateGroupWithClient`.
+ */
 export function setTriageMissionId(id: string, missionId: string | null): FindingTriage {
   const db = getDb();
   const now = new Date().toISOString();
@@ -577,36 +587,6 @@ export function routeWithClient(
         activationReleaseId: update.activationReleaseId,
         updatedAt: update.updatedAt,
       })
-      .where(eq(findingTriage.id, id))
-      .run();
-  } catch (err) {
-    throw repositoryUpdateError("findingTriage", err as Error, id);
-  }
-  const row = client.select().from(findingTriage).where(eq(findingTriage.id, id)).get();
-  if (!row) throw repositoryNotFoundError("findingTriage", id);
-  return rowToFindingTriage(row);
-}
-
-/**
- * FU6 — retained legacy link adapter's ONE-WRITE apply: sets the corrective
- * Mission link AND the stable legacy-link fingerprint in a SINGLE UPDATE on
- * the supplied client, inside the caller's `BEGIN IMMEDIATE` reservation.
- * Replaces the former two sequential writes (`setTriageMissionId` + a bare
- * fingerprint UPDATE) whose inter-write crash window could commit a link
- * with no fingerprint (breaking lost-response replay) — the single statement
- * makes a partial link impossible by construction.
- */
-export function applyLegacyLinkWithClient(
-  client: SuppliedClient,
-  id: string,
-  missionId: string,
-  routeFingerprint: string,
-): FindingTriage {
-  const now = new Date().toISOString();
-  try {
-    client
-      .update(findingTriage)
-      .set({ triageMissionId: missionId, routeFingerprint, updatedAt: now })
       .where(eq(findingTriage.id, id))
       .run();
   } catch (err) {
