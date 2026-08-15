@@ -215,6 +215,44 @@ describe("DELETE /pulse/:id — lifecycle evidence guard", () => {
     expect(pulseRepo.getPulseById(legacy.id)).not.toBeNull();
   });
 
+  it("DISCRIMINATOR: malformed legacy corroborating_pulse_ids reads as no reference, not a 500", async () => {
+    const finding = seedDeferredFinding("Pulse guard malformed json");
+    // A live legacy condition (preflight reports malformed_evidence_json):
+    // an unguarded json_each threw and failed EVERY pulse delete.
+    getDb()
+      .update(findingTriage)
+      .set({
+        corroboratingPulseIds: "not-json",
+        updatedAt: new Date().toISOString(),
+      })
+      .where(eq(findingTriage.id, finding.id))
+      .run();
+
+    const unrelated = seedPlainPulse("Unreferenced under malformed json");
+    const res = await app.inject({
+      method: "DELETE",
+      url: `/api/pulse/${unrelated.id}`,
+      headers: AUTH,
+    });
+    expect(res.statusCode).toBe(204);
+    expect(pulseRepo.getPulseById(unrelated.id)).toBeNull();
+
+    // The malformed row's own references still block their pulses (409), and
+    // the scan itself no longer throws.
+    const referenced = seedPlainPulse("Referenced pulse");
+    getDb()
+      .update(findingTriage)
+      .set({ corroboratingPulseIds: JSON.stringify([referenced.id]) })
+      .where(eq(findingTriage.id, finding.id))
+      .run();
+    const blocked = await app.inject({
+      method: "DELETE",
+      url: `/api/pulse/${referenced.id}`,
+      headers: AUTH,
+    });
+    expect(blocked.statusCode).toBe(409);
+  });
+
   it("rejects deletion of a TERMINAL finding's source pulse (history is durable)", async () => {
     const finding = seedDeferredFinding("Pulse guard terminal");
     const resolved = resolveFinding({

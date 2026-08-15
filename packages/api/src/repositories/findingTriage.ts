@@ -174,15 +174,25 @@ export function createForPulse(pulse: FindingTriagePulseInput): FindingTriage {
     const now = new Date().toISOString();
     try {
       // Atomic append via SQL: only inserts if pulse ID not already in the array.
-      // Uses json_each for existence check + json_insert for append (CS-21 pattern).
+      // Uses json_each for existence check + json_insert for append (CS-21
+      // pattern). Malformed legacy JSON (a live condition — preflight reports
+      // malformed_evidence_json) is treated as no references instead of
+      // throwing: json_valid + array json_type guard both the read and the
+      // json_insert base.
+      const guardedJson = sql`CASE
+        WHEN json_valid(COALESCE(${findingTriage.corroboratingPulseIds}, '[]'))
+             AND json_type(COALESCE(${findingTriage.corroboratingPulseIds}, '[]')) = 'array'
+        THEN COALESCE(${findingTriage.corroboratingPulseIds}, '[]')
+        ELSE '[]'
+      END`;
       db.update(findingTriage)
         .set({
           corroboratingPulseIds: sql`
             (SELECT CASE WHEN EXISTS(
-              SELECT 1 FROM json_each(COALESCE(${findingTriage.corroboratingPulseIds}, '[]'))
+              SELECT 1 FROM json_each(${guardedJson})
               WHERE value = ${pulse.id}
             ) THEN ${findingTriage.corroboratingPulseIds}
-            ELSE json_insert(COALESCE(${findingTriage.corroboratingPulseIds}, '[]'), '$[#]', ${pulse.id})
+            ELSE json_insert(${guardedJson}, '$[#]', ${pulse.id})
             END)
           `,
           updatedAt: now,
@@ -782,12 +792,23 @@ export function findBySourcePulseId(pulseId: string): FindingTriage[] {
  */
 export function findByLegacyCorroboratingPulseId(pulseId: string): FindingTriage[] {
   const db = getDb();
+  // Malformed legacy JSON (malformed_evidence_json is a live condition the
+  // preflight reports) must read as "no reference" — an unguarded json_each
+  // throws and turns EVERY pulse delete into a 500, even for unreferenced
+  // pulses.
   return db
     .select()
     .from(findingTriage)
     .where(
       sql`EXISTS (
-        SELECT 1 FROM json_each(COALESCE(${findingTriage.corroboratingPulseIds}, '[]'))
+        SELECT 1 FROM json_each(
+          CASE
+            WHEN json_valid(COALESCE(${findingTriage.corroboratingPulseIds}, '[]'))
+                 AND json_type(COALESCE(${findingTriage.corroboratingPulseIds}, '[]')) = 'array'
+            THEN COALESCE(${findingTriage.corroboratingPulseIds}, '[]')
+            ELSE '[]'
+          END
+        )
         WHERE value = ${pulseId}
       )`,
     )
