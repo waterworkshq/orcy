@@ -5,7 +5,7 @@ import {
   remoteGrantRules,
   remoteGrantTaskSnapshots,
 } from "../db/schema/index.js";
-import { eq, and, lt, inArray } from "drizzle-orm";
+import { eq, and, lt, inArray, or, isNull } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 import {
   repositoryCreateError,
@@ -146,6 +146,34 @@ export function getActiveGrantsByParticipant(
     .where(
       and(
         eq(remoteGrants.remoteParticipantId, remoteParticipantId),
+        eq(remoteGrants.status, "active"),
+      ),
+    )
+    .all();
+}
+
+/**
+ * Active grants visible to a participant — the same universe the transport
+ * snapshot exposes (`loadRelevantGrants`): participant-specific grants PLUS
+ * pod-wide grants (bound to the pod with no participant). The in-transaction
+ * authority re-check must see both or a pod-wide `triage.route` grant passes
+ * the precheck and then fails the re-check mid-flow.
+ */
+export function getActiveGrantsByParticipantAndPod(
+  remoteParticipantId: string,
+  remotePodId: string,
+  client?: ReturnType<typeof getDb>,
+): RemoteGrantRow[] {
+  const db = client ?? getDb();
+  return db
+    .select(grantFields)
+    .from(remoteGrants)
+    .where(
+      and(
+        or(
+          eq(remoteGrants.remoteParticipantId, remoteParticipantId),
+          and(eq(remoteGrants.remotePodId, remotePodId), isNull(remoteGrants.remoteParticipantId)),
+        ),
         eq(remoteGrants.status, "active"),
       ),
     )

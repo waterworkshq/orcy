@@ -151,6 +151,26 @@ describe("checkRemoteRouteAuthority live re-read", () => {
     if (denied.kind === "deny") expect(denied.code).toBe("STANDING_NOT_CONTRIBUTOR");
   });
 
+  it("DISCRIMINATOR: a pod-wide grant authorizes in the in-transaction re-check, matching the precheck", () => {
+    const { findingId, taskId, snapshot, grantId } = seed();
+    // Convert the seeded grant to pod-wide: bound to the pod, no participant.
+    getDb()
+      .update(remoteGrants)
+      .set({ remoteParticipantId: null })
+      .where(eq(remoteGrants.id, grantId))
+      .run();
+    // Rebuild the snapshot the middleware would produce — loadRelevantGrants
+    // INCLUDES pod-wide grants, so the precheck allows...
+    const podWideSnapshot: RemoteParticipantContext = {
+      ...snapshot,
+      grants: [grantRepo.getRemoteGrantById(grantId)!],
+    };
+    expect(check(podWideSnapshot, findingId, taskId, false).kind).toBe("allow");
+    // ...and the in-transaction re-read must see the same grant universe,
+    // not drop pod-wide rows (previously NO_SAME_GRANT_WITH_TASK_TARGET).
+    expect(check(podWideSnapshot, findingId, taskId, true).kind).toBe("allow");
+  });
+
   it("denies an active grant whose expiresAt has already passed", () => {
     const { findingId, taskId, snapshot, grantId } = seed();
     getDb()

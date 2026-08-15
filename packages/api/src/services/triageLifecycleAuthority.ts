@@ -54,6 +54,7 @@ import type { RemoteParticipantContext } from "../middleware/remoteAuth.js";
 import type { RemoteGrantRow, RemoteGrantTargetRow } from "../repositories/remoteGrant.js";
 import {
   getActiveGrantsByParticipant,
+  getActiveGrantsByParticipantAndPod,
   getRemoteGrantTargets,
   listRemoteGrantTargetsByGrantIds,
 } from "../repositories/remoteGrant.js";
@@ -538,7 +539,11 @@ function recheckRemoteAuthorityOnClient(
   return {
     active: true,
     standing: participant.standing,
-    grants: getActiveGrantsByParticipant(ctx.participant.id, client),
+    // Participant-specific AND pod-wide grants — the same universe the
+    // transport precheck snapshot authorizes against (loadRelevantGrants);
+    // re-reading only participant-specific grants would deny a pod-wide
+    // triage.route grant mid-flow.
+    grants: getActiveGrantsByParticipantAndPod(ctx.participant.id, ctx.pod.id, client),
   };
 }
 
