@@ -11,6 +11,23 @@ import { stableStringify } from "@orcy/shared";
 const DEFAULT_IDEMPOTENCY_TTL_MS = 24 * 60 * 60 * 1000;
 
 /**
+ * Retry-aware pending window: a pending record older than this no longer
+ * blocks same-key re-execution — the retry atomically TAKES OVER the record
+ * (see `takeoverStalePendingIdempotencyKey`). Inside the window a pending
+ * record still answers `IDEMPOTENCY_KEY_IN_FLIGHT`, preserving the genuine
+ * concurrent-duplicate protection.
+ *
+ * The window must comfortably exceed the largest `Retry-After` any busy path
+ * can emit. The triage lifecycle's busy backoff is capped (`MAX_BACKOFF_MS` =
+ * 2000ms → Retry-After ≤ 2s), so a client honoring the hint always retries
+ * well INSIDE the window and is still protected against duplicating a
+ * plausibly-live request; only a record pending far past any advertised hint
+ * (retryable busy that already returned, or a crashed request) becomes
+ * takeover-eligible.
+ */
+const PENDING_TAKEOVER_AFTER_MS = 30 * 1000;
+
+/**
  * Augment FastifyRequest to carry the resolved idempotency record. The
  * route handler uses `completeRemoteIdempotency` / `failRemoteIdempotency`
  * to persist the result so retries can replay.
@@ -40,7 +57,12 @@ function hashRequest(method: string, url: string, body: unknown): string {
  * - If the request fingerprint matches and the prior call completed, replays
  *   the stored response (with `X-Orcy-Idempotent-Replay: true` header)
  * - If the fingerprint differs, returns 409 (mismatched replay)
- * - If the prior request is still pending (in-flight), returns 409
+ * - If the prior request is still pending (in-flight), returns 409 — UNLESS
+ *   the record has been pending longer than the retry window
+ *   (`PENDING_TAKEOVER_AFTER_MS`), in which case the retry atomically takes
+ *   over the record and re-executes (a retryable 503 busy leaves the record
+ *   pending by design; a same-key retry after the advertised Retry-After
+ *   must re-execute, not collide with its own envelope)
  * - If the prior request failed, returns 409 with the prior error message
  *
  * The Idempotency-Key header is required. After a fresh insert, the route
@@ -81,7 +103,7 @@ export function idempotentRemoteWrite(action: string) {
     const requestHash = hashRequest(request.method, request.url, request.body);
     const expiresAt = new Date(Date.now() + DEFAULT_IDEMPOTENCY_TTL_MS).toISOString();
 
-    const { row, created } = idempotencyRepo.getOrCreateIdempotencyKey({
+    const { row: initialRow, created } = idempotencyRepo.getOrCreateIdempotencyKey({
       habitatId: ctx.habitatId,
       remoteParticipantId: ctx.participant.id,
       remoteCredentialId: ctx.credentialId,
@@ -90,6 +112,7 @@ export function idempotentRemoteWrite(action: string) {
       requestHash,
       expiresAt,
     });
+    let row = initialRow;
 
     if (!created) {
       // Existing record — check if it matches the current request
@@ -102,11 +125,30 @@ export function idempotentRemoteWrite(action: string) {
       }
 
       if (row.status === "pending") {
-        throw new AppError(
-          409,
-          "IDEMPOTENCY_KEY_IN_FLIGHT",
-          "Idempotency-Key is currently in-flight; retry shortly",
+        // Retry-aware window: a pending record past the window may be taken
+        // over (the original attempt is no longer plausibly executing — e.g.
+        // a retryable busy already returned 503 with Retry-After, or the
+        // request crashed). Inside the window the record still blocks, so
+        // genuine concurrent duplicates keep getting IDEMPOTENCY_KEY_IN_FLIGHT.
+        const takeover = idempotencyRepo.takeoverStalePendingIdempotencyKey(
+          {
+            remoteParticipantId: ctx.participant.id,
+            action,
+            idempotencyKey,
+          },
+          { olderThanMs: PENDING_TAKEOVER_AFTER_MS },
         );
+        if (!takeover.taken || !takeover.row) {
+          throw new AppError(
+            409,
+            "IDEMPOTENCY_KEY_IN_FLIGHT",
+            "Idempotency-Key is currently in-flight; retry shortly",
+          );
+        }
+        // Takeover won — re-execute under this request's generation of the
+        // record (fresh id + createdAt, so a duplicate of THIS retry is
+        // blocked by the window again).
+        row = takeover.row;
       }
 
       if (row.status === "completed" && row.responseStatus !== null) {
@@ -136,8 +178,8 @@ export function idempotentRemoteWrite(action: string) {
       }
     }
 
-    // First-time request — attach the record id so the route handler can
-    // explicitly complete or fail the record.
+    // First-time request (or a won takeover) — attach the record id so the
+    // route handler can explicitly complete or fail the record.
     request.remoteIdempotency = {
       key: idempotencyKey,
       recordId: row.id,

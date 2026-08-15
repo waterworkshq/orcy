@@ -70,6 +70,11 @@ export function getOrCreateIdempotencyKey(input: CreateIdempotencyKeyInput): {
         requestHash: input.requestHash,
         status: "pending",
         expiresAt: input.expiresAt,
+        // Explicit ISO timestamp — the column default (`datetime('now')`) is
+        // space-separated and zone-less, which stale-pending aging (below)
+        // would have to normalize. Inserting ISO keeps every row this code
+        // creates trivially parseable.
+        createdAt: new Date().toISOString(),
       })
       .onConflictDoNothing({
         target: [
@@ -119,6 +124,93 @@ export function getIdempotencyKey(
     )
     .all();
   return rows.length > 0 ? rows[0] : null;
+}
+
+export interface TakeoverStalePendingInput {
+  remoteParticipantId: string;
+  action: string;
+  idempotencyKey: string;
+}
+
+export interface TakeoverStalePendingResult {
+  row: RemoteIdempotencyKeyRow | null;
+  taken: boolean;
+}
+
+/**
+ * Parse a `createdAt` value into an epoch timestamp. Rows written before the
+ * explicit-ISO insert convention carry the SQLite column default
+ * (`datetime('now')` → `"YYYY-MM-DD HH:MM:SS"`, UTC, space-separated, no
+ * zone) — normalize those; an unparseable value ages to 0 so a corrupt row
+ * is takeover-eligible (recoverable) rather than permanently blocking.
+ */
+function parseCreatedAtEpoch(raw: string): number {
+  const normalized = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(raw)
+    ? `${raw.replace(" ", "T")}Z`
+    : raw;
+  const t = Date.parse(normalized);
+  return Number.isNaN(t) ? 0 : t;
+}
+
+/**
+ * Atomically take over a pending idempotency record that has been pending
+ * longer than `olderThanMs` — the retry-aware window that lets a well-behaved
+ * client re-execute with the SAME key after a retryable failure (e.g. the
+ * busy path deliberately leaves the record pending) instead of being told the
+ * key is in flight forever.
+ *
+ * Compare-and-set, mirroring `acquireAttemptLeaseWithClient`: the WHERE
+ * predicate encodes BOTH the observed identity and the pending+stale-state
+ * precondition, so two concurrent post-window retries are serialized by
+ * SQLite's single writer — exactly one swap matches; the loser's UPDATE
+ * no-ops and the re-read (fresh `id`/`createdAt`) reports `taken: false`.
+ * The winner is whoever's generated `id` survives, the same idiom
+ * `getOrCreateIdempotencyKey` uses for its `created` classification.
+ *
+ * Swapping the `id` (not just bumping `createdAt`) is what makes the win
+ * decidable without `changes()`: the re-read row either carries this call's
+ * UUID or someone else's. Nothing references this table's `id` externally —
+ * the route's complete/fail calls flow through the record id the middleware
+ * attaches after this returns.
+ */
+export function takeoverStalePendingIdempotencyKey(
+  input: TakeoverStalePendingInput,
+  opts: { olderThanMs: number; now?: Date },
+): TakeoverStalePendingResult {
+  const db = getDb();
+  const row = getIdempotencyKey(
+    input.remoteParticipantId,
+    input.action,
+    input.idempotencyKey,
+  );
+  if (!row || row.status !== "pending") return { row, taken: false };
+
+  const nowMs = (opts.now ?? new Date()).getTime();
+  const ageMs = nowMs - parseCreatedAtEpoch(row.createdAt);
+  if (ageMs < opts.olderThanMs) return { row, taken: false };
+
+  const newId = uuid();
+  try {
+    db.update(remoteIdempotencyKeys)
+      .set({ id: newId, createdAt: new Date(nowMs).toISOString() })
+      .where(
+        and(
+          eq(remoteIdempotencyKeys.id, row.id),
+          eq(remoteIdempotencyKeys.status, "pending"),
+          eq(remoteIdempotencyKeys.createdAt, row.createdAt),
+        ),
+      )
+      .run();
+  } catch (err) {
+    throw repositoryUpdateError("remoteIdempotencyKey", err as Error, row.id);
+  }
+
+  const after = getIdempotencyKey(
+    input.remoteParticipantId,
+    input.action,
+    input.idempotencyKey,
+  );
+  return { row: after ?? row, taken: after?.id === newId };
 }
 
 export function completeIdempotencyKey(
