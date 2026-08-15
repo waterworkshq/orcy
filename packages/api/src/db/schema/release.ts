@@ -1,4 +1,12 @@
-import { sqliteTable, text, integer, index, uniqueIndex, check } from "drizzle-orm/sqlite-core";
+import {
+  sqliteTable,
+  text,
+  integer,
+  index,
+  uniqueIndex,
+  check,
+  foreignKey,
+} from "drizzle-orm/sqlite-core";
 import { sql } from "drizzle-orm";
 import { habitats } from "./habitat.js";
 import type { ReleaseType, DetectorSource } from "@orcy/shared";
@@ -121,7 +129,12 @@ export const releaseActivationEpochs = sqliteTable(
       .notNull()
       .default(sql`(datetime('now'))`),
   },
-  (table) => [index("idx_release_epochs_habitat").on(table.habitatId)],
+  (table) => [
+    index("idx_release_epochs_habitat").on(table.habitatId),
+    // 0074: parent side of the composite epoch-group FK — a group's
+    // (epoch, release) pair must match the epoch's own release.
+    uniqueIndex("idx_release_epochs_id_release").on(table.id, table.releaseId),
+  ],
 );
 
 /**
@@ -145,9 +158,7 @@ export const releaseActivationEpochGroups = sqliteTable(
   "release_activation_epoch_groups",
   {
     id: text("id").primaryKey(),
-    epochId: text("epoch_id")
-      .notNull()
-      .references(() => releaseActivationEpochs.id, { onDelete: "cascade" }),
+    epochId: text("epoch_id").notNull(),
     releaseId: text("release_id")
       .notNull()
       .references(() => releases.id, { onDelete: "cascade" }),
@@ -168,6 +179,12 @@ export const releaseActivationEpochGroups = sqliteTable(
       .default(sql`(datetime('now'))`),
   },
   (table) => [
+    // 0074: composite FK — a group's release must BE its epoch's release, so
+    // a mismatched pair can never reconcile into the wrong release context.
+    foreignKey({
+      columns: [table.epochId, table.releaseId],
+      foreignColumns: [releaseActivationEpochs.id, releaseActivationEpochs.releaseId],
+    }).onDelete("cascade"),
     uniqueIndex("idx_release_epoch_groups_epoch_mission").on(table.epochId, table.missionId),
     index("idx_release_epoch_groups_epoch").on(table.epochId, table.position),
     index("idx_release_epoch_groups_disposition").on(table.disposition),
