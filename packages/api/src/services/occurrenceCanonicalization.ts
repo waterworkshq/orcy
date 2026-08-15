@@ -48,7 +48,12 @@ function canonicalize(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(canonicalize);
   if (value !== null && typeof value === "object") {
     const source = value as Record<string, unknown>;
-    const sorted: Record<string, unknown> = {};
+    // Null prototype: on a plain object literal, assigning an own `__proto__`
+    // key (which JSON.parse can produce) routes through the setter and
+    // replaces the prototype instead of creating the property — the key
+    // would vanish from the canonical document and two differing snapshots
+    // would collide on one identity digest.
+    const sorted: Record<string, unknown> = Object.create(null);
     for (const key of Object.keys(source).sort()) {
       sorted[key] = canonicalize(source[key]);
     }

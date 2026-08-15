@@ -228,6 +228,43 @@ describe("occurrence canonicalization", () => {
     expect(a).toBe(b);
   });
 
+  it("DISCRIMINATOR: an own __proto__ key survives canonicalization (no digest collision)", () => {
+    // JSON.parse creates an OWN `__proto__` property (DefineOwnProperty, not
+    // the setter). A snapshot carrying it must hash differently from one
+    // without it — the setter path on a plain object literal silently drops
+    // the key and collides the digests.
+    const withProto = JSON.parse('{"a":1,"__proto__":{"evil":true}}');
+    const without = JSON.parse('{"a":1}');
+    expect(canonicalJson(withProto)).not.toBe(canonicalJson(without));
+    expect(canonicalJson(withProto)).toContain("__proto__");
+  });
+
+  it("DISCRIMINATOR: a lineage longer than the traversal bound surfaces for repair instead of guessing novelty", () => {
+    // 101 pulses + 101 chained resolved rows = a lineage one past the
+    // defensive bound; the walk stops with lineage remaining.
+    const db = getDb();
+    const rowPulseIds: string[] = [];
+    for (let i = 0; i < 101; i++) rowPulseIds.push(seedFindingPulse("long").id);
+    const pad = (n: number) => String(n).padStart(3, "0");
+    for (let i = 0; i < 101; i++) {
+      db.run(
+        sql`INSERT INTO finding_triage (id, habitat_id, pulse_id, cluster_key, finding_kind, status, corroborating_pulse_ids, recurrence_of_id, created_at, updated_at)
+            VALUES (${"f-long-" + pad(i)}, ${habitatId}, ${rowPulseIds[i]}, ${CLUSTER_KEY}, 'long', 'resolved', '[]', ${i > 0 ? "f-long-" + pad(i - 1) : null}, '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z')`,
+      );
+    }
+
+    const novel = seedFindingPulse("long");
+    const classification = classifyClusterIdentities(getDb(), {
+      habitatId,
+      clusterKey: CLUSTER_KEY,
+      pulses: [novel],
+    });
+    const long = classification.identities.find((i) => i.findingKind === "long");
+    // Truncated lineage → the oldest evidence cannot be accounted; a "novel"
+    // classification here could duplicate a recurrence. Repair takes it.
+    expect(long?.kind).toBe("legacy_repair_required");
+  });
+
   it("summary-only drift never changes identity (rendered state excluded)", () => {
     const classification = classifyClusterIdentities(getDb(), {
       habitatId,

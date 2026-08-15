@@ -210,12 +210,18 @@ function accountedPulseIds(client: TaskPublicationDbClient, finding: FindingTria
 
 /**
  * Walks the complete `recurrenceOfId` lineage (visited set + hard bound) and
- * returns every lifecycle row in it, oldest-chain-end first.
+ * returns every lifecycle row in it, oldest-chain-end first. `truncated` is
+ * true when the walk stopped at the defensive bound with more lineage
+ * remaining — the caller must NOT guess novelty from a partial accounted set.
  */
-function lineageRows(client: TaskPublicationDbClient, latest: FindingTriage): FindingTriage[] {
+function lineageRows(
+  client: TaskPublicationDbClient,
+  latest: FindingTriage,
+): { rows: FindingTriage[]; truncated: boolean } {
   const chain: FindingTriage[] = [latest];
   const visited = new Set<string>([latest.id]);
   let cursor: FindingTriage | null = latest;
+  let truncated = false;
   while (cursor && cursor.recurrenceOfId && chain.length < LINEAGE_TRAVERSAL_BOUND) {
     if (visited.has(cursor.recurrenceOfId)) break; // cycle guard
     visited.add(cursor.recurrenceOfId);
@@ -224,7 +230,10 @@ function lineageRows(client: TaskPublicationDbClient, latest: FindingTriage): Fi
     chain.push(predecessor);
     cursor = predecessor;
   }
-  return chain;
+  if (cursor && cursor.recurrenceOfId && chain.length >= LINEAGE_TRAVERSAL_BOUND) {
+    truncated = true;
+  }
+  return { rows: chain, truncated };
 }
 
 /**
@@ -322,9 +331,18 @@ export function classifyClusterIdentities(
     }
 
     // Lineage-wide novelty subtraction: every Pulse id accounted anywhere in
-    // the complete recurrence lineage.
+    // the complete recurrence lineage. A lineage longer than the defensive
+    // bound cannot be fully accounted — the oldest evidence would drop out
+    // and a previously-accounted Pulse could be misclassified as novel,
+    // producing a duplicate recurrence. Surface it for repair instead of
+    // guessing from a partial set.
+    const lineage = lineageRows(client, latest);
+    if (lineage.truncated) {
+      identities.push({ kind: "legacy_repair_required", findingKind, findingId: latest.id });
+      continue;
+    }
     const accounted = new Set<string>();
-    for (const row of lineageRows(client, latest)) {
+    for (const row of lineage.rows) {
       for (const id of accountedPulseIds(client, row)) accounted.add(id);
     }
     // Reset baseline: explicit baseline ids + the cutoff rule (pre-cutoff
