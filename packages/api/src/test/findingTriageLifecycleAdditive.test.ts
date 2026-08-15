@@ -10,7 +10,8 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { eq, and, sql } from "drizzle-orm";
 import { join } from "node:path";
-import { existsSync, unlinkSync, mkdirSync } from "node:fs";
+import { existsSync, unlinkSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
+import { randomUUID } from "node:crypto";
 import {
   closeDb,
   initDb,
@@ -44,11 +45,12 @@ import {
 import {
   previewRepair,
   applyRepair,
-  computeRepairDigest,
+  beginMaintenanceSession,
   checkExistingRepair,
   RepairValidationError,
   type PredecessorMappingInput,
   type EvidenceBaselinedRootInput,
+  type MaintenanceSession,
 } from "../services/findingTriageLegacyRepair.js";
 
 // ─── Production initDb upgrade ─────────────────────────────────────────
@@ -70,6 +72,29 @@ function cleanupDb(dbPath: string): void {
       }
     }
   }
+}
+
+// Maintenance-session factory for the repair tests: real lock file + real
+// backup file (or an explicit operator attestation) under the test temp dir.
+const REPAIR_TMP_DIR = join(TEMP_DIR, "repair-sessions");
+function makeSession(opts?: {
+  backupPath?: string;
+  lockPath?: string;
+  attestation?: boolean;
+}): MaintenanceSession {
+  mkdirSync(REPAIR_TMP_DIR, { recursive: true });
+  const backupPath =
+    opts?.backupPath ?? join(REPAIR_TMP_DIR, `backup-${randomUUID()}.bak`);
+  writeFileSync(backupPath, `orcy-test-backup-${randomUUID()}`);
+  return beginMaintenanceSession({
+    lockPath: opts?.lockPath ?? join(REPAIR_TMP_DIR, `repair-${randomUUID()}.lock`),
+    backup: opts?.attestation
+      ? { kind: "attestation", attestedBy: "op-1" }
+      : { kind: "file", path: backupPath },
+  });
+}
+function cleanupRepairSessions(): void {
+  rmSync(REPAIR_TMP_DIR, { recursive: true, force: true });
 }
 
 describe("Production initDb upgrade — additive lifecycle schema", () => {
@@ -392,7 +417,10 @@ describe("Legacy lineage repair — preview and apply", () => {
     });
     columnId = column.id;
   });
-  afterEach(() => closeDb());
+  afterEach(() => {
+    closeDb();
+    cleanupRepairSessions();
+  });
 
   function seedFindingChain(opts: {
     id: string;
@@ -515,13 +543,14 @@ describe("Legacy lineage repair — preview and apply", () => {
     };
 
     const preview = previewRepair(input);
-    const result = applyRepair(input, preview.digest, {
-      backupVerified: true,
-      exclusiveLock: true,
-    });
+    const session = makeSession();
+    const result = applyRepair(input, preview.digest, session);
 
     expect(result.mode).toBe("predecessor_mapping");
     expect(result.digest).toBe(preview.digest);
+    expect(result.replayed).toBe(false);
+    // applyRepair consumes the session (releases the lock) when it finishes
+    expect(session.released).toBe(true);
 
     // Verify DB was updated
     const db = getDb();
@@ -536,36 +565,38 @@ describe("Legacy lineage repair — preview and apply", () => {
     expect(ledgerRows[0].actor_id).toBe("op-1");
   });
 
-  it("rejects apply without backup", () => {
-    seedFindingChain({ id: "ft-nb", status: "open", clusterKey: "nb", findingKind: "bug" });
-    const input: PredecessorMappingInput = {
-      mode: "predecessor_mapping",
-      habitatId,
-      clusterKey: "nb",
-      findingKind: "bug",
-      mapping: { "ft-nb": null },
-      operator: { type: "human", id: "op-1", reason: "Test" },
-    };
-    const preview = previewRepair(input);
+  it("rejects a maintenance session when the backup file does not exist", () => {
+    mkdirSync(REPAIR_TMP_DIR, { recursive: true });
     expect(() =>
-      applyRepair(input, preview.digest, { backupVerified: false, exclusiveLock: true }),
+      beginMaintenanceSession({
+        lockPath: join(REPAIR_TMP_DIR, `repair-${randomUUID()}.lock`),
+        backup: { kind: "file", path: join(REPAIR_TMP_DIR, "definitely-missing.bak") },
+      }),
     ).toThrow(RepairValidationError);
   });
 
-  it("rejects apply without exclusive lock", () => {
-    seedFindingChain({ id: "ft-nl", status: "open", clusterKey: "nl", findingKind: "bug" });
-    const input: PredecessorMappingInput = {
-      mode: "predecessor_mapping",
-      habitatId,
-      clusterKey: "nl",
-      findingKind: "bug",
-      mapping: { "ft-nl": null },
-      operator: { type: "human", id: "op-1", reason: "Test" },
-    };
-    const preview = previewRepair(input);
+  it("rejects a maintenance session when the backup file is empty", () => {
+    mkdirSync(REPAIR_TMP_DIR, { recursive: true });
+    const emptyBackup = join(REPAIR_TMP_DIR, `empty-${randomUUID()}.bak`);
+    writeFileSync(emptyBackup, "");
     expect(() =>
-      applyRepair(input, preview.digest, { backupVerified: true, exclusiveLock: false }),
+      beginMaintenanceSession({
+        lockPath: join(REPAIR_TMP_DIR, `repair-${randomUUID()}.lock`),
+        backup: { kind: "file", path: emptyBackup },
+      }),
     ).toThrow(RepairValidationError);
+  });
+
+  it("rejects a maintenance session while the lock is held, and re-acquires after release", () => {
+    mkdirSync(REPAIR_TMP_DIR, { recursive: true });
+    const lockPath = join(REPAIR_TMP_DIR, "held.lock");
+    const first = makeSession({ lockPath });
+    expect(() => makeSession({ lockPath })).toThrow(RepairValidationError);
+    first.release();
+    // Released → the lock can be re-acquired
+    const second = makeSession({ lockPath });
+    expect(second.released).toBe(false);
+    second.release();
   });
 
   it("rejects apply without operator reason", () => {
@@ -579,9 +610,27 @@ describe("Legacy lineage repair — preview and apply", () => {
       operator: { type: "human", id: "op-1", reason: "" },
     };
     const preview = previewRepair(input);
-    expect(() =>
-      applyRepair(input, preview.digest, { backupVerified: true, exclusiveLock: true }),
-    ).toThrow(RepairValidationError);
+    expect(() => applyRepair(input, preview.digest, makeSession())).toThrow(
+      RepairValidationError,
+    );
+  });
+
+  it("rejects apply without an active maintenance session", () => {
+    seedFindingChain({ id: "ft-ns", status: "open", clusterKey: "ns", findingKind: "bug" });
+    const input: PredecessorMappingInput = {
+      mode: "predecessor_mapping",
+      habitatId,
+      clusterKey: "ns",
+      findingKind: "bug",
+      mapping: { "ft-ns": null },
+      operator: { type: "human", id: "op-1", reason: "Test" },
+    };
+    const preview = previewRepair(input);
+    const session = makeSession();
+    session.release();
+    expect(() => applyRepair(input, preview.digest, session)).toThrow(
+      RepairValidationError,
+    );
   });
 
   it("rejects apply with digest drift (database changed after preview)", () => {
@@ -602,13 +651,13 @@ describe("Legacy lineage repair — preview and apply", () => {
     // Mutate the database AFTER preview — add a new finding to the identity
     seedFindingChain({ id: "ft-dd-extra", status: "open", clusterKey: "dd", findingKind: "bug" });
 
-    // The digest should now differ because the before-mapping changed
+    // The digest should now differ because the before-state changed
     expect(() =>
-      applyRepair(input, preview.digest, { backupVerified: true, exclusiveLock: true }),
+      applyRepair(input, preview.digest, makeSession()),
     ).toThrow(RepairValidationError);
   });
 
-  it("idempotent replay succeeds with identical digest", () => {
+  it("exact repair-file replay returns the original result with ONE audit row; a changed file conflicts", () => {
     seedFindingChain({ id: "ft-id-root", status: "resolved", clusterKey: "idem", findingKind: "bug", createdAt: "2026-01-01" });
     seedFindingChain({ id: "ft-id-child", status: "open", clusterKey: "idem", findingKind: "bug", legacyRepairRequired: true, createdAt: "2026-06-01" });
 
@@ -622,21 +671,40 @@ describe("Legacy lineage repair — preview and apply", () => {
     };
 
     const preview = previewRepair(input);
-    const result1 = applyRepair(input, preview.digest, {
-      backupVerified: true,
-      exclusiveLock: true,
-    });
+    const result1 = applyRepair(input, preview.digest, makeSession());
+    expect(result1.replayed).toBe(false);
 
-    // After first apply, the mapping is already correct so re-preview should match
-    const preview2 = previewRepair(input);
-    // The before-mapping now equals the after-mapping, so digest changes.
-    // But the repair content (input) is the same — the second apply should succeed
-    // because the mapping is already in the desired state.
-    const result2 = applyRepair(input, preview2.digest, {
-      backupVerified: true,
-      exclusiveLock: true,
-    });
-    expect(result2.digest).not.toBe(result1.digest);
+    // Exact replay: same repair file, same digest — the ORIGINAL result comes
+    // back (idempotent), with no new writes.
+    const result2 = applyRepair(input, preview.digest, makeSession());
+    expect(result2.replayed).toBe(true);
+    expect(result2.repairId).toBe(result1.repairId);
+    expect(result2.digest).toBe(preview.digest);
+
+    const db = getDb();
+    const ledgerRows = db.all(
+      sql`SELECT * FROM finding_triage_lineage_repairs WHERE habitat_id = ${habitatId} AND cluster_key = 'idem'`,
+    ) as Record<string, unknown>[];
+    expect(ledgerRows).toHaveLength(1);
+
+    // checkExistingRepair (wired into apply) reports the applied file
+    const existing = checkExistingRepair(preview.digest);
+    expect(existing.exists).toBe(true);
+    expect(existing.repairId).toBe(result1.repairId);
+
+    // Changed file: edit the mapping content but present the ORIGINAL digest → conflict
+    const changed: PredecessorMappingInput = {
+      ...input,
+      mapping: { "ft-id-child": null, "ft-id-root": null },
+    };
+    expect(() => applyRepair(changed, preview.digest, makeSession())).toThrow(
+      RepairValidationError,
+    );
+    // Still exactly one audit row — the rejected apply wrote nothing
+    const ledgerAfter = db.all(
+      sql`SELECT * FROM finding_triage_lineage_repairs WHERE habitat_id = ${habitatId} AND cluster_key = 'idem'`,
+    ) as Record<string, unknown>[];
+    expect(ledgerAfter).toHaveLength(1);
   });
 
   it("evidence-baselined root repair persists cutoff and baseline pulses", () => {
@@ -659,17 +727,31 @@ describe("Legacy lineage repair — preview and apply", () => {
     const preview = previewRepair(input);
     expect(preview.canApply).toBe(true);
     expect(preview.cutoffTimestamp).toBe("2026-06-01T00:00:00Z");
-    expect(preview.baselinePulseIds).toHaveLength(3);
+    // The preview exposes the DERIVED complete provable set
+    expect(preview.baselinePulseIds).toEqual([
+      "pulse-ft-ebr-1",
+      "pulse-ft-ebr-2",
+      "pulse-ft-ebr-3",
+    ]);
 
-    const result = applyRepair(input, preview.digest, {
-      backupVerified: true,
-      exclusiveLock: true,
-    });
+    const result = applyRepair(input, preview.digest, makeSession());
 
     expect(result.mode).toBe("evidence_baselined_root");
 
-    // Verify baseline evidence persisted
+    // Verify the canonical LINEAR chain was persisted (not a root-star,
+    // which would be a branched lineage)
     const db = getDb();
+    const chainRows = db.all(
+      sql`SELECT id, recurrence_of_id FROM finding_triage WHERE cluster_key = 'ebr'`,
+    ) as Record<string, unknown>[];
+    const chain = Object.fromEntries(
+      chainRows.map((r) => [r.id, r.recurrence_of_id]),
+    );
+    expect(chain["ft-ebr-1"]).toBeNull();
+    expect(chain["ft-ebr-2"]).toBe("ft-ebr-1");
+    expect(chain["ft-ebr-3"]).toBe("ft-ebr-2");
+
+    // Verify baseline evidence persisted
     const baselineRows = db.all(
       sql`SELECT * FROM finding_triage_lineage_baseline_evidence WHERE repair_id = ${result.repairId}`,
     ) as Record<string, unknown>[];
@@ -682,6 +764,436 @@ describe("Legacy lineage repair — preview and apply", () => {
     expect(ledgerRows).toHaveLength(1);
     expect(ledgerRows[0].cutoff_timestamp).toBe("2026-06-01T00:00:00Z");
   });
+});
+
+// ─── Legacy repair: derived-state validation (discriminating) ──────────
+
+describe("Legacy repair — derived-state validation", () => {
+  let habitatId: string;
+
+  beforeEach(async () => {
+    await initTestDb();
+    const db = getDb();
+    db.delete(findingTriageLineageBaselineEvidence).run();
+    db.delete(findingTriageLineageRepairs).run();
+    db.delete(findingTriageEvidence).run();
+    db.delete(findingTriageTable).run();
+    db.delete(pulses).run();
+
+    const habitat = habitatRepo.createHabitat({ name: "Validation Habitat" });
+    habitatId = habitat.id;
+  });
+  afterEach(() => {
+    closeDb();
+    cleanupRepairSessions();
+  });
+
+  function seedFinding(opts: {
+    id: string;
+    status?: string;
+    clusterKey?: string;
+    findingKind?: string;
+    recurrenceOfId?: string | null;
+    legacyRepairRequired?: boolean;
+    createdAt?: string;
+    corroboratingPulseIds?: string | null;
+  }) {
+    const db = getDb();
+    const pulseId = `pulse-${opts.id}`;
+    db.insert(pulses)
+      .values({
+        id: pulseId,
+        habitatId,
+        fromType: "agent",
+        fromId: "a",
+        signalType: "finding",
+        subject: opts.id,
+      })
+      .run();
+    db.insert(findingTriageTable)
+      .values({
+        id: opts.id,
+        habitatId,
+        pulseId,
+        clusterKey: opts.clusterKey ?? "val-cluster",
+        findingKind: opts.findingKind ?? "bug",
+        status: (opts.status ?? "open") as any,
+        corroboratingPulseIds:
+          opts.corroboratingPulseIds ?? `[${JSON.stringify(pulseId)}]`,
+        recurrenceOfId: opts.recurrenceOfId ?? null,
+        legacyLineageRepairRequired: opts.legacyRepairRequired ? 1 : 0,
+        createdAt: opts.createdAt ?? "2026-06-01T00:00:00.000Z",
+      })
+      .run();
+    return pulseId;
+  }
+
+  // ── predecessor mapping: complete-component, older, terminal ──
+
+  it("requires the mapping to cover the complete identity component", () => {
+    seedFinding({ id: "ft-inc-root", status: "resolved", clusterKey: "inc", createdAt: "2026-01-01T00:00:00.000Z" });
+    seedFinding({ id: "ft-inc-child", clusterKey: "inc", createdAt: "2026-06-01T00:00:00.000Z" });
+
+    const input: PredecessorMappingInput = {
+      mode: "predecessor_mapping",
+      habitatId,
+      clusterKey: "inc",
+      findingKind: "bug",
+      // omits ft-inc-root
+      mapping: { "ft-inc-child": "ft-inc-root" },
+      operator: { type: "human", id: "op-1", reason: "Test" },
+    };
+    const preview = previewRepair(input);
+    expect(preview.canApply).toBe(false);
+    expect(preview.validationErrors.some((e) => e.includes("Incomplete mapping"))).toBe(true);
+  });
+
+  it("rejects a predecessor that is not canonically older than its child", () => {
+    // Predecessor is TERMINAL but NEWER than the child.
+    seedFinding({ id: "ft-new-pred", status: "resolved", clusterKey: "new", createdAt: "2026-06-01T00:00:00.000Z" });
+    seedFinding({ id: "ft-new-child", clusterKey: "new", createdAt: "2026-01-01T00:00:00.000Z" });
+
+    const input: PredecessorMappingInput = {
+      mode: "predecessor_mapping",
+      habitatId,
+      clusterKey: "new",
+      findingKind: "bug",
+      mapping: { "ft-new-child": "ft-new-pred", "ft-new-pred": null },
+      operator: { type: "human", id: "op-1", reason: "Test" },
+    };
+    const preview = previewRepair(input);
+    expect(preview.canApply).toBe(false);
+    expect(preview.validationErrors.some((e) => e.includes("not canonically older"))).toBe(true);
+  });
+
+  it("breaks created_at ties by strict id order", () => {
+    // Equal createdAt: predecessor must have the SMALLER id.
+    seedFinding({ id: "ft-tie-a", clusterKey: "tie-ok", createdAt: "2026-01-01T00:00:00.000Z" });
+    seedFinding({ id: "ft-tie-b", status: "resolved", clusterKey: "tie-ok", createdAt: "2026-01-01T00:00:00.000Z" });
+
+    const ok: PredecessorMappingInput = {
+      mode: "predecessor_mapping",
+      habitatId,
+      clusterKey: "tie-ok",
+      findingKind: "bug",
+      mapping: { "ft-tie-a": "ft-tie-b", "ft-tie-b": null }, // pred id b > child id a → INVALID
+      operator: { type: "human", id: "op-1", reason: "Test" },
+    };
+    expect(previewRepair(ok).canApply).toBe(false);
+    expect(
+      previewRepair(ok).validationErrors.some((e) => e.includes("not canonically older")),
+    ).toBe(true);
+
+    const reversed: PredecessorMappingInput = {
+      ...ok,
+      mapping: { "ft-tie-a": null, "ft-tie-b": "ft-tie-a" }, // pred id a < child id b → VALID
+    };
+    // ft-tie-a must be terminal for this to pass
+    dbUpdateStatus("ft-tie-a", "resolved");
+    expect(previewRepair(reversed).canApply).toBe(true);
+  });
+
+  it("rejects a non-terminal predecessor", () => {
+    seedFinding({ id: "ft-nt-pred", status: "open", clusterKey: "nt", createdAt: "2026-01-01T00:00:00.000Z" });
+    seedFinding({ id: "ft-nt-child", clusterKey: "nt", createdAt: "2026-06-01T00:00:00.000Z" });
+
+    const input: PredecessorMappingInput = {
+      mode: "predecessor_mapping",
+      habitatId,
+      clusterKey: "nt",
+      findingKind: "bug",
+      mapping: { "ft-nt-child": "ft-nt-pred", "ft-nt-pred": null },
+      operator: { type: "human", id: "op-1", reason: "Test" },
+    };
+    const preview = previewRepair(input);
+    expect(preview.canApply).toBe(false);
+    expect(preview.validationErrors.some((e) => e.includes("not terminal"))).toBe(true);
+  });
+
+  // ── evidence-baselined root: derived baseline + cutoff ──
+
+  function seedEbrComponent(clusterKey: string) {
+    seedFinding({ id: `${clusterKey}-1`, status: "resolved", clusterKey, createdAt: "2026-01-01T00:00:00.000Z" });
+    seedFinding({ id: `${clusterKey}-2`, status: "resolved", clusterKey, recurrenceOfId: `${clusterKey}-1`, createdAt: "2026-03-01T00:00:00.000Z" });
+    seedFinding({ id: `${clusterKey}-3`, clusterKey, createdAt: "2026-06-01T00:00:00.000Z" });
+  }
+
+  function ebrInput(
+    clusterKey: string,
+    baselinePulseIds: string[],
+    cutoff = "2026-06-01T00:00:00Z",
+  ): EvidenceBaselinedRootInput {
+    return {
+      mode: "evidence_baselined_root",
+      habitatId,
+      clusterKey,
+      findingKind: "bug",
+      canonicalRootId: `${clusterKey}-1`,
+      cutoffTimestamp: cutoff,
+      baselinePulseIds,
+      operator: { type: "human", id: "op-1", reason: "Reset" },
+    };
+  }
+
+  it("includes evidence-table rows of any role in the derived baseline", () => {
+    seedEbrComponent("evrole");
+    // Extra corroborating pulse attached ONLY via the evidence table
+    const extraPulse = `pulse-evrole-extra-${randomUUID().slice(0, 8)}`;
+    const db = getDb();
+    db.insert(pulses)
+      .values({ id: extraPulse, habitatId, fromType: "agent", fromId: "a", signalType: "finding", subject: "extra" })
+      .run();
+    db.insert(findingTriageEvidence)
+      .values({ findingTriageId: "evrole-3", pulseId: extraPulse, habitatId, role: "corroborating" })
+      .run();
+
+    const preview = previewRepair(ebrInput("evrole", []));
+    expect(preview.baselinePulseIds).toEqual(
+      [`pulse-evrole-1`, `pulse-evrole-2`, `pulse-evrole-3`, extraPulse].sort(),
+    );
+
+    // Omitting the evidence-table pulse is rejected
+    const omitting = ebrInput("evrole", ["pulse-evrole-1", "pulse-evrole-2", "pulse-evrole-3"]);
+    const p1 = previewRepair(omitting);
+    expect(p1.canApply).toBe(false);
+    expect(p1.validationErrors.some((e) => e.includes("Baseline omits provable pulse"))).toBe(true);
+
+    // Including it exactly is accepted
+    const exact = ebrInput("evrole", [`pulse-evrole-1`, `pulse-evrole-2`, `pulse-evrole-3`, extraPulse]);
+    expect(previewRepair(exact).canApply).toBe(true);
+  });
+
+  it("rejects nonexistent or foreign pulse ids in the baseline", () => {
+    seedEbrComponent("foreign");
+    const withGhost = ebrInput("foreign", [
+      "pulse-foreign-1",
+      "pulse-foreign-2",
+      "pulse-foreign-3",
+      "pulse-that-does-not-exist",
+    ]);
+    const p1 = previewRepair(withGhost);
+    expect(p1.canApply).toBe(false);
+    expect(
+      p1.validationErrors.some((e) => e.includes("not provable for this identity")),
+    ).toBe(true);
+
+    // A REAL pulse from a different habitat is equally foreign to the baseline
+    const other = habitatRepo.createHabitat({ name: "Other Habitat" });
+    const otherPulse = `pulse-other-${randomUUID().slice(0, 8)}`;
+    const db = getDb();
+    db.insert(pulses)
+      .values({ id: otherPulse, habitatId: other.id, fromType: "agent", fromId: "a", signalType: "finding", subject: "other" })
+      .run();
+    const withForeign = ebrInput("foreign", [
+      "pulse-foreign-1",
+      "pulse-foreign-2",
+      "pulse-foreign-3",
+      otherPulse,
+    ]);
+    expect(previewRepair(withForeign).canApply).toBe(false);
+  });
+
+  it("rejects a derived baseline pulse that belongs to another habitat (corroborating JSON)", () => {
+    seedEbrComponent("xhab");
+    const other = habitatRepo.createHabitat({ name: "Other Habitat 2" });
+    const otherPulse = `pulse-xhab-${randomUUID().slice(0, 8)}`;
+    const db = getDb();
+    db.insert(pulses)
+      .values({ id: otherPulse, habitatId: other.id, fromType: "agent", fromId: "a", signalType: "finding", subject: "xhab" })
+      .run();
+    // Smuggle the foreign pulse into the component's corroborating JSON
+    db.run(
+      sql`UPDATE finding_triage SET corroborating_pulse_ids = ${JSON.stringify([`pulse-xhab-3`, otherPulse])} WHERE id = 'xhab-3'`,
+    );
+
+    const preview = previewRepair(ebrInput("xhab", [`pulse-xhab-1`, `pulse-xhab-2`, `pulse-xhab-3`, otherPulse]));
+    expect(preview.canApply).toBe(false);
+    expect(
+      preview.validationErrors.some((e) => e.includes("belongs to habitat")),
+    ).toBe(true);
+  });
+
+  it("rejects malformed corroborating JSON in the component (baseline underivable)", () => {
+    seedEbrComponent("malformed");
+    const db = getDb();
+    db.run(sql`UPDATE finding_triage SET corroborating_pulse_ids = 'not-json' WHERE id = 'malformed-2'`);
+
+    const preview = previewRepair(ebrInput("malformed", []));
+    expect(preview.canApply).toBe(false);
+    expect(
+      preview.validationErrors.some((e) => e.includes("Malformed corroborating_pulse_ids")),
+    ).toBe(true);
+  });
+
+  it("rejects a future or unparseable cutoff timestamp", () => {
+    seedEbrComponent("cutoff");
+    const baseline = ["pulse-cutoff-1", "pulse-cutoff-2", "pulse-cutoff-3"];
+
+    const future = previewRepair(ebrInput("cutoff", baseline, "2999-01-01T00:00:00Z"));
+    expect(future.canApply).toBe(false);
+    expect(future.validationErrors.some((e) => e.includes("in the future"))).toBe(true);
+
+    const unparseable = previewRepair(ebrInput("cutoff", baseline, "not-a-date"));
+    expect(unparseable.canApply).toBe(false);
+    expect(unparseable.validationErrors.some((e) => e.includes("not parseable"))).toBe(true);
+  });
+
+  it("requires the canonical root to be terminal and canonically oldest", () => {
+    // Root is OPEN → derived root-star has a non-terminal predecessor
+    seedFinding({ id: "rt-open-1", clusterKey: "rt-open", createdAt: "2026-01-01T00:00:00.000Z" });
+    seedFinding({ id: "rt-open-2", clusterKey: "rt-open", createdAt: "2026-06-01T00:00:00.000Z" });
+    const openRoot = previewRepair(
+      ebrInput("rt-open", ["pulse-rt-open-1", "pulse-rt-open-2"]),
+    );
+    expect(openRoot.canApply).toBe(false);
+    expect(openRoot.validationErrors.some((e) => e.includes("not terminal"))).toBe(true);
+
+    // Root is terminal but NEWER than another member → not the canonically
+    // oldest, so the derived chain would not start at the requested root
+    seedFinding({ id: "rt-new-1", status: "resolved", clusterKey: "rt-new", createdAt: "2026-06-01T00:00:00.000Z" });
+    seedFinding({ id: "rt-new-2", status: "resolved", clusterKey: "rt-new", createdAt: "2026-01-01T00:00:00.000Z" });
+    const newRoot = previewRepair(
+      ebrInput("rt-new", ["pulse-rt-new-1", "pulse-rt-new-2"]),
+    );
+    expect(newRoot.canApply).toBe(false);
+    expect(
+      newRoot.validationErrors.some((e) =>
+        e.includes("not the canonically oldest member"),
+      ),
+    ).toBe(true);
+  });
+
+  // ── TOCTOU + zero-writes on rejection ──
+
+  it("TOCTOU: mutating validation-relevant identity state between preview and apply is rejected", () => {
+    seedFinding({ id: "ft-toc-pred", status: "resolved", clusterKey: "toc", createdAt: "2026-01-01T00:00:00.000Z" });
+    seedFinding({ id: "ft-toc-child", clusterKey: "toc", legacyRepairRequired: true, createdAt: "2026-06-01T00:00:00.000Z" });
+
+    const input: PredecessorMappingInput = {
+      mode: "predecessor_mapping",
+      habitatId,
+      clusterKey: "toc",
+      findingKind: "bug",
+      mapping: { "ft-toc-child": "ft-toc-pred", "ft-toc-pred": null },
+      operator: { type: "human", id: "op-1", reason: "Fix" },
+    };
+
+    const preview = previewRepair(input);
+
+    // Mutate validation-relevant state AFTER preview: flip the predecessor
+    // resolved → wontfix. wontfix is STILL terminal and still older, so the
+    // full validation would pass — ONLY the digest re-check under the
+    // exclusive reservation can catch this mutation.
+    dbUpdateStatus("ft-toc-pred", "wontfix");
+
+    let threw: unknown = null;
+    try {
+      applyRepair(input, preview.digest, makeSession());
+    } catch (err) {
+      threw = err;
+    }
+    expect(threw).toBeInstanceOf(RepairValidationError);
+
+    // Zero writes: quarantine flag untouched, no ledger row
+    const db = getDb();
+    const child = db.get(
+      sql`SELECT recurrence_of_id, legacy_lineage_repair_required FROM finding_triage WHERE id = 'ft-toc-child'`,
+    ) as Record<string, unknown>;
+    expect(child.recurrence_of_id).toBeNull();
+    expect(child.legacy_lineage_repair_required).toBe(1);
+    const ledger = db.all(
+      sql`SELECT * FROM finding_triage_lineage_repairs WHERE habitat_id = ${habitatId}`,
+    ) as Record<string, unknown>[];
+    expect(ledger).toHaveLength(0);
+  });
+
+  it("zero writes on the validation-failure apply path (re-fetch proves)", () => {
+    // Non-terminal predecessor: preview computes a digest but canApply=false;
+    // apply must re-validate and reject without touching anything.
+    seedFinding({ id: "ft-zw-pred", status: "open", clusterKey: "zw", createdAt: "2026-01-01T00:00:00.000Z" });
+    seedFinding({ id: "ft-zw-child", clusterKey: "zw", legacyRepairRequired: true, createdAt: "2026-06-01T00:00:00.000Z" });
+
+    const input: PredecessorMappingInput = {
+      mode: "predecessor_mapping",
+      habitatId,
+      clusterKey: "zw",
+      findingKind: "bug",
+      mapping: { "ft-zw-child": "ft-zw-pred", "ft-zw-pred": null },
+      operator: { type: "human", id: "op-1", reason: "Fix" },
+    };
+
+    const preview = previewRepair(input);
+    expect(preview.canApply).toBe(false);
+    expect(() => applyRepair(input, preview.digest, makeSession())).toThrow(
+      RepairValidationError,
+    );
+
+    const db = getDb();
+    const rows = db.all(
+      sql`SELECT id, recurrence_of_id, legacy_lineage_repair_required FROM finding_triage WHERE cluster_key = 'zw'`,
+    ) as Record<string, unknown>[];
+    // Nothing moved: recurrence untouched, quarantine flag still set on the
+    // member that was flagged (the pred was never flagged and stays 0).
+    expect(rows.every((r) => r.recurrence_of_id === null)).toBe(true);
+    expect(
+      rows.find((r) => r.id === "ft-zw-child")!.legacy_lineage_repair_required,
+    ).toBe(1);
+    const ledger = db.all(
+      sql`SELECT * FROM finding_triage_lineage_repairs WHERE habitat_id = ${habitatId}`,
+    ) as Record<string, unknown>[];
+    expect(ledger).toHaveLength(0);
+  });
+
+  it("rejects when the backup file changes between session start and the exclusive reservation", () => {
+    seedFinding({ id: "ft-bk-pred", status: "resolved", clusterKey: "bk", createdAt: "2026-01-01T00:00:00.000Z" });
+    seedFinding({ id: "ft-bk-child", clusterKey: "bk", createdAt: "2026-06-01T00:00:00.000Z" });
+
+    const input: PredecessorMappingInput = {
+      mode: "predecessor_mapping",
+      habitatId,
+      clusterKey: "bk",
+      findingKind: "bug",
+      mapping: { "ft-bk-child": "ft-bk-pred", "ft-bk-pred": null },
+      operator: { type: "human", id: "op-1", reason: "Fix" },
+    };
+    const preview = previewRepair(input);
+
+    const session = makeSession();
+    // Swap the backup after the session verified it
+    writeFileSync(session.backup.path!, `replaced-${randomUUID()}`);
+    expect(() => applyRepair(input, preview.digest, session)).toThrow(
+      RepairValidationError,
+    );
+  });
+
+  it("attestation backup mode applies a valid repair", () => {
+    seedFinding({ id: "ft-att-pred", status: "resolved", clusterKey: "att", createdAt: "2026-01-01T00:00:00.000Z" });
+    seedFinding({ id: "ft-att-child", clusterKey: "att", legacyRepairRequired: true, createdAt: "2026-06-01T00:00:00.000Z" });
+
+    const input: PredecessorMappingInput = {
+      mode: "predecessor_mapping",
+      habitatId,
+      clusterKey: "att",
+      findingKind: "bug",
+      mapping: { "ft-att-child": "ft-att-pred", "ft-att-pred": null },
+      operator: { type: "human", id: "op-1", reason: "Fix" },
+    };
+    const preview = previewRepair(input);
+    const result = applyRepair(input, preview.digest, makeSession({ attestation: true }));
+    expect(result.replayed).toBe(false);
+
+    const db = getDb();
+    const child = db.get(
+      sql`SELECT recurrence_of_id, legacy_lineage_repair_required FROM finding_triage WHERE id = 'ft-att-child'`,
+    ) as Record<string, unknown>;
+    expect(child.recurrence_of_id).toBe("ft-att-pred");
+    expect(child.legacy_lineage_repair_required).toBe(0);
+  });
+
+  function dbUpdateStatus(id: string, status: string): void {
+    const db = getDb();
+    db.run(sql`UPDATE finding_triage SET status = ${status} WHERE id = ${id}`);
+  }
 });
 
 // ─── Mutate/revert evidence: preflight validators ──────────────────────
@@ -836,7 +1348,10 @@ describe("Mutate/revert: digest drift guard", () => {
     const habitat = habitatRepo.createHabitat({ name: "Drift Habitat" });
     habitatId = habitat.id;
   });
-  afterEach(() => closeDb());
+  afterEach(() => {
+    closeDb();
+    cleanupRepairSessions();
+  });
 
   it("changing database after preview causes digest drift on apply", () => {
     const db = getDb();
@@ -882,10 +1397,7 @@ describe("Mutate/revert: digest drift guard", () => {
 
     // Apply should fail with digest drift
     expect(() =>
-      applyRepair(input, preview.digest, {
-        backupVerified: true,
-        exclusiveLock: true,
-      }),
+      applyRepair(input, preview.digest, makeSession()),
     ).toThrow(RepairValidationError);
   });
 
@@ -917,10 +1429,7 @@ describe("Mutate/revert: digest drift guard", () => {
     };
 
     const preview = previewRepair(input);
-    const result = applyRepair(input, preview.digest, {
-      backupVerified: true,
-      exclusiveLock: true,
-    });
+    const result = applyRepair(input, preview.digest, makeSession());
     expect(result.mode).toBe("predecessor_mapping");
   });
 });
