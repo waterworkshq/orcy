@@ -1270,6 +1270,39 @@ describe("Legacy repair — derived-state validation", () => {
     expect(session.released).toBe(true);
   });
 
+  it("DISCRIMINATOR: exact replay stays idempotent after post-repair status mutations", () => {
+    seedFinding({ id: "ft-replay-1", status: "resolved", clusterKey: "replay", findingKind: "bug", legacyRepairRequired: true, createdAt: "2026-01-01T00:00:00.000Z" });
+    seedFinding({ id: "ft-replay-2", status: "open", clusterKey: "replay", findingKind: "bug", legacyRepairRequired: true, createdAt: "2026-06-01T00:00:00.000Z" });
+
+    const input: PredecessorMappingInput = {
+      mode: "predecessor_mapping",
+      habitatId,
+      clusterKey: "replay",
+      findingKind: "bug",
+      mapping: { "ft-replay-1": null, "ft-replay-2": "ft-replay-1" },
+      operator: { type: "human", id: "op-1", reason: "Fix" },
+    };
+
+    const preview = previewRepair(input);
+    const result1 = applyRepair(input, preview.digest, makeSession());
+    expect(result1.replayed).toBe(false);
+
+    // A post-repair mutation of a member's mutable status must NOT turn an
+    // exact replay into a repair_file_conflict — replay trusts the recorded
+    // before-state digest, not current state.
+    dbUpdateStatus("ft-replay-1", "wontfix");
+
+    const result2 = applyRepair(input, preview.digest, makeSession());
+    expect(result2.replayed).toBe(true);
+    expect(result2.repairId).toBe(result1.repairId);
+
+    // A genuinely changed file still conflicts.
+    const changed = { ...input, mapping: { "ft-replay-1": null, "ft-replay-2": null } };
+    expect(() => applyRepair(changed, preview.digest, makeSession())).toThrow(
+      RepairValidationError,
+    );
+  });
+
   function dbUpdateStatus(id: string, status: string): void {
     const db = getDb();
     db.run(sql`UPDATE finding_triage SET status = ${status} WHERE id = ${id}`);

@@ -309,6 +309,10 @@ export const findingTriageLineageRepairs = sqliteTable(
       .default(sql`'{}'`)
       .$defaultFn(() => ({})),
     inputSnapshotDigest: text("input_snapshot_digest").notNull(),
+    /** Derived before-state digest recorded at apply time; exact replay
+     * verification trusts this instead of reconstructing from mutable
+     * current state (NULL on legacy rows predating migration 0072). */
+    beforeStateDigest: text("before_state_digest"),
     cutoffTimestamp: text("cutoff_timestamp"),
     createdAt: text("created_at")
       .notNull()

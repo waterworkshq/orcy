@@ -337,6 +337,13 @@
       "when": 1786642282000,
       "tag": "0071_automation_checkpoint_legacy_disposition",
       "breakpoints": true
+    },
+    {
+      "idx": 48,
+      "version": "6",
+      "when": 1786728682000,
+      "tag": "0072_lineage_repair_before_state_digest",
+      "breakpoints": true
     }
   ]
 }

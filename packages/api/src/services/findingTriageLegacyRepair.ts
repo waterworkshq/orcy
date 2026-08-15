@@ -775,29 +775,45 @@ export function applyRepair(
         reverifyBackupUnderQuiesce(maintenance);
 
         // Exact replay: this digest is recorded in the ledger. Before
-        // trusting it, VERIFY the supplied input actually hashes to it —
-        // reconstruct the before-state the file was prepared against by
-        // reverting recurrence links to the ledger's beforeMapping (the
-        // only columns the repair itself mutated). A changed file claiming
-        // an applied digest conflicts instead of replaying.
+        // trusting it, VERIFY the supplied input actually hashes to it.
+        // Rows written since migration 0072 carry the RECORDED before-state
+        // digest, so verification is independent of post-repair mutations
+        // (a finding's status or evidence changing later must not turn an
+        // exact replay into a conflict). Legacy rows (NULL digest) fall
+        // back to reconstructing the before-state by reverting recurrence
+        // links to the ledger's beforeMapping (the only columns the repair
+        // itself mutated). A changed file claiming an applied digest
+        // conflicts instead of replaying.
         const existing = checkExistingRepair(expectedDigest, client);
         if (existing.exists && existing.repairId) {
-          const snapshotNow = deriveIdentitySnapshot(client, input);
-          const recordedBefore = (existing.beforeMapping ?? {}) as Record<string, string | null>;
-          const reconstructed: DerivedRepairSnapshot = {
-            ...snapshotNow,
-            rows: snapshotNow.rows.map((r) => ({
-              ...r,
-              recurrenceOfId: recordedBefore[r.id] !== undefined ? recordedBefore[r.id] : null,
-            })),
-            beforeMapping: recordedBefore,
-          };
-          const candidate = computeRepairFileDigest(input, computeBeforeStateDigest(reconstructed));
-          if (candidate !== expectedDigest) {
-            throw new RepairValidationError(
-              `Repair-file conflict: digest ${expectedDigest} is recorded, but the supplied input does not hash to it (changed content or post-repair identity drift — re-preview for a fresh repair file).`,
-              "repair_file_conflict",
+          if (existing.beforeStateDigest) {
+            if (computeRepairFileDigest(input, existing.beforeStateDigest) !== expectedDigest) {
+              throw new RepairValidationError(
+                `Repair-file conflict: digest ${expectedDigest} is recorded, but the supplied input does not hash to it (changed content — re-preview for a fresh repair file).`,
+                "repair_file_conflict",
+              );
+            }
+          } else {
+            const snapshotNow = deriveIdentitySnapshot(client, input);
+            const recordedBefore = (existing.beforeMapping ?? {}) as Record<string, string | null>;
+            const reconstructed: DerivedRepairSnapshot = {
+              ...snapshotNow,
+              rows: snapshotNow.rows.map((r) => ({
+                ...r,
+                recurrenceOfId: recordedBefore[r.id] !== undefined ? recordedBefore[r.id] : null,
+              })),
+              beforeMapping: recordedBefore,
+            };
+            const candidate = computeRepairFileDigest(
+              input,
+              computeBeforeStateDigest(reconstructed),
             );
+            if (candidate !== expectedDigest) {
+              throw new RepairValidationError(
+                `Repair-file conflict: digest ${expectedDigest} is recorded, but the supplied input does not hash to it (changed content or post-repair identity drift — re-preview for a fresh repair file).`,
+                "repair_file_conflict",
+              );
+            }
           }
           return {
             repairId: existing.repairId,
@@ -858,6 +874,7 @@ export function applyRepair(
             beforeMapping: snapshot.beforeMapping,
             afterMapping,
             inputSnapshotDigest: fileDigest,
+            beforeStateDigest,
             cutoffTimestamp:
               input.mode === "evidence_baselined_root" ? input.cutoffTimestamp : null,
           })
@@ -919,12 +936,14 @@ export function checkExistingRepair(
   repairId: string | null;
   appliedAt: string | null;
   beforeMapping: Record<string, string | null> | null;
+  beforeStateDigest: string | null;
 } {
   const row = client
     .select({
       id: findingTriageLineageRepairs.id,
       repairTime: findingTriageLineageRepairs.repairTime,
       beforeMapping: findingTriageLineageRepairs.beforeMapping,
+      beforeStateDigest: findingTriageLineageRepairs.beforeStateDigest,
     })
     .from(findingTriageLineageRepairs)
     .where(eq(findingTriageLineageRepairs.inputSnapshotDigest, digest))
@@ -934,5 +953,6 @@ export function checkExistingRepair(
     repairId: row?.id ?? null,
     appliedAt: row?.repairTime ?? null,
     beforeMapping: (row?.beforeMapping as Record<string, string | null>) ?? null,
+    beforeStateDigest: row?.beforeStateDigest ?? null,
   };
 }
