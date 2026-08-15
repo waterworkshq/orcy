@@ -431,10 +431,102 @@ export function updateMission(
   return { success: true, mission: mission! };
 }
 
+/**
+ * Supplied-client variant of {@link updateMission}. The caller owns
+ * `BEGIN IMMEDIATE`; this does NOT open a nested `db.transaction()`.
+ */
+export function updateMissionWithClient(
+  client: MissionDbClient,
+  id: string,
+  input: UpdateMissionInput,
+  expectedVersion?: number,
+):
+  | { success: true; mission: Mission }
+  | { success: false; notFound: true }
+  | { success: false; versionMismatch: true; currentVersion: number } {
+  const now = new Date().toISOString();
+
+  if (expectedVersion !== undefined) {
+    const existing = client
+      .select({ id: missions.id, version: missions.version })
+      .from(missions)
+      .where(eq(missions.id, id))
+      .get();
+    if (!existing) return { success: false, notFound: true };
+    if (existing.version !== expectedVersion) {
+      return { success: false, versionMismatch: true, currentVersion: existing.version };
+    }
+  } else {
+    const existing = client.select({ id: missions.id }).from(missions).where(eq(missions.id, id)).get();
+    if (!existing) return { success: false, notFound: true };
+  }
+
+  const set: Partial<typeof missions.$inferInsert> = { updatedAt: now };
+  if (input.title !== undefined) set.title = input.title;
+  if (input.description !== undefined) set.description = input.description;
+  if (input.acceptanceCriteria !== undefined) set.acceptanceCriteria = input.acceptanceCriteria;
+  if (input.priority !== undefined) set.priority = input.priority;
+  if (input.labels !== undefined) set.labels = input.labels;
+  if (input.columnId !== undefined) set.columnId = input.columnId;
+  if (input.status !== undefined) set.status = input.status;
+  if (input.dependsOn !== undefined) set.dependsOn = input.dependsOn;
+  if (input.blocks !== undefined) set.blocks = input.blocks;
+  if (input.dueAt !== undefined) set.dueAt = input.dueAt;
+  if (input.slaMinutes !== undefined) set.slaMinutes = input.slaMinutes;
+  if (input.slaDeadlineAt !== undefined) set.slaDeadlineAt = input.slaDeadlineAt;
+  if (input.displayOrder !== undefined) set.displayOrder = input.displayOrder;
+  if (input.isArchived !== undefined) set.isArchived = input.isArchived;
+  if (input.releaseGateType !== undefined) set.releaseGateType = input.releaseGateType;
+  if (input.releaseGateVersion !== undefined) set.releaseGateVersion = input.releaseGateVersion;
+  if (input.releaseDeadlineType !== undefined) set.releaseDeadlineType = input.releaseDeadlineType;
+  if (input.releaseDeadlineVersion !== undefined)
+    set.releaseDeadlineVersion = input.releaseDeadlineVersion;
+
+  try {
+    client
+      .update(missions)
+      .set({ ...set, version: sql`${missions.version} + 1` })
+      .where(eq(missions.id, id))
+      .run();
+    if (input.dependsOn !== undefined) {
+      client.delete(missionDependencies).where(eq(missionDependencies.missionId, id)).run();
+      if (input.dependsOn.length > 0) {
+        client
+          .insert(missionDependencies)
+          .values(input.dependsOn.map((depId) => ({ missionId: id, dependsOnId: depId })))
+          .run();
+      }
+    }
+    if (input.blocks !== undefined) {
+      client.delete(missionDependencies).where(eq(missionDependencies.dependsOnId, id)).run();
+      if (input.blocks.length > 0) {
+        client
+          .insert(missionDependencies)
+          .values(input.blocks.map((blockedId) => ({ missionId: blockedId, dependsOnId: id })))
+          .run();
+      }
+    }
+  } catch (err) {
+    throw repositoryTransactionError("mission", err as Error, id);
+  }
+
+  const mission = getMissionByIdWithClient(client, id);
+  return { success: true, mission: mission! };
+}
+
 export function deleteMission(id: string): void {
   const db = getDb();
   try {
     db.delete(missions).where(eq(missions.id, id)).run();
+  } catch (err) {
+    throw repositoryDeleteError("mission", err as Error, id);
+  }
+}
+
+/** Supplied-client delete; caller owns the writer reservation. */
+export function deleteMissionWithClient(client: MissionDbClient, id: string): void {
+  try {
+    client.delete(missions).where(eq(missions.id, id)).run();
   } catch (err) {
     throw repositoryDeleteError("mission", err as Error, id);
   }

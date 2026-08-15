@@ -10,6 +10,9 @@ import {
   guardMissionGateEdit,
 } from "./findingTriageHistoryGuards.js";
 import type { Mission, MissionStatus, Task, TaskPriority } from "../models/index.js";
+import { sql } from "drizzle-orm";
+import { getDb } from "../db/index.js";
+import { isSqliteError } from "../errors/sqlite.js";
 
 /** Input payload accepted by {@link createMission} describing the initial fields of a new mission. */
 export interface CreateMissionInput {
@@ -225,6 +228,31 @@ export function createMission(input: CreateMissionInput): Mission {
   return mission;
 }
 
+function withImmediateMissionWrite<T>(fn: () => T): T {
+  const db = getDb();
+  db.run(sql`BEGIN IMMEDIATE`);
+  try {
+    const result = fn();
+    db.run(sql`COMMIT`);
+    return result;
+  } catch (err) {
+    try {
+      db.run(sql`ROLLBACK`);
+    } catch {
+      // already rolled back
+    }
+    throw err;
+  }
+}
+
+function isForeignKeyViolation(err: unknown): boolean {
+  if (err instanceof Error && /FOREIGN KEY constraint failed/i.test(err.message)) return true;
+  const cause = (err as { cause?: unknown } | null)?.cause;
+  if (cause instanceof Error && /FOREIGN KEY constraint failed/i.test(cause.message)) return true;
+  if (isSqliteError(err) && err.code === "SQLITE_CONSTRAINT_FOREIGNKEY") return true;
+  return false;
+}
+
 /** Updates editable fields of a mission with optimistic-concurrency version checks; side effects: persists the change, emits an `updated` mission event listing changed fields, and broadcasts a `mission.updated` SSE event. Generic gate edits are additionally guarded: clearing the last gate while linked Findings are non-terminal, or adding/replacing a gate while linked Findings are `in_progress`, reject before write (activation owns gate clearing — see `findingTriageHistoryGuards`). */
 export function updateMission(
   missionId: string,
@@ -241,39 +269,48 @@ export function updateMission(
       gateGuard?: "gate_clear_blocked" | "gate_change_blocked";
       gateGuardFindingIds?: string[];
     } {
-  const current = missionRepo.getMissionById(missionId);
-  if (!current) return { success: false, notFound: true };
-  if (current.isArchived) return { success: false, archived: true };
+  const result = withImmediateMissionWrite(() => {
+    const current = missionRepo.getMissionById(missionId);
+    if (!current) return { success: false as const, notFound: true as const };
+    if (current.isArchived) return { success: false as const, archived: true as const };
 
-  const gateGuard = guardMissionGateEdit(missionId, current, {
-    releaseGateType: input.releaseGateType,
-    releaseGateVersion: input.releaseGateVersion,
+    const gateGuard = guardMissionGateEdit(missionId, current, {
+      releaseGateType: input.releaseGateType,
+      releaseGateVersion: input.releaseGateVersion,
+    });
+    if (!gateGuard.allowed) {
+      return {
+        success: false as const,
+        gateGuard: gateGuard.reason,
+        gateGuardFindingIds: gateGuard.findingIds,
+      };
+    }
+
+    const { version, ...updateFields } = input;
+    const written = missionRepo.updateMissionWithClient(
+      getDb(),
+      missionId,
+      updateFields,
+      version,
+    );
+    if (!written.success) return written;
+
+    eventRepo.createMissionEvent({
+      missionId,
+      actorType: "human",
+      actorId: editorId,
+      action: "updated",
+      metadata: { changedFields: Object.keys(input) },
+    });
+    return written;
   });
-  if (!gateGuard.allowed) {
-    return {
-      success: false,
-      gateGuard: gateGuard.reason,
-      gateGuardFindingIds: gateGuard.findingIds,
-    };
+
+  if (result.success) {
+    sseBroadcaster.publish(result.mission.habitatId, {
+      type: "mission.updated",
+      data: result.mission,
+    });
   }
-
-  const { version, ...updateFields } = input;
-  const result = missionRepo.updateMission(missionId, updateFields, version);
-  if (!result.success) return result;
-
-  eventRepo.createMissionEvent({
-    missionId,
-    actorType: "human",
-    actorId: editorId,
-    action: "updated",
-    metadata: { changedFields: Object.keys(input) },
-  });
-
-  sseBroadcaster.publish(result.mission.habitatId, {
-    type: "mission.updated",
-    data: result.mission,
-  });
-
   return result;
 }
 
@@ -283,39 +320,50 @@ export function deleteMission(
   actorId = "system",
   actorType: "human" | "agent" | "system" = "system",
 ): { success: true } | { success: false; reason: string } {
-  const mission = missionRepo.getMissionById(missionId);
-  if (!mission) return { success: false, reason: "not_found" };
+  let habitatId: string | null = null;
+  try {
+    const result = withImmediateMissionWrite(() => {
+      const mission = missionRepo.getMissionById(missionId);
+      if (!mission) return { success: false as const, reason: "not_found" };
 
-  const dependents = missionRepo.getMissionsByDependency(missionId);
-  if (dependents.length > 0) {
-    return { success: false, reason: "has_dependents" };
+      const dependents = missionRepo.getMissionsByDependency(missionId);
+      if (dependents.length > 0) {
+        return { success: false as const, reason: "has_dependents" };
+      }
+
+      const deleteGuard = guardMissionDelete(missionId);
+      if (deleteGuard.blocked) {
+        return { success: false as const, reason: "has_finding_links" };
+      }
+
+      emitMissionAuditEvent({
+        missionId,
+        actorType,
+        actorId,
+        action: "deleted",
+        fromStatus: mission.status,
+        metadata: {
+          title: mission.title,
+          habitatId: mission.habitatId,
+          columnId: mission.columnId,
+          labels: mission.labels,
+        },
+      });
+
+      missionRepo.deleteMissionWithClient(getDb(), missionId);
+      habitatId = mission.habitatId;
+      return { success: true as const };
+    });
+    if (result.success && habitatId) {
+      sseBroadcaster.publish(habitatId, { type: "mission.deleted", data: { missionId } });
+    }
+    return result;
+  } catch (err) {
+    if (isForeignKeyViolation(err)) {
+      return { success: false, reason: "has_finding_links" };
+    }
+    throw err;
   }
-
-  // Inverse guard (restored lifecycle T5): any investigation or corrective
-  // Finding link — terminal or not — blocks deletion.
-  const deleteGuard = guardMissionDelete(missionId);
-  if (deleteGuard.blocked) {
-    return { success: false, reason: "has_finding_links" };
-  }
-
-  emitMissionAuditEvent({
-    missionId,
-    actorType,
-    actorId,
-    action: "deleted",
-    fromStatus: mission.status,
-    metadata: {
-      title: mission.title,
-      habitatId: mission.habitatId,
-      columnId: mission.columnId,
-      labels: mission.labels,
-    },
-  });
-
-  missionRepo.deleteMission(missionId);
-  sseBroadcaster.publish(mission.habitatId, { type: "mission.deleted", data: { missionId } });
-
-  return { success: true };
 }
 
 /** Moves a mission to a specific target column; side effects: persists the move, emits a `moved` mission event, and broadcasts both `mission.moved` and `mission.updated` SSE events to the habitat. The supplied `expectedVersion` is required and passed through to the repository's optimistic-concurrency check; a stale version produces a `{ staleVersion: true }` outcome with no write and no event emission. A target column that does not belong to the mission's habitat is rejected with `{ invalidTarget: true }` before any write — the invariant is also enforced at the repository boundary. */
