@@ -350,34 +350,12 @@ export function getMissionsByHabitatId(
   return { missions: results as Mission[], total };
 }
 
-export function updateMission(
-  id: string,
+/** Field-set builder shared by both updateMission variants (no drift). */
+function buildMissionUpdateSet(
   input: UpdateMissionInput,
-  expectedVersion?: number,
-):
-  | { success: true; mission: Mission }
-  | { success: false; notFound: true }
-  | { success: false; versionMismatch: true; currentVersion: number } {
-  const db = getDb();
-  const now = new Date().toISOString();
-
-  if (expectedVersion !== undefined) {
-    const existing = db
-      .select({ id: missions.id, version: missions.version })
-      .from(missions)
-      .where(eq(missions.id, id))
-      .get();
-    if (!existing) return { success: false, notFound: true };
-    if (existing.version !== expectedVersion) {
-      return { success: false, versionMismatch: true, currentVersion: existing.version };
-    }
-  } else {
-    const existing = db.select({ id: missions.id }).from(missions).where(eq(missions.id, id)).get();
-    if (!existing) return { success: false, notFound: true };
-  }
-
+  now: string,
+): Partial<typeof missions.$inferInsert> {
   const set: Partial<typeof missions.$inferInsert> = { updatedAt: now };
-
   if (input.title !== undefined) set.title = input.title;
   if (input.description !== undefined) set.description = input.description;
   if (input.acceptanceCriteria !== undefined) set.acceptanceCriteria = input.acceptanceCriteria;
@@ -397,6 +375,35 @@ export function updateMission(
   if (input.releaseDeadlineType !== undefined) set.releaseDeadlineType = input.releaseDeadlineType;
   if (input.releaseDeadlineVersion !== undefined)
     set.releaseDeadlineVersion = input.releaseDeadlineVersion;
+  return set;
+}
+
+export function updateMission(
+  id: string,
+  input: UpdateMissionInput,
+  expectedVersion?: number,
+):
+  | { success: true; mission: Mission }
+  | { success: false; notFound: true }
+  | { success: false; versionMismatch: true; currentVersion: number } {
+  const db = getDb();
+
+  if (expectedVersion !== undefined) {
+    const existing = db
+      .select({ id: missions.id, version: missions.version })
+      .from(missions)
+      .where(eq(missions.id, id))
+      .get();
+    if (!existing) return { success: false, notFound: true };
+    if (existing.version !== expectedVersion) {
+      return { success: false, versionMismatch: true, currentVersion: existing.version };
+    }
+  } else {
+    const existing = db.select({ id: missions.id }).from(missions).where(eq(missions.id, id)).get();
+    if (!existing) return { success: false, notFound: true };
+  }
+
+  const set = buildMissionUpdateSet(input, new Date().toISOString());
 
   try {
     db.transaction((tx) => {
@@ -434,6 +441,12 @@ export function updateMission(
 /**
  * Supplied-client variant of {@link updateMission}. The caller owns
  * `BEGIN IMMEDIATE`; this does NOT open a nested `db.transaction()`.
+ *
+ * The optimistic-concurrency version rides IN the UPDATE's WHERE clause (a
+ * single atomic CAS statement, mirroring {@link moveMission} and
+ * `activationVersionCasWithClient`) — never a two-step SELECT-then-UPDATE,
+ * which is only safe while the caller holds the writer reservation; as a
+ * standalone primitive that pattern silently loses concurrent updates.
  */
 export function updateMissionWithClient(
   client: MissionDbClient,
@@ -444,50 +457,30 @@ export function updateMissionWithClient(
   | { success: true; mission: Mission }
   | { success: false; notFound: true }
   | { success: false; versionMismatch: true; currentVersion: number } {
-  const now = new Date().toISOString();
-
-  if (expectedVersion !== undefined) {
-    const existing = client
-      .select({ id: missions.id, version: missions.version })
-      .from(missions)
-      .where(eq(missions.id, id))
-      .get();
-    if (!existing) return { success: false, notFound: true };
-    if (existing.version !== expectedVersion) {
-      return { success: false, versionMismatch: true, currentVersion: existing.version };
-    }
-  } else {
-    const existing = client.select({ id: missions.id }).from(missions).where(eq(missions.id, id)).get();
-    if (!existing) return { success: false, notFound: true };
-  }
-
-  const set: Partial<typeof missions.$inferInsert> = { updatedAt: now };
-  if (input.title !== undefined) set.title = input.title;
-  if (input.description !== undefined) set.description = input.description;
-  if (input.acceptanceCriteria !== undefined) set.acceptanceCriteria = input.acceptanceCriteria;
-  if (input.priority !== undefined) set.priority = input.priority;
-  if (input.labels !== undefined) set.labels = input.labels;
-  if (input.columnId !== undefined) set.columnId = input.columnId;
-  if (input.status !== undefined) set.status = input.status;
-  if (input.dependsOn !== undefined) set.dependsOn = input.dependsOn;
-  if (input.blocks !== undefined) set.blocks = input.blocks;
-  if (input.dueAt !== undefined) set.dueAt = input.dueAt;
-  if (input.slaMinutes !== undefined) set.slaMinutes = input.slaMinutes;
-  if (input.slaDeadlineAt !== undefined) set.slaDeadlineAt = input.slaDeadlineAt;
-  if (input.displayOrder !== undefined) set.displayOrder = input.displayOrder;
-  if (input.isArchived !== undefined) set.isArchived = input.isArchived;
-  if (input.releaseGateType !== undefined) set.releaseGateType = input.releaseGateType;
-  if (input.releaseGateVersion !== undefined) set.releaseGateVersion = input.releaseGateVersion;
-  if (input.releaseDeadlineType !== undefined) set.releaseDeadlineType = input.releaseDeadlineType;
-  if (input.releaseDeadlineVersion !== undefined)
-    set.releaseDeadlineVersion = input.releaseDeadlineVersion;
+  const set = buildMissionUpdateSet(input, new Date().toISOString());
 
   try {
     client
       .update(missions)
       .set({ ...set, version: sql`${missions.version} + 1` })
-      .where(eq(missions.id, id))
+      .where(
+        expectedVersion !== undefined
+          ? and(eq(missions.id, id), eq(missions.version, expectedVersion))
+          : eq(missions.id, id),
+      )
       .run();
+    const affected = client.get<{ n: number }>(sql`SELECT changes() AS n`)?.n ?? 0;
+    if (affected === 0) {
+      const current = client
+        .select({ version: missions.version })
+        .from(missions)
+        .where(eq(missions.id, id))
+        .get();
+      if (!current || expectedVersion === undefined) {
+        return { success: false, notFound: true };
+      }
+      return { success: false, versionMismatch: true, currentVersion: current.version };
+    }
     if (input.dependsOn !== undefined) {
       client.delete(missionDependencies).where(eq(missionDependencies.missionId, id)).run();
       if (input.dependsOn.length > 0) {

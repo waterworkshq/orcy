@@ -61,6 +61,35 @@ afterEach(() => {
   closeDb();
 });
 
+describe("updateMissionWithClient — atomic CAS (version in WHERE, branch on affected rows)", () => {
+  it("DISCRIMINATOR: a stale expectedVersion is a typed mismatch with NOTHING written", () => {
+    const mission = missionRepo.createMission({
+      habitatId,
+      columnId: columnIds[0],
+      title: "CAS primitive",
+      createdBy: "u1",
+    });
+    // A concurrent write bumps the version after our caller "observed" v1.
+    missionRepo.updateMission(mission.id, { title: "Concurrent write" });
+    const observed = missionRepo.getMissionById(mission.id)!;
+    expect(observed.version).toBe(2);
+
+    // The stale-observation write is an atomic CAS miss...
+    const stale = missionRepo.updateMissionWithClient(getDb(), mission.id, { title: "Stale" }, 1);
+    expect(stale).toEqual({ success: false, versionMismatch: true, currentVersion: 2 });
+
+    // ...and wrote NOTHING: no title change, no version bump, no lost update.
+    const after = missionRepo.getMissionById(mission.id)!;
+    expect(after.title).toBe("Concurrent write");
+    expect(after.version).toBe(2);
+
+    // A fresh-observation write succeeds and bumps exactly once.
+    const fresh = missionRepo.updateMissionWithClient(getDb(), mission.id, { title: "Fresh" }, 2);
+    expect(fresh.success).toBe(true);
+    expect(missionRepo.getMissionById(mission.id)!.version).toBe(3);
+  });
+});
+
 describe("M1 — moveMission is server-atomic (version in WHERE, branch on affected rows)", () => {
   it("rejects a stale-version write with zero rows and surfaces currentVersion (simulated concurrent move)", () => {
     const mission = missionRepo.createMission({
