@@ -4,7 +4,15 @@ import * as columnRepo from "../repositories/column.js";
 import * as eventRepo from "../repositories/event.js";
 import { sseBroadcaster } from "../sse/broadcaster.js";
 import { emitMissionAuditEvent } from "./auditEventEmitter.js";
+import {
+  guardMissionDelete,
+  guardCorrectiveMissionArchive,
+  guardMissionGateEdit,
+} from "./findingTriageHistoryGuards.js";
 import type { Mission, MissionStatus, Task, TaskPriority } from "../models/index.js";
+import { sql } from "drizzle-orm";
+import { getDb } from "../db/index.js";
+import { isSqliteError } from "../errors/sqlite.js";
 
 /** Input payload accepted by {@link createMission} describing the initial fields of a new mission. */
 export interface CreateMissionInput {
@@ -220,7 +228,32 @@ export function createMission(input: CreateMissionInput): Mission {
   return mission;
 }
 
-/** Updates editable fields of a mission with optimistic-concurrency version checks; side effects: persists the change, emits an `updated` mission event listing changed fields, and broadcasts a `mission.updated` SSE event. */
+function withImmediateMissionWrite<T>(fn: () => T): T {
+  const db = getDb();
+  db.run(sql`BEGIN IMMEDIATE`);
+  try {
+    const result = fn();
+    db.run(sql`COMMIT`);
+    return result;
+  } catch (err) {
+    try {
+      db.run(sql`ROLLBACK`);
+    } catch {
+      // already rolled back
+    }
+    throw err;
+  }
+}
+
+function isForeignKeyViolation(err: unknown): boolean {
+  if (err instanceof Error && /FOREIGN KEY constraint failed/i.test(err.message)) return true;
+  const cause = (err as { cause?: unknown } | null)?.cause;
+  if (cause instanceof Error && /FOREIGN KEY constraint failed/i.test(cause.message)) return true;
+  if (isSqliteError(err) && err.code === "SQLITE_CONSTRAINT_FOREIGNKEY") return true;
+  return false;
+}
+
+/** Updates editable fields of a mission with optimistic-concurrency version checks; side effects: persists the change, emits an `updated` mission event listing changed fields, and broadcasts a `mission.updated` SSE event. Generic gate edits are additionally guarded: clearing the last gate while linked Findings are non-terminal, or adding/replacing a gate while linked Findings are `in_progress`, reject before write (activation owns gate clearing — see `findingTriageHistoryGuards`). */
 export function updateMission(
   missionId: string,
   input: Parameters<typeof missionRepo.updateMission>[1] & { version?: number },
@@ -233,63 +266,104 @@ export function updateMission(
       versionMismatch?: true;
       currentVersion?: number;
       archived?: true;
+      gateGuard?: "gate_clear_blocked" | "gate_change_blocked";
+      gateGuardFindingIds?: string[];
     } {
-  const current = missionRepo.getMissionById(missionId);
-  if (!current) return { success: false, notFound: true };
-  if (current.isArchived) return { success: false, archived: true };
+  const result = withImmediateMissionWrite(() => {
+    const current = missionRepo.getMissionById(missionId);
+    if (!current) return { success: false as const, notFound: true as const };
+    if (current.isArchived) return { success: false as const, archived: true as const };
 
-  const { version, ...updateFields } = input;
-  const result = missionRepo.updateMission(missionId, updateFields, version);
-  if (!result.success) return result;
+    const gateGuard = guardMissionGateEdit(missionId, current, {
+      releaseGateType: input.releaseGateType,
+      releaseGateVersion: input.releaseGateVersion,
+    });
+    if (!gateGuard.allowed) {
+      return {
+        success: false as const,
+        gateGuard: gateGuard.reason,
+        gateGuardFindingIds: gateGuard.findingIds,
+      };
+    }
 
-  eventRepo.createMissionEvent({
-    missionId,
-    actorType: "human",
-    actorId: editorId,
-    action: "updated",
-    metadata: { changedFields: Object.keys(input) },
+    const { version, ...updateFields } = input;
+    const written = missionRepo.updateMissionWithClient(
+      getDb(),
+      missionId,
+      updateFields,
+      version,
+    );
+    if (!written.success) return written;
+
+    eventRepo.createMissionEvent({
+      missionId,
+      actorType: "human",
+      actorId: editorId,
+      action: "updated",
+      metadata: { changedFields: Object.keys(input) },
+    });
+    return written;
   });
 
-  sseBroadcaster.publish(result.mission.habitatId, {
-    type: "mission.updated",
-    data: result.mission,
-  });
-
+  if (result.success) {
+    sseBroadcaster.publish(result.mission.habitatId, {
+      type: "mission.updated",
+      data: result.mission,
+    });
+  }
   return result;
 }
 
-/** Deletes a mission when no other mission depends on it; side effects: emits a `deleted` audit event carrying the prior status and metadata, deletes the row, and broadcasts a `mission.deleted` SSE event to the habitat. */
+/** Deletes a mission when no other mission depends on it AND no Finding links it as investigation or corrective work (any Finding state — deletion erases history; archive is the reversible alternative); side effects: emits a `deleted` audit event carrying the prior status and metadata, deletes the row, and broadcasts a `mission.deleted` SSE event to the habitat. */
 export function deleteMission(
   missionId: string,
   actorId = "system",
   actorType: "human" | "agent" | "system" = "system",
 ): { success: true } | { success: false; reason: string } {
-  const mission = missionRepo.getMissionById(missionId);
-  if (!mission) return { success: false, reason: "not_found" };
+  let habitatId: string | null = null;
+  try {
+    const result = withImmediateMissionWrite(() => {
+      const mission = missionRepo.getMissionById(missionId);
+      if (!mission) return { success: false as const, reason: "not_found" };
 
-  const dependents = missionRepo.getMissionsByDependency(missionId);
-  if (dependents.length > 0) {
-    return { success: false, reason: "has_dependents" };
+      const dependents = missionRepo.getMissionsByDependency(missionId);
+      if (dependents.length > 0) {
+        return { success: false as const, reason: "has_dependents" };
+      }
+
+      const deleteGuard = guardMissionDelete(missionId);
+      if (deleteGuard.blocked) {
+        return { success: false as const, reason: "has_finding_links" };
+      }
+
+      emitMissionAuditEvent({
+        missionId,
+        actorType,
+        actorId,
+        action: "deleted",
+        fromStatus: mission.status,
+        metadata: {
+          title: mission.title,
+          habitatId: mission.habitatId,
+          columnId: mission.columnId,
+          labels: mission.labels,
+        },
+      });
+
+      missionRepo.deleteMissionWithClient(getDb(), missionId);
+      habitatId = mission.habitatId;
+      return { success: true as const };
+    });
+    if (result.success && habitatId) {
+      sseBroadcaster.publish(habitatId, { type: "mission.deleted", data: { missionId } });
+    }
+    return result;
+  } catch (err) {
+    if (isForeignKeyViolation(err)) {
+      return { success: false, reason: "has_finding_links" };
+    }
+    throw err;
   }
-
-  emitMissionAuditEvent({
-    missionId,
-    actorType,
-    actorId,
-    action: "deleted",
-    fromStatus: mission.status,
-    metadata: {
-      title: mission.title,
-      habitatId: mission.habitatId,
-      columnId: mission.columnId,
-      labels: mission.labels,
-    },
-  });
-
-  missionRepo.deleteMission(missionId);
-  sseBroadcaster.publish(mission.habitatId, { type: "mission.deleted", data: { missionId } });
-
-  return { success: true };
 }
 
 /** Moves a mission to a specific target column; side effects: persists the move, emits a `moved` mission event, and broadcasts both `mission.moved` and `mission.updated` SSE events to the habitat. The supplied `expectedVersion` is required and passed through to the repository's optimistic-concurrency check; a stale version produces a `{ staleVersion: true }` outcome with no write and no event emission. A target column that does not belong to the mission's habitat is rejected with `{ invalidTarget: true }` before any write — the invariant is also enforced at the repository boundary. */
@@ -403,7 +477,7 @@ export function listMissions(
   return { missions: missionsWithProgress, total };
 }
 
-/** Archives a mission that is already in the `done` status; side effects: flips `isArchived`, emits an `updated` mission event with `archived` reason metadata, and broadcasts a `mission.updated` SSE event. */
+/** Archives a mission that is already in the `done` status AND has no non-terminal corrective Finding links (restored lifecycle T5 inverse guard — archive is allowed once every linked Finding is terminal, and the link stays queryable); side effects: flips `isArchived`, emits an `updated` mission event with `archived` reason metadata, and broadcasts a `mission.updated` SSE event. */
 export function archiveMission(
   missionId: string,
   actorId: string,
@@ -412,6 +486,13 @@ export function archiveMission(
   if (!mission) return { success: false, reason: "not_found" };
   if (mission.status !== "done") return { success: false, reason: "not_done" };
   if (mission.isArchived) return { success: false, reason: "already_archived" };
+
+  // Inverse guard: a corrective Mission with ANY non-terminal linked Finding
+  // cannot be archived.
+  const archiveGuard = guardCorrectiveMissionArchive(missionId);
+  if (archiveGuard.blocked) {
+    return { success: false, reason: archiveGuard.reason };
+  }
 
   const result = missionRepo.updateMission(missionId, { isArchived: true });
   if (!result.success) return { success: false, reason: "update_failed" };

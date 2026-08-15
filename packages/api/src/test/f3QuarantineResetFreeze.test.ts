@@ -14,7 +14,12 @@
  *  - A prerelease marker recorded with the pre-F3 0053 hash cannot suppress the
  *    repaired structural migration chain after the immutability banner lands.
  */
-import { describe, it, expect, afterEach, beforeEach } from "vitest";
+import { vi, describe, it, expect, afterEach, beforeEach } from "vitest";
+
+// Migration-chain tests build file-backed databases through the full journal
+// (now including the staged preflight/enforcement protocol) — allow headroom
+// under full-suite parallel contention.
+vi.setConfig({ testTimeout: 60_000 });
 import { closeDb, initDb, getDb, PRERELEASE_0053_MARKER_HASH } from "../db/index.js";
 import { pluginQuarantines } from "../db/schema/index.js";
 import { join } from "node:path";
@@ -25,6 +30,7 @@ import {
   mkdirSync,
   cpSync,
   appendFileSync,
+  writeFileSync,
   rmSync,
 } from "node:fs";
 import { createHash } from "node:crypto";
@@ -257,6 +263,31 @@ describe("F3: Freeze migration 0053 and prove one-shot quarantine reset", () => 
       cleanupFolder(copiedFolder);
       cpSync(DRIZZLE_DIR, copiedFolder, { recursive: true });
       cleanupDb(dbPath);
+
+      // This test drives the raw one-shot Drizzle migrate(), which can never
+      // legally apply the 0068 enforcement entry (its CHECK guard requires a
+      // preflight attestation only the staged production runner writes).
+      // Bound the copied journal at the additive watermark so the one-shot
+      // vehicle exercises exactly the 0053 semantics under test.
+      const copiedJournalPath = join(copiedFolder, "meta", "_journal.json");
+      const copiedJournal = JSON.parse(readFileSync(copiedJournalPath, "utf-8"));
+      const watermarkWhen = copiedJournal.entries.find(
+        (e: { tag: string }) => e.tag === "0067_release_projection_epochs",
+      ).when;
+      copiedJournal.entries = copiedJournal.entries.filter(
+        (e: { when: number }) => e.when <= watermarkWhen,
+      );
+      // Drop the excluded SQL files so a completeness-style drift cannot
+      // resurrect them through this copied folder.
+      for (const entry of JSON.parse(readFileSync(copiedJournalPath, "utf-8")).entries as {
+        tag: string;
+        when: number;
+      }[]) {
+        if (entry.when > watermarkWhen) {
+          rmSync(join(copiedFolder, `${entry.tag}.sql`), { force: true });
+        }
+      }
+      writeFileSync(copiedJournalPath, JSON.stringify(copiedJournal, null, 2));
 
       const { drizzle } = await import("drizzle-orm/better-sqlite3");
       const { migrate } = await import("drizzle-orm/better-sqlite3/migrator");

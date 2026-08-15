@@ -156,21 +156,51 @@ describe("Triage Route Authentication", () => {
     expect(res.statusCode).toBe(404);
   });
 
-  it("agent-authenticated PATCH /triage/findings/:id succeeds", async () => {
+  it("human-authenticated PATCH /triage/findings/:id succeeds (no-work shape)", async () => {
     const findings = findingTriageRepo.findByHabitat(habitatId);
+    const token = makeToken({ sub: "user-1", username: "test", role: "admin" });
     const res = await app!.inject({
       method: "PATCH",
       url: `/api/triage/findings/${findings[0].id}`,
-      payload: { bucket: "fix_now", status: "triaged" },
-      headers: { "x-agent-api-key": agentApiKey },
+      // Strict legacy PATCH matrix accepts only no-work buckets here. Work-bearing
+      // buckets must route through POST /triage/findings/:id/route.
+      payload: { bucket: "document_as_known_limitation", status: "triaged" },
+      headers: { authorization: `Bearer ${token}` },
     });
     expect(res.statusCode).toBe(200);
   });
 
-  it("RM-10: agent-authenticated PATCH /triage/findings/:id with triageMissionId:null unlinks (no longer 400)", async () => {
+  it("PATCH /triage/findings/:id with work-bearing bucket is rejected", async () => {
+    const findings = findingTriageRepo.findByHabitat(habitatId);
+    const token = makeToken({ sub: "user-1", username: "test", role: "admin" });
+    const res = await app!.inject({
+      method: "PATCH",
+      url: `/api/triage/findings/${findings[0].id}`,
+      payload: { bucket: "fix_now", status: "triaged" },
+      headers: { authorization: `Bearer ${token}` },
+    });
+    expect(res.statusCode).toBe(400);
+  });
+
+  it("agent-authenticated PATCH /triage/findings/:id no-work is denied (no admitted Task claim)", async () => {
+    // Legacy/un-admitted rows have `admittedByInvestigationTaskId = null`. Agents
+    // require a current claim on the exact admitted Task; null means denied.
+    const findings = findingTriageRepo.findByHabitat(habitatId);
+    const res = await app!.inject({
+      method: "PATCH",
+      url: `/api/triage/findings/${findings[0].id}`,
+      payload: { bucket: "document_as_known_limitation", status: "triaged" },
+      headers: { "x-agent-api-key": agentApiKey },
+    });
+    expect(res.statusCode).toBe(403);
+  });
+
+  it("FU6: PATCH /triage/findings/:id with triageMissionId:null returns 400 LEGACY_PATCH_UNLINK_REMOVED with zero writes", async () => {
     const findings = findingTriageRepo.findByHabitat(habitatId);
     const findingId = findings[0].id;
-    // First link the finding to the seeded mission, then clear it.
+    // Seed a link, then attempt the REMOVED unlink shape. It used to bypass
+    // the actor matrix entirely (any local agent key could sever the link);
+    // FU6 removed the shape — assert the 400 + stable code + no writes.
     findingTriageRepo.setTriageMissionId(findingId, missionId);
     expect(findingTriageRepo.getById(findingId)!.triageMissionId).toBe(missionId);
 
@@ -180,8 +210,12 @@ describe("Triage Route Authentication", () => {
       payload: { triageMissionId: null },
       headers: { "x-agent-api-key": agentApiKey },
     });
-    expect(res.statusCode).toBe(200);
-    expect(findingTriageRepo.getById(findingId)!.triageMissionId).toBeNull();
+    expect(res.statusCode).toBe(400);
+    const body = JSON.parse(res.body) as { code?: string };
+    expect(body.code).toBe("LEGACY_PATCH_UNLINK_REMOVED");
+    // Zero writes: the link survives untouched.
+    const after = findingTriageRepo.getById(findingId)!;
+    expect(after.triageMissionId).toBe(missionId);
   });
 
   it("human-authenticated GET /triage/findings succeeds for non-team habitat", async () => {

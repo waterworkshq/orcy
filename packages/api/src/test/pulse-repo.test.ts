@@ -347,12 +347,13 @@ describe("pulse repository", () => {
 
   describe("deletePulse", () => {
     it("deletes existing pulse and returns true", () => {
-      _selectAllResult = [makeRow()];
+      // deletePulseWithClient's existence check selects via the passed client.
+      _selectGetResult = makeRow();
       expect(deletePulse("p1")).toBe(true);
       expect(_deleteRun).toHaveBeenCalled();
     });
     it("returns false when pulse not found", () => {
-      _selectAllResult = [];
+      _selectGetResult = undefined;
       expect(deletePulse("x")).toBe(false);
     });
   });

@@ -481,21 +481,21 @@ When agents repeatedly struggle with the same type of problem, Orcy's triage sys
 
 1. **Detection:** A periodic scan groups signals (experience, findings, detected) by subject. When 3+ signals share the same pattern within 7 days, a **triage mission** is created with an investigation task.
 2. **Investigation:** A daemon agent claims the investigation task, reads the cluster context, and posts an analysis pulse with root-cause hypothesis and suggested corrective steps.
-3. **Bucket routing (human-in-the-loop):** For engineering findings, the triage agent recommends a routing bucket — `fix now`, `defer to patch`, `defer to release`, `document as known limitation`, or `needs investigation`. A human confirms or overrides the recommendation.
-4. **Resolution recording:** When a triage mission resolves, the root cause and fix are recorded. If the same pattern emerges later, the historical resolution surfaces as a suggested fix.
+3. **Routing (claim-bound):** The agent that currently holds the investigation task's claim routes the finding — `fix now` creates one ungated corrective mission; deferral creates one release-gated corrective mission positioned in the roadmap. Humans can always route or override manually (ADR-0048).
+4. **Resolution recording:** When a finding resolves, the root cause and fix are recorded. If the same pattern emerges later with genuinely new evidence, a recurrence opens as a NEW finding row — resolved findings never reopen.
 
 ### What you'll see
 
 - **Triage missions** appear on your habitat board titled "Triage: \<pattern subject\>"
 - **Finding triage list** in the triage UI tab shows engineering findings with their status and routing bucket
-- **Deferred backlog** shows findings routed to `defer_to_patch` or `defer_to_release` with a promote button for manual promotion into corrective work
+- **Deferred findings** carry a gated corrective mission; the finding view shows the canonical **corrective mission** (the investigation mission is tracked separately as provenance) and activation attribution (manual or which release)
 - **Agent quality notifications** (informational only) flag agents whose quality metrics have degraded — these do NOT affect task assignment
 
 ### What you need to do
 
 - **Review triage missions** as they appear — the investigation task contains the cluster context
-- **Confirm bucket decisions** when the triage agent recommends a routing for engineering findings
-- **Promote deferred findings** when you're ready to work on them (or wait for the target release cycle)
+- **Confirm routing decisions** when the triage agent recommends a routing for engineering findings
+- **Activate deferred findings** when you're ready (Activate clears only the release gate on the existing corrective mission — dependencies, status, and tasks are preserved), or wait for the target release: each release activates deferred groups under a frozen per-release cap
 
 ## Need Help?
 

@@ -48,8 +48,8 @@
  * + § "Reservation and replay".
  */
 import { getDb } from "../db/index.js";
-import { taskCreationAttempts } from "../db/schema/index.js";
-import { and, eq, or, isNull, lt, sql } from "drizzle-orm";
+import { taskCreationAttempts, triagePublicationOccurrences } from "../db/schema/index.js";
+import { and, eq, or, isNull, lt, notExists, sql } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 import { isSqliteError } from "../errors/sqlite.js";
 import { repositoryCreateError, repositoryUpdateError } from "../errors/repository.js";
@@ -744,6 +744,72 @@ export function listPendingTaskCreationAttemptsForScopeWithClient(
       and(
         eq(taskCreationAttempts.sourceScopeId, sourceScopeId),
         eq(taskCreationAttempts.state, "pending"),
+      ),
+    )
+    .all();
+}
+
+/**
+ * Pending triage-occurrence attempts whose occurrence row no longer exists —
+ * habitat deletion cascades occurrences away while the deliberately FK-free
+ * attempts survive as audit history. The frozen aggregate snapshot is gone,
+ * so these attempts can never publish; the occurrence repair scan finalizes
+ * them. SCOPED to the invoking habitat: a per-cluster intake must not
+ * terminalize or report another habitat's attempts (rows with a null
+ * habitat_id predate habitat stamping and stay for a global cleanup pass).
+ * Pure read; the caller owns the client.
+ */
+export function listPendingAttemptsForMissingOccurrenceScopeWithClient(
+  db: TaskPublicationDbClient,
+  habitatId: string,
+): TaskCreationAttemptRow[] {
+  return db
+    .select()
+    .from(taskCreationAttempts)
+    .where(
+      and(
+        eq(taskCreationAttempts.sourceScopeKind, "triage_occurrence"),
+        eq(taskCreationAttempts.state, "pending"),
+        eq(taskCreationAttempts.habitatId, habitatId),
+        notExists(
+          db
+            .select({ one: sql`1` })
+            .from(triagePublicationOccurrences)
+            .where(
+              eq(triagePublicationOccurrences.id, taskCreationAttempts.sourceScopeId),
+            ),
+        ),
+      ),
+    )
+    .all();
+}
+
+/**
+ * Pending triage-occurrence attempts with a NULL habitat (rows predating
+ * habitat stamping) whose occurrence row no longer exists. They belong to no
+ * habitat, so no per-habitat scan can ever reach them; the occurrence repair
+ * scan finalizes them as an explicit global pass. Pure read; the caller owns
+ * the client.
+ */
+export function listUnstampedPendingAttemptsForMissingOccurrenceScopeWithClient(
+  db: TaskPublicationDbClient,
+): TaskCreationAttemptRow[] {
+  return db
+    .select()
+    .from(taskCreationAttempts)
+    .where(
+      and(
+        eq(taskCreationAttempts.sourceScopeKind, "triage_occurrence"),
+        eq(taskCreationAttempts.state, "pending"),
+        isNull(taskCreationAttempts.habitatId),
+        notExists(
+          db
+            .select({ one: sql`1` })
+            .from(triagePublicationOccurrences)
+            .where(
+              eq(triagePublicationOccurrences.id, taskCreationAttempts.sourceScopeId),
+            ),
+        ),
       ),
     )
     .all();

@@ -1,10 +1,11 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { KanbanApiClient } from "../api.js";
 import {
   triageInvestigate,
   triageTopIssues,
   triageResolutionLookup,
   triageMapOrphanMission,
+  triageInsertDeferredMission,
 } from "../tools/triage.js";
 import { TRIAGE_ACTIONS, TRIAGE_DISPATCH_TOOL } from "../tools/triage-dispatch.js";
 
@@ -86,7 +87,7 @@ describe("orcy_triage dispatch", () => {
             status: "open",
             bucket: null,
             targetRelease: null,
-            triageMissionId: "m-1",
+            correctiveMissionId: "m-1",
             createdAt: "2026-07-01T00:00:00.000Z",
             metadata: {
               affectedTaskIds: ["t-1"],
@@ -118,6 +119,9 @@ describe("orcy_triage dispatch", () => {
     expect(result.signalCount).toBe(5);
     expect(result.status).toBe("under_investigation");
     expect(result.openFindings).toHaveLength(1);
+    // Canonical corrective-Mission read (ADR-0048).
+    expect(result.openFindings?.[0]?.correctiveMissionId).toBe("m-1");
+    expect(result.clusterMissionId).toBe("m-1");
     expect(result.affectedTaskIds).toContain("t-1");
     expect(result.agentIds).toContain("a-1");
     expect(result.historicalResolutions).toHaveLength(1);
@@ -315,6 +319,112 @@ describe("orcy_triage dispatch", () => {
     expect(patched.dependsOn).toEqual(["m-x"]);
     expect(result.placementNote).toContain("1 dependency edge");
     expect(result.mission.id).toBe("m-orphan-1");
+  });
+});
+
+describe("orcy_triage insert_deferred_mission — single-command deferral cutover (T8)", () => {
+  function createRouteClient(opts?: {
+    routeResponse?: Record<string, unknown>;
+    routeError?: Error;
+  }) {
+    const calls: string[] = [];
+    const routePayloads: Record<string, unknown>[] = [];
+    const client = createMockClient({
+      routeTriageFinding: async (id: string, route: Record<string, unknown>) => {
+        calls.push(`route:${id}`);
+        routePayloads.push(route);
+        if (opts?.routeError) throw opts.routeError;
+        return {
+          finding: {
+            id,
+            status: "triaged",
+            bucket: route.bucket,
+            correctiveMissionId: "m-new",
+          },
+        };
+      },
+      createMission: async () => {
+        calls.push("createMission");
+        throw new Error("createMission must not be called by the cutover flow");
+      },
+    } as unknown as Partial<KanbanApiClient>);
+    return { client, calls, routePayloads };
+  }
+
+  const WIRE_ARGS = {
+    habitatId: "hab-1",
+    findingId: "f-1",
+    missionTitle: "Corrective: flaky tests",
+    missionDescription: "Stabilize the flaky integration suite.",
+    dependsOn: ["m-inflight"],
+    releaseGateType: "patch" as const,
+    releaseGateVersion: "v0.40.0",
+  };
+
+  it("performs EXACTLY ONE command request — the old create-Mission-then-PATCH-link flow is gone", async () => {
+    const { client, calls } = createRouteClient();
+
+    const result = await triageInsertDeferredMission(client, WIRE_ARGS);
+
+    expect(calls).toEqual(["route:f-1"]);
+    expect(result.placementNote).toContain("atomically");
+    expect(result.correctiveMissionId).toBe("m-new");
+  });
+
+  it("maps WIRE names to BACKEND names explicitly (dependsOn → dependencies; patch gate → defer_to_patch)", async () => {
+    const { client, routePayloads } = createRouteClient();
+
+    await triageInsertDeferredMission(client, WIRE_ARGS);
+
+    const payload = routePayloads[0];
+    // Backend Zod schema names — a rest-spread of `args` would ship `dependsOn`
+    // and 400 on the missing `dependencies` field.
+    expect(payload).toEqual({
+      bucket: "defer_to_patch",
+      missionTitle: "Corrective: flaky tests",
+      missionDescription: "Stabilize the flaky integration suite.",
+      dependencies: ["m-inflight"],
+      releaseGateType: "patch",
+      releaseGateVersion: "v0.40.0",
+    });
+  });
+
+  it("minor/major gates route to defer_to_release", async () => {
+    const { client, routePayloads } = createRouteClient();
+
+    await triageInsertDeferredMission(client, {
+      ...WIRE_ARGS,
+      releaseGateType: "minor",
+    });
+
+    expect(routePayloads[0].bucket).toBe("defer_to_release");
+  });
+
+  it("a command failure leaves NO partial state — no second call, no compensation attempt", async () => {
+    const { client, calls } = createRouteClient({
+      routeError: new Error("409 Conflict: FINDING_TERMINAL"),
+    });
+
+    await expect(triageInsertDeferredMission(client, WIRE_ARGS)).rejects.toThrow(
+      "FINDING_TERMINAL",
+    );
+
+    // The old flow's failure window (Mission created, link PATCH never sent)
+    // cannot recur: exactly one call was made and it failed — nothing was
+    // committed, and the handler performs no follow-up writes.
+    expect(calls).toEqual(["route:f-1"]);
+  });
+
+  it("validates required placement fields before any client call (handler backstop)", async () => {
+    const { client, calls } = createRouteClient();
+
+    await expect(
+      triageInsertDeferredMission(client, { ...WIRE_ARGS, missionDescription: undefined }),
+    ).rejects.toThrow("missionDescription is required");
+    await expect(
+      triageInsertDeferredMission(client, { ...WIRE_ARGS, releaseGateVersion: undefined }),
+    ).rejects.toThrow("releaseGateVersion is required");
+    expect(calls).toEqual([]);
   });
 });
 

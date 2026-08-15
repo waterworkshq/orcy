@@ -11,6 +11,9 @@ import type {
 import { repositoryCreateError, repositoryNotFoundError } from "../../errors/repository.js";
 import { withAuditProvenanceMetadata } from "../../services/auditProvenanceContext.js";
 
+/** Supplied-client type for transaction participation. */
+type EventDbClient = ReturnType<typeof getDb>;
+
 export interface CreateMissionEventInput {
   missionId: string;
   actorType: ActorType;
@@ -51,6 +54,44 @@ export function createMissionEvent(input: CreateMissionEventInput): MissionEvent
   const event = getMissionEventById(id);
   if (!event) throw repositoryNotFoundError("missionEvent", id);
   return event;
+}
+
+/**
+ * Supplied-client variant of {@link createMissionEvent}. The caller owns the
+ * transaction; this primitive inserts the event row on the injected client so
+ * it commits atomically with the domain mutation that occasioned the event.
+ */
+export function createMissionEventWithClient(
+  client: EventDbClient,
+  input: CreateMissionEventInput,
+): MissionEvent {
+  const id = uuid();
+  const now = new Date().toISOString();
+
+  try {
+    client
+      .insert(missionEvents)
+      .values({
+        id,
+        missionId: input.missionId,
+        actorType: input.actorType,
+        actorId: input.actorId,
+        action: input.action,
+        fromColumnId: input.fromColumnId ?? null,
+        toColumnId: input.toColumnId ?? null,
+        fromStatus: input.fromStatus ?? null,
+        toStatus: input.toStatus ?? null,
+        metadata: withAuditProvenanceMetadata(input.metadata),
+        timestamp: now,
+      })
+      .run();
+  } catch (err) {
+    throw repositoryCreateError("missionEvent", err as Error, id);
+  }
+
+  const row = client.select().from(missionEvents).where(eq(missionEvents.id, id)).get();
+  if (!row) throw repositoryNotFoundError("missionEvent", id);
+  return row as MissionEvent;
 }
 
 export function getMissionEventById(id: string): MissionEvent | null {

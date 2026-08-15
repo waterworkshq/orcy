@@ -138,6 +138,164 @@ export function createMission(input: CreateMissionInput): Mission {
   return mission;
 }
 
+/** Supplied-client type for transaction participation. */
+type MissionDbClient = ReturnType<typeof getDb>;
+
+/**
+ * Supplied-client variant of {@link createMission}. The caller owns the
+ * transaction (manual `BEGIN IMMEDIATE`); this primitive does NOT wrap its
+ * own `db.transaction()`. Inserts the Mission row + dependency edges directly
+ * on the supplied client so they commit atomically with lifecycle writes.
+ */
+export function createMissionWithClient(
+  client: MissionDbClient,
+  input: CreateMissionInput,
+): Mission {
+  const id = uuid();
+  const now = new Date().toISOString();
+
+  let columnId = input.columnId;
+  if (!columnId) {
+    const habitatColumns = client
+      .select()
+      .from(columns)
+      .where(eq(columns.habitatId, input.habitatId))
+      .orderBy(columns.order)
+      .all();
+    columnId = habitatColumns[0]?.id;
+    if (!columnId) throw badRequest("Habitat has no columns");
+  }
+
+  let displayOrder = input.displayOrder;
+  if (displayOrder === undefined) {
+    const result = client
+      .select({ maxOrder: max(missions.displayOrder) })
+      .from(missions)
+      .where(eq(missions.columnId, columnId))
+      .get();
+    displayOrder = (result?.maxOrder ?? -1) + 1;
+  }
+
+  try {
+    client
+      .insert(missions)
+      .values({
+        id,
+        habitatId: input.habitatId,
+        columnId,
+        title: input.title,
+        description: input.description ?? "",
+        acceptanceCriteria: input.acceptanceCriteria ?? "",
+        priority: input.priority ?? "medium",
+        labels: input.labels ?? [],
+        status: "not_started",
+        displayOrder,
+        dependsOn: input.dependsOn ?? [],
+        blocks: input.blocks ?? [],
+        dueAt: input.dueAt ?? null,
+        slaMinutes: input.slaMinutes ?? null,
+        createdBy: input.createdBy,
+        createdAt: now,
+        updatedAt: now,
+        version: 1,
+        releaseGateType: input.releaseGateType ?? null,
+        releaseGateVersion: input.releaseGateVersion ?? null,
+        releaseDeadlineType: input.releaseDeadlineType ?? null,
+        releaseDeadlineVersion: input.releaseDeadlineVersion ?? null,
+      })
+      .run();
+
+    if (input.dependsOn && input.dependsOn.length > 0) {
+      client
+        .insert(missionDependencies)
+        .values(input.dependsOn.map((depId) => ({ missionId: id, dependsOnId: depId })))
+        .run();
+    }
+
+    if (input.blocks && input.blocks.length > 0) {
+      client
+        .insert(missionDependencies)
+        .values(input.blocks.map((blockedId) => ({ missionId: blockedId, dependsOnId: id })))
+        .run();
+    }
+  } catch (err) {
+    throw repositoryCreateError("mission", err as Error, id);
+  }
+
+  const mission = client.select().from(missions).where(eq(missions.id, id)).get() as Mission | null;
+  if (!mission) throw repositoryNotFoundError("mission", id);
+  return mission;
+}
+
+/**
+ * Supplied-client exact-id Mission read. Used inside the lifecycle activation
+ * transaction so the read observes a consistent snapshot under the writer
+ * reservation. No `mission-` prefix normalization — the kernel only ever
+ * reads canonical ids it loaded from `finding_triage`.
+ */
+export function getMissionByIdWithClient(client: MissionDbClient, id: string): Mission | null {
+  return (client.select().from(missions).where(eq(missions.id, id)).get() as Mission) ?? null;
+}
+
+/** Result of {@link activationVersionCasWithClient}. */
+export type ActivationVersionCasResult =
+  | { status: "ok"; mission: Mission }
+  | { status: "not_found" }
+  | { status: "version_mismatch"; currentVersion: number };
+
+/**
+ * Narrow activation gate-CAS primitive (restored lifecycle T5).
+ *
+ * ONE atomic conditional UPDATE: bumps `version`, stamps `updatedAt`, and —
+ * only when `clearReleaseGate` is set (manual activation) — nulls
+ * `releaseGateType`/`releaseGateVersion`. Every other Mission field
+ * (dependencies, status, deadlines, Tasks) is untouched. The version is part
+ * of the WHERE clause, so a Mission that moved between the kernel's read and
+ * this write matches zero rows and is classified below — there is no
+ * `WHERE id`-only fallback (mirrors {@link moveMission}'s enforceable
+ * optimistic-concurrency contract).
+ *
+ * Release-mode activation passes `clearReleaseGate: false` — the satisfied
+ * gate is RETAINED (history preserved) while the version still CASes.
+ */
+export function activationVersionCasWithClient(
+  client: MissionDbClient,
+  missionId: string,
+  expectedVersion: number,
+  opts: { clearReleaseGate: boolean },
+): ActivationVersionCasResult {
+  const now = new Date().toISOString();
+  const gateClear = opts.clearReleaseGate ? { releaseGateType: null, releaseGateVersion: null } : {};
+
+  try {
+    client
+      .update(missions)
+      .set({
+        updatedAt: now,
+        version: sql`${missions.version} + 1`,
+        ...gateClear,
+      })
+      .where(and(eq(missions.id, missionId), eq(missions.version, expectedVersion)))
+      .run();
+    const affected = client.get<{ n: number }>(sql`SELECT changes() AS n`)?.n ?? 0;
+    if (affected === 0) {
+      const current = client
+        .select({ version: missions.version })
+        .from(missions)
+        .where(eq(missions.id, missionId))
+        .get();
+      if (!current) return { status: "not_found" };
+      return { status: "version_mismatch", currentVersion: current.version };
+    }
+  } catch (err) {
+    throw repositoryUpdateError("mission", err as Error, missionId);
+  }
+
+  const mission = getMissionByIdWithClient(client, missionId);
+  if (!mission) return { status: "not_found" };
+  return { status: "ok", mission };
+}
+
 export function getMissionById(id: string): Mission | null {
   const db = getDb();
   const { exact, withPrefix } = normalizeMissionId(id);
@@ -192,34 +350,12 @@ export function getMissionsByHabitatId(
   return { missions: results as Mission[], total };
 }
 
-export function updateMission(
-  id: string,
+/** Field-set builder shared by both updateMission variants (no drift). */
+function buildMissionUpdateSet(
   input: UpdateMissionInput,
-  expectedVersion?: number,
-):
-  | { success: true; mission: Mission }
-  | { success: false; notFound: true }
-  | { success: false; versionMismatch: true; currentVersion: number } {
-  const db = getDb();
-  const now = new Date().toISOString();
-
-  if (expectedVersion !== undefined) {
-    const existing = db
-      .select({ id: missions.id, version: missions.version })
-      .from(missions)
-      .where(eq(missions.id, id))
-      .get();
-    if (!existing) return { success: false, notFound: true };
-    if (existing.version !== expectedVersion) {
-      return { success: false, versionMismatch: true, currentVersion: existing.version };
-    }
-  } else {
-    const existing = db.select({ id: missions.id }).from(missions).where(eq(missions.id, id)).get();
-    if (!existing) return { success: false, notFound: true };
-  }
-
+  now: string,
+): Partial<typeof missions.$inferInsert> {
   const set: Partial<typeof missions.$inferInsert> = { updatedAt: now };
-
   if (input.title !== undefined) set.title = input.title;
   if (input.description !== undefined) set.description = input.description;
   if (input.acceptanceCriteria !== undefined) set.acceptanceCriteria = input.acceptanceCriteria;
@@ -239,6 +375,35 @@ export function updateMission(
   if (input.releaseDeadlineType !== undefined) set.releaseDeadlineType = input.releaseDeadlineType;
   if (input.releaseDeadlineVersion !== undefined)
     set.releaseDeadlineVersion = input.releaseDeadlineVersion;
+  return set;
+}
+
+export function updateMission(
+  id: string,
+  input: UpdateMissionInput,
+  expectedVersion?: number,
+):
+  | { success: true; mission: Mission }
+  | { success: false; notFound: true }
+  | { success: false; versionMismatch: true; currentVersion: number } {
+  const db = getDb();
+
+  if (expectedVersion !== undefined) {
+    const existing = db
+      .select({ id: missions.id, version: missions.version })
+      .from(missions)
+      .where(eq(missions.id, id))
+      .get();
+    if (!existing) return { success: false, notFound: true };
+    if (existing.version !== expectedVersion) {
+      return { success: false, versionMismatch: true, currentVersion: existing.version };
+    }
+  } else {
+    const existing = db.select({ id: missions.id }).from(missions).where(eq(missions.id, id)).get();
+    if (!existing) return { success: false, notFound: true };
+  }
+
+  const set = buildMissionUpdateSet(input, new Date().toISOString());
 
   try {
     db.transaction((tx) => {
@@ -273,10 +438,88 @@ export function updateMission(
   return { success: true, mission: mission! };
 }
 
+/**
+ * Supplied-client variant of {@link updateMission}. The caller owns
+ * `BEGIN IMMEDIATE`; this does NOT open a nested `db.transaction()`.
+ *
+ * The optimistic-concurrency version rides IN the UPDATE's WHERE clause (a
+ * single atomic CAS statement, mirroring {@link moveMission} and
+ * `activationVersionCasWithClient`) — never a two-step SELECT-then-UPDATE,
+ * which is only safe while the caller holds the writer reservation; as a
+ * standalone primitive that pattern silently loses concurrent updates.
+ */
+export function updateMissionWithClient(
+  client: MissionDbClient,
+  id: string,
+  input: UpdateMissionInput,
+  expectedVersion?: number,
+):
+  | { success: true; mission: Mission }
+  | { success: false; notFound: true }
+  | { success: false; versionMismatch: true; currentVersion: number } {
+  const set = buildMissionUpdateSet(input, new Date().toISOString());
+
+  try {
+    client
+      .update(missions)
+      .set({ ...set, version: sql`${missions.version} + 1` })
+      .where(
+        expectedVersion !== undefined
+          ? and(eq(missions.id, id), eq(missions.version, expectedVersion))
+          : eq(missions.id, id),
+      )
+      .run();
+    const affected = client.get<{ n: number }>(sql`SELECT changes() AS n`)?.n ?? 0;
+    if (affected === 0) {
+      const current = client
+        .select({ version: missions.version })
+        .from(missions)
+        .where(eq(missions.id, id))
+        .get();
+      if (!current || expectedVersion === undefined) {
+        return { success: false, notFound: true };
+      }
+      return { success: false, versionMismatch: true, currentVersion: current.version };
+    }
+    if (input.dependsOn !== undefined) {
+      client.delete(missionDependencies).where(eq(missionDependencies.missionId, id)).run();
+      if (input.dependsOn.length > 0) {
+        client
+          .insert(missionDependencies)
+          .values(input.dependsOn.map((depId) => ({ missionId: id, dependsOnId: depId })))
+          .run();
+      }
+    }
+    if (input.blocks !== undefined) {
+      client.delete(missionDependencies).where(eq(missionDependencies.dependsOnId, id)).run();
+      if (input.blocks.length > 0) {
+        client
+          .insert(missionDependencies)
+          .values(input.blocks.map((blockedId) => ({ missionId: blockedId, dependsOnId: id })))
+          .run();
+      }
+    }
+  } catch (err) {
+    throw repositoryTransactionError("mission", err as Error, id);
+  }
+
+  const mission = getMissionByIdWithClient(client, id);
+  return { success: true, mission: mission! };
+}
+
 export function deleteMission(id: string): void {
   const db = getDb();
   try {
     db.delete(missions).where(eq(missions.id, id)).run();
+  } catch (err) {
+    throw repositoryDeleteError("mission", err as Error, id);
+  }
+}
+
+/** Supplied-client delete; caller owns the writer reservation. */
+export function deleteMissionWithClient(client: MissionDbClient, id: string): void {
+  try {
+    client.delete(missions).where(eq(missions.id, id)).run();
   } catch (err) {
     throw repositoryDeleteError("mission", err as Error, id);
   }

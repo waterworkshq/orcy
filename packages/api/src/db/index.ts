@@ -10,6 +10,7 @@ import { v4 as uuidv4 } from "uuid";
 import { seedGlobalTemplates } from "../repositories/template.js";
 import { sql } from "drizzle-orm";
 import { logger } from "../lib/logger.js";
+import { runStagedProductionMigrations, ENFORCEMENT_MIGRATION_TAG } from "./stagedMigrations.js";
 
 type DrizzleDb = BetterSQLite3Database<typeof schema>;
 
@@ -275,7 +276,6 @@ function bridgeLegacyMigrationsLedger(migrationFolder: string): void {
 export async function initDb(dbPath?: string) {
   const Database = (await import("better-sqlite3")).default;
   const { drizzle } = await import("drizzle-orm/better-sqlite3");
-  const { migrate } = await import("drizzle-orm/better-sqlite3/migrator");
 
   const path = dbPath || process.env.DB_PATH || getDefaultDbPath();
 
@@ -303,14 +303,21 @@ export async function initDb(dbPath?: string) {
     // F6 — legacy `__migrations` -> `__drizzle_migrations` baseline bridge is
     // shared by both branches so the compiled installed-package path upgrades
     // a legacy-ledger database as cleanly as the workspace source path.
+    //
+    // The one-shot Drizzle `migrate()` call is replaced by the staged
+    // production runner (see ./stagedMigrations.ts): when the enforcement
+    // entry is pending it commits the additive watermark first, runs the
+    // versioned preflight + attestation gate, and only then applies
+    // enforcement and later entries. Ledger/hash/timestamp semantics are
+    // byte-identical to Drizzle's migrate().
     bridgeLegacyMigrationsLedger(migrationFolder);
     reconcilePrereleaseMigrationMarker(migrationFolder);
-    migrate(_drizzleDb, { migrationsFolder: migrationFolder });
+    runStagedProductionMigrations(_sqlite, migrationFolder);
     restorePreservedQuarantineRows();
   } else if (existsSync(productionMigrationFolder)) {
     bridgeLegacyMigrationsLedger(productionMigrationFolder);
     reconcilePrereleaseMigrationMarker(productionMigrationFolder);
-    migrate(_drizzleDb, { migrationsFolder: productionMigrationFolder });
+    runStagedProductionMigrations(_sqlite, productionMigrationFolder);
     restorePreservedQuarantineRows();
   }
 
@@ -357,12 +364,25 @@ async function getAdminHash(): Promise<string> {
 }
 
 function applyMigrations(testSqlite: any, migrationFolder: string): void {
+  // The enforcement migration (0068) is DELIBERATELY excluded from the test
+  // build BY TAG (not by number): it requires a preflight attestation the
+  // file-scanner path never writes, and its partial UNIQUE indexes would make
+  // dirty-data fixtures (duplicate active identities, duplicate Finding
+  // resolutions — the exact anomalies the preflight reports) impossible to
+  // seed. Enforcement is proven on the production better-sqlite3 path
+  // (stagedEnforcementMigration.test.ts). Every OTHER journaled migration —
+  // including later additive ones (0069+) — IS applied, so the sql.js test
+  // schema tracks the production additive schema.
+  const isEnforcementMigration = (file: string) =>
+    file === `${ENFORCEMENT_MIGRATION_TAG}.sql`;
+
   const schemaFile = join(migrationFolder, "0000_schema.sql");
   if (existsSync(schemaFile)) {
     runMigrationSql(testSqlite, readFileSync(schemaFile, "utf-8"));
   }
   const incrementalMigrations = readdirSync(migrationFolder)
     .filter((f) => /^\d{4}_.*\.sql$/.test(f) && f !== "0000_schema.sql")
+    .filter((f) => !isEnforcementMigration(f))
     .toSorted();
   for (const migrationFile of incrementalMigrations) {
     runMigrationSql(testSqlite, readFileSync(join(migrationFolder, migrationFile), "utf-8"));

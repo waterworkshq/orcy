@@ -5,11 +5,18 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import "@testing-library/jest-dom/vitest";
 import type { FindingTriageView } from "../../types/index.js";
 
-const mockMutate = vi.fn();
+const mockRouteMutate = vi.fn();
+const mockWontfixMutate = vi.fn();
 
 vi.mock("../../hooks/useTriage.js", () => ({
-  useTransitionFinding: () => ({
-    mutate: mockMutate,
+  useRouteFinding: () => ({
+    mutate: mockRouteMutate,
+    isPending: false,
+    isError: false,
+    error: null,
+  }),
+  useWontfixFinding: () => ({
+    mutate: mockWontfixMutate,
     isPending: false,
     isError: false,
     error: null,
@@ -29,8 +36,19 @@ function makeFinding(overrides: Partial<FindingTriageView> = {}): FindingTriageV
     bucket: null,
     targetRelease: null,
     targetReleaseType: null,
+    correctiveMissionId: null,
     triageMissionId: null,
     corroboratingPulseIds: [],
+    admittedByTriageMissionId: null,
+    admittedByInvestigationTaskId: null,
+    recurrenceOfId: null,
+    legacyLineageRepairRequired: false,
+    routeFingerprint: null,
+    activatedAt: null,
+    activatedByType: null,
+    activatedById: null,
+    activationCause: null,
+    activationReleaseId: null,
     triagedByType: null,
     triagedById: null,
     triagedAt: null,
@@ -50,112 +68,152 @@ function renderWithQC(ui: React.ReactElement) {
   return render(<QueryClientProvider client={qc}>{ui}</QueryClientProvider>);
 }
 
-describe("BucketConfirmation — targetReleaseType selector (AC-DEFER-2 UI)", () => {
-  const origConfirm = window.confirm;
+describe("BucketConfirmation — lifecycle route commands (restored lifecycle T8)", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    window.confirm = vi.fn(() => true);
   });
   afterEach(() => {
     cleanup();
-    window.confirm = origConfirm;
   });
 
-  it("renders the targetReleaseType radio group only when a deferred bucket is selected", () => {
-    // Default finding has bucket=null → not deferred → no release-type selector.
-    const { rerender } = renderWithQC(
-      <BucketConfirmation finding={makeFinding()} onClose={vi.fn()} />,
+  it("confirming a no-work bucket fires the route command with a bare payload — no status, no target-release", async () => {
+    renderWithQC(
+      <BucketConfirmation
+        finding={makeFinding({ bucket: "document_as_known_limitation" })}
+        onClose={vi.fn()}
+      />,
     );
-    expect(screen.queryByRole("radio", { name: "Minor" })).toBeNull();
 
-    // Switch the recommendation to defer_to_release → deferred bucket selector appears.
+    fireEvent.click(screen.getByRole("button", { name: /Confirm bucket/i }));
+
+    await waitFor(() => expect(mockRouteMutate).toHaveBeenCalledTimes(1));
+    const call = mockRouteMutate.mock.calls[0][0];
+    expect(call.id).toBe("finding-1");
+    expect(call.route).toEqual({ bucket: "document_as_known_limitation" });
+    // Discriminator: no state-shaped fields survive the cutover.
+    expect(call.route.status).toBeUndefined();
+    expect(call.route.targetRelease).toBeUndefined();
+    expect(call.route.targetReleaseType).toBeUndefined();
+  });
+
+  it("fix_now sends the complete Mission placement (title + description)", async () => {
+    renderWithQC(
+      <BucketConfirmation finding={makeFinding({ bucket: "fix_now" })} onClose={vi.fn()} />,
+    );
+
+    fireEvent.change(screen.getByLabelText(/Corrective mission title/i), {
+      target: { value: "Corrective: hot cache bug" },
+    });
+    fireEvent.change(screen.getByLabelText(/Corrective mission description/i), {
+      target: { value: "Fix the cache invalidation race." },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /Confirm bucket/i }));
+
+    await waitFor(() => expect(mockRouteMutate).toHaveBeenCalledTimes(1));
+    const call = mockRouteMutate.mock.calls[0][0];
+    expect(call.route).toEqual({
+      bucket: "fix_now",
+      missionTitle: "Corrective: hot cache bug",
+      missionDescription: "Fix the cache invalidation race.",
+    });
+  });
+
+  it("defer_to_patch requires a gate version before confirm; sends complete defer payload", async () => {
+    renderWithQC(
+      <BucketConfirmation finding={makeFinding({ bucket: "defer_to_patch" })} onClose={vi.fn()} />,
+    );
+
+    const confirm = screen.getByRole("button", { name: /Confirm bucket/i });
+    // Placement defaults exist, but the gate version is empty → disabled.
+    expect(confirm).toBeDisabled();
+
+    fireEvent.change(screen.getByLabelText(/Gate version/i), {
+      target: { value: "v0.40.0" },
+    });
+    expect(confirm).toBeEnabled();
+
+    fireEvent.change(screen.getByLabelText(/Corrective mission title/i), {
+      target: { value: "Corrective: cluster-key" },
+    });
+    fireEvent.click(confirm);
+
+    await waitFor(() => expect(mockRouteMutate).toHaveBeenCalledTimes(1));
+    const call = mockRouteMutate.mock.calls[0][0];
+    expect(call.route).toEqual({
+      bucket: "defer_to_patch",
+      missionTitle: "Corrective: cluster-key",
+      missionDescription: "Address the bug finding in cluster cluster-key.",
+      releaseGateType: "patch",
+      releaseGateVersion: "v0.40.0",
+    });
+  });
+
+  it("resets finding-specific form state when the finding id changes while mounted", () => {
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const { rerender } = render(
+      <QueryClientProvider client={qc}>
+        <BucketConfirmation finding={makeFinding({ bucket: "fix_now" })} onClose={vi.fn()} />
+      </QueryClientProvider>,
+    );
+    fireEvent.change(screen.getByLabelText(/Corrective mission title/i), {
+      target: { value: "Stale title from previous finding" },
+    });
+    fireEvent.click(screen.getByText(/Mark as won't fix/i));
+    fireEvent.change(screen.getByLabelText(/Won't fix reason/i), {
+      target: { value: "stale reason" },
+    });
+
     rerender(
-      <QueryClientProvider
-        client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}
-      >
+      <QueryClientProvider client={qc}>
         <BucketConfirmation
-          finding={makeFinding({ bucket: "defer_to_release" })}
+          finding={makeFinding({
+            id: "finding-2",
+            clusterKey: "other-cluster",
+            findingKind: "perf",
+            bucket: "defer_to_patch",
+          })}
           onClose={vi.fn()}
         />
       </QueryClientProvider>,
     );
 
-    // Three release-type radios visible (Patch / Minor / Major).
-    expect(screen.getByRole("radio", { name: /Patch/ })).toBeInTheDocument();
-    expect(screen.getByRole("radio", { name: /Minor/ })).toBeInTheDocument();
-    expect(screen.getByRole("radio", { name: /Major/ })).toBeInTheDocument();
-  });
-
-  it("selecting Minor and confirming fires the mutation with targetReleaseType:'minor' in the body", async () => {
-    renderWithQC(
-      <BucketConfirmation
-        finding={makeFinding({ bucket: "defer_to_release" })}
-        onClose={vi.fn()}
-      />,
+    expect(screen.getByLabelText(/Corrective mission title/i)).toHaveValue(
+      "Corrective: other-cluster",
     );
-
-    // Pick the agent-recommended deferred bucket to surface the type selector.
-    const deferRadio = screen.getByRole("radio", { name: /Defer to release/ });
-    fireEvent.click(deferRadio);
-
-    // Select "Minor" as the target release type.
-    fireEvent.click(screen.getByRole("radio", { name: /Minor/ }));
-
-    // Confirm.
-    fireEvent.click(screen.getByRole("button", { name: /Confirm bucket/i }));
-
-    await waitFor(() => expect(mockMutate).toHaveBeenCalledTimes(1));
-
-    const call = mockMutate.mock.calls[0][0];
-    expect(call.id).toBe("finding-1");
-    expect(call.body.bucket).toBe("defer_to_release");
-    expect(call.body.status).toBe("triaged");
-    expect(call.body.targetReleaseType).toBe("minor");
+    expect(screen.getByLabelText(/Won't fix reason/i)).toHaveValue("");
   });
 
-  it("selecting Patch fires the mutation with targetReleaseType:'patch'", async () => {
+  it("defer_to_patch only offers the patch gate; defer_to_release never offers patch", () => {
     renderWithQC(
       <BucketConfirmation finding={makeFinding({ bucket: "defer_to_patch" })} onClose={vi.fn()} />,
     );
+    expect(screen.getByRole("radio", { name: /^Patch$/i })).toBeChecked();
+    expect(screen.queryByRole("radio", { name: /^Minor$/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("radio", { name: /^Major$/i })).not.toBeInTheDocument();
 
-    // defer_to_patch is already deferred — selector visible without picking another bucket.
-    fireEvent.click(screen.getByRole("radio", { name: /Patch/ }));
-    fireEvent.click(screen.getByRole("button", { name: /Confirm bucket/i }));
-
-    await waitFor(() => expect(mockMutate).toHaveBeenCalledTimes(1));
-    const call = mockMutate.mock.calls[0][0];
-    expect(call.body.targetReleaseType).toBe("patch");
-    expect(call.body.bucket).toBe("defer_to_patch");
+    fireEvent.click(screen.getByText(/Defer to release/i));
+    expect(screen.queryByRole("radio", { name: /^Patch$/i })).not.toBeInTheDocument();
+    expect(screen.getByRole("radio", { name: /^Minor$/i })).toBeChecked();
+    expect(screen.getByRole("radio", { name: /^Major$/i })).toBeInTheDocument();
   });
 
-  it("confirming without picking a release type omits targetReleaseType (null)", async () => {
-    renderWithQC(
-      <BucketConfirmation
-        finding={makeFinding({ bucket: "defer_to_release" })}
-        onClose={vi.fn()}
-      />,
-    );
+  it("wontfix requires a reason and fires the wontfix command — never {status:'wontfix'}", async () => {
+    renderWithQC(<BucketConfirmation finding={makeFinding()} onClose={vi.fn()} />);
 
-    fireEvent.click(screen.getByRole("button", { name: /Confirm bucket/i }));
+    fireEvent.click(screen.getByText(/Mark as won't fix/i));
+    const recordBtn = screen.getByRole("button", { name: /Record won't fix/i });
+    expect(recordBtn).toBeDisabled();
 
-    await waitFor(() => expect(mockMutate).toHaveBeenCalledTimes(1));
-    const call = mockMutate.mock.calls[0][0];
-    // No release type picked → null is sent explicitly (clears any prior value).
-    expect(call.body.targetReleaseType).toBeNull();
-  });
+    fireEvent.change(screen.getByLabelText(/Won't fix reason/i), {
+      target: { value: "accepted trade-off" },
+    });
+    expect(recordBtn).toBeEnabled();
+    fireEvent.click(recordBtn);
 
-  it("preserves an existing targetReleaseType from the finding on initial render", () => {
-    renderWithQC(
-      <BucketConfirmation
-        finding={makeFinding({
-          bucket: "defer_to_release",
-          targetReleaseType: "major",
-        })}
-        onClose={vi.fn()}
-      />,
-    );
-
-    const majorRadio = screen.getByRole("radio", { name: /Major/ }) as HTMLInputElement;
-    expect(majorRadio.checked).toBe(true);
+    await waitFor(() => expect(mockWontfixMutate).toHaveBeenCalledTimes(1));
+    const call = mockWontfixMutate.mock.calls[0][0];
+    expect(call).toEqual({ id: "finding-1", reason: "accepted trade-off" });
+    expect(call.status).toBeUndefined();
+    expect(mockRouteMutate).not.toHaveBeenCalled();
   });
 });

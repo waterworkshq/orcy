@@ -1607,7 +1607,7 @@ Two-layer defense: (1) triage-output analysis pulses carry `metadata.triageGener
 
 ### Roadmap Editor Role (v0.25.0)
 
-The triage agent's role expands beyond investigation into roadmap authoring (ADR-0033). When a finding is deferred to a release, the agent can use `orcy_triage` → `insert_deferred_mission` to create a gated mission positioned correctly within the habitat's dependency DAG, rather than leaving a loose deferred finding. This closes the loop between triage investigation and the roadmap: deferred work becomes a positioned, release-gated mission that auto-activates when its target release ships.
+The triage agent's roadmap role is routing, not authoring (narrowed by ADR-0048, superseding ADR-0033's direct roadmap insertion). The `orcy_triage` → `insert_deferred_mission` action performs exactly ONE `POST /triage/findings/:id/route` request: the lifecycle command kernel creates the gated corrective mission positioned in the dependency DAG atomically (no client-side create-Mission-then-link flow, no orphan-Mission window). Deferred work becomes a positioned, release-gated mission that activates through the frozen Release epoch when its target release ships.
 
 ## Release-Aware Automation (v0.24.0)
 

@@ -136,9 +136,8 @@ export function FindingTriageList({
                 {expanded && (
                   <div className="space-y-2 border-t border-border bg-muted/20 px-3 py-2 text-xs">
                     <Detail label="Finding ID" value={f.id} />
-                    <Detail label="Target release" value={f.targetRelease ?? "—"} />
+                    <Detail label="Corrective mission" value={f.correctiveMissionId ?? "—"} />
                     <Detail label="Triaged by" value={f.triagedById ?? "—"} />
-                    <Detail label="Triage mission" value={f.triageMissionId ?? "—"} />
                     <Detail label="Created" value={new Date(f.createdAt).toLocaleString()} />
                     {f.corroboratingPulseIds.length > 0 && (
                       <div>

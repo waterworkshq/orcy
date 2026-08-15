@@ -292,7 +292,10 @@ describe("useMissionDragMove", () => {
   });
 
   it("on 409 conflict: clears queued intent, notifies user, invalidates, never auto-overwrites", async () => {
-    const conflictError = new ApiError("VERSION_CONFLICT", 409);
+    const conflictError = new ApiError("VERSION_CONFLICT", 409, {
+      error: "Version conflict",
+      code: "VERSION_CONFLICT",
+    });
     moveMock.mockRejectedValueOnce(conflictError);
 
     const { result, qc } = renderHookWithQC("h1");

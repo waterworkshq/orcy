@@ -1,14 +1,32 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { makeMission } from "./factories/mission.js";
 
-vi.mock("../repositories/mission.js", () => ({
-  getMissionById: vi.fn(),
-  deleteMission: vi.fn(),
-  getMissionsByDependency: vi.fn(),
+// The service wraps deletes in a `BEGIN IMMEDIATE` reservation — stub the db
+// handle so the tests stay DB-free.
+vi.mock("../db/index.js", () => ({
+  getDb: vi.fn(() => ({ run: vi.fn() })),
 }));
+
+vi.mock("../repositories/mission.js", () => {
+  const deleteMission = vi.fn();
+  return {
+    getMissionById: vi.fn(),
+    deleteMission,
+    deleteMissionWithClient: vi.fn((_db, id) => deleteMission(id)),
+    getMissionsByDependency: vi.fn(),
+  };
+});
 
 vi.mock("../repositories/event.js", () => ({
   createMissionEvent: vi.fn(),
+}));
+
+// The restored-lifecycle inverse guard (finding-link check) reads Finding
+// links from the triage repository before deletion — mock it so the ordering
+// test stays DB-free.
+vi.mock("../repositories/findingTriage.js", () => ({
+  findByTriageMissionId: vi.fn(() => []),
+  findByAdmittedByTriageMissionId: vi.fn(() => []),
 }));
 
 vi.mock("../sse/broadcaster.js", () => ({

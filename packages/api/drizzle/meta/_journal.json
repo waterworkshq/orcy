@@ -281,6 +281,83 @@
       "when": 1785951082000,
       "tag": "0063_learning_loop_ledger",
       "breakpoints": true
+    },
+    {
+      "idx": 40,
+      "version": "6",
+      "when": 1786037482000,
+      "tag": "0064_finding_triage_lifecycle_additive",
+      "breakpoints": true
+    },
+    {
+      "idx": 41,
+      "version": "6",
+      "when": 1786123882000,
+      "tag": "0065_triage_publication_occurrences",
+      "breakpoints": true
+    },
+    {
+      "idx": 42,
+      "version": "6",
+      "when": 1786210282000,
+      "tag": "0066_automation_revision_inbox",
+      "breakpoints": true
+    },
+    {
+      "idx": 43,
+      "version": "6",
+      "when": 1786296682000,
+      "tag": "0067_release_projection_epochs",
+      "breakpoints": true
+    },
+    {
+      "idx": 44,
+      "version": "6",
+      "when": 1786383082000,
+      "tag": "0068_finding_triage_lifecycle_enforcement",
+      "breakpoints": true
+    },
+    {
+      "idx": 45,
+      "version": "6",
+      "when": 1786469482000,
+      "tag": "0069_automation_completion_outbox",
+      "breakpoints": true
+    },
+    {
+      "idx": 46,
+      "version": "6",
+      "when": 1786555882000,
+      "tag": "0070_automation_checkpoint_proved_receipt",
+      "breakpoints": true
+    },
+    {
+      "idx": 47,
+      "version": "6",
+      "when": 1786642282000,
+      "tag": "0071_automation_checkpoint_legacy_disposition",
+      "breakpoints": true
+    },
+    {
+      "idx": 48,
+      "version": "6",
+      "when": 1786728682000,
+      "tag": "0072_lineage_repair_before_state_digest",
+      "breakpoints": true
+    },
+    {
+      "idx": 49,
+      "version": "6",
+      "when": 1786815082000,
+      "tag": "0073_finding_evidence_habitat_composite_fk",
+      "breakpoints": true
+    },
+    {
+      "idx": 50,
+      "version": "6",
+      "when": 1786901482000,
+      "tag": "0074_epoch_group_release_composite_fk",
+      "breakpoints": true
     }
   ]
 }

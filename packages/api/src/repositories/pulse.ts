@@ -464,8 +464,19 @@ export function getLatestSummaryPulse(missionId: string): Pulse | null {
 }
 
 export function deletePulse(id: string): boolean {
-  const db = getDb();
-  const pulse = getPulseById(id);
+  return deletePulseWithClient(getDb(), id);
+}
+
+/**
+ * Supplied-client delete for callers holding a writer reservation (the
+ * lifecycle evidence guard + delete must run as ONE atomic unit — see
+ * `DELETE /pulse/:id`).
+ */
+export function deletePulseWithClient(db: PulseDbClient, id: string): boolean {
+  // Existence check on the PASSED client — the caller owns the writer
+  // reservation and the check must see the same transactional view, not the
+  // ambient connection.
+  const pulse = db.select({ id: pulses.id }).from(pulses).where(eq(pulses.id, id)).get();
   if (!pulse) return false;
   try {
     db.delete(pulses).where(eq(pulses.id, id)).run();

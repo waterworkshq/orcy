@@ -5,7 +5,7 @@ import {
   remoteGrantRules,
   remoteGrantTaskSnapshots,
 } from "../db/schema/index.js";
-import { eq, and, lt } from "drizzle-orm";
+import { eq, and, lt, inArray, or, isNull } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 import {
   repositoryCreateError,
@@ -135,14 +135,45 @@ export function getActiveGrantsByHabitat(habitatId: string): RemoteGrantRow[] {
     .all();
 }
 
-export function getActiveGrantsByParticipant(remoteParticipantId: string): RemoteGrantRow[] {
-  const db = getDb();
+export function getActiveGrantsByParticipant(
+  remoteParticipantId: string,
+  client?: ReturnType<typeof getDb>,
+): RemoteGrantRow[] {
+  const db = client ?? getDb();
   return db
     .select(grantFields)
     .from(remoteGrants)
     .where(
       and(
         eq(remoteGrants.remoteParticipantId, remoteParticipantId),
+        eq(remoteGrants.status, "active"),
+      ),
+    )
+    .all();
+}
+
+/**
+ * Active grants visible to a participant — the same universe the transport
+ * snapshot exposes (`loadRelevantGrants`): participant-specific grants PLUS
+ * pod-wide grants (bound to the pod with no participant). The in-transaction
+ * authority re-check must see both or a pod-wide `triage.route` grant passes
+ * the precheck and then fails the re-check mid-flow.
+ */
+export function getActiveGrantsByParticipantAndPod(
+  remoteParticipantId: string,
+  remotePodId: string,
+  client?: ReturnType<typeof getDb>,
+): RemoteGrantRow[] {
+  const db = client ?? getDb();
+  return db
+    .select(grantFields)
+    .from(remoteGrants)
+    .where(
+      and(
+        or(
+          eq(remoteGrants.remoteParticipantId, remoteParticipantId),
+          and(eq(remoteGrants.remotePodId, remotePodId), isNull(remoteGrants.remoteParticipantId)),
+        ),
         eq(remoteGrants.status, "active"),
       ),
     )
@@ -291,6 +322,35 @@ export function getRemoteGrantTargets(grantId: string): RemoteGrantTargetRow[] {
     .from(remoteGrantTargets)
     .where(eq(remoteGrantTargets.grantId, grantId))
     .all();
+}
+
+/**
+ * FU1: ONE batched read across many grant ids — replaces the per-grant
+ * `getRemoteGrantTargets(grantId)` loop inside the triage authority predicate.
+ * Returns a Map keyed by grantId so the caller iterates once over candidate
+ * grants and asks the map for each one's targets. The denial path's query
+ * count becomes invariant to the number of candidate grants, killing the
+ * timing oracle.
+ *
+ * Accepts an optional supplied client so the in-tx re-check re-reads targets
+ * on the writer reservation — a grant's targets can be revoked between the
+ * transport precheck and the lifecycle mutation.
+ */
+export function listRemoteGrantTargetsByGrantIds(
+  client: ReturnType<typeof getDb>,
+  grantIds: string[],
+): Record<string, RemoteGrantTargetRow[]> {
+  if (grantIds.length === 0) return {};
+  const rows = client
+    .select(targetFields)
+    .from(remoteGrantTargets)
+    .where(inArray(remoteGrantTargets.grantId, grantIds))
+    .all();
+  const grouped: Record<string, RemoteGrantTargetRow[]> = {};
+  for (const row of rows) {
+    (grouped[row.grantId] ??= []).push(row);
+  }
+  return grouped;
 }
 
 export function removeRemoteGrantTarget(grantId: string, targetId: string): void {

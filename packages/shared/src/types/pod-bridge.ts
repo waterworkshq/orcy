@@ -115,6 +115,32 @@ export type RemoteGrantTargetType = "habitat" | "mission" | "task";
 // ---------------------------------------------------------------------------
 
 /**
+ * Canonical catalog of remote action scopes (FU6). The `RemoteActionScope`
+ * type is DERIVED from this array so the type union, the contributor
+ * middleware policy, and the admin/invite runtime Zod enum can never drift —
+ * provisioning surfaces must consume this constant, not a parallel list.
+ */
+export const REMOTE_ACTION_SCOPES = [
+  "read",
+  "comment",
+  "pulse.post",
+  "claim",
+  "heartbeat",
+  "submit",
+  "release",
+  "evidence_link",
+  "notification.write",
+  /**
+   * Remote Finding-triage route intent. Granted together with an exact
+   * admitted-investigation Task target — Habitat/Mission-only grants and
+   * broader Task allowlists do not satisfy the predicate. Active
+   * `remote_contributor` standing only; grace / rule-based snapshots and
+   * pod/Habitat baselines never authorize this scope.
+   */
+  "triage.route",
+] as const;
+
+/**
  * Action scopes that can be granted to a remote participant. These control
  * what the participant can do within a habitat boundary, independent of any
  * Git provider repository permissions.
@@ -122,16 +148,7 @@ export type RemoteGrantTargetType = "habitat" | "mission" | "task";
  * Note: `pulse.post` is a dot-separated scope to distinguish posting from
  * pulse read access.
  */
-export type RemoteActionScope =
-  | "read"
-  | "comment"
-  | "pulse.post"
-  | "claim"
-  | "heartbeat"
-  | "submit"
-  | "release"
-  | "evidence_link"
-  | "notification.write";
+export type RemoteActionScope = (typeof REMOTE_ACTION_SCOPES)[number];
 
 // ---------------------------------------------------------------------------
 // Credentials & invites

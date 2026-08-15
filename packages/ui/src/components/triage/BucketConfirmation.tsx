@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from "react";
-import type { FindingTriageView, ReleaseType, SuggestedBucket } from "../../types/index.js";
-import { useTransitionFinding } from "../../hooks/useTriage.js";
+import type { FindingTriageView, SuggestedBucket, TriageRouteCommand } from "../../types/index.js";
+import { useRouteFinding, useWontfixFinding } from "../../hooks/useTriage.js";
 
 interface BucketConfirmationProps {
   finding: FindingTriageView;
@@ -12,17 +12,17 @@ const BUCKET_CHOICES: { value: SuggestedBucket; label: string; description: stri
   {
     value: "fix_now",
     label: "Fix now",
-    description: "Block current work — promote to a corrective mission immediately.",
+    description: "Create one ungated corrective mission and start work now.",
   },
   {
     value: "defer_to_patch",
     label: "Defer to patch",
-    description: "Address in the next patch release.",
+    description: "Create one gated corrective mission, actionable at the next patch release.",
   },
   {
     value: "defer_to_release",
     label: "Defer to release",
-    description: "Address in the next minor/major release.",
+    description: "Create one gated corrective mission, actionable at the next minor/major release.",
   },
   {
     value: "document_as_known_limitation",
@@ -36,51 +36,109 @@ const BUCKET_CHOICES: { value: SuggestedBucket; label: string; description: stri
   },
 ];
 
-const RELEASE_TYPE_CHOICES: { value: ReleaseType; label: string }[] = [
+const RELEASE_GATE_TYPES: { value: "patch" | "minor" | "major"; label: string }[] = [
   { value: "patch", label: "Patch" },
   { value: "minor", label: "Minor" },
   { value: "major", label: "Major" },
 ];
 
+function isWorkBearing(bucket: SuggestedBucket): boolean {
+  return bucket === "fix_now" || bucket === "defer_to_patch" || bucket === "defer_to_release";
+}
+
+function isDeferred(bucket: SuggestedBucket): boolean {
+  return bucket === "defer_to_patch" || bucket === "defer_to_release";
+}
+
 /**
- * Human-in-the-loop bucket confirmation modal. The agent surfaces a recommended
- * bucket (finding.bucket); the human reviews the recommendation and its
- * reasoning, then either confirms or overrides the bucket before the finding
- * transitions `open → triaged`. This is the key UX for the
- * "bucket decisions stay human" principle (PRD constraint #3).
+ * Human-in-the-loop routing confirmation modal. The agent surfaces a
+ * recommended bucket (finding.bucket); the human reviews the recommendation
+ * and its reasoning, then confirms or overrides before the finding is routed.
+ *
+ * Submits an explicit lifecycle route command (POST /triage/findings/:id/route):
+ * work-bearing buckets carry the COMPLETE corrective-Mission placement
+ * (title/description, plus release-gate type+version for deferrals) so the
+ * Mission, its gate, and the finding link commit atomically. The superseded
+ * target-release fields are gone — release coupling lives on the Mission gate.
  */
+function gateChoicesForBucket(
+  bucket: SuggestedBucket | null,
+): { value: "patch" | "minor" | "major"; label: string }[] {
+  if (bucket === "defer_to_patch") return RELEASE_GATE_TYPES.filter((c) => c.value === "patch");
+  if (bucket === "defer_to_release") return RELEASE_GATE_TYPES.filter((c) => c.value !== "patch");
+  return RELEASE_GATE_TYPES;
+}
+
 export function BucketConfirmation({ finding, onClose, onConfirmed }: BucketConfirmationProps) {
   const recommendation = finding.bucket;
   const [selected, setSelected] = useState<SuggestedBucket | null>(recommendation);
-  const [targetRelease, setTargetRelease] = useState(finding.targetRelease ?? "");
-  const [targetReleaseType, setTargetReleaseType] = useState<ReleaseType | null>(
-    finding.targetReleaseType ?? null,
+  const [missionTitle, setMissionTitle] = useState(`Corrective: ${finding.clusterKey}`);
+  const [missionDescription, setMissionDescription] = useState(
+    `Address the ${finding.findingKind} finding in cluster ${finding.clusterKey}.`,
   );
-  const mutation = useTransitionFinding();
+  const [releaseGateType, setReleaseGateType] = useState<"patch" | "minor" | "major">(
+    recommendation === "defer_to_release" ? "minor" : "patch",
+  );
+  const [releaseGateVersion, setReleaseGateVersion] = useState("");
+  const [wontfixReason, setWontfixReason] = useState("");
+  const routeMutation = useRouteFinding();
+  const wontfixMutation = useWontfixFinding();
 
   useEffect(() => {
-    setSelected(recommendation);
-  }, [recommendation]);
+    setSelected(finding.bucket);
+    setMissionTitle(`Corrective: ${finding.clusterKey}`);
+    setMissionDescription(
+      `Address the ${finding.findingKind} finding in cluster ${finding.clusterKey}.`,
+    );
+    setReleaseGateType(finding.bucket === "defer_to_release" ? "minor" : "patch");
+    setReleaseGateVersion("");
+    setWontfixReason("");
+  }, [finding.id, finding.bucket, finding.clusterKey, finding.findingKind]);
+
+  useEffect(() => {
+    if (selected === "defer_to_release" && releaseGateType === "patch") {
+      setReleaseGateType("minor");
+    }
+    if (selected === "defer_to_patch") {
+      setReleaseGateType("patch");
+    }
+  }, [selected, releaseGateType]);
 
   const reasoning = extractReasoning(finding);
-  const isDeferred = selected === "defer_to_patch" || selected === "defer_to_release";
+  const pending = routeMutation.isPending || wontfixMutation.isPending;
+  const workBearing = selected !== null && isWorkBearing(selected);
+  const deferred = selected !== null && isDeferred(selected);
+  const canConfirm =
+    selected !== null &&
+    (!workBearing ||
+      (missionTitle.trim().length > 0 &&
+        missionDescription.trim().length > 0 &&
+        (!deferred || releaseGateVersion.trim().length > 0)));
 
   const handleConfirm = () => {
-    if (!selected) return;
-    mutation.mutate(
-      {
-        id: finding.id,
-        body: {
-          bucket: selected,
-          status: "triaged",
-          ...(isDeferred && targetRelease.trim()
-            ? { targetRelease: targetRelease.trim() }
-            : { targetRelease: null }),
-          ...(isDeferred && targetReleaseType
-            ? { targetReleaseType }
-            : { targetReleaseType: null }),
-        },
-      },
+    if (!selected || !canConfirm) return;
+    let route: TriageRouteCommand;
+    if (selected === "fix_now") {
+      route = {
+        bucket: "fix_now",
+        missionTitle: missionTitle.trim(),
+        missionDescription: missionDescription.trim(),
+      };
+    } else if (selected === "defer_to_patch" || selected === "defer_to_release") {
+      route = {
+        bucket: selected,
+        missionTitle: missionTitle.trim(),
+        missionDescription: missionDescription.trim(),
+        releaseGateType,
+        releaseGateVersion: releaseGateVersion.trim(),
+      };
+    } else if (selected === "document_as_known_limitation") {
+      route = { bucket: "document_as_known_limitation" };
+    } else {
+      route = { bucket: "needs_investigation" };
+    }
+    routeMutation.mutate(
+      { id: finding.id, route },
       {
         onSuccess: (updated) => {
           onConfirmed?.(updated);
@@ -91,16 +149,21 @@ export function BucketConfirmation({ finding, onClose, onConfirmed }: BucketConf
   };
 
   const handleWontfix = () => {
-    mutation.mutate(
-      { id: finding.id, body: { status: "wontfix" } },
+    if (!wontfixReason.trim()) return;
+    wontfixMutation.mutate(
+      { id: finding.id, reason: wontfixReason.trim() },
       {
-        onSuccess: () => {
-          onConfirmed?.(finding);
+        onSuccess: (updated) => {
+          onConfirmed?.(updated);
           onClose();
         },
       },
     );
   };
+
+  const mutationError =
+    (routeMutation.isError && (routeMutation.error as Error)) ||
+    (wontfixMutation.isError && (wontfixMutation.error as Error));
 
   return (
     <div
@@ -184,65 +247,110 @@ export function BucketConfirmation({ finding, onClose, onConfirmed }: BucketConf
           })}
         </fieldset>
 
-        {isDeferred && (
-          <div className="mt-3">
-            <label htmlFor="target-release" className="mb-1 block text-sm font-medium">
-              Target release <span className="text-muted-foreground">(optional)</span>
-            </label>
-            <input
-              id="target-release"
-              type="text"
-              value={targetRelease}
-              onChange={(e) => setTargetRelease(e.target.value)}
-              placeholder="e.g. v0.24 or v0.24.0"
-              className="w-full rounded border border-input px-3 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-primary"
-            />
-            <p className="mt-0.5 text-xs text-muted-foreground">
-              Version prefix or exact version — used for auto-promotion when the release ships.
-            </p>
-
-            <fieldset className="mt-3">
-              <legend className="mb-1 text-sm font-medium">
-                Target release type <span className="text-muted-foreground">(optional)</span>
-              </legend>
-              <div className="flex gap-3">
-                {RELEASE_TYPE_CHOICES.map((choice) => (
-                  <label
-                    key={choice.value}
-                    className={`flex cursor-pointer items-center gap-1.5 rounded border px-2.5 py-1 text-xs ${
-                      targetReleaseType === choice.value
-                        ? "border-primary bg-primary/5"
-                        : "border-border hover:bg-muted/50"
-                    }`}
-                  >
-                    <input
-                      type="radio"
-                      name="target-release-type"
-                      value={choice.value}
-                      checked={targetReleaseType === choice.value}
-                      onChange={() => setTargetReleaseType(choice.value)}
-                      className="h-3.5 w-3.5 text-primary focus:ring-primary"
-                    />
-                    <span>{choice.label}</span>
-                  </label>
-                ))}
-              </div>
+        {workBearing && (
+          <div className="mt-3 space-y-3">
+            <div>
+              <label htmlFor="mission-title" className="mb-1 block text-sm font-medium">
+                Corrective mission title <span className="text-red-500">*</span>
+              </label>
+              <input
+                id="mission-title"
+                type="text"
+                value={missionTitle}
+                onChange={(e) => setMissionTitle(e.target.value)}
+                className="w-full rounded border border-input px-3 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-primary"
+              />
               <p className="mt-0.5 text-xs text-muted-foreground">
-                Cascade-matched when the release ships — patch ⊂ minor ⊂ major.
+                One corrective mission is created and linked atomically with the route.
               </p>
-            </fieldset>
+            </div>
+            <div>
+              <label htmlFor="mission-description" className="mb-1 block text-sm font-medium">
+                Corrective mission description <span className="text-red-500">*</span>
+              </label>
+              <textarea
+                id="mission-description"
+                value={missionDescription}
+                onChange={(e) => setMissionDescription(e.target.value)}
+                rows={3}
+                className="w-full rounded border border-input px-3 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-primary"
+              />
+            </div>
+
+            {deferred && (
+              <div>
+                <fieldset>
+                  <legend className="mb-1 text-sm font-medium">
+                    Release gate <span className="text-red-500">*</span>
+                  </legend>
+                  <div className="flex gap-3">
+                    {gateChoicesForBucket(selected).map((choice) => (
+                      <label
+                        key={choice.value}
+                        className={`flex cursor-pointer items-center gap-1.5 rounded border px-2.5 py-1 text-xs ${
+                          releaseGateType === choice.value
+                            ? "border-primary bg-primary/5"
+                            : "border-border hover:bg-muted/50"
+                        }`}
+                      >
+                        <input
+                          type="radio"
+                          name="release-gate-type"
+                          value={choice.value}
+                          checked={releaseGateType === choice.value}
+                          onChange={() => setReleaseGateType(choice.value)}
+                          className="h-3.5 w-3.5 text-primary focus:ring-primary"
+                        />
+                        <span>{choice.label}</span>
+                      </label>
+                    ))}
+                  </div>
+                </fieldset>
+                <label
+                  htmlFor="release-gate-version"
+                  className="mb-1 mt-2 block text-sm font-medium"
+                >
+                  Gate version <span className="text-red-500">*</span>
+                </label>
+                <input
+                  id="release-gate-version"
+                  type="text"
+                  value={releaseGateVersion}
+                  onChange={(e) => setReleaseGateVersion(e.target.value)}
+                  placeholder="e.g. v0.40.0"
+                  className="w-full rounded border border-input px-3 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-primary"
+                />
+                <p className="mt-0.5 text-xs text-muted-foreground">
+                  The mission becomes actionable when this gate is satisfied — manual activation
+                  clears it, or a matching release does.
+                </p>
+              </div>
+            )}
           </div>
         )}
 
         <div className="mt-5 flex items-center justify-between gap-2">
-          <button
-            type="button"
-            onClick={handleWontfix}
-            disabled={mutation.isPending}
-            className="text-xs text-muted-foreground hover:underline disabled:opacity-50"
-          >
-            Mark as won't fix
-          </button>
+          <details className="text-xs text-muted-foreground">
+            <summary className="cursor-pointer hover:underline">Mark as won't fix…</summary>
+            <div className="mt-2 space-y-2">
+              <textarea
+                aria-label="Won't fix reason"
+                value={wontfixReason}
+                onChange={(e) => setWontfixReason(e.target.value)}
+                rows={2}
+                placeholder="Why won't this be fixed? (required — recorded durably)"
+                className="w-full rounded border border-input px-3 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-primary"
+              />
+              <button
+                type="button"
+                onClick={handleWontfix}
+                disabled={!wontfixReason.trim() || pending}
+                className="rounded border border-input px-3 py-1 text-xs hover:bg-muted disabled:opacity-50"
+              >
+                {wontfixMutation.isPending ? "Recording…" : "Record won't fix"}
+              </button>
+            </div>
+          </details>
           <div className="flex gap-2">
             <button
               type="button"
@@ -254,16 +362,14 @@ export function BucketConfirmation({ finding, onClose, onConfirmed }: BucketConf
             <button
               type="button"
               onClick={handleConfirm}
-              disabled={!selected || mutation.isPending}
+              disabled={!canConfirm || pending}
               className="rounded bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
             >
-              {mutation.isPending ? "Confirming…" : "Confirm bucket"}
+              {routeMutation.isPending ? "Routing…" : "Confirm bucket"}
             </button>
           </div>
         </div>
-        {mutation.isError && (
-          <p className="mt-2 text-xs text-red-600">{(mutation.error as Error).message}</p>
-        )}
+        {mutationError && <p className="mt-2 text-xs text-red-600">{mutationError.message}</p>}
       </div>
     </div>
   );

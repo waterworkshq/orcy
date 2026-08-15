@@ -295,6 +295,8 @@ export {
   buildFingerprint,
 } from "./automation.js";
 
+export { REMOTE_ACTION_SCOPES } from "./pod-bridge.js";
+
 export type {
   PodAffiliation,
   ParticipantStanding,
@@ -377,7 +379,20 @@ export type {
   ClusterPayload,
   AgentQualityPayload,
 } from "./triage.js";
-export { FINDING_TRIAGE_STATUSES, FINDING_TRIAGE_TRANSITIONS, RESOLUTION_KINDS } from "./triage.js";
+export {
+  FINDING_TRIAGE_STATUSES,
+  FINDING_TRIAGE_TRANSITIONS,
+  TERMINAL_FINDING_TRIAGE_STATUSES,
+  RESOLUTION_KINDS,
+  ACTIVATION_CAUSES,
+  FINDING_TRIAGE_EVIDENCE_ROLES,
+  LINEAGE_REPAIR_MODES,
+} from "./triage.js";
+export type {
+  ActivationCause,
+  FindingTriageEvidenceRole,
+  LineageRepairMode,
+} from "./triage.js";
 
 export type { ReleaseType, DetectorSource, ReleaseShippedPayload } from "./release.js";
 export { RELEASE_TYPES, DETECTOR_SOURCES } from "./release.js";

@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import type { ResolutionKind } from "../../types/index.js";
-import { useTransitionFinding } from "../../hooks/useTriage.js";
+import { useResolveFinding } from "../../hooks/useTriage.js";
 
 interface ResolutionRecorderProps {
   /** Finding triage id being resolved. */
@@ -22,9 +22,11 @@ const RESOLUTION_KIND_OPTIONS: { value: ResolutionKind; label: string }[] = [
 
 /**
  * Form for recording a triage resolution: root cause, resolution text, and
- * resolution kind. Resolves the finding (transition to `resolved`) via the
- * PATCH endpoint, capturing the resolution note. Resolution records are
- * written by the backend on resolve transitions for proactive future matching.
+ * resolution kind. Submits the COMPLETE payload to the lifecycle resolve
+ * command (POST /triage/findings/:id/resolve) so the backend writes a durable
+ * `triage_resolutions` record — root cause, kind, and text all persist for
+ * proactive future matching. (The legacy form sent only `{status:'resolved'}`
+ * and silently discarded everything the human typed.)
  */
 export function ResolutionRecorder({
   findingId,
@@ -36,7 +38,7 @@ export function ResolutionRecorder({
   const [rootCause, setRootCause] = useState("");
   const [resolution, setResolution] = useState("");
   const [kind, setKind] = useState<ResolutionKind>("code_fix");
-  const mutation = useTransitionFinding();
+  const mutation = useResolveFinding();
 
   const note = [
     `Root cause: ${rootCause.trim() || "—"}`,
@@ -52,7 +54,12 @@ export function ResolutionRecorder({
     e.preventDefault();
     if (!resolution.trim()) return;
     mutation.mutate(
-      { id: findingId, body: { status: "resolved" } },
+      {
+        id: findingId,
+        resolution: resolution.trim(),
+        resolutionKind: kind,
+        ...(rootCause.trim() ? { rootCause: rootCause.trim() } : {}),
+      },
       { onSuccess: () => onResolved?.() },
     );
   };

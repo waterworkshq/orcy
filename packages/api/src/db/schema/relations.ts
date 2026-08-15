@@ -84,7 +84,15 @@ import {
   taskQualityChecklists,
   taskQualityChecklistItems,
 } from "./quality.js";
-import { findingTriage, triageResolutions, triageClusterMissions } from "./triage.js";
+import {
+  findingTriage,
+  triageResolutions,
+  triageClusterMissions,
+  findingTriageEvidence,
+  findingTriageLineageRepairs,
+  findingTriageLineageBaselineEvidence,
+  triagePublicationOccurrences,
+} from "./triage.js";
 import { releases } from "./release.js";
 import {
   taskCreationAttempts,
@@ -1034,7 +1042,58 @@ export const findingTriageRelations = relations(findingTriage, ({ one }) => ({
     fields: [findingTriage.triageMissionId],
     references: [missions.id],
   }),
+  admittedByTriageMission: one(missions, {
+    fields: [findingTriage.admittedByTriageMissionId],
+    references: [missions.id],
+    relationName: "admittedByTriageMission",
+  }),
+  recurrenceOf: one(findingTriage, {
+    fields: [findingTriage.recurrenceOfId],
+    references: [findingTriage.id],
+    relationName: "recurrenceOf",
+  }),
 }));
+
+export const findingTriageEvidenceRelations = relations(findingTriageEvidence, ({ one }) => ({
+  findingTriage: one(findingTriage, {
+    fields: [findingTriageEvidence.findingTriageId],
+    references: [findingTriage.id],
+  }),
+  pulse: one(pulses, {
+    fields: [findingTriageEvidence.pulseId],
+    references: [pulses.id],
+  }),
+}));
+
+export const findingTriageLineageRepairsRelations = relations(
+  findingTriageLineageRepairs,
+  ({ one }) => ({
+    habitat: one(habitats, {
+      fields: [findingTriageLineageRepairs.habitatId],
+      references: [habitats.id],
+    }),
+  }),
+);
+
+export const findingTriageLineageBaselineEvidenceRelations = relations(
+  findingTriageLineageBaselineEvidence,
+  ({ one }) => ({
+    repair: one(findingTriageLineageRepairs, {
+      fields: [findingTriageLineageBaselineEvidence.repairId],
+      references: [findingTriageLineageRepairs.id],
+    }),
+  }),
+);
+
+export const triagePublicationOccurrencesRelations = relations(
+  triagePublicationOccurrences,
+  ({ one }) => ({
+    habitat: one(habitats, {
+      fields: [triagePublicationOccurrences.habitatId],
+      references: [habitats.id],
+    }),
+  }),
+);
 
 export const triageResolutionsRelations = relations(triageResolutions, ({ one }) => ({
   habitat: one(habitats, {

@@ -390,8 +390,16 @@ A time-windowed grouping of two or more implicit signals (experience, finding, o
 _Avoid_: Signal group, signal batch, alert, anomaly (when describing the cluster of signals rather than a board-health metric)
 
 **Triage Mission**:
-A mission spawned to investigate a Pattern Cluster or engineering finding, containing a single investigation task that a daemon agent claims. It holds only the investigation; corrective tasks created during the investigation land under the affected existing missions, linked back to the triage mission. One triage mission per cluster detection; its resolution feeds a Resolution Record for proactive historical lookup.
-_Avoid_: Investigation ticket, bug mission, triage task (when describing the container mission rather than its child investigation task)
+A mission spawned to investigate a Pattern Cluster or engineering finding, containing a single investigation task that a daemon agent claims. It holds ONLY the bounded investigation (ADR-0048); corrective work never lands under it. One triage mission per cluster detection while every structured identity is non-terminal (repeated-cluster suppression); its resolution feeds a Resolution Record for proactive historical lookup. Stored on the Finding as `admittedByTriageMissionId` — distinct from the Corrective Mission link.
+_Avoid_: Investigation ticket, bug mission, triage task (when describing the container mission rather than its child investigation task), corrective mission (the investigation and the corrective work are different Missions)
+
+**Corrective Mission**:
+The Mission that owns the planned work a routed Finding produces — created by the route command (`fix_now` ungated; deferral gated), exposed on the Finding as canonical `correctiveMissionId` (the physical column is the legacy `triage_mission_id`, unchanged; ADR-0048). Activation clears only its release gate and never creates a replacement Mission. The distinction from the Triage Mission is provenance, not phase: investigation identity is `admittedByTriageMissionId`/`admittedByInvestigationTaskId`; corrective identity is `correctiveMissionId`.
+_Avoid_: Triage mission (when describing where the corrective work lives), fix mission, promoted mission
+
+**Claim-Bound Triage Routing**:
+The authority rule for agent routing of a Finding: only the current claimant of the exact admitted investigation Task may route (locally via the agent route, remotely via `/api/shared` with one same active grant carrying the `triage.route` scope and that exact Task in its allowlist). Humans own manual activation, terminal overrides, and remediation; Release attribution is system-only. The Task claim — not Mission membership or habitat visibility — is the authorization boundary.
+_Avoid_: Mission-bound routing, habitat-visible routing (when describing who may route a Finding)
 
 **Triage Investigation**:
 The bounded analysis a daemon-owned agent performs after claiming a triage mission's investigation task — reading clustered signals, affected task/mission context, and historical resolutions, then posting an analysis pulse and optionally creating corrective work. It investigates and reports; it does not fix, judge agent quality, or modify existing work.
@@ -414,12 +422,16 @@ The semver-aware determination of which deferred findings activate when a releas
 _Avoid_: Priority, severity (when describing the type-cascade filter, not the finding's importance)
 
 **Semver-Targeted Deferral**:
-Tagging a deferred finding with the type of release it waits for (`patch`, `minor`, or `major`) or a specific version (`v0.24.0`, or any `v0.24.x`). A finding with a type target activates on the next release of that type-or-greater; a finding with a version target activates when that exact or prefixed version ships. The Routing Bucket captures the human's coarse deferral intent; the type or version target is the precise activation rule.
+Tagging a deferred finding with the type of release it waits for (`patch`, `minor`, or `major`) or a specific version (`v0.24.0`, or any `v0.24.x`). Superseded by the restored lifecycle (ADR-0048, superseding ADR-0029's activation semantics): deferral is now expressed as a release-gated Corrective Mission (the gate is the precise activation rule), the legacy `targetRelease`/`targetReleaseType` columns are retained read-only, and mutations of them are rejected as superseded.
 _Avoid_: Milestone, fix-version (when describing Orcy's type or version targeting, not an external tracker's label)
 
 **Release Activation**:
-The automatic transition of a deferred finding into active corrective work when its target release ships. Activation is unconditional — every release-matched finding promotes regardless of release type — because the human's decision was made at deferral time, not release time. The human's leverage is pre-release (re-defer or wontfix before the release ships) and post-promotion (triage the created missions), not a confirmation gate between detection and activation.
-_Avoid_: Auto-fix, deployment trigger (when describing the finding activation, not a CI/CD action)
+The transition of a deferred finding into active corrective work when its target release ships. Since the restored lifecycle (ADR-0048), activation runs through the same kernel as manual activation: it retains the existing corrective Mission's gate, dependencies, and status, and attributes itself to the Release. Each Release freezes one immutable activation epoch (cap, eligible groups, exact membership) when it is detected; completion is final — later settings or gate changes never reopen a completed epoch, and deferred or oversized groups wait for a later Release or manual activation.
+_Avoid_: Auto-fix, deployment trigger (when describing the finding activation, not a CI/CD action), unconditional promotion (pre-ADR-0048 model)
+
+**Release Epoch**:
+The frozen activation snapshot a Release captures at detection time: the configured `maxPromotionsPerRelease` Finding-count cap, the deterministic eligible corrective-Mission groups, the exact linked Finding ids, and an eligibility digest. Activation reconciles per-Mission against this immutable snapshot under locked transactions; drift between live state and the snapshot defers the group (`deferred_changed`) rather than partially activating it. Pre-cutover Release rows (created before epochs existed) replay as a documented no-op.
+_Avoid_: Release batch, promotion queue (when describing the frozen snapshot rather than the reconciliation loop)
 
 **Release Retrospective**:
 A source-tagged analysis pulse emitted when a release is detected and activation runs, recording what shipped, which findings activated, which corrective missions were created, and which were skipped. The retrospective feeds the habitat wiki as a release-log entry and gives humans and agents a queryable record of what a release triggered and why.

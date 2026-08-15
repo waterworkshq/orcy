@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import Database from "better-sqlite3";
+import { ENFORCEMENT_MIGRATION_TAG } from "../db/stagedMigrations.js";
 import { readFileSync, readdirSync } from "fs";
 import { join } from "path";
 import type { Database as DatabaseType } from "better-sqlite3";
@@ -32,8 +33,12 @@ function applyMigrationFile(db: DatabaseType, filename: string): void {
 
 function applyAllMigrations(db: DatabaseType): void {
   const migrationDir = join(import.meta.dirname, "..", "..", "drizzle");
+  const enforcementNumber = parseInt(ENFORCEMENT_MIGRATION_TAG.slice(0, 4), 10);
   const files = readdirSync(migrationDir)
     .filter((f) => /^\d{4}_.*\.sql$/.test(f))
+    // The 0068 enforcement migration requires a preflight attestation only
+    // the staged production runner writes — exclude it from this harness.
+    .filter((f) => parseInt(f.slice(0, 4), 10) < enforcementNumber)
     .toSorted();
   for (const file of files) {
     applyMigrationFile(db, file);

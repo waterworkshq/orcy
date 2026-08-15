@@ -18,6 +18,7 @@ Common issues, error messages, and debugging procedures for Orcy.
 - [Notifications](#notifications)
 - [Daemon Engine](#daemon-engine)
 - [Workflow Orchestration](#workflow-orchestration)
+- [Triage (v0.23)](#triage-v023)
 - [Error Code Reference](#error-code-reference)
 - [FAQ](#faq)
 
@@ -526,7 +527,67 @@ Finding triage records are created when a finding **enters triage** (either via 
 2. **Score above threshold.** Default threshold is 40/100. Healthy agents (score ≥ 40) are not flagged.
 3. **No rules configured.** The scan evaluates quality but only fires actions if automation rules with trigger `agent_quality_degraded` exist.
 
+
+### Enforcement migration deferred (TRIAGE_ENFORCEMENT_PREFLIGHT_DIRTY)
+
+The Finding Triage enforcement migration (`0068`) is applied by the staged production migration runner only after the additive watermark (`0064`–`0067`) commits and a versioned preflight attests the database is clean of BLOCKING anomalies. When the log shows `TRIAGE_ENFORCEMENT_PREFLIGHT_DIRTY`, the server booted on the additive schema (all features work; service-level guards remain the first line) and enforcement will retry on the next restart.
+
+**1. Read the machine-readable anomaly report:**
+
+```bash
+sqlite3 "$DB_PATH" "SELECT anomaly_report FROM migration_preflight_attestations WHERE enforcement_migration_id = '0068_finding_triage_lifecycle_enforcement';" | python3 -m json.tool
+```
+
+Blocking anomaly classes (the only ones that defer enforcement):
+- `active_identity_duplicate` — two or more non-terminal `finding_triage` rows sharing `(habitat_id, cluster_key, finding_kind)`.
+- `finding_resolution_duplicate` — two or more `triage_resolutions` rows with `source='finding_triage'` for the same `source_id`.
+
+Advisory diagnostics (malformed evidence JSON, terminal rows without Resolution Records, unusable Mission links, unprovable provenance, invalid recurrence edges) are REPORTED but never block enforcement.
+
+**2. Back up the database** (required before any manual remediation):
+
+```bash
+cp "$DB_PATH" "$DB_PATH.bak-$(date +%Y%m%d%H%M%S)"
+```
+
+**3. Remediate.** Survivor choice is human-only — the system never picks. Typical remediation for `active_identity_duplicate` is to terminalize the duplicate with a full Resolution Record (keeping the row you consider canonical active):
+
+```sql
+INSERT INTO triage_resolutions (id, habitat_id, cluster_key, skill_category, source, source_id, root_cause, resolution, resolved_at)
+  VALUES ('<uuid>', '<habitat>', '<cluster>', '<category>', 'finding_triage', '<duplicate_finding_id>', '<root cause>', '<note>', datetime('now'));
+UPDATE finding_triage SET status = 'wontfix' WHERE id = '<duplicate_finding_id>';
+```
+
+For `finding_resolution_duplicate`, delete or archive the redundant Resolution row(s), keeping exactly one per Finding.
+
+**4. Retry.** Restart the API. The staged runner re-runs the preflight on every boot while enforcement is pending; a clean result writes a fresh attestation and applies enforcement in the same boot. A repeated `TRIAGE_ENFORCEMENT_PREFLIGHT_DIRTY` means blocking anomalies remain — re-read the report.
+
+**Never** apply `0068` by hand or via raw `migrate()`: its internal `CHECK (anomaly_count = 0)` guard aborts without a current clean attestation by design.
+
 ---
+
+### Old client gets 400 LEGACY_PATCH_UNLINK_REMOVED on triage PATCH
+
+**Problem:** A pre-cutover client sends `PATCH /api/triage/findings/:id` with `{triageMissionId: null}` and receives `400 LEGACY_PATCH_UNLINK_REMOVED`.
+
+**Cause:** The legacy unlink shape was removed. It was never part of the approved legacy PATCH compatibility matrix, had no production callers after the lifecycle cutover, and bypassed the actor matrix (any local agent key in an un-teamed habitat could sever another Finding's corrective Mission link). The API logs a deprecation warning (`triage legacy PATCH: unlink shape removed`) alongside the 400; no writes occur.
+
+**Fix:**
+
+- Remediation is a CLIENT UPGRADE, not a server change — do not re-add the shape
+- Corrective links are created via `POST /triage/findings/:id/route` (work-bearing buckets) or the retained link-only PATCH shape; they are activated/terminalized exclusively through the lifecycle commands (`route`/`activate`/`resolve`/`wontfix`)
+- There is intentionally no supported way to sever a committed corrective link via PATCH
+
+### Read-only user gets 403 on triage route/activate/resolve/wontfix
+
+**Problem:** A user with the `viewer` role receives 403 (`VIEWER_WRITE_DENIED` at the transport; `TRIAGE_NOT_AUTHORIZED` if caught by the in-transaction re-check) on the four triage lifecycle commands, including in un-teamed habitats where reads succeed.
+
+**Cause:** Lifecycle writes require human write capability (`admin`/`editor`). The `viewer` role is read-only by definition — the role check applies even where habitat membership alone would grant access (un-teamed habitats), and is re-verified inside the lifecycle transaction against the persisted `users.role`.
+
+**Fix:**
+
+- Grant the user `editor` (or `admin`) if they should triage; viewers keep full triage READ access
+- If a JWT claims `editor` but the 403 still fires, the persisted `users.role` was demoted after the token was issued — the in-transaction check caught it; have the user re-login after the role change
 
 ## Error Code Reference
 

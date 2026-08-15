@@ -1,5 +1,6 @@
 import type { FastifyInstance, FastifyRequest, FastifyReply } from "fastify";
 import { z } from "zod";
+import { REMOTE_ACTION_SCOPES } from "@orcy/shared";
 import { humanAuth } from "../middleware/auth.js";
 import { adminOnly } from "../middleware/rbac.js";
 import { teamHabitatAccess } from "../middleware/team.js";
@@ -17,17 +18,14 @@ const participantStandingSchema = z.enum([
   "remote_reviewer",
   "trusted_remote_pod",
 ]);
-const remoteActionScopeSchema = z.enum([
-  "read",
-  "comment",
-  "pulse.post",
-  "claim",
-  "heartbeat",
-  "submit",
-  "release",
-  "evidence_link",
-  "notification.write",
-]);
+/**
+ * FU6 — derived from the canonical shared scope catalog so the runtime
+ * provisioning schema can never drift from the `RemoteActionScope` type union
+ * or the contributor middleware policy (this omission is exactly how
+ * `triage.route` became un-provisionable through the admin API while tests
+ * kept passing via direct repository writes).
+ */
+const remoteActionScopeSchema = z.enum(REMOTE_ACTION_SCOPES);
 const remoteGrantTypeSchema = z.enum([
   "baseline_observer",
   "scoped_elevation",

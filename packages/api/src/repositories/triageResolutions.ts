@@ -5,6 +5,9 @@ import { v4 as uuid } from "uuid";
 import type { ResolutionKind, TriageActorType } from "@orcy/shared";
 import { repositoryCreateError, repositoryNotFoundError } from "../errors/repository.js";
 
+/** Supplied-client type: same DrizzleDB but injected for transaction participation. */
+type SuppliedClient = ReturnType<typeof getDb>;
+
 /** Source of a triage resolution record. */
 export type TriageResolutionSource = "cluster_triage" | "finding_triage";
 
@@ -96,6 +99,96 @@ export function create(input: CreateTriageResolutionInput): TriageResolution {
   const created = getById(id);
   if (!created) throw repositoryNotFoundError("triageResolution", id);
   return created;
+}
+
+/**
+ * Supplied-client variant of {@link create}. Accepts an injected Drizzle client
+ * so the insert participates in the caller's immediate transaction. Used by the
+ * lifecycle command module (resolveFinding, markFindingWontfix) to ensure the
+ * Resolution Record commits atomically with Finding terminal state.
+ */
+export function createWithClient(
+  client: SuppliedClient,
+  input: CreateTriageResolutionInput,
+): TriageResolution {
+  const id = uuid();
+  try {
+    client
+      .insert(triageResolutions)
+      .values({
+        id,
+        habitatId: input.habitatId,
+        clusterKey: input.clusterKey,
+        skillCategory: input.skillCategory,
+        source: input.source,
+        sourceId: input.sourceId,
+        rootCause: input.rootCause ?? null,
+        resolution: input.resolution ?? null,
+        resolutionKind: input.resolutionKind ?? null,
+        resolvedByType: input.resolvedByType ?? null,
+        resolvedById: input.resolvedById ?? null,
+        metadata: input.metadata ?? {},
+      })
+      .run();
+  } catch (err) {
+    throw repositoryCreateError("triageResolution", err as Error, id);
+  }
+
+  const row = client
+    .select()
+    .from(triageResolutions)
+    .where(eq(triageResolutions.id, id))
+    .get();
+  if (!row) throw repositoryNotFoundError("triageResolution", id);
+  return rowToTriageResolution(row);
+}
+
+/**
+ * Find a Resolution Record by Finding source (source='finding_triage', sourceId=findingId).
+ * Used for idempotency: before writing a new terminal Resolution, the command module
+ * checks whether one already exists for this Finding. Does NOT affect cluster Resolution
+ * (source='cluster_triage') semantics.
+ */
+export function findByFindingSource(
+  habitatId: string,
+  findingId: string,
+): TriageResolution | null {
+  const db = getDb();
+  const row = db
+    .select()
+    .from(triageResolutions)
+    .where(
+      and(
+        eq(triageResolutions.habitatId, habitatId),
+        eq(triageResolutions.source, "finding_triage"),
+        eq(triageResolutions.sourceId, findingId),
+      ),
+    )
+    .get();
+  return row ? rowToTriageResolution(row) : null;
+}
+
+/**
+ * Supplied-client variant of {@link findByFindingSource}. Reads within the
+ * caller's immediate transaction for idempotency checks before terminal writes.
+ */
+export function findByFindingSourceWithClient(
+  client: SuppliedClient,
+  habitatId: string,
+  findingId: string,
+): TriageResolution | null {
+  const row = client
+    .select()
+    .from(triageResolutions)
+    .where(
+      and(
+        eq(triageResolutions.habitatId, habitatId),
+        eq(triageResolutions.source, "finding_triage"),
+        eq(triageResolutions.sourceId, findingId),
+      ),
+    )
+    .get();
+  return row ? rowToTriageResolution(row) : null;
 }
 
 /**

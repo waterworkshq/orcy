@@ -13,6 +13,7 @@ import * as pulseRepo from "../repositories/pulse.js";
 import * as triageClusterMissionsRepo from "../repositories/triageClusterMissions.js";
 import * as triageResolutionsRepo from "../repositories/triageResolutions.js";
 import * as triageService from "./triageService.js";
+import { intakeStructuredCluster } from "./triageOccurrencePublication.js";
 import * as boardRepo from "../repositories/habitat.js";
 import { tallyDisposition } from "./automationScanService.js";
 import type { Pulse } from "@orcy/shared";
@@ -68,9 +69,19 @@ export async function runSignalPatternClusteredScan(habitatId: string): Promise<
     for (const [clusterKey, group] of groups) {
       if (group.length < minClusterSize) continue;
 
-      // Active-triage suppression: skip clusters already under investigation.
+      const structuredPulses = group
+        .filter((p) => p.signalType === "finding")
+        .map((p) => ({
+          id: p.id,
+          createdAt: p.createdAt,
+          findingKind: p.metadata.findingKind as string,
+        }));
+
       const activeMission = triageClusterMissionsRepo.findActiveByClusterKey(habitatId, clusterKey);
-      if (activeMission) continue;
+      // Unstructured clusters still skip once a triage Mission is active.
+      // Structured clusters must reach occurrence intake so later scans can
+      // append unseen corroborating Pulses to the live identity.
+      if (activeMission && structuredPulses.length === 0) continue;
 
       // Proactive lookup: attach historical resolution as suggestion context.
       const proactiveResolutions = triageResolutionsRepo.findByClusterKey(habitatId, clusterKey);
@@ -82,19 +93,64 @@ export async function runSignalPatternClusteredScan(habitatId: string): Promise<
         windowDays,
       );
 
-      // Create the triage mission BEFORE firing rules (ADR-0026). Mission
-      // creation is a direct service call, not an automation action, so the
-      // logic lives in one place. Even with zero rules the cluster crossed
-      // threshold — it needs investigation.
-      try {
-        triageService.createTriageMission(habitatId, payload);
-      } catch (err) {
-        counts.errors.push(
-          `createTriageMission ${clusterKey}: ${err instanceof Error ? err.message : String(err)}`,
-        );
-        continue;
+      // Structured-cluster intake (restored Finding Triage lifecycle): when
+      // the cluster carries structured finding Pulses (findingKind-bearing),
+      // classify new/corroborating/recurring evidence and admit through the
+      // occurrence publication path. A classified no-op (every identity
+      // non-terminal, or old-only evidence) suppresses the Triage Mission —
+      // active identities receive only unseen corroborating evidence and
+      // never a second investigation. Clusters with NO structured identities
+      // keep the ordinary Pattern Cluster behavior.
+      if (structuredPulses.length > 0) {
+        try {
+          const intake = intakeStructuredCluster({
+            habitatId,
+            clusterKey,
+            pulses: structuredPulses,
+            payload,
+          });
+          if (
+            intake.outcome === "rejected_validation" ||
+            intake.outcome === "rejected_investigate_key" ||
+            intake.outcome === "busy"
+          ) {
+            counts.errors.push(
+              `structuredIntake ${clusterKey}: ${intake.outcome}` +
+                (intake.outcome === "busy" ? ` (retry after ${intake.retryAfterMs}ms)` : ""),
+            );
+            continue;
+          }
+          // published / replayed / suppressed / vetoed / guard_mismatch /
+          // governance_denied / rejected_fingerprint are all classified
+          // outcomes — the cluster's automation rules still fire below with
+          // the same payload (only the TRIAGE MISSION is suppressed on the
+          // suppressed branch; automation is independent of it).
+        } catch (err) {
+          counts.errors.push(
+            `structuredIntake ${clusterKey}: ${err instanceof Error ? err.message : String(err)}`,
+          );
+          continue;
+        }
+      } else {
+        // Create the triage mission BEFORE firing rules (ADR-0026). Mission
+        // creation is a direct service call, not an automation action, so the
+        // logic lives in one place. Even with zero rules the cluster crossed
+        // threshold — it needs investigation.
+        try {
+          triageService.createTriageMission(habitatId, payload);
+        } catch (err) {
+          counts.errors.push(
+            `createTriageMission ${clusterKey}: ${err instanceof Error ? err.message : String(err)}`,
+          );
+          continue;
+        }
       }
 
+      // NOTE: no active-mission skip here. Unstructured clusters already
+      // exited above; structured clusters with an active triage Mission must
+      // still fire their automation rules with the same payload — the
+      // documented contract is that automation is independent of triage
+      // Mission suppression.
       const triggerEventId = `cluster:${clusterKey}:${habitatId}`;
       for (const rule of rules) {
         try {
@@ -166,7 +222,7 @@ function groupByClusterKey(pulses: Pulse[]): Map<string, Pulse[]> {
   return groups;
 }
 
-function buildClusterPayload(
+export function buildClusterPayload(
   clusterKey: string,
   group: Pulse[],
   hasProactiveResolution: boolean,

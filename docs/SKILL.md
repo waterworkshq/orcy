@@ -44,7 +44,7 @@ All MCP tools use a **dispatch pattern** — each consolidated tool accepts an `
 | `orcy_notification` | `get_inbox`, `get_history`, `get_delivery`, `ack`, `snooze`, `clear`, `get_subscriptions` | Self-service notification inbox, acknowledgment, and snooze |
 | `orcy_get_workflow_context` | _(single action — pass `taskId`)_ | Read your position in a workflow chain: upstream gates, downstream waiting tasks, gate states |
 | `orcy_get_failure_context` | _(single action — pass `taskId`)_ | Read the FailureContext for a task (used by recovery agents to understand what went wrong) |
-| `orcy_triage` | `investigate`, `top_issues`, `resolution_lookup`, `insert_deferred_mission` | Triage investigation surface — investigate signal clusters, check top issues, look up historical resolutions, insert a gated mission into the roadmap DAG |
+| `orcy_triage` | `investigate`, `top_issues`, `resolution_lookup`, `insert_deferred_mission` | Triage investigation surface — investigate signal clusters, check top issues, look up historical resolutions, and route a finding (one atomic lifecycle route request creating the gated corrective mission in the roadmap DAG) |
 
 ---
 

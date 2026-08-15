@@ -442,6 +442,13 @@ try {
 const { initExtractionScan } = await import("./services/extractionScheduler.js");
 initExtractionScan();
 
+// Automation inbox consumer (restored lifecycle T7): one boot recovery pass
+// for events admitted before a crash, plus a bounded interval pass. The
+// fenced inbox owns rule processing; `release.shipped` projections complete
+// on durable handoff, not on external action completion.
+const { initAutomationInboxDrain } = await import("./services/releaseReconciliationService.js");
+initAutomationInboxDrain();
+
 const { registerExtractionAuditEmitter } = await import("./services/extractionAuditEmitter.js");
 registerExtractionAuditEmitter();
 

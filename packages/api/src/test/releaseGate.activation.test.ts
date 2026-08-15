@@ -361,6 +361,46 @@ describe("AC-SUPERSEDE-3: finding_triage.targetReleaseType column retained", () 
  * resolved, and the retrospective records the activation count.
  */
 describe("Retrospective + notification surface gate activations", () => {
+  it("DISCRIMINATOR: a shared corrective mission with MULTIPLE findings counts as ONE activated mission", async () => {
+    await releaseTriggerService.detectAndActivate(habitatId, "v0.1.0", {
+      releaseType: "minor",
+      detectedBy: "api",
+    });
+
+    const { mission } = seedGatedMissionWithFinding({
+      title: "shared-multi-finding-target",
+      releaseGateType: "minor",
+    });
+    // A second Finding linked to the SAME corrective Mission — one activated
+    // group, two activated Findings.
+    const pulse2 = pulseRepo.createPulse({
+      habitatId,
+      missionId: mission.id,
+      scope: "mission",
+      fromType: "agent",
+      fromId: "agent-1",
+      signalType: "finding",
+      subject: `second-finding-for-${mission.id}`,
+      body: "",
+      metadata: { findingKind: "bug", severity: "minor", blocksCurrentWork: false },
+    });
+    const t2 = findingTriageRepo.createForPulse(pulse2);
+    findingTriageRepo.transitionStatus(t2.id, "triaged", ACTOR);
+    findingTriageRepo.setBucket(t2.id, "defer_to_release");
+    findingTriageRepo.setTriageMissionId(t2.id, mission.id);
+
+    await releaseTriggerService.detectAndActivate(habitatId, "v0.2.0", {
+      detectedBy: "api",
+    });
+
+    const retro = retrospectivePulsesFor("0.2.0");
+    expect(retro).toHaveLength(1);
+    const meta = retro[0].metadata as Record<string, unknown>;
+    // Mission-count fields count activated GROUPS (1), not findings (2).
+    expect(meta.activatedMissionCount).toBe(1);
+    expect(refreshFinding(t2.id).activationReleaseId).not.toBeNull();
+  });
+
   it("retrospective carries activatedMissionCount and a notification_event row is created", async () => {
     await releaseTriggerService.detectAndActivate(habitatId, "v0.1.0", {
       releaseType: "minor",

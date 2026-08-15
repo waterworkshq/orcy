@@ -6368,6 +6368,16 @@ Links URL/metadata-only evidence to a visible task. Branches, commits, and file 
 
 ---
 
+### Triage Route Intent
+
+#### POST /api/shared/triage/findings/:id/route
+
+Remote route intent for a Finding (same discriminated-union body as the local `POST /triage/findings/:id/route`; the lifecycle command kernel consumes both). Requires an ACTIVE `remote_contributor` standing plus ONE same active grant containing the `triage.route` action scope AND the exact admitted investigation Task in its Task allowlist, AND a live claim on that exact Task. Observer/grace/baseline/rule-based standing, Habitat- or Mission-targeted grants, broader-Task allowlists, split grants, stale claims, and disconnected states never authorize. Anti-probing: not-found and not-authorized both collapse to a generic 403 — the endpoint is not a Finding existence oracle.
+
+**Auth:** `X-Orcy-Remote-Key` + `triage.route` scope (exact-Task allowlist) + `Idempotency-Key`
+
+---
+
 ### Notifications
 
 #### GET /api/shared/notifications
@@ -6496,9 +6506,11 @@ Write actions: `tasks.claim`, `tasks.heartbeat`, `tasks.submit`, `tasks.release`
 
 **Local MCP unchanged:** When `ORCY_REMOTE_KEY` is not set, the client uses `X-Agent-API-Key` and the local agent path. Both modes can coexist.
 
-## Triage (v0.23)
+## Triage — Restored Finding Lifecycle (ADR-0048)
 
-All triage routes require `agentOrHumanAuth` (X-Agent-API-Key or Bearer JWT).
+All triage routes require `agentOrHumanAuth` (X-Agent-API-Key or Bearer JWT). Actor identity is always derived from the auth context — clients cannot supply actor type/id or a Release activation cause.
+
+Production lifecycle writes go through one lifecycle command kernel (`findingTriageLifecycle.ts`): HTTP, MCP, UI, scans, and Release reconciliation all express intent to it. Terminal records (`resolved`, `wontfix`) are immutable — recurrence creates a new row with persisted `recurrenceOf` lineage; no route resurrects a terminal row.
 
 ### Finding Triage Routes
 
@@ -6518,28 +6530,33 @@ List finding triage records for a habitat.
 
 Get a single finding triage record.
 
-**Response:** `{ finding: FindingTriageView }`
+**Response:** `{ finding: FindingTriageView }` — the view exposes the canonical **`correctiveMissionId`** (corrective work identity; deprecated equal alias `triageMissionId` may appear), `admittedByTriageMissionId` (bounded investigation Mission), `admittedByInvestigationTaskId` (the exact Task whose live claim authorizes agent routing), recurrence lineage, and activation attribution (`activatedAt/By/Cause`, `activationReleaseId`).
 
-#### PATCH /triage/findings/:id
+#### PATCH /triage/findings/:id (legacy compatibility adapter — deprecated)
 
-Transition status and/or set bucket/target. At least one of `status`, `bucket`, `targetRelease`, or `targetReleaseType` must be provided. Status transitions are gated by the state machine (`open → triaged → in_progress → resolved | wontfix`); invalid transitions return `409 Conflict`.
+Retained STRICT PATCH compatibility for pre-cutover clients only. Accepts the legacy state-shaped body (`{status, bucket}` for no-work buckets only) or link-only `{triageMissionId: string, expectedMissionVersion: number}`. Terminal-to-open transitions, `fix_now`/deferral without complete Mission placement, terminal status without a full Resolution payload, and any `targetRelease*` mutation are rejected. Stored-fingerprint replay wins before the no-link/version predicates — a committed legacy link with a lost response replays despite later legitimate Mission edits. The first-link shape requires human Habitat-write authority (`admin`/`editor`; viewers and local agent keys are denied) and applies the link + fingerprint as one atomic writer-reserved write. New clients use the command routes below.
 
-| Body Field | Required | Description |
-|------------|----------|-------------|
-| `status` | No* | Target status (must be a valid transition from current) |
-| `bucket` | No* | Routing bucket |
-| `targetRelease` | No* | Free-text version tag (e.g. `v0.24`) for version-pinned deferrals; pass `null` to clear |
-| `targetReleaseType` | No* | Release-type tag for semver-type-targeted deferrals: `patch`, `minor`, or `major` (cascading match, ADR-0029); pass `null` to clear |
+**Unlink shape REMOVED:** `{triageMissionId: null}` is rejected with `400 LEGACY_PATCH_UNLINK_REMOVED` (zero writes). The unlink shape was never part of the approved compatibility matrix, has no production callers since the lifecycle cutover, and bypassed the actor matrix. Old clients that still send it must be upgraded: corrective Mission links are created by `POST .../route` (work-bearing buckets) or the link-only shape above, and are activated/terminalized exclusively through the lifecycle commands (`route`/`activate`/`resolve`/`wontfix`). There is no supported way to sever a corrective link via PATCH; re-adding the shape is not the remediation.
 
-*At least one required.
+#### POST /triage/findings/:id/route
 
-**Response:** `{ finding: FindingTriageView }`
+Route a `triaged` finding into corrective work. Agent routing is claim-bound: the exact admitted investigation Task's current claimant may route; humans always may (write capability required — `admin`/`editor`; read-only `viewer` JWTs are denied 403 on all four lifecycle commands, in teamed and un-teamed habitats alike). Creates one gated corrective Mission + placement atomically, or replays from the stored immutable route fingerprint. Repeated identical intent replays; different intent conflicts (409).
 
-#### POST /triage/findings/:id/promote
+#### POST /triage/findings/:id/activate
 
-Manually promote a deferred finding into active corrective work. Transitions `triaged → in_progress` and creates a corrective mission sourced from the finding's pulse context.
+Manual activation of the finding's EXISTING corrective Mission (never creates a replacement): compare-and-swaps the Mission version, clears only `releaseGateType`/`releaseGateVersion`, retains dependencies/status/deadlines/Tasks, and requires a homogeneous linked group (mixed linked states reject without writes). Stale manual version changes nothing.
 
-**Response:** `{ missionId: string }`
+#### POST /triage/findings/:id/resolve
+
+Terminal resolution (human-only). Requires the full Resolution payload (root cause, resolution, resolution kind); writes the Finding-sourced Resolution Record and freezes terminal history.
+
+#### POST /triage/findings/:id/wontfix
+
+Terminal wontfix (human-only). Reason-required; freezes terminal history.
+
+#### POST /triage/findings/:id/promote — RETIRED
+
+Returns `404`. Manual activation is `POST .../activate`; agent routing is `POST .../route`.
 
 ### Resolution Lookup
 
@@ -6571,11 +6588,13 @@ Top unresolved clusters for the UI/MCP summary. Aggregated from open/triaged fin
 
 #### POST /triage/release-trigger
 
-Provider-agnostic release-detection seam (ADR-0030). Converges the GitHub `release` webhook, the `workflow_run` release-workflow convention, the CLI, and external callers into a single detect + classify + record + activate flow. Classifies the release type (caller override or server-side semver-diff against the most recent prior `releases` row), records the `releases` row, runs the activation loop (promotes matched deferred findings into corrective missions via the existing `promote()` + `createMission` path, unconditional — no human gate, ADR-0031), posts a retrospective pulse, and fires the `release.shipped` automation event.
+Provider-agnostic release-detection seam (ADR-0030). Converges the GitHub `release` webhook, the `workflow_run` release-workflow convention, the CLI, and external callers into a single detect + classify + record + reconcile flow. Each Release freezes ONE immutable activation epoch (configured `maxPromotionsPerRelease` cap, deterministic eligible corrective-Mission groups, exact linked Finding ids, eligibility digest) when the Release and its projection rows are created. Activation is a resumable per-Mission projection over that epoch — locked per-group capacity reservation under `BEGIN IMMEDIATE` plus a final locked completeness pass; the hard cumulative Finding-count cap is never exceeded and completed epochs never reopen. Deferred groups are reconsidered by a later Release; oversized groups surface `oversized_for_release_cap` and need manual activation or a higher future-Release cap.
+
+Projection ordering: activation reconciliation → deadline notification → activation notification → retrospective Pulse → `release.shipped` Automation handoff (immutable rule revisions through the durable fenced inbox). **Pre-cutover Release rows** (created before Release epochs existed, no frozen epoch) replay as a documented no-op.
 
 **Idempotent** on `(habitatId, version)`: a duplicate webhook re-delivery hits the existing `releases` row and no-ops before any side effect. The **first** release on a habitat requires an explicit `releaseType` (no prior baseline to diff against); subsequent releases classify themselves from the semver diff unless `releaseType` is supplied.
 
-The two-layer kill switch (global `ORCY_RELEASE_AUTO_PROMOTE` env var AND habitat `releaseSettings.autoPromote`) gates **only** the promotion loop — detection, recording, the retrospective pulse, and the `release.shipped` event always run. See [CONFIGURATION.md](CONFIGURATION.md).
+The two-layer kill switch (global `ORCY_RELEASE_AUTO_PROMOTE` env var AND habitat `releaseSettings.autoPromote`) gates **only** the activation projection — detection, recording, the retrospective pulse, and the `release.shipped` event always run. See [CONFIGURATION.md](CONFIGURATION.md).
 
 | Body Field | Required | Description |
 |------------|----------|-------------|
@@ -6585,12 +6604,13 @@ The two-layer kill switch (global `ORCY_RELEASE_AUTO_PROMOTE` env var AND habita
 | `detectedBy` | No | Provenance discriminator: `github_release_webhook`, `cicd_pipeline`, `cli`, `external`, `api` (default `api`) |
 | `releaseNotes` | No | Free-text release notes (max 10000 chars) |
 
-**Response:** `{ release: ReleaseView, promotedCount: number, createdMissionCount: number, skippedCount: number, erroredCount: number }`
+**Response:** `{ release: ReleaseView, promotedCount: number, createdMissionCount: number, skippedCount: number, erroredCount: number, incompleteProjections: string[] }`
 
-- `promotedCount` — findings transitioned `triaged → in_progress`
-- `createdMissionCount` — corrective missions created from each promoted finding's pulse
+- `promotedCount` — findings activated through the frozen epoch
+- `createdMissionCount` — corrective missions created from each activated finding's pulse
 - `skippedCount` — matched findings already `in_progress` (CONFLICT)
-- `erroredCount` — promoted findings whose mission creation failed (per-finding isolation; the batch still completes)
+- `erroredCount` — activated findings whose mission creation failed (per-finding isolation; the batch still completes)
+- `incompleteProjections` — additive list of projection kinds (`activation`, `deadline_notification`, `activation_notification`, `retrospective_pulse`, `automation_handoff`) still pending/retrying after this call; an empty array means the Release fully reconciled
 
 **CLI:** `orcy triage release-trigger <habitat-id> --version <version> [--type <type>] [--notes <notes>]` (sets `detectedBy: "cli"`).
 

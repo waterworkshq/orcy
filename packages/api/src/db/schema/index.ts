@@ -81,7 +81,16 @@ export {
   notificationDigestItems,
   notificationRetentionPolicies,
 } from "./notification.js";
-export { automationRules, automationRuleRuns } from "./automation.js";
+export {
+  automationRules,
+  automationRuleRuns,
+  automationRuleRevisions,
+  automationEventInbox,
+  automationRuleDeliveries,
+  automationDeliveryActionCheckpoints,
+  automationDeliveryDispositions,
+  automationRunCompletionOutbox,
+} from "./automation.js";
 export {
   identityProviders,
   identityProviderAuthStates,
@@ -98,15 +107,28 @@ export {
   remoteWebhookEndpoints,
 } from "./remote-pod.js";
 export { remoteWebhookDeliveries } from "./remote-webhook.js";
-export {
-  workflows,
-  taskWorkflowGates,
-  taskRecoveryHandoffs,
-  failureContexts,
-} from "./workflow.js";
+export { workflows, taskWorkflowGates, taskRecoveryHandoffs, failureContexts } from "./workflow.js";
 export { wikiPages, wikiPageVersions, wikiPageLinks, wikiCoverageMarkers } from "./wiki.js";
-export { findingTriage, triageResolutions, triageClusterMissions } from "./triage.js";
-export { releases } from "./release.js";
+export {
+  findingTriage,
+  triageResolutions,
+  triageClusterMissions,
+  findingTriageEvidence,
+  findingTriageLineageRepairs,
+  findingTriageLineageBaselineEvidence,
+  triagePublicationOccurrences,
+  migrationPreflightAttestations,
+} from "./triage.js";
+export {
+  releases,
+  releaseProjectionDeliveries,
+  releaseActivationEpochs,
+  releaseActivationEpochGroups,
+  RELEASE_PROJECTION_KINDS,
+  type ReleaseProjectionKind,
+  EPOCH_GROUP_DISPOSITIONS,
+  type EpochGroupDisposition,
+} from "./release.js";
 export {
   pluginEnrollments,
   pluginRuns,
@@ -213,6 +235,10 @@ export {
   remoteIdempotencyKeysRelations,
   remoteWebhookEndpointsRelations,
   findingTriageRelations,
+  findingTriageEvidenceRelations,
+  findingTriageLineageRepairsRelations,
+  findingTriageLineageBaselineEvidenceRelations,
+  triagePublicationOccurrencesRelations,
   triageResolutionsRelations,
   triageClusterMissionsRelations,
   releasesRelations,

@@ -1,9 +1,13 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import "@testing-library/jest-dom/vitest";
-import { render, screen } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor, cleanup } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { EditMissionForm } from "./EditMissionForm.js";
+import { ApiError } from "../../api/transport.js";
+import { notify } from "../../lib/toast.js";
 import type { MissionWithProgress } from "../../types/index.js";
+
+const mockMutateAsync = vi.fn();
 
 vi.mock("../../lib/useHabitatData.js", () => ({
   useHabitat: () => ({
@@ -16,9 +20,17 @@ vi.mock("../../lib/useHabitatData.js", () => ({
     },
   }),
   useUpdateMission: () => ({
-    mutateAsync: vi.fn(),
+    mutateAsync: mockMutateAsync,
     isPending: false,
   }),
+}));
+
+vi.mock("../../lib/toast.js", () => ({
+  notify: {
+    success: vi.fn(),
+    error: vi.fn(),
+    warning: vi.fn(),
+  },
 }));
 
 // RichTextEditor pulls in TipTap; stub it to keep the test DOM-light.
@@ -85,6 +97,9 @@ describe("EditMissionForm (RM-13)", () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
+  afterEach(() => {
+    cleanup();
+  });
 
   it("renders pre-filled from the mission and shows release-gate authoring in release mode", () => {
     renderForm();
@@ -96,5 +111,51 @@ describe("EditMissionForm (RM-13)", () => {
     // Release mode renders the gate + deadline selector labels (RM-6 authoring gate).
     expect(screen.getByText("Release Gate")).toBeInTheDocument();
     expect(screen.getByText("Release Deadline")).toBeInTheDocument();
+  });
+
+  it.each([
+    [
+      "MISSION_GATE_CLEAR_BLOCKED",
+      "Cannot clear the release gate while linked findings are non-terminal; activate the corrective Mission first.",
+    ],
+    [
+      "MISSION_GATE_CHANGE_BLOCKED",
+      "Cannot add or replace a release gate while linked findings are in progress.",
+    ],
+  ])(
+    "surfaces the SERVER message for a %s guard 409 — never the version-conflict path",
+    async (code, serverMessage) => {
+      mockMutateAsync.mockRejectedValue(
+        new ApiError(serverMessage, 409, { error: serverMessage, code }),
+      );
+      renderForm();
+
+      fireEvent.click(screen.getByRole("button", { name: /save changes/i }));
+
+      await waitFor(() => {
+        expect(notify.error).toHaveBeenCalledWith(serverMessage);
+      });
+      // The misleading "edited elsewhere" reconcile message must NOT appear.
+      const errorCalls = vi.mocked(notify.error).mock.calls.map((c) => String(c[0]));
+      expect(errorCalls.some((m) => m.includes("edited elsewhere"))).toBe(false);
+    },
+  );
+
+  it("still renders the reconcile flow for a genuine VERSION_CONFLICT 409", async () => {
+    mockMutateAsync.mockRejectedValue(
+      new ApiError("Version conflict", 409, {
+        error: "Version conflict",
+        code: "VERSION_CONFLICT",
+      }),
+    );
+    renderForm();
+
+    fireEvent.click(screen.getByRole("button", { name: /save changes/i }));
+
+    await waitFor(() => {
+      expect(notify.error).toHaveBeenCalledWith(
+        "This mission was edited elsewhere — refresh and try again",
+      );
+    });
   });
 });

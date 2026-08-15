@@ -2,6 +2,13 @@
  * Base application error with HTTP status, error code, and optional details.
  */
 export class AppError extends Error {
+  /**
+   * Retry hint (ms) for retryable statuses (503 busy). When set, the error
+   * handler emits a `Retry-After` header so clients can honor backoff —
+   * see `bootstrapReleaseWithEpoch` contention handling.
+   */
+  public retryAfterMs?: number;
+
   constructor(
     public statusCode: number,
     public code: string,
@@ -23,6 +30,7 @@ export const ErrorCodes = {
   UNAUTHORIZED: "UNAUTHORIZED",
   FORBIDDEN: "FORBIDDEN",
   INTERNAL_ERROR: "INTERNAL_ERROR",
+  SERVICE_UNAVAILABLE: "SERVICE_UNAVAILABLE",
   RATE_LIMITED: "RATE_LIMITED",
   TOKEN_EXPIRED: "TOKEN_EXPIRED",
   INVALID_CREDENTIALS: "INVALID_CREDENTIALS",
@@ -68,6 +76,22 @@ export function notFound(message: string, details?: unknown): AppError {
 
 export function conflict(message: string, details?: unknown): AppError {
   return new AppError(409, ErrorCodes.CONFLICT, message, details);
+}
+
+/**
+ * Conflict (409) with a specific error code. {@link conflict} hardcodes the
+ * code to `"CONFLICT"` and accepts only `details`, so callers that want a
+ * granular diagnostic code reachable by clients create an `AppError` here
+ * instead. Used by the local and remote triage lifecycle outcome mappers so
+ * both surfaces emit byte-identical typed codes.
+ */
+export function conflictWithCode(code: string, message: string): AppError {
+  return new AppError(409, code, message);
+}
+
+/** 400 with a specific error code (badRequest() hardcodes VALIDATION_ERROR). */
+export function badRequestWithCode(code: string, message: string): AppError {
+  return new AppError(400, code, message);
 }
 
 export function rateLimited(message = "Too many requests"): AppError {

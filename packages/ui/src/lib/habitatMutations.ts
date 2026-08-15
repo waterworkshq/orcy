@@ -162,9 +162,29 @@ export function invalidateMissionRepresentations(qc: QueryClient, missionId: str
   qc.invalidateQueries({ queryKey: queryKeys.missions.progress(missionId) });
 }
 
-/** True when an error is an HTTP 409 version conflict. */
+/**
+ * True when an error is an HTTP 409 whose typed envelope code identifies a
+ * VERSION RACE — another actor's write won and the remedy is reconcile+retry.
+ * Two codes qualify: `VERSION_CONFLICT` (explicit CAS guards on mission
+ * update/move and column reorder) and the generic `CONFLICT` envelope
+ * (extraction decision-version races, `extractionReviewService.ts`).
+ *
+ * Every other 409 is NOT a race: the restored-lifecycle mission guards
+ * (`MISSION_GATE_CLEAR_BLOCKED`, `MISSION_GATE_CHANGE_BLOCKED`,
+ * `MISSION_ARCHIVE_HAS_NON_TERMINAL_FINDINGS`, `MISSION_HAS_FINDING_LINKS`)
+ * and triage contention (`LIFECYCLE_BUSY`, mixed-group/mixed-link replay
+ * rejections) carry distinct codes whose server message states the real
+ * remedy (activate/resolve/wontfix linked findings; archive instead of
+ * delete). Those MUST fall through to the generic error path so the message
+ * reaches the human instead of a misleading "edited elsewhere" reconcile
+ * flow. The error middleware always sends `code` on 4xx/5xx
+ * (`errors/plugin.ts`), so a 409 without a recognized code is treated as a
+ * non-race.
+ */
 export function isVersionConflict(err: unknown): err is ApiError {
-  return err instanceof ApiError && err.status === 409;
+  if (!(err instanceof ApiError) || err.status !== 409) return false;
+  const code = (err.body as { code?: unknown } | undefined)?.code;
+  return code === "VERSION_CONFLICT" || code === "CONFLICT";
 }
 
 /**
