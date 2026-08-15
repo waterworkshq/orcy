@@ -43,4 +43,21 @@ describe("error handler — Retry-After for retryable AppErrors", () => {
     expect(res.headers["retry-after"]).toBeUndefined();
     await app.close();
   });
+
+  it("a non-503 AppError carrying retryAfterMs emits no Retry-After header", async () => {
+    const app: FastifyInstance = Fastify({ logger: false });
+    await registerErrorHandler(app);
+    app.get("/not-retryable", async () => {
+      // A mis-set hint on a non-retryable status must not advertise retry.
+      const err = new AppError(409, "CONFLICT", "conflict with a stray hint");
+      err.retryAfterMs = 250;
+      throw err;
+    });
+    await app.ready();
+
+    const res = await app.inject({ method: "GET", url: "/not-retryable" });
+    expect(res.statusCode).toBe(409);
+    expect(res.headers["retry-after"]).toBeUndefined();
+    await app.close();
+  });
 });

@@ -52,8 +52,10 @@ export async function registerErrorHandler(fastify: FastifyInstance): Promise<vo
 
       // Retryable-contention hint: a 503 carrying retryAfterMs gets the
       // matching Retry-After header (same contract the triage lifecycle busy
-      // outcomes emit at the route seam).
-      if (error.retryAfterMs !== undefined) {
+      // outcomes emit at the route seam). Gated on the status — a non-503
+      // error carrying the field is not retryable under the contract and
+      // must not advertise a retry hint.
+      if (error.statusCode === 503 && error.retryAfterMs !== undefined) {
         reply.header(
           "Retry-After",
           String(Math.max(1, Math.ceil(error.retryAfterMs / 1000))),
