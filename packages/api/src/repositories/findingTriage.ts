@@ -777,6 +777,25 @@ export function findBySourcePulseId(pulseId: string): FindingTriage[] {
 }
 
 /**
+ * Findings that still list the Pulse only on the legacy
+ * `corroborating_pulse_ids` JSON projection (no evidence-table row).
+ */
+export function findByLegacyCorroboratingPulseId(pulseId: string): FindingTriage[] {
+  const db = getDb();
+  return db
+    .select()
+    .from(findingTriage)
+    .where(
+      sql`EXISTS (
+        SELECT 1 FROM json_each(COALESCE(${findingTriage.corroboratingPulseIds}, '[]'))
+        WHERE value = ${pulseId}
+      )`,
+    )
+    .all()
+    .map(rowToFindingTriage);
+}
+
+/**
  * Findings admitted by a given Triage Mission (bounded investigation link).
  * Mission deletion rejects while ANY such link exists, terminal or not.
  */

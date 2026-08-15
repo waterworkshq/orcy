@@ -36,11 +36,15 @@ function isTerminal(finding: FindingTriage): boolean {
 export function assertPulseNotFindingEvidence(pulseId: string): void {
   const evidenceRefs = findingTriageRepo.listEvidenceReferencesForPulse(pulseId);
   const sourceRefs = findingTriageRepo.findBySourcePulseId(pulseId);
-  if (evidenceRefs.length === 0 && sourceRefs.length === 0) return;
+  const legacyCorroborating = findingTriageRepo.findByLegacyCorroboratingPulseId(pulseId);
+  if (evidenceRefs.length === 0 && sourceRefs.length === 0 && legacyCorroborating.length === 0) {
+    return;
+  }
 
   const findingIds = new Set<string>();
   for (const ref of evidenceRefs) findingIds.add(ref.findingTriageId);
   for (const ref of sourceRefs) findingIds.add(ref.id);
+  for (const ref of legacyCorroborating) findingIds.add(ref.id);
 
   throw new AppError(
     409,

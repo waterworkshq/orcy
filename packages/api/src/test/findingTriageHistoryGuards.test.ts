@@ -193,6 +193,28 @@ describe("DELETE /pulse/:id — lifecycle evidence guard", () => {
     expect(JSON.parse(res.body).code).toBe("PULSE_IS_LIFECYCLE_EVIDENCE");
   });
 
+  it("rejects deletion of a Pulse stored only on legacy corroborating_pulse_ids", async () => {
+    const finding = seedDeferredFinding("Pulse guard legacy corroboration json");
+    const legacy = seedPlainPulse("Legacy json corroborator");
+    getDb()
+      .update(findingTriage)
+      .set({
+        corroboratingPulseIds: JSON.stringify([legacy.id]),
+        updatedAt: new Date().toISOString(),
+      })
+      .where(eq(findingTriage.id, finding.id))
+      .run();
+
+    const res = await app.inject({
+      method: "DELETE",
+      url: `/api/pulse/${legacy.id}`,
+      headers: AUTH,
+    });
+    expect(res.statusCode).toBe(409);
+    expect(JSON.parse(res.body).code).toBe("PULSE_IS_LIFECYCLE_EVIDENCE");
+    expect(pulseRepo.getPulseById(legacy.id)).not.toBeNull();
+  });
+
   it("rejects deletion of a TERMINAL finding's source pulse (history is durable)", async () => {
     const finding = seedDeferredFinding("Pulse guard terminal");
     const resolved = resolveFinding({
