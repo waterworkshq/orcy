@@ -758,8 +758,11 @@ export interface PulseEvidenceReference {
  * (`finding_triage_evidence` is the authoritative membership store). A Pulse
  * referenced by ANY Finding — terminal or not — cannot be deleted.
  */
-export function listEvidenceReferencesForPulse(pulseId: string): PulseEvidenceReference[] {
-  const db = getDb();
+export function listEvidenceReferencesForPulse(
+  pulseId: string,
+  client?: SuppliedClient,
+): PulseEvidenceReference[] {
+  const db = client ?? getDb();
   return db
     .select()
     .from(findingTriageEvidence)
@@ -776,8 +779,8 @@ export function listEvidenceReferencesForPulse(pulseId: string): PulseEvidenceRe
  * given Pulse. Covers pre-evidence-table legacy rows where the source Pulse
  * lives only on the row itself.
  */
-export function findBySourcePulseId(pulseId: string): FindingTriage[] {
-  const db = getDb();
+export function findBySourcePulseId(pulseId: string, client?: SuppliedClient): FindingTriage[] {
+  const db = client ?? getDb();
   return db
     .select()
     .from(findingTriage)
@@ -790,8 +793,11 @@ export function findBySourcePulseId(pulseId: string): FindingTriage[] {
  * Findings that still list the Pulse only on the legacy
  * `corroborating_pulse_ids` JSON projection (no evidence-table row).
  */
-export function findByLegacyCorroboratingPulseId(pulseId: string): FindingTriage[] {
-  const db = getDb();
+export function findByLegacyCorroboratingPulseId(
+  pulseId: string,
+  client?: SuppliedClient,
+): FindingTriage[] {
+  const db = client ?? getDb();
   // Malformed legacy JSON (malformed_evidence_json is a live condition the
   // preflight reports) must read as "no reference" — an unguarded json_each
   // throws and turns EVERY pulse delete into a 500, even for unreferenced

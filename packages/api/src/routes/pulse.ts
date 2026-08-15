@@ -7,6 +7,8 @@ import * as habitatRepo from "../repositories/habitat.js";
 import { assertPulseNotFindingEvidence } from "../services/findingTriageHistoryGuards.js";
 import { agentOrHumanAuth } from "../middleware/auth.js";
 import { badRequest, unauthorized, notFound, forbidden } from "../errors.js";
+import { sql } from "drizzle-orm";
+import { getDb } from "../db/index.js";
 import { getCallerInfo } from "./pulse-shared.js";
 
 const MAX_PAGINATION_LIMIT = 200;
@@ -150,10 +152,25 @@ export async function pulseRoutes(fastify: FastifyInstance): Promise<void> {
 
     // Inverse guard (restored lifecycle T5): a Pulse referenced as source or
     // corroborating evidence by ANY Finding — terminal or not — cannot be
-    // deleted; deletion erases lifecycle history.
-    assertPulseNotFindingEvidence(id);
-
-    pulseRepo.deletePulse(id);
+    // deleted; deletion erases lifecycle history. The guard and the delete
+    // run under ONE `BEGIN IMMEDIATE` writer reservation — a separate
+    // guard-then-delete pair left a window where a concurrent intake
+    // committed evidence references between the check and the delete.
+    const db = getDb();
+    db.run(sql`BEGIN IMMEDIATE`);
+    try {
+      assertPulseNotFindingEvidence(id, db);
+      const deleted = pulseRepo.deletePulseWithClient(db, id);
+      db.run(sql`COMMIT`);
+      if (!deleted) throw notFound("Signal not found");
+    } catch (err) {
+      try {
+        db.run(sql`ROLLBACK`);
+      } catch {
+        // already rolled back or not in a transaction (defensive)
+      }
+      throw err;
+    }
     reply.code(204).send();
   });
 

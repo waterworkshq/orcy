@@ -21,6 +21,11 @@ import * as findingTriageRepo from "../repositories/findingTriage.js";
 import type { FindingTriage } from "../repositories/findingTriage.js";
 import { AppError } from "../errors.js";
 
+/** Supplied Drizzle client so the pulse guard can run inside a caller's writer reservation. */
+export type PulseGuardClient = Parameters<
+  typeof findingTriageRepo.listEvidenceReferencesForPulse
+>[1];
+
 /** True when the Finding is in a terminal (`resolved`/`wontfix`) state. */
 function isTerminal(finding: FindingTriage): boolean {
   return finding.status === "resolved" || finding.status === "wontfix";
@@ -33,10 +38,10 @@ function isTerminal(finding: FindingTriage): boolean {
  * reference blocks deletion) plus the legacy `finding_triage.pulse_id` source
  * pointer that pre-evidence rows carry.
  */
-export function assertPulseNotFindingEvidence(pulseId: string): void {
-  const evidenceRefs = findingTriageRepo.listEvidenceReferencesForPulse(pulseId);
-  const sourceRefs = findingTriageRepo.findBySourcePulseId(pulseId);
-  const legacyCorroborating = findingTriageRepo.findByLegacyCorroboratingPulseId(pulseId);
+export function assertPulseNotFindingEvidence(pulseId: string, client?: PulseGuardClient): void {
+  const evidenceRefs = findingTriageRepo.listEvidenceReferencesForPulse(pulseId, client);
+  const sourceRefs = findingTriageRepo.findBySourcePulseId(pulseId, client);
+  const legacyCorroborating = findingTriageRepo.findByLegacyCorroboratingPulseId(pulseId, client);
   if (evidenceRefs.length === 0 && sourceRefs.length === 0 && legacyCorroborating.length === 0) {
     return;
   }

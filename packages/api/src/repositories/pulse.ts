@@ -464,7 +464,15 @@ export function getLatestSummaryPulse(missionId: string): Pulse | null {
 }
 
 export function deletePulse(id: string): boolean {
-  const db = getDb();
+  return deletePulseWithClient(getDb(), id);
+}
+
+/**
+ * Supplied-client delete for callers holding a writer reservation (the
+ * lifecycle evidence guard + delete must run as ONE atomic unit — see
+ * `DELETE /pulse/:id`).
+ */
+export function deletePulseWithClient(db: PulseDbClient, id: string): boolean {
   const pulse = getPulseById(id);
   if (!pulse) return false;
   try {
