@@ -89,7 +89,12 @@ export function useResolveFinding() {
       resolution: string;
       resolutionKind: string;
       rootCause?: string;
-    }) => api.triage.resolveFinding(input.id, input),
+    }) =>
+      api.triage.resolveFinding(input.id, {
+        resolution: input.resolution,
+        resolutionKind: input.resolutionKind,
+        ...(input.rootCause !== undefined ? { rootCause: input.rootCause } : {}),
+      }),
     onSuccess: () => {
       invalidate();
     },
@@ -104,7 +109,7 @@ export function useWontfixFinding() {
   const invalidate = useInvalidateTriage();
   return useMutation({
     mutationFn: (input: { id: string; reason: string }) =>
-      api.triage.wontfixFinding(input.id, input),
+      api.triage.wontfixFinding(input.id, { reason: input.reason }),
     onSuccess: () => {
       invalidate();
     },

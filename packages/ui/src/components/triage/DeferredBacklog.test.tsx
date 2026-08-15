@@ -17,8 +17,11 @@ let mockBucketQueryError: Error | null = null;
 const mockFindingsRefetch = vi.fn();
 
 vi.mock("../../hooks/useTriage.js", () => ({
-  useFindingTriage: (_habitatId: string, filters?: { bucket?: string }) => ({
-    data: mockFindings.filter((f) => f.bucket === filters?.bucket),
+  useFindingTriage: (_habitatId: string, filters?: { bucket?: string; status?: string }) => ({
+    data: mockFindings.filter(
+      (f) =>
+        f.bucket === filters?.bucket && (filters?.status ? f.status === filters.status : true),
+    ),
     isLoading: false,
     isError: mockBucketQueryError !== null,
     error: mockBucketQueryError,
@@ -98,6 +101,16 @@ describe("DeferredBacklog — manual activation of the EXISTING corrective Missi
   });
   afterEach(() => {
     cleanup();
+  });
+
+  it("excludes activated (in_progress) findings that still carry a deferred bucket", async () => {
+    mockFindings = [
+      makeFinding({ status: "in_progress", activatedAt: "2026-08-15T00:00:00Z" }),
+    ];
+    renderWithQC(<DeferredBacklog habitatId="hab-1" />);
+
+    await screen.findByText(/No deferred findings/i);
+    expect(screen.queryByRole("button", { name: /^Activate$/i })).not.toBeInTheDocument();
   });
 
   it("Activate supplies the OBSERVED mission version to the lifecycle command", async () => {

@@ -32,10 +32,17 @@ interface BacklogGroup {
  * are rendered inline for the human instead of replacing anything.
  */
 export function DeferredBacklog({ habitatId, onActivated }: DeferredBacklogProps) {
-  // Fetch all deferred findings; we filter both defer buckets client-side so a
-  // single query per bucket backs the grouped view.
-  const patchQuery = useFindingTriage(habitatId, { bucket: "defer_to_patch" });
-  const releaseQuery = useFindingTriage(habitatId, { bucket: "defer_to_release" });
+  // Fetch deferred findings that are still awaiting activation. Activated
+  // members keep their defer bucket but move to `in_progress`; filtering by
+  // status keeps them out of this backlog after cache invalidation.
+  const patchQuery = useFindingTriage(habitatId, {
+    bucket: "defer_to_patch",
+    status: "triaged",
+  });
+  const releaseQuery = useFindingTriage(habitatId, {
+    bucket: "defer_to_release",
+    status: "triaged",
+  });
 
   const isLoading = patchQuery.isLoading || releaseQuery.isLoading;
   // A failed bucket query must surface as an error — rendering the empty

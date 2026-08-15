@@ -47,14 +47,18 @@ export const triageApi = {
   ) =>
     request<{ finding: FindingTriageView }>(`/triage/findings/${id}/resolve`, {
       method: "POST",
-      body: JSON.stringify(input),
+      body: JSON.stringify({
+        resolution: input.resolution,
+        resolutionKind: input.resolutionKind,
+        ...(input.rootCause !== undefined ? { rootCause: input.rootCause } : {}),
+      }),
     }).then((r) => r.finding),
 
   /** POST /triage/findings/:id/wontfix — terminal wontfix with a required reason. */
   wontfixFinding: (id: string, input: { reason: string }) =>
     request<{ finding: FindingTriageView }>(`/triage/findings/${id}/wontfix`, {
       method: "POST",
-      body: JSON.stringify(input),
+      body: JSON.stringify({ reason: input.reason }),
     }).then((r) => r.finding),
 
   /**

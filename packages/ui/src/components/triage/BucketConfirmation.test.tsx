@@ -148,6 +148,55 @@ describe("BucketConfirmation — lifecycle route commands (restored lifecycle T8
     });
   });
 
+  it("resets finding-specific form state when the finding id changes while mounted", () => {
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const { rerender } = render(
+      <QueryClientProvider client={qc}>
+        <BucketConfirmation finding={makeFinding({ bucket: "fix_now" })} onClose={vi.fn()} />
+      </QueryClientProvider>,
+    );
+    fireEvent.change(screen.getByLabelText(/Corrective mission title/i), {
+      target: { value: "Stale title from previous finding" },
+    });
+    fireEvent.click(screen.getByText(/Mark as won't fix/i));
+    fireEvent.change(screen.getByLabelText(/Won't fix reason/i), {
+      target: { value: "stale reason" },
+    });
+
+    rerender(
+      <QueryClientProvider client={qc}>
+        <BucketConfirmation
+          finding={makeFinding({
+            id: "finding-2",
+            clusterKey: "other-cluster",
+            findingKind: "perf",
+            bucket: "defer_to_patch",
+          })}
+          onClose={vi.fn()}
+        />
+      </QueryClientProvider>,
+    );
+
+    expect(screen.getByLabelText(/Corrective mission title/i)).toHaveValue(
+      "Corrective: other-cluster",
+    );
+    expect(screen.getByLabelText(/Won't fix reason/i)).toHaveValue("");
+  });
+
+  it("defer_to_patch only offers the patch gate; defer_to_release never offers patch", () => {
+    renderWithQC(
+      <BucketConfirmation finding={makeFinding({ bucket: "defer_to_patch" })} onClose={vi.fn()} />,
+    );
+    expect(screen.getByRole("radio", { name: /^Patch$/i })).toBeChecked();
+    expect(screen.queryByRole("radio", { name: /^Minor$/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("radio", { name: /^Major$/i })).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByText(/Defer to release/i));
+    expect(screen.queryByRole("radio", { name: /^Patch$/i })).not.toBeInTheDocument();
+    expect(screen.getByRole("radio", { name: /^Minor$/i })).toBeChecked();
+    expect(screen.getByRole("radio", { name: /^Major$/i })).toBeInTheDocument();
+  });
+
   it("wontfix requires a reason and fires the wontfix command — never {status:'wontfix'}", async () => {
     renderWithQC(<BucketConfirmation finding={makeFinding()} onClose={vi.fn()} />);
 

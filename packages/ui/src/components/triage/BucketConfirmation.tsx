@@ -61,6 +61,14 @@ function isDeferred(bucket: SuggestedBucket): boolean {
  * Mission, its gate, and the finding link commit atomically. The superseded
  * target-release fields are gone — release coupling lives on the Mission gate.
  */
+function gateChoicesForBucket(
+  bucket: SuggestedBucket | null,
+): { value: "patch" | "minor" | "major"; label: string }[] {
+  if (bucket === "defer_to_patch") return RELEASE_GATE_TYPES.filter((c) => c.value === "patch");
+  if (bucket === "defer_to_release") return RELEASE_GATE_TYPES.filter((c) => c.value !== "patch");
+  return RELEASE_GATE_TYPES;
+}
+
 export function BucketConfirmation({ finding, onClose, onConfirmed }: BucketConfirmationProps) {
   const recommendation = finding.bucket;
   const [selected, setSelected] = useState<SuggestedBucket | null>(recommendation);
@@ -68,15 +76,24 @@ export function BucketConfirmation({ finding, onClose, onConfirmed }: BucketConf
   const [missionDescription, setMissionDescription] = useState(
     `Address the ${finding.findingKind} finding in cluster ${finding.clusterKey}.`,
   );
-  const [releaseGateType, setReleaseGateType] = useState<"patch" | "minor" | "major">("patch");
+  const [releaseGateType, setReleaseGateType] = useState<"patch" | "minor" | "major">(
+    recommendation === "defer_to_release" ? "minor" : "patch",
+  );
   const [releaseGateVersion, setReleaseGateVersion] = useState("");
   const [wontfixReason, setWontfixReason] = useState("");
   const routeMutation = useRouteFinding();
   const wontfixMutation = useWontfixFinding();
 
   useEffect(() => {
-    setSelected(recommendation);
-  }, [recommendation]);
+    setSelected(finding.bucket);
+    setMissionTitle(`Corrective: ${finding.clusterKey}`);
+    setMissionDescription(
+      `Address the ${finding.findingKind} finding in cluster ${finding.clusterKey}.`,
+    );
+    setReleaseGateType(finding.bucket === "defer_to_release" ? "minor" : "patch");
+    setReleaseGateVersion("");
+    setWontfixReason("");
+  }, [finding.id, finding.bucket, finding.clusterKey, finding.findingKind]);
 
   useEffect(() => {
     if (selected === "defer_to_release" && releaseGateType === "patch") {
@@ -268,7 +285,7 @@ export function BucketConfirmation({ finding, onClose, onConfirmed }: BucketConf
                     Release gate <span className="text-red-500">*</span>
                   </legend>
                   <div className="flex gap-3">
-                    {RELEASE_GATE_TYPES.map((choice) => (
+                    {gateChoicesForBucket(selected).map((choice) => (
                       <label
                         key={choice.value}
                         className={`flex cursor-pointer items-center gap-1.5 rounded border px-2.5 py-1 text-xs ${
