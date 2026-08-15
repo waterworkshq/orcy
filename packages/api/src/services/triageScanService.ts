@@ -146,8 +146,11 @@ export async function runSignalPatternClusteredScan(habitatId: string): Promise<
         }
       }
 
-      if (activeMission) continue;
-
+      // NOTE: no active-mission skip here. Unstructured clusters already
+      // exited above; structured clusters with an active triage Mission must
+      // still fire their automation rules with the same payload — the
+      // documented contract is that automation is independent of triage
+      // Mission suppression.
       const triggerEventId = `cluster:${clusterKey}:${habitatId}`;
       for (const rule of rules) {
         try {

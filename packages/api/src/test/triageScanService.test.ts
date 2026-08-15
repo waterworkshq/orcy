@@ -140,6 +140,44 @@ describe("triageScanService", () => {
       expect(junction).not.toBeNull();
     });
 
+    it("DISCRIMINATOR: a structured cluster with an active mission still fires its automation rules", async () => {
+      // First scan crosses threshold with NO rule — the structured intake
+      // publishes and creates the triage mission.
+      for (let i = 0; i < 3; i++) {
+        seedPulse({
+          signalType: "finding",
+          subject: "active mission rules",
+          fromId: `agent-${i}`,
+          taskId: createTaskId(`amr-${i}`),
+          metadata: { findingKind: "bug" },
+        });
+      }
+      const first = await runSignalPatternClusteredScan(habitatId);
+      expect(first[0].errors).toHaveLength(0);
+      expect(
+        triageClusterMissionsRepo.findActiveByClusterKey(
+          habitatId,
+          normalize("active mission rules"),
+        ),
+      ).not.toBeNull();
+
+      // Now add a rule and a corroborating pulse. The next scan must still
+      // fire the rule — automation is independent of triage Mission
+      // suppression (the active-mission guard only skips mission creation).
+      createScanRule(habitatId, "signal_pattern_clustered");
+      seedPulse({
+        signalType: "finding",
+        subject: "active mission rules",
+        fromId: "agent-9",
+        taskId: createTaskId("amr-9"),
+        metadata: { findingKind: "bug" },
+      });
+
+      const second = await runSignalPatternClusteredScan(habitatId);
+      expect(second[0].errors).toHaveLength(0);
+      expect(second[0].rulesMatched).toBe(1);
+    });
+
     it("AC-REACTIVE-2: cluster payload includes provenance breakdown, task IDs, agent IDs", async () => {
       // Capture the payload that flows into executeAndRecordRuleRun via a rule + run record.
       createScanRule(habitatId, "signal_pattern_clustered");
