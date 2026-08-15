@@ -566,17 +566,17 @@ For `finding_resolution_duplicate`, delete or archive the redundant Resolution r
 
 ---
 
-### Old client gets 400 LEGACY_PATCH_UNLINK_REMOVED on triage PATCH
+### Old client gets 400 LEGACY_PATCH_RETIRED on triage PATCH
 
-**Problem:** A pre-cutover client sends `PATCH /api/triage/findings/:id` with `{triageMissionId: null}` and receives `400 LEGACY_PATCH_UNLINK_REMOVED`.
+**Problem:** A pre-cutover client sends `PATCH /api/triage/findings/:id` (any legacy body shape — no-work `{status, bucket}`, link-only `{triageMissionId, expectedMissionVersion}`, unlink `{triageMissionId: null}`, mixed, terminal, or `targetRelease*`) and receives `400 LEGACY_PATCH_RETIRED`.
 
-**Cause:** The legacy unlink shape was removed. It was never part of the approved legacy PATCH compatibility matrix, had no production callers after the lifecycle cutover, and bypassed the actor matrix (any local agent key in an un-teamed habitat could sever another Finding's corrective Mission link). The API logs a deprecation warning (`triage legacy PATCH: unlink shape removed`) alongside the 400; no writes occur.
+**Cause:** The legacy PATCH compatibility adapter was retired after v0.40.0 closed its announced compatibility window. The route is now a zero-write stub: it performs no body parsing, no authority check, and no DB access; it logs one deprecation warning (`triage legacy PATCH retired (LEGACY_PATCH_RETIRED)`) alongside the 400. Earlier granular codes (`LEGACY_PATCH_UNLINK_REMOVED`, `LEGACY_PATCH_TARGET_RELEASE_SUPERSEDED`, `LEGACY_PATCH_TERMINAL_REQUIRES_RESOLUTION`, `LEGACY_PATCH_WORK_BEARING_REJECTED`, the `LEGACY_LINK_*` family) no longer exist — every shape gets the single retirement response.
 
 **Fix:**
 
-- Remediation is a CLIENT UPGRADE, not a server change — do not re-add the shape
-- Corrective links are created via `POST /triage/findings/:id/route` (work-bearing buckets) or the retained link-only PATCH shape; they are activated/terminalized exclusively through the lifecycle commands (`route`/`activate`/`resolve`/`wontfix`)
-- There is intentionally no supported way to sever a committed corrective link via PATCH
+- Remediation is a CLIENT UPGRADE, not a server change — do not re-add any PATCH shape
+- Corrective work is created via `POST /triage/findings/:id/route` (all buckets, including no-work); links are activated/terminalized exclusively through the lifecycle commands (`route`/`activate`/`resolve`/`wontfix`)
+- There is intentionally no supported way to sever a committed corrective link via the API
 
 ### Read-only user gets 403 on triage route/activate/resolve/wontfix
 

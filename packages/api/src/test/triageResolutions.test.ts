@@ -9,6 +9,10 @@ import * as findingTriageRepo from "../repositories/findingTriage.js";
 import * as findingTriageService from "../services/findingTriageService.js";
 import * as triageResolutionsRepo from "../repositories/triageResolutions.js";
 import * as triageService from "../services/triageService.js";
+import {
+  routeFinding,
+  resolveFinding,
+} from "../services/findingTriageLifecycle.js";
 import type { ClusterPayload } from "@orcy/shared";
 import { normalize } from "../services/habitatSkillService.js";
 
@@ -110,10 +114,25 @@ describe("triageResolutions", () => {
       subject: finding.subject,
       metadata: finding.metadata,
     });
-    // open → triaged → in_progress → resolved
-    findingTriageService.confirmBucket(findingTriageId, "fix_now", ACTOR);
-    findingTriageService.promote(findingTriageId, ACTOR);
-    findingTriageService.resolve(findingTriageId, "fixed with lock", ACTOR);
+    // open → in_progress (lifecycle route with a fix_now corrective Mission) → resolved
+    const lifecycleActor = { type: "human" as const, id: ACTOR.id, authority: {} };
+    const routed = routeFinding({
+      findingId: findingTriageId,
+      actor: lifecycleActor,
+      route: {
+        bucket: "fix_now",
+        missionTitle: "Corrective: race condition in cache",
+        missionDescription: "Fix the race.",
+      },
+    });
+    expect(routed.outcome).toBe("applied");
+    const resolved = resolveFinding({
+      findingId: findingTriageId,
+      actor: lifecycleActor,
+      resolution: "fixed with lock",
+      resolutionKind: "code_fix",
+    });
+    expect(resolved.outcome).toBe("applied");
 
     const clusterKey = normalize("race condition in cache");
     const resolutions = triageResolutionsRepo.findByClusterKey(habitatId, clusterKey);

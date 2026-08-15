@@ -10,6 +10,11 @@ import * as ruleRepo from "../repositories/automationRule.js";
 import * as findingTriageRepo from "../repositories/findingTriage.js";
 import * as findingTriageService from "../services/findingTriageService.js";
 import { ingestEvent } from "../services/automationEventService.js";
+import {
+  routeFinding,
+  resolveFinding,
+  markFindingWontfix,
+} from "../services/findingTriageLifecycle.js";
 
 let habitatId: string;
 let columnId: string;
@@ -132,7 +137,7 @@ describe("findingTriage", () => {
     expect(refreshedPulse!.metadata.findingTriageId).toBe(findingTriageId);
   });
 
-  it("AC-FINDING-4: valid status transitions accepted, invalid rejected", () => {
+  it("AC-FINDING-4: valid lifecycle commands accepted, invalid raw transitions rejected", () => {
     const finding = seedFinding({ subject: "transition finding", findingKind: "bug" });
     const { findingTriageId } = findingTriageService.enterTriage({
       id: finding.id,
@@ -140,21 +145,50 @@ describe("findingTriage", () => {
       subject: finding.subject,
       metadata: finding.metadata,
     });
+    const lifecycleActor = { type: "human" as const, id: ACTOR.id, authority: {} };
 
-    // open → triaged (valid)
-    findingTriageService.confirmBucket(findingTriageId, "fix_now", ACTOR);
-    expect(findingTriageRepo.getById(findingTriageId)!.status).toBe("triaged");
-
-    // triaged → in_progress via promote (valid)
-    findingTriageService.promote(findingTriageId, ACTOR);
+    // open → in_progress via the lifecycle route command (fix_now activates
+    // immediately with its corrective Mission)
+    const routed = routeFinding({
+      findingId: findingTriageId,
+      actor: lifecycleActor,
+      route: {
+        bucket: "fix_now",
+        missionTitle: "Corrective: transition finding",
+        missionDescription: "Fix the transition-finding defect.",
+      },
+    });
+    expect(routed.outcome).toBe("applied");
     expect(findingTriageRepo.getById(findingTriageId)!.status).toBe("in_progress");
 
-    // in_progress → resolved (valid)
-    findingTriageService.resolve(findingTriageId, "fixed in patch", ACTOR);
+    // in_progress → resolved via the lifecycle resolve command
+    const resolved = resolveFinding({
+      findingId: findingTriageId,
+      actor: lifecycleActor,
+      resolution: "fixed in patch",
+      resolutionKind: "code_fix",
+    });
+    expect(resolved.outcome).toBe("applied");
     expect(findingTriageRepo.getById(findingTriageId)!.status).toBe("resolved");
 
     // resolved → triaged (invalid — resolved only allows recurrence to open)
     expect(() => findingTriageRepo.transitionStatus(findingTriageId, "triaged", ACTOR)).toThrow();
+
+    // Wontfix closes a fresh finding through its own command
+    const wontfixFinding = seedFinding({ subject: "wontfix finding", findingKind: "bug" });
+    const { findingTriageId: wontfixId } = findingTriageService.enterTriage({
+      id: wontfixFinding.id,
+      habitatId,
+      subject: wontfixFinding.subject,
+      metadata: wontfixFinding.metadata,
+    });
+    const wontfixed = markFindingWontfix({
+      findingId: wontfixId,
+      actor: lifecycleActor,
+      reason: "accepted trade-off",
+    });
+    expect(wontfixed.outcome).toBe("applied");
+    expect(findingTriageRepo.getById(wontfixId)!.status).toBe("wontfix");
   });
 
   it("AC-FINDING-5: bucket assignment recorded on finding_triage record", () => {
@@ -169,7 +203,7 @@ describe("findingTriage", () => {
     // Initially null
     expect(findingTriageRepo.getById(findingTriageId)!.bucket).toBeNull();
 
-    // Assign each bucket type via setBucket + confirmBucket
+    // Assign each bucket type via the raw setBucket repo seam
     for (const bucket of [
       "fix_now",
       "defer_to_patch",

@@ -15,7 +15,6 @@
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import Fastify, { type FastifyInstance } from "fastify";
-import jwt from "jsonwebtoken";
 import { eq, sql } from "drizzle-orm";
 import { initTestDb, closeDb, getDb } from "../db/index.js";
 import { missions, missionEvents, pulses, triageResolutions } from "../db/schema/index.js";
@@ -809,7 +808,7 @@ describe("terminal closure", () => {
     expect(resolved.status).toBe("resolved");
   });
 
-  describe("real PATCH route", () => {
+  describe("real PATCH route (retired — FU13)", () => {
     let app: FastifyInstance;
 
     beforeEach(async () => {
@@ -828,7 +827,7 @@ describe("terminal closure", () => {
       await app.close();
     });
 
-    it("PATCH resolved -> open rejects with 409 and preserves the row + Resolution", async () => {
+    it("PATCH resolved -> open is retired (400 LEGACY_PATCH_RETIRED) and preserves the row + Resolution", async () => {
       const finding = seedOpenFinding("PATCH terminal resolved");
       const applied = resolveFinding({
         findingId: finding.id,
@@ -845,7 +844,8 @@ describe("terminal closure", () => {
         headers: { "x-agent-api-key": agentApiKey },
       });
 
-      expect(res.statusCode).toBe(409);
+      expect(res.statusCode).toBe(400);
+      expect(JSON.parse(res.body).code).toBe("LEGACY_PATCH_RETIRED");
 
       // Original row + Resolution preserved.
       const after = findingTriageRepo.getById(finding.id);
@@ -853,7 +853,7 @@ describe("terminal closure", () => {
       expect(triageResolutionsRepo.findByFindingSource(habitatId, finding.id)).not.toBeNull();
     });
 
-    it("PATCH wontfix -> open rejects with 409 and preserves the row + Resolution", async () => {
+    it("PATCH wontfix -> open is retired (400 LEGACY_PATCH_RETIRED) and preserves the row + Resolution", async () => {
       const finding = seedOpenFinding("PATCH terminal wontfix");
       const applied = markFindingWontfix({
         findingId: finding.id,
@@ -869,13 +869,14 @@ describe("terminal closure", () => {
         headers: { "x-agent-api-key": agentApiKey },
       });
 
-      expect(res.statusCode).toBe(409);
+      expect(res.statusCode).toBe(400);
+      expect(JSON.parse(res.body).code).toBe("LEGACY_PATCH_RETIRED");
       const after = findingTriageRepo.getById(finding.id);
       expect(after!.status).toBe("wontfix");
       expect(triageResolutionsRepo.findByFindingSource(habitatId, finding.id)).not.toBeNull();
     });
 
-    it("PATCH terminal -> triaged and terminal -> in_progress also reject (every non-terminal target)", async () => {
+    it("PATCH terminal -> triaged and terminal -> in_progress are retired too (every non-terminal target)", async () => {
       const resolvedFinding = seedOpenFinding("PATCH resolved to triaged");
       resolveFinding({
         findingId: resolvedFinding.id,
@@ -889,7 +890,8 @@ describe("terminal closure", () => {
         payload: { status: "triaged" },
         headers: { "x-agent-api-key": agentApiKey },
       });
-      expect(res1.statusCode).toBe(409);
+      expect(res1.statusCode).toBe(400);
+      expect(JSON.parse(res1.body).code).toBe("LEGACY_PATCH_RETIRED");
 
       const wontfixFinding = seedOpenFinding("PATCH wontfix to in_progress");
       markFindingWontfix({ findingId: wontfixFinding.id, actor: ACTOR, reason: "No" });
@@ -899,28 +901,8 @@ describe("terminal closure", () => {
         payload: { status: "in_progress" },
         headers: { "x-agent-api-key": agentApiKey },
       });
-      expect(res2.statusCode).toBe(409);
-    });
-
-    it("PATCH non-terminal transitions still succeed (open -> triaged no-work)", async () => {
-      const finding = seedOpenFinding("PATCH healthy");
-      // Human auth: under claim-bound authority, an agent cannot route a
-      // legacy-seeded finding without an admitted investigation Task.
-      const token = jwt.sign(
-        { sub: "user-1", username: "test", role: "admin" },
-        "dev-secret-change-in-production",
-        { issuer: "orcy" },
-      );
-      const res = await app.inject({
-        method: "PATCH",
-        url: `/api/triage/findings/${finding.id}`,
-        // Legacy compatibility shape: no-work routes require status+bucket.
-        payload: { status: "triaged", bucket: "needs_investigation" },
-        headers: { authorization: `Bearer ${token}` },
-      });
-      expect(res.statusCode).toBe(200);
-      const body = JSON.parse(res.body);
-      expect(body.finding.status).toBe("triaged");
+      expect(res2.statusCode).toBe(400);
+      expect(JSON.parse(res2.body).code).toBe("LEGACY_PATCH_RETIRED");
     });
   });
 });

@@ -156,21 +156,23 @@ describe("Triage Route Authentication", () => {
     expect(res.statusCode).toBe(404);
   });
 
-  it("human-authenticated PATCH /triage/findings/:id succeeds (no-work shape)", async () => {
+  it("human-authenticated PATCH /triage/findings/:id no-work shape is retired (400 LEGACY_PATCH_RETIRED)", async () => {
     const findings = findingTriageRepo.findByHabitat(habitatId);
     const token = makeToken({ sub: "user-1", username: "test", role: "admin" });
     const res = await app!.inject({
       method: "PATCH",
       url: `/api/triage/findings/${findings[0].id}`,
-      // Strict legacy PATCH matrix accepts only no-work buckets here. Work-bearing
-      // buckets must route through POST /triage/findings/:id/route.
+      // The legacy PATCH adapter was RETIRED (FU13): every shape — including
+      // the formerly accepted no-work one — gets the single retirement
+      // response. Work-bearing buckets were already command-only.
       payload: { bucket: "document_as_known_limitation", status: "triaged" },
       headers: { authorization: `Bearer ${token}` },
     });
-    expect(res.statusCode).toBe(200);
+    expect(res.statusCode).toBe(400);
+    expect(JSON.parse(res.body).code).toBe("LEGACY_PATCH_RETIRED");
   });
 
-  it("PATCH /triage/findings/:id with work-bearing bucket is rejected", async () => {
+  it("PATCH /triage/findings/:id with work-bearing bucket is retired", async () => {
     const findings = findingTriageRepo.findByHabitat(habitatId);
     const token = makeToken({ sub: "user-1", username: "test", role: "admin" });
     const res = await app!.inject({
@@ -180,11 +182,12 @@ describe("Triage Route Authentication", () => {
       headers: { authorization: `Bearer ${token}` },
     });
     expect(res.statusCode).toBe(400);
+    expect(JSON.parse(res.body).code).toBe("LEGACY_PATCH_RETIRED");
   });
 
-  it("agent-authenticated PATCH /triage/findings/:id no-work is denied (no admitted Task claim)", async () => {
-    // Legacy/un-admitted rows have `admittedByInvestigationTaskId = null`. Agents
-    // require a current claim on the exact admitted Task; null means denied.
+  it("agent-authenticated PATCH /triage/findings/:id no-work is retired (auth passes, authority never runs)", async () => {
+    // Legacy/un-admitted rows have `admittedByInvestigationTaskId = null`. The
+    // retired stub fires after auth but before any authority check or write.
     const findings = findingTriageRepo.findByHabitat(habitatId);
     const res = await app!.inject({
       method: "PATCH",
@@ -192,15 +195,16 @@ describe("Triage Route Authentication", () => {
       payload: { bucket: "document_as_known_limitation", status: "triaged" },
       headers: { "x-agent-api-key": agentApiKey },
     });
-    expect(res.statusCode).toBe(403);
+    expect(res.statusCode).toBe(400);
+    expect(JSON.parse(res.body).code).toBe("LEGACY_PATCH_RETIRED");
   });
 
-  it("FU6: PATCH /triage/findings/:id with triageMissionId:null returns 400 LEGACY_PATCH_UNLINK_REMOVED with zero writes", async () => {
+  it("FU13: PATCH /triage/findings/:id with triageMissionId:null returns 400 LEGACY_PATCH_RETIRED with zero writes", async () => {
     const findings = findingTriageRepo.findByHabitat(habitatId);
     const findingId = findings[0].id;
-    // Seed a link, then attempt the REMOVED unlink shape. It used to bypass
+    // Seed a link, then attempt the retired unlink shape. It used to bypass
     // the actor matrix entirely (any local agent key could sever the link);
-    // FU6 removed the shape — assert the 400 + stable code + no writes.
+    // the adapter is now retired — assert the single 400 code + no writes.
     findingTriageRepo.setTriageMissionId(findingId, missionId);
     expect(findingTriageRepo.getById(findingId)!.triageMissionId).toBe(missionId);
 
@@ -212,7 +216,7 @@ describe("Triage Route Authentication", () => {
     });
     expect(res.statusCode).toBe(400);
     const body = JSON.parse(res.body) as { code?: string };
-    expect(body.code).toBe("LEGACY_PATCH_UNLINK_REMOVED");
+    expect(body.code).toBe("LEGACY_PATCH_RETIRED");
     // Zero writes: the link survives untouched.
     const after = findingTriageRepo.getById(findingId)!;
     expect(after.triageMissionId).toBe(missionId);

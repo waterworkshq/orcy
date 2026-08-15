@@ -21,6 +21,10 @@ import * as triageResolutionsRepo from "../repositories/triageResolutions.js";
 import * as triageService from "../services/triageService.js";
 import { runSignalPatternClusteredScan } from "../services/triageScanService.js";
 import { runAgentQualityDegradedScan } from "../services/agentQualityScanService.js";
+import {
+  routeFinding,
+  resolveFinding,
+} from "../services/findingTriageLifecycle.js";
 import { normalize } from "../services/habitatSkillService.js";
 import { tasks, taskEvents } from "../db/schema/index.js";
 
@@ -116,7 +120,7 @@ describe("triage integration", () => {
     expect(resolutions[0].source).toBe("cluster_triage");
   });
 
-  it("finding E2E: post finding → triage → bucket → resolve → resolution", () => {
+  it("finding E2E: post finding → intake → route → resolve → resolution", () => {
     const finding = pulseRepo.createPulse({
       habitatId,
       missionId,
@@ -138,17 +142,32 @@ describe("triage integration", () => {
     });
     expect(findingTriageRepo.getById(findingTriageId)!.status).toBe("open");
 
-    // 2. Confirm bucket → triaged.
-    findingTriageService.confirmBucket(findingTriageId, "defer_to_patch", ACTOR);
-    const triaged = findingTriageRepo.getById(findingTriageId);
-    expect(triaged!.status).toBe("triaged");
-    expect(triaged!.bucket).toBe("defer_to_patch");
+    // 2. Route through the lifecycle command kernel → fix_now activates
+    //    immediately (in_progress + corrective Mission).
+    const lifecycleActor = { type: "human" as const, id: "user-1", authority: {} };
+    const routed = routeFinding({
+      findingId: findingTriageId,
+      actor: lifecycleActor,
+      route: {
+        bucket: "fix_now",
+        missionTitle: "Corrective: finding e2e bug",
+        missionDescription: "Fix the e2e defect.",
+      },
+    });
+    expect(routed.outcome).toBe("applied");
+    const routedFinding = findingTriageRepo.getById(findingTriageId);
+    expect(routedFinding!.status).toBe("in_progress");
+    expect(routedFinding!.bucket).toBe("fix_now");
+    expect(routedFinding!.correctiveMissionId).not.toBeNull();
 
-    // 3. Promote → in_progress.
-    findingTriageService.promote(findingTriageId, ACTOR);
-
-    // 4. Resolve → writes resolution.
-    findingTriageService.resolve(findingTriageId, "shipped in patch", ACTOR);
+    // 3. Resolve through the kernel → writes resolution.
+    const resolved = resolveFinding({
+      findingId: findingTriageId,
+      actor: lifecycleActor,
+      resolution: "shipped in patch",
+      resolutionKind: "code_fix",
+    });
+    expect(resolved.outcome).toBe("applied");
     const clusterKey = normalize("finding e2e bug");
     const resolutions = triageResolutionsRepo.findByClusterKey(habitatId, clusterKey);
     expect(resolutions).toHaveLength(1);
