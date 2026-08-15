@@ -47,11 +47,13 @@ import {
   teamMembers,
   remoteParticipants,
   remotePods,
+  remoteCredentials,
   users,
 } from "../db/schema/index.js";
 import type { RemoteParticipantContext } from "../middleware/remoteAuth.js";
 import type { RemoteGrantRow, RemoteGrantTargetRow } from "../repositories/remoteGrant.js";
 import {
+  getActiveGrantsByParticipant,
   getRemoteGrantTargets,
   listRemoteGrantTargetsByGrantIds,
 } from "../repositories/remoteGrant.js";
@@ -307,28 +309,30 @@ export function checkRemoteRouteAuthority(args: {
   const { finding, remote, client } = args;
   const ctx = remote.remoteParticipant;
 
+  const live = client
+    ? recheckRemoteAuthorityOnClient(client, ctx)
+    : {
+        active: ctx.participant.status === "active" && ctx.pod.status === "active",
+        standing: ctx.participant.standing,
+        grants: ctx.grants,
+        code: undefined as string | undefined,
+      };
+  if (!live.active) {
+    return deny(
+      "not_authorized",
+      live.code ?? "PARTICIPANT_INACTIVE",
+      "remote participant, pod, or credential is not active",
+    );
+  }
+
   // Standing gate: only active remote_contributor. remote_observer and grace
-  // never authorize. The auth middleware already loaded this; re-check here so
-  // a revocation between precheck and the in-tx re-check is caught.
-  if (ctx.participant.standing !== "remote_contributor") {
+  // never authorize. Live standing is re-read on the supplied client so a
+  // demotion between precheck and the in-tx mutation is caught.
+  if (live.standing !== "remote_contributor") {
     return deny(
       "not_authorized",
       "STANDING_NOT_CONTRIBUTOR",
       "remote routing requires remote_contributor standing",
-    );
-  }
-
-  // Connection gate: credential/participant/pod must all be active. Re-check
-  // on the supplied client (when provided) so a credential/pod disconnect
-  // between precheck and the in-tx mutation is caught.
-  const liveConnection = client
-    ? recheckRemoteConnectionOnClient(client, ctx)
-    : { active: ctx.participant.status === "active" && ctx.pod.status === "active" };
-  if (!liveConnection.active) {
-    return deny(
-      "not_authorized",
-      liveConnection.code ?? "PARTICIPANT_INACTIVE",
-      "remote participant or pod is not active",
     );
   }
 
@@ -360,11 +364,11 @@ export function checkRemoteRouteAuthority(args: {
   // client is provided, targets are loaded in ONE batched read so the denial
   // path is query-count-invariant — killing the timing/identity oracle.
   const grantResult = findSingleGrantWithBothProofs({
-    grants: ctx.grants,
+    grants: live.grants,
     requiredScope: "triage.route",
     targetType: "task",
     exactTargetId: finding.admittedByInvestigationTaskId,
-    client,
+    client: client ?? getDb(),
   });
   if (!grantResult.allowed) {
     return deny("not_authorized", grantResult.code, grantResult.reason);
@@ -490,35 +494,52 @@ function isRemoteParticipantCurrentClaimantOfTask(
 }
 
 /**
- * Re-reads participant and pod status on the supplied client so the in-tx
- * re-check catches a credential/pod disconnect that happened between the
- * transport precheck and the lifecycle mutation.
- *
- * Returns `active: true` if BOTH are still active. On failure, returns the
- * precise reason code for logging — callers collapse to `not_authorized` on
- * the wire (anti-probing).
+ * Re-reads credential, participant standing/status, pod status, and grants on
+ * the supplied client so the in-tx re-check catches revocation, expiry, or
+ * demotion between the transport precheck and the lifecycle mutation.
  */
-function recheckRemoteConnectionOnClient(
+function recheckRemoteAuthorityOnClient(
   client: AuthorityDbClient,
   ctx: RemoteParticipantContext,
-): { active: boolean; code?: string } {
+): { active: boolean; standing: string; grants: RemoteGrantRow[]; code?: string } {
+  const credential = client
+    .select({
+      status: remoteCredentials.status,
+      expiresAt: remoteCredentials.expiresAt,
+    })
+    .from(remoteCredentials)
+    .where(eq(remoteCredentials.id, ctx.credentialId))
+    .get();
+  if (!credential || credential.status !== "active") {
+    return { active: false, standing: ctx.participant.standing, grants: [], code: "CREDENTIAL_INACTIVE" };
+  }
+  if (credential.expiresAt && new Date(credential.expiresAt).getTime() < Date.now()) {
+    return { active: false, standing: ctx.participant.standing, grants: [], code: "CREDENTIAL_EXPIRED" };
+  }
+
   const participant = client
-    .select({ status: remoteParticipants.status })
+    .select({ status: remoteParticipants.status, standing: remoteParticipants.standing })
     .from(remoteParticipants)
     .where(eq(remoteParticipants.id, ctx.participant.id))
     .get();
   if (!participant || participant.status !== "active") {
-    return { active: false, code: "PARTICIPANT_INACTIVE" };
+    return { active: false, standing: ctx.participant.standing, grants: [], code: "PARTICIPANT_INACTIVE" };
   }
+
   const pod = client
     .select({ status: remotePods.status })
     .from(remotePods)
     .where(eq(remotePods.id, ctx.pod.id))
     .get();
   if (!pod || pod.status !== "active") {
-    return { active: false, code: "POD_INACTIVE" };
+    return { active: false, standing: participant.standing, grants: [], code: "POD_INACTIVE" };
   }
-  return { active: true };
+
+  return {
+    active: true,
+    standing: participant.standing,
+    grants: getActiveGrantsByParticipant(ctx.participant.id, client),
+  };
 }
 
 interface GrantSearchResult {
@@ -557,6 +578,7 @@ function findSingleGrantWithBothProofs(args: {
     // action_scopes explicitly include the scope (it carries the same
     // allowlist semantics).
     if (grant.status !== "active") continue;
+    if (grant.expiresAt && new Date(grant.expiresAt).getTime() < Date.now()) continue;
     if (grant.grantType !== "scoped_elevation" && grant.grantType !== "permanent_execution")
       continue;
     if (grant.grantType === "permanent_execution") {
@@ -587,9 +609,7 @@ function findSingleGrantWithBothProofs(args: {
   // grant" — query-count-invariant. When the supplied client is provided,
   // this is a single SELECT on the in-tx client; when it is not, the
   // repository helper issues ONE query internally.
-  const targetsByGrantId = client
-    ? listRemoteGrantTargetsByGrantIds(client, grantIdsToFetch)
-    : Object.fromEntries(grantIdsToFetch.map((id) => [id, getRemoteGrantTargets(id)] as const));
+  const targetsByGrantId = listRemoteGrantTargetsByGrantIds(client ?? getDb(), grantIdsToFetch);
 
   for (const grant of grants) {
     if (!grantIdsToFetch.includes(grant.id)) continue;

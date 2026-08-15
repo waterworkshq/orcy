@@ -135,8 +135,11 @@ export function getActiveGrantsByHabitat(habitatId: string): RemoteGrantRow[] {
     .all();
 }
 
-export function getActiveGrantsByParticipant(remoteParticipantId: string): RemoteGrantRow[] {
-  const db = getDb();
+export function getActiveGrantsByParticipant(
+  remoteParticipantId: string,
+  client?: ReturnType<typeof getDb>,
+): RemoteGrantRow[] {
+  const db = client ?? getDb();
   return db
     .select(grantFields)
     .from(remoteGrants)
