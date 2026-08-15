@@ -1,10 +1,22 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { makeMission } from './factories/mission.js';
 
-vi.mock('../repositories/mission.js', () => ({
-  updateMission: vi.fn(),
-  getMissionById: vi.fn(),
+// The service wraps writes in a `BEGIN IMMEDIATE` reservation — stub the db
+// handle so the tests stay DB-free.
+vi.mock('../db/index.js', () => ({
+  getDb: vi.fn(() => ({ run: vi.fn() })),
 }));
+
+vi.mock('../repositories/mission.js', () => {
+  const updateMission = vi.fn();
+  return {
+    updateMission,
+    updateMissionWithClient: vi.fn((_db, id, fields, version) =>
+      updateMission(id, fields, version),
+    ),
+    getMissionById: vi.fn(),
+  };
+});
 
 vi.mock('../repositories/event.js', () => ({
   createMissionEvent: vi.fn(),
