@@ -29,6 +29,7 @@ import {
   checkRouteAuthority,
   checkManualCommandAuthority,
   defaultHabitatAccessChecker,
+  habitatAccessCheckerWithClient,
   type AuthorityActor,
   type AuthorityFindingShape,
 } from "../services/triageLifecycleAuthority.js";
@@ -666,6 +667,13 @@ export async function triageRoutes(fastify: FastifyInstance): Promise<void> {
         );
       }
 
+      if (existing.legacyLineageRepairRequired) {
+        throw conflictWithCode(
+          "LEGACY_LINK_LINEAGE_REPAIR_REQUIRED",
+          "Legacy first link requires a Finding whose lineage is repaired.",
+        );
+      }
+
       const targetMissionId: string = parsed.data.triageMissionId as string;
       const targetMission = missionRepo.getMissionById(targetMissionId);
       if (!targetMission) {
@@ -703,13 +711,15 @@ export async function triageRoutes(fastify: FastifyInstance): Promise<void> {
       // ---- HOMOGENEOUS GROUP CHECK ----
       // Every other linked (non-terminal) Finding on this Mission must also be
       // triaged and group-eligible. Mixed groups reject before write.
-      const allLinked = findingTriageRepo
-        .findByHabitat(existing.habitatId, {})
-        .filter((f) => f.correctiveMissionId === targetMission.id && f.id !== existing.id);
+      const allLinked = findingTriageRepo.findByTriageMissionId(targetMission.id).filter(
+        (f) => f.id !== existing.id,
+      );
       const nonTerminalLinked = allLinked.filter(
         (f) => !(TERMINAL_FINDING_TRIAGE_STATUSES as readonly string[]).includes(f.status),
       );
-      const mixedGroup = nonTerminalLinked.some((f) => f.status !== "triaged");
+      const mixedGroup = nonTerminalLinked.some(
+        (f) => f.status !== "triaged" || f.legacyLineageRepairRequired,
+      );
       if (mixedGroup) {
         throw conflictWithCode(
           "LEGACY_LINK_MIXED_GROUP",
@@ -732,12 +742,40 @@ export async function triageRoutes(fastify: FastifyInstance): Promise<void> {
         if (!current) {
           return { outcome: "conflict" as const, reason: "not_found" as const };
         }
+        const inTxAuthority = checkManualCommandAuthority({
+          finding: {
+            id: current.id,
+            habitatId: current.habitatId,
+            admittedByInvestigationTaskId: current.admittedByInvestigationTaskId,
+          },
+          actor: linkActor,
+          access: habitatAccessCheckerWithClient(client),
+          command: "link",
+        });
+        if (inTxAuthority.kind === "deny") {
+          throw forbidden(inTxAuthority.message, inTxAuthority.code);
+        }
         if ((TERMINAL_FINDING_TRIAGE_STATUSES as readonly string[]).includes(current.status)) {
           return {
             outcome: "conflict" as const,
             reason: "terminal" as const,
             current: current.status,
           };
+        }
+        if (
+          current.status !== "triaged" ||
+          (current.bucket !== "defer_to_patch" && current.bucket !== "defer_to_release")
+        ) {
+          throw badRequestWithCode(
+            "LEGACY_LINK_NOT_TRIAGED_DEFERRAL",
+            "Legacy link-only first apply requires a Finding in `triaged` state with a deferral bucket (defer_to_patch or defer_to_release).",
+          );
+        }
+        if (current.legacyLineageRepairRequired) {
+          throw conflictWithCode(
+            "LEGACY_LINK_LINEAGE_REPAIR_REQUIRED",
+            "Legacy first link requires a Finding whose lineage is repaired.",
+          );
         }
         // Stored-fingerprint replay re-check under the reservation.
         if (
@@ -750,6 +788,15 @@ export async function triageRoutes(fastify: FastifyInstance): Promise<void> {
           throw conflictWithCode(
             "LEGACY_PATCH_ALREADY_LINKED",
             "Finding already linked; legacy PATCH first-apply requires an unlinked Finding.",
+          );
+        }
+        const peers = findingTriageRepo
+          .listNonTerminalByCorrectiveMissionIdWithClient(client, targetMission.id)
+          .filter((f) => f.id !== current.id);
+        if (peers.some((f) => f.status !== "triaged" || f.legacyLineageRepairRequired)) {
+          throw conflictWithCode(
+            "LEGACY_LINK_MIXED_GROUP",
+            "Shared Mission has mixed linked Finding states; legacy first link cannot activate.",
           );
         }
         const mission = missionRepo.getMissionByIdWithClient(client, targetMission.id);

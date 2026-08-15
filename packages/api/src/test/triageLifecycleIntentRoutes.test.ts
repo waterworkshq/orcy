@@ -1784,6 +1784,94 @@ describe("FU6 — legacy first-link actor binding + atomic single write", () => 
     expect(replay.statusCode).toBe(200);
     expect(JSON.parse(replay.body).replay).toBe(true);
   });
+
+  it("in-tx gate: an editor JWT whose persisted users.role is viewer cannot first-link", async () => {
+    seedUserRow("sneaky-linker", "viewer");
+    const { finding } = seedAdmittedFinding();
+    forceDeferredTriaged(finding.id);
+    const corrective = createGatedMission();
+
+    const res = await app!.inject({
+      method: "PATCH",
+      url: `/api/triage/findings/${finding.id}`,
+      payload: {
+        triageMissionId: corrective.id,
+        expectedMissionVersion: corrective.version,
+      },
+      headers: {
+        authorization: `Bearer ${makeToken({ sub: "sneaky-linker", username: "e", role: "editor" })}`,
+      },
+    });
+    expect(res.statusCode).toBe(403);
+    const after = findingTriageRepo.getById(finding.id)!;
+    expect(after.correctiveMissionId).toBeNull();
+    expect(after.routeFingerprint).toBeNull();
+  });
+
+  it("rejects first-link onto a Mission whose existing member is already in_progress", async () => {
+    const linked = seedAdmittedFinding();
+    forceDeferredTriaged(linked.finding.id);
+    const corrective = createGatedMission();
+    const first = await app!.inject({
+      method: "PATCH",
+      url: `/api/triage/findings/${linked.finding.id}`,
+      payload: {
+        triageMissionId: corrective.id,
+        expectedMissionVersion: corrective.version,
+      },
+      headers: {
+        authorization: `Bearer ${makeToken({ sub: "user-1", username: "test", role: "admin" })}`,
+      },
+    });
+    expect(first.statusCode).toBe(200);
+    getDb()
+      .update(findingTriage)
+      .set({ status: "in_progress", updatedAt: new Date().toISOString() })
+      .where(eq(findingTriage.id, linked.finding.id))
+      .run();
+
+    const next = seedAdmittedFinding({ clusterKey: "other-cluster" });
+    forceDeferredTriaged(next.finding.id);
+    const res = await app!.inject({
+      method: "PATCH",
+      url: `/api/triage/findings/${next.finding.id}`,
+      payload: {
+        triageMissionId: corrective.id,
+        expectedMissionVersion: missionRepo.getMissionById(corrective.id)!.version,
+      },
+      headers: {
+        authorization: `Bearer ${makeToken({ sub: "user-1", username: "test", role: "admin" })}`,
+      },
+    });
+    expect(res.statusCode).toBe(409);
+    expect(JSON.parse(res.body).code).toBe("LEGACY_LINK_MIXED_GROUP");
+    expect(findingTriageRepo.getById(next.finding.id)!.correctiveMissionId).toBeNull();
+  });
+
+  it("rejects first-link when the Finding still requires lineage repair", async () => {
+    const { finding } = seedAdmittedFinding();
+    forceDeferredTriaged(finding.id);
+    getDb()
+      .update(findingTriage)
+      .set({ legacyLineageRepairRequired: 1, updatedAt: new Date().toISOString() })
+      .where(eq(findingTriage.id, finding.id))
+      .run();
+    const corrective = createGatedMission();
+    const res = await app!.inject({
+      method: "PATCH",
+      url: `/api/triage/findings/${finding.id}`,
+      payload: {
+        triageMissionId: corrective.id,
+        expectedMissionVersion: corrective.version,
+      },
+      headers: {
+        authorization: `Bearer ${makeToken({ sub: "user-1", username: "test", role: "admin" })}`,
+      },
+    });
+    expect(res.statusCode).toBe(409);
+    expect(JSON.parse(res.body).code).toBe("LEGACY_LINK_LINEAGE_REPAIR_REQUIRED");
+    expect(findingTriageRepo.getById(finding.id)!.correctiveMissionId).toBeNull();
+  });
 });
 
 describe("FU6 — admin API provisions triage.route end-to-end", () => {
