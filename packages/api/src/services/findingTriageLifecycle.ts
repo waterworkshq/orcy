@@ -286,7 +286,6 @@ export interface ReleaseActivateInput {
 // withImmediateLifecycleTransaction
 // ---------------------------------------------------------------------------
 
-const MAX_BUSY_RETRIES = 4;
 const BASE_BACKOFF_MS = 50;
 
 /** Maximum backoff cap to avoid excessive waits. */
@@ -328,22 +327,6 @@ function isLifecycleBusyError(err: unknown): boolean {
   return false;
 }
 
-/** Synchronous bounded sleep via Atomics.wait (Node.js main thread / workers). */
-function syncSleep(ms: number): void {
-  if (ms <= 0) return;
-  try {
-    const buf = new Int32Array(new SharedArrayBuffer(4));
-    Atomics.wait(buf, 0, 0, ms);
-  } catch {
-    // SharedArrayBuffer unavailable (e.g. disabled by the environment) —
-    // busy-wait is the only synchronous fallback. Keep it short.
-    const end = Date.now() + ms;
-    while (Date.now() < end) {
-      // spin
-    }
-  }
-}
-
 /** Computes backoff with jitter for the given attempt index (0-based). */
 function backoffDelay(attempt: number): number {
   const exponential = BASE_BACKOFF_MS * Math.pow(2, attempt);
@@ -354,13 +337,19 @@ function backoffDelay(attempt: number): number {
 /**
  * Immediate lifecycle transaction wrapper.
  *
- * Acquires `BEGIN IMMEDIATE` before any command read, retries pre-begin
- * `SQLITE_BUSY` with bounded backoff/jitter, passes the same client to every
- * supplied-client primitive, and maps exhausted contention to typed `busy`.
+ * Acquires `BEGIN IMMEDIATE` before any command read, passes the same client
+ * to every supplied-client primitive, and maps contention to typed `busy`.
+ *
+ * No JS-side retry sleep: SQLite's `busy_timeout` (5s in production) already
+ * bounds the in-driver wait, and a synchronous backoff (Atomics.wait or spin)
+ * would block the Node event loop — stalling every HTTP handler in this
+ * process for up to seconds per retry. Contention maps straight to the typed
+ * `busy` outcome with a `retryAfterMs` hint; the caller's retry policy
+ * (503 + Retry-After at the route seam) owns pacing.
  *
  * - `applied`/`replayed` → `COMMIT` (writes durable).
  * - `conflict` → `ROLLBACK` (no partial writes).
- * - Error throw → `ROLLBACK` + re-throw (unless busy → retry or typed busy).
+ * - Error throw → `ROLLBACK` + re-throw (unless busy → typed busy).
  *
  * Never nest this wrapper inside Drizzle's default deferred transaction.
  */
@@ -369,58 +358,41 @@ export function withImmediateLifecycleTransaction<T>(
   db?: LifecycleDbClient,
 ): LifecycleOutcome<T> {
   const client = db ?? getDb();
-  let lastBusyAttempt = -1;
 
-  for (let attempt = 0; attempt <= MAX_BUSY_RETRIES; attempt++) {
-    // Phase 1: acquire the writer reservation
-    try {
-      client.run(sql`BEGIN IMMEDIATE`);
-    } catch (beginErr) {
-      if (isLifecycleBusyError(beginErr)) {
-        lastBusyAttempt = attempt;
-        if (attempt < MAX_BUSY_RETRIES) {
-          syncSleep(backoffDelay(attempt));
-          continue;
-        }
-        return { outcome: "busy", retryAfterMs: backoffDelay(MAX_BUSY_RETRIES + 1) };
-      }
-      throw beginErr;
+  // Phase 1: acquire the writer reservation
+  try {
+    client.run(sql`BEGIN IMMEDIATE`);
+  } catch (beginErr) {
+    if (isLifecycleBusyError(beginErr)) {
+      return { outcome: "busy", retryAfterMs: backoffDelay(1) };
     }
-
-    // Phase 2: execute the command under the reservation
-    try {
-      const result = fn(client);
-
-      if (result.outcome === "applied" || result.outcome === "replayed") {
-        client.run(sql`COMMIT`);
-      } else {
-        // conflict — no writes should have occurred
-        client.run(sql`ROLLBACK`);
-      }
-      return result;
-    } catch (err) {
-      // Rollback on any error
-      try {
-        client.run(sql`ROLLBACK`);
-      } catch {
-        // Already rolled back or not in a transaction (defensive)
-      }
-
-      if (isLifecycleBusyError(err)) {
-        lastBusyAttempt = attempt;
-        if (attempt < MAX_BUSY_RETRIES) {
-          syncSleep(backoffDelay(attempt));
-          continue;
-        }
-        return { outcome: "busy", retryAfterMs: backoffDelay(MAX_BUSY_RETRIES + 1) };
-      }
-      throw err;
-    }
+    throw beginErr;
   }
 
-  // Exhausted all retries
-  void lastBusyAttempt;
-  return { outcome: "busy", retryAfterMs: backoffDelay(MAX_BUSY_RETRIES + 1) };
+  // Phase 2: execute the command under the reservation
+  try {
+    const result = fn(client);
+
+    if (result.outcome === "applied" || result.outcome === "replayed") {
+      client.run(sql`COMMIT`);
+    } else {
+      // conflict — no writes should have occurred
+      client.run(sql`ROLLBACK`);
+    }
+    return result;
+  } catch (err) {
+    // Rollback on any error
+    try {
+      client.run(sql`ROLLBACK`);
+    } catch {
+      // Already rolled back or not in a transaction (defensive)
+    }
+
+    if (isLifecycleBusyError(err)) {
+      return { outcome: "busy", retryAfterMs: backoffDelay(1) };
+    }
+    throw err;
+  }
 }
 
 // ---------------------------------------------------------------------------
