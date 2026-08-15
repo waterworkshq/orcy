@@ -509,6 +509,46 @@ describe("admission matrix (sequential intake calls)", () => {
     expect(missionCount()).toBe(1);
   });
 
+  it("DISCRIMINATOR: identical createdAt rows order deterministically by id (stable lineage pick)", () => {
+    // Two TERMINAL rows for one identity with IDENTICAL createdAt and
+    // different ids — bulk-backfill shape. Without the id tie-breaker the
+    // "latest terminal predecessor" is a nondeterministic pick.
+    const t1 = seedFindingPulse("tie");
+    const t2 = seedFindingPulse("tie");
+    const db = getDb();
+    db.run(
+      sql`INSERT INTO finding_triage (id, habitat_id, pulse_id, cluster_key, finding_kind, status, corroborating_pulse_ids, created_at, updated_at, resolved_at)
+          VALUES ('f-tie-a', ${habitatId}, ${t1.id}, ${CLUSTER_KEY}, 'tie', 'resolved', '[]', '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z', '2026-01-02T00:00:00Z')`,
+    );
+    db.run(
+      sql`INSERT INTO finding_triage (id, habitat_id, pulse_id, cluster_key, finding_kind, status, corroborating_pulse_ids, created_at, updated_at, resolved_at)
+          VALUES ('f-tie-b', ${habitatId}, ${t2.id}, ${CLUSTER_KEY}, 'tie', 'resolved', '[]', '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z', '2026-01-02T00:00:00Z')`,
+    );
+    db.run(
+      sql`INSERT INTO finding_triage_evidence (finding_triage_id, pulse_id, habitat_id, role, admitted_at) VALUES ('f-tie-a', ${t1.id}, ${habitatId}, 'source', '2026-01-01T00:00:00Z')`,
+    );
+    db.run(
+      sql`INSERT INTO finding_triage_evidence (finding_triage_id, pulse_id, habitat_id, role, admitted_at) VALUES ('f-tie-b', ${t2.id}, ${habitatId}, 'source', '2026-01-01T00:00:00Z')`,
+    );
+
+    const identity = findingTriageRepo.findByIdentityWithClient(
+      getDb(),
+      habitatId,
+      CLUSTER_KEY,
+      "tie",
+    );
+    expect(identity.map((f) => f.id)).toEqual(["f-tie-a", "f-tie-b"]);
+
+    // A novel pulse for the identity recurs against the deterministic latest
+    // predecessor — always f-tie-b.
+    const novel = seedFindingPulse("tie");
+    const result = intake([...[t1, t2], novel]);
+    expect(result.outcome).toBe("published");
+    if (result.outcome !== "published") return;
+    const recurrence = findings().find((f) => f.id !== "f-tie-a" && f.id !== "f-tie-b");
+    expect(recurrence?.recurrenceOfId).toBe("f-tie-b");
+  });
+
   it("MIXED cluster publishes ONCE, admits only new/recurrence, corroborates the active identity", () => {
     // Identity A: new (kind "bug").
     // Identity B: active from a prior intake (kind "perf").

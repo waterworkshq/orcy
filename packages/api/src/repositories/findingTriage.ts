@@ -218,7 +218,9 @@ export function createForPulse(pulse: FindingTriagePulseInput): FindingTriage {
         eq(findingTriage.findingKind, findingKind),
       ),
     )
-    .orderBy(desc(findingTriage.createdAt))
+    // Deterministic tie-break on id: bulk backfills share createdAt, and the
+    // recurrence predecessor must be a stable pick.
+    .orderBy(desc(findingTriage.createdAt), desc(findingTriage.id))
     .all();
 
   const id = uuid();
@@ -873,7 +875,10 @@ export function findByIdentityWithClient(
         eq(findingTriage.findingKind, findingKind),
       ),
     )
-    .orderBy(findingTriage.createdAt)
+    // Deterministic order (createdAt, then id) — same canonical order the
+    // classification window uses; ties on createdAt otherwise pick a
+    // nondeterministic "latest" predecessor and build the wrong lineage.
+    .orderBy(findingTriage.createdAt, findingTriage.id)
     .all()
     .map(rowToFindingTriage);
 }
