@@ -2133,7 +2133,7 @@ Finding triage lifecycle record. Tracks an engineering finding's routing lifecyc
 
 `triage_resolutions` gains the partial UNIQUE `(source, source_id)` WHERE `source = 'finding_triage'` (`idx_triage_resolutions_finding_source`, migration `0068`) — one Resolution Record per Finding. Cluster Resolution (`source='cluster_triage'`) is deliberately unchanged (ADR-0048 out-of-scope).
 
-`finding_triage_evidence` FKs (finding + pulse) convert CASCADE → RESTRICT in `0068` — referenced Pulse or Finding deletion can no longer cascade away terminal evidence. The table also carries `habitat_id NOT NULL REFERENCES habitats(id) ON DELETE CASCADE` (added in `0064`/`0068` before release): habitat deletion cascades evidence cleanly (evidence rows sit later in `sqlite_master` than `finding_triage`, guaranteed by the `0068` rebuild order, so the evidence habitat-cascade fires before the RESTRICT chain), while direct Pulse/Finding deletion stays restricted. The `admitted_by_*` provenance columns are RESTRICT-referenced to `missions(id)`/`tasks(id)` (`0068`). Writers derive `habitat_id` from the Finding row (`appendEvidenceWithClient`) — it is never caller-supplied.
+`finding_triage_evidence` FKs (finding + pulse) convert CASCADE → RESTRICT in `0068` — referenced Pulse or Finding deletion can no longer cascade away terminal evidence. The table also carries `habitat_id NOT NULL REFERENCES habitats(id) ON DELETE CASCADE` (added in `0064`/`0068` before release): habitat deletion cascades evidence cleanly (evidence rows sit later in `sqlite_master` than `finding_triage`, guaranteed by the `0068` rebuild order, so the evidence habitat-cascade fires before the RESTRICT chain), while direct Pulse/Finding deletion stays restricted. The `admitted_by_*` provenance columns are RESTRICT-referenced to `missions(id)`/`tasks(id)` (`0068`). Writers derive `habitat_id` from the Finding row (`appendEvidenceWithClient`) — it is never caller-supplied. Migration `0073` additionally enforces the pairing with a composite foreign key `(finding_triage_id, habitat_id) → finding_triage(id, habitat_id)` (parent unique index `idx_finding_triage_id_habitat`), so an evidence row can never reference one habitat while claiming another. All three rebuilds of this table (`0068`, `0073`) archive rows that cannot satisfy the replacement foreign keys into `finding_triage_evidence_orphans_*` tables rather than dropping them.
 
 #### `triage_resolutions`
 
@@ -2433,6 +2433,8 @@ The restored lifecycle added storage in four additive migrations and enforcement
 
 **Enforcement (`0068_finding_triage_lifecycle_enforcement.sql`, staged runner only):** the partial-unique/RESTRICT invariants documented under `finding_triage` above, guarded by a temporary-table `CHECK (anomaly_count = 0)` pattern that aborts the migration transaction BEFORE any table rebuild — no `RAISE()` in a bare SELECT.
 
+- `0069`–`0074` — post-enforcement additive entries applied by the staged runner in Stage 2 (one-shot semantics): the automation completion outbox and proved-receipt CHECK (`0069`–`0070`), the legacy-proved checkpoint relabel (`0071`), the repair before-state digest (`0072`), and the composite foreign-key rebuilds for evidence-habitat and epoch-group-release pairing with orphan archives (`0073`–`0074`, plus the matching archive inside `0068`).
+
 #### `migration_preflight_attestations`
 
 Database-local record that THIS database passed the versioned preflight immediately before enforcement. NOT a fleet or operator-memory assertion. Keyed `(enforcement_migration_id, schema_version)`.
@@ -2441,7 +2443,7 @@ Database-local record that THIS database passed the versioned preflight immediat
 |--------|------|-------------|
 | `enforcement_migration_id` | TEXT | The enforcement migration tag (`0068_finding_triage_lifecycle_enforcement`) |
 | `schema_version` | TEXT | Additive watermark the preflight ran against (`0067`) |
-| `preflight_version` | TEXT | Preflight query version (`002`) |
+| `preflight_version` | TEXT | Preflight query version (`003`) |
 | `anomaly_query_digest` | TEXT | SHA-256 of the deterministic anomaly-query serialization |
 | `clean` | INTEGER | 1 = no BLOCKING anomalies (safe to enforce); 0 = enforcement deferred |
 | `anomaly_report` | TEXT | Full machine-readable preflight report (JSON), including blocking anomalies |
@@ -2492,6 +2494,7 @@ entries are:
 | `0054`–`0067` | `0054_task_publication.sql` … `0067_release_projection_epochs.sql` | Later hand-written semantic migrations (through the Finding Triage additive watermark). |
 | `0068` | `0068_finding_triage_lifecycle_enforcement.sql` | **Staged enforcement entry** — applied only by the staged production runner after a clean versioned preflight attestation; its internal CHECK guard aborts any attempt to apply it without one. |
 | `0069`–`0070` | `0069_automation_completion_outbox.sql`, `0070_automation_checkpoint_proved_receipt.sql` | Post-enforcement additive entries. The staged runner applies them in Stage 2 after `0068`. Tests skip `0068` by tag but still apply these. |
+| `0071`–`0074` | `0071_automation_checkpoint_legacy_disposition.sql`, `0072_lineage_repair_before_state_digest.sql`, `0073_finding_evidence_habitat_composite_fk.sql`, `0074_epoch_group_release_composite_fk.sql` | Post-enforcement hardening entries (applied like `0069`–`0070`). `0071` relabels historically-proved checkpoints that 0070 coerced without a receipt (`failed:legacy_proved_no_receipt` — successor re-runs of these require an explicit operator acknowledgement). `0072` adds `finding_triage_lineage_repairs.before_state_digest` so exact repair replay verifies against the recorded digest instead of mutable current state. `0073` rebuilds `finding_triage_evidence` with a composite `(finding_triage_id, habitat_id)` foreign key backed by a parent unique index; `0074` does the same for `release_activation_epoch_groups (epoch_id, release_id)`. Both rebuilds archive any row that cannot satisfy the replacement foreign keys into an explicit `*_orphans_*` table instead of dropping it (the `0068` evidence rebuild archives the same way). |
 
 The gap `0003`–`0026` is **intentional**. Those migrations were consolidated
 into `0000_schema.sql` at the boundary commit and are deliberately NOT in the

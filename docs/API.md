@@ -6129,6 +6129,18 @@ Workflow automation engine — event-driven and scheduled rules with conditions,
 | GET | `/automation-rules/:rid/runs` | Runs for rule |
 | GET | `/habitats/:hid/automation-runs` | All habitat runs |
 
+### Inbox & Delivery Disposition (v0.40)
+
+Operator surface for the fenced `release.shipped` inbox. A delivery that cannot prove completion (worker crash without a durable receipt, or an action with no idempotency contract) lands in `attention_required` — visible and intentionally NOT success. It resolves only through explicit operator disposition.
+
+| Method | Route | Purpose |
+|--------|-------|---------|
+| GET | `/habitats/:hid/automation-inbox` | Inbox overview (newest first; optional `limit` 1–500, `offset` ≥ 0 query params so older `attention_required` entries stay reachable beyond the default 100) |
+| POST | `/automation-deliveries/:id/waive` | Waive after external reconciliation (body: `{ reason }`) — terminal, audited |
+| POST | `/automation-deliveries/:id/retry` | Branch a successor generation for the unresolved action set (body: `{ reason, ackDuplicateRisk, ackLegacyProvedNoReceipt? }`) |
+
+Disposition contracts: a state race on either disposition returns **409 CONFLICT** (not 400). `retry` requires `ackDuplicateRisk: true` (a successor re-executes unproved actions). When the delivery carries a checkpoint relabelled `failed:legacy_proved_no_receipt` — an action that historically fired but left no durable receipt — `retry` additionally requires `ackLegacyProvedNoReceipt: true` before it will re-run that action.
+
 ### Event Types
 
 `task.rejected`, `task.overdue`, `task.priority_changed`, `task.review_assigned`, `task.review_completed`, `mission.status_changed`, `mission.progress`, `pulse.signal_posted`, `scheduled_task.failed`, `code_evidence.updated`, `anomaly.detected`, `sprint.started`, `sprint.completed`
