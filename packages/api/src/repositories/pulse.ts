@@ -473,7 +473,10 @@ export function deletePulse(id: string): boolean {
  * `DELETE /pulse/:id`).
  */
 export function deletePulseWithClient(db: PulseDbClient, id: string): boolean {
-  const pulse = getPulseById(id);
+  // Existence check on the PASSED client — the caller owns the writer
+  // reservation and the check must see the same transactional view, not the
+  // ambient connection.
+  const pulse = db.select({ id: pulses.id }).from(pulses).where(eq(pulses.id, id)).get();
   if (!pulse) return false;
   try {
     db.delete(pulses).where(eq(pulses.id, id)).run();

@@ -7,8 +7,19 @@ import * as habitatRepo from "../repositories/habitat.js";
 import { assertPulseNotFindingEvidence } from "../services/findingTriageHistoryGuards.js";
 import { agentOrHumanAuth } from "../middleware/auth.js";
 import { badRequest, unauthorized, notFound, forbidden } from "../errors.js";
+import { AppError, ErrorCodes } from "../errors.js";
 import { sql } from "drizzle-orm";
 import { getDb } from "../db/index.js";
+
+/** SQLITE_BUSY detection across drizzle wrapping and both SQLite drivers. */
+function isBusyError(err: unknown): boolean {
+  const cause = (err as { cause?: unknown } | null)?.cause;
+  if (cause instanceof Error) {
+    if ((cause as { code?: string }).code === "SQLITE_BUSY") return true;
+    if (/SQLITE_BUSY|database is locked/i.test(cause.message)) return true;
+  }
+  return err instanceof Error && /SQLITE_BUSY|database is locked/i.test(err.message);
+}
 import { getCallerInfo } from "./pulse-shared.js";
 
 const MAX_PAGINATION_LIMIT = 200;
@@ -156,6 +167,8 @@ export async function pulseRoutes(fastify: FastifyInstance): Promise<void> {
     // run under ONE `BEGIN IMMEDIATE` writer reservation — a separate
     // guard-then-delete pair left a window where a concurrent intake
     // committed evidence references between the check and the delete.
+    // Contention beyond busy_timeout maps to the typed retryable 503 (the
+    // shared error handler emits Retry-After), not a raw 500.
     const db = getDb();
     db.run(sql`BEGIN IMMEDIATE`);
     try {
@@ -168,6 +181,15 @@ export async function pulseRoutes(fastify: FastifyInstance): Promise<void> {
         db.run(sql`ROLLBACK`);
       } catch {
         // already rolled back or not in a transaction (defensive)
+      }
+      if (isBusyError(err)) {
+        const busy = new AppError(
+          503,
+          ErrorCodes.SERVICE_UNAVAILABLE,
+          "Database is busy — retry the delete after the suggested delay.",
+        );
+        busy.retryAfterMs = 500;
+        throw busy;
       }
       throw err;
     }
