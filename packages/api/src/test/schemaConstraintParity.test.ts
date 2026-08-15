@@ -271,11 +271,21 @@ function sqlForeignKeys(db: Database.Database, table: string): SqlFkShape[] {
     to: string | null;
     on_delete: string;
   }[];
-  return rows.map((r) => ({
-    from: r.from,
-    table: r.table,
-    to: r.to ?? "",
-    onDelete: r.on_delete.toLowerCase(),
+  // A COMPOSITE foreign key appears as one row per column sharing an `id`
+  // (in `seq` order). Merge each group into a single comma-joined shape so
+  // composite constraints compare against Drizzle's comma-joined
+  // declaration.
+  const groups = new Map<number, typeof rows>();
+  for (const r of rows) {
+    const group = groups.get(r.id);
+    if (group) group.push(r);
+    else groups.set(r.id, [r]);
+  }
+  return [...groups.values()].map((group) => ({
+    from: group.map((r) => r.from).join(","),
+    table: group[0].table,
+    to: group.map((r) => r.to ?? "").join(","),
+    onDelete: group[0].on_delete.toLowerCase(),
   }));
 }
 

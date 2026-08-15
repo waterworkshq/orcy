@@ -6,6 +6,7 @@ import {
   uniqueIndex,
   primaryKey,
   check,
+  foreignKey,
 } from "drizzle-orm/sqlite-core";
 import { sql } from "drizzle-orm";
 import { habitats, missions } from "./habitat.js";
@@ -123,6 +124,9 @@ export const findingTriage = sqliteTable(
     uniqueIndex("idx_finding_triage_active_identity")
       .on(table.habitatId, table.clusterKey, table.findingKind)
       .where(sql`status NOT IN ('resolved', 'wontfix')`),
+    // 0073: parent side of the composite evidence FK — the evidence row's
+    // habitat must BE the referenced finding's habitat.
+    uniqueIndex("idx_finding_triage_id_habitat").on(table.id, table.habitatId),
   ],
 );
 
@@ -234,10 +238,7 @@ export const triageClusterMissions = sqliteTable(
 export const findingTriageEvidence = sqliteTable(
   "finding_triage_evidence",
   {
-    findingTriageId: text("finding_triage_id")
-      .notNull()
-      // RESTRICT since the 0068 enforcement migration.
-      .references(() => findingTriage.id, { onDelete: "restrict" }),
+    findingTriageId: text("finding_triage_id").notNull(),
     pulseId: text("pulse_id")
       .notNull()
       // RESTRICT since the 0068 enforcement migration: deleting the source
@@ -263,6 +264,13 @@ export const findingTriageEvidence = sqliteTable(
   },
   (table) => [
     primaryKey({ columns: [table.findingTriageId, table.pulseId] }),
+    // 0073: composite FK — (finding, habitat) pairs must match the referenced
+    // finding's own habitat, so a cross-habitat pair can never persist and
+    // cascade-delete the wrong habitat's evidence.
+    foreignKey({
+      columns: [table.findingTriageId, table.habitatId],
+      foreignColumns: [findingTriage.id, findingTriage.habitatId],
+    }).onDelete("restrict"),
     index("idx_finding_triage_evidence_finding").on(table.findingTriageId),
     index("idx_finding_triage_evidence_pulse").on(table.pulseId),
     index("idx_finding_triage_evidence_role").on(table.role),

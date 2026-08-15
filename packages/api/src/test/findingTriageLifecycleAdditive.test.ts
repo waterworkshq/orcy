@@ -1303,6 +1303,31 @@ describe("Legacy repair — derived-state validation", () => {
     );
   });
 
+  it("DISCRIMINATOR: evidence with a habitat that is not the finding's habitat is rejected by the composite FK", () => {
+    const pulseId = seedFinding({ id: "ft-fk-1", status: "resolved", clusterKey: "fk", findingKind: "bug" });
+    // A second habitat the evidence row must NOT be able to pair with.
+    const otherHabitat = habitatRepo.createHabitat({ name: "Foreign Habitat" }).id;
+
+    expect(() =>
+      getDb().run(
+        sql`INSERT INTO finding_triage_evidence (finding_triage_id, pulse_id, habitat_id, role)
+            VALUES ('ft-fk-1', ${pulseId}, ${otherHabitat}, 'corroborating')`,
+      ),
+    ).toThrow(); // drizzle wraps the SQLite FOREIGN KEY constraint failure
+
+    // The finding's OWN habitat still inserts fine.
+    const habitatId2 = getDb()
+      .get(sql`SELECT habitat_id AS h FROM finding_triage WHERE id = 'ft-fk-1'`) as {
+      h: string;
+    };
+    expect(() =>
+      getDb().run(
+        sql`INSERT INTO finding_triage_evidence (finding_triage_id, pulse_id, habitat_id, role)
+            VALUES ('ft-fk-1', ${pulseId}, ${habitatId2.h}, 'corroborating')`,
+      ),
+    ).not.toThrow();
+  });
+
   function dbUpdateStatus(id: string, status: string): void {
     const db = getDb();
     db.run(sql`UPDATE finding_triage SET status = ${status} WHERE id = ${id}`);
