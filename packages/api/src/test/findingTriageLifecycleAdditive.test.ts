@@ -726,7 +726,7 @@ describe("Legacy lineage repair — preview and apply", () => {
 
     const preview = previewRepair(input);
     expect(preview.canApply).toBe(true);
-    expect(preview.cutoffTimestamp).toBe("2026-06-01T00:00:00Z");
+    expect(preview.cutoffTimestamp).toBe("2026-06-01T00:00:00.000Z"); // canonical ISO-8601 UTC
     // The preview exposes the DERIVED complete provable set
     expect(preview.baselinePulseIds).toEqual([
       "pulse-ft-ebr-1",
@@ -762,7 +762,7 @@ describe("Legacy lineage repair — preview and apply", () => {
       sql`SELECT * FROM finding_triage_lineage_repairs WHERE id = ${result.repairId}`,
     ) as Record<string, unknown>[];
     expect(ledgerRows).toHaveLength(1);
-    expect(ledgerRows[0].cutoff_timestamp).toBe("2026-06-01T00:00:00Z");
+    expect(ledgerRows[0].cutoff_timestamp).toBe("2026-06-01T00:00:00.000Z");
   });
 });
 
@@ -1188,6 +1188,86 @@ describe("Legacy repair — derived-state validation", () => {
     ) as Record<string, unknown>;
     expect(child.recurrence_of_id).toBe("ft-att-pred");
     expect(child.legacy_lineage_repair_required).toBe(0);
+  });
+
+  it("DISCRIMINATOR: non-canonical cutoff (slash date) is normalized to ISO-8601 UTC before digest and persist", () => {
+    seedFinding({ id: "ft-cut-1", status: "resolved", clusterKey: "cut", findingKind: "bug", createdAt: "2026-01-01T00:00:00.000Z" });
+
+    const input: EvidenceBaselinedRootInput = {
+      mode: "evidence_baselined_root",
+      habitatId,
+      clusterKey: "cut",
+      findingKind: "bug",
+      canonicalRootId: "ft-cut-1",
+      // Date.parse accepts non-canonical forms — this offset form parses
+      // identically in every timezone but compares WRONGLY against ISO-8601
+      // UTC Pulse created_at values in lexicographic recurrence suppression.
+      cutoffTimestamp: "2026-06-01T00:00:00+00:00",
+      baselinePulseIds: ["pulse-ft-cut-1"],
+      operator: { type: "human", id: "op-1", reason: "Reset" },
+    };
+
+    const preview = previewRepair(input);
+    expect(preview.canApply).toBe(true);
+    expect(preview.cutoffTimestamp).toBe("2026-06-01T00:00:00.000Z");
+
+    const result = applyRepair(input, preview.digest, makeSession());
+    expect(result.replayed).toBe(false);
+    const ledger = getDb().get(
+      sql`SELECT cutoff_timestamp FROM finding_triage_lineage_repairs WHERE id = ${result.repairId}`,
+    ) as Record<string, unknown>;
+    expect(ledger.cutoff_timestamp).toBe("2026-06-01T00:00:00.000Z");
+
+    // Unparseable cutoff is still a validation error, not silently normalized.
+    const bad = { ...input, cutoffTimestamp: "not-a-date" };
+    const badPreview = previewRepair(bad);
+    expect(badPreview.canApply).toBe(false);
+    expect(badPreview.validationErrors.join(" ")).toContain("not parseable");
+  });
+
+  it("DISCRIMINATOR: single-row component with an OPEN root is rejected — the root must be terminal", () => {
+    seedFinding({ id: "ft-open-root", status: "open", clusterKey: "open-root", findingKind: "bug", legacyRepairRequired: true });
+
+    const input: EvidenceBaselinedRootInput = {
+      mode: "evidence_baselined_root",
+      habitatId,
+      clusterKey: "open-root",
+      findingKind: "bug",
+      canonicalRootId: "ft-open-root",
+      cutoffTimestamp: "2026-06-01T00:00:00.000Z",
+      baselinePulseIds: ["pulse-ft-open-root"],
+      operator: { type: "human", id: "op-1", reason: "Reset" },
+    };
+
+    const preview = previewRepair(input);
+    expect(preview.canApply).toBe(false);
+    expect(preview.validationErrors.join(" ")).toContain(
+      `Canonical root ft-open-root is not terminal (status open)`,
+    );
+  });
+
+  it("DISCRIMINATOR: a rejected precondition still releases the maintenance session", () => {
+    seedFinding({ id: "ft-lock-1", status: "resolved", clusterKey: "lock", findingKind: "bug", createdAt: "2026-01-01T00:00:00.000Z" });
+
+    const input: EvidenceBaselinedRootInput = {
+      mode: "evidence_baselined_root",
+      habitatId,
+      clusterKey: "lock",
+      findingKind: "bug",
+      canonicalRootId: "ft-lock-1",
+      cutoffTimestamp: "2026-06-01T00:00:00.000Z",
+      baselinePulseIds: ["pulse-ft-lock-1"],
+      // Empty operator identity — applyRepair must reject...
+      operator: { type: "human", id: "", reason: "" },
+    };
+
+    const preview = previewRepair(input);
+    expect(preview.canApply).toBe(true);
+
+    const session = makeSession();
+    expect(() => applyRepair(input, preview.digest, session)).toThrow(RepairValidationError);
+    // ...and the lock must not stay held afterwards.
+    expect(session.released).toBe(true);
   });
 
   function dbUpdateStatus(id: string, status: string): void {

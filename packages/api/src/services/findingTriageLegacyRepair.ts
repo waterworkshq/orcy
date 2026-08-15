@@ -85,7 +85,10 @@ export interface EvidenceBaselinedRootInput {
   canonicalRootId: string;
   /** Cutoff timestamp: only evidence from Pulses created strictly after the
    * cutoff can establish recurrence. Must be a parseable ISO-8601 timestamp
-   * that is not in the future at apply time. */
+   * that is not in the future at apply time; it is normalized to canonical
+   * ISO-8601 UTC (`toISOString()`) before digest/validation/persist because
+   * the ledger value is compared lexicographically against Pulse
+   * `created_at`. */
   cutoffTimestamp: string;
   /** Provable Pulse ids across the quarantined component. Must EXACTLY equal
    * the derived complete provable set (evidence rows of any role + each
@@ -669,6 +672,16 @@ export function validateRepair(
       `Canonical root ${input.canonicalRootId} is not the canonically oldest member (${ordered[0].id} is)`,
     );
   }
+  // The root itself must be terminal. validateLinearChain only inspects
+  // PREDECESSOR edges, so a single-row component (root with no predecessor)
+  // would otherwise clear quarantine with an open root — contradicting the
+  // documented root contract above.
+  const root = byId.get(input.canonicalRootId);
+  if (root && !TERMINAL_STATUSES.has(root.status)) {
+    errors.push(
+      `Canonical root ${input.canonicalRootId} is not terminal (status ${root.status})`,
+    );
+  }
   validateLinearChain(deriveAfterMapping(input, snapshot), byId, errors);
 
   return errors;
@@ -691,7 +704,8 @@ function lookupPulses(client: DbClient, pulseIds: string[]): { id: string; habit
  * validates all invariants against the DERIVED state, and returns the stable
  * repair-file digest that apply will verify.
  */
-export function previewRepair(input: RepairInput, client: DbClient = getDb()): RepairPreview {
+export function previewRepair(rawInput: RepairInput, client: DbClient = getDb()): RepairPreview {
+  const input = withCanonicalCutoff(rawInput);
   const snapshot = deriveIdentitySnapshot(client, input);
   const validationErrors = validateRepair(input, snapshot, client);
   const beforeStateDigest = computeBeforeStateDigest(snapshot);
@@ -731,25 +745,29 @@ export function previewRepair(input: RepairInput, client: DbClient = getDb()): R
  * Throws RepairValidationError if prerequisites are not met.
  */
 export function applyRepair(
-  input: RepairInput,
+  rawInput: RepairInput,
   expectedDigest: string,
   maintenance: MaintenanceSession,
   client: DbClient = getDb(),
 ): RepairApplyResult {
-  if (!input.operator?.id || !input.operator?.reason) {
-    throw new RepairValidationError(
-      "Operator identity and reason are required",
-      "missing_operator",
-    );
-  }
-  if (!maintenance || maintenance.released) {
-    throw new RepairValidationError(
-      "An active maintenance session (verified lock + verified backup) is required",
-      "missing_maintenance_session",
-    );
-  }
-
+  const input = withCanonicalCutoff(rawInput);
+  // Prerequisite checks live INSIDE the try/finally so a rejected
+  // prerequisite still releases the maintenance session — otherwise the
+  // lock file stays held and the next repair attempt fails on
+  // maintenance_lock_held.
   try {
+    if (!input.operator?.id || !input.operator?.reason) {
+      throw new RepairValidationError(
+        "Operator identity and reason are required",
+        "missing_operator",
+      );
+    }
+    if (!maintenance || maintenance.released) {
+      throw new RepairValidationError(
+        "An active maintenance session (verified lock + verified backup) is required",
+        "missing_maintenance_session",
+      );
+    }
     return client.transaction(
       () => {
         // BEGIN EXCLUSIVE is now held — the database is quiesced. Re-verify
@@ -866,8 +884,25 @@ export function applyRepair(
       { behavior: "exclusive" },
     );
   } finally {
-    maintenance.release();
+    maintenance?.release();
   }
+}
+
+/**
+ * The ledger cutoff is compared lexicographically against canonical ISO-8601
+ * UTC Pulse `created_at` values, so it must be stored in that exact form;
+ * `Date.parse` alone accepts shapes ("2026/06/01", offset timestamps like
+ * "+05:30") that would compare wrongly and silently mis-suppress
+ * recurrence. Normalize to `toISOString()` before validation, digest, and
+ * persist so every consumer sees one canonical representation (preview and
+ * apply both normalize, so digests stay stable). Unparseable input passes
+ * through untouched — validateRepair reports the parse error.
+ */
+function withCanonicalCutoff(input: RepairInput): RepairInput {
+  if (input.mode !== "evidence_baselined_root") return input;
+  const ms = Date.parse(input.cutoffTimestamp ?? "");
+  if (Number.isNaN(ms)) return input;
+  return { ...input, cutoffTimestamp: new Date(ms).toISOString() };
 }
 
 /**
