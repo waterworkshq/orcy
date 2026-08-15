@@ -36,6 +36,16 @@ CREATE TABLE release_activation_epoch_groups_0074 (
 );
 --> statement-breakpoint
 
+-- Preserve orphaned group rows (referenced epoch missing — only possible if
+-- foreign-key enforcement was off historically) instead of silently dropping
+-- them: the join below filters them out before the DROP. Normally empty;
+-- anything it captures needs explicit remediation.
+CREATE TABLE IF NOT EXISTS release_activation_epoch_groups_orphans_0074 AS
+SELECT g.*
+FROM release_activation_epoch_groups g
+WHERE NOT EXISTS (SELECT 1 FROM release_activation_epochs e WHERE e.id = g.epoch_id);
+--> statement-breakpoint
+
 INSERT INTO release_activation_epoch_groups_0074 (
   id, epoch_id, release_id, habitat_id, mission_id, mission_created_at, position,
   finding_ids, gate_type, gate_version, membership_digest, disposition,

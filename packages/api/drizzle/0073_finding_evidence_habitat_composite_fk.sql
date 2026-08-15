@@ -29,6 +29,16 @@ CREATE TABLE finding_triage_evidence_0073 (
 );
 --> statement-breakpoint
 
+-- Preserve orphaned evidence rows (referenced finding missing — only
+-- possible if foreign-key enforcement was off historically) instead of
+-- silently dropping them: the join below filters them out before the DROP.
+-- Normally empty; anything it captures needs explicit remediation.
+CREATE TABLE IF NOT EXISTS finding_triage_evidence_orphans_0073 AS
+SELECT e.*
+FROM finding_triage_evidence e
+WHERE NOT EXISTS (SELECT 1 FROM finding_triage ft WHERE ft.id = e.finding_triage_id);
+--> statement-breakpoint
+
 INSERT INTO finding_triage_evidence_0073 (
   finding_triage_id, pulse_id, habitat_id, role, admitted_by_triage_mission_id,
   admitted_by_investigation_task_id, admitted_at, created_at
