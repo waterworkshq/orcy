@@ -422,6 +422,7 @@ export async function automationRoutes(fastify: FastifyInstance): Promise<void> 
         actorId: request.user!.id,
         reason: parsed.data.reason,
         ackDuplicateRisk: parsed.data.ackDuplicateRisk === true,
+        ackLegacyProvedNoReceipt: parsed.data.ackLegacyProvedNoReceipt === true,
       });
       if (result.outcome === "not_found") throw notFound("Delivery not found");
       if (result.outcome === "risk_ack_required") {

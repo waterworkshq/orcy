@@ -21,10 +21,12 @@ import { setJwtSecret } from "../middleware/jwt-verification.js";
 import * as boardRepo from "../repositories/habitat.js";
 import * as columnRepo from "../repositories/column.js";
 import * as ruleRepo from "../repositories/automationRule.js";
+import * as revisionRepo from "../repositories/automationRuleRevision.js";
 import * as deliveryRepo from "../repositories/automationRuleDelivery.js";
 import {
   admitReleaseShippedEventToInbox,
   waiveAutomationDelivery,
+  LEGACY_PROVED_NO_RECEIPT_DISPOSITION,
 } from "../services/automationInboxService.js";
 import { closeDb, initTestDb } from "../db/index.js";
 import { automationRoutes } from "../routes/automationRules.js";
@@ -194,6 +196,78 @@ describe("automation inbox operator routes (inject)", () => {
     // calls; the ids must partition the full set).
     const ids = new Set([...page1.json(), ...page2.json()].map((o) => o.inbox.id));
     expect(ids.size).toBe(3);
+  });
+
+  it("DISCRIMINATOR: legacy no-receipt delivery unlocks a successor only with the explicit ack", async () => {
+    const h = setupHabitat();
+    createReleaseRule(h.id);
+    admit(h.id, "rel-legacy-route");
+    const inboxId = deliveryRepo.listInboxEntriesForHabitat(h.id)[0].id;
+    const deliveryId = deliveryRepo.listDeliveriesForInbox(inboxId)[0].id;
+
+    // Crash after leasing, flag one checkpoint as a historically-proved
+    // no-receipt row, then mark the delivery attention_required.
+    const lease = deliveryRepo.leaseDelivery({
+      deliveryId,
+      leaseOwner: "crashed-worker",
+      now: T0,
+      ttlMs: 60_000,
+    });
+    if (!lease.acquired) throw new Error("seed lease failed");
+    const delivery = deliveryRepo.getDeliveryById(deliveryId)!;
+    const revision = revisionRepo.getRuleRevisionById(delivery.ruleRevisionId);
+    if (!revision) throw new Error("seed revision missing");
+    const checkpoint = deliveryRepo.ensureCheckpointRow({
+      deliveryId,
+      actionIndex: 0,
+      actionKey: deliveryRepo.computeActionKey(revision.actions[0]),
+      actionType: String(revision.actions[0].type),
+      now: T0,
+    });
+    const seeded = deliveryRepo.recordCheckpointOutcome({
+      checkpointId: checkpoint.id,
+      deliveryId,
+      fence: lease.fence,
+      state: "failed",
+      terminalDisposition: LEGACY_PROVED_NO_RECEIPT_DISPOSITION,
+      now: T0,
+    });
+    if (!seeded) throw new Error("legacy checkpoint seeding failed");
+    if (
+      !deliveryRepo.markStaleDeliveryAttention({
+        deliveryId,
+        fence: lease.fence,
+        now: T1,
+        reason: "legacy route seed",
+        proofClassification: "unprovable",
+      })
+    ) {
+      throw new Error("marking attention failed");
+    }
+
+    const auth = { authorization: `Bearer ${adminToken()}` };
+    // Generic duplicate-risk ack alone is rejected (the action already fired).
+    const blocked = await app.inject({
+      method: "POST",
+      url: `/automation-deliveries/${deliveryId}/retry`,
+      headers: auth,
+      payload: { reason: "retry", ackDuplicateRisk: true },
+    });
+    expect(blocked.statusCode).toBe(400);
+    expect(JSON.parse(blocked.body).error).toContain("ackLegacyProvedNoReceipt");
+
+    // The explicit legacy ack unlocks the successor.
+    const allowed = await app.inject({
+      method: "POST",
+      url: `/automation-deliveries/${deliveryId}/retry`,
+      headers: auth,
+      payload: {
+        reason: "operator confirmed re-firing is safe",
+        ackDuplicateRisk: true,
+        ackLegacyProvedNoReceipt: true,
+      },
+    });
+    expect(allowed.statusCode).toBe(201);
   });
 
   it("malformed pagination query returns 400 VALIDATION_ERROR", async () => {
