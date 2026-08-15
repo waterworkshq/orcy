@@ -47,6 +47,7 @@ import {
   applyRepair,
   beginMaintenanceSession,
   checkExistingRepair,
+  computeRepairFileDigest,
   RepairValidationError,
   type PredecessorMappingInput,
   type EvidenceBaselinedRootInput,
@@ -1326,6 +1327,46 @@ describe("Legacy repair — derived-state validation", () => {
             VALUES ('ft-fk-1', ${pulseId}, ${habitatId2.h}, 'corroborating')`,
       ),
     ).not.toThrow();
+  });
+
+  it("DISCRIMINATOR: replay accepts a ledger digest recorded over the legacy raw cutoff form", () => {
+    seedFinding({ id: "ft-legacy-dig", status: "resolved", clusterKey: "legacydig", findingKind: "bug", createdAt: "2026-01-01T00:00:00.000Z" });
+
+    const input: EvidenceBaselinedRootInput = {
+      mode: "evidence_baselined_root",
+      habitatId,
+      clusterKey: "legacydig",
+      findingKind: "bug",
+      canonicalRootId: "ft-legacy-dig",
+      // Normalizes to "2026-06-01T00:00:00.000Z" — a DIFFERENT string, so
+      // the raw-form digest differs from the canonical one.
+      cutoffTimestamp: "2026-06-01T00:00:00+00:00",
+      baselinePulseIds: ["pulse-ft-legacy-dig"],
+      operator: { type: "human", id: "op-1", reason: "Reset" },
+    };
+
+    const result = applyRepair(input, previewRepair(input).digest, makeSession());
+    expect(result.replayed).toBe(false);
+
+    // Simulate a PRE-canonicalization ledger: the recorded digest hashed the
+    // RAW cutoff string (apply before cutoff normalization existed).
+    const db = getDb();
+    const ledger = db.get(
+      sql`SELECT before_state_digest AS b FROM finding_triage_lineage_repairs WHERE id = ${result.repairId}`,
+    ) as { b: string };
+    const legacyDigest = computeRepairFileDigest(
+      { ...input, cutoffTimestamp: "2026-06-01T00:00:00+00:00" },
+      ledger.b,
+    );
+    expect(legacyDigest).not.toBe(result.digest);
+    db.run(
+      sql`UPDATE finding_triage_lineage_repairs SET input_snapshot_digest = ${legacyDigest} WHERE id = ${result.repairId}`,
+    );
+
+    // The exact same repair file (raw cutoff supplied) must still replay.
+    const replay = applyRepair(input, legacyDigest, makeSession());
+    expect(replay.replayed).toBe(true);
+    expect(replay.repairId).toBe(result.repairId);
   });
 
   function dbUpdateStatus(id: string, status: string): void {

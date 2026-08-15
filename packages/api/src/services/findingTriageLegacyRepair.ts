@@ -782,12 +782,27 @@ export function applyRepair(
         // exact replay into a conflict). Legacy rows (NULL digest) fall
         // back to reconstructing the before-state by reverting recurrence
         // links to the ledger's beforeMapping (the only columns the repair
-        // itself mutated). A changed file claiming an applied digest
-        // conflicts instead of replaying.
+        // itself mutated). Legacy DIGEST FORMS are also accepted: repairs
+        // applied before cutoff canonicalization hashed the RAW cutoff
+        // string, so both the canonical and the raw form count as an exact
+        // match. A changed file claiming an applied digest conflicts instead
+        // of replaying.
+        let rawCutoffVariant: RepairInput | null = null;
+        if (
+          rawInput.mode === "evidence_baselined_root" &&
+          input.mode === "evidence_baselined_root" &&
+          rawInput.cutoffTimestamp !== input.cutoffTimestamp
+        ) {
+          rawCutoffVariant = { ...input, cutoffTimestamp: rawInput.cutoffTimestamp };
+        }
+        const inputHashesTo = (beforeStateDigest: string): boolean =>
+          computeRepairFileDigest(input, beforeStateDigest) === expectedDigest ||
+          (rawCutoffVariant !== null &&
+            computeRepairFileDigest(rawCutoffVariant, beforeStateDigest) === expectedDigest);
         const existing = checkExistingRepair(expectedDigest, client);
         if (existing.exists && existing.repairId) {
           if (existing.beforeStateDigest) {
-            if (computeRepairFileDigest(input, existing.beforeStateDigest) !== expectedDigest) {
+            if (!inputHashesTo(existing.beforeStateDigest)) {
               throw new RepairValidationError(
                 `Repair-file conflict: digest ${expectedDigest} is recorded, but the supplied input does not hash to it (changed content — re-preview for a fresh repair file).`,
                 "repair_file_conflict",
@@ -804,11 +819,7 @@ export function applyRepair(
               })),
               beforeMapping: recordedBefore,
             };
-            const candidate = computeRepairFileDigest(
-              input,
-              computeBeforeStateDigest(reconstructed),
-            );
-            if (candidate !== expectedDigest) {
+            if (!inputHashesTo(computeBeforeStateDigest(reconstructed))) {
               throw new RepairValidationError(
                 `Repair-file conflict: digest ${expectedDigest} is recorded, but the supplied input does not hash to it (changed content or post-repair identity drift — re-preview for a fresh repair file).`,
                 "repair_file_conflict",
