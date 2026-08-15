@@ -18,13 +18,14 @@ WHERE state = 'failed' AND terminal_disposition = 'failed:missing_receipt';
 -- carried a non-failed disposition (e.g. 'succeeded' from the legacy proved
 -- write path) kept it and escaped the relabel above, staying silently
 -- re-runnable on a successor. Widen the predicate: any failed row with
--- neither receipt nor proved_at that does not declare a failed:* disposition
--- is a historically-proved checkpoint. (Over-inclusion errs safe — it gates
--- the re-run behind explicit acknowledgement rather than enabling it.)
+-- neither receipt nor proved_at that does not declare a failed-prefixed
+-- disposition (including the bare 'failed' runtime form) is a
+-- historically-proved checkpoint. (Over-inclusion errs safe — it gates the
+-- re-run behind explicit acknowledgement rather than enabling it.)
 UPDATE automation_delivery_action_checkpoints
 SET terminal_disposition = 'failed:legacy_proved_no_receipt'
 WHERE state = 'failed'
   AND receipt IS NULL
   AND proved_at IS NULL
   AND terminal_disposition IS NOT NULL
-  AND terminal_disposition NOT LIKE 'failed:%';
+  AND terminal_disposition NOT LIKE 'failed%';
