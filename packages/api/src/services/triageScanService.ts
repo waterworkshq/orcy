@@ -69,9 +69,19 @@ export async function runSignalPatternClusteredScan(habitatId: string): Promise<
     for (const [clusterKey, group] of groups) {
       if (group.length < minClusterSize) continue;
 
-      // Active-triage suppression: skip clusters already under investigation.
+      const structuredPulses = group
+        .filter((p) => p.signalType === "finding")
+        .map((p) => ({
+          id: p.id,
+          createdAt: p.createdAt,
+          findingKind: p.metadata.findingKind as string,
+        }));
+
       const activeMission = triageClusterMissionsRepo.findActiveByClusterKey(habitatId, clusterKey);
-      if (activeMission) continue;
+      // Unstructured clusters still skip once a triage Mission is active.
+      // Structured clusters must reach occurrence intake so later scans can
+      // append unseen corroborating Pulses to the live identity.
+      if (activeMission && structuredPulses.length === 0) continue;
 
       // Proactive lookup: attach historical resolution as suggestion context.
       const proactiveResolutions = triageResolutionsRepo.findByClusterKey(habitatId, clusterKey);
@@ -91,14 +101,6 @@ export async function runSignalPatternClusteredScan(habitatId: string): Promise<
       // active identities receive only unseen corroborating evidence and
       // never a second investigation. Clusters with NO structured identities
       // keep the ordinary Pattern Cluster behavior.
-      const structuredPulses = group
-        .filter((p) => p.signalType === "finding")
-        .map((p) => ({
-          id: p.id,
-          createdAt: p.createdAt,
-          findingKind: p.metadata.findingKind as string,
-        }));
-
       if (structuredPulses.length > 0) {
         try {
           const intake = intakeStructuredCluster({
@@ -143,6 +145,8 @@ export async function runSignalPatternClusteredScan(habitatId: string): Promise<
           continue;
         }
       }
+
+      if (activeMission) continue;
 
       const triggerEventId = `cluster:${clusterKey}:${habitatId}`;
       for (const rule of rules) {

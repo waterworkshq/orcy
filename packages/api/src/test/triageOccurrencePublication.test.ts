@@ -767,6 +767,25 @@ describe("suppression finalization + scan-time repair (real scan path)", () => {
     expect(occurrences()).toHaveLength(1);
   });
 
+  it("a later scan still intakes corroborating pulses when the cluster already has an active mission", async () => {
+    seedFindingPulse("bug");
+    seedFindingPulse("bug");
+    seedFindingPulse("bug");
+    const first = await runSignalPatternClusteredScan(habitatId);
+    expect(first[0].errors).toHaveLength(0);
+    expect(findings()).toHaveLength(1);
+    const corroborating = seedFindingPulse("bug");
+
+    const second = await runSignalPatternClusteredScan(habitatId);
+    expect(second[0].errors).toHaveLength(0);
+    expect(findings()).toHaveLength(1);
+    const finding = findings()[0];
+    expect(finding.corroboratingPulseIds).toContain(corroborating.id);
+    expect(evidenceFor(finding.id).filter((e) => e.role === "corroborating").map((e) => e.pulseId)).toContain(
+      corroborating.id,
+    );
+  });
+
   it("an ordinary (non-structured) cluster keeps the legacy triage path unchanged", async () => {
     seedExperiencePulse("plain signal");
     seedExperiencePulse("plain signal");
