@@ -102,8 +102,7 @@ export function BucketConfirmation({ finding, onClose, onConfirmed }: BucketConf
     if (selected === "defer_to_patch") {
       setReleaseGateType("patch");
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selected]);
+  }, [selected, releaseGateType]);
 
   const reasoning = extractReasoning(finding);
   const pending = routeMutation.isPending || wontfixMutation.isPending;
