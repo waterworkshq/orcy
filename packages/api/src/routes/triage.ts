@@ -755,23 +755,23 @@ export async function triageRoutes(fastify: FastifyInstance): Promise<void> {
         if (inTxAuthority.kind === "deny") {
           throw forbidden(inTxAuthority.message, inTxAuthority.code);
         }
+        // Stored-fingerprint replay re-check under the reservation — BEFORE
+        // all state predicates (terminal included), matching the outer path:
+        // a same-link retry stays idempotent even if a concurrent
+        // terminalization, lineage repair, or other eligibility state moved
+        // under us between the precheck read and this reservation.
+        if (
+          current.correctiveMissionId === targetMission.id &&
+          current.routeFingerprint !== null
+        ) {
+          return { outcome: "replayed" as const, value: current };
+        }
         if ((TERMINAL_FINDING_TRIAGE_STATUSES as readonly string[]).includes(current.status)) {
           return {
             outcome: "conflict" as const,
             reason: "terminal" as const,
             current: current.status,
           };
-        }
-        // Stored-fingerprint replay re-check under the reservation — BEFORE
-        // eligibility predicates, matching the outer path: a same-link retry
-        // must replay even if a concurrent lineage repair has since flagged
-        // the row (legacyLineageRepairRequired) or other eligibility state
-        // moved under us.
-        if (
-          current.correctiveMissionId === targetMission.id &&
-          current.routeFingerprint !== null
-        ) {
-          return { outcome: "replayed" as const, value: current };
         }
         if (
           current.status !== "triaged" ||
