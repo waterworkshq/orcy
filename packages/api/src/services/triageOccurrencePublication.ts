@@ -108,6 +108,7 @@ import {
 } from "../repositories/taskPublication.js";
 import { listPendingTaskCreationAttemptsForScopeWithClient } from "../repositories/taskCreationAttempts.js";
 import { listPendingAttemptsForMissingOccurrenceScopeWithClient } from "../repositories/taskCreationAttempts.js";
+import { listUnstampedPendingAttemptsForMissingOccurrenceScopeWithClient } from "../repositories/taskCreationAttempts.js";
 import {
   withImmediateLifecycleTransaction,
   type LifecycleOutcome,
@@ -821,13 +822,17 @@ export function repairStrandedOccurrenceAttempts(habitatId: string, clusterKey: 
   // are unreachable through the cluster scan below — the frozen aggregate
   // snapshot is gone, so they can never publish. Finalize them directly,
   // scoped to THIS habitat so a per-cluster intake never touches another
-  // habitat's attempts.
-  if (listPendingAttemptsForMissingOccurrenceScopeWithClient(db, habitatId).length > 0) {
+  // habitat's attempts, PLUS an explicit global pass for unstamped
+  // (NULL-habitat) legacy rows that no per-habitat scan can ever reach.
+  if (
+    listPendingAttemptsForMissingOccurrenceScopeWithClient(db, habitatId).length > 0 ||
+    listUnstampedPendingAttemptsForMissingOccurrenceScopeWithClient(db).length > 0
+  ) {
     const danglingOutcome = withImmediateLifecycleTransaction<string[]>((client) => {
-      const stillDangling = listPendingAttemptsForMissingOccurrenceScopeWithClient(
-        client,
-        habitatId,
-      );
+      const stillDangling = [
+        ...listPendingAttemptsForMissingOccurrenceScopeWithClient(client, habitatId),
+        ...listUnstampedPendingAttemptsForMissingOccurrenceScopeWithClient(client),
+      ];
       if (stillDangling.length === 0) return { outcome: "replayed" as const, value: [] };
       const value: string[] = [];
       for (const attempt of stillDangling) {

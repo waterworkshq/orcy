@@ -1051,9 +1051,17 @@ describe("intake no-op reclassification race (FU3)", () => {
           (id, source, source_scope_kind, source_scope_id, attempt_key, request_fingerprint, publication_kind, actor_type, actor_id, habitat_id)
           VALUES ('att-dangling-2', 'triage', 'triage_occurrence', 'occ-gone-other', 'key-2', 'fp-2', 'create', 'system', 'triage', ${otherHabitat})`,
     );
+    // An UNSTAMPED (null-habitat) legacy row — no per-habitat scan can reach
+    // it; the explicit global pass must.
+    getDb().run(
+      sql`INSERT INTO task_creation_attempts
+          (id, source, source_scope_kind, source_scope_id, attempt_key, request_fingerprint, publication_kind, actor_type, actor_id)
+          VALUES ('att-dangling-3', 'triage', 'triage_occurrence', 'occ-gone-null', 'key-3', 'fp-3', 'create', 'system', 'triage')`,
+    );
 
     const finalized = repairStrandedOccurrenceAttempts(habitatId, CLUSTER_KEY);
     expect(finalized).toContain("att-dangling-1");
+    expect(finalized).toContain("att-dangling-3");
     const mine = getDb().get(
       sql`SELECT state, terminal_outcome FROM task_creation_attempts WHERE id = 'att-dangling-1'`,
     ) as Record<string, unknown>;
