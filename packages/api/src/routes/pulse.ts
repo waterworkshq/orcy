@@ -170,8 +170,10 @@ export async function pulseRoutes(fastify: FastifyInstance): Promise<void> {
     // Contention beyond busy_timeout maps to the typed retryable 503 (the
     // shared error handler emits Retry-After), not a raw 500.
     const db = getDb();
-    db.run(sql`BEGIN IMMEDIATE`);
     try {
+      // Inside the try: BEGIN itself can exhaust busy_timeout and must map to
+      // the typed 503 path, not escape as a generic 500.
+      db.run(sql`BEGIN IMMEDIATE`);
       assertPulseNotFindingEvidence(id, db);
       const deleted = pulseRepo.deletePulseWithClient(db, id);
       db.run(sql`COMMIT`);
