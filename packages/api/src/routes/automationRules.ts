@@ -348,6 +348,7 @@ export async function automationRoutes(fastify: FastifyInstance): Promise<void> 
   const dispositionSchema = z.object({
     reason: z.string().min(1),
     ackDuplicateRisk: z.boolean().optional(),
+    ackLegacyProvedNoReceipt: z.boolean().optional(),
   });
 
   // Inbox + delivery visibility for a habitat (attention_required must be
@@ -412,6 +413,11 @@ export async function automationRoutes(fastify: FastifyInstance): Promise<void> 
       if (result.outcome === "risk_ack_required") {
         throw badRequest(
           "ackDuplicateRisk must be true — a successor generation re-executes unproved actions and may duplicate external effects",
+        );
+      }
+      if (result.outcome === "legacy_no_receipt_ack_required") {
+        throw badRequest(
+          "ackLegacyProvedNoReceipt must be true — this delivery carries a historically-proved checkpoint without a durable receipt (the action already fired); re-running it re-fires a confirmed side effect",
         );
       }
       if (result.outcome === "conflict") {

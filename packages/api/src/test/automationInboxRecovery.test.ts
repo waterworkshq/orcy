@@ -26,6 +26,7 @@ import {
   waiveAutomationDelivery,
   createAutomationDeliverySuccessorGeneration,
   getInboxOverview,
+  LEGACY_PROVED_NO_RECEIPT_DISPOSITION,
 } from "../services/automationInboxService.js";
 import type { AutomationRule } from "@orcy/shared";
 
@@ -638,6 +639,71 @@ describe("stale-lease proof-aware recovery + operator dispositions", () => {
     expect(delivery.state).toBe("attention_required");
     expect(delivery.proofClassification).toBe("unprovable");
     expect(delivery.state).not.toBe("terminal");
+  });
+
+  it("DISCRIMINATOR: 0071 legacy no-receipt checkpoint blocks successor without explicit acknowledgement", async () => {
+    const h = setupHabitat();
+    createReleaseRule(h.id, { templates: ["FIRST"] });
+    admitReleaseShippedEventToInbox({
+      habitatId: h.id,
+      eventId: "rel-legacy",
+      payload: { eventId: "rel-legacy" },
+    });
+    const inboxId = deliveryRepo.listInboxEntriesForHabitat(h.id)[0].id;
+    const deliveryId = firstDeliveryId(inboxId);
+
+    // A pre-0070 worker historically proved action 0 without a durable
+    // receipt; 0070 coerced the row to failed and 0071 relabelled it — the
+    // action DID fire and must not silently re-run on a successor.
+    const lease = crashAfterLease(deliveryId, T0, 60_000);
+    const delivery = deliveryRepo.getDeliveryById(deliveryId)!;
+    const revision = revisionRepo.getRuleRevisionById(delivery.ruleRevisionId)!;
+    const checkpoint = deliveryRepo.ensureCheckpointRow({
+      deliveryId,
+      actionIndex: 0,
+      actionKey: deliveryRepo.computeActionKey(revision.actions[0]),
+      actionType: String(revision.actions[0].type),
+      now: T0,
+    });
+    const seeded = deliveryRepo.recordCheckpointOutcome({
+      checkpointId: checkpoint.id,
+      deliveryId,
+      fence: lease.fence,
+      state: "failed",
+      terminalDisposition: LEGACY_PROVED_NO_RECEIPT_DISPOSITION,
+      now: T0,
+    });
+    if (!seeded) throw new Error("simulated legacy checkpoint seeding failed");
+    const marked = deliveryRepo.markStaleDeliveryAttention({
+      deliveryId,
+      fence: lease.fence,
+      now: T1,
+      reason: "legacy seed",
+      proofClassification: "unprovable",
+    });
+    if (!marked) throw new Error("seeding attention state failed");
+
+    // The generic duplicate-risk ack alone must NOT authorize re-running a
+    // known-fired action.
+    const blocked = createAutomationDeliverySuccessorGeneration({
+      deliveryId,
+      actorType: "human",
+      actorId: "user-1",
+      reason: "retry",
+      ackDuplicateRisk: true,
+    });
+    expect(blocked.outcome).toBe("legacy_no_receipt_ack_required");
+
+    // Explicit acknowledgement of the legacy no-receipt firing unlocks it.
+    const allowed = createAutomationDeliverySuccessorGeneration({
+      deliveryId,
+      actorType: "human",
+      actorId: "user-1",
+      reason: "operator confirmed re-firing is safe",
+      ackDuplicateRisk: true,
+      ackLegacyProvedNoReceipt: true,
+    });
+    expect(allowed.outcome).toBe("created");
   });
 
   it("recordCheckpointOutcome cannot prove or fail a checkpoint owned by another delivery", async () => {

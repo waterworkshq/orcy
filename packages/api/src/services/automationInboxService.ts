@@ -628,6 +628,16 @@ export function waiveAutomationDelivery(input: WaiveDeliveryInput): WaiveDeliver
   });
 }
 
+/**
+ * Terminal disposition written by migration 0071 for checkpoints that were
+ * historically `proved` (the action DID execute) but carried no durable
+ * receipt, so 0070's proved-receipt CHECK coerced them to `failed`. Successor
+ * generations do not carry `failed` checkpoints forward — re-running one of
+ * these re-fires a known-executed action, so the successor path demands
+ * explicit acknowledgement for them.
+ */
+export const LEGACY_PROVED_NO_RECEIPT_DISPOSITION = "failed:legacy_proved_no_receipt";
+
 export interface SuccessorDeliveryInput {
   deliveryId: string;
   actorType: string;
@@ -635,6 +645,13 @@ export interface SuccessorDeliveryInput {
   reason: string;
   /** MUST be true — the caller acknowledges the duplicate-effect risk of re-executing unproved actions. */
   ackDuplicateRisk: boolean;
+  /**
+   * MUST ALSO be true when any predecessor checkpoint carries
+   * {@link LEGACY_PROVED_NO_RECEIPT_DISPOSITION}: those actions are KNOWN to
+   * have executed (historically proved) even though no durable receipt
+   * survives, so re-running them re-fires a confirmed side effect.
+   */
+  ackLegacyProvedNoReceipt?: boolean;
   now?: string;
 }
 
@@ -642,6 +659,7 @@ export type SuccessorDeliveryResult =
   | { outcome: "created"; deliveryId: string; generation: number }
   | { outcome: "not_found" }
   | { outcome: "risk_ack_required" }
+  | { outcome: "legacy_no_receipt_ack_required" }
   | { outcome: "conflict"; state: string };
 
 /**
@@ -670,6 +688,18 @@ export function createAutomationDeliverySuccessorGeneration(
     );
     if (!latest || latest.id !== delivery.id) {
       return { outcome: "conflict", state: latest ? `generation_${latest.generation}` : "unknown" };
+    }
+    // A 0071-relabelled legacy checkpoint proves the action already fired;
+    // re-running it needs explicit acknowledgement beyond the generic
+    // duplicate-risk ack.
+    const hasLegacyFiredAction = deliveryRepo
+      .listCheckpointsForDelivery(delivery.id, db)
+      .some(
+        (c) =>
+          c.state === "failed" && c.terminalDisposition === LEGACY_PROVED_NO_RECEIPT_DISPOSITION,
+      );
+    if (hasLegacyFiredAction && input.ackLegacyProvedNoReceipt !== true) {
+      return { outcome: "legacy_no_receipt_ack_required" };
     }
 
     const created = deliveryRepo.createDelivery(

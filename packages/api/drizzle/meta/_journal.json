@@ -330,6 +330,13 @@
       "when": 1786555882000,
       "tag": "0070_automation_checkpoint_proved_receipt",
       "breakpoints": true
+    },
+    {
+      "idx": 47,
+      "version": "6",
+      "when": 1786642282000,
+      "tag": "0071_automation_checkpoint_legacy_disposition",
+      "breakpoints": true
     }
   ]
 }
