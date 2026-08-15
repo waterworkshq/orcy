@@ -1037,21 +1037,34 @@ describe("intake no-op reclassification race (FU3)", () => {
     expect(attemptRows(occurrence.id).some((a) => a.state === "batch_rejected")).toBe(false);
   });
 
-  it("DISCRIMINATOR: a pending attempt whose occurrence was cascade-deleted is finalized by the repair scan", () => {
+  it("DISCRIMINATOR: a pending attempt whose occurrence was cascade-deleted is finalized by the repair scan, scoped to the invoking habitat", () => {
     // Habitat replacement cascades occurrences away while the deliberately
     // FK-free attempts survive — the cluster scan below cannot reach them.
+    const otherHabitat = habitatRepo.createHabitat({ name: "Other Habitat" }).id;
     getDb().run(
       sql`INSERT INTO task_creation_attempts
-          (id, source, source_scope_kind, source_scope_id, attempt_key, request_fingerprint, publication_kind, actor_type, actor_id)
-          VALUES ('att-dangling-1', 'triage', 'triage_occurrence', 'occ-gone', 'key-1', 'fp-1', 'create', 'system', 'triage')`,
+          (id, source, source_scope_kind, source_scope_id, attempt_key, request_fingerprint, publication_kind, actor_type, actor_id, habitat_id)
+          VALUES ('att-dangling-1', 'triage', 'triage_occurrence', 'occ-gone', 'key-1', 'fp-1', 'create', 'system', 'triage', ${habitatId})`,
+    );
+    getDb().run(
+      sql`INSERT INTO task_creation_attempts
+          (id, source, source_scope_kind, source_scope_id, attempt_key, request_fingerprint, publication_kind, actor_type, actor_id, habitat_id)
+          VALUES ('att-dangling-2', 'triage', 'triage_occurrence', 'occ-gone-other', 'key-2', 'fp-2', 'create', 'system', 'triage', ${otherHabitat})`,
     );
 
     const finalized = repairStrandedOccurrenceAttempts(habitatId, CLUSTER_KEY);
     expect(finalized).toContain("att-dangling-1");
-    const row = getDb().get(
+    const mine = getDb().get(
       sql`SELECT state, terminal_outcome FROM task_creation_attempts WHERE id = 'att-dangling-1'`,
     ) as Record<string, unknown>;
-    expect(row.state).toBe("batch_rejected");
-    expect(row.terminal_outcome).toBe("source_occurrence_deleted");
+    expect(mine.state).toBe("batch_rejected");
+    expect(mine.terminal_outcome).toBe("source_occurrence_deleted");
+
+    // Another habitat's dangling attempt is NOT finalized by this habitat's
+    // intake — it stays pending for its own habitat's repair pass.
+    const theirs = getDb().get(
+      sql`SELECT state FROM task_creation_attempts WHERE id = 'att-dangling-2'`,
+    ) as Record<string, unknown>;
+    expect(theirs.state).toBe("pending");
   });
 });

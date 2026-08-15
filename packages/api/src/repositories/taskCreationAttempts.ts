@@ -754,10 +754,14 @@ export function listPendingTaskCreationAttemptsForScopeWithClient(
  * habitat deletion cascades occurrences away while the deliberately FK-free
  * attempts survive as audit history. The frozen aggregate snapshot is gone,
  * so these attempts can never publish; the occurrence repair scan finalizes
- * them. Pure read; the caller owns the client.
+ * them. SCOPED to the invoking habitat: a per-cluster intake must not
+ * terminalize or report another habitat's attempts (rows with a null
+ * habitat_id predate habitat stamping and stay for a global cleanup pass).
+ * Pure read; the caller owns the client.
  */
 export function listPendingAttemptsForMissingOccurrenceScopeWithClient(
   db: TaskPublicationDbClient,
+  habitatId: string,
 ): TaskCreationAttemptRow[] {
   return db
     .select()
@@ -766,15 +770,13 @@ export function listPendingAttemptsForMissingOccurrenceScopeWithClient(
       and(
         eq(taskCreationAttempts.sourceScopeKind, "triage_occurrence"),
         eq(taskCreationAttempts.state, "pending"),
+        eq(taskCreationAttempts.habitatId, habitatId),
         notExists(
           db
             .select({ one: sql`1` })
             .from(triagePublicationOccurrences)
             .where(
-              eq(
-                triagePublicationOccurrences.id,
-                taskCreationAttempts.sourceScopeId,
-              ),
+              eq(triagePublicationOccurrences.id, taskCreationAttempts.sourceScopeId),
             ),
         ),
       ),
