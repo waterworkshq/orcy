@@ -1036,4 +1036,22 @@ describe("intake no-op reclassification race (FU3)", () => {
     expect(attemptRows(occurrence.id).every((a) => a.state === "pending")).toBe(true);
     expect(attemptRows(occurrence.id).some((a) => a.state === "batch_rejected")).toBe(false);
   });
+
+  it("DISCRIMINATOR: a pending attempt whose occurrence was cascade-deleted is finalized by the repair scan", () => {
+    // Habitat replacement cascades occurrences away while the deliberately
+    // FK-free attempts survive — the cluster scan below cannot reach them.
+    getDb().run(
+      sql`INSERT INTO task_creation_attempts
+          (id, source, source_scope_kind, source_scope_id, attempt_key, request_fingerprint, publication_kind, actor_type, actor_id)
+          VALUES ('att-dangling-1', 'triage', 'triage_occurrence', 'occ-gone', 'key-1', 'fp-1', 'create', 'system', 'triage')`,
+    );
+
+    const finalized = repairStrandedOccurrenceAttempts(habitatId, CLUSTER_KEY);
+    expect(finalized).toContain("att-dangling-1");
+    const row = getDb().get(
+      sql`SELECT state, terminal_outcome FROM task_creation_attempts WHERE id = 'att-dangling-1'`,
+    ) as Record<string, unknown>;
+    expect(row.state).toBe("batch_rejected");
+    expect(row.terminal_outcome).toBe("source_occurrence_deleted");
+  });
 });

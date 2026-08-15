@@ -107,6 +107,7 @@ import {
   type TaskPublicationDbClient,
 } from "../repositories/taskPublication.js";
 import { listPendingTaskCreationAttemptsForScopeWithClient } from "../repositories/taskCreationAttempts.js";
+import { listPendingAttemptsForMissingOccurrenceScopeWithClient } from "../repositories/taskCreationAttempts.js";
 import {
   withImmediateLifecycleTransaction,
   type LifecycleOutcome,
@@ -815,6 +816,28 @@ function frozenCandidateStillPublishable(
 export function repairStrandedOccurrenceAttempts(habitatId: string, clusterKey: string): string[] {
   const db = getDb();
   const finalized: string[] = [];
+
+  // Attempts whose occurrence row was CASCADE-DELETED (habitat replacement)
+  // are unreachable through the cluster scan below — the frozen aggregate
+  // snapshot is gone, so they can never publish. Finalize them directly.
+  if (listPendingAttemptsForMissingOccurrenceScopeWithClient(db).length > 0) {
+    const danglingOutcome = withImmediateLifecycleTransaction<string[]>((client) => {
+      const stillDangling = listPendingAttemptsForMissingOccurrenceScopeWithClient(client);
+      if (stillDangling.length === 0) return { outcome: "replayed" as const, value: [] };
+      const value: string[] = [];
+      for (const attempt of stillDangling) {
+        const result = completeAttemptWithClient(client, attempt.id, {
+          finalState: "batch_rejected",
+          terminalOutcome: "source_occurrence_deleted",
+          terminalResult: { outcome: "source_occurrence_deleted", attemptId: attempt.id },
+        });
+        if (result.outcome === "completed" || result.outcome === "no_op") value.push(attempt.id);
+      }
+      return { outcome: "applied" as const, value };
+    });
+    if (danglingOutcome.outcome === "applied") finalized.push(...danglingOutcome.value);
+  }
+
   for (const occurrence of listByCluster(habitatId, clusterKey)) {
     const pending = listPendingTaskCreationAttemptsForScopeWithClient(db, occurrence.id);
     if (pending.length === 0) continue;

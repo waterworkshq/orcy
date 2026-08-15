@@ -115,8 +115,17 @@ function readMigrationEntries(migrationFolder: string): MigrationEntry[] {
  */
 function applyStage(sqlite: SqliteDatabase, stage: MigrationEntry[]): void {
   if (stage.length === 0) return;
-  const tx = sqlite.transaction((list: MigrationEntry[]) => {
-    for (const entry of list) {
+  // BEGIN IMMEDIATE (not the default deferred transaction): the stage list
+  // was read BEFORE any lock, so a concurrently-started process could have
+  // committed these entries while we waited for the writer lock. Re-read the
+  // ledger INSIDE the reservation and skip anything already applied — the
+  // ledger has no unique constraint on hash, so a blind replay would
+  // duplicate rows and re-run non-idempotent rebuilds.
+  sqlite.exec("BEGIN IMMEDIATE");
+  try {
+    const stillPending = new Set(pendingEntries(sqlite, stage).map((e) => e.hash));
+    for (const entry of stage) {
+      if (!stillPending.has(entry.hash)) continue;
       for (const stmt of entry.statements) {
         sqlite.prepare(stmt).run();
       }
@@ -124,8 +133,15 @@ function applyStage(sqlite: SqliteDatabase, stage: MigrationEntry[]): void {
         .prepare("INSERT INTO __drizzle_migrations (hash, created_at) VALUES (?, ?)")
         .run(entry.hash, entry.when);
     }
-  });
-  tx(stage);
+    sqlite.exec("COMMIT");
+  } catch (err) {
+    try {
+      sqlite.exec("ROLLBACK");
+    } catch {
+      // already rolled back (defensive)
+    }
+    throw err;
+  }
 }
 
 function ensureLedgerTable(sqlite: SqliteDatabase): void {
