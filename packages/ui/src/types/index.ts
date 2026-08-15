@@ -166,6 +166,8 @@ import type {
   FindingTriageStatus,
   SuggestedBucket,
   ResolutionKind,
+  TriageActorType,
+  ActivationCause,
   TriageSettings,
   // Release types (v0.24)
   ReleaseType,
@@ -356,6 +358,8 @@ export type {
   FindingTriageStatus,
   SuggestedBucket,
   ResolutionKind,
+  TriageActorType,
+  ActivationCause,
   TriageSettings,
   // Release types (v0.24)
   ReleaseType,
@@ -1225,8 +1229,8 @@ export interface WikiCadence {
 // Triage view-model interfaces (v0.23 "Triage") — mirror REST route outputs
 // ---------------------------------------------------------------------------
 
-/** Attribution actor for triage write paths — derived from request auth context. */
-export type TriageActorType = "human" | "agent" | "remote_human" | "remote_orcy" | "remote_pod";
+// `TriageActorType` is re-exported from @orcy/shared above (includes "system"
+// for release-driven activation attribution).
 
 /** Finding triage record — mirrors GET /api/triage/findings response rows. */
 export interface FindingTriageView {
@@ -1246,6 +1250,26 @@ export interface FindingTriageView {
   /** @deprecated Read alias of {@link correctiveMissionId}; new code reads the canonical field. */
   triageMissionId: string | null;
   corroboratingPulseIds: string[];
+  /** Bounded investigation Mission identity (restored lifecycle). */
+  admittedByTriageMissionId: string | null;
+  /** Exact Task whose live claim authorizes agent routing. */
+  admittedByInvestigationTaskId: string | null;
+  /** Nullable predecessor link; traversal defines the complete lineage. */
+  recurrenceOfId: string | null;
+  /** Blocks automatic recurrence/agent mutation for ambiguous migrated lineage. */
+  legacyLineageRepairRequired: boolean;
+  /** Normalized immutable route fingerprint excluding actor/timestamps/Mission version. */
+  routeFingerprint: string | null;
+  /** Activation timestamp. */
+  activatedAt: string | null;
+  /** Activation actor type — "system" for release-driven activation. */
+  activatedByType: TriageActorType | null;
+  /** Activation actor id. */
+  activatedById: string | null;
+  /** Activation cause: manual or release. */
+  activationCause: ActivationCause | null;
+  /** Release identity when activationCause is "release". */
+  activationReleaseId: string | null;
   triagedByType: TriageActorType | null;
   triagedById: string | null;
   triagedAt: string | null;

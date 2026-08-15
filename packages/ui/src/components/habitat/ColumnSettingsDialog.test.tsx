@@ -280,7 +280,9 @@ describe("ColumnSettingsDialog — atomic save order", () => {
   });
 
   it("on 409 conflict: surfaces distinctly, reconciles, performs no writes", async () => {
-    mockColumnsReorder.mockRejectedValue(new ApiError("VERSION_CONFLICT", 409));
+    mockColumnsReorder.mockRejectedValue(
+      new ApiError("Version conflict", 409, { error: "Version conflict", code: "VERSION_CONFLICT" }),
+    );
 
     render(<ColumnSettingsDialog {...defaultProps} />);
 

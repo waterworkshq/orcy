@@ -259,6 +259,7 @@ describe("ExtractionFindingDetail", () => {
     mockGetFindingDetail.mockResolvedValue(proposedFinding);
     const conflictError = new ApiError("Finding decision version mismatch", 409, {
       error: "Finding decision version mismatch — another reviewer acted first",
+      code: "CONFLICT",
     });
     mockAcceptFinding.mockRejectedValue(conflictError);
 

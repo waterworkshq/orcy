@@ -1,13 +1,18 @@
 import React from "react";
-import type { FindingTriageView } from "../../types/index.js";
+import type { FindingTriageView, TriageActivationView } from "../../types/index.js";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "../../api/index.js";
 import { useFindingTriage, useActivateFinding } from "../../hooks/useTriage.js";
 
 interface DeferredBacklogProps {
   habitatId: string;
-  /** Called after a finding's corrective Mission is activated. */
-  onActivated?: (finding: FindingTriageView) => void;
+  /**
+   * Called after a finding's corrective Mission is activated, with the
+   * activation RESULT (post-activation Mission + every activated member of
+   * the group) — never the stale pre-activation row. N:1 group activation
+   * changes every member, so the full result is the only truthful payload.
+   */
+  onActivated?: (activation: TriageActivationView) => void;
 }
 
 interface BacklogGroup {
@@ -33,11 +38,34 @@ export function DeferredBacklog({ habitatId, onActivated }: DeferredBacklogProps
   const releaseQuery = useFindingTriage(habitatId, { bucket: "defer_to_release" });
 
   const isLoading = patchQuery.isLoading || releaseQuery.isLoading;
+  // A failed bucket query must surface as an error — rendering the empty
+  // state would silently hide a reachable backlog behind "No deferred
+  // findings".
+  const queryError = patchQuery.error ?? releaseQuery.error;
   const combined = [...(patchQuery.data ?? []), ...(releaseQuery.data ?? [])];
   const groups = groupByCorrectiveMission(combined);
 
   if (isLoading) {
     return <p className="text-sm text-muted-foreground">Loading deferred findings…</p>;
+  }
+
+  if (queryError) {
+    return (
+      <p className="text-sm text-red-600" role="alert">
+        Failed to load the deferred backlog:{" "}
+        {queryError instanceof Error ? queryError.message : "unknown error"}
+        <button
+          type="button"
+          className="ml-2 underline"
+          onClick={() => {
+            void patchQuery.refetch();
+            void releaseQuery.refetch();
+          }}
+        >
+          Retry
+        </button>
+      </p>
+    );
   }
 
   if (groups.length === 0) {
@@ -63,7 +91,7 @@ function MissionGateGroup({
   onActivated,
 }: {
   group: BacklogGroup;
-  onActivated?: (finding: FindingTriageView) => void;
+  onActivated?: (activation: TriageActivationView) => void;
 }) {
   const missionId = group.findings[0]?.correctiveMissionId ?? null;
   const missionQuery = useQuery({
@@ -77,6 +105,12 @@ function MissionGateGroup({
   const observedVersion = missionQuery.data?.mission.version;
   const busy = activate.isPending;
   const conflict = activate.isError ? (activate.error as Error) : null;
+  // A failed mission read (404/403/500) must surface with a retry path —
+  // otherwise Activate stays disabled forever behind "Waiting for the
+  // corrective mission read model…".
+  const missionLoadError = !!missionId && missionQuery.isError
+    ? ((missionQuery.error as Error)?.message ?? "unknown error")
+    : null;
 
   return (
     <div>
@@ -108,14 +142,19 @@ function MissionGateGroup({
                   if (!f.correctiveMissionId || observedVersion === undefined) return;
                   activate.mutate(
                     { id: f.id, expectedMissionVersion: observedVersion },
-                    { onSuccess: () => onActivated?.(f) },
+                    // Surface the activation RESULT — the post-activation
+                    // Mission plus every activated group member — instead of
+                    // the stale pre-activation row.
+                    { onSuccess: (activation) => onActivated?.(activation) },
                   );
                 }}
                 disabled={!canActivate || busy}
                 title={
                   canActivate
                     ? `Activate the existing corrective mission (observed version ${observedVersion})`
-                    : "Waiting for the corrective mission read model…"
+                    : missionLoadError
+                      ? "Could not load the corrective mission read model — retry below"
+                      : "Waiting for the corrective mission read model…"
                 }
                 className="shrink-0 rounded bg-primary px-2.5 py-1 text-xs font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
               >
@@ -125,6 +164,15 @@ function MissionGateGroup({
           );
         })}
       </ul>
+      {missionLoadError && (
+        <p className="mt-1 text-xs text-red-600" role="alert">
+          Could not load the corrective mission ({missionLoadError}). Activate
+          needs the observed Mission version for the server-side CAS.
+          <button type="button" className="ml-2 underline" onClick={() => missionQuery.refetch()}>
+            Retry mission load
+          </button>
+        </p>
+      )}
       {conflict && (
         <p className="mt-1 text-xs text-red-600" role="alert">
           {conflict.message}

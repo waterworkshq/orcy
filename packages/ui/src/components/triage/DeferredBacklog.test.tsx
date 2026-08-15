@@ -3,7 +3,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, cleanup, fireEvent, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import "@testing-library/jest-dom/vitest";
-import type { FindingTriageView } from "../../types/index.js";
+import type { FindingTriageView, TriageActivationView } from "../../types/index.js";
 
 const mockActivate = {
   mutate: vi.fn(),
@@ -13,21 +13,29 @@ const mockActivate = {
 };
 let mockFindings: FindingTriageView[] = [];
 let mockMissionVersion = 3;
+let mockBucketQueryError: Error | null = null;
+const mockFindingsRefetch = vi.fn();
 
 vi.mock("../../hooks/useTriage.js", () => ({
   useFindingTriage: (_habitatId: string, filters?: { bucket?: string }) => ({
     data: mockFindings.filter((f) => f.bucket === filters?.bucket),
     isLoading: false,
+    isError: mockBucketQueryError !== null,
+    error: mockBucketQueryError,
+    refetch: mockFindingsRefetch,
   }),
   useActivateFinding: () => mockActivate,
 }));
 
+let mockMissionGetError: Error | null = null;
+
 vi.mock("../../api/index.js", () => ({
   api: {
     missions: {
-      get: async (id: string) => ({
-        mission: { id, version: mockMissionVersion, releaseGateType: "patch" },
-      }),
+      get: async (id: string) => {
+        if (mockMissionGetError) throw mockMissionGetError;
+        return { mission: { id, version: mockMissionVersion, releaseGateType: "patch" } };
+      },
     },
   },
 }));
@@ -48,6 +56,16 @@ function makeFinding(overrides: Partial<FindingTriageView> = {}): FindingTriageV
     correctiveMissionId: "mission-1",
     triageMissionId: "mission-1",
     corroboratingPulseIds: [],
+    admittedByTriageMissionId: null,
+    admittedByInvestigationTaskId: null,
+    recurrenceOfId: null,
+    legacyLineageRepairRequired: false,
+    routeFingerprint: null,
+    activatedAt: null,
+    activatedByType: null,
+    activatedById: null,
+    activationCause: null,
+    activationReleaseId: null,
     triagedByType: "human",
     triagedById: "user-1",
     triagedAt: null,
@@ -72,6 +90,8 @@ describe("DeferredBacklog — manual activation of the EXISTING corrective Missi
     vi.clearAllMocks();
     mockFindings = [makeFinding()];
     mockMissionVersion = 3;
+    mockBucketQueryError = null;
+    mockMissionGetError = null;
     mockActivate.isPending = false;
     mockActivate.isError = false;
     mockActivate.error = null;
@@ -113,5 +133,57 @@ describe("DeferredBacklog — manual activation of the EXISTING corrective Missi
     await waitFor(() => expect(btn).toBeDisabled());
     fireEvent.click(btn);
     expect(mockActivate.mutate).not.toHaveBeenCalled();
+  });
+
+  it("renders a bucket-query error with a retry path — never the empty backlog", async () => {
+    mockBucketQueryError = new Error("Internal server error");
+    renderWithQC(<DeferredBacklog habitatId="hab-1" />);
+
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toContain("Failed to load the deferred backlog");
+    expect(alert.textContent).toContain("Internal server error");
+    // The empty state must NOT mask a failed query.
+    expect(screen.queryByText(/No deferred findings/i)).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: /^Retry$/i }));
+    expect(mockFindingsRefetch).toHaveBeenCalled();
+  });
+
+  it("renders a failed corrective-mission read with retry guidance — Activate is not left waiting forever", async () => {
+    mockMissionGetError = new Error("Mission not found");
+    renderWithQC(<DeferredBacklog habitatId="hab-1" />);
+
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toContain("Could not load the corrective mission");
+    expect(alert.textContent).toContain("Mission not found");
+    expect(alert.textContent).toContain("Retry mission load");
+
+    const btn = screen.getByRole("button", { name: /^Activate$/i });
+    await waitFor(() => expect(btn).toBeDisabled());
+    expect(btn.getAttribute("title")).toContain("Could not load the corrective mission");
+  });
+
+  it("onActivated receives the post-activation result — never the stale pre-activation row", async () => {
+    const onActivated = vi.fn();
+    // Post-activation group state parsed from the activate response: the
+    // Mission (gate cleared, version bumped) plus every member now in_progress.
+    const activationResult = {
+      mission: { id: "mission-1", version: 4 },
+      findings: [makeFinding({ status: "in_progress", activatedAt: "2026-08-15T00:00:00Z" })],
+    } as unknown as TriageActivationView;
+    mockActivate.mutate.mockImplementationOnce((_input: unknown, opts?: { onSuccess?: (a: TriageActivationView) => void }) => {
+      opts?.onSuccess?.(activationResult);
+    });
+
+    renderWithQC(<DeferredBacklog habitatId="hab-1" onActivated={onActivated} />);
+
+    const btn = await screen.findByRole("button", { name: /^Activate$/i });
+    await waitFor(() => expect(btn).toBeEnabled());
+    fireEvent.click(btn);
+
+    await waitFor(() => expect(onActivated).toHaveBeenCalledTimes(1));
+    expect(onActivated).toHaveBeenCalledWith(activationResult);
+    // The activated members arrive post-activation, not as the cached triaged row.
+    expect(activationResult.findings[0].status).toBe("in_progress");
   });
 });

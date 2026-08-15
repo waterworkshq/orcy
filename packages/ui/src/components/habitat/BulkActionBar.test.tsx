@@ -1,6 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { BulkActionBar } from "./BulkActionBar.js";
+import { ApiError } from "../../api/transport.js";
+import { notify } from "../../lib/toast.js";
 import type { TaskPriority } from "../../types/index.js";
 
 // Mock the API
@@ -151,6 +153,61 @@ describe("BulkActionBar", () => {
       await waitFor(() => {
         expect(mockClearFeatureSelection).toHaveBeenCalled();
         expect(mockSetBulkSelectMode).toHaveBeenCalledWith(false);
+      });
+    });
+
+    it("surfaces the SERVER message for a finding-link guard 409 — never the conflict toast", async () => {
+      const serverMessage =
+        "Mission is linked as investigation or corrective work by one or more finding triage records and cannot be deleted; archive is the reversible alternative.";
+      mockDelete.mockImplementation((id: string) =>
+        id === "feat-1"
+          ? Promise.reject(
+              new ApiError(serverMessage, 409, { error: serverMessage, code: "MISSION_HAS_FINDING_LINKS" }),
+            )
+          : Promise.resolve(undefined),
+      );
+      render(<BulkActionBar habitatId="board-1" />);
+
+      const operationSelect = screen.getAllByRole("combobox")[0];
+      fireEvent.change(operationSelect, { target: { value: "delete" } });
+
+      const buttons = screen.getAllByRole("button");
+      fireEvent.click(buttons.find((b) => b.textContent?.includes("Delete"))!);
+
+      await waitFor(() => {
+        expect(notify.warning).toHaveBeenCalled();
+      });
+      const warningCalls = vi.mocked(notify.warning).mock.calls.map((c) => String(c[0]));
+      // The failure path carries the server remedy text…
+      expect(warningCalls.some((m) => m.includes("1 failed"))).toBe(true);
+      expect(warningCalls.some((m) => m.includes(serverMessage))).toBe(true);
+      // …and the misleading "conflicts: refreshed to the latest" toast never fires.
+      expect(warningCalls.some((m) => m.includes("conflict"))).toBe(false);
+    });
+
+    it("still reports conflicts for a genuine VERSION_CONFLICT 409 during bulk delete", async () => {
+      mockDelete.mockImplementation((id: string) =>
+        id === "feat-1"
+          ? Promise.reject(
+              new ApiError("Version conflict", 409, {
+                error: "Version conflict",
+                code: "VERSION_CONFLICT",
+              }),
+            )
+          : Promise.resolve(undefined),
+      );
+      render(<BulkActionBar habitatId="board-1" />);
+
+      const operationSelect = screen.getAllByRole("combobox")[0];
+      fireEvent.change(operationSelect, { target: { value: "delete" } });
+
+      const buttons = screen.getAllByRole("button");
+      fireEvent.click(buttons.find((b) => b.textContent?.includes("Delete"))!);
+
+      await waitFor(() => {
+        expect(notify.warning).toHaveBeenCalledWith(
+          "1 conflict: refreshed to the latest.",
+        );
       });
     });
   });
