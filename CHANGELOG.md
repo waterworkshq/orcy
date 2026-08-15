@@ -2,6 +2,37 @@
 
 > Older releases: see [git tags](https://github.com/waterworkshq/orcy/tags) and [GitHub Releases](https://github.com/waterworkshq/orcy/releases).
 
+## 0.40.1 — 2026-08-15
+
+### Documentation
+
+#### correct the setTriageMissionId writer-inventory notes ([`b1008c2`](https://github.com/waterworkshq/orcy/commit/b1008c20fccd5ddb99c00e9b55b52f086a4a6ec3))
+
+
+
+
+- Update the test-caller count and describe the activation writer accurately.
+
+
+
+
+#### add v0.40.1 operator notes ([`1450e60`](https://github.com/waterworkshq/orcy/commit/1450e6065c95849ac872b63b8a20fd3d0e1a9ba8))
+
+
+
+### Features
+
+#### retire the legacy finding PATCH adapter ([`3875f89`](https://github.com/waterworkshq/orcy/commit/3875f8971c994351615c93cad5d3ce2956cf5854))
+
+
+
+
+- The compatibility window declared in v0.40.0 is closed: every legacy PATCH shape now receives one typed retirement response with zero writes and deprecation telemetry, the body is never parsed, and the four lifecycle command endpoints remain the only finding mutation surface. The retained link adapter and its single-write primitive are deleted along with every shape-guard that served them, the test-only service seams are migrated to command-kernel equivalents, and the writer inventory now shows only the lifecycle kernel, admission participant, and release kernel as production write authority. Old clients must migrate to the route, activate, resolve, and wontfix endpoints.
+
+
+
+
+
 ## 0.40.0 — 2026-08-15
 
 ### Bug Fixes
@@ -660,24 +691,3 @@
 ### Documentation
 
 #### add v0.39.8 operator notes ([`a1b9da6`](https://github.com/waterworkshq/orcy/commit/a1b9da6242d6fbc63c1507b644b53c9835587e49))
-
-
-
-## 0.39.7 — 2026-08-13
-
-### Bug Fixes
-
-#### validate and emit structured automation rule draft recommendations ([`6313db7`](https://github.com/waterworkshq/orcy/commit/6313db73bd9d77b395c1629274933b6cfc6a29ce))
-
-
-
-
-- Validate rule recommendation payloads against the shared automation rule draft schema, emit structured rule drafts upon triage pattern detection, and render draft previews in the finding view.
-
-
-
-
-
-### Documentation
-
-#### add v0.39.7 operator notes ([`c6f5f36`](https://github.com/waterworkshq/orcy/commit/c6f5f36644ab58d446d6f33373657efccb4a4b4f))
