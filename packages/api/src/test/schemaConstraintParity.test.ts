@@ -1,13 +1,13 @@
 /**
  * Drizzle-declaration ↔ physical-schema constraint parity.
  *
- * The hand-written migration SQL (0064–0069) is the migration source of
+ * The hand-written migration SQL (0064–0070) is the migration source of
  * truth, but the Drizzle exports are the `drizzle-kit generate` baseline —
  * any constraint that exists in one and not the other is drift: generate
  * would either drop it or emit a spurious diff for it. This test builds a
  * PRODUCTION-shaped database (the full journal through the additive
  * watermark, the 0068 enforcement rebuild applied the way the staged runner
- * applies it, then 0069) with better-sqlite3 and compares, per in-scope
+ * applies it, then 0069+) with better-sqlite3 and compares, per in-scope
  * table, the physical constraints (PRAGMA index_list / index_info /
  * table_info / foreign_key_list + CHECK constraints parsed from
  * sqlite_master) against the Drizzle table's declared keys.
@@ -65,7 +65,7 @@ import {
 const PACKAGE_ROOT = join(import.meta.dirname, "..", "..");
 const DRIZZLE_DIR = join(PACKAGE_ROOT, "drizzle");
 
-/** Tables created or rebuilt by migrations 0064–0069, with their exports. */
+/** Tables created or rebuilt by migrations 0064–0070, with their exports. */
 const SCOPED_TABLES: readonly { table: SQLiteTable; name: string }[] = [
   { table: findingTriage, name: "finding_triage" },
   { table: triageResolutions, name: "triage_resolutions" },
@@ -106,7 +106,7 @@ function applyMigrationSql(db: Database.Database, sqlText: string): void {
 /**
  * Full journal through the additive watermark, then the enforcement
  * migration applied exactly as the staged runner would (clean attestation
- * with the LIVE preflight constants), then 0069. Dataless: the anomaly
+ * with the LIVE preflight constants), then 0069+. Dataless: the anomaly
  * guards count anomalies, and an empty database is clean by definition.
  */
 function buildProductionShapeDb(): Database.Database {
@@ -359,7 +359,7 @@ function drizzleCheckBodies(table: SQLiteTable): string[] {
 // The parity assertions
 // ---------------------------------------------------------------------------
 
-describe("Drizzle ↔ migration SQL constraint parity (0064–0069 tables)", () => {
+describe("Drizzle ↔ migration SQL constraint parity (0064–0070 tables)", () => {
   const db = buildProductionShapeDb();
 
   it("built a production-shaped database with enforcement applied", () => {

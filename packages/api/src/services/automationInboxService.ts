@@ -340,9 +340,14 @@ function recoverStaleDelivery(input: {
 
 /** Rebuild the normalized trigger from the FROZEN payload at consumption time. */
 function rebuildTrigger(inbox: AutomationEventInboxRow) {
+  const payload = inbox.payload ?? {};
+  const payloadEventId = typeof payload.eventId === "string" ? payload.eventId : "";
   const normalized = normalizeEventTrigger(inbox.habitatId, {
     type: inbox.eventType,
-    data: inbox.payload,
+    data: {
+      ...payload,
+      eventId: payloadEventId.length > 0 ? payloadEventId : inbox.eventId,
+    },
   });
   if (!normalized) return null;
   return {
@@ -395,6 +400,7 @@ export async function drainAutomationInbox(
 
     let leased: AutomationRuleDeliveryRow;
     let fence: string;
+    let resumeAfterReservation = false;
 
     // Stale lease: classify + (re-lease | mark attention) under ONE
     // `BEGIN IMMEDIATE` reservation (FU2 TOCTOU fix).
@@ -424,6 +430,7 @@ export async function drainAutomationInbox(
       // is superseded and can no longer terminalize or forge proof.
       leased = recovery.lease.delivery;
       fence = recovery.lease.fence;
+      resumeAfterReservation = true;
     } else {
       const lease = deliveryRepo.leaseDelivery({
         deliveryId: delivery.id,
@@ -495,6 +502,7 @@ export async function drainAutomationInbox(
           },
           inbox: { id: inbox.id, eventType: inbox.eventType, eventId: inbox.eventId },
           revision,
+          resumeAfterReservation,
         },
       });
       count(disposition.kind === "executed" ? `executed:${disposition.outcome}` : disposition.kind);
@@ -526,10 +534,11 @@ export interface DeliverCompletionOutboxOptions {
  * Deliver pending durable automation-run completion rows. Each row was
  * persisted in the crash-atomic terminal bundle; delivering here (at the end
  * of every drain, which covers boot + interval + eager passes) fires the
- * in-process `notifyAutomationRunCompleted` subscriber hooks exactly once and
- * marks the row delivered. A crash mid-delivery leaves the row undelivered
- * and the next drain retries it; the workflow-gate consumer is idempotent
- * (CAS on satisfied), so a retried delivery converges.
+ * in-process `notifyAutomationRunCompleted` subscriber hooks at least once
+ * and marks the row delivered. A crash mid-delivery leaves the row
+ * undelivered and the next drain retries it; consumers must be CAS-idempotent
+ * (the workflow-gate consumer CASes on satisfied), so a retried delivery
+ * converges.
  *
  * Rows whose run row is gone (live rule deleted after terminalization) are
  * marked delivered-with-error — there is nothing left to notify.

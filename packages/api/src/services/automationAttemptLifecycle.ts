@@ -129,6 +129,12 @@ export interface AutomationFrozenAttemptContext {
   inbox: AutomationFrozenInboxRef;
   /** The FULL immutable executable revision — never the mutable live rule. */
   revision: AutomationRuleRevision;
+  /**
+   * Stale-lease resume: admission guards already passed on the first lease.
+   * Skip target/cooldown/rate/condition/causal/kill-switch skips so remaining
+   * actions can finish; still reserve the run row and execute unproved actions.
+   */
+  resumeAfterReservation?: boolean;
 }
 
 /**
@@ -714,7 +720,8 @@ function withImmediateTransaction<T>(fn: (db: AutomationDbClient) => T): T {
  *   1. the delivery fence CAS → `terminal`;
  *   2. the run `running → terminal` transition (when a run row exists);
  *   3. the durable completion outbox row (dedup on `run_id`) — so the
- *      completion subscriber event survives crashes and replays exactly once;
+ *      completion subscriber event survives crashes and replays at least once
+ *      (consumers must be CAS-idempotent);
  *   4. the inbox terminality recompute.
  *
  * A crash can therefore no longer land between these former autocommits
@@ -886,20 +893,22 @@ async function attemptFrozenRuleDelivery(
     return { kind: "skipped", reason, runId: run?.id ?? null };
   };
 
+  const resumeReserved = frozen.resumeAfterReservation === true;
+
   // Step 1 — target validation.
   const targetCheck = validateTarget(input);
-  if (!targetCheck.valid) {
+  if (!resumeReserved && !targetCheck.valid) {
     return skipDelivery("missing_target", targetCheck.metadata ?? {});
   }
 
   // Step 2 — cooldown (fingerprint over the revision's stable rule lineage).
-  if (inCooldown(rule, input, nowIso)) {
+  if (!resumeReserved && inCooldown(rule, input, nowIso)) {
     return skipDelivery("cooldown", { guard: "cooldown" });
   }
 
   // Step 3 — admitted-attempt hourly cap.
   const admitted = runRepo.countAdmittedAttemptsInWindow(rule.id, nowIso);
-  if (admitted >= rule.maxRunsPerHour) {
+  if (!resumeReserved && admitted >= rule.maxRunsPerHour) {
     return skipDelivery("rate_limited", { guard: "rate_limited" });
   }
 
@@ -930,19 +939,19 @@ async function attemptFrozenRuleDelivery(
     }),
   );
   const conditionResult = evaluateCondition(rule.condition, evalCtx);
-  if (!conditionResult.matched) {
+  if (!resumeReserved && !conditionResult.matched) {
     return skipDelivery("condition_false", { conditionResult });
   }
 
   const causalCheck = checkCausalChain(rule.id, trigger.causalContext);
-  if (causalCheck.cycle) {
+  if (!resumeReserved && causalCheck.cycle) {
     return skipDelivery("causal_cycle", { conditionResult });
   }
-  if (causalCheck.depthExceeded) {
+  if (!resumeReserved && causalCheck.depthExceeded) {
     return skipDelivery("causal_depth_limit", { conditionResult });
   }
 
-  if (!shouldExecuteActions(habitatId)) {
+  if (!resumeReserved && !shouldExecuteActions(habitatId)) {
     return skipDelivery("disabled", { conditionResult });
   }
 
@@ -1008,7 +1017,10 @@ async function attemptFrozenRuleDelivery(
       deliveryId: frozen.delivery.id,
       fence: frozen.delivery.fence,
       state: result.status === "succeeded" ? "proved" : "failed",
-      receipt: (result.result ?? null) as Record<string, unknown> | null,
+      receipt:
+        result.status === "succeeded"
+          ? ((result.result ?? {}) as Record<string, unknown>)
+          : ((result.result ?? null) as Record<string, unknown> | null),
       terminalDisposition: result.status,
       now: nowIso,
     });

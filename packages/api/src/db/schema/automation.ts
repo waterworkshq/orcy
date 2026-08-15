@@ -218,6 +218,10 @@ export const automationDeliveryActionCheckpoints = sqliteTable(
       "automation_delivery_checkpoints_state_check",
       sql`state IN ('pending', 'proved', 'failed')`,
     ),
+    check(
+      "automation_delivery_checkpoints_proved_receipt_check",
+      sql`(state != 'proved') OR (receipt IS NOT NULL AND proved_at IS NOT NULL)`,
+    ),
   ],
 );
 
@@ -247,9 +251,10 @@ export const automationDeliveryDispositions = sqliteTable(
 /**
  * Durable Automation rule-run completion outbox (FU2). One row per rule run,
  * written in the SAME immediate transaction that terminalizes a delivery; a
- * drain/boot pass delivers undelivered rows (retry-on-drain) so the
- * completion subscriber hook is exactly-once even across crashes. `UNIQUE
- * (run_id)` is the dedup key.
+ * drain/boot pass delivers undelivered rows (retry-on-drain). Delivery is
+ * at-least-once: a crash between the hook and the delivered CAS can replay.
+ * Consumers must be idempotent (CAS on the satisfied/delivered predicate).
+ * `UNIQUE (run_id)` is the outbox-row dedup key.
  */
 export const automationRunCompletionOutbox = sqliteTable(
   "automation_run_completion_outbox",

@@ -2491,6 +2491,7 @@ entries are:
 | `0027`–`0053` | `0027_pod_bridge` … `0053_plugin_quarantine_kind_safe_reset` | Post-consolidation migrations, each registered exactly once in dependency order. |
 | `0054`–`0067` | `0054_task_publication.sql` … `0067_release_projection_epochs.sql` | Later hand-written semantic migrations (through the Finding Triage additive watermark). |
 | `0068` | `0068_finding_triage_lifecycle_enforcement.sql` | **Staged enforcement entry** — applied only by the staged production runner after a clean versioned preflight attestation; its internal CHECK guard aborts any attempt to apply it without one. |
+| `0069`–`0070` | `0069_automation_completion_outbox.sql`, `0070_automation_checkpoint_proved_receipt.sql` | Post-enforcement additive entries. The staged runner applies them in Stage 2 after `0068`. Tests skip `0068` by tag but still apply these. |
 
 The gap `0003`–`0026` is **intentional**. Those migrations were consolidated
 into `0000_schema.sql` at the boundary commit and are deliberately NOT in the

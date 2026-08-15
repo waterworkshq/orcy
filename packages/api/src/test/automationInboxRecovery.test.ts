@@ -552,4 +552,136 @@ describe("stale-lease proof-aware recovery + operator dispositions", () => {
     );
     expect(renderedTemplates(h.id)).toEqual([]);
   });
+
+  it("DISCRIMINATOR: resume after partial proof ignores a later kill switch and finishes remaining actions", async () => {
+    const h = setupHabitat();
+    ruleRepo.createAutomationRule({
+      habitatId: h.id,
+      name: "Recovery Rule",
+      priority: 0,
+      trigger: { type: "event", eventType: "release.shipped" } as never,
+      condition: { type: "always" } as never,
+      actions: [
+        notifyAction("FIRST"),
+        { type: "mark_risk", level: "high", reason: "resume leftover" },
+      ] as never,
+      cooldownSeconds: 0,
+      maxRunsPerHour: 100,
+      enabled: true,
+      createdBy: "test",
+    });
+    admitReleaseShippedEventToInbox({
+      habitatId: h.id,
+      eventId: "rel-resume-kill",
+      payload: { eventId: "rel-resume-kill" },
+    });
+    const inboxId = deliveryRepo.listInboxEntriesForHabitat(h.id)[0].id;
+    const deliveryId = firstDeliveryId(inboxId);
+
+    const lease = crashAfterLease(deliveryId, T0, 60_000);
+    crashAfterProving(deliveryId, lease.fence, 0, { eventId: "evt-first" }, T0);
+    simulateCrashedNotifyEffect(h.id, "FIRST");
+
+    vi.stubEnv("ORCY_AUTOMATION_EXECUTE_ACTIONS", "false");
+    const report = await drainAutomationInbox({ now: T1 });
+    expect(report.outcomes["stale_resume"]).toBe(1);
+    expect(report.outcomes["skipped"]).toBeUndefined();
+    expect(deliveryRepo.getDeliveryById(deliveryId)!.terminalDisposition).not.toBe(
+      "skipped:disabled",
+    );
+    expect(renderedTemplates(h.id)).toEqual(["FIRST"]);
+  });
+
+  it("recordCheckpointOutcome cannot prove or fail a checkpoint owned by another delivery", async () => {
+    const h = setupHabitat();
+    createReleaseRule(h.id, { templates: ["ONLY"] });
+    admitReleaseShippedEventToInbox({
+      habitatId: h.id,
+      eventId: "rel-ckpt-a",
+      payload: { eventId: "rel-ckpt-a" },
+    });
+    admitReleaseShippedEventToInbox({
+      habitatId: h.id,
+      eventId: "rel-ckpt-b",
+      payload: { eventId: "rel-ckpt-b" },
+    });
+    const deliveries = deliveryRepo
+      .listInboxEntriesForHabitat(h.id)
+      .flatMap((e) => deliveryRepo.listDeliveriesForInbox(e.id));
+    expect(deliveries).toHaveLength(2);
+    const [a, b] = deliveries;
+    const leaseA = crashAfterLease(a.id, T0, 60_000);
+    const leaseB = crashAfterLease(b.id, T0, 60_000);
+    const proved = crashAfterProving(a.id, leaseA.fence, 0, { eventId: "owned-by-a" }, T0);
+
+    const hijack = deliveryRepo.recordCheckpointOutcome({
+      checkpointId: proved.id,
+      deliveryId: b.id,
+      fence: leaseB.fence,
+      state: "failed",
+      now: T1,
+    });
+    expect(hijack).toBe(false);
+    const still = deliveryRepo.listCheckpointsForDelivery(a.id);
+    expect(still[0].state).toBe("proved");
+    expect(still[0].receipt).toEqual({ eventId: "owned-by-a" });
+  });
+
+  it("refuses to prove a checkpoint without a receipt", async () => {
+    const h = setupHabitat();
+    createReleaseRule(h.id, { templates: ["ONLY"] });
+    admitReleaseShippedEventToInbox({
+      habitatId: h.id,
+      eventId: "rel-no-receipt",
+      payload: { eventId: "rel-no-receipt" },
+    });
+    const deliveryId = firstDeliveryId(deliveryRepo.listInboxEntriesForHabitat(h.id)[0].id);
+    const lease = crashAfterLease(deliveryId, T0, 60_000);
+    const delivery = deliveryRepo.getDeliveryById(deliveryId)!;
+    const revision = revisionRepo.getRuleRevisionById(delivery.ruleRevisionId)!;
+    const checkpoint = deliveryRepo.ensureCheckpointRow({
+      deliveryId,
+      actionIndex: 0,
+      actionKey: deliveryRepo.computeActionKey(revision.actions[0]),
+      actionType: String(revision.actions[0].type),
+      now: T0,
+    });
+    expect(
+      deliveryRepo.recordCheckpointOutcome({
+        checkpointId: checkpoint.id,
+        deliveryId,
+        fence: lease.fence,
+        state: "proved",
+        now: T0,
+      }),
+    ).toBe(false);
+    expect(deliveryRepo.listCheckpointsForDelivery(deliveryId)[0].state).toBe("pending");
+  });
+
+  it("frozen inbox eventId is the trigger identity when the payload omits eventId", async () => {
+    const h = setupHabitat();
+    const rule = createReleaseRule(h.id, { cooldownSeconds: 3600, templates: ["ONLY"] });
+    const { run } = runRepo.startRuleRun({
+      ruleId: rule.id,
+      habitatId: h.id,
+      triggerType: "release.shipped",
+      triggerEventId: "rel-frozen-id",
+      targetType: "habitat",
+      targetId: h.id,
+      now: T0,
+    });
+    runRepo.finishRuleRun(run.id, { status: "succeeded", finishedAt: T0 });
+
+    admitReleaseShippedEventToInbox({
+      habitatId: h.id,
+      eventId: "rel-frozen-id",
+      payload: { version: "1.0.0" },
+    });
+    const inboxId = deliveryRepo.listInboxEntriesForHabitat(h.id)[0].id;
+    const deliveryId = firstDeliveryId(inboxId);
+    const report = await drainAutomationInbox({ now: T1 });
+    expect(report.outcomes["skipped"]).toBe(1);
+    expect(deliveryRepo.getDeliveryById(deliveryId)!.terminalDisposition).toBe("skipped:cooldown");
+    expect(renderedTemplates(h.id)).toEqual([]);
+  });
 });

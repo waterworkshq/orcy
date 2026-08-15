@@ -696,6 +696,7 @@ export function recordCheckpointOutcome(input: {
   now: string;
 }): boolean {
   const db = getDb();
+  if (input.state === "proved" && input.receipt == null) return false;
   const result = db.run(sql`
     UPDATE automation_delivery_action_checkpoints
     SET state = ${input.state},
@@ -704,6 +705,7 @@ export function recordCheckpointOutcome(input: {
         proved_at = ${input.state === "proved" ? input.now : null},
         updated_at = ${input.now}
     WHERE id = ${input.checkpointId}
+      AND delivery_id = ${input.deliveryId}
       AND EXISTS (
         SELECT 1 FROM automation_rule_deliveries
         WHERE id = ${input.deliveryId} AND lease_fence = ${input.fence}
@@ -717,10 +719,12 @@ export function recordCheckpointOutcome(input: {
     .select({
       state: automationDeliveryActionCheckpoints.state,
       updatedAt: automationDeliveryActionCheckpoints.updatedAt,
+      deliveryId: automationDeliveryActionCheckpoints.deliveryId,
     })
     .from(automationDeliveryActionCheckpoints)
     .where(eq(automationDeliveryActionCheckpoints.id, input.checkpointId))
     .get();
+  if (probe?.deliveryId !== input.deliveryId) return false;
   if (probe == null || probe.state !== input.state || probe.updatedAt !== input.now) return false;
   const fenceRow = db
     .select({ fence: automationRuleDeliveries.leaseFence })
