@@ -160,7 +160,7 @@ describe("automation inbox operator routes (inject)", () => {
     expect(res.json().code).toBe("CONFLICT");
   });
 
-  it("inbox listing paginates with limit/offset so older entries stay reachable", async () => {
+  it("inbox listing paginates with limit/offset (paging mechanics)", async () => {
     const h = setupHabitat();
     createReleaseRule(h.id);
     admit(h.id, "rel-page-1");

@@ -1191,7 +1191,7 @@ describe("Legacy repair — derived-state validation", () => {
     expect(child.legacy_lineage_repair_required).toBe(0);
   });
 
-  it("DISCRIMINATOR: non-canonical cutoff (slash date) is normalized to ISO-8601 UTC before digest and persist", () => {
+  it("DISCRIMINATOR: a non-canonical offset timestamp cutoff is normalized to ISO-8601 UTC before digest and persist", () => {
     seedFinding({ id: "ft-cut-1", status: "resolved", clusterKey: "cut", findingKind: "bug", createdAt: "2026-01-01T00:00:00.000Z" });
 
     const input: EvidenceBaselinedRootInput = {

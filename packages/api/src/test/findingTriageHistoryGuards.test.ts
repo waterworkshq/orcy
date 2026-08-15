@@ -237,8 +237,8 @@ describe("DELETE /pulse/:id — lifecycle evidence guard", () => {
     expect(res.statusCode).toBe(204);
     expect(pulseRepo.getPulseById(unrelated.id)).toBeNull();
 
-    // The malformed row's own references still block their pulses (409), and
-    // the scan itself no longer throws.
+    // Once the row is repaired to valid JSON, its references block their
+    // pulses (409) — and the scan still doesn't throw.
     const referenced = seedPlainPulse("Referenced pulse");
     getDb()
       .update(findingTriage)

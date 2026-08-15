@@ -1804,8 +1804,9 @@ describe("FU6 — legacy first-link actor binding + atomic single write", () => 
 
     // Simulate a lineage repair committing after the link: the row is now
     // flagged for repair. A same-link retry must STILL replay — the replay
-    // contract wins over lineage eligibility, in the outer path AND inside
-    // the writer reservation.
+    // contract wins over lineage eligibility. (This deterministic test
+    // exercises the OUTER replay short-circuit; the in-transaction replay
+    // re-check is only reachable under true concurrency.)
     getDb()
       .update(findingTriage)
       .set({ legacyLineageRepairRequired: 1, updatedAt: new Date().toISOString() })
