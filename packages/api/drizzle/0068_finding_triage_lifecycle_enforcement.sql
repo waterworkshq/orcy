@@ -188,6 +188,16 @@ SELECT
 FROM finding_triage_evidence_enforcement_backup e
 JOIN finding_triage ft ON ft.id = e.finding_triage_id;
 --> statement-breakpoint
+-- Preserve orphaned evidence rows (referenced finding missing — only
+-- possible where foreign-key enforcement was off historically): the JOIN
+-- above filters them out and the DROP below would discard them
+-- irreversibly. Normally empty; anything captured needs explicit
+-- remediation. (0068 runs before 0073, so preservation must happen HERE.)
+CREATE TABLE IF NOT EXISTS finding_triage_evidence_orphans_0068 AS
+SELECT e.*
+FROM finding_triage_evidence_enforcement_backup e
+WHERE NOT EXISTS (SELECT 1 FROM finding_triage ft WHERE ft.id = e.finding_triage_id);
+--> statement-breakpoint
 DROP TABLE finding_triage_evidence_enforcement_backup;
 --> statement-breakpoint
 -- Recreate every finding_triage index dropped with the old table.
