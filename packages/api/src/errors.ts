@@ -2,6 +2,13 @@
  * Base application error with HTTP status, error code, and optional details.
  */
 export class AppError extends Error {
+  /**
+   * Retry hint (ms) for retryable statuses (503 busy). When set, the error
+   * handler emits a `Retry-After` header so clients can honor backoff —
+   * see `bootstrapReleaseWithEpoch` contention handling.
+   */
+  public retryAfterMs?: number;
+
   constructor(
     public statusCode: number,
     public code: string,
@@ -23,6 +30,7 @@ export const ErrorCodes = {
   UNAUTHORIZED: "UNAUTHORIZED",
   FORBIDDEN: "FORBIDDEN",
   INTERNAL_ERROR: "INTERNAL_ERROR",
+  SERVICE_UNAVAILABLE: "SERVICE_UNAVAILABLE",
   RATE_LIMITED: "RATE_LIMITED",
   TOKEN_EXPIRED: "TOKEN_EXPIRED",
   INVALID_CREDENTIALS: "INVALID_CREDENTIALS",

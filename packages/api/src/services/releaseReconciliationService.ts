@@ -64,7 +64,7 @@ import * as habitatRepo from "../repositories/habitat.js";
 import * as teamMemberRepo from "../repositories/teamMember.js";
 import * as pulseRepo from "../repositories/pulse.js";
 import { sseBroadcaster } from "../sse/broadcaster.js";
-import { badRequest } from "../errors.js";
+import { badRequest, AppError, ErrorCodes } from "../errors.js";
 import {
   withImmediateLifecycleTransaction,
   runReleaseActivationOnReservedClient,
@@ -374,10 +374,15 @@ export function bootstrapReleaseWithEpoch(
   }, db);
 
   if (outcome.outcome === "applied" || outcome.outcome === "replayed") return outcome.value;
-  // busy — surface as a typed busy-shaped throw-free retry signal
+  // busy — a typed 503 with Retry-After (emitted by the error handler), not a
+  // plain 500-flavored error; every release-trigger entry point funnels here.
   if (outcome.outcome === "busy") {
-    const err = new Error(`release bootstrap contention; retry after ${outcome.retryAfterMs}ms`);
-    (err as { retryAfterMs?: number }).retryAfterMs = outcome.retryAfterMs;
+    const err = new AppError(
+      503,
+      ErrorCodes.SERVICE_UNAVAILABLE,
+      `release bootstrap contention; retry after ${outcome.retryAfterMs}ms`,
+    );
+    err.retryAfterMs = outcome.retryAfterMs;
     throw err;
   }
   throw new Error(`release bootstrap conflict: ${outcome.reason}`);
@@ -938,17 +943,14 @@ function runDeadlineNotificationProjection(release: Release): number {
   return tx.value;
 }
 
-function runActivationNotificationProjection(
-  release: Release,
-  activatedFindingCount: number,
-): void {
+function runActivationNotificationProjection(release: Release, counts: EpochCounts): void {
   const tx = withImmediateLifecycleTransaction((client) => {
     const proj = projRepo.getProjectionWithClient(client, release.id, "activation_notification");
     if (!proj) throw new Error(`activation_notification projection missing for ${release.id}`);
     if (proj.state === "completed") return { outcome: "replayed" as const, value: null };
     const now = new Date().toISOString();
     let eventId: string | null = null;
-    if (activatedFindingCount > 0) {
+    if (counts.activatedFindingCount > 0) {
       const existing = findReleaseNotificationEvent(
         client,
         release.habitatId,
@@ -970,7 +972,10 @@ function runActivationNotificationProjection(
               version: release.version,
               releaseType: release.releaseType,
               promotedCount: 0,
-              activatedMissionCount: activatedFindingCount,
+              // Mission-count fields count activated GROUPS — a corrective
+              // Mission can carry multiple Findings, so the finding count
+              // overstates the mission count.
+              activatedMissionCount: counts.activatedGroups,
             },
             createdByType: "system",
             createdById: "release",
@@ -984,7 +989,7 @@ function runActivationNotificationProjection(
     projRepo.completeProjectionWithClient(
       client,
       proj.id,
-      { notificationEventId: eventId, activatedFindingCount },
+      { notificationEventId: eventId, activatedFindingCount: counts.activatedFindingCount },
       now,
     );
     return { outcome: "applied" as const, value: null };
@@ -1007,7 +1012,7 @@ function runRetrospectivePulseProjection(
     const retrospectiveBody = [
       `Release ${release.version} (${release.releaseType}) shipped via ${release.detectedBy}.`,
       `- Promoted findings: 0`,
-      `- Gates resolved (missions activated): ${counts.activatedFindingCount}`,
+      `- Gates resolved (missions activated): ${counts.activatedGroups}`,
       `- Corrective missions created: 0`,
       `- Skipped (already in progress): 0`,
       `- Errored (promoted but mission failed): 0`,
@@ -1029,7 +1034,7 @@ function runRetrospectivePulseProjection(
         releaseType: release.releaseType,
         detectedBy: release.detectedBy,
         promotedCount: 0,
-        activatedMissionCount: counts.activatedFindingCount,
+        activatedMissionCount: counts.activatedGroups,
         createdMissionCount: 0,
         skippedCount: 0,
         erroredCount: 0,
@@ -1067,7 +1072,7 @@ async function runReleaseShippedProjection(
       releaseType: release.releaseType,
       detectedBy: release.detectedBy,
       promotedCount: 0,
-      activatedMissionCount: counts.activatedFindingCount,
+      activatedMissionCount: counts.activatedGroups,
       createdMissionCount: 0,
       skippedCount: 0,
       erroredCount: 0,
@@ -1148,7 +1153,7 @@ export async function reconcileReleaseProjections(
       } else if (kind === "deadline_notification") {
         missedDeadlineCount = runDeadlineNotificationProjection(release);
       } else if (kind === "activation_notification") {
-        runActivationNotificationProjection(release, counts!.activatedFindingCount);
+        runActivationNotificationProjection(release, counts!);
       } else if (kind === "retrospective_pulse") {
         runRetrospectivePulseProjection(release, counts!, missedDeadlineCount);
       } else {
@@ -1177,7 +1182,7 @@ export async function reconcileReleaseProjections(
     erroredCount: 0,
     missedDeadlineCount,
     cappedCount: counts.cappedFindingCount,
-    activatedMissionCount: counts.activatedFindingCount,
+    activatedMissionCount: counts.activatedGroups,
     incompleteProjections,
   };
 }
