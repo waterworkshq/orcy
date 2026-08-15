@@ -347,9 +347,9 @@ export function findByBucket(habitatId: string, bucket: SuggestedBucket): Findin
 // | `setBucket`                     | NONE (FU13) — same                       | TEST-ONLY. |
 // | `setTargetRelease`              | NONE                                    | Superseded by Mission release gates. |
 // | `setTargetReleaseType`          | NONE                                    | Superseded by Mission release gates. |
-// | `setTriageMissionId`            | NONE — retained ONLY as a TEST fixture  | TEST-ONLY (release-activation suites |
-// |                                 | writer (17 direct test callers seed     | seed corrective links); the legacy   |
-// |                                 | gated-mission links)                    | PATCH link adapter was RETIRED       |
+// | `setTriageMissionId`            | NONE — retained ONLY as a TEST fixture  | TEST-ONLY (triage/release suites     |
+// |                                 | writer (20 direct test callers across   | seed corrective links); the legacy   |
+// |                                 | 14 test-suite files)                    | PATCH link adapter was RETIRED       |
 // |                                 |                                         | (FU13, 400 LEGACY_PATCH_RETIRED).   |
 // | `promote`                       | NONE (FU13) — the test-only service     | Superseded: the HTTP `/promote`      |
 // |                                 | seam was deleted                        | route was REMOVED (T8) and the       |
@@ -473,9 +473,10 @@ export function setTargetReleaseType(id: string, targetReleaseType: string | nul
 /**
  * TEST-ONLY fixture writer (see the writer inventory above): zero production
  * callers since the legacy PATCH link adapter was retired (FU13); retained
- * solely because release-activation suites seed corrective links with it.
+ * solely because test suites (14 files) seed corrective links with it.
  * Must NOT gain production callers — corrective links are written by the
- * lifecycle kernel's `routeWithClient` / release `activateGroupWithClient`.
+ * lifecycle kernel's `routeWithClient`; `activateGroupWithClient` only
+ * writes activation state (status + activation attribution, no link write).
  */
 export function setTriageMissionId(id: string, missionId: string | null): FindingTriage {
   const db = getDb();
