@@ -230,7 +230,14 @@ export interface DrainAutomationInboxReport {
  * Proof classification of a stale-leased delivery against its frozen
  * revision's ordered actions. `resume` requires every UNPROVED action to
  * declare an end-to-end idempotency contract; proved actions are skipped by
- * the lifecycle regardless.
+ * the lifecycle regardless. Resume ALSO requires at least one PROVED
+ * checkpoint: the resume path bypasses the admission guards
+ * (target/cooldown/rate/condition/causal/kill-switch), and only a proved
+ * checkpoint is durable evidence the first lease actually passed them. A
+ * zero-proof lease (worker died between leasing and the first checkpoint)
+ * classifies to attention even when all actions are resume-safe — an
+ * idempotency contract says re-execution is harmless, not that the guards
+ * passed.
  *
  * `checkpoints` MUST be the state observed under the recovery reservation
  * (re-checked inside the `BEGIN IMMEDIATE`), so a checkpoint proved
@@ -243,6 +250,15 @@ function classifyStaleDelivery(
   checkpoints: deliveryRepo.AutomationActionCheckpointRow[],
 ): { resume: true } | { resume: false; reason: string } {
   const proved = new Set(checkpoints.filter((c) => c.state === "proved").map((c) => c.actionIndex));
+  if (proved.size === 0) {
+    return {
+      resume: false,
+      reason:
+        `no proved checkpoint — admission guards (condition, cooldown, rate, ` +
+        `kill switch) are not provably passed; delivery requires operator ` +
+        `disposition`,
+    };
+  }
   const actions = (revision.actions ?? []) as Array<Record<string, unknown>>;
   for (let i = 0; i < actions.length; i++) {
     if (proved.has(i)) continue;

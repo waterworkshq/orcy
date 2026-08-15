@@ -200,7 +200,10 @@ describe("stale-lease proof-aware recovery + operator dispositions", () => {
       priority: 0,
       trigger: { type: "event", eventType: "release.shipped" } as never,
       condition: { type: "always" } as never,
-      actions: [{ type: "call_webhook", url: "https://example.test/hook" }] as never,
+      actions: [
+        notifyAction("FIRST"),
+        { type: "call_webhook", url: "https://example.test/hook" },
+      ] as never,
       cooldownSeconds: 0,
       maxRunsPerHour: 100,
       enabled: true,
@@ -218,9 +221,11 @@ describe("stale-lease proof-aware recovery + operator dispositions", () => {
     const inboxId = deliveryRepo.listInboxEntriesForHabitat(h.id)[0].id;
     const deliveryId = firstDeliveryId(inboxId);
 
-    // Worker crashed after leasing, BEFORE any checkpoint (the dangerous
-    // window: the webhook may or may not have been called).
-    crashAfterLease(deliveryId, T0, 60_000);
+    // Worker crashed after proving the idempotent action 0, BEFORE the
+    // non-idempotent webhook (the dangerous window: the webhook may or may
+    // not have been called).
+    const lease = crashAfterLease(deliveryId, T0, 60_000);
+    crashAfterProving(deliveryId, lease.fence, 0, { eventId: "evt-first" }, T0);
 
     const report = await drainAutomationInbox({ now: T1 });
     expect(report.outcomes["attention_required"]).toBe(1);
@@ -590,6 +595,49 @@ describe("stale-lease proof-aware recovery + operator dispositions", () => {
       "skipped:disabled",
     );
     expect(renderedTemplates(h.id)).toEqual(["FIRST"]);
+  });
+
+  it("DISCRIMINATOR: zero-proof stale lease NEVER resumes — admission guards are not provably passed", async () => {
+    const h = setupHabitat();
+    ruleRepo.createAutomationRule({
+      habitatId: h.id,
+      name: "Zero-Proof Rule",
+      priority: 0,
+      trigger: { type: "event", eventType: "release.shipped" } as never,
+      condition: { type: "always" } as never,
+      actions: [
+        { type: "mark_risk", level: "high", reason: "first" },
+        { type: "mark_risk", level: "low", reason: "second" },
+      ] as never,
+      cooldownSeconds: 0,
+      maxRunsPerHour: 100,
+      enabled: true,
+      createdBy: "test",
+    });
+    admitReleaseShippedEventToInbox({
+      habitatId: h.id,
+      eventId: "rel-zero-proof",
+      payload: { eventId: "rel-zero-proof" },
+    });
+    const inboxId = deliveryRepo.listInboxEntriesForHabitat(h.id)[0].id;
+    const deliveryId = firstDeliveryId(inboxId);
+
+    // Worker crashed after leasing, BEFORE any guard evaluation or checkpoint
+    // ran. Every action is resume-safe, but resume-safety alone must not
+    // authorize bypassing the admission guards without durable proof.
+    crashAfterLease(deliveryId, T0, 60_000);
+
+    // Kill switch ON: a resume here would bypass it and execute the actions.
+    vi.stubEnv("ORCY_AUTOMATION_EXECUTE_ACTIONS", "false");
+    const report = await drainAutomationInbox({ now: T1 });
+    expect(report.outcomes["attention_required"]).toBe(1);
+    expect(report.outcomes["stale_resume"]).toBeUndefined();
+    expect(report.leased).toBe(0);
+
+    const delivery = deliveryRepo.getDeliveryById(deliveryId)!;
+    expect(delivery.state).toBe("attention_required");
+    expect(delivery.proofClassification).toBe("unprovable");
+    expect(delivery.state).not.toBe("terminal");
   });
 
   it("recordCheckpointOutcome cannot prove or fail a checkpoint owned by another delivery", async () => {

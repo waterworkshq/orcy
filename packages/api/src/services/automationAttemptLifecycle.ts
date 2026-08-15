@@ -130,9 +130,12 @@ export interface AutomationFrozenAttemptContext {
   /** The FULL immutable executable revision — never the mutable live rule. */
   revision: AutomationRuleRevision;
   /**
-   * Stale-lease resume: admission guards already passed on the first lease.
-   * Skip target/cooldown/rate/condition/causal/kill-switch skips so remaining
-   * actions can finish; still reserve the run row and execute unproved actions.
+   * Stale-lease resume: admission guards already passed on the first lease —
+   * guaranteed by stale-delivery classification, which only resumes when at
+   * least one PROVED checkpoint exists (durable evidence execution began
+   * under the guards). Skip target/cooldown/rate/condition/causal/kill-switch
+   * skips so remaining actions can finish; still reserve the run row and
+   * execute unproved actions.
    */
   resumeAfterReservation?: boolean;
 }
