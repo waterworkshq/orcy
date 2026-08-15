@@ -762,6 +762,17 @@ export async function triageRoutes(fastify: FastifyInstance): Promise<void> {
             current: current.status,
           };
         }
+        // Stored-fingerprint replay re-check under the reservation — BEFORE
+        // eligibility predicates, matching the outer path: a same-link retry
+        // must replay even if a concurrent lineage repair has since flagged
+        // the row (legacyLineageRepairRequired) or other eligibility state
+        // moved under us.
+        if (
+          current.correctiveMissionId === targetMission.id &&
+          current.routeFingerprint !== null
+        ) {
+          return { outcome: "replayed" as const, value: current };
+        }
         if (
           current.status !== "triaged" ||
           (current.bucket !== "defer_to_patch" && current.bucket !== "defer_to_release")
@@ -776,13 +787,6 @@ export async function triageRoutes(fastify: FastifyInstance): Promise<void> {
             "LEGACY_LINK_LINEAGE_REPAIR_REQUIRED",
             "Legacy first link requires a Finding whose lineage is repaired.",
           );
-        }
-        // Stored-fingerprint replay re-check under the reservation.
-        if (
-          current.correctiveMissionId === targetMission.id &&
-          current.routeFingerprint !== null
-        ) {
-          return { outcome: "replayed" as const, value: current };
         }
         if (current.correctiveMissionId !== null) {
           throw conflictWithCode(

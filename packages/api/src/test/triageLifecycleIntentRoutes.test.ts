@@ -1785,6 +1785,46 @@ describe("FU6 — legacy first-link actor binding + atomic single write", () => 
     expect(JSON.parse(replay.body).replay).toBe(true);
   });
 
+  it("a same-link retry still replays when a concurrent lineage repair has flagged the row", async () => {
+    const { finding } = seedAdmittedFinding();
+    forceDeferredTriaged(finding.id);
+    const corrective = createGatedMission();
+    const token = makeToken({ sub: "user-1", username: "test", role: "admin" });
+
+    const first = await app!.inject({
+      method: "PATCH",
+      url: `/api/triage/findings/${finding.id}`,
+      payload: {
+        triageMissionId: corrective.id,
+        expectedMissionVersion: corrective.version,
+      },
+      headers: { authorization: `Bearer ${token}` },
+    });
+    expect(first.statusCode).toBe(200);
+
+    // Simulate a lineage repair committing after the link: the row is now
+    // flagged for repair. A same-link retry must STILL replay — the replay
+    // contract wins over lineage eligibility, in the outer path AND inside
+    // the writer reservation.
+    getDb()
+      .update(findingTriage)
+      .set({ legacyLineageRepairRequired: 1, updatedAt: new Date().toISOString() })
+      .where(eq(findingTriage.id, finding.id))
+      .run();
+
+    const replay = await app!.inject({
+      method: "PATCH",
+      url: `/api/triage/findings/${finding.id}`,
+      payload: {
+        triageMissionId: corrective.id,
+        expectedMissionVersion: corrective.version,
+      },
+      headers: { authorization: `Bearer ${token}` },
+    });
+    expect(replay.statusCode).toBe(200);
+    expect(JSON.parse(replay.body).replay).toBe(true);
+  });
+
   it("in-tx gate: an editor JWT whose persisted users.role is viewer cannot first-link", async () => {
     seedUserRow("sneaky-linker", "viewer");
     const { finding } = seedAdmittedFinding();
