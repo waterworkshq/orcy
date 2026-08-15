@@ -36,7 +36,16 @@ CREATE TABLE finding_triage_evidence_0073 (
 CREATE TABLE IF NOT EXISTS finding_triage_evidence_orphans_0073 AS
 SELECT e.*
 FROM finding_triage_evidence e
-WHERE NOT EXISTS (SELECT 1 FROM finding_triage ft WHERE ft.id = e.finding_triage_id);
+-- Archive every row that cannot satisfy the REPLACEMENT foreign keys: a
+-- missing finding, a missing pulse, or a non-null dangling admitted_by
+-- reference (each only possible where foreign-key enforcement was off
+-- historically). The copy below excludes exactly these rows.
+WHERE NOT EXISTS (SELECT 1 FROM finding_triage ft WHERE ft.id = e.finding_triage_id)
+   OR NOT EXISTS (SELECT 1 FROM pulses p WHERE p.id = e.pulse_id)
+   OR (e.admitted_by_triage_mission_id IS NOT NULL AND
+       NOT EXISTS (SELECT 1 FROM missions m WHERE m.id = e.admitted_by_triage_mission_id))
+   OR (e.admitted_by_investigation_task_id IS NOT NULL AND
+       NOT EXISTS (SELECT 1 FROM tasks t WHERE t.id = e.admitted_by_investigation_task_id));
 --> statement-breakpoint
 
 INSERT INTO finding_triage_evidence_0073 (
@@ -47,7 +56,15 @@ SELECT
   e.finding_triage_id, e.pulse_id, ft.habitat_id, e.role, e.admitted_by_triage_mission_id,
   e.admitted_by_investigation_task_id, e.admitted_at, e.created_at
 FROM finding_triage_evidence e
-JOIN finding_triage ft ON ft.id = e.finding_triage_id;
+JOIN finding_triage ft ON ft.id = e.finding_triage_id
+JOIN pulses p ON p.id = e.pulse_id
+-- Mirror the archive predicate: rows with missing parents are archived
+-- above and excluded here so no replacement foreign key can abort the
+-- rebuild.
+WHERE (e.admitted_by_triage_mission_id IS NULL OR
+       EXISTS (SELECT 1 FROM missions m WHERE m.id = e.admitted_by_triage_mission_id))
+  AND (e.admitted_by_investigation_task_id IS NULL OR
+       EXISTS (SELECT 1 FROM tasks t WHERE t.id = e.admitted_by_investigation_task_id));
 --> statement-breakpoint
 
 DROP TABLE finding_triage_evidence;

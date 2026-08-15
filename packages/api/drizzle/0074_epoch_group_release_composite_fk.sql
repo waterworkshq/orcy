@@ -64,7 +64,11 @@ SELECT
   g.disposition, g.disposition_at, g.disposition_detail, g.activated_finding_count,
   g.created_at
 FROM release_activation_epoch_groups g
-JOIN release_activation_epochs e ON e.id = g.epoch_id;
+JOIN release_activation_epochs e ON e.id = g.epoch_id
+-- Mirror the archive predicate: rows whose epoch's release row is gone are
+-- archived above and must NOT be copied (the release FK would abort the
+-- rebuild).
+JOIN releases r ON r.id = e.release_id;
 --> statement-breakpoint
 
 DROP TABLE release_activation_epoch_groups;
