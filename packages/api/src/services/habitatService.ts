@@ -26,6 +26,7 @@ import type {
 } from "../models/index.js";
 import type { UpdateHabitatInput } from "../models/schemas.js";
 import { getDefaultAnomalySettings } from "./anomalyService.js";
+import { getDefaultAutoAssignSettings } from "./autoAssignService.js";
 import {
   DEFAULT_RELEASE_SETTINGS,
   DEFAULT_ROADMAP_SETTINGS,
@@ -125,7 +126,7 @@ export function publishHabitatUpdate(habitatId: string, habitat: Habitat): Publi
   return masked;
 }
 
-/** Settings blob keys managed by {@link updateHabitat}; every entry must be classified in SETTINGS_BLOB_DEFAULTS or intentionally omitted (all-optional shape). */
+/** Settings blob keys managed by {@link updateHabitat}; every entry must be classified in SETTINGS_BLOB_DEFAULTS or individually classified as safe (all-optional declared shape, or a PATCH schema that makes shape-violating partials unrepresentable). */
 const settingsBlobs = [
   "retrySettings",
   "anomalySettings",
@@ -137,7 +138,15 @@ const settingsBlobs = [
   "ciCdSettings",
 ] as const;
 
-/** Canonical default factories for settings blobs whose declared shapes have required fields. A key absent here has an all-optional shape and merges over an empty base. */
+/**
+ * Canonical default factories for settings blobs whose declared shapes have required fields.
+ * Every `settingsBlobs` key absent here must be individually classified as safe:
+ * - `retrySettings` — genuinely all-optional declared shape (merges over `{}`).
+ * - `ciCdSettings` — its PATCH schema requires the only required declared field
+ *   (`taskPattern`), so shape-violating partials are unrepresentable at the Zod boundary.
+ * Factories may be partial when the PATCH schema guarantees the remaining required
+ * fields (`codeReviewSettings` below: the schema requires `taskPattern`).
+ */
 const SETTINGS_BLOB_DEFAULTS: Partial<
   Record<(typeof settingsBlobs)[number], () => Record<string, unknown>>
 > = {
@@ -145,6 +154,8 @@ const SETTINGS_BLOB_DEFAULTS: Partial<
   triageSettings: () => ({ ...DEFAULT_TRIAGE_SETTINGS }),
   releaseSettings: () => ({ ...DEFAULT_RELEASE_SETTINGS }),
   roadmapSettings: () => ({ ...DEFAULT_ROADMAP_SETTINGS }),
+  autoAssignSettings: () => getDefaultAutoAssignSettings() as unknown as Record<string, unknown>,
+  codeReviewSettings: () => ({ autoApproveOnMerge: false }),
 };
 
 /** Recursively merges a partial settings PATCH over a base: plain-object fields merge per-key, everything else (scalars, arrays, null) replaces. */

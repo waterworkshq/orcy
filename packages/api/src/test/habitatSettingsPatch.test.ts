@@ -7,6 +7,7 @@ import {
   getAnomalySettings,
   getDefaultAnomalySettings,
 } from "../services/anomalyService.js";
+import { getDefaultAutoAssignSettings } from "../services/autoAssignService.js";
 import { exportHabitatManifest } from "../services/habitatManifestExporter.js";
 import { updateHabitat } from "../services/habitatService.js";
 import {
@@ -79,6 +80,8 @@ describe("partial settings PATCH on a null-blob habitat", () => {
       ["triageSettings", { minClusterSize: 5 }, { ...DEFAULT_TRIAGE_SETTINGS }],
       ["releaseSettings", { autoPromote: false }, { ...DEFAULT_RELEASE_SETTINGS }],
       ["roadmapSettings", { mode: "feature" }, { ...DEFAULT_ROADMAP_SETTINGS }],
+      ["autoAssignSettings", { enabled: true }, getDefaultAutoAssignSettings()],
+      ["codeReviewSettings", { taskPattern: "ORC-" }, { autoApproveOnMerge: false }],
     ] as const;
 
     for (const [key, patch, defaults] of cases) {
@@ -115,6 +118,15 @@ describe("partial settings PATCH on a null-blob habitat", () => {
     const expected = { ...DEFAULT_ROADMAP_SETTINGS, mode: "feature" };
     expect(updated.roadmapSettings).toEqual(expected);
     expect(habitatRepo.getHabitatById(habitatId)!.roadmapSettings).toEqual(expected);
+  });
+
+  it("returns and stores the complete autoAssignSettings shape (raw-consumer contract)", () => {
+    const habitatId = freshNullBlobHabitat();
+    const updated = updateHabitat(habitatId, { autoAssignSettings: { enabled: true } })!;
+
+    const expected = { ...getDefaultAutoAssignSettings(), enabled: true };
+    expect(updated.autoAssignSettings).toEqual(expected);
+    expect(habitatRepo.getHabitatById(habitatId)!.autoAssignSettings).toEqual(expected);
   });
 
   it("exports the complete releaseSettings shape in the habitat manifest", () => {
