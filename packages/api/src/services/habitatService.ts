@@ -25,6 +25,12 @@ import type {
   MissionSummary,
 } from "../models/index.js";
 import type { UpdateHabitatInput } from "../models/schemas.js";
+import { getDefaultAnomalySettings } from "./anomalyService.js";
+import {
+  DEFAULT_RELEASE_SETTINGS,
+  DEFAULT_ROADMAP_SETTINGS,
+  DEFAULT_TRIAGE_SETTINGS,
+} from "@orcy/shared";
 
 /**
  * Returns a deep-copy of `habitat` with `githubSecret` / `gitlabSecret` stripped from
@@ -119,28 +125,67 @@ export function publishHabitatUpdate(habitatId: string, habitat: Habitat): Publi
   return masked;
 }
 
+/** Settings blob keys managed by {@link updateHabitat}; every entry must be classified in SETTINGS_BLOB_DEFAULTS or intentionally omitted (all-optional shape). */
+const settingsBlobs = [
+  "retrySettings",
+  "anomalySettings",
+  "autoAssignSettings",
+  "triageSettings",
+  "releaseSettings",
+  "roadmapSettings",
+  "codeReviewSettings",
+  "ciCdSettings",
+] as const;
+
+/** Canonical default factories for settings blobs whose declared shapes have required fields. A key absent here has an all-optional shape and merges over an empty base. */
+const SETTINGS_BLOB_DEFAULTS: Partial<
+  Record<(typeof settingsBlobs)[number], () => Record<string, unknown>>
+> = {
+  anomalySettings: () => getDefaultAnomalySettings() as unknown as Record<string, unknown>,
+  triageSettings: () => ({ ...DEFAULT_TRIAGE_SETTINGS }),
+  releaseSettings: () => ({ ...DEFAULT_RELEASE_SETTINGS }),
+  roadmapSettings: () => ({ ...DEFAULT_ROADMAP_SETTINGS }),
+};
+
+/** Recursively merges a partial settings PATCH over a base: plain-object fields merge per-key, everything else (scalars, arrays, null) replaces. */
+function mergeSettingsObjects(
+  base: Record<string, unknown>,
+  patch: Record<string, unknown>,
+): Record<string, unknown> {
+  const merged: Record<string, unknown> = { ...base };
+  for (const [key, value] of Object.entries(patch)) {
+    merged[key] =
+      isPlainSettingsObject(value) && isPlainSettingsObject(merged[key])
+        ? mergeSettingsObjects(merged[key] as Record<string, unknown>, value)
+        : value;
+  }
+  return merged;
+}
+
+function isPlainSettingsObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
 /** Applies a partial update to a {@link Habitat}'s editable fields; side effect: rebuilds the board secret cache and publishes `habitat.updated` SSE when the update succeeds. Settings blobs (`retrySettings`, `anomalySettings`, `autoAssignSettings`, `triageSettings`, `releaseSettings`, `roadmapSettings`, `codeReviewSettings`, `ciCdSettings`) are deep-merged with existing stored values so a partial PATCH only overwrites the fields the caller explicitly provided — unmentioned fields preserve their current values. */
 export function updateHabitat(habitatId: string, input: UpdateHabitatInput): PublicHabitat | null {
-  const settingsBlobs = [
-    "retrySettings",
-    "anomalySettings",
-    "autoAssignSettings",
-    "triageSettings",
-    "releaseSettings",
-    "roadmapSettings",
-    "codeReviewSettings",
-    "ciCdSettings",
-  ] as const;
-
   const needsMerge = settingsBlobs.some((key) => input[key] != null);
   if (needsMerge) {
     const current = habitatRepo.getHabitatById(habitatId);
     for (const key of settingsBlobs) {
-      if (input[key] != null && current?.[key] != null) {
-        (input as Record<string, unknown>)[key] = {
-          ...current[key],
-          ...(input[key] as Record<string, unknown>),
-        };
+      if (input[key] != null) {
+        // Null-current habitats previously stored the partial PATCH verbatim,
+        // persisting blobs that violate their all-required declared shapes (a
+        // thresholds-less anomalySettings crashed detectStaleInProgress). Merge
+        // over canonical defaults instead; keys without a canonical default
+        // (all-optional shapes) keep the historical pass-through base of {}.
+        const base =
+          (current?.[key] as Record<string, unknown> | null | undefined) ??
+          SETTINGS_BLOB_DEFAULTS[key]?.() ??
+          {};
+        (input as Record<string, unknown>)[key] = mergeSettingsObjects(
+          base,
+          input[key] as Record<string, unknown>,
+        );
       }
     }
   }

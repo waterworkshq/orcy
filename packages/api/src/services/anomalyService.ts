@@ -41,8 +41,18 @@ export function getDefaultAnomalySettings(): AnomalySettings {
  */
 export function getAnomalySettings(habitatId: string): AnomalySettings {
   const habitat = habitatRepo.getHabitatById(habitatId);
-  if (!habitat) return getDefaultAnomalySettings();
-  return habitat.anomalySettings ?? getDefaultAnomalySettings();
+  const defaults = getDefaultAnomalySettings();
+  const stored = habitat?.anomalySettings;
+  if (!stored) return defaults;
+  // Heal partial persisted blobs (rows written before the updateHabitat merge
+  // fix could lack thresholds/notifications) by resolving per-field defaults —
+  // mirrors resolveReleaseSettings/resolveRoadmapSettings.
+  return {
+    ...defaults,
+    ...stored,
+    thresholds: { ...defaults.thresholds, ...stored.thresholds },
+    notifications: { ...defaults.notifications, ...stored.notifications },
+  };
 }
 
 /** Single anomaly finding emitted by a detector, carrying its type, severity, human-readable message, and structured detail payload. */
