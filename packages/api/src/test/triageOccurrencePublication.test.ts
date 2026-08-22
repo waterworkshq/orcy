@@ -579,7 +579,7 @@ describe("admission matrix (sequential intake calls)", () => {
     // A novel pulse for the identity recurs against the deterministic latest
     // predecessor — always f-tie-b.
     const novel = seedFindingPulse("tie");
-    const result = intake([...[t1, t2], novel]);
+    const result = intake([t1, t2, novel]);
     expect(result.outcome).toBe("published");
     if (result.outcome !== "published") return;
     const recurrence = findings().find((f) => f.id !== "f-tie-a" && f.id !== "f-tie-b");
