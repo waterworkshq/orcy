@@ -99,6 +99,35 @@ describe("partial settings PATCH on a null-blob habitat", () => {
     }
   });
 
+  it("returns and stores the complete releaseSettings shape (raw-consumer contract)", () => {
+    const habitatId = freshNullBlobHabitat();
+    const updated = updateHabitat(habitatId, { releaseSettings: { autoPromote: false } })!;
+
+    const expected = { ...DEFAULT_RELEASE_SETTINGS, autoPromote: false };
+    expect(updated.releaseSettings).toEqual(expected);
+    expect(habitatRepo.getHabitatById(habitatId)!.releaseSettings).toEqual(expected);
+  });
+
+  it("returns and stores the complete roadmapSettings shape (raw-consumer contract)", () => {
+    const habitatId = freshNullBlobHabitat();
+    const updated = updateHabitat(habitatId, { roadmapSettings: { mode: "feature" } })!;
+
+    const expected = { ...DEFAULT_ROADMAP_SETTINGS, mode: "feature" };
+    expect(updated.roadmapSettings).toEqual(expected);
+    expect(habitatRepo.getHabitatById(habitatId)!.roadmapSettings).toEqual(expected);
+  });
+
+  it("exports the complete releaseSettings shape in the habitat manifest", () => {
+    const habitatId = freshNullBlobHabitat();
+    updateHabitat(habitatId, { releaseSettings: { autoPromote: false } });
+
+    const manifest = exportHabitatManifest(habitatId);
+    expect(manifest!.domains.habitatSettings!.data.settings.releaseSettings).toEqual({
+      ...DEFAULT_RELEASE_SETTINGS,
+      autoPromote: false,
+    });
+  });
+
   it("still clears a settings blob when the PATCH explicitly sends null", () => {
     const habitatId = freshNullBlobHabitat();
     updateHabitat(habitatId, { releaseSettings: { autoPromote: false } });
