@@ -9,7 +9,7 @@ import {
 } from "../services/anomalyService.js";
 import { getDefaultAutoAssignSettings } from "../services/autoAssignService.js";
 import { exportHabitatManifest } from "../services/habitatManifestExporter.js";
-import { updateHabitat } from "../services/habitatService.js";
+import { getHabitat, listHabitats, updateHabitat } from "../services/habitatService.js";
 import {
   DEFAULT_RELEASE_SETTINGS,
   DEFAULT_ROADMAP_SETTINGS,
@@ -146,5 +146,77 @@ describe("partial settings PATCH on a null-blob habitat", () => {
     updateHabitat(habitatId, { releaseSettings: null });
 
     expect(habitatRepo.getHabitatById(habitatId)!.releaseSettings).toBeNull();
+  });
+});
+
+describe("legacy partial blobs are normalized at every raw boundary", () => {
+  // Rows written before the updateHabitat merge fix could persist partial blobs
+  // verbatim; every public read surface must heal them with canonical defaults
+  // (mirroring the per-service read resolvers) without a re-PATCH.
+  const LEGACY_CASES = [
+    ["releaseSettings", { autoPromote: false }, { ...DEFAULT_RELEASE_SETTINGS, autoPromote: false }],
+    ["roadmapSettings", { mode: "feature" }, { ...DEFAULT_ROADMAP_SETTINGS, mode: "feature" }],
+    ["autoAssignSettings", { enabled: true }, { ...getDefaultAutoAssignSettings(), enabled: true }],
+    ["triageSettings", { minClusterSize: 5 }, { ...DEFAULT_TRIAGE_SETTINGS, minClusterSize: 5 }],
+    ["anomalySettings", { enabled: true }, { ...getDefaultAnomalySettings(), enabled: true }],
+  ] as const;
+
+  it.each(LEGACY_CASES)(
+    "%s: GET/list/PATCH responses and manifest export serve the complete shape",
+    (key, partial, expected) => {
+      const habitatId = freshNullBlobHabitat();
+      habitatRepo.updateHabitat(habitatId, {
+        [key]: partial,
+      } as unknown as Parameters<typeof habitatRepo.updateHabitat>[1]);
+
+      expect(getHabitat(habitatId)!.habitat).toMatchObject({ [key]: expected });
+      expect(listHabitats()).toMatchObject([{ id: habitatId, [key]: expected }]);
+      expect(updateHabitat(habitatId, { name: "Renamed" })).toMatchObject({
+        [key]: expected,
+      });
+      const manifest = exportHabitatManifest(habitatId);
+      expect(manifest!.domains.habitatSettings!.data.settings).toMatchObject({
+        [key]: expected,
+      });
+    },
+  );
+
+  it("anomalySettings: legacy partial heals NESTED thresholds and notifications", () => {
+    const habitatId = freshNullBlobHabitat();
+    habitatRepo.updateHabitat(
+      habitatId,
+      {
+        anomalySettings: { enabled: true, thresholds: { staleInProgressMinutes: 30 } },
+      } as unknown as Parameters<typeof habitatRepo.updateHabitat>[1],
+    );
+
+    const healed = getHabitat(habitatId)!.habitat.anomalySettings!;
+    expect(healed.thresholds).toEqual({
+      ...getDefaultAnomalySettings().thresholds,
+      staleInProgressMinutes: 30,
+    });
+    expect(healed.notifications).toEqual(getDefaultAnomalySettings().notifications);
+  });
+
+  it("codeReviewSettings: legacy taskPattern-only blob serves the complete masked shape", () => {
+    const habitatId = freshNullBlobHabitat();
+    habitatRepo.updateHabitat(
+      habitatId,
+      {
+        codeReviewSettings: { taskPattern: "ORC-" },
+      } as unknown as Parameters<typeof habitatRepo.updateHabitat>[1],
+    );
+
+    expect(getHabitat(habitatId)!.habitat.codeReviewSettings).toEqual({
+      hasGithubSecret: false,
+      hasGitlabSecret: false,
+      taskPattern: "ORC-",
+      autoApproveOnMerge: false,
+    });
+  });
+
+  it("null blobs stay null (no default materialization on reads)", () => {
+    const habitatId = freshNullBlobHabitat();
+    expect(getHabitat(habitatId)!.habitat.releaseSettings).toBeNull();
   });
 });

@@ -41,22 +41,44 @@ import {
  * `habitat.updated` SSE events. Pure: never mutates the input. Callers handle the
  * `null | undefined` case (this function asserts non-null at the boundary).
  */
+/**
+ * Heals legacy partial settings blobs (rows persisted verbatim before the
+ * {@link updateHabitat} merge fix) by deep-merging each blob over its canonical
+ * defaults — mirroring the read-side resolvers (`getAnomalySettings`,
+ * `resolveReleaseSettings`, `resolveRoadmapSettings`, `getAutoAssignSettings`),
+ * including nested per-field heal via {@link mergeSettingsObjects}. Keys
+ * without a default factory are classified safe (see {@link SETTINGS_BLOB_DEFAULTS})
+ * and pass through unchanged; null blobs stay null.
+ */
+function normalizeSettingsBlobs(habitat: Habitat): Habitat {
+  const out = { ...habitat } as unknown as Record<string, unknown>;
+  const source = habitat as unknown as Record<string, unknown>;
+  for (const key of settingsBlobs) {
+    const factory = SETTINGS_BLOB_DEFAULTS[key];
+    const blob = source[key];
+    if (!factory || !isPlainSettingsObject(blob)) continue;
+    out[key] = mergeSettingsObjects(factory(), blob);
+  }
+  return out as unknown as Habitat;
+}
+
 export function maskSecretSettings(habitat: Habitat): PublicHabitat {
+  const normalized = normalizeSettingsBlobs(habitat);
   return {
-    ...habitat,
-    codeReviewSettings: habitat.codeReviewSettings
+    ...normalized,
+    codeReviewSettings: normalized.codeReviewSettings
       ? {
-          hasGithubSecret: !!habitat.codeReviewSettings.githubSecret,
-          hasGitlabSecret: !!habitat.codeReviewSettings.gitlabSecret,
-          taskPattern: habitat.codeReviewSettings.taskPattern,
-          autoApproveOnMerge: habitat.codeReviewSettings.autoApproveOnMerge,
+          hasGithubSecret: !!normalized.codeReviewSettings.githubSecret,
+          hasGitlabSecret: !!normalized.codeReviewSettings.gitlabSecret,
+          taskPattern: normalized.codeReviewSettings.taskPattern,
+          autoApproveOnMerge: normalized.codeReviewSettings.autoApproveOnMerge,
         }
       : null,
-    ciCdSettings: habitat.ciCdSettings
+    ciCdSettings: normalized.ciCdSettings
       ? {
-          hasGithubSecret: !!habitat.ciCdSettings.githubSecret,
-          hasGitlabSecret: !!habitat.ciCdSettings.gitlabSecret,
-          taskPattern: habitat.ciCdSettings.taskPattern,
+          hasGithubSecret: !!normalized.ciCdSettings.githubSecret,
+          hasGitlabSecret: !!normalized.ciCdSettings.gitlabSecret,
+          taskPattern: normalized.ciCdSettings.taskPattern,
         }
       : null,
   };
