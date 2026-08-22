@@ -1,6 +1,6 @@
 {
   "hooks": {
-    "after:bump": "pnpm exec git-cliff --tag v${version} -o CHANGELOG.md && node scripts/trim-changelog.mjs"
+    "after:bump": "corepack pnpm exec git-cliff --tag v${version} -o CHANGELOG.md && node scripts/trim-changelog.mjs"
   },
   "git": {
     "commitMessage": "chore(release): v${version}",
@@ -9,7 +9,7 @@
   "github": {
     "release": true,
     "releaseName": "v${version}",
-    "releaseNotes": "cat docs/releases/v${version}.md 2>/dev/null || pnpm exec git-cliff --tag v${version}"
+    "releaseNotes": "cat docs/releases/v${version}.md 2>/dev/null || corepack pnpm exec git-cliff --tag v${version}"
   },
   "plugins": {
     "@release-it/conventional-changelog": {
