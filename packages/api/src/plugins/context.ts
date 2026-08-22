@@ -36,6 +36,7 @@ import {
 } from "../services/pluginTaskPublication.js";
 import { badRequest } from "../errors.js";
 import { logger as rootLogger } from "../lib/logger.js";
+import { validateOutboundUrl } from "../config/integrationSecurity.js";
 
 /**
  * Builds a per-invocation {@link PluginContext} whose capability surfaces are
@@ -357,10 +358,6 @@ function buildTaskWriter(
   };
 }
 
-/** SSRF guard patterns shared with the in-tree automation executor. */
-const SSRF_BLOCKED_PATTERNS = [
-  /^https?:\/\/(localhost|127\.|10\.|172\.1[6-9]|172\.2\d|172\.3[0-1]|192\.168\.|0\.0\.0\.0|169\.254\.)/i,
-];
 const BANNED_HEADERS = new Set(["authorization", "cookie", "x-api-key", "x-token", "x-secret"]);
 
 /**
@@ -421,21 +418,11 @@ function buildWebhookCaller(
   habitatId: string | null,
   writeCounter: { count: number; cap: number },
 ): WebhookCaller {
-  function validateUrl(url: string): void {
-    let parsed: URL;
-    try {
-      parsed = new URL(url);
-    } catch {
-      throw new Error("Invalid URL");
-    }
-    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
-      throw new Error("URL must use http or https");
-    }
-    for (const pattern of SSRF_BLOCKED_PATTERNS) {
-      if (pattern.test(url)) {
-        throw new Error("URL resolves to a private/internal address");
-      }
-    }
+  /** Canonical resolution-based SSRF check (integrationSecurity) — the same
+   * guard every other outbound path uses; a local pattern list is drift-prone. */
+  async function validateUrl(url: string): Promise<void> {
+    const check = await validateOutboundUrl(url);
+    if (!check.valid) throw new Error(`URL rejected: ${check.reason}`);
   }
 
   function validateHeaders(headers?: Record<string, string>): void {
@@ -454,11 +441,13 @@ function buildWebhookCaller(
         throw new Error(`Plugin write cap exceeded (${writeCounter.count}/${writeCounter.cap})`);
       }
       writeCounter.count++;
-      validateUrl(url);
+      await validateUrl(url);
       validateHeaders(headers);
       try {
         const response = await fetch(url, {
           method: "POST",
+          redirect: "error",
+          signal: AbortSignal.timeout(10_000),
           headers: {
             "Content-Type": "application/json",
             "User-Agent": `Orcy-Plugin/${pluginId}`,

@@ -52,6 +52,17 @@ function isPrivateIPv4(ip: string): boolean {
 
 function isPrivateIPv6(ip: string): boolean {
   const normalized = ip.toLowerCase();
+  // IPv4-mapped IPv6 (::ffff:a.b.c.d and ::ffff:xxxx:xxxx) embeds an IPv4
+  // address that the prefix checks below never inspect — unwrap it first.
+  const mappedV4 = /^::ffff:(\d{1,3}(?:\.\d{1,3}){3})$/.exec(normalized);
+  if (mappedV4) return isPrivateIPv4(mappedV4[1]);
+  const mappedHex = /^::ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})$/.exec(normalized);
+  if (mappedHex) {
+    const packed = (parseInt(mappedHex[1], 16) << 16) | parseInt(mappedHex[2], 16);
+    return isPrivateIPv4(
+      `${(packed >>> 24) & 255}.${(packed >>> 16) & 255}.${(packed >>> 8) & 255}.${packed & 255}`,
+    );
+  }
   if (normalized === '::1') return true;
   if (normalized.startsWith('fc') || normalized.startsWith('fd')) return true;
   if (normalized.startsWith('fe80')) return true;

@@ -1,4 +1,12 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+const dnsState = vi.hoisted(() => ({ v4: ["93.184.216.34"], v6: [] as string[] }));
+vi.mock("node:dns", () => ({
+  promises: {
+    resolve4: async () => dnsState.v4,
+    resolve6: async () => dnsState.v6,
+  },
+}));
+
 import { closeDb, initTestDb } from "../db/index.js";
 import * as boardRepo from "../repositories/habitat.js";
 import * as columnRepo from "../repositories/column.js";
@@ -536,7 +544,34 @@ describe("automationExecutor", () => {
       const { status, actionResults } = await executeActions(rule, run, emptyContext());
       expect(status).toBe("failed");
       expect(actionResults[0].status).toBe("failed");
+      expect(actionResults[0].error).toContain("not allowed");
+    });
+
+    it("rejects a URL whose hostname DNS-resolves to private space", async () => {
+      dnsState.v4 = ["10.0.0.5"];
+      const habitat = setupHabitat();
+      const rule = buildRule(habitat.id, {
+        actions: [{ type: "call_webhook", url: "https://attacker.example.com/hook" }],
+      });
+      const run = buildRun(habitat.id, rule.id);
+
+      const { actionResults } = await executeActions(rule, run, emptyContext());
+      expect(actionResults[0].status).toBe("failed");
+      expect(actionResults[0].error).toContain("URL rejected");
       expect(actionResults[0].error).toContain("private");
+      dnsState.v4 = ["93.184.216.34"];
+    });
+
+    it("rejects IPv4-mapped IPv6 literals", async () => {
+      const habitat = setupHabitat();
+      const rule = buildRule(habitat.id, {
+        actions: [{ type: "call_webhook", url: "http://[::ffff:127.0.0.1]/hook" }],
+      });
+      const run = buildRun(habitat.id, rule.id);
+
+      const { actionResults } = await executeActions(rule, run, emptyContext());
+      expect(actionResults[0].status).toBe("failed");
+      expect(actionResults[0].error).toContain("URL rejected");
     });
 
     it("rejects 127.0.0.1 URL", async () => {

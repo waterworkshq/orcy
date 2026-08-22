@@ -1,5 +1,13 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { buildPluginContext } from "../plugins/context.js";
+const dnsState = vi.hoisted(() => ({ v4: ["93.184.216.34"], v6: [] as string[] }));
+vi.mock("node:dns", () => ({
+  promises: {
+    resolve4: async () => dnsState.v4,
+    resolve6: async () => dnsState.v6,
+  },
+}));
+
 
 const createPulseMock = vi.fn();
 const getPulseByIdMock = vi.fn();
@@ -204,5 +212,39 @@ describe("pluginContext: capability projections", () => {
     expect(ctx.audit).toBeDefined();
     expect(ctx.audit.log).toBeTypeOf("function");
     expect(() => ctx.audit.log({ action: "test" })).not.toThrow();
+  });
+});
+
+describe("webhookCaller: canonical SSRF validation", () => {
+  beforeEach(() => {
+    dnsState.v4 = ["93.184.216.34"];
+    dnsState.v6 = [];
+  });
+
+  it("rejects URLs whose hostname DNS-resolves to private space", async () => {
+    dnsState.v4 = ["10.0.0.5"];
+    const ctx = buildPluginContext({
+      pluginId: "p",
+      contributionId: "c",
+      habitatId: "hab-1",
+      runId: "run-1",
+      requires: ["webhookCaller"],
+    });
+    await expect(ctx.webhookCaller!.call("https://attacker.example.com/hook")).rejects.toThrow(
+      "URL rejected",
+    );
+  });
+
+  it("rejects IPv4-mapped IPv6 literals", async () => {
+    const ctx = buildPluginContext({
+      pluginId: "p",
+      contributionId: "c",
+      habitatId: "hab-1",
+      runId: "run-1",
+      requires: ["webhookCaller"],
+    });
+    await expect(ctx.webhookCaller!.call("http://[::ffff:127.0.0.1]/x")).rejects.toThrow(
+      "URL rejected",
+    );
   });
 });

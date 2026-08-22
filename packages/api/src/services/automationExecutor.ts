@@ -16,29 +16,9 @@ import { claimTask } from "./tasks/task-lifecycle.js";
 import { assignReviewers } from "./reviewAssignmentService.js";
 import { logger } from "../lib/logger.js";
 import { executeCreateTaskViaPublication } from "./automationTaskPublication.js";
+import { validateOutboundUrl } from "../config/integrationSecurity.js";
 
 const BANNED_HEADERS = new Set(["authorization", "cookie", "x-api-key", "x-token", "x-secret"]);
-
-const SSRF_BLOCKED_PATTERNS = [
-  /^https?:\/\/(localhost|127\.|10\.|172\.1[6-9]|172\.2\d|172\.3[0-1]|192\.168\.|0\.0\.0\.0|169\.254\.)/i,
-];
-
-function isUrlSafe(url: string): { safe: boolean; reason?: string } {
-  try {
-    const parsed = new URL(url);
-    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
-      return { safe: false, reason: "URL must use http or https" };
-    }
-    for (const pattern of SSRF_BLOCKED_PATTERNS) {
-      if (pattern.test(url)) {
-        return { safe: false, reason: "URL resolves to a private/internal address" };
-      }
-    }
-    return { safe: true };
-  } catch {
-    return { safe: false, reason: "Invalid URL" };
-  }
-}
 
 /** Runs every action on an automation rule in order and aggregates their results into an overall run status. */
 export async function executeActions(
@@ -457,8 +437,10 @@ async function executeCallWebhook(
     };
   }
 
-  const urlCheck = isUrlSafe(action.url);
-  if (!urlCheck.safe) {
+  // Canonical resolution-based SSRF check (integrationSecurity) — the same
+  // guard every other outbound path uses; a local pattern list is drift-prone.
+  const urlCheck = await validateOutboundUrl(action.url);
+  if (!urlCheck.valid) {
     return {
       actionType: "call_webhook",
       actionIndex: index,
@@ -485,6 +467,8 @@ async function executeCallWebhook(
   try {
     const response = await fetch(action.url, {
       method: "POST",
+      redirect: "error",
+      signal: AbortSignal.timeout(10_000),
       headers: {
         "Content-Type": "application/json",
         "User-Agent": "Orcy-Automation/1.0",

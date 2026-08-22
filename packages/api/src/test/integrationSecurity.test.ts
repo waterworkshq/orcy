@@ -1,5 +1,14 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { createHmac } from "crypto";
+import { validateOutboundUrl } from "../config/integrationSecurity.js";
+const dnsState = vi.hoisted(() => ({ v4: ["93.184.216.34"], v6: [] as string[] }));
+vi.mock("node:dns", () => ({
+  promises: {
+    resolve4: async () => dnsState.v4,
+    resolve6: async () => dnsState.v6,
+  },
+}));
+
 
 type HabitatMock = {
   id: string;
@@ -541,5 +550,35 @@ describe("Remote posture fail-closed", () => {
     const mod = await import("../config/integrationSecurity.js");
     expect(mod.isRemotePosture()).toBe(false);
     delete process.env.HOST;
+  });
+});
+
+describe("validateOutboundUrl (canonical SSRF checker)", () => {
+  beforeEach(() => {
+    dnsState.v4 = ["93.184.216.34"];
+    dnsState.v6 = [];
+  });
+
+  it("rejects hostnames that DNS-resolve to private space", async () => {
+    dnsState.v4 = ["10.0.0.5"];
+    const r = await validateOutboundUrl("https://attacker.example.com/hook");
+    expect(r.valid).toBe(false);
+    expect(r.reason).toContain("private");
+  });
+
+  it("rejects IPv4-mapped IPv6 literals (dotted and hex forms)", async () => {
+    for (const url of [
+      "http://[::ffff:127.0.0.1]/x",
+      "http://[::ffff:10.0.0.5]/x",
+      "http://[::ffff:7f00:1]/x",
+    ]) {
+      const r = await validateOutboundUrl(url);
+      expect(r.valid, url).toBe(false);
+    }
+  });
+
+  it("accepts a public hostname resolving to public space", async () => {
+    const r = await validateOutboundUrl("https://example.com/hook");
+    expect(r.valid).toBe(true);
   });
 });
