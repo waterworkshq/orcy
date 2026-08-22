@@ -2,6 +2,32 @@
 
 > Older releases: see [git tags](https://github.com/waterworkshq/orcy/tags) and [GitHub Releases](https://github.com/waterworkshq/orcy/releases).
 
+## 0.40.2 — 2026-08-22
+
+### Bug Fixes
+
+#### merge partial habitat settings PATCHes over canonical defaults ([`0c58847`](https://github.com/waterworkshq/orcy/commit/0c5884786a707467e7ccef981cd43090f7d516cf))
+
+
+
+### Documentation
+
+#### record v0.40.1 delivery in roadmap and README ([`a9e7686`](https://github.com/waterworkshq/orcy/commit/a9e7686f24a3c33e61dfa7d135ad8b7a9828b292))
+
+
+#### remove retired update-settings action from habitat MCP docs ([`292cb6d`](https://github.com/waterworkshq/orcy/commit/292cb6d6e0692b592be4f4b6a425ac2399e6005f))
+
+
+#### add v0.40.2 operator notes ([`dfad486`](https://github.com/waterworkshq/orcy/commit/dfad48627db88f8e25fbf40dfa79f5aec9b9fcea))
+
+
+
+### Tests
+
+#### pin complete release and roadmap settings shapes for raw consumers ([`4aa47de`](https://github.com/waterworkshq/orcy/commit/4aa47de5623003964c45ace6cc2249b0f369c936))
+
+
+
 ## 0.40.1 — 2026-08-15
 
 ### Documentation
@@ -670,24 +696,3 @@
 
 
 #### stub the projected select in the pulse delete tests. ([`37f9b10`](https://github.com/waterworkshq/orcy/commit/37f9b10b802691653c180091e07f18bdff40883d))
-
-
-
-## 0.39.8 — 2026-08-13
-
-### Bug Fixes
-
-#### enforce signal detector manifest rate limit defaults ([`d3d9360`](https://github.com/waterworkshq/orcy/commit/d3d9360157e0f1ae0ca0ba2b5163fb91880b47b1))
-
-
-
-
-- Implement sliding-window rate tracking for maxDetectionsPerMinute and maxSignalsPerHour defaults in detector contributions, throttling out-of-quota dispatches with capacity fallback.
-
-
-
-
-
-### Documentation
-
-#### add v0.39.8 operator notes ([`a1b9da6`](https://github.com/waterworkshq/orcy/commit/a1b9da6242d6fbc63c1507b644b53c9835587e49))
