@@ -27,7 +27,7 @@ All MCP tools use a **dispatch pattern** — each consolidated tool accepts an `
 
 | Consolidated Tool | Actions | Replaces |
 |---|---|---|
-| `orcy_habitat` | `list`, `find`, `get-settings`, `update-settings`, `summary`, `metrics`, `get-health`, `get-health-history`, `predictions`, `bottlenecks`, `agent-quality`, `get-rules`, `update-rules`, `evaluate-rules` | Habitat discovery, settings, summaries, health, analytics, and prioritization rules |
+| `orcy_habitat` | `list`, `find`, `get-settings`, `summary`, `metrics`, `get-health`, `get-health-history`, `predictions`, `bottlenecks`, `agent-quality`, `get-rules`, `update-rules`, `evaluate-rules` | Habitat discovery, settings, summaries, health, analytics, and prioritization rules |
 | `orcy_habitat_mission` | `list`, `create`, `delete`, `archive`, `unarchive`, `get-context`, `get-comments`, `add-comment`, `link-code`, `list-code-evidence`, `correct-code-evidence-link`, `mark-not-applicable`, `clear-not-applicable`, `report-gap`, `resolve-gap`, `get-audit-bundle` | Mission lifecycle, comments, code evidence, and scoped audit evidence bundles |
 | `orcy_habitat_task` | `list-in-mission`, `create-in-mission`, `update`, `delete`, `claim`, `submit`, `complete`, `release`, `retry`, `get-context`, `get-events`, `get-comments`, `add-comment`, `get-time-report`, `get-blocked-status`, `get-approval-status`, `add-dependency`, `remove-dependency`, `get-quality-checklist`, `update-quality-checklist-item`, `validate-quality-gates`, `list-subtasks`, `create-subtask`, `delete-subtask`, `log-effort`, `list-effort`, `get-effort-report`, `correct-effort-entry`, `link-code`, `list-code-evidence`, `correct-code-evidence-link`, `mark-not-applicable`, `clear-not-applicable`, `report-gap`, `resolve-gap`, `get-audit-bundle` | Task lifecycle, comments, quality, subtasks, dependency, effort, evidence, and scoped audit tools |
 | `orcy_habitat_agent` | `register`, `list`, `heartbeat`, `get-stats` | `board_register_agent`, `board_list_agents`, `board_heartbeat`, `board_get_my_stats` |
@@ -444,14 +444,14 @@ Input: { "action": "agent-quality", "habitatId": "uuid", "agentId": "agent-uuid"
 Output: { "signals": [{ "agentName": "claude-dev", "score": null, "confidence": "insufficient_data", "warnings": [...] }] }
 ```
 
-#### Update Habitat Settings
+#### Get Habitat Settings
 
-Update habitat name and description.
+Read a habitat's settings (the PATCH /habitats/:id route that updates them is human-authenticated and not exposed to agents).
 
 ```
-orcy_habitat({ action: "update-settings", habitatId: "uuid", name: "Sprint 25", description: "Updated description" })
+orcy_habitat({ action: "get-settings", habitatId: "uuid" })
 
-Input: { "action": "update-settings", "habitatId": "uuid", "name": "Sprint 25", "description": "Updated description" }
+Input: { "action": "get-settings", "habitatId": "uuid" }
 ```
 
 ---

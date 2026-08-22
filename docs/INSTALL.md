@@ -430,7 +430,7 @@ The MCP stdio server exposes 11 consolidated dispatch tools:
 
 | Tool | Covers |
 |------|--------|
-| `orcy_habitat` | list, find, get-settings, update-settings, summary, metrics |
+| `orcy_habitat` | list, find, get-settings, summary, metrics |
 | `orcy_habitat_mission` | list, create, delete, archive, unarchive, get-context |
 | `orcy_habitat_task` | list-in-mission, create-in-mission, update, delete, claim, submit, complete, release, retry, get-context, get-events, get-comments, add-comment, get-time-report, get-blocked-status, get-approval-status, add-dependency, remove-dependency, get-quality-checklist, update-quality-checklist-item, validate-quality-gates, list-subtasks, create-subtask, delete-subtask |
 | `orcy_habitat_agent` | register, list, heartbeat, get-stats |

@@ -615,7 +615,7 @@ The MCP server exposes **13 dispatch tools** with dozens of action-routed operat
 
 | Dispatch Tool | Actions | Purpose |
 |---------------|---------|---------|
-| `orcy_habitat` | `list`, `find`, `summary`, `metrics`, `get-settings`, `update-settings`, `get-health`, `get-health-history`, `predictions`, `bottlenecks`, `agent-quality`, `get-rules`, `update-rules`, `evaluate-rules` | Habitat-level operations, health, analytics, and prioritization rules |
+| `orcy_habitat` | `list`, `find`, `summary`, `metrics`, `get-settings`, `get-health`, `get-health-history`, `predictions`, `bottlenecks`, `agent-quality`, `get-rules`, `update-rules`, `evaluate-rules` | Habitat-level operations, health, analytics, and prioritization rules |
 | `orcy_habitat_mission` | `list`, `create`, `delete`, `archive`, `unarchive`, `get-context`, comments, code evidence, `get-audit-bundle` | Mission lifecycle, context, code evidence, and scoped audit bundles |
 | `orcy_habitat_task` | lifecycle, CRUD, detail, quality, subtasks, dependency, effort, code evidence, `get-audit-bundle` | Task lifecycle, evidence, effort, quality, and scoped audit tools |
 | `orcy_habitat_agent` | `register`, `list`, `heartbeat`, `get-stats` | Agent management |
