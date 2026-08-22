@@ -317,9 +317,16 @@ export const INVOCATION_POLICY: Readonly<Record<ManagedKind, KindInvocationPolic
     faultsCountTowardQuarantine: true,
     defaultTimeoutMs: 5000,
   },
+  // A finite default is load-bearing: a never-settling automation-action
+  // handler otherwise blocks its invocation forever and never faults toward
+  // quarantine (a timeout of 0 disables the watchdog entirely). 30s fits
+  // network-bound actions; the detector's 5s is compute-bound. The watchdog
+  // terminates and faults the RUN — it is not cancellation (ADR-0039 Q5).
+  // A manifest timeoutMs of 0 remains an explicit opt-out (distinguished
+  // from omitting the field by the ?? at the effective-timeout resolution).
   automationAction: {
     faultsCountTowardQuarantine: true,
-    defaultTimeoutMs: 0,
+    defaultTimeoutMs: 30_000,
   },
   notificationChannel: {
     faultsCountTowardQuarantine: false,

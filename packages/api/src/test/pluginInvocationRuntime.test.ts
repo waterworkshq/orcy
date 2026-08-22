@@ -294,9 +294,9 @@ describe("INVOCATION_POLICY", () => {
       defaultTimeoutMs: 5000,
     });
   });
-  it("Action: faults count, no default timeout", () => {
+  it("Action: faults count, 30s default watchdog", () => {
     expect(INVOCATION_POLICY.automationAction.faultsCountTowardQuarantine).toBe(true);
-    expect(INVOCATION_POLICY.automationAction.defaultTimeoutMs).toBe(0);
+    expect(INVOCATION_POLICY.automationAction.defaultTimeoutMs).toBe(30_000);
   });
   it("Channel: faults do NOT count", () => {
     expect(INVOCATION_POLICY.notificationChannel.faultsCountTowardQuarantine).toBe(false);

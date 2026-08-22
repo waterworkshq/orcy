@@ -268,6 +268,140 @@ describe("v0.28-T2a: dispatchActionHandler fail-safe", () => {
     expect(failedRun!.error).toContain("timed out");
   });
 
+  it("a never-settling automation action with NO manifest timeout is terminated by the 30s kind-default watchdog and faults toward quarantine", async () => {
+    process.env.ORCY_PLUGIN_QUARANTINE_THRESHOLD = "1";
+    try {
+      tmpDir = await writePlugin(
+        "hang-action",
+        `{
+          manifest: {
+            id: 'hang-action',
+            version: '1.0.0',
+            description: 'action that never settles',
+            contributions: [{
+              kind: 'automationAction',
+              scope: 'habitat',
+              actionId: 'hang',
+              label: 'Hang',
+              requires: [],
+            }],
+          },
+          actions: {
+            hang: async () => new Promise(() => {}),
+          },
+        }`,
+      );
+      const habitatId = setupHabitat();
+      enroll(habitatId, "hang-action", "hang", "automationAction");
+      const entry = pluginManager.getActionEntry("hang");
+
+      vi.useFakeTimers();
+      const dispatch = pluginManager.dispatchActionHandler(
+        entry!,
+        "hang",
+        habitatId,
+        {
+          habitat: null,
+          task: null,
+          mission: null,
+          agent: null,
+          sprint: null,
+          raw: {},
+        } as PluginEvaluationContext,
+        {},
+      );
+      // One ms short of the kind default: the invocation is still running.
+      await vi.advanceTimersByTimeAsync(29_999);
+      expect(
+        runRepo
+          .listByHabitat(habitatId, { pluginId: "hang-action" })
+          .some((r) => r.status === "failed"),
+      ).toBe(false);
+      // Cross the 30s default: the watchdog terminates and faults the run.
+      await vi.advanceTimersByTimeAsync(1);
+      const result = await dispatch;
+      vi.useRealTimers();
+
+      expect(result.status).toBe("failed");
+      expect(result.error).toContain("timed out");
+      const failedRun = runRepo
+        .listByHabitat(habitatId, { pluginId: "hang-action" })
+        .find((r) => r.status === "failed");
+      expect(failedRun).toBeDefined();
+      expect(failedRun!.error).toContain("timed out");
+      // faultsCountTowardQuarantine: true + threshold 1 → this single fault quarantined the contribution.
+      const quarantines = quarantineRepo.listByPluginId("hang-action");
+      expect(
+        quarantines.some((q) => q.pluginKey === '["automationAction","hang-action","hang"]'),
+      ).toBe(true);
+    } finally {
+      vi.useRealTimers();
+      process.env.ORCY_PLUGIN_QUARANTINE_THRESHOLD = "1000";
+    }
+  });
+
+  it("manifest timeoutMs: 0 is an explicit watchdog opt-out, distinct from omitting the field", async () => {
+    tmpDir = await writePlugin(
+      "optout-action",
+      `{
+        manifest: {
+          id: 'optout-action',
+          version: '1.0.0',
+          description: 'action that opts out of the watchdog',
+          contributions: [{
+            kind: 'automationAction',
+            scope: 'habitat',
+            actionId: 'optout',
+            label: 'OptOut',
+            requires: [],
+            timeoutMs: 0,
+          }],
+        },
+        actions: {
+          optout: async () => new Promise(() => {}),
+        },
+      }`,
+    );
+    const habitatId = setupHabitat();
+    enroll(habitatId, "optout-action", "optout", "automationAction");
+    const entry = pluginManager.getActionEntry("optout");
+
+    vi.useFakeTimers();
+    let settled = false;
+    const dispatch = pluginManager
+      .dispatchActionHandler(
+        entry!,
+        "optout",
+        habitatId,
+        {
+          habitat: null,
+          task: null,
+          mission: null,
+          agent: null,
+          sprint: null,
+          raw: {},
+        } as PluginEvaluationContext,
+        {},
+      )
+      .then((r) => {
+        settled = true;
+        return r;
+      });
+    // Well past the 30s kind default: an explicit 0 must keep the watchdog off.
+    await vi.advanceTimersByTimeAsync(60_000);
+    vi.useRealTimers();
+
+    expect(settled).toBe(false);
+    expect(
+      runRepo
+        .listByHabitat(habitatId, { pluginId: "optout-action" })
+        .some((r) => r.status === "failed"),
+    ).toBe(false);
+    expect(quarantineRepo.listByPluginId("optout-action")).toEqual([]);
+    // The invocation never settles by design; keep the dangling promise quiet.
+    dispatch.catch(() => {});
+  });
+
   it("a succeeding action handler returns succeeded and marks the run succeeded", async () => {
     tmpDir = await writePlugin(
       "ok-action",
