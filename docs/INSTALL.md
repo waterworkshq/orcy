@@ -436,7 +436,7 @@ The MCP stdio server exposes 11 consolidated dispatch tools:
 | `orcy_habitat_agent` | register, list, heartbeat, get-stats |
 | `orcy_suggest` | suggest-next-task |
 | `orcy_habitat_message` | send, get-messages |
-| `orcy_pulse` | post, check (mission signal board — findings, blockers, directives) |
+| `orcy_pulse` | post, check |
 | `orcy_habitat_subscription` | subscribe, unsubscribe |
 | `orcy_admin` | list-webhooks, create-webhook, delete-webhook, list-templates, create-template, delete-template, batch-assign-tasks, batch-set-priority, batch-delete-tasks |
 | `orcy_worktree` | get-worktree |

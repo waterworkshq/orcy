@@ -616,8 +616,8 @@ The MCP server exposes **13 dispatch tools** with dozens of action-routed operat
 | Dispatch Tool | Actions | Purpose |
 |---------------|---------|---------|
 | `orcy_habitat` | `list`, `find`, `summary`, `metrics`, `get-settings`, `get-health`, `get-health-history`, `predictions`, `bottlenecks`, `agent-quality`, `get-rules`, `update-rules`, `evaluate-rules` | Habitat-level operations, health, analytics, and prioritization rules |
-| `orcy_habitat_mission` | `list`, `create`, `delete`, `archive`, `unarchive`, `get-context`, comments, code evidence, `get-audit-bundle` | Mission lifecycle, context, code evidence, and scoped audit bundles |
-| `orcy_habitat_task` | lifecycle, CRUD, detail, quality, subtasks, dependency, effort, code evidence, `get-audit-bundle` | Task lifecycle, evidence, effort, quality, and scoped audit tools |
+| `orcy_habitat_mission` | `list`, `create`, `delete`, `archive`, `unarchive`, `get-context`, `get-comments`, `add-comment`, `link-code`, `list-code-evidence`, `get-audit-bundle` | Mission lifecycle, context, code evidence, and scoped audit bundles |
+| `orcy_habitat_task` |  `claim`, `submit`, `complete`, `release`, `retry`, `get-context`, `get-comments`, `add-comment`, `get-quality-checklist`, `validate-quality-gates`, `list-subtasks`, `create-subtask`, `log-effort`, `link-code`, `get-audit-bundle`  | Task lifecycle, evidence, effort, quality, and scoped audit tools |
 | `orcy_habitat_agent` | `register`, `list`, `heartbeat`, `get-stats` | Agent management |
 | `orcy_suggest` | `suggest-next-task` | AI-ranked task suggestions (fan-out `dependencyBonus` boosts tasks that unblock more downstream dependents; capped at 25 points, weighted 5 per dependent) |
 | `orcy_habitat_message` | `send`, `get-messages` | Agent-to-agent messaging |
@@ -626,7 +626,7 @@ The MCP server exposes **13 dispatch tools** with dozens of action-routed operat
 | `orcy_admin` | `list-webhooks`, `create-webhook`, `list-templates`, `batch-assign-tasks`, `export-audit-log`, `get-audit-summary`, `list-scheduled-tasks`, `create-scheduled-task`, `run-scheduled-task` | Admin operations + scheduled tasks |
 | `orcy_worktree` | `get-worktree` | Git worktree info |
 | `orcy_habitat_skill` | `get`, `refresh`, `contribute` | Dynamic habitat skills — get skill document, trigger regeneration, submit direct insights |
-| `orcy_sprint` | `list`, `get`, `get_active`, `get_metrics`, `get_burndown`, `get_carry_over`, lifecycle and mission membership actions | Sprint planning, lifecycle, and analytics |
+| `orcy_sprint` | `list`, `get`, `get_active`, `get_metrics`, `get_burndown`, `get_carry_over`, `create`, `update`, `delete`, `start`, `complete`, `cancel`, `add_mission`, `remove_mission` | Sprint planning, lifecycle, and analytics |
 | `orcy_review` | `list_rules`, `create_rule`, `update_rule`, `delete_rule`, `list_reviewers`, `add_reviewer`, `remove_reviewer` | Review rules and task reviewer assignment |
 | `orcy_instructions` | (tool) | Returns orcy skill guide |
 
