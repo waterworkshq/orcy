@@ -2,6 +2,40 @@
 
 > Older releases: see [git tags](https://github.com/waterworkshq/orcy/tags) and [GitHub Releases](https://github.com/waterworkshq/orcy/releases).
 
+## 0.40.4 — 2026-08-22
+
+### Bug Fixes
+
+#### give automation actions a 30s invocation watchdog ([`acc64ca`](https://github.com/waterworkshq/orcy/commit/acc64ca85ac1f8266bab6d517eb983d7f6ee926b))
+
+
+
+
+- A never-settling automation-action handler blocked its invocation forever and never faulted toward quarantine, because the kind's defaultTimeoutMs of 0 disabled the watchdog entirely — the fault-accounting policy was unreachable without a rejection or timeout. The kind default is now 30s (network-bound, versus the detector's compute-bound 5s); the watchdog terminates and faults the run toward quarantine but is not cancellation, per the existing runtime contract. A manifest timeoutMs of 0 remains an explicit opt-out, already distinguished from omitting the field by the nullish-coalescing at the effective-timeout resolution — both semantics are now pinned by tests through the production dispatch seam. Closes #18
+
+
+
+
+#### use the canonical resolution-based SSRF checker on webhook paths ([`56508a1`](https://github.com/waterworkshq/orcy/commit/56508a17e48772df89524fb4358d5b21fcbb94f0))
+
+
+
+
+- Plugin webhook calls and automation call_webhook actions validated URLs with a copy-pasted regex over the raw string, while the canonical validateOutboundUrl checker — which resolves hostnames and rejects private-space answers — guarded every other outbound path. Both webhook paths now use the canonical checker and the two duplicated pattern lists are deleted, so the DNS-rebind and IPv4-mapped-IPv6 bypass classes are rejected everywhere. isPrivateIPv6 now unwraps IPv4-mapped literals (dotted and hex forms) before its prefix checks, and webhook fetches gain a 10s timeout with fail-closed redirect handling — endpoints that redirect or stall now fail loudly instead of bypassing the URL check. Closes #19
+
+
+
+
+
+### Documentation
+
+#### record v0.40.3 delivery in roadmap and README ([`3f002ad`](https://github.com/waterworkshq/orcy/commit/3f002ad65257f476db5d89d1161ebf0e1156dac1))
+
+
+#### add v0.40.4 operator notes ([`c91f009`](https://github.com/waterworkshq/orcy/commit/c91f0095a8034627205368f0e916880e2298cce2))
+
+
+
 ## 0.40.3 — 2026-08-22
 
 ### Bug Fixes
@@ -102,32 +136,3 @@
 ### Tests
 
 #### pin complete release and roadmap settings shapes for raw consumers ([`4aa47de`](https://github.com/waterworkshq/orcy/commit/4aa47de5623003964c45ace6cc2249b0f369c936))
-
-
-
-## 0.40.1 — 2026-08-15
-
-### Documentation
-
-#### correct the setTriageMissionId writer-inventory notes ([`b1008c2`](https://github.com/waterworkshq/orcy/commit/b1008c20fccd5ddb99c00e9b55b52f086a4a6ec3))
-
-
-
-
-- Update the test-caller count and describe the activation writer accurately.
-
-
-
-
-#### add v0.40.1 operator notes ([`1450e60`](https://github.com/waterworkshq/orcy/commit/1450e6065c95849ac872b63b8a20fd3d0e1a9ba8))
-
-
-
-### Features
-
-#### retire the legacy finding PATCH adapter ([`3875f89`](https://github.com/waterworkshq/orcy/commit/3875f8971c994351615c93cad5d3ce2956cf5854))
-
-
-
-
-- The compatibility window declared in v0.40.0 is closed: every legacy PATCH shape now receives one typed retirement response with zero writes and deprecation telemetry, the body is never parsed, and the four lifecycle command endpoints remain the only finding mutation surface. The retained link adapter and its single-write primitive are deleted along with every shape-guard that served them, the test-only service seams are migrated to command-kernel equivalents, and the writer inventory now shows only the lifecycle kernel, admission participant, and release kernel as production write authority. Old clients must migrate to the route, activate, resolve, and wontfix endpoints.
