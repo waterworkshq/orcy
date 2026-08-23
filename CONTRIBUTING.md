@@ -273,7 +273,7 @@ The MCP server uses a **consolidated dispatch pattern**. New actions are added t
 2. Generate the migration: `cd packages/api && pnpm drizzle-kit generate --name <descriptive_name>`
 3. Review the emitted SQL, journal entry, and snapshot
 4. Update `packages/api/src/test/schemaValidation.test.ts` if table/index counts changed
-5. Run tests and the production-migration gate: `pnpm --filter @orcy/api test && pnpm -r typecheck && pnpm lint && pnpm --filter @orcy/api test:production-migration`
+5. Run tests and the production-migration gate: `corepack pnpm --filter @orcy/api test && corepack pnpm -r typecheck && corepack pnpm lint && corepack pnpm --filter @orcy/api test:production-migration`
 
 **Two initialization paths:**
 
@@ -313,14 +313,17 @@ the push**.
 
 **Local prevention (pre-push hook).** A checkout-local `.git/hooks/pre-push`
 hook runs the focused migration suites before any push to `refs/heads/main`
-and blocks the push on failure. The hook is intentionally untracked
-(`.git/hooks/` is never committed); it must be present in your checkout.
-Other branch pushes are not gated.
+and blocks the push on failure. The hook's source is committed at
+`hooks/pre-push`; install it into your checkout with
+`bash scripts/install-hooks.sh` — `.git/hooks/` is never tracked by git
+itself, so installation is per-machine and idempotent. Until installed, a
+checkout's only main-push protections are the post-push CI workflow and the
+branch ruleset below. Other branch pushes are not gated.
 
 Run the same suites on demand:
 
 ```bash
-pnpm --filter @orcy/api test:production-migration
+corepack pnpm --filter @orcy/api test:production-migration
 ```
 
 **Remote post-push verification (GitHub Actions).** The

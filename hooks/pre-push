@@ -1,0 +1,50 @@
+#!/usr/bin/env bash
+# F5b — Local pre-push gate for production migration safety.
+#
+# Solo direct-to-main workflow: the LAST line of defense before a main push
+# reaches the remote. Runs the focused production-migration suites and blocks
+# the push on failure. Non-main pushes pass through untouched.
+#
+# This hook's source is committed here (hooks/pre-push). Install it into a
+# checkout with `bash scripts/install-hooks.sh` — .git/hooks/ is never tracked
+# by git itself, so installation is per-machine. GitHub Actions
+# (.github/workflows/production-migration.yml) provides independent
+# clean-environment post-push verification; the active main ruleset blocks
+# deletion and non-fast-forward without requiring PRs.
+#
+# Git invokes: pre-push <remote-name> <remote-url>
+# stdin lines: <local-ref> <local-sha> <remote-ref> <remote-sha>
+
+set -euo pipefail
+
+# Consume ALL stdin first so git never hits a broken pipe, recording whether
+# any pushed ref targets refs/heads/main.
+pushing_main=false
+while read -r local_ref local_sha remote_ref remote_sha; do
+  if [ "$remote_ref" = "refs/heads/main" ]; then
+    pushing_main=true
+  fi
+done
+
+# Only gate pushes to main; every other branch is a pass-through.
+if [ "$pushing_main" = "false" ]; then
+  exit 0
+fi
+
+repo_root="$(git rev-parse --show-toplevel)"
+
+echo "pre-push: running production-migration gate for refs/heads/main..." >&2
+
+# Run from repo root so pnpm workspace resolution is deterministic. The
+# invocation MUST be corepack-prefixed: a bare `pnpm` resolves an ambient
+# pnpm shim under spawned shells (release-it), which refuses the 9.0.0-pinned
+# project and aborts the push.
+if ! (cd "$repo_root" && corepack pnpm --filter @orcy/api test:production-migration); then
+  echo "" >&2
+  echo "pre-push: production-migration gate FAILED — push to main blocked." >&2
+  echo "pre-push: fix the failing suites above, then re-run the push." >&2
+  exit 1
+fi
+
+echo "pre-push: production-migration gate passed." >&2
+exit 0
