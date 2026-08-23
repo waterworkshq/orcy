@@ -529,6 +529,95 @@ describe("v0.28-T2a: runPostInterceptors dispatch chain", () => {
     expect(detected.length).toBeGreaterThanOrEqual(2);
   });
 
+  it("a never-settling post-interceptor is terminated by the 30s watchdog, without quarantine counting", async () => {
+    process.env.ORCY_PLUGIN_QUARANTINE_THRESHOLD = "1";
+    try {
+      tmpDir = await writePlugin(
+        "hang-post",
+        `{
+          manifest: {
+            id: 'hang-post',
+            version: '1.0.0',
+            description: 'x',
+            contributions: [{
+              kind: 'lifecycleInterceptor',
+              scope: 'habitat',
+              phase: 'post',
+              event: 'taskClaimed',
+              interceptorId: 'hang',
+              priority: 0,
+              requires: [],
+            }],
+          },
+          interceptors: {
+            hang: async () => new Promise(() => {}),
+          },
+        }`,
+      );
+      const habitatId = setupHabitat();
+      enroll(habitatId, "hang-post", "hang", "lifecycleInterceptor");
+
+      vi.useFakeTimers();
+      pluginManager.runPostInterceptors("task-hang", "taskClaimed", habitatId, {
+        actor: "test",
+      } as never);
+      await vi.advanceTimersByTimeAsync(30_000);
+      vi.useRealTimers();
+
+      const failedRun = runRepo
+        .listByHabitat(habitatId, { pluginId: "hang-post" })
+        .find((r) => r.status === "failed");
+      expect(failedRun).toBeDefined();
+      expect(failedRun!.error).toContain("timed out");
+      // faultsCountTowardQuarantine: false — even at threshold 1, no quarantine.
+      expect(quarantineRepo.listByPluginId("hang-post")).toEqual([]);
+    } finally {
+      vi.useRealTimers();
+      process.env.ORCY_PLUGIN_QUARANTINE_THRESHOLD = "1000";
+    }
+  });
+
+  it("post-interceptor manifest timeoutMs: 0 is an explicit watchdog opt-out", async () => {
+    tmpDir = await writePlugin(
+      "optout-post",
+      `{
+        manifest: {
+          id: 'optout-post',
+          version: '1.0.0',
+          description: 'x',
+          contributions: [{
+            kind: 'lifecycleInterceptor',
+            scope: 'habitat',
+            phase: 'post',
+            event: 'taskClaimed',
+            interceptorId: 'optout',
+            priority: 0,
+            requires: [],
+            timeoutMs: 0,
+          }],
+        },
+        interceptors: {
+          optout: async () => new Promise(() => {}),
+        },
+      }`,
+    );
+    const habitatId = setupHabitat();
+    enroll(habitatId, "optout-post", "optout", "lifecycleInterceptor");
+
+    vi.useFakeTimers();
+    pluginManager.runPostInterceptors("task-optout", "taskClaimed", habitatId, {
+      actor: "test",
+    } as never);
+    await vi.advanceTimersByTimeAsync(60_000);
+    vi.useRealTimers();
+
+    expect(
+      runRepo
+        .listByHabitat(habitatId, { pluginId: "optout-post" })
+        .some((r) => r.status === "failed"),
+    ).toBe(false);
+  });
+
   it("a throwing post-interceptor marks the run failed, does NOT increment the error counter (no quarantine)", async () => {
     tmpDir = await writePlugin(
       "post-throw",

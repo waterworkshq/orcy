@@ -298,15 +298,17 @@ describe("INVOCATION_POLICY", () => {
     expect(INVOCATION_POLICY.automationAction.faultsCountTowardQuarantine).toBe(true);
     expect(INVOCATION_POLICY.automationAction.defaultTimeoutMs).toBe(30_000);
   });
-  it("Channel: faults do NOT count", () => {
+  it("Channel: faults do NOT count, 30s default watchdog", () => {
     expect(INVOCATION_POLICY.notificationChannel.faultsCountTowardQuarantine).toBe(false);
+    expect(INVOCATION_POLICY.notificationChannel.defaultTimeoutMs).toBe(30_000);
   });
   it("pre Interceptor: faults count, no timeout (synchronous)", () => {
     expect(INVOCATION_POLICY.preInterceptor.faultsCountTowardQuarantine).toBe(true);
     expect(INVOCATION_POLICY.preInterceptor.defaultTimeoutMs).toBe(0);
   });
-  it("post Interceptor: faults do NOT count", () => {
+  it("post Interceptor: faults do NOT count, 30s default watchdog", () => {
     expect(INVOCATION_POLICY.postInterceptor.faultsCountTowardQuarantine).toBe(false);
+    expect(INVOCATION_POLICY.postInterceptor.defaultTimeoutMs).toBe(30_000);
   });
   it("contributionKindForStorage maps pre/post to lifecycleInterceptor", () => {
     expect(contributionKindForStorage("preInterceptor")).toBe("lifecycleInterceptor");

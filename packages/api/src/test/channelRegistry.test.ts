@@ -21,6 +21,8 @@ import * as subscriptionRepo from "../repositories/notificationSubscription.js";
 import * as pluginManager from "../plugins/pluginManager.js";
 import { deliverNotification } from "../services/notificationDeliveryService.js";
 import type { NotificationEvent, NotificationDelivery } from "@orcy/shared";
+import * as quarantineRepo from "../repositories/pluginQuarantine.js";
+import { finishRun } from "../repositories/pluginRun.js";
 
 vi.mock("../lib/logger.js", () => ({
   logger: { error: vi.fn(), warn: vi.fn(), info: vi.fn() },
@@ -152,6 +154,115 @@ describe("channelRegistry: registry hit short-circuits the switch", () => {
       event,
     );
     expect(result).toBeNull();
+  });
+
+  it("a never-settling channel handler is terminated by the 30s watchdog, without quarantine counting", async () => {
+    tmpDir = await writePlugin(
+      "hang-chan",
+      `{
+        manifest: {
+          id: 'hang-chan',
+          version: '1.0.0',
+          description: 'x',
+          contributions: [{
+            kind: 'notificationChannel',
+            scope: 'system',
+            channelId: 'hangchan',
+            label: 'Hang',
+            requires: [],
+          }],
+        },
+        channels: {
+          hangchan: async () => new Promise(() => {}),
+        },
+      }`,
+    );
+    process.env.ORCY_PLUGIN_QUARANTINE_THRESHOLD = "1";
+    vi.useFakeTimers();
+    try {
+      const habitat = setupHabitat();
+      const event = createTestEvent(habitat.id);
+      const delivery = deliveryRepo.createNotificationDelivery({
+        eventId: event.id,
+        habitatId: habitat.id,
+        recipientType: "human",
+        recipientId: "user-1",
+        channels: ["in_app" as never],
+      });
+      const dispatch = pluginManager.dispatchToChannelPlugin(
+        "hangchan",
+        delivery as NotificationDelivery,
+        event,
+      );
+      await vi.advanceTimersByTimeAsync(30_000);
+      const result = await dispatch;
+      expect(result).not.toBeNull();
+      expect(result!.success).toBe(false);
+      expect(String(result!.error ?? "")).toContain("timed out");
+      const failedFinish = vi
+        .mocked(finishRun)
+        .mock.calls.find((c) => c[1] === "failed");
+      expect(failedFinish).toBeDefined();
+      expect(String(failedFinish![failedFinish!.length - 1])).toContain("timed out");
+      // faultsCountTowardQuarantine: false — even at threshold 1, no quarantine.
+      expect(quarantineRepo.listByPluginId("hang-chan")).toEqual([]);
+    } finally {
+      vi.useRealTimers();
+      delete process.env.ORCY_PLUGIN_QUARANTINE_THRESHOLD;
+    }
+  });
+
+  it("channel manifest timeoutMs: 0 is an explicit watchdog opt-out", async () => {
+    tmpDir = await writePlugin(
+      "optout-chan",
+      `{
+        manifest: {
+          id: 'optout-chan',
+          version: '1.0.0',
+          description: 'x',
+          contributions: [{
+            kind: 'notificationChannel',
+            scope: 'system',
+            channelId: 'optoutchan',
+            label: 'OptOut',
+            requires: [],
+            timeoutMs: 0,
+          }],
+        },
+        channels: {
+          optoutchan: async () => new Promise(() => {}),
+        },
+      }`,
+    );
+    vi.mocked(finishRun).mockClear();
+    vi.useFakeTimers();
+    try {
+      const habitat = setupHabitat();
+      const event = createTestEvent(habitat.id);
+      const delivery = deliveryRepo.createNotificationDelivery({
+        eventId: event.id,
+        habitatId: habitat.id,
+        recipientType: "human",
+        recipientId: "user-1",
+        channels: ["in_app" as never],
+      });
+      let settled = false;
+      const dispatch = pluginManager
+        .dispatchToChannelPlugin("optoutchan", delivery as NotificationDelivery, event)
+        .then((r) => {
+          settled = true;
+          return r;
+        });
+      await vi.advanceTimersByTimeAsync(60_000);
+      expect(settled).toBe(false);
+      expect(
+        vi.mocked(finishRun).mock.calls.some((c) => c[1] === "failed"),
+        "an explicit timeoutMs: 0 must keep the watchdog off",
+      ).toBe(false);
+      dispatch.catch(() => {});
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("a registered channel plugin handler is invoked via dispatchToChannelPlugin", async () => {

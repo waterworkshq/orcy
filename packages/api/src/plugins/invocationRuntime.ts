@@ -328,9 +328,18 @@ export const INVOCATION_POLICY: Readonly<Record<ManagedKind, KindInvocationPolic
     faultsCountTowardQuarantine: true,
     defaultTimeoutMs: 30_000,
   },
+  // Channels and post-interceptors share the automationAction rationale
+  // (acc64ca): a timeout of 0 disables the watchdog entirely, so a
+  // never-settling handler holds its invocation open forever (latent today —
+  // channel delivery is production-unwired and post-interceptors are
+  // fire-and-forget — but the hang class is closed preemptively). The
+  // watchdog terminates and faults the RUN only; quarantine accounting stays
+  // per ADR-0039 (faultsCountTowardQuarantine: false for both kinds).
+  // Manifest timeoutMs: 0 remains an explicit opt-out (the ?? at the
+  // effective-timeout resolution distinguishes it from omission).
   notificationChannel: {
     faultsCountTowardQuarantine: false,
-    defaultTimeoutMs: 0,
+    defaultTimeoutMs: 30_000,
   },
   preInterceptor: {
     faultsCountTowardQuarantine: true,
@@ -338,7 +347,7 @@ export const INVOCATION_POLICY: Readonly<Record<ManagedKind, KindInvocationPolic
   },
   postInterceptor: {
     faultsCountTowardQuarantine: false,
-    defaultTimeoutMs: 0,
+    defaultTimeoutMs: 30_000,
   },
 };
 
