@@ -35,6 +35,7 @@ import type { IssueProviderAdapter } from "../services/integrations/types.js";
 import { z } from "zod";
 import crypto from "crypto";
 import type { ExternalIntakeReviewStatus, IntegrationProvider } from "@orcy/shared";
+import { isJiraCloudSiteUrl } from "../services/integrations/jiraAdapter.js";
 
 const promotingCandidates = new Set<string>();
 
@@ -356,6 +357,18 @@ export async function integrationRoutes(fastify: FastifyInstance): Promise<void>
     async (request, reply) => {
       const parsed = jiraApiKeySchema.safeParse(request.body);
       if (!parsed.success) throw badRequest("Validation failed", parsed.error.flatten());
+
+      // Known-good hosts only: Jira Cloud tenants. No allowlist, no auth
+      // escalation — the structural rule is what makes member-supplied URLs
+      // safe (see isJiraCloudSiteUrl).
+      if (!isJiraCloudSiteUrl(parsed.data.siteUrl)) {
+        throw badRequest("Only Jira Cloud tenant URLs are supported (https://<tenant>.atlassian.net)");
+      }
+
+      // Known-good hosts only: Jira Cloud tenants. No allowlist, no auth
+      // escalation — the structural rule is what makes member-supplied URLs
+      // safe (see isJiraCloudSiteUrl).
+
 
       const userId = (request as any).user?.id ?? "unknown";
 

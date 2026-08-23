@@ -704,6 +704,52 @@ describe("POST /habitats/:habitatId/integrations/jira/api-key", () => {
     );
     expect(reply.code).toHaveBeenCalledWith(201);
   });
+
+  it("rejects a non-Atlassian siteUrl (known-good hosts only)", async () => {
+    const routes = captureIntegrationRoutes();
+    const route = routes.find(
+      (r) => r.method === "POST" && r.path === "/habitats/:habitatId/integrations/jira/api-key",
+    )!;
+    const reply = makeMockReply();
+    await expect(
+      route.handler(
+        makeMockRequest({
+          params: { habitatId: "hab-1" },
+          body: {
+            name: "Jira",
+            email: "dev@example.com",
+            token: "tok",
+            siteUrl: "https://jira.internal.corp:8080",
+            projectKey: "PROJ",
+          },
+        }),
+        reply,
+      ),
+    ).rejects.toThrow("Jira Cloud");
+  });
+
+  it("rejects an atlassian.net URL over http (https required)", async () => {
+    const routes = captureIntegrationRoutes();
+    const route = routes.find(
+      (r) => r.method === "POST" && r.path === "/habitats/:habitatId/integrations/jira/api-key",
+    )!;
+    const reply = makeMockReply();
+    await expect(
+      route.handler(
+        makeMockRequest({
+          params: { habitatId: "hab-1" },
+          body: {
+            name: "Jira",
+            email: "dev@example.com",
+            token: "tok",
+            siteUrl: "http://site.atlassian.net",
+            projectKey: "PROJ",
+          },
+        }),
+        reply,
+      ),
+    ).rejects.toThrow("Jira Cloud");
+  });
 });
 
 describe("POST /habitats/:habitatId/integrations/linear/oauth/start", () => {

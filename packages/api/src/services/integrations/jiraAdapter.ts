@@ -3,6 +3,7 @@ import type { IssueProviderAdapter } from "./types.js";
 import { refreshJiraToken, getJiraCredentials } from "./jiraOAuth.js";
 import * as connectionRepo from "../../repositories/integrationConnection.js";
 import { logger } from "../../lib/logger.js";
+import { fetchValidated } from "../../config/integrationSecurity.js";
 
 const MAX_PAGES = 100;
 
@@ -54,6 +55,26 @@ function trimTrailingSlash(value: string): string {
   return value.replace(/\/+$/, "");
 }
 
+/**
+ * Structural known-good check for API-key Jira connections: ONLY Jira Cloud
+ * tenant URLs (https://<tenant>.atlassian.net) are accepted. This is what
+ * makes a member-supplied URL safe without an allowlist — Atlassian's own
+ * servers receive every credentialed request, so neither internal-network
+ * targets nor token-capture hosts can be configured. OAuth connections are
+ * inherently safe (fixed api.atlassian.com host). Self-hosted Jira is
+ * unsupported; reintroduce deliberately if ever needed.
+ */
+export function isJiraCloudSiteUrl(url: string): boolean {
+  try {
+    const parsed = new URL(url);
+    if (parsed.protocol !== "https:") return false;
+    const host = parsed.hostname.toLowerCase();
+    return host.endsWith(".atlassian.net") && host.length > ".atlassian.net".length;
+  } catch {
+    return false;
+  }
+}
+
 function getJiraRequestConfig(
   connection: IntegrationConnection,
   accessTokenOverride?: string,
@@ -62,6 +83,13 @@ function getJiraRequestConfig(
   if (!token) throw new Error("Jira connection has no access token");
 
   if (connection.authMethod === "api_key") {
+    // Legacy rows (saved before the known-good-host rule) fail safely here:
+    // no fetch is attempted for non-Atlassian base URLs.
+    if (!isJiraCloudSiteUrl(connection.externalBaseUrl ?? "")) {
+      throw new Error(
+        "Jira connection uses an unsupported site URL — reconnect using a Jira Cloud tenant URL (https://<tenant>.atlassian.net)",
+      );
+    }
     const email = connection.externalAccountName;
     if (!email) throw new Error("Jira API token connection has no account email");
     if (!connection.externalBaseUrl) throw new Error("Jira API token connection has no site URL");
@@ -187,8 +215,9 @@ export const jiraAdapter: IssueProviderAdapter = {
       });
       if (nextToken) params.set("nextPageToken", nextToken);
 
-      const response = await fetch(`${searchUrl}?${params.toString()}`, {
+      const response = await fetchValidated(`${searchUrl}?${params.toString()}`, {
         headers: requestConfig.headers,
+        signal: AbortSignal.timeout(30_000),
       });
 
       if (!response.ok) {
@@ -224,7 +253,10 @@ export const jiraAdapter: IssueProviderAdapter = {
     const requestConfig = getJiraRequestConfig(connection, token);
     const url = `${requestConfig.baseUrl}/issue/${externalId}`;
 
-    const response = await fetch(url, { headers: requestConfig.headers });
+    const response = await fetchValidated(url, {
+      headers: requestConfig.headers,
+      signal: AbortSignal.timeout(30_000),
+    });
 
     if (response.status === 404) return null;
     if (!response.ok) {

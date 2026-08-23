@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { jiraAdapter, normalizeJiraIssue, extractAdfText } from '../services/integrations/jiraAdapter.js';
+import { isJiraCloudSiteUrl, jiraAdapter, normalizeJiraIssue, extractAdfText } from '../services/integrations/jiraAdapter.js';
 import type { JiraIssue, AdfNode } from '../services/integrations/jiraAdapter.js';
 import type { IntegrationConnection } from '@orcy/shared';
 
@@ -236,5 +236,36 @@ describe('jiraAdapter API token auth', () => {
     });
 
     await expect(jiraAdapter.listIssues(connection)).rejects.toThrow('account email');
+  });
+});
+
+describe("Jira known-good-host hardening (#32)", () => {
+  it("isJiraCloudSiteUrl accepts only https tenant URLs", () => {
+    expect(isJiraCloudSiteUrl("https://myteam.atlassian.net")).toBe(true);
+    expect(isJiraCloudSiteUrl("http://myteam.atlassian.net")).toBe(false);
+    expect(isJiraCloudSiteUrl("https://evilatlassian.net")).toBe(false);
+    expect(isJiraCloudSiteUrl("https://atlassian.net.evil.com")).toBe(false);
+    expect(isJiraCloudSiteUrl("https://atlassian.net")).toBe(false);
+    expect(isJiraCloudSiteUrl("https://jira.internal.corp:8080")).toBe(false);
+    expect(isJiraCloudSiteUrl("not a url")).toBe(false);
+  });
+
+  it("a legacy api_key connection with a non-Atlassian baseUrl fails before any fetch", async () => {
+    const fetchSpy = vi.fn();
+    vi.stubGlobal("fetch", fetchSpy);
+    try {
+      const connection = {
+        authMethod: "api_key",
+        accessToken: "tok",
+        externalAccountName: "dev@example.com",
+        externalBaseUrl: "http://jira.internal.corp:8080",
+      } as unknown as Parameters<typeof jiraAdapter.getIssue>[0];
+      await expect(jiraAdapter.getIssue(connection, "ISSUE-1")).rejects.toThrow(
+        "unsupported site URL",
+      );
+      expect(fetchSpy).not.toHaveBeenCalled();
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 });
