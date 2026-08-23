@@ -68,6 +68,10 @@ export function isJiraCloudSiteUrl(url: string): boolean {
   try {
     const parsed = new URL(url);
     if (parsed.protocol !== "https:") return false;
+    // Port 443 is the only acceptable port (or none, which defaults to 443).
+    // Any explicit other port is rejected: https://x.atlassian.net:8443 is
+    // not the Jira API surface and should not receive credentials.
+    if (parsed.port && parsed.port !== "443") return false;
     const host = parsed.hostname.toLowerCase();
     return host.endsWith(".atlassian.net") && host.length > ".atlassian.net".length;
   } catch {

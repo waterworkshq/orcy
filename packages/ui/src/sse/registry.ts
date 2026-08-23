@@ -96,6 +96,7 @@ export const SSE_EVENT_TYPES = [
   "extraction.finding_proposed",
   "extraction.decision_changed",
   "extraction.finding_withdrawn",
+  "webhook.delivery_failed",
 ] as const satisfies readonly SSEEventType[];
 
 export type SSEEventRegistryMissingEvents = AssertNever<
@@ -672,6 +673,15 @@ export const SSE_EVENT_REGISTRY = {
         queryKey: queryKeys.extraction.all,
       });
     },
+  }),
+  "webhook.delivery_failed": defineSSEHandler<"webhook.delivery_failed">({
+    server: () => {},
+    notification: ({ event }) => ({
+      toast: {
+        level: "warning" as const,
+        message: `Webhook delivery failed: ${event.data.endpointUrl} — ${event.data.error}`,
+      },
+    }),
   }),
   "extraction.finding_withdrawn": defineSSEHandler<"extraction.finding_withdrawn">({
     server: ({ queryClient, subscriptionHabitatId }) => {

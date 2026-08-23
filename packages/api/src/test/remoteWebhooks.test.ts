@@ -415,6 +415,54 @@ describe("Phase E — Compact remote webhook dispatcher", () => {
     process.env = ORIGINAL_ENV;
   });
 
+  it("publishes webhook.delivery_failed SSE + notifies admins on dispatch failure", async () => {
+    const habitat = setupHabitat();
+    const pod = setupActivePod(habitat.id);
+    const endpoint = endpointRepo.createRemoteWebhookEndpoint({
+      remotePodId: pod.id,
+      habitatId: habitat.id,
+      url: "https://attacker.example.com/webhook",
+      events: ["task.assigned"],
+    });
+    endpointRepo.approveRemoteWebhookEndpoint(endpoint.id, "admin-1");
+    endpointRepo.enableRemoteWebhookEndpoint(endpoint.id, "admin-1");
+    registerEndpointPlaintextSecret(endpoint.id, "orcy_secret_abc");
+    dnsState.fail = true; // DNS yields no addresses — validation rejects
+
+    const sseSpy = vi.spyOn((await import("../sse/broadcaster.js")).sseBroadcaster, "publish");
+    const result = await dispatchCompactRemoteEvent({
+      habitatId: habitat.id,
+      eventType: "task.assigned",
+      apiBase: "https://orcy.example.com/api/shared",
+      payload: {
+        eventType: "task.assigned",
+        occurredAt: new Date().toISOString(),
+        habitatId: habitat.id,
+        taskId: "t-1",
+        actor: { type: "remote_orcy", id: "p-1", displayName: "W", podId: "pod-1", podName: "P" },
+        standing: "remote_contributor",
+        actionKind: "advisory",
+        title: "T",
+        apiBase: "https://orcy.example.com/api/shared",
+        followUpPath: "/api/shared/tasks/t-1",
+        followUpDescription: "Fetch",
+      },
+    });
+    expect(result.failed).toBe(1);
+    expect(sseSpy).toHaveBeenCalledWith(
+      habitat.id,
+      expect.objectContaining({
+        type: "webhook.delivery_failed",
+        data: expect.objectContaining({
+          endpointUrl: "https://attacker.example.com/webhook",
+          error: expect.stringContaining("URL rejected"),
+        }),
+      }),
+    );
+    sseSpy.mockRestore();
+    dnsState.fail = false;
+  });
+
   it("fails a dispatch to a stored endpoint whose URL resolves to private space (dispatch-time validation)", async () => {
     const habitat = setupHabitat();
     const pod = setupActivePod(habitat.id);

@@ -117,6 +117,10 @@ export type SSEEvent =
       data: { id: string; name: string; description: string; createdAt: string; updatedAt: string };
     }
   | { type: "habitat.deleted"; data: { habitatId: string } }
+  | {
+      type: "webhook.delivery_failed";
+      data: { habitatId: string; endpointUrl: string; error: string; endpointId?: string };
+    }
   | { type: "subtask.created"; data: { taskId: string; subtask: Subtask } }
   | { type: "subtask.updated"; data: { taskId: string; subtask: Subtask } }
   | { type: "subtask.deleted"; data: { taskId: string; subtaskId: string } }

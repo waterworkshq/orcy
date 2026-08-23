@@ -247,6 +247,8 @@ describe("Jira known-good-host hardening (#32)", () => {
     expect(isJiraCloudSiteUrl("https://atlassian.net.evil.com")).toBe(false);
     expect(isJiraCloudSiteUrl("https://atlassian.net")).toBe(false);
     expect(isJiraCloudSiteUrl("https://jira.internal.corp:8080")).toBe(false);
+    expect(isJiraCloudSiteUrl("https://x.atlassian.net:8443")).toBe(false);
+    expect(isJiraCloudSiteUrl("https://x.atlassian.net:443")).toBe(true);
     expect(isJiraCloudSiteUrl("not a url")).toBe(false);
   });
 

@@ -9,6 +9,9 @@ import {
   type CompactRemoteWebhookEventInput,
 } from "./compactRemoteWebhookPayload.js";
 import { fetchValidated } from "../config/integrationSecurity.js";
+import { enqueueNotificationForRecipients } from "./notificationCommandService.js";
+import { sseBroadcaster } from "../sse/broadcaster.js";
+import { getAdmins } from "../repositories/user.js";
 
 /**
  * v0.19 Phase E — Compact remote webhook dispatcher.
@@ -165,6 +168,34 @@ export async function dispatchCompactRemoteEvent(
       const errorMsg = (err as Error).message;
       deliveryRepo.updateRemoteWebhookDeliveryStatus(delivery.id, "failed", null, errorMsg, 1);
       result.failed += 1;
+
+      // Operator visibility: SSE + notification so a silently-broken webhook
+      // surfaces without manual inspection of delivery rows.
+      sseBroadcaster.publish(input.habitatId, {
+        type: "webhook.delivery_failed",
+        data: {
+          habitatId: input.habitatId,
+          endpointId: endpoint.id,
+          endpointUrl: endpoint.url,
+          error: errorMsg,
+        },
+      });
+      const admins = getAdmins();
+      if (admins.length > 0) {
+        enqueueNotificationForRecipients(
+          input.habitatId,
+          "webhook.delivery_failed",
+          "system",
+          "warning",
+          admins.map((a) => ({ recipientType: "human" as const, recipientId: a.id })),
+          {
+            sourceId: endpoint.id,
+            targetType: "habitat",
+            targetId: endpoint.id,
+            payload: { endpointUrl: endpoint.url, error: errorMsg },
+          },
+        );
+      }
     }
   }
 

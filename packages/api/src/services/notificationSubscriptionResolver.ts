@@ -22,6 +22,7 @@ const V18_EVENT_CATALOG: Set<string> = new Set([
   "workflow.recovery_unrecoverable",
   "release.activated",
   "release.deadline_missed",
+  "webhook.delivery_failed",
 ]);
 
 /** Returns whether the given event type is part of the supported notification event catalog. */

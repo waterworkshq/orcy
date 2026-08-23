@@ -13,7 +13,8 @@ export type NotificationEventType =
   | "workflow.recovery_succeeded"
   | "workflow.recovery_unrecoverable"
   | "release.activated"
-  | "release.deadline_missed";
+  | "release.deadline_missed"
+  | "webhook.delivery_failed";
 
 /** Identifies the originating domain of a notification. */
 export type NotificationSourceType =
