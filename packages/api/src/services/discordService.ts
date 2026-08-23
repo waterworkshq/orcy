@@ -1,4 +1,4 @@
-import { verifyDiscordSignature, validateOutboundUrl } from "../config/integrationSecurity.js";
+import { verifyDiscordSignature, fetchValidated, UrlRejectedError } from "../config/integrationSecurity.js";
 import { logger } from "../lib/logger.js";
 
 /** Verifies an inbound Discord interaction request signature against the bot's public key. */
@@ -198,24 +198,20 @@ export function formatDiscordResponse(message: string, success: boolean): object
 
 /** Posts a message payload to a Discord webhook after validating the outbound URL is safe. Returns `false` on URL rejection, timeout, or non-2xx response. */
 export async function sendToDiscord(webhookUrl: string, message: object): Promise<boolean> {
-  const urlValidation = await validateOutboundUrl(webhookUrl);
-  if (!urlValidation.valid) {
-    logger.warn({ reason: urlValidation.reason }, "Blocked outbound Discord webhook");
-    return false;
-  }
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 10000);
   try {
-    const response = await fetch(webhookUrl, {
+    // fetchValidated = canonical SSRF check + fetch PINNED to the validated
+    // resolution + fail-closed redirects + 10s timeout, in one resolution.
+    const response = await fetchValidated(webhookUrl, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(message),
-      signal: controller.signal,
     });
-    clearTimeout(timeout);
     return response.ok;
-  } catch {
-    clearTimeout(timeout);
+  } catch (err) {
+    if (err instanceof UrlRejectedError) {
+      logger.warn({ reason: err.reason }, "Blocked outbound Discord webhook");
+      return false;
+    }
     return false;
   }
 }

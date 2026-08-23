@@ -1,6 +1,6 @@
 import { v4 as uuid } from "uuid";
 import { signPayload } from "../../utils/webhookSigning.js";
-import { validateOutboundUrl, filterUnsafeHeaders } from "../../config/integrationSecurity.js";
+import { fetchValidated, filterUnsafeHeaders, UrlRejectedError } from "../../config/integrationSecurity.js";
 import { logger } from "../../lib/logger.js";
 import type { WebhookSubscription } from "./webhook-subscriptions.js";
 import {
@@ -44,22 +44,10 @@ export async function executeHttpRequest(
   deliveryId: string,
   eventType: string,
 ): Promise<{ success: boolean; statusCode: number; responseBody: string }> {
-  const urlValidation = await validateOutboundUrl(url);
-  if (!urlValidation.valid) {
-    return {
-      success: false,
-      statusCode: 0,
-      responseBody: `Blocked outbound URL: ${urlValidation.reason}`,
-    };
-  }
-
   const { headers: safeHeaders, blocked } = filterUnsafeHeaders(headers);
   if (blocked.length > 0) {
     logger.warn({ deliveryId, blocked }, "Blocked unsafe custom headers in delivery");
   }
-
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 10000);
 
   try {
     const requestHeaders: Record<string, string> = {
@@ -73,14 +61,13 @@ export async function executeHttpRequest(
     requestHeaders["X-Kanban-Event"] = eventType;
     requestHeaders["X-Kanban-Delivery"] = deliveryId;
 
-    const response = await fetch(url, {
+    // fetchValidated = canonical SSRF check + fetch PINNED to the validated
+    // resolution + fail-closed redirects + 10s timeout, in one resolution.
+    const response = await fetchValidated(url, {
       method: "POST",
       headers: requestHeaders,
       body: payloadString,
-      signal: controller.signal,
     });
-
-    clearTimeout(timeout);
 
     const body = await response.text();
     return {
@@ -89,7 +76,13 @@ export async function executeHttpRequest(
       responseBody: body.slice(0, 1024),
     };
   } catch (err) {
-    clearTimeout(timeout);
+    if (err instanceof UrlRejectedError) {
+      return {
+        success: false,
+        statusCode: 0,
+        responseBody: `Blocked outbound URL: ${err.reason}`,
+      };
+    }
     const message = err instanceof Error ? err.message : "Unknown error";
     return {
       success: false,
@@ -148,15 +141,6 @@ export function getDeliveriesForSubscription(
 export async function sendTestWebhook(
   subscription: WebhookSubscription,
 ): Promise<{ success: boolean; statusCode: number; latencyMs: number }> {
-  const urlValidation = await validateOutboundUrl(subscription.url);
-  if (!urlValidation.valid) {
-    return {
-      success: false,
-      statusCode: 0,
-      latencyMs: 0,
-    };
-  }
-
   const deliveryId = uuid();
   const testPayload = {
     id: deliveryId,

@@ -1,6 +1,8 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import * as dns from 'dns';
 import { validateOutboundUrl, filterUnsafeHeaders, getAllowlistedHosts } from '../config/integrationSecurity.js';
+import { sendToSlack } from '../services/slackService.js';
+import { sendToDiscord } from '../services/discordService.js';
 
 describe('validateOutboundUrl', () => {
   const originalEnv = process.env;
@@ -485,5 +487,38 @@ describe('chatService sendTestMessage SSRF blocking', () => {
     const result = await sendTestMessage('http://10.0.0.1/discord', 'discord');
     expect(result.success).toBe(false);
     expect(result.statusCode).toBe(0);
+  });
+});
+
+describe('outbound surfaces fetch pinned via fetchValidated', () => {
+  beforeEach(() => {
+    vi.spyOn(dns.promises, 'resolve4').mockResolvedValue(['93.184.216.34']);
+    vi.spyOn(dns.promises, 'resolve6').mockRejectedValue(new Error('no AAAA'));
+  });
+
+  it('slack send fetches pinned, fail-closed on redirects', async () => {
+    const fetchSpy = vi.fn(async (_url: string, _init?: RequestInit) => new Response('ok', { status: 200 }));
+    vi.stubGlobal('fetch', fetchSpy);
+    try {
+      await expect(sendToSlack('https://hooks.slack.com/services/X/Y/Z', { text: 'hi' })).resolves.toBe(true);
+      const [, init] = fetchSpy.mock.calls[0] as [string, RequestInit & { dispatcher?: unknown }];
+      expect(init.redirect).toBe('error');
+      expect(init.dispatcher, 'slack fetch must be pinned to the validated answers').toBeDefined();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('discord send fetches pinned, fail-closed on redirects', async () => {
+    const fetchSpy = vi.fn(async (_url: string, _init?: RequestInit) => new Response(null, { status: 204 }));
+    vi.stubGlobal('fetch', fetchSpy);
+    try {
+      await expect(sendToDiscord('https://discord.com/api/webhooks/1/abc', { content: 'hi' })).resolves.toBe(true);
+      const [, init] = fetchSpy.mock.calls[0] as [string, RequestInit & { dispatcher?: unknown }];
+      expect(init.redirect).toBe('error');
+      expect(init.dispatcher, 'discord fetch must be pinned to the validated answers').toBeDefined();
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 });

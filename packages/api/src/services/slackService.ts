@@ -1,4 +1,4 @@
-import { verifySlackSignature, validateOutboundUrl } from "../config/integrationSecurity.js";
+import { verifySlackSignature, fetchValidated, UrlRejectedError } from "../config/integrationSecurity.js";
 import { logger } from "../lib/logger.js";
 
 /** Verifies a Slack request signature (no timestamp) by delegating to {@link verifySlackSignature} and returning its `valid` flag; no side effects. */
@@ -185,26 +185,22 @@ export function formatSlackResponse(message: string, success: boolean): object {
   };
 }
 
-/** POSTs `message` as JSON to the validated Slack `webhookUrl` with a 10s abort timeout, returning `true` on a successful response; side effect: logs a warning and returns `false` when {@link validateOutboundUrl} blocks the URL, and issues an outbound HTTP request. */
+/** POSTs `message` as JSON to the validated Slack `webhookUrl` with a 10s abort timeout, returning `true` on a successful response; side effect: logs a warning and returns `false` when the URL fails validation, and issues an outbound HTTP request. */
 export async function sendToSlack(webhookUrl: string, message: object): Promise<boolean> {
-  const urlValidation = await validateOutboundUrl(webhookUrl);
-  if (!urlValidation.valid) {
-    logger.warn({ reason: urlValidation.reason }, "Blocked outbound Slack webhook");
-    return false;
-  }
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 10000);
   try {
-    const response = await fetch(webhookUrl, {
+    // fetchValidated = canonical SSRF check + fetch PINNED to the validated
+    // resolution + fail-closed redirects + 10s timeout, in one resolution.
+    const response = await fetchValidated(webhookUrl, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(message),
-      signal: controller.signal,
     });
-    clearTimeout(timeout);
     return response.ok;
-  } catch {
-    clearTimeout(timeout);
+  } catch (err) {
+    if (err instanceof UrlRejectedError) {
+      logger.warn({ reason: err.reason }, "Blocked outbound Slack webhook");
+      return false;
+    }
     return false;
   }
 }

@@ -160,9 +160,11 @@ export async function validateOutboundUrl(url: string): Promise<UrlValidationRes
 /** Thrown by {@link fetchValidated} when the URL fails the canonical check —
  * typed so callers can distinguish validation rejections from network errors. */
 export class UrlRejectedError extends Error {
+  readonly reason: string;
   constructor(reason: string) {
     super(`URL rejected: ${reason}`);
     this.name = 'UrlRejectedError';
+    this.reason = reason;
   }
 }
 

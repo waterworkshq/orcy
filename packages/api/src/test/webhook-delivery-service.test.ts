@@ -16,7 +16,28 @@ const loggerMock = vi.hoisted(() => ({
   debug: vi.fn(),
 }));
 
-vi.mock("../config/integrationSecurity.js", () => securityMocks);
+// Mirrors the real module surface: fetchValidated validates via the mocked
+// checker, throws the (mocked) UrlRejectedError class on rejection, and
+// otherwise fetches with the helper's redirect/timeout defaults.
+vi.mock("../config/integrationSecurity.js", () => {
+  class UrlRejectedError extends Error {
+    reason: string;
+    constructor(reason: string) {
+      super(`URL rejected: ${reason}`);
+      this.name = "UrlRejectedError";
+      this.reason = reason;
+    }
+  }
+  return {
+    ...securityMocks,
+    UrlRejectedError,
+    fetchValidated: async (url: string, init: RequestInit = {}) => {
+      const check = await securityMocks.validateOutboundUrl(url);
+      if (!check.valid) throw new UrlRejectedError(check.reason);
+      return fetch(url, { redirect: "error", signal: AbortSignal.timeout(10_000), ...init });
+    },
+  };
+});
 vi.mock("../lib/logger.js", () => ({ logger: loggerMock }));
 vi.mock("uuid", () => ({ v4: vi.fn(() => "delivery-id") }));
 vi.mock("../db/schema/index.js", () => ({
