@@ -2,6 +2,60 @@
 
 > Older releases: see [git tags](https://github.com/waterworkshq/orcy/tags) and [GitHub Releases](https://github.com/waterworkshq/orcy/releases).
 
+## 0.40.6 — 2026-08-23
+
+### Bug Fixes
+
+#### fail closed on empty DNS answers and pin webhook fetches to their validated resolution ([`637bc27`](https://github.com/waterworkshq/orcy/commit/637bc279339f1fc7d02e6cb709cde003f9317d9d))
+
+
+
+
+- validateOutboundUrl returned only a verdict and every caller re-resolved DNS at fetch time, so a rebinding hostname — public at validation and private at fetch, or simply unresolvable at validation, which passed as valid — bypassed the private-IP block. The checker now fails closed when DNS yields no addresses (a previously committed test pinned that fail-open behavior; it is rewritten to the closed contract), returns its resolved IPs, and treats literal-IP hosts as their own resolution. A new fetchValidated helper validates and fetches PINNED to exactly those addresses via an undici Agent custom lookup (one DNS resolution total, SNI preserved, fail-closed redirects, 10s timeout, allowlisted hosts fetch unpinned), and both webhook paths use it. Closes #26
+
+
+
+
+#### validate the remote-webhook, compact dispatcher, and notification webhook outbound paths ([`e6559af`](https://github.com/waterworkshq/orcy/commit/e6559af4a9845f7fea15a52f835c9af7d9812fed))
+
+
+
+
+- Three outbound fetch paths bypassed the canonical SSRF checker entirely: remote webhook registration used a hostname-prefix blacklist with no DNS resolution, the compact remote dispatcher fetched stored endpoints without dispatch-time validation, and the notification webhook channel had no validation at all. All three now go through the pinned, fail-closed canonical helper — re-validated at dispatch and delivery time, not just at configuration time — with fail-closed redirects. Operators with deliberately internal webhook targets must list them in ORCY_SSRF_ALLOWLIST. Closes #27
+
+
+
+
+#### give notification channels and post-interceptors a 30s watchdog ([`df65b06`](https://github.com/waterworkshq/orcy/commit/df65b06eec67be3dc97f7c44581b4fa5300d3017))
+
+
+
+
+- Both kinds kept the zero default that disables the invocation watchdog, leaving the never-settling hang class open for them — latent today, since channel delivery is production-unwired and post-interceptors are fire-and-forget, but closed preemptively per the same liveness rationale as the automation-action fix. The watchdog terminates and faults the run; quarantine accounting is unchanged per ADR-0039 (faults do not count for either kind), and a manifest timeoutMs of 0 remains an explicit opt-out — both semantics pinned through the production dispatch seams. Closes #29
+
+
+
+
+#### adversarial-review remediation for the outbound-fetch hardening ([`b792b6a`](https://github.com/waterworkshq/orcy/commit/b792b6a862ac2c1229f99541f043ef9e019aa622))
+
+
+
+
+- A pre-release review pass over the v0.40.6 fixes surfaced four items: a dead duplicated statement in fetchValidated (mutate-proof restore artifact), an out-of-range dotted-quad literal check that is now octet-bounded as defense-in-depth (Node's URL parser already rejects such hosts, pinned by test), an overclaiming SECURITY.md coverage sentence narrowed to the paths that actually pin, and shared-mock hygiene in the channel watchdog tests. The review also confirmed SNI is preserved under pinned lookup and the agent-cache eviction cannot break in-flight fetches.
+
+
+
+
+
+### Documentation
+
+#### record v0.40.5 delivery in roadmap and README ([`2caffb0`](https://github.com/waterworkshq/orcy/commit/2caffb02dae00abc3d11e748f1c543063ef10b68))
+
+
+#### add v0.40.6 operator notes ([`1913d1e`](https://github.com/waterworkshq/orcy/commit/1913d1e26d3d70b22aa92a8bac85daf1c568eb84))
+
+
+
 ## 0.40.5 — 2026-08-23
 
 ### Chores
@@ -67,78 +121,3 @@
 
 
 #### add v0.40.4 operator notes ([`c91f009`](https://github.com/waterworkshq/orcy/commit/c91f0095a8034627205368f0e916880e2298cce2))
-
-
-
-## 0.40.3 — 2026-08-22
-
-### Bug Fixes
-
-#### remove useless spread in triage occurrence publication test ([`6e43b3c`](https://github.com/waterworkshq/orcy/commit/6e43b3c2620ef25ff246bbd226a055f7091de3af))
-
-
-
-
-- The lone error-level diagnostic failing corepack pnpm lint on main was a no-useless-spread at triageOccurrencePublication.test.ts:582, not the columns import shadow described in the issue — that shadow is warning-level like the other 172 non-gating warnings. Closes #24
-
-
-
-
-#### prefix release-it hook pnpm invocations with corepack ([`868b9d4`](https://github.com/waterworkshq/orcy/commit/868b9d48905d303ad50aa357293a1b62a03a9675))
-
-
-
-
-- The after:bump hook and the github.releaseNotes cliff fallback spawned bare pnpm, which resolved an ambient pnpm 11 shim instead of the pinned 9.0.0 and aborted releases after the version bump. Both invocations now go through corepack; dry-run and a direct command execution verified. Closes #25
-
-
-
-
-#### backfill settings defaults on first partial PATCH for autoAssign and codeReview ([`8e8c378`](https://github.com/waterworkshq/orcy/commit/8e8c37808773ff4a83ee5feb32f170d819e9f0c2))
-
-
-
-
-- A first-ever partial autoAssignSettings PATCH on a null-blob habitat persisted a shape-violating blob because the key was missing from SETTINGS_BLOB_DEFAULTS even though getDefaultAutoAssignSettings existed; codeReviewSettings had the same trap for autoApproveOnMerge, which the PATCH schema makes optional though the declared shape requires it. The registry comment now states the true classification rule, with codeReviewSettings given a partial factory (the schema guarantees taskPattern), ciCdSettings classified safe by schema, and retrySettings classified all-optional. Closes #20
-
-
-
-
-#### serve complete settings shapes at every raw boundary ([`8b68433`](https://github.com/waterworkshq/orcy/commit/8b68433f9f16e9ca8f878be95b88bde08946dd42))
-
-
-
-
-- Habitats holding legacy partial settings blobs (written before the updateHabitat merge fix) served those partials verbatim in GET/PATCH/list responses, habitat.updated SSE payloads, and manifest exports — only consumption-layer resolvers healed them. maskSecretSettings now deep-merges each defaults-registered blob over its canonical defaults (mirroring the per-service resolvers, including nested anomaly thresholds/notifications heal), so every public habitat surface — responses, SSE, and manifest export — serves the complete declared shape without a re-PATCH. Stored rows may stay partial; null blobs stay null. Closes #21
-
-
-
-
-#### replace stale short tool names in the instructions guide and guard all dispatch doc surfaces ([`7f0501e`](https://github.com/waterworkshq/orcy/commit/7f0501e883ccae622a6bf84903e73abc6e6f550c))
-
-
-
-
-- The docs-consistency guard only covered orcy_habitat in three doc files while the other registry-driven dispatch tools and the embedded instructions guide were unguarded, and the guide had already drifted: five stale short tool names (orcy_mission, orcy_task, orcy_agent, orcy_message, orcy_subscription) versus the live orcy_habitat_* names, an incomplete orcy_habitat action list, and a prose-only orcy_admin vocabulary. The guard now runs over every dispatch tool and doc surface — table cells, inline and multi-line tool calls, and section prose — and the drifted doc cells that carried prose instead of live action names are corrected. orcy_admin stays deliberately unadvertised in ALL_TOOLS (batch actions live under orcy_habitat_task), which the guard's existence set now encodes. Closes #23
-
-
-
-
-
-### Documentation
-
-#### record v0.40.2 delivery in roadmap and README ([`a1fe5e7`](https://github.com/waterworkshq/orcy/commit/a1fe5e7c6ad71138b9e8c273853e0c6762cf6eae))
-
-
-#### add v0.40.3 operator notes ([`d0402c3`](https://github.com/waterworkshq/orcy/commit/d0402c3daf40387acc93cb7d872fa5643b9f4a55))
-
-
-
-### Tests
-
-#### pin settings-blob response shapes at the route boundary ([`14ebcb2`](https://github.com/waterworkshq/orcy/commit/14ebcb21a100bd6ad5facc86c6c1324017e1c76d))
-
-
-
-
-- Adds a registry-driven route-response-shape suite that drives the Fastify app end-to-end — GET detail, GET list, and PATCH bodies — against habitats seeded with legacy partial blobs, asserting every declared-required field is present per covered blob, so declared-shape violations at route boundaries fail CI instead of recurring silently. Mutation-proofed: disabling the maskSecretSettings normalization fails six of the seven tests. Closes #22
