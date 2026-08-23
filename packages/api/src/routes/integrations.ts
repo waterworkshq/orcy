@@ -365,11 +365,6 @@ export async function integrationRoutes(fastify: FastifyInstance): Promise<void>
         throw badRequest("Only Jira Cloud tenant URLs are supported (https://<tenant>.atlassian.net)");
       }
 
-      // Known-good hosts only: Jira Cloud tenants. No allowlist, no auth
-      // escalation — the structural rule is what makes member-supplied URLs
-      // safe (see isJiraCloudSiteUrl).
-
-
       const userId = (request as any).user?.id ?? "unknown";
 
       const connection = connectionRepo.create({
