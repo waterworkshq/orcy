@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import * as dns from 'dns';
 import { validateOutboundUrl, filterUnsafeHeaders, getAllowlistedHosts } from '../config/integrationSecurity.js';
 import { sendToSlack } from '../services/slackService.js';
+import { executeHttpRequest } from '../services/webhooks/webhook-delivery.js';
 import { sendToDiscord } from '../services/discordService.js';
 
 describe('validateOutboundUrl', () => {
@@ -522,3 +523,23 @@ describe('outbound surfaces fetch pinned via fetchValidated', () => {
     }
   });
 });
+  it("webhook-delivery executeHttpRequest fetches pinned via fetchValidated", async () => {
+    const fetchSpy = vi.fn(async (_u: string, _i?: RequestInit) => new Response('ok', { status: 202 }));
+    vi.stubGlobal('fetch', fetchSpy);
+    try {
+      const result = await executeHttpRequest(
+        'https://example.com/hook',
+        '{}',
+        null,
+        {},
+        'd-1',
+        'task.updated',
+      );
+      expect(result.success).toBe(true);
+      const [, init] = fetchSpy.mock.calls[0] as [string, RequestInit & { dispatcher?: unknown }];
+      expect(init.redirect).toBe('error');
+      expect(init.dispatcher, 'webhook-delivery fetch must be pinned to the validated answers').toBeDefined();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
