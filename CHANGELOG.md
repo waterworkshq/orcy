@@ -2,6 +2,50 @@
 
 > Older releases: see [git tags](https://github.com/waterworkshq/orcy/tags) and [GitHub Releases](https://github.com/waterworkshq/orcy/releases).
 
+## 0.40.7 — 2026-08-23
+
+### Bug Fixes
+
+#### restrict Jira api-key connections to Jira Cloud tenant URLs ([`e46dc2a`](https://github.com/waterworkshq/orcy/commit/e46dc2af867a2813cbe27c9abba50774033ca2d8))
+
+
+
+
+- The api-key Jira connection accepted any member-supplied siteUrl and the adapter fetched it with the team's Jira credential attached, unvalidated — an internal-network SSRF and a token-capture vector in one field. Instead of an allowlist or an auth escalation, the surface now accepts only https Jira Cloud tenant URLs (https://<tenant>.atlassian.net), a structural known-good rule: Atlassian's own servers receive every credentialed request, so neither internal targets nor capture hosts can be configured. Legacy non-Atlassian rows fail safely before any fetch with a reconnect message, and the adapter's fetches go through the validated, pinned, redirect-fail-closed helper. Closes #32
+
+
+
+
+#### pin the outgoing-webhook, Slack, and Discord fetches to their validated resolution ([`aec30aa`](https://github.com/waterworkshq/orcy/commit/aec30aa407e58b8fa4e17b839081756be990f6bf))
+
+
+
+
+- The last four outbound surfaces still validated a URL and then fetched it unpinned — a second DNS lookup at fetch time reopened the rebinding window, and undici's default redirect-following let a validated URL redirect to an internal target. All three fetch sites now go through the validated, pinned, fail-closed helper (chat delegatesto Slack/Discord), UrlRejectedError carries its reason so each surface's rejection contract is byte-identical, and SECURITY.md again states the full pinned set. Closes #31
+
+
+
+
+#### review-remediation — SECURITY.md full pinned set + real-helper delivery test ([`2c20823`](https://github.com/waterworkshq/orcy/commit/2c20823f800c1f9cd4409e5d74d151f93f38484e))
+
+
+
+
+- Adversarial review over the v0.40.7 fixes caught two items: SECURITY.md still claimed the narrowed v0.40.6 wording (the python batch that was supposed to widen it had aborted on an earlier file), and webhook-delivery executeHttpRequest had no real-helper test proving it goes through fetchValidated with a dispatcher (the test file's module mock reimplements the helper, so a regression there would not have been caught). Both fixed.
+
+
+
+
+
+### Documentation
+
+#### record v0.40.6 delivery in roadmap and README ([`02ab618`](https://github.com/waterworkshq/orcy/commit/02ab618e1398a369de3c5e5200812d5aa8f09fac))
+
+
+#### add v0.40.7 operator notes ([`d9e9995`](https://github.com/waterworkshq/orcy/commit/d9e999536d63fa302e642011e35a041c7ee44670))
+
+
+
 ## 0.40.6 — 2026-08-23
 
 ### Bug Fixes
@@ -87,37 +131,3 @@
 
 
 #### add v0.40.5 operator notes ([`5a52e06`](https://github.com/waterworkshq/orcy/commit/5a52e06989751a65f9baa5308fc50dcdb8a542e0))
-
-
-
-## 0.40.4 — 2026-08-22
-
-### Bug Fixes
-
-#### give automation actions a 30s invocation watchdog ([`acc64ca`](https://github.com/waterworkshq/orcy/commit/acc64ca85ac1f8266bab6d517eb983d7f6ee926b))
-
-
-
-
-- A never-settling automation-action handler blocked its invocation forever and never faulted toward quarantine, because the kind's defaultTimeoutMs of 0 disabled the watchdog entirely — the fault-accounting policy was unreachable without a rejection or timeout. The kind default is now 30s (network-bound, versus the detector's compute-bound 5s); the watchdog terminates and faults the run toward quarantine but is not cancellation, per the existing runtime contract. A manifest timeoutMs of 0 remains an explicit opt-out, already distinguished from omitting the field by the nullish-coalescing at the effective-timeout resolution — both semantics are now pinned by tests through the production dispatch seam. Closes #18
-
-
-
-
-#### use the canonical resolution-based SSRF checker on webhook paths ([`56508a1`](https://github.com/waterworkshq/orcy/commit/56508a17e48772df89524fb4358d5b21fcbb94f0))
-
-
-
-
-- Plugin webhook calls and automation call_webhook actions validated URLs with a copy-pasted regex over the raw string, while the canonical validateOutboundUrl checker — which resolves hostnames and rejects private-space answers — guarded every other outbound path. Both webhook paths now use the canonical checker and the two duplicated pattern lists are deleted, so the DNS-rebind and IPv4-mapped-IPv6 bypass classes are rejected everywhere. isPrivateIPv6 now unwraps IPv4-mapped literals (dotted and hex forms) before its prefix checks, and webhook fetches gain a 10s timeout with fail-closed redirect handling — endpoints that redirect or stall now fail loudly instead of bypassing the URL check. Closes #19
-
-
-
-
-
-### Documentation
-
-#### record v0.40.3 delivery in roadmap and README ([`3f002ad`](https://github.com/waterworkshq/orcy/commit/3f002ad65257f476db5d89d1161ebf0e1156dac1))
-
-
-#### add v0.40.4 operator notes ([`c91f009`](https://github.com/waterworkshq/orcy/commit/c91f0095a8034627205368f0e916880e2298cce2))
