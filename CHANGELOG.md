@@ -2,6 +2,40 @@
 
 > Older releases: see [git tags](https://github.com/waterworkshq/orcy/tags) and [GitHub Releases](https://github.com/waterworkshq/orcy/releases).
 
+## 0.40.5 — 2026-08-23
+
+### Chores
+
+#### commit the pre-push migration gate with an installer and corepack-prefix CONTRIBUTING gate commands ([`05c9835`](https://github.com/waterworkshq/orcy/commit/05c98355398a6908f22c4be69790880860e12e8d))
+
+
+
+
+- Fresh clones had no pre-push hook at all — the first layer of the production-migration safety was silently absent everywhere but manually configured machines — and CONTRIBUTING's on-demand snippet used bare pnpm, the exact form that blocked the v0.40.3 release push under an ambient pnpm-11 shim in spawned shells. The hook source is now committed (corepack invocation, with the trap documented in-line) and installs with one idempotent command. Closes #28
+
+
+
+
+
+### Documentation
+
+#### record v0.40.4 delivery in roadmap and README ([`e18b938`](https://github.com/waterworkshq/orcy/commit/e18b938874702296666f6eef9622ea5b458ae9bd))
+
+
+#### correct stale board response-shape comments to the habitat wire keys ([`8747bbc`](https://github.com/waterworkshq/orcy/commit/8747bbc9ac3f8defc0aa49e0757f6e68011ebb62))
+
+
+
+
+- Seven comments across the habitats, board-export, and board-analytics routes still claimed board response keys no handler has returned since the v0.36.0 Public Habitat Transport rename. Closes #30
+
+
+
+
+#### add v0.40.5 operator notes ([`5a52e06`](https://github.com/waterworkshq/orcy/commit/5a52e06989751a65f9baa5308fc50dcdb8a542e0))
+
+
+
 ## 0.40.4 — 2026-08-22
 
 ### Bug Fixes
@@ -108,31 +142,3 @@
 
 
 - Adds a registry-driven route-response-shape suite that drives the Fastify app end-to-end — GET detail, GET list, and PATCH bodies — against habitats seeded with legacy partial blobs, asserting every declared-required field is present per covered blob, so declared-shape violations at route boundaries fail CI instead of recurring silently. Mutation-proofed: disabling the maskSecretSettings normalization fails six of the seven tests. Closes #22
-
-
-
-
-
-## 0.40.2 — 2026-08-22
-
-### Bug Fixes
-
-#### merge partial habitat settings PATCHes over canonical defaults ([`0c58847`](https://github.com/waterworkshq/orcy/commit/0c5884786a707467e7ccef981cd43090f7d516cf))
-
-
-
-### Documentation
-
-#### record v0.40.1 delivery in roadmap and README ([`a9e7686`](https://github.com/waterworkshq/orcy/commit/a9e7686f24a3c33e61dfa7d135ad8b7a9828b292))
-
-
-#### remove retired update-settings action from habitat MCP docs ([`292cb6d`](https://github.com/waterworkshq/orcy/commit/292cb6d6e0692b592be4f4b6a425ac2399e6005f))
-
-
-#### add v0.40.2 operator notes ([`dfad486`](https://github.com/waterworkshq/orcy/commit/dfad48627db88f8e25fbf40dfa79f5aec9b9fcea))
-
-
-
-### Tests
-
-#### pin complete release and roadmap settings shapes for raw consumers ([`4aa47de`](https://github.com/waterworkshq/orcy/commit/4aa47de5623003964c45ace6cc2249b0f369c936))
