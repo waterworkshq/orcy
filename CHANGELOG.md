@@ -2,6 +2,43 @@
 
 > Older releases: see [git tags](https://github.com/waterworkshq/orcy/tags) and [GitHub Releases](https://github.com/waterworkshq/orcy/releases).
 
+## 0.40.8 — 2026-08-23
+
+### Bug Fixes
+
+#### webhook delivery failures now surface to operators; Jira port tightened to 443 ([`489facb`](https://github.com/waterworkshq/orcy/commit/489facb660341840bf70755455b8454083051080))
+
+
+
+
+- Failed remote webhook deliveries previously wrote a failed row but never told anyone — an operator's broken endpoint was invisible until manual inspection. Delivery failures now publish a webhook.delivery_failed SSE event (rendered as a warning toast in the UI) and enqueue an in-app notification for habitat admins with the endpoint URL and error. The Jira known-good check now rejects any explicit port other than 443, tightening the trust domain to the actual Jira API surface. Closes #33, Closes #34
+
+
+
+
+
+### Documentation
+
+#### record v0.40.7 delivery in roadmap and README ([`1b77c76`](https://github.com/waterworkshq/orcy/commit/1b77c76ee0cd8f6faaf5a86c6cb1db3c5ee27ec3))
+
+
+#### add v0.40.8 operator notes ([`22fff88`](https://github.com/waterworkshq/orcy/commit/22fff88515b4e17eede37fd39440758466d60322))
+
+
+
+### Style
+
+#### remove duplicated Jira known-good comment from route edit artifact ([`1979c55`](https://github.com/waterworkshq/orcy/commit/1979c55021d1494838c48035f62f78af715e7b00))
+
+
+
+
+- The mutate-and-revert proof restored the guard by re-inserting both the comment and the if block, leaving the same three-line comment twice and an extra blank line. One copy was cosmetic; the code is unchanged.
+
+
+
+
+
 ## 0.40.7 — 2026-08-23
 
 ### Bug Fixes
@@ -97,37 +134,3 @@
 
 
 #### add v0.40.6 operator notes ([`1913d1e`](https://github.com/waterworkshq/orcy/commit/1913d1e26d3d70b22aa92a8bac85daf1c568eb84))
-
-
-
-## 0.40.5 — 2026-08-23
-
-### Chores
-
-#### commit the pre-push migration gate with an installer and corepack-prefix CONTRIBUTING gate commands ([`05c9835`](https://github.com/waterworkshq/orcy/commit/05c98355398a6908f22c4be69790880860e12e8d))
-
-
-
-
-- Fresh clones had no pre-push hook at all — the first layer of the production-migration safety was silently absent everywhere but manually configured machines — and CONTRIBUTING's on-demand snippet used bare pnpm, the exact form that blocked the v0.40.3 release push under an ambient pnpm-11 shim in spawned shells. The hook source is now committed (corepack invocation, with the trap documented in-line) and installs with one idempotent command. Closes #28
-
-
-
-
-
-### Documentation
-
-#### record v0.40.4 delivery in roadmap and README ([`e18b938`](https://github.com/waterworkshq/orcy/commit/e18b938874702296666f6eef9622ea5b458ae9bd))
-
-
-#### correct stale board response-shape comments to the habitat wire keys ([`8747bbc`](https://github.com/waterworkshq/orcy/commit/8747bbc9ac3f8defc0aa49e0757f6e68011ebb62))
-
-
-
-
-- Seven comments across the habitats, board-export, and board-analytics routes still claimed board response keys no handler has returned since the v0.36.0 Public Habitat Transport rename. Closes #30
-
-
-
-
-#### add v0.40.5 operator notes ([`5a52e06`](https://github.com/waterworkshq/orcy/commit/5a52e06989751a65f9baa5308fc50dcdb8a542e0))
