@@ -34,7 +34,7 @@ export async function habitatAnalyticsRoutes(fastify: FastifyInstance): Promise<
     },
   );
 
-  /** GET /habitats/:habitatId/summary - Get a temporal summary of board activity. Auth: agentOrHumanAuth + board access. Returns { board, snapshot, recentActivity, digest } */
+  /** GET /habitats/:habitatId/summary - Get a temporal summary of board activity. Auth: agentOrHumanAuth + board access. Returns { habitat, snapshot, recentActivity, digest, generatedAt } */
   fastify.withTypeProvider<ZodTypeProvider>().get(
     "/habitats/:habitatId/summary",
     {

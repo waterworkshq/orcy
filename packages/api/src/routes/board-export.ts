@@ -83,7 +83,7 @@ export async function habitatExportRoutes(fastify: FastifyInstance): Promise<voi
     },
   );
 
-  /** POST /boards/import - Import a new board. Auth: humanAuth. Returns { board, columns, imported, warnings } */
+  /** POST /boards/import - Import a new board. Auth: humanAuth. Returns { outcome, importAttempt, habitatId, importedCounts } */
   fastify
     .withTypeProvider<ZodTypeProvider>()
     .post(
@@ -97,7 +97,7 @@ export async function habitatExportRoutes(fastify: FastifyInstance): Promise<voi
       },
     );
 
-  /** POST /habitats/:habitatId/import - Import into existing board. Auth: humanAuth + requireHabitatAccess. Returns { board, columns, imported, warnings } */
+  /** POST /habitats/:habitatId/import - Import into existing board. Auth: humanAuth + requireHabitatAccess. Returns { outcome, importAttempt, habitatId, importedCounts } */
   fastify.withTypeProvider<ZodTypeProvider>().post(
     "/habitats/:habitatId/import",
     {

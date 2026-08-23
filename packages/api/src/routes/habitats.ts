@@ -40,7 +40,7 @@ export async function habitatRoutes(fastify: FastifyInstance): Promise<void> {
     }
   );
 
-  /** POST /habitats - Create a new board. Auth: humanAuth. Returns { board, columns } */
+  /** POST /habitats - Create a new board. Auth: humanAuth. Returns { habitat, columns } */
   fastify.withTypeProvider<ZodTypeProvider>().post(
     '/habitats',
     { schema: { body: createHabitatSchema }, preHandler: humanAuth },
@@ -55,7 +55,7 @@ export async function habitatRoutes(fastify: FastifyInstance): Promise<void> {
     }
   );
 
-  /** POST /habitats/agent - Create a board via agent. Auth: agentAuth. Returns { success, board, columns } */
+  /** POST /habitats/agent - Create a board via agent. Auth: agentAuth. Returns { success, habitat, columns } */
   fastify.withTypeProvider<ZodTypeProvider>().post(
     '/habitats/agent',
     { schema: { body: createHabitatSchema }, preHandler: agentAuth },
@@ -70,7 +70,7 @@ export async function habitatRoutes(fastify: FastifyInstance): Promise<void> {
     }
   );
 
-  /** GET /habitats/:habitatId - Get a board by ID. Auth: agentOrHumanAuth + board access. Returns board or 404 */
+  /** GET /habitats/:habitatId - Get a board by ID. Auth: agentOrHumanAuth + board access. Returns the habitat detail ({ habitat, columns, missions }) or 404 */
   fastify.withTypeProvider<ZodTypeProvider>().get(
     '/habitats/:habitatId',
     { schema: { params: habitatIdParamsSchema }, preHandler: [agentOrHumanAuth, requireHabitatAccess] },
@@ -83,7 +83,7 @@ export async function habitatRoutes(fastify: FastifyInstance): Promise<void> {
     }
   );
 
-  /** PATCH /habitats/:habitatId - Update a board. Auth: humanAuth. Returns { board } or 404 */
+  /** PATCH /habitats/:habitatId - Update a board. Auth: humanAuth. Returns { habitat } or 404 */
   fastify.withTypeProvider<ZodTypeProvider>().patch(
     '/habitats/:habitatId',
     { schema: { params: habitatIdParamsSchema, body: updateHabitatSchema }, preHandler: humanAuth },
