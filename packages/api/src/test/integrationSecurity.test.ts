@@ -1,11 +1,21 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { createHmac } from "crypto";
-import { validateOutboundUrl } from "../config/integrationSecurity.js";
-const dnsState = vi.hoisted(() => ({ v4: ["93.184.216.34"], v6: [] as string[] }));
+import { buildPinnedLookup, fetchValidated, validateOutboundUrl, UrlRejectedError } from "../config/integrationSecurity.js";
+const dnsState = vi.hoisted(() => ({
+  v4: ["93.184.216.34"],
+  v6: [] as string[],
+  fail: false,
+}));
 vi.mock("node:dns", () => ({
   promises: {
-    resolve4: async () => dnsState.v4,
-    resolve6: async () => dnsState.v6,
+    resolve4: async () => {
+      if (dnsState.fail) throw new Error("SERVFAIL");
+      return dnsState.v4;
+    },
+    resolve6: async () => {
+      if (dnsState.fail) throw new Error("SERVFAIL");
+      return dnsState.v6;
+    },
   },
 }));
 
@@ -557,6 +567,7 @@ describe("validateOutboundUrl (canonical SSRF checker)", () => {
   beforeEach(() => {
     dnsState.v4 = ["93.184.216.34"];
     dnsState.v6 = [];
+    dnsState.fail = false;
   });
 
   it("rejects hostnames that DNS-resolve to private space", async () => {
@@ -564,6 +575,41 @@ describe("validateOutboundUrl (canonical SSRF checker)", () => {
     const r = await validateOutboundUrl("https://attacker.example.com/hook");
     expect(r.valid).toBe(false);
     expect(r.reason).toContain("private");
+  });
+
+  it("fails closed when DNS returns no addresses (both families reject)", async () => {
+    dnsState.fail = true;
+    const r = await validateOutboundUrl("https://rebind.example.com/hook");
+    expect(r.valid).toBe(false);
+    expect(r.reason).toContain("no addresses");
+  });
+
+  it("returns its resolved IPs so callers can pin the fetch", async () => {
+    dnsState.v4 = ["93.184.216.34"];
+    dnsState.v6 = ["2606:2800:220:1:248:1893:25c8:1946"];
+    const r = await validateOutboundUrl("https://example.com/hook");
+    expect(r.valid).toBe(true);
+    expect(r.resolvedIps).toEqual(["93.184.216.34", "2606:2800:220:1:248:1893:25c8:1946"]);
+  });
+
+  it("allowlisted hosts stay valid without DNS (empty resolvedIps)", async () => {
+    process.env.ORCY_SSRF_ALLOWLIST = "ntfy.internal";
+    dnsState.fail = true; // would fail closed if resolution ran — allowlist must skip it
+    try {
+      const r = await validateOutboundUrl("https://ntfy.internal/hook");
+      expect(r.valid).toBe(true);
+      expect(r.resolvedIps ?? []).toEqual([]);
+    } finally {
+      delete process.env.ORCY_SSRF_ALLOWLIST;
+      dnsState.fail = false;
+    }
+  });
+
+  it("public literal-IP hosts stay valid without DNS (their address was already checked)", async () => {
+    dnsState.fail = true; // literal IPs must not depend on resolution
+    const r = await validateOutboundUrl("http://93.184.216.34/hook");
+    expect(r.valid).toBe(true);
+    expect(r.resolvedIps).toEqual(["93.184.216.34"]);
   });
 
   it("rejects IPv4-mapped IPv6 literals (dotted and hex forms)", async () => {
@@ -580,5 +626,79 @@ describe("validateOutboundUrl (canonical SSRF checker)", () => {
   it("accepts a public hostname resolving to public space", async () => {
     const r = await validateOutboundUrl("https://example.com/hook");
     expect(r.valid).toBe(true);
+  });
+});
+
+describe("fetchValidated (pinned outbound fetch)", () => {
+  beforeEach(() => {
+    dnsState.v4 = ["93.184.216.34"];
+    dnsState.v6 = [];
+    dnsState.fail = false;
+  });
+
+  it("throws UrlRejectedError without fetching when the URL is rejected", async () => {
+    const fetchSpy = vi.fn();
+    vi.stubGlobal("fetch", fetchSpy);
+    try {
+      dnsState.fail = true;
+      await expect(fetchValidated("https://rebind.example.com/hook")).rejects.toThrow(
+        "URL rejected",
+      );
+      await expect(fetchValidated("https://rebind.example.com/hook")).rejects.toBeInstanceOf(
+        UrlRejectedError,
+      );
+      expect(fetchSpy).not.toHaveBeenCalled();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("fetches with a pinned dispatcher, fail-closed redirect, and a default timeout", async () => {
+    const fetchSpy = vi.fn(async (_url: string, _init?: RequestInit) => new Response("ok"));
+    vi.stubGlobal("fetch", fetchSpy);
+    try {
+      await fetchValidated("https://example.com/hook", { method: "POST", body: "x" });
+      expect(fetchSpy).toHaveBeenCalledTimes(1);
+      const [calledUrl, init] = fetchSpy.mock.calls[0] as [
+        string,
+        RequestInit & { dispatcher?: unknown },
+      ];
+      expect(calledUrl).toBe("https://example.com/hook");
+      expect(init.method).toBe("POST");
+      expect(init.body).toBe("x");
+      expect(init.redirect).toBe("error");
+      expect(init.signal).toBeInstanceOf(AbortSignal);
+      expect(init.dispatcher, "fetch must be pinned to the validated answers").toBeDefined();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("allowlisted hosts fetch WITHOUT pinning (no dispatcher)", async () => {
+    process.env.ORCY_SSRF_ALLOWLIST = "ntfy.internal";
+    const fetchSpy = vi.fn(async (_url: string, _init?: RequestInit) => new Response("ok"));
+    vi.stubGlobal("fetch", fetchSpy);
+    try {
+      await fetchValidated("https://ntfy.internal/hook");
+      const [, init] = fetchSpy.mock.calls[0] as [string, RequestInit & { dispatcher?: unknown }];
+      expect(init.dispatcher).toBeUndefined();
+    } finally {
+      vi.unstubAllGlobals();
+      delete process.env.ORCY_SSRF_ALLOWLIST;
+    }
+  });
+
+  it("buildPinnedLookup answers only with the validated addresses, never live DNS", () => {
+    dnsState.v4 = ["10.0.0.5"]; // hostile live answer — must be ignored entirely
+    const lookup = buildPinnedLookup(["93.184.216.34", "2606:2800::1"]);
+    const allCb = vi.fn();
+    lookup("example.com", { all: true }, allCb);
+    expect(allCb).toHaveBeenCalledWith(null, [
+      { address: "93.184.216.34", family: 4 },
+      { address: "2606:2800::1", family: 6 },
+    ]);
+    const singleCb = vi.fn();
+    lookup("example.com", {}, singleCb);
+    expect(singleCb).toHaveBeenCalledWith(null, "93.184.216.34", 4);
   });
 });

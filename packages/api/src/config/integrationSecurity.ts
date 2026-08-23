@@ -1,5 +1,6 @@
 import { createHmac, timingSafeEqual } from 'crypto';
 import * as dns from 'dns';
+import { Agent } from 'undici';
 import { classifyPosture } from './security.js';
 import { logger } from '../lib/logger.js';
 
@@ -25,9 +26,15 @@ const BLOCKED_HEADER_PREFIXES = [
   'www-authenticate',
 ];
 
+/**
+ * `resolvedIps` carries the addresses the validation pass resolved (empty for
+ * allowlisted hosts and absent on rejections) so callers can pin their fetch
+ * to exactly these addresses instead of triggering a second DNS lookup.
+ */
 export interface UrlValidationResult {
   valid: boolean;
   reason?: string;
+  resolvedIps?: string[];
 }
 
 export function getAllowlistedHosts(): string[] {
@@ -108,24 +115,32 @@ export async function validateOutboundUrl(url: string): Promise<UrlValidationRes
     return { valid: false, reason: `Private/internal IP "${hostname}" is not allowed` };
   }
 
-  try {
+  // Literal-IP hosts were private-checked above; fetching them performs no
+  // DNS lookup, so they neither need nor have a resolution pass.
+  const isLiteralIp = hostname.includes(':') || /^\d+\.\d+\.\d+\.\d+$/.test(hostname);
+
+  let resolved: string[] = [];
+  if (isLiteralIp) {
+    resolved = [hostname];
+  } else {
     const [v4, v6] = await Promise.allSettled([
       dns.promises.resolve4(hostname),
       dns.promises.resolve6(hostname),
     ]);
-
-    const resolved: string[] = [];
     if (v4.status === 'fulfilled') resolved.push(...v4.value);
     if (v6.status === 'fulfilled') resolved.push(...v6.value);
+
+    // Fail closed: an empty answer set (e.g. a rebinding hostname that
+    // refuses resolution at validation time) must not pass as valid.
+    if (resolved.length === 0) {
+      return { valid: false, reason: 'DNS resolution returned no addresses' };
+    }
 
     for (const ip of resolved) {
       if (isPrivateIP(ip)) {
         return { valid: false, reason: `Hostname "${hostname}" resolves to private/internal IP "${ip}"` };
       }
     }
-  } catch (err) {
-    logger.warn({ err, hostname }, 'DNS resolution failed during SSRF check');
-    return { valid: false, reason: 'DNS resolution failed' };
   }
 
   if (scheme !== 'https') {
@@ -135,7 +150,90 @@ export async function validateOutboundUrl(url: string): Promise<UrlValidationRes
     }
   }
 
-  return { valid: true };
+  return { valid: true, resolvedIps: resolved };
+}
+
+/** Thrown by {@link fetchValidated} when the URL fails the canonical check —
+ * typed so callers can distinguish validation rejections from network errors. */
+export class UrlRejectedError extends Error {
+  constructor(reason: string) {
+    super(`URL rejected: ${reason}`);
+    this.name = 'UrlRejectedError';
+  }
+}
+
+/** A dns.lookup-compatible callback that answers ONLY with `ips` — the
+ * addresses the validation pass resolved — so the fetch cannot be
+ * DNS-rebinding-diverted to a different answer. */
+export function buildPinnedLookup(ips: string[]) {
+  const answers = ips.map((address) => ({ address, family: address.includes(':') ? 6 : 4 }));
+  return (
+    _hostname: string,
+    options: { all?: boolean } | ((err: Error | null, address: string, family: number) => void),
+    maybeCallback?: (err: Error | null, result: unknown) => void,
+  ): void => {
+    const callback = (typeof options === 'function' ? options : maybeCallback) as
+      ((err: Error | null, address?: unknown, family?: number) => void) | undefined;
+    if (!callback) throw new Error('pinned lookup: missing callback');
+    if (typeof options === 'object' && options.all) {
+      callback(null, answers);
+      return;
+    }
+    callback(null, answers[0].address, answers[0].family);
+  };
+}
+
+// Bounded cache: one Agent per (hostname, validated-ips) pair. Agents hold
+// keep-alive sockets, so per-call instantiation would leak; the bound keeps
+// the cache finite under many distinct targets.
+const pinnedAgents = new Map<string, Agent>();
+const PINNED_AGENT_CACHE_LIMIT = 128;
+
+function pinnedAgentFor(hostname: string, ips: string[]): Agent {
+  const key = `${hostname}|${[...ips].sort().join(',')}`;
+  let agent = pinnedAgents.get(key);
+  if (!agent) {
+    agent = new Agent({
+      connect: { lookup: buildPinnedLookup(ips) as never },
+    });
+    pinnedAgents.set(key, agent);
+    if (pinnedAgents.size > PINNED_AGENT_CACHE_LIMIT) {
+      const oldest = pinnedAgents.keys().next().value;
+      if (oldest !== undefined) {
+        const evicted = pinnedAgents.get(oldest);
+        pinnedAgents.delete(oldest);
+        void evicted?.close().catch(() => {});
+      }
+    }
+  }
+  return agent;
+}
+
+/**
+ * Validates `url` with the canonical checker and fetches it PINNED to the
+ * addresses that validation resolved (one DNS resolution total, SNI
+ * preserved) — closing the validate-then-fetch rebinding window. Redirects
+ * fail closed and a 10s timeout applies unless `init.signal` overrides.
+ * Allowlisted hosts (valid without resolution) fetch unpinned.
+ * Throws {@link UrlRejectedError} on validation failure.
+ */
+export async function fetchValidated(url: string, init: RequestInit = {}): Promise<Response> {
+  const check = await validateOutboundUrl(url);
+  if (!check.valid) throw new UrlRejectedError(check.reason ?? 'not allowed');
+  const requestInit: RequestInit = {
+    redirect: 'error',
+    signal: AbortSignal.timeout(10_000),
+    ...init,
+  };
+  const pinned = check.resolvedIps ?? [];
+  if (pinned.length > 0) {
+    const { hostname } = new URL(url);
+    // Cast to a fresh object type: Node's RequestInit already declares
+    // `dispatcher` with its bundled undici-types version, which is
+    // structurally incompatible with the standalone undici Agent's types.
+    (requestInit as { dispatcher?: unknown }).dispatcher = pinnedAgentFor(hostname, pinned);
+  }
+  return fetch(url, requestInit);  return fetch(url, requestInit);
 }
 
 export function filterUnsafeHeaders(

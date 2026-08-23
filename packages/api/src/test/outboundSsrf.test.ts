@@ -205,11 +205,15 @@ describe('validateOutboundUrl', () => {
       expect(result.valid).toBe(true);
     });
 
-    it('allows when DNS resolution fails (literal checks passed)', async () => {
+    it('fails closed when DNS resolution yields no addresses', async () => {
+      // Previously this passed as valid — the fail-open gap a rebinding
+      // hostname could exploit (refuse resolution at validation time, answer
+      // private at fetch time). Empty answer sets are now rejections.
       vi.spyOn(dns.promises, 'resolve4').mockRejectedValue(new Error('ENOTFOUND'));
       vi.spyOn(dns.promises, 'resolve6').mockRejectedValue(new Error('ENOTFOUND'));
       const result = await validateOutboundUrl('https://unknown.example.com/webhook');
-      expect(result.valid).toBe(true);
+      expect(result.valid).toBe(false);
+      expect(result.reason).toContain('no addresses');
     });
 
     it('blocks hostname resolving to 169.254.169.254', async () => {

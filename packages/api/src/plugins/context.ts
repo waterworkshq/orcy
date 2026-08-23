@@ -36,7 +36,7 @@ import {
 } from "../services/pluginTaskPublication.js";
 import { badRequest } from "../errors.js";
 import { logger as rootLogger } from "../lib/logger.js";
-import { validateOutboundUrl } from "../config/integrationSecurity.js";
+import { fetchValidated, UrlRejectedError } from "../config/integrationSecurity.js";
 
 /**
  * Builds a per-invocation {@link PluginContext} whose capability surfaces are
@@ -418,13 +418,6 @@ function buildWebhookCaller(
   habitatId: string | null,
   writeCounter: { count: number; cap: number },
 ): WebhookCaller {
-  /** Canonical resolution-based SSRF check (integrationSecurity) — the same
-   * guard every other outbound path uses; a local pattern list is drift-prone. */
-  async function validateUrl(url: string): Promise<void> {
-    const check = await validateOutboundUrl(url);
-    if (!check.valid) throw new Error(`URL rejected: ${check.reason}`);
-  }
-
   function validateHeaders(headers?: Record<string, string>): void {
     if (!headers) return;
     for (const key of Object.keys(headers)) {
@@ -441,13 +434,13 @@ function buildWebhookCaller(
         throw new Error(`Plugin write cap exceeded (${writeCounter.count}/${writeCounter.cap})`);
       }
       writeCounter.count++;
-      await validateUrl(url);
       validateHeaders(headers);
       try {
-        const response = await fetch(url, {
+        // fetchValidated = canonical SSRF check + fetch PINNED to the
+        // validated resolution (one DNS lookup total) + fail-closed
+        // redirects + 10s timeout.
+        const response = await fetchValidated(url, {
           method: "POST",
-          redirect: "error",
-          signal: AbortSignal.timeout(10_000),
           headers: {
             "Content-Type": "application/json",
             "User-Agent": `Orcy-Plugin/${pluginId}`,
@@ -462,6 +455,7 @@ function buildWebhookCaller(
         );
         return { statusCode: response.status, ok: response.ok, body: responseText.slice(0, 1000) };
       } catch (err) {
+        if (err instanceof UrlRejectedError) throw err;
         const message = err instanceof Error ? err.message : String(err);
         rootLogger.warn(
           { pluginId, runId, url, err: message },

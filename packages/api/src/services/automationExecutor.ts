@@ -16,7 +16,7 @@ import { claimTask } from "./tasks/task-lifecycle.js";
 import { assignReviewers } from "./reviewAssignmentService.js";
 import { logger } from "../lib/logger.js";
 import { executeCreateTaskViaPublication } from "./automationTaskPublication.js";
-import { validateOutboundUrl } from "../config/integrationSecurity.js";
+import { fetchValidated } from "../config/integrationSecurity.js";
 
 const BANNED_HEADERS = new Set(["authorization", "cookie", "x-api-key", "x-token", "x-secret"]);
 
@@ -437,18 +437,6 @@ async function executeCallWebhook(
     };
   }
 
-  // Canonical resolution-based SSRF check (integrationSecurity) — the same
-  // guard every other outbound path uses; a local pattern list is drift-prone.
-  const urlCheck = await validateOutboundUrl(action.url);
-  if (!urlCheck.valid) {
-    return {
-      actionType: "call_webhook",
-      actionIndex: index,
-      status: "failed",
-      error: `URL rejected: ${urlCheck.reason}`,
-    };
-  }
-
   if (action.headers) {
     for (const key of Object.keys(action.headers)) {
       if (BANNED_HEADERS.has(key.toLowerCase())) {
@@ -465,10 +453,12 @@ async function executeCallWebhook(
   const body = action.bodyTemplate ? renderTemplate(action.bodyTemplate, ctx).rendered : undefined;
 
   try {
-    const response = await fetch(action.url, {
+    // fetchValidated = canonical SSRF check + fetch PINNED to the validated
+    // resolution (one DNS lookup total) + fail-closed redirects + 10s
+    // timeout; a rejected URL surfaces here as a thrown UrlRejectedError
+    // whose message is the "URL rejected: ..." action error.
+    const response = await fetchValidated(action.url, {
       method: "POST",
-      redirect: "error",
-      signal: AbortSignal.timeout(10_000),
       headers: {
         "Content-Type": "application/json",
         "User-Agent": "Orcy-Automation/1.0",
