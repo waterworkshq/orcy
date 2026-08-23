@@ -8,6 +8,7 @@ import {
   signCompactRemoteWebhookPayload,
   type CompactRemoteWebhookEventInput,
 } from "./compactRemoteWebhookPayload.js";
+import { fetchValidated } from "../config/integrationSecurity.js";
 
 /**
  * v0.19 Phase E — Compact remote webhook dispatcher.
@@ -129,7 +130,7 @@ export async function dispatchCompactRemoteEvent(
     });
 
     try {
-      const res = await fetch(endpoint.url, {
+      const res = await fetchValidated(endpoint.url, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -138,7 +139,6 @@ export async function dispatchCompactRemoteEvent(
           "X-Orcy-Remote-Webhook-Event": input.eventType,
         },
         body: JSON.stringify(payload),
-        signal: AbortSignal.timeout(10_000),
       });
       const responseBody = await res.text().catch(() => "");
 

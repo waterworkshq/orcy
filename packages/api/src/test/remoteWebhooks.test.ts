@@ -1,4 +1,22 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+const dnsState = vi.hoisted(() => ({
+  v4: ["93.184.216.34"],
+  v6: [] as string[],
+  fail: false,
+}));
+vi.mock("node:dns", () => ({
+  promises: {
+    resolve4: async () => {
+      if (dnsState.fail) throw new Error("SERVFAIL");
+      return dnsState.v4;
+    },
+    resolve6: async () => {
+      if (dnsState.fail) throw new Error("SERVFAIL");
+      return dnsState.v6;
+    },
+  },
+}));
+
 import Fastify, { type FastifyInstance } from "fastify";
 import { validatorCompiler, serializerCompiler } from "fastify-type-provider-zod";
 import { initTestDb, closeDb } from "../db/index.js";
@@ -76,6 +94,25 @@ describe("Phase E — Remote webhook endpoint management routes", () => {
       url: `/api/habitats/${habitat.id}/remote-access/webhook-endpoints`,
     });
     expect(res.statusCode).toBe(401);
+  });
+
+  it("rejects an endpoint URL whose hostname DNS-resolves to private space", async () => {
+    dnsState.v4 = ["10.0.0.5"];
+    const habitat = setupHabitat();
+    const pod = setupActivePod(habitat.id);
+    const res = await app!.inject({
+      method: "POST",
+      url: `/api/habitats/${habitat.id}/remote-access/webhook-endpoints`,
+      headers: { authorization: `Bearer ${makeAdminToken()}` },
+      payload: {
+        remotePodId: pod.id,
+        url: "https://attacker.example.com/webhook",
+        description: "Rebind target",
+        events: ["task.assigned"],
+      },
+    });
+    expect(res.statusCode).toBe(400);
+    dnsState.v4 = ["93.184.216.34"];
   });
 
   it("returns 403 for viewer role", async () => {
@@ -376,6 +413,43 @@ describe("Phase E — Compact remote webhook dispatcher", () => {
   afterEach(() => {
     closeDb();
     process.env = ORIGINAL_ENV;
+  });
+
+  it("fails a dispatch to a stored endpoint whose URL resolves to private space (dispatch-time validation)", async () => {
+    const habitat = setupHabitat();
+    const pod = setupActivePod(habitat.id);
+    const endpoint = endpointRepo.createRemoteWebhookEndpoint({
+      remotePodId: pod.id,
+      habitatId: habitat.id,
+      url: "https://attacker.example.com/webhook",
+      events: ["task.assigned"],
+    });
+    endpointRepo.approveRemoteWebhookEndpoint(endpoint.id, "admin-1");
+    endpointRepo.enableRemoteWebhookEndpoint(endpoint.id, "admin-1");
+    registerEndpointPlaintextSecret(endpoint.id, "orcy_secret_abc");
+    dnsState.v4 = ["10.0.0.5"];
+
+    const result = await dispatchCompactRemoteEvent({
+      habitatId: habitat.id,
+      eventType: "task.assigned",
+      apiBase: "https://orcy.example.com/api/shared",
+      payload: {
+        eventType: "task.assigned",
+        occurredAt: new Date().toISOString(),
+        habitatId: habitat.id,
+        taskId: "t-1",
+        actor: { type: "remote_orcy", id: "p-1", displayName: "W", podId: "pod-1", podName: "P" },
+        standing: "remote_contributor",
+        actionKind: "advisory",
+        title: "T",
+        apiBase: "https://orcy.example.com/api/shared",
+        followUpPath: "/api/shared/tasks/t-1",
+        followUpDescription: "Fetch",
+      },
+    });
+    expect(result.dispatched).toBe(0);
+    expect(result.failed).toBe(1);
+    dnsState.v4 = ["93.184.216.34"];
   });
 
   it("returns zero counts when no enabled endpoints exist", async () => {

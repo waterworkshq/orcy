@@ -3,6 +3,7 @@ import { z } from "zod";
 import { humanAuth } from "../middleware/auth.js";
 import { adminOnly } from "../middleware/rbac.js";
 import { teamHabitatAccess } from "../middleware/team.js";
+import { validateOutboundUrl } from "../config/integrationSecurity.js";
 import { badRequest, notFound } from "../errors.js";
 import * as endpointRepo from "../repositories/remoteWebhookEndpoint.js";
 import * as podRepo from "../repositories/remotePod.js";
@@ -55,36 +56,9 @@ const enableSchema = z.object({}).strict();
 const disableSchema = z.object({ reason: z.string().min(1).max(500) }).strict();
 const rejectSchema = z.object({ rejectReason: z.string().min(1).max(500) }).strict();
 
-function validateWebhookUrl(url: string): void {
-  let parsed: URL;
-  try {
-    parsed = new URL(url);
-  } catch {
-    throw badRequest("Invalid URL");
-  }
-  if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
-    throw badRequest("Webhook URL must use http or https");
-  }
-  const host = parsed.hostname.toLowerCase();
-  if (
-    host === "localhost" ||
-    host.startsWith("127.") ||
-    host.startsWith("10.") ||
-    host.startsWith("172.16.") ||
-    host.startsWith("172.17.") ||
-    host.startsWith("172.18.") ||
-    host.startsWith("172.19.") ||
-    host.startsWith("172.2") ||
-    host.startsWith("172.3") ||
-    host.startsWith("192.168.") ||
-    host === "0.0.0.0" ||
-    host.startsWith("169.254.") ||
-    host === "::1" ||
-    host.startsWith("fc") ||
-    host.startsWith("fe80:")
-  ) {
-    throw badRequest("Webhook URL must not point to a private or link-local address");
-  }
+async function validateWebhookUrl(url: string): Promise<void> {
+  const check = await validateOutboundUrl(url);
+  if (!check.valid) throw badRequest(check.reason ?? "Webhook URL is not allowed");
 }
 
 function toView(row: endpointRepo.RemoteWebhookEndpointRow) {
@@ -150,7 +124,7 @@ export async function remoteWebhookRoutes(fastify: FastifyInstance): Promise<voi
     "/habitats/:id/remote-access/webhook-endpoints",
     async (request: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) => {
       const body = parseBody(createEndpointSchema, request.body);
-      validateWebhookUrl(body.url);
+      await validateWebhookUrl(body.url);
 
       // The pod must belong to this habitat
       const pod = podRepo.getRemotePodById(body.remotePodId);
@@ -194,7 +168,7 @@ export async function remoteWebhookRoutes(fastify: FastifyInstance): Promise<voi
       _reply: FastifyReply,
     ) => {
       const body = parseBody(updateEndpointSchema, request.body);
-      if (body.url) validateWebhookUrl(body.url);
+      if (body.url) await validateWebhookUrl(body.url);
       const existing = endpointRepo.getRemoteWebhookEndpointById(request.params.endpointId);
       if (!existing || existing.habitatId !== request.params.id) {
         throw notFound("Webhook endpoint not found");

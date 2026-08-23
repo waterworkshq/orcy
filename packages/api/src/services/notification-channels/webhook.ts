@@ -1,8 +1,9 @@
 import * as attemptRepo from "../../repositories/notificationDeliveryAttempt.js";
 import type { NotificationDelivery, NotificationEvent } from "@orcy/shared";
 import { redactError, redactResponseBody } from "./truncate.js";
+import { fetchValidated } from "../../config/integrationSecurity.js";
 
-/** POSTs a notification payload to a custom webhook URL with a 10-second timeout and records the HTTP response on the delivery attempt. */
+/** POSTs a notification payload to a custom webhook URL — validated by the canonical SSRF checker, pinned to the validated resolution, fail-closed redirects, 10-second timeout — and records the HTTP response on the delivery attempt. */
 export async function deliverWebhook(
   delivery: NotificationDelivery,
   event: NotificationEvent,
@@ -28,16 +29,11 @@ export async function deliverWebhook(
   };
 
   try {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 10000);
-
-    const response = await fetch(webhookUrl, {
+    const response = await fetchValidated(webhookUrl, {
       method: "POST",
       headers: { "Content-Type": "application/json", "User-Agent": "Orcy-Notification/1.0" },
       body: JSON.stringify(payload),
-      signal: controller.signal,
     });
-    clearTimeout(timeout);
 
     const responseBody = await response.text().catch(() => "");
     const statusCode = response.status;

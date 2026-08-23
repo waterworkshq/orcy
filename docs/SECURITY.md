@@ -321,6 +321,7 @@ Outbound webhook delivery and chat message sending use URL validation:
 - Blocks loopback (`127.0.0.1`, `::1`, `localhost`), private (`10.x`, `172.16-31.x`, `192.168.x`), link-local (`169.254.x`), and multicast IPs
 - Filters unsafe request headers (`authorization`, `cookie`, `proxy-*`, etc.)
 - `ORCY_SSRF_ALLOWLIST` allows specific trusted internal destinations
+- All outbound fetch surfaces — plugin webhook calls, automation `call_webhook` actions, remote webhook registration and dispatch, the notification webhook channel, chat integrations, and outgoing webhooks — validate through the canonical `validateOutboundUrl` checker; webhook-class fetches are additionally pinned to the validated DNS resolution and fail closed on redirects
 
 ---
 

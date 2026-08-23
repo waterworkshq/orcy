@@ -1,4 +1,22 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+const dnsState = vi.hoisted(() => ({
+  v4: ["93.184.216.34"],
+  v6: [] as string[],
+  fail: false,
+}));
+vi.mock("node:dns", () => ({
+  promises: {
+    resolve4: async () => {
+      if (dnsState.fail) throw new Error("SERVFAIL");
+      return dnsState.v4;
+    },
+    resolve6: async () => {
+      if (dnsState.fail) throw new Error("SERVFAIL");
+      return dnsState.v6;
+    },
+  },
+}));
+
 import { closeDb, initTestDb } from "../db/index.js";
 import * as boardRepo from "../repositories/habitat.js";
 import * as columnRepo from "../repositories/column.js";
@@ -6,6 +24,7 @@ import * as eventRepo from "../repositories/notificationEvent.js";
 import * as deliveryRepo from "../repositories/notificationDelivery.js";
 import * as attemptRepo from "../repositories/notificationDeliveryAttempt.js";
 import * as subscriptionRepo from "../repositories/notificationSubscription.js";
+import { deliverWebhook } from "../services/notification-channels/webhook.js";
 import { deliverNotification } from "../services/notificationDeliveryService.js";
 import * as pluginManager from "../plugins/pluginManager.js";
 import * as pluginRunRepo from "../repositories/pluginRun.js";
@@ -82,6 +101,18 @@ describe("notification channels - webhook", () => {
     await initTestDb();
   });
   afterEach(() => closeDb());
+
+  it("rejects a webhook URL whose hostname DNS-resolves to private space", async () => {
+    dnsState.v4 = ["10.0.0.5"];
+    const habitat = setupHabitat();
+    const event = createTestEvent(habitat.id);
+    const delivery = createTestDelivery(habitat.id, event.id, ["webhook"]);
+
+    const result = await deliverWebhook(delivery, event, "https://attacker.example.com/x");
+    expect(result.success).toBe(false);
+    expect(result.error).toContain("URL rejected");
+    dnsState.v4 = ["93.184.216.34"];
+  });
 
   it("fails when no webhook URL is configured", async () => {
     const habitat = setupHabitat();
