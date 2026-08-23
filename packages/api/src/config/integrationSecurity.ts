@@ -116,8 +116,12 @@ export async function validateOutboundUrl(url: string): Promise<UrlValidationRes
   }
 
   // Literal-IP hosts were private-checked above; fetching them performs no
-  // DNS lookup, so they neither need nor have a resolution pass.
-  const isLiteralIp = hostname.includes(':') || /^\d+\.\d+\.\d+\.\d+$/.test(hostname);
+  // DNS lookup, so they neither need nor have a resolution pass. Out-of-range
+  // dotted-quads (e.g. 1.2.3.999) are NOT literals — they fall through to
+  // the resolution path and fail closed when DNS yields no answers.
+  const dottedQuad = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(hostname);
+  const isLiteralIp =
+    hostname.includes(':') || (dottedQuad !== null && dottedQuad.slice(1).every((o) => Number(o) <= 255));
 
   let resolved: string[] = [];
   if (isLiteralIp) {
@@ -233,7 +237,7 @@ export async function fetchValidated(url: string, init: RequestInit = {}): Promi
     // structurally incompatible with the standalone undici Agent's types.
     (requestInit as { dispatcher?: unknown }).dispatcher = pinnedAgentFor(hostname, pinned);
   }
-  return fetch(url, requestInit);  return fetch(url, requestInit);
+  return fetch(url, requestInit);
 }
 
 export function filterUnsafeHeaders(

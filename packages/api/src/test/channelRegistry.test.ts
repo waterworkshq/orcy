@@ -35,6 +35,7 @@ vi.mock("../repositories/pluginEnrollment.js", () => ({
 vi.mock("../repositories/pluginRun.js", () => ({
   startRun: vi.fn().mockReturnValue({ id: "run-1" }),
   finishRun: vi.fn(),
+  deleteRun: vi.fn().mockReturnValue(true),
 }));
 
 vi.mock("../services/pulseService.js", () => ({ onPulseCreated: vi.fn() }));
@@ -157,6 +158,7 @@ describe("channelRegistry: registry hit short-circuits the switch", () => {
   });
 
   it("a never-settling channel handler is terminated by the 30s watchdog, without quarantine counting", async () => {
+    vi.mocked(finishRun).mockClear();
     tmpDir = await writePlugin(
       "hang-chan",
       `{

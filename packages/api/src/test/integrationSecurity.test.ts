@@ -612,6 +612,12 @@ describe("validateOutboundUrl (canonical SSRF checker)", () => {
     expect(r.resolvedIps).toEqual(["93.184.216.34"]);
   });
 
+  it("out-of-range dotted-quad hostnames never validate (rejected at URL parse)", async () => {
+    dnsState.fail = true; // no DNS answers either — every layer rejects
+    const r = await validateOutboundUrl("http://1.2.3.999/hook");
+    expect(r.valid).toBe(false);
+  });
+
   it("rejects IPv4-mapped IPv6 literals (dotted and hex forms)", async () => {
     for (const url of [
       "http://[::ffff:127.0.0.1]/x",
