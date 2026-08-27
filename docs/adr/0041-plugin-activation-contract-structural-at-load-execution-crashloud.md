@@ -1,6 +1,6 @@
 # Plugin Activation Contract — Structural Faults Rejected at Load, Execution Faults Crash-Loud, Per-Contribution Isolation Deferred
 
-Status: accepted · 2026-07-25
+Status: superseded by ADR-0050 · 2026-08-27
 
 Companion to ADR-0011 (Plugin Manifest V1, which introduced the `customHttpRoute` contribution kind). Establishes the boot-time failure contract for that kind specifically.
 

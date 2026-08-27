@@ -31,6 +31,20 @@ Open-source MCP server that gives AI coding agents a shared task board with atom
 
 ---
 
+## What Orcy Does
+
+- **Coordinates** — multiple AI coding agents claim tasks atomically from a shared board. No double-assignment, ever.
+- **Verifies** — work passes quality gates (Breach) and pod review before it reaches you.
+- **Recovers** — a stalled agent's tasks auto-release after 30 minutes of silence. No orphaned work.
+
+## Quick Start
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/waterworkshq/orcy/main/install.sh | bash
+```
+
+Installs the CLI + MCP server and auto-configures all 7 agent clients (Claude Code, Cursor, Codex, Gemini CLI, OpenCode, Kilo Code, CLI). Full setup, autonomous mode, and deployment → [Quick Start](#quick-start-1) below.
+
 ## Features
 
 - **Atomic claiming** — no two agents can grab the same task, even under concurrent access. Lock-free design.
@@ -198,25 +212,11 @@ Orcy pulls external tracker issues into habitat intake, where humans/orcys revie
 
 | Release | Theme |
 |---------|-------|
-| Next | Unscheduled seeds (integration OAuth/webhook extraction and similar) wait on demand. See [docs/ROADMAP.md](docs/ROADMAP.md). |
-| v0.40.8 | **Patch: Webhook Failure Visibility** — failed remote webhook deliveries now warn operators (UI toast + admin notification with endpoint and error) instead of silently recording a failed row. Jira tenant URLs restricted to port 443. No operator action. |
-| v0.40.7 | **Patch: Jira Cloud-Only + Fully Pinned Outbound Fetches** — api-key Jira connections accept only `https://<tenant>.atlassian.net` (credentials can provably only reach Atlassian; no allowlist needed); legacy non-Atlassian connections fail closed with a reconnect message. Outgoing webhooks, Slack, and Discord fetches are now validated, DNS-pinned, and redirect-fail-closed like everything else. **Operator note:** redirecting webhook endpoints fail until configured to the final URL. |
-| v0.40.6 | **Patch: Outbound-Fetch Hardening + Latent Watchdogs** — the SSRF checker fails closed on empty DNS answers and a new pinned-fetch helper closes the validate-then-fetch rebinding window for plugin webhooks, automation actions, and three previously-unvalidated paths (remote webhook registration/dispatch, notification webhook channel — internal targets need `ORCY_SSRF_ALLOWLIST`). Channels and post-interceptors gain a latent 30s watchdog. **Operator note:** unresolvable webhook hostnames now reject at validation. |
-| v0.40.5 | **Patch: Committed Pre-push Gate + Route Docs** — the pre-push migration gate is now committed with a one-command installer (fresh clones previously had none), corepack-invoked, with CONTRIBUTING's bare-`pnpm` gate snippets fixed; seven stale `board` route comments corrected. Developer tooling and docs only. |
-| v0.40.4 | **Patch: Invocation Watchdog + Canonical Webhook SSRF** — automation-action plugin invocations get a 30s default watchdog (never-settling handlers previously blocked forever without faulting toward quarantine; manifest `timeoutMs: 0` still opts out). Both webhook paths switch to the canonical resolution-based SSRF checker (no more duplicated regex lists; IPv4-mapped IPv6 rejected) with 10s fetch timeouts and fail-closed redirects. **Operator note:** redirecting or >10s webhook endpoints now fail loudly. |
-| v0.40.3 | **Patch: Settings-Shape Hardening, MCP Docs Guard** — first-write defaults for `autoAssignSettings`/`codeReviewSettings` complete the settings registry; legacy partial blobs heal at every raw boundary (responses, SSE, manifest export), pinned by a new route-response-shape suite. The MCP instructions guide drops five stale tool names for the live `orcy_habitat_*` set and the docs guard now covers every dispatch tool and doc surface. Release tooling corepack-prefixed (no more post-bump aborts). No operator action. |
-| v0.40.2 | **Patch: Complete Habitat Settings Shapes** — partial settings PATCHes on habitats with no stored settings now merge over canonical defaults, fixing an anomaly-scan crash (missing `thresholds`) and partial release/roadmap shapes in responses and manifest exports; already-partial rows heal on read. MCP docs no longer list the removed `update-settings` dispatch action (CLI unaffected). No operator action. |
-| v0.40.1 | **Patch: Retire the Legacy Finding PATCH Adapter** — the v0.40.0 compatibility window closes: every legacy `PATCH /triage/findings/:id` shape now returns `400 LEGACY_PATCH_RETIRED` with zero writes and no body parsing (401 still precedes when unauthenticated). Clients must use the lifecycle commands (`/route`, `/activate`, `/resolve`, `/wontfix`). Writer-inventory docs corrected; no schema changes. |
-| v0.40.0 | **Restored Finding Triage Lifecycle** — one lifecycle command kernel (ADR-0048): investigation/corrective Mission identity split (`correctiveMissionId` + admitted-by provenance), claim-bound agent routing, existing-Mission manual activation, immutable terminal history with lineage-novel recurrence, first-writer-frozen occurrence intake, immutable Release activation epochs with the hard Finding-count cap, and fenced Automation handoff for `release.shipped`. UI/MCP cut over to command intents (`/promote` retired). Enforcement ships through a staged production migration runner: additive watermark (`0064`–`0067`), versioned preflight + database-local attestation, then the CHECK-guarded enforcement migration `0068` (partial-unique active identity + Finding Resolution, RESTRICT evidence FKs) — dirty data defers enforcement with a machine-readable report instead of bricking startup. |
-| v0.39.0 | **Habitat Shared Room** — live habitat co-presence, Pulse as shared memory, local members reading agent-mail bodies in the Agents drawer (ADR-0046), and a mission Communication tab that projects Pulse and comments (ADR-0047). No schema changes. |
-| v0.38.0 | **Learning Loop v1** — a bounded, human-governed proposal loop that converts trusted Orcy history into immutable, cited findings. Closed-allowlist sources (audit events, terminal runs, triage resolutions, k-anonymous experience aggregates). Human-only review with CAS decisions; accepted findings create Wiki drafts (never auto-publish). Agent task-scoped reads via `orcy_learning` MCP tool. Dormant by default (global env + per-Habitat toggle). |
-| v0.37.0 | **Deepen: Installation Transaction** — converts `@orcy/installer` from an append-only log into a transactional system with crash recovery: a transient journal + committed manifest (temp+fsync+rename, `{path,action}` dedup with metadata upsert), `updateInstall` replays full intent from a persisted `InstallIntent`, a `doctor`/`verify` split (liveness vs consistency audit), migrate hardening + v1→v2 reconcile, and G2 full recovery (viability-gated resume, active step-rollback, `--recover`). A 3-agent cold review's ~30 findings are all remediated. Installer-only; no DB schema changes, no breaking changes. macOS launch-path validation outstanding as a follow-up. |
-| v0.36.1 | **Patch: Settings merge + SSE helper extraction** — strips field-level `.default()` from `anomalySettingsSchema`/`autoAssignSettingsSchema`/`codeReviewSettingsSchema` (CS-20: pre-existing data-loss vector where Zod defaults overwrote existing values before the deep-merge ran). Extracts `publishHabitatUpdate` helper centralizing mask + cache rebuild + SSE broadcast across all 3 habitat-change paths (CS-21). No schema changes, no ADRs, no breaking changes. |
-| v0.36.0 | **Deepen: Public Habitat Transport** — establishes `PublicHabitat` as the single transport contract across server, UI, and MCP. Zod schema is the source of truth via `z.infer` (service input widened 7→11, `as` cast eliminated). All settings blobs deep-merged in the service. Two stale-UI SSE bugs fixed (roadmap-focus + prioritization-rules). MCP aligned to `PublicHabitat`; dead `updateHabitatSettings` tool removed; `boardId`→`habitatId` in `orcy_habitat` dispatch. **Breaking:** MCP wire-format change (`boardId`→`habitatId`, `update-settings` removed). No schema changes, no ADRs. |
-| v0.35.4 | "Patch: Notification write scope + linked-identity recipient dedup" — closes two deferred-roadmap items. **Notification write scope (RM-5):** dedicated `"notification.write"` scope replaces the prior `requiredScope: "read"` asymmetry on `/api/shared/notifications/deliveries/:deliveryId/ack` and `/snooze`; both routes now enforce it via `remoteActionScope(...)` preHandler. **Linked-identity dedup (RM-8):** `findRemoteRecipientsForEvent` collapses participants with the same `externalIdentityId` so the same person/orcy across pods receives one delivery, not duplicates. **Operator action:** deployments with remote participants must add `"notification.write"` to any grant that should ack/snooze — the routes are now scope-enforced. No schema changes, no ADRs. |
-| v0.35.0 | **Deepen: Remote Participant Actions (ADR-0043)** — one transport seam for the `/api/shared/*` surface so a remote claim/submit/release matches the local lifecycle (atomic mutation+event via `existingEventId`; SSE, watchers, recalc, hooks). Closes the governance-interceptor bypass + Host-Approved Capability gap, both defaulting ON (two-layer kill switch). Partial-completion swallow removed; comments simplified; cross-habitat denial codes collapsed for anti-probing. **Operator action:** approve remote-participant capabilities before upgrade (Host-Approved Capability is now enforced; empty `approvedCapabilities` refuses claims on capability-bearing tasks). |
+| Soon | Unscheduled seeds (integration OAuth/webhook extraction and similar) wait on demand. See [docs/ROADMAP.md](docs/ROADMAP.md). |
+| Architecture Optimization | Ongoing Architecture Work pertaining to investigated codebase opportunities |
+| npm publishing | GO LIVE on npm for the CLI, MCP server, and daemon for one command installer |
 
-Full plan: **[docs/ROADMAP.md](docs/ROADMAP.md)**
+Full plan: **[docs/ROADMAP.md](docs/ROADMAP.md#upcoming)**
 
 ---
 
