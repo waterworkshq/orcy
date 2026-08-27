@@ -12,7 +12,6 @@ const { mockOpenModal, mockBoardState } = vi.hoisted(() => ({
       sessionId?: string;
       viewingTaskId?: string;
       userName?: string;
-      agentName?: string;
     }>,
     isBulkSelectMode: false,
   },

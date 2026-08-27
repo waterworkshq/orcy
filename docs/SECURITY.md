@@ -194,6 +194,7 @@ All non-public routes require authentication. Public allowlist:
 | **Webhook management** | `humanAuth + adminOnly` | — |
 | **Chat integration admin** | `humanAuth + adminOnly` | — |
 | **SSE/WebSocket** | `authenticateRealtime + authorizeBoardAccess` | Short-lived stream tokens for browser EventSource |
+| **Presence** (`/sse/presence/*`) | `humanAuth` + habitat access check | Identity always derived from `request.user`; join/heartbeat/leave carry only `sessionId` + Habitat ID (identity fields are rejected), session mutations are bound to the owning human, and viewer lists require habitat access |
 | **Organizations/teams** | `humanAuth` (+ team role checks) | — |
 | **Templates** | `humanAuth` | — |
 | **Quality gates** | `agentOrHumanAuth` | — |
@@ -246,6 +247,7 @@ v0.19 "Pod Bridge" adds optional cross-pod collaboration. Local-only is the **de
 - `remoteParticipantAuth` middleware rejects all requests without a valid `X-Orcy-Remote-Key` header
 - `remoteActionScope(action)` checks standing, grant type, action scopes, grace window, and expiry on **every request** — no session-level token that grants broad access
 - The `teamHabitatAccess` middleware ensures remote participants are scoped to their specific habitat — cross-habitat access is explicitly blocked
+- Remote pods and participants are provisioned **only** by manual invite-token acceptance (`POST /shared/invites/accept`, validated by one-time token hash). Provider invites can be created and provider OAuth initiation returns an authorize URL, but there is **no working provider completion path**: `POST /shared/invites/accept-provider` was removed (it accepted a bare invite UUID plus caller-authored identity without consuming an OAuth auth state). Provider acceptance returns only with a designed callback that atomically validates and consumes the auth state and binds a verified provider identity.
 
 ### Credential Rotation/Revocation/Freeze
 

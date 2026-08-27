@@ -23,12 +23,12 @@ describe("HabitatPresence", () => {
     expect(container).toBeEmptyDOMElement();
   });
 
-  it("says N in habitat and distinguishes human vs agent viewers by name", () => {
+  it("says N in habitat and labels viewers by name (human-only presence)", () => {
     render(
       <HabitatPresence
         presence={[
-          entry({ sessionId: "s-human", type: "human", userName: "Ada" }),
-          entry({ sessionId: "s-agent", type: "agent", agentName: "Scout" }),
+          entry({ sessionId: "s-1", type: "human", userName: "Ada" }),
+          entry({ sessionId: "s-2", type: "human", userName: "Grace" }),
         ]}
       />,
     );
@@ -38,11 +38,11 @@ describe("HabitatPresence", () => {
     expect(screen.queryByText(/effort/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/presence time/i)).not.toBeInTheDocument();
 
-    const human = screen.getByLabelText("Ada (human)");
-    expect(human).toBeInTheDocument();
-    expect(screen.getByLabelText("Scout (agent)")).toBeInTheDocument();
+    const ada = screen.getByLabelText("Ada");
+    expect(ada).toBeInTheDocument();
+    expect(screen.getByLabelText("Grace")).toBeInTheDocument();
 
-    fireEvent.mouseEnter(human.parentElement!);
-    expect(screen.getByRole("tooltip", { name: "Ada (human)" })).toBeInTheDocument();
+    fireEvent.mouseEnter(ada.parentElement!);
+    expect(screen.getByRole("tooltip", { name: "Ada" })).toBeInTheDocument();
   });
 });

@@ -5,19 +5,11 @@ function generateSessionId(): string {
   return `s-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
 }
 
-function getStoredUser(): { id: string; username: string } | null {
-  try {
-    const raw = localStorage.getItem('orcy_user');
-    if (!raw) return null;
-    return JSON.parse(raw) as { id: string; username: string };
-  } catch {
-    return null;
-  }
-}
-
 /**
  * Tracks the current user's presence on a board: joins on mount, sends heartbeats
- * every 30 s, and sends a sendBeacon on unload to mark the session as gone.
+ * every 30 s, and sends an authenticated leave on React cleanup. Abrupt closes
+ * (crash, kill) have no unload beacon — the server expires the session through
+ * its 120-second stale-entry cleanup.
  */
 export function usePresence(habitatId: string | null | undefined) {
   const sessionIdRef = useRef<string>(generateSessionId());
@@ -26,15 +18,11 @@ export function usePresence(habitatId: string | null | undefined) {
   useEffect(() => {
     if (!habitatId) return;
 
-    const user = getStoredUser();
     const sessionId = sessionIdRef.current;
 
     api.presence.join({
       sessionId,
-      type: 'human',
       habitatId,
-      userId: user?.id,
-      userName: user?.username,
     }).catch(() => {});
 
     heartbeatRef.current = setInterval(() => {
@@ -44,17 +32,8 @@ export function usePresence(habitatId: string | null | undefined) {
       }).catch(() => {});
     }, 30_000);
 
-    const handleUnload = () => {
-      navigator.sendBeacon?.(
-        '/sse/presence/leave',
-        new Blob([JSON.stringify({ sessionId, habitatId })], { type: 'application/json' })
-      );
-    };
-    window.addEventListener('beforeunload', handleUnload);
-
     return () => {
       if (heartbeatRef.current) clearInterval(heartbeatRef.current);
-      window.removeEventListener('beforeunload', handleUnload);
       api.presence.leave({ sessionId, habitatId }).catch(() => {});
     };
   }, [habitatId]);

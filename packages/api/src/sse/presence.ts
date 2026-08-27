@@ -70,6 +70,14 @@ export function setViewingTask(habitatId: string, sessionId: string, taskId: str
 }
 
 /**
+ * Returns the presence entry for a single session on a board, if present.
+ * Read-only lookup used by route handlers to enforce session ownership.
+ */
+export function getPresenceEntry(habitatId: string, sessionId: string): PresenceEntry | undefined {
+  return habitatPresence.get(habitatId)?.get(sessionId);
+}
+
+/**
  * Returns all active presence entries for a board.
  */
 export function getHabitatPresence(habitatId: string): PresenceEntry[] {

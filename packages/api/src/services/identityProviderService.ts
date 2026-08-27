@@ -189,7 +189,14 @@ export function getDefaultScopes(kind: IdentityProviderKind): string[] {
 
 const STATE_TTL_MINUTES = 10;
 
-/** Result of {@link initiateAuthState}: the provider authorize URL plus the persisted PKCE/state/nonce values needed to complete the callback. */
+/**
+ * Result of {@link initiateAuthState}: the provider authorize URL plus the
+ * persisted PKCE/state/nonce values a provider callback would consume.
+ *
+ * NOTE: Orcy currently ships NO provider callback or invite-completion route —
+ * these values cannot complete an invite yet. Provider acceptance returns only
+ * with a designed callback that atomically validates and consumes the state.
+ */
 export interface AuthStateInitiateResult {
   authUrl: string;
   state: string;
@@ -206,7 +213,7 @@ function generatePkcePair(): { verifier: string; challenge: string } {
   return { verifier, challenge };
 }
 
-/** Generates a fresh PKCE/nonce/state auth-state row plus a provider-specific authorize URL for an enabled {@link IdentityProviderKind}, persisting the state with a 10-minute TTL. */
+/** Generates a fresh PKCE/nonce/state auth-state row plus a provider-specific authorize URL for an enabled {@link IdentityProviderKind}, persisting the state with a 10-minute TTL. No in-tree route consumes the state yet — see the note on {@link AuthStateInitiateResult}. */
 export function initiateAuthState(
   habitatId: string,
   providerId: string,

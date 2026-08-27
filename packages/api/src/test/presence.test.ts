@@ -97,9 +97,9 @@ describe('Presence Module', () => {
     });
     joinHabitat('habitat-1', {
       sessionId: 'sess-2',
-      type: 'agent',
+      type: 'human',
       habitatId: 'habitat-1',
-      agentName: 'Bot',
+      userName: 'Bob',
     });
 
     setViewingTask('habitat-1', 'sess-1', 'task-42');

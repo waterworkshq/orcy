@@ -152,7 +152,7 @@ export const TaskCard = memo(function TaskCard({
           )}
           {taskViewers.length > 0 && (
             <Tooltip
-              content={taskViewers.map((v) => v.userName ?? v.agentName ?? "Unknown").join(", ")}
+              content={taskViewers.map((v) => v.userName ?? "Unknown").join(", ")}
               position="top"
             >
               <div className="flex items-center gap-0.5 rounded border border-[var(--badge-active)] bg-[var(--badge-active-bg)] px-1 py-0.5 text-[10px] font-medium text-[var(--badge-active-text)]">

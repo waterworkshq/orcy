@@ -2,15 +2,9 @@ import { request } from "../transport.js";
 import type { PresenceEntry } from "../../types/index.js";
 
 export const presenceApi = {
-  join: (data: {
-    sessionId: string;
-    type: "human" | "agent";
-    habitatId: string;
-    userId?: string;
-    userName?: string;
-    agentId?: string;
-    agentName?: string;
-  }) =>
+  // The server derives viewer identity from the authenticated user; the join
+  // body carries only the session and Habitat identifiers.
+  join: (data: { sessionId: string; habitatId: string }) =>
     request<{ success: boolean }>(`/sse/presence/join`, {
       method: "POST",
       body: JSON.stringify(data),

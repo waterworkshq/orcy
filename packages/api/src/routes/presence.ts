@@ -1,31 +1,64 @@
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
-import { joinHabitat, leaveHabitat, setViewingTask, getHabitatPresence } from '../sse/presence.js';
-import type { PresenceType } from '../models/index.js';
-import { badRequest } from '../errors.js';
+import { z } from 'zod';
+import {
+  joinHabitat,
+  leaveHabitat,
+  setViewingTask,
+  getHabitatPresence,
+  getPresenceEntry,
+} from '../sse/presence.js';
+import { humanAuth } from '../middleware/auth.js';
+import { checkHabitatAccess, requireHabitatAccess } from '../middleware/team.js';
+import { badRequest, forbidden } from '../errors.js';
 
-interface JoinBody {
-  sessionId: string;
-  type: PresenceType;
-  habitatId: string;
-  userId?: string;
-  userName?: string;
-  agentId?: string;
-  agentName?: string;
+// Identity is derived from request.user on the server; a join/heartbeat carrying
+// identity fields (type, userId, userName, agentId, agentName, ...) is rejected
+// outright rather than silently stripped — forged identity must never reach
+// presence state or SSE events.
+const joinSchema = z
+  .object({
+    sessionId: z.string().min(1),
+    habitatId: z.string().min(1),
+  })
+  .strict();
+
+const heartbeatSchema = z
+  .object({
+    sessionId: z.string().min(1),
+    habitatId: z.string().min(1),
+    viewingTaskId: z.string().min(1).nullable().optional(),
+  })
+  .strict();
+
+const leaveSchema = z
+  .object({
+    sessionId: z.string().min(1),
+    habitatId: z.string().min(1),
+  })
+  .strict();
+
+function parseBody<T>(schema: z.ZodType<T>, raw: unknown): T {
+  const result = schema.safeParse(raw);
+  if (!result.success) {
+    const issues = result.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; ');
+    throw badRequest(`Invalid request body: ${issues}`);
+  }
+  return result.data;
 }
 
-interface HeartbeatBody {
-  sessionId: string;
-  habitatId: string;
-  viewingTaskId?: string | null;
-}
-
-interface LeaveBody {
-  sessionId: string;
-  habitatId: string;
+/** Denies when the session in this Habitat belongs to a different human. */
+function assertSessionOwnership(habitatId: string, sessionId: string, userId: string): void {
+  const entry = getPresenceEntry(habitatId, sessionId);
+  if (entry && entry.userId !== userId) {
+    throw forbidden('Session belongs to another user', 'PRESENCE_SESSION_OWNERSHIP');
+  }
 }
 
 /**
  * Presence tracking — join/leave/heartbeat for board viewers and their active task.
+ * All routes require human authentication; Habitat access is authorized against
+ * the Habitat ID each request carries (body-keyed for POSTs, path param for the
+ * viewer list). Presence identity is always derived from the authenticated user.
  */
 export async function presenceRoutes(fastify: FastifyInstance): Promise<void> {
   fastify.addContentTypeParser('application/json', { parseAs: 'string' }, (req, body, done) => {
@@ -36,48 +69,66 @@ export async function presenceRoutes(fastify: FastifyInstance): Promise<void> {
     }
   });
 
-  /** POST /presence/join - Register presence on a board. No auth. Returns { success: true } */
-  fastify.post<{ Body: JoinBody }>(
+  /** POST /presence/join - Register presence on a board. Requires human auth. Returns { success: true } */
+  fastify.post(
     '/presence/join',
-    async (request: FastifyRequest<{ Body: JoinBody }>, _reply: FastifyReply) => {
-      const { sessionId, type, habitatId, userId, userName, agentId, agentName } = request.body;
-      if (!sessionId || !type || !habitatId) {
-        throw badRequest('sessionId, type, and habitatId are required');
-      }
-      joinHabitat(habitatId, { sessionId, type, habitatId: habitatId, userId, userName, agentId, agentName, viewingTaskId: null });
+    { preHandler: humanAuth },
+    async (request: FastifyRequest, _reply: FastifyReply) => {
+      const { sessionId, habitatId } = parseBody(joinSchema, request.body);
+      const user = request.user!;
+      await checkHabitatAccess(request, habitatId);
+      assertSessionOwnership(habitatId, sessionId, user.id);
+      joinHabitat(habitatId, {
+        sessionId,
+        type: 'human',
+        habitatId,
+        userId: user.id,
+        userName: user.username,
+        viewingTaskId: null,
+      });
       return { success: true };
     }
   );
 
-  /** POST /presence/heartbeat - Send presence heartbeat. No auth. Returns { success: true } */
-  fastify.post<{ Body: HeartbeatBody }>(
+  /** POST /presence/heartbeat - Send presence heartbeat. Requires human auth. Returns { success: true } */
+  fastify.post(
     '/presence/heartbeat',
-    async (request: FastifyRequest<{ Body: HeartbeatBody }>, _reply: FastifyReply) => {
-      const { sessionId, habitatId, viewingTaskId } = request.body;
-      if (!sessionId || !habitatId) {
-        throw badRequest('sessionId and habitatId are required');
+    { preHandler: humanAuth },
+    async (request: FastifyRequest, _reply: FastifyReply) => {
+      const { sessionId, habitatId, viewingTaskId } = parseBody(heartbeatSchema, request.body);
+      const user = request.user!;
+      await checkHabitatAccess(request, habitatId);
+      assertSessionOwnership(habitatId, sessionId, user.id);
+      // Unknown sessions stay a no-op (preserves the pre-auth behavior).
+      if (getPresenceEntry(habitatId, sessionId)) {
+        setViewingTask(habitatId, sessionId, viewingTaskId ?? null);
       }
-      setViewingTask(habitatId, sessionId, viewingTaskId ?? null);
       return { success: true };
     }
   );
 
-  /** POST /presence/leave - Leave a board session. No auth. Returns { success: true } */
-  fastify.post<{ Body: LeaveBody }>(
+  /** POST /presence/leave - Leave a board session. Requires human auth. Returns { success: true } */
+  fastify.post(
     '/presence/leave',
-    async (request: FastifyRequest<{ Body: LeaveBody }>, _reply: FastifyReply) => {
-      const { sessionId, habitatId } = request.body;
-      if (!sessionId || !habitatId) {
-        throw badRequest('sessionId and habitatId are required');
+    { preHandler: humanAuth },
+    async (request: FastifyRequest, _reply: FastifyReply) => {
+      const { sessionId, habitatId } = parseBody(leaveSchema, request.body);
+      const user = request.user!;
+      await checkHabitatAccess(request, habitatId);
+      assertSessionOwnership(habitatId, sessionId, user.id);
+      // Only publish a leave for a session that exists — a forged leave for an
+      // absent session must not emit a presence.left event.
+      if (getPresenceEntry(habitatId, sessionId)) {
+        leaveHabitat(habitatId, sessionId);
       }
-      leaveHabitat(habitatId, sessionId);
       return { success: true };
     }
   );
 
-  /** GET /presence/viewers/:habitatId - Get active viewers on a board. No auth. Returns { viewers } */
+  /** GET /presence/viewers/:habitatId - Get active viewers on a board. Requires human auth + habitat access. Returns { viewers } */
   fastify.get<{ Params: { habitatId: string } }>(
     '/presence/viewers/:habitatId',
+    { preHandler: [humanAuth, requireHabitatAccess] },
     async (request: FastifyRequest<{ Params: { habitatId: string } }>, _reply: FastifyReply) => {
       const { habitatId } = request.params;
       const viewers = getHabitatPresence(habitatId);

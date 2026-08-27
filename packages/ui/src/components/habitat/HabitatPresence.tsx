@@ -9,11 +9,11 @@ interface HabitatPresenceProps {
 }
 
 function viewerName(entry: PresenceEntry): string {
-  return entry.userName ?? entry.agentName ?? "Unknown";
+  return entry.userName ?? "Unknown";
 }
 
 function viewerLabel(entry: PresenceEntry): string {
-  return `${viewerName(entry)} (${entry.type})`;
+  return viewerName(entry);
 }
 
 /** Live SSE viewers in this habitat. Not Inferred Presence / effort. */
@@ -31,8 +31,7 @@ export function HabitatPresence({ presence, className = "" }: HabitatPresencePro
       <div className="ml-1 flex -space-x-1.5">
         {presence.slice(0, 3).map((entry) => {
           const label = viewerLabel(entry);
-          const color =
-            entry.type === "agent" ? "bg-[var(--agent-purple)]" : "bg-[var(--agent-blue)]";
+          const color = "bg-[var(--agent-blue)]";
           return (
             <Tooltip key={entry.sessionId} content={label}>
               <div

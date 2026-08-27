@@ -47,17 +47,19 @@ export type EventAction =
   | "workflow_gate_unblocked"
   | "workflow_evaluation_error";
 
-/** Classification of a live session as a human or agent viewer, stored on {@link PresenceEntry}. */
-export type PresenceType = "human" | "agent";
+/**
+ * Presence sessions are always authenticated local humans; identity is derived
+ * server-side from the authenticated user. Speculative agent presence was
+ * removed — there is no production agent producer.
+ */
+export type PresenceType = "human";
 
-/** Snapshot of a single live session viewing a habitat, including identity and the task it is currently focused on. */
+/** Snapshot of a single authenticated-human session viewing a habitat, including identity and the task it is currently focused on. */
 export interface PresenceEntry {
   sessionId: string;
   type: PresenceType;
   userId?: string;
   userName?: string;
-  agentId?: string;
-  agentName?: string;
   habitatId: string;
   viewingTaskId?: string | null;
   lastSeen: number;
