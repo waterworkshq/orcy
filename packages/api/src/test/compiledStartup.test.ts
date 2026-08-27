@@ -26,6 +26,7 @@ import {
   readdirSync,
   rmSync,
   mkdirSync,
+  writeFileSync,
   cpSync,
   copyFileSync,
   symlinkSync,
@@ -225,10 +226,15 @@ function prepareLegacyLedgerDatabase(dbPath: string): void {
 
 /**
  * Launch a compiled API entrypoint with `node`, poll `/health` until ready,
- * then SIGTERM and assert exit code 0. Child is SIGKILLed in finally as a
- * safety net. The caller owns temp-file cleanup.
+ * optionally run caller probes against the live base URL, then SIGTERM and
+ * assert exit code 0. Child is SIGKILLed in finally as a safety net. The
+ * caller owns temp-file cleanup.
  */
-async function launchAndWaitForHealth(entrypoint: string, env: NodeJS.ProcessEnv): Promise<void> {
+async function launchAndWaitForHealth(
+  entrypoint: string,
+  env: NodeJS.ProcessEnv,
+  probes?: (baseUrl: string) => Promise<void>,
+): Promise<void> {
   const port = parseInt(env.PORT!, 10);
   const child = spawn(process.execPath, [entrypoint], {
     env,
@@ -285,6 +291,10 @@ async function launchAndWaitForHealth(entrypoint: string, env: NodeJS.ProcessEnv
         `Compiled API did not reach the /health readiness point within ` +
           `${HEALTH_TIMEOUT}ms.\nstdout:\n${stdout}\nstderr:\n${stderr}`,
       );
+    }
+
+    if (probes) {
+      await probes(`http://127.0.0.1:${port}`);
     }
 
     const cleanExitCode = await new Promise<number | null>((resolveExit) => {
@@ -638,6 +648,106 @@ describe("F1 — ESM-safe compiled API startup", () => {
         db2.close();
       } finally {
         rmSync(tempRoot, { recursive: true, force: true });
+      }
+    }, 180_000);
+  });
+
+  // -------------------------------------------------------------------------
+  // Ticket 02 — the compiled executable must serve the characterized surface,
+  // not just /health. One production boot with controlled temporary UI and
+  // plugin inputs; representative probes across local current/deprecated API,
+  // realtime, Remote Participant, verified ingress, fixture plugin,
+  // root/static, and clean SIGTERM. A health-only rewiring of index.ts fails
+  // here while the in-process characterization suite stays green.
+  // -------------------------------------------------------------------------
+  describe("characterized surface (Ticket 02)", () => {
+    it("serves representative routes beyond /health with controlled UI/plugin inputs", async () => {
+      const tempDir = join(tmpdir(), `orcy-char-surface-${process.pid}-${Date.now()}`);
+      mkdirSync(tempDir, { recursive: true });
+
+      try {
+        // Controlled UI input.
+        const uiDir = join(tempDir, "ui");
+        mkdirSync(uiDir, { recursive: true });
+        writeFileSync(join(uiDir, "index.html"), "<html>char-compiled-ui</html>", "utf8");
+
+        // Controlled fixture System Plugin input, registered through the real
+        // plugin discovery seams (PLUGINS_DIR → loadPlugins → initializePlugins).
+        const pluginDir = join(tempDir, "plugins");
+        mkdirSync(pluginDir, { recursive: true });
+        writeFileSync(
+          join(pluginDir, "char-fixture.mjs"),
+          `export default {
+  manifest: {
+    id: 'char-fixture',
+    version: '0.0.1',
+    description: 'compiled surface characterization fixture plugin',
+    contributions: [
+      { kind: 'customHttpRoute', scope: 'system', method: 'GET', path: '/__char-fixture', requires: [] },
+    ],
+  },
+  routeHandlers: async (fastify) => {
+    fastify.get('/__char-fixture', async () => ({ fixture: true }));
+  },
+};\n`,
+          "utf8",
+        );
+
+        const dbPath = join(tempDir, "char.db");
+        const port = await getFreePort();
+        prepareCurrentSchemaDatabase(dbPath);
+
+        await launchAndWaitForHealth(DIST_ENTRY, {
+          ...process.env,
+          NODE_ENV: "production",
+          DB_PATH: dbPath,
+          PORT: String(port),
+          HOST: "127.0.0.1",
+          JWT_SECRET: STRONG_JWT,
+          ORCY_REGISTRATION_TOKEN: "char-compiled-only-token",
+          ORCY_UI_PATH: uiDir,
+          PLUGINS_DIR: pluginDir,
+          HOME: tempDir,
+          LOG_LEVEL: "error",
+        }, async (base) => {
+          // redirect: "manual" — observe the 302 itself rather than following it.
+          const root = await fetch(`${base}/`, { redirect: "manual" });
+          expect(root.status).toBe(302);
+          expect(root.headers.get("location")).toBe("/app/");
+
+          const spa = await fetch(`${base}/app/`);
+          expect(spa.status).toBe(200);
+          expect(await spa.text()).toContain("char-compiled-ui");
+
+          // Local API under both prefixes.
+          expect((await fetch(`${base}/api/v1/habitats`)).status).toBe(401);
+          expect((await fetch(`${base}/api/habitats`)).status).toBe(401);
+
+          // Realtime + Remote Participant.
+          expect((await fetch(`${base}/sse/habitats/char/stream`)).status).toBe(401);
+          expect((await fetch(`${base}/api/shared/me`)).status).toBe(401);
+
+          // Verified ingress under both prefixes: the compiled process runs
+          // in production (remote) posture, so fail-closed rejection applies
+          // even with no secrets configured — proving the route exists AND
+          // enforces.
+          for (const prefix of ["/api/v1", "/api"]) {
+            const ingress = await fetch(`${base}${prefix}/webhooks/github`, {
+              method: "POST",
+              headers: { "content-type": "application/json", "x-github-event": "ping" },
+              body: "{}",
+            });
+            expect(ingress.status, `${prefix} ingress route`).toBe(401);
+            expect(await ingress.json()).toEqual({ error: "Invalid or missing signature" });
+          }
+
+          // Fixture plugin route.
+          const plugin = await fetch(`${base}/__char-fixture`);
+          expect(plugin.status).toBe(200);
+          expect(await plugin.json()).toEqual({ fixture: true });
+        });
+      } finally {
+        rmSync(tempDir, { recursive: true, force: true });
       }
     }, 180_000);
   });
