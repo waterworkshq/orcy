@@ -7,12 +7,14 @@ import * as habitatRepo from "../repositories/habitat.js";
 import * as augmentation from "../services/wikiAugmentationService.js";
 import * as scheduler from "../services/wikiSchedulerService.js";
 import * as signalSurface from "../services/wikiSignalSurfaceService.js";
-import { agentOrHumanAuth } from "../middleware/auth.js";
+import { inheritAuthPolicy } from "../authPolicy.js";
 import { requireHabitatAccess } from "../middleware/team.js";
 import * as wikiPageRepo from "../repositories/wikiPage.js";
 import { badRequest, notFound } from "../errors.js";
 
-const preHandler = [agentOrHumanAuth, requireHabitatAccess];
+// Authentication installs from the module's inherited policy; the shared
+// chain carries the habitat authorization that runs after it.
+const preHandler = [requireHabitatAccess];
 
 const createPageSchema = z.object({
   title: z.string().min(1),
@@ -97,6 +99,9 @@ function verifyPageHabitat(pageId: string, habitatId: string): void {
  * under `/habitats/:habitatId/wiki/...` inside `registerApiRoutes`.
  */
 export async function wikiRoutes(fastify: FastifyInstance): Promise<void> {
+  // Homogeneous module: every wiki route is a local actor with habitat access.
+  inheritAuthPolicy(fastify, "local_actor");
+
   fastify.get<{
     Params: z.infer<typeof paramsWithHabitat>;
     Querystring: z.infer<typeof listPagesQuerySchema>;

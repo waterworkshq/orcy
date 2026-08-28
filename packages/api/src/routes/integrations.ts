@@ -25,7 +25,6 @@ import {
   storeCodeVerifier,
   consumeState,
 } from "../services/integrations/oauthState.js";
-import { humanAuth, agentOrHumanAuth } from "../middleware/auth.js";
 import { requireHabitatAccess } from "../middleware/team.js";
 import { badRequest, notFound, forbidden, unauthorized } from "../errors.js";
 import { isTeamMemberByHabitatId } from "../repositories/teamMember.js";
@@ -36,6 +35,7 @@ import { z } from "zod";
 import crypto from "crypto";
 import type { ExternalIntakeReviewStatus, IntegrationProvider } from "@orcy/shared";
 import { isJiraCloudSiteUrl } from "../services/integrations/jiraAdapter.js";
+import { applyDeclaredAuthPolicies } from "../authPolicy.js";
 
 const promotingCandidates = new Set<string>();
 
@@ -108,9 +108,11 @@ function getAdapter(provider: string): IssueProviderAdapter {
 }
 
 export async function integrationRoutes(fastify: FastifyInstance): Promise<void> {
+  applyDeclaredAuthPolicies(fastify);
+
   fastify.get<{ Params: { habitatId: string } }>(
     "/habitats/:habitatId/integrations",
-    { preHandler: [agentOrHumanAuth, requireHabitatAccess] },
+    { preHandler: [requireHabitatAccess], config: { authPolicy: "local_actor" } },
     async (request) => {
       const connections = connectionRepo.listByHabitat(request.params.habitatId);
       return { integrations: connections.map((c) => connectionRepo.toView(c)) };
@@ -119,7 +121,7 @@ export async function integrationRoutes(fastify: FastifyInstance): Promise<void>
 
   fastify.post<{ Params: { habitatId: string }; Body: z.infer<typeof createPatSchema> }>(
     "/habitats/:habitatId/integrations/github/pat",
-    { preHandler: [humanAuth, requireHabitatAccess] },
+    { preHandler: [requireHabitatAccess], config: { authPolicy: "human" } },
     async (request, reply) => {
       const parsed = createPatSchema.safeParse(request.body);
       if (!parsed.success) {
@@ -150,7 +152,7 @@ export async function integrationRoutes(fastify: FastifyInstance): Promise<void>
 
   fastify.post<{ Params: { habitatId: string } }>(
     "/habitats/:habitatId/integrations/github/oauth/device/start",
-    { preHandler: [humanAuth, requireHabitatAccess] },
+    { preHandler: [requireHabitatAccess], config: { authPolicy: "human" } },
     async (_request) => {
       const flow = await startGitHubDeviceFlow();
       return {
@@ -165,7 +167,7 @@ export async function integrationRoutes(fastify: FastifyInstance): Promise<void>
 
   fastify.post<{ Params: { habitatId: string }; Body: z.infer<typeof deviceFlowPollSchema> }>(
     "/habitats/:habitatId/integrations/github/oauth/device/poll",
-    { preHandler: [humanAuth, requireHabitatAccess] },
+    { preHandler: [requireHabitatAccess], config: { authPolicy: "human" } },
     async (request, reply) => {
       const parsed = deviceFlowPollSchema.safeParse(request.body);
       if (!parsed.success) {
@@ -223,7 +225,7 @@ export async function integrationRoutes(fastify: FastifyInstance): Promise<void>
 
   fastify.patch<{ Params: { connectionId: string }; Body: z.infer<typeof updateConnectionSchema> }>(
     "/integrations/:connectionId",
-    { preHandler: [humanAuth] },
+    { config: { authPolicy: "human" } },
     async (request) => {
       const parsed = updateConnectionSchema.safeParse(request.body);
       if (!parsed.success) {
@@ -242,7 +244,7 @@ export async function integrationRoutes(fastify: FastifyInstance): Promise<void>
 
   fastify.delete<{ Params: { connectionId: string } }>(
     "/integrations/:connectionId",
-    { preHandler: [humanAuth] },
+    { config: { authPolicy: "human" } },
     async (request: FastifyRequest<{ Params: { connectionId: string } }>, reply: FastifyReply) => {
       const existing = connectionRepo.getById(request.params.connectionId);
       if (!existing) throw notFound("Connection not found");
@@ -256,7 +258,7 @@ export async function integrationRoutes(fastify: FastifyInstance): Promise<void>
 
   fastify.post<{ Params: { connectionId: string } }>(
     "/integrations/:connectionId/sync",
-    { preHandler: [humanAuth] },
+    { config: { authPolicy: "human" } },
     async (request) => {
       const existing = connectionRepo.getById(request.params.connectionId);
       if (!existing) throw notFound("Connection not found");
@@ -274,7 +276,7 @@ export async function integrationRoutes(fastify: FastifyInstance): Promise<void>
 
   fastify.get<{ Params: { connectionId: string } }>(
     "/integrations/:connectionId/sync-runs",
-    { preHandler: [humanAuth] },
+    { config: { authPolicy: "human" } },
     async (request) => {
       const existing = connectionRepo.getById(request.params.connectionId);
       if (!existing) throw notFound("Connection not found");
@@ -288,7 +290,7 @@ export async function integrationRoutes(fastify: FastifyInstance): Promise<void>
 
   fastify.get<{ Params: { missionId: string } }>(
     "/missions/:missionId/external-links",
-    { preHandler: [agentOrHumanAuth] },
+    { config: { authPolicy: "local_actor" } },
     async (request) => {
       const links = linkRepo.listByMissionId(request.params.missionId);
       return { externalLinks: links };
@@ -301,7 +303,7 @@ export async function integrationRoutes(fastify: FastifyInstance): Promise<void>
 
   fastify.post<{ Params: { habitatId: string }; Body?: z.infer<typeof jiraOAuthStartSchema> }>(
     "/habitats/:habitatId/integrations/jira/oauth/start",
-    { preHandler: [humanAuth, requireHabitatAccess] },
+    { preHandler: [requireHabitatAccess], config: { authPolicy: "human" } },
     async (request) => {
       const { clientId, clientSecret: _secret } = getJiraCredentials();
       const state = generateState(request.params.habitatId);
@@ -321,7 +323,7 @@ export async function integrationRoutes(fastify: FastifyInstance): Promise<void>
 
   fastify.post<{ Params: { habitatId: string }; Body: z.infer<typeof jiraOAuthCompleteSchema> }>(
     "/habitats/:habitatId/integrations/jira/oauth/complete",
-    { preHandler: [humanAuth, requireHabitatAccess] },
+    { preHandler: [requireHabitatAccess], config: { authPolicy: "human" } },
     async (request, reply) => {
       const parsed = jiraOAuthCompleteSchema.safeParse(request.body);
       if (!parsed.success) throw badRequest("Validation failed", parsed.error.flatten());
@@ -353,7 +355,7 @@ export async function integrationRoutes(fastify: FastifyInstance): Promise<void>
 
   fastify.post<{ Params: { habitatId: string }; Body: z.infer<typeof jiraApiKeySchema> }>(
     "/habitats/:habitatId/integrations/jira/api-key",
-    { preHandler: [humanAuth, requireHabitatAccess] },
+    { preHandler: [requireHabitatAccess], config: { authPolicy: "human" } },
     async (request, reply) => {
       const parsed = jiraApiKeySchema.safeParse(request.body);
       if (!parsed.success) throw badRequest("Validation failed", parsed.error.flatten());
@@ -394,7 +396,7 @@ export async function integrationRoutes(fastify: FastifyInstance): Promise<void>
 
   fastify.post<{ Params: { habitatId: string }; Body?: z.infer<typeof linearOAuthStartSchema> }>(
     "/habitats/:habitatId/integrations/linear/oauth/start",
-    { preHandler: [humanAuth, requireHabitatAccess] },
+    { preHandler: [requireHabitatAccess], config: { authPolicy: "human" } },
     async (request) => {
       const clientId = getLinearClientId();
       const { codeVerifier, codeChallenge } = generatePKCEPair();
@@ -416,7 +418,7 @@ export async function integrationRoutes(fastify: FastifyInstance): Promise<void>
 
   fastify.post<{ Params: { habitatId: string }; Body: z.infer<typeof linearOAuthCompleteSchema> }>(
     "/habitats/:habitatId/integrations/linear/oauth/complete",
-    { preHandler: [humanAuth, requireHabitatAccess] },
+    { preHandler: [requireHabitatAccess], config: { authPolicy: "human" } },
     async (request, reply) => {
       const parsed = linearOAuthCompleteSchema.safeParse(request.body);
       if (!parsed.success) throw badRequest("Validation failed", parsed.error.flatten());
@@ -448,7 +450,7 @@ export async function integrationRoutes(fastify: FastifyInstance): Promise<void>
 
   fastify.post<{ Params: { habitatId: string }; Body: z.infer<typeof linearApiKeySchema> }>(
     "/habitats/:habitatId/integrations/linear/api-key",
-    { preHandler: [humanAuth, requireHabitatAccess] },
+    { preHandler: [requireHabitatAccess], config: { authPolicy: "human" } },
     async (request, reply) => {
       const parsed = linearApiKeySchema.safeParse(request.body);
       if (!parsed.success) throw badRequest("Validation failed", parsed.error.flatten());
@@ -477,7 +479,7 @@ export async function integrationRoutes(fastify: FastifyInstance): Promise<void>
     Querystring: { reviewStatus?: string; provider?: string };
   }>(
     "/habitats/:habitatId/intake-candidates",
-    { preHandler: [agentOrHumanAuth, requireHabitatAccess] },
+    { preHandler: [requireHabitatAccess], config: { authPolicy: "local_actor" } },
     async (request) => {
       const filters: { reviewStatus?: ExternalIntakeReviewStatus; provider?: IntegrationProvider } =
         {};
@@ -492,7 +494,7 @@ export async function integrationRoutes(fastify: FastifyInstance): Promise<void>
 
   fastify.get<{ Params: { candidateId: string } }>(
     "/intake-candidates/:candidateId",
-    { preHandler: [agentOrHumanAuth] },
+    { config: { authPolicy: "local_actor" } },
     async (request) => {
       const candidate = candidateRepo.getById(request.params.candidateId);
       if (!candidate) throw notFound("Candidate not found");
@@ -503,7 +505,7 @@ export async function integrationRoutes(fastify: FastifyInstance): Promise<void>
 
   fastify.post<{ Params: { candidateId: string } }>(
     "/intake-candidates/:candidateId/promote",
-    { preHandler: [humanAuth] },
+    { config: { authPolicy: "human" } },
     async (request, reply) => {
       const candidateId = request.params.candidateId;
       if (promotingCandidates.has(candidateId)) {
@@ -527,7 +529,7 @@ export async function integrationRoutes(fastify: FastifyInstance): Promise<void>
 
   fastify.post<{ Params: { candidateId: string } }>(
     "/intake-candidates/:candidateId/ignore",
-    { preHandler: [humanAuth] },
+    { config: { authPolicy: "human" } },
     async (request) => {
       const candidate = candidateRepo.getById(request.params.candidateId);
       if (!candidate) throw notFound("Candidate not found");
@@ -540,7 +542,7 @@ export async function integrationRoutes(fastify: FastifyInstance): Promise<void>
 
   fastify.post<{ Params: { candidateId: string } }>(
     "/intake-candidates/:candidateId/needs-clarification",
-    { preHandler: [humanAuth] },
+    { config: { authPolicy: "human" } },
     async (request) => {
       const candidate = candidateRepo.getById(request.params.candidateId);
       if (!candidate) throw notFound("Candidate not found");

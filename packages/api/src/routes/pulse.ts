@@ -5,7 +5,6 @@ import * as reactionRepo from "../repositories/pulseReaction.js";
 import * as missionRepo from "../repositories/mission.js";
 import * as habitatRepo from "../repositories/habitat.js";
 import { assertPulseNotFindingEvidence } from "../services/findingTriageHistoryGuards.js";
-import { agentOrHumanAuth } from "../middleware/auth.js";
 import { badRequest, unauthorized, notFound, forbidden } from "../errors.js";
 import { AppError, ErrorCodes } from "../errors.js";
 import { sql } from "drizzle-orm";
@@ -21,6 +20,7 @@ function isBusyError(err: unknown): boolean {
   return err instanceof Error && /SQLITE_BUSY|database is locked/i.test(err.message);
 }
 import { getCallerInfo } from "./pulse-shared.js";
+import { applyDeclaredAuthPolicies } from "../authPolicy.js";
 
 const MAX_PAGINATION_LIMIT = 200;
 
@@ -42,9 +42,11 @@ function parsePagination(query: { limit?: string; offset?: string }): {
 }
 
 export async function pulseRoutes(fastify: FastifyInstance): Promise<void> {
+  applyDeclaredAuthPolicies(fastify);
+
   fastify.post(
     "/missions/:missionId/pulse",
-    { preHandler: agentOrHumanAuth },
+    { config: { authPolicy: "local_actor" } },
     async (request, reply) => {
       const { missionId } = request.params as { missionId: string };
       const caller = getCallerInfo(request);
@@ -67,7 +69,7 @@ export async function pulseRoutes(fastify: FastifyInstance): Promise<void> {
 
   fastify.get(
     "/missions/:missionId/pulse",
-    { preHandler: agentOrHumanAuth },
+    { config: { authPolicy: "local_actor" } },
     async (request, _reply) => {
       const { missionId } = request.params as { missionId: string };
       const query = request.query as {
@@ -107,7 +109,7 @@ export async function pulseRoutes(fastify: FastifyInstance): Promise<void> {
 
   fastify.get(
     "/missions/:missionId/pulse/digest",
-    { preHandler: agentOrHumanAuth },
+    { config: { authPolicy: "local_actor" } },
     async (request, _reply) => {
       const { missionId } = request.params as { missionId: string };
 
@@ -125,7 +127,7 @@ export async function pulseRoutes(fastify: FastifyInstance): Promise<void> {
     },
   );
 
-  fastify.get("/pulse/inbox", { preHandler: agentOrHumanAuth }, async (request, _reply) => {
+  fastify.get("/pulse/inbox", { config: { authPolicy: "local_actor" } }, async (request, _reply) => {
     const query = request.query as { signalType?: string; limit?: string; offset?: string };
 
     const caller = getCallerInfo(request);
@@ -144,7 +146,7 @@ export async function pulseRoutes(fastify: FastifyInstance): Promise<void> {
     return { items: result.pulses, total: result.total };
   });
 
-  fastify.delete("/pulse/:id", { preHandler: agentOrHumanAuth }, async (request, reply) => {
+  fastify.delete("/pulse/:id", { config: { authPolicy: "local_actor" } }, async (request, reply) => {
     const { id } = request.params as { id: string };
 
     const pulse = pulseRepo.getPulseById(id);
@@ -198,7 +200,7 @@ export async function pulseRoutes(fastify: FastifyInstance): Promise<void> {
     reply.code(204).send();
   });
 
-  fastify.get("/pulse/:id/replies", { preHandler: agentOrHumanAuth }, async (request, _reply) => {
+  fastify.get("/pulse/:id/replies", { config: { authPolicy: "local_actor" } }, async (request, _reply) => {
     const { id } = request.params as { id: string };
 
     const pulse = pulseRepo.getPulseById(id);
@@ -211,7 +213,7 @@ export async function pulseRoutes(fastify: FastifyInstance): Promise<void> {
 
   fastify.post(
     "/habitats/:habitatId/pulse",
-    { preHandler: agentOrHumanAuth },
+    { config: { authPolicy: "local_actor" } },
     async (request, reply) => {
       const { habitatId } = request.params as { habitatId: string };
       const caller = getCallerInfo(request);
@@ -234,7 +236,7 @@ export async function pulseRoutes(fastify: FastifyInstance): Promise<void> {
 
   fastify.get(
     "/habitats/:habitatId/pulse",
-    { preHandler: agentOrHumanAuth },
+    { config: { authPolicy: "local_actor" } },
     async (request, _reply) => {
       const { habitatId } = request.params as { habitatId: string };
       const query = request.query as {
@@ -265,7 +267,7 @@ export async function pulseRoutes(fastify: FastifyInstance): Promise<void> {
 
   fastify.get(
     "/habitats/:habitatId/pulse/digest",
-    { preHandler: agentOrHumanAuth },
+    { config: { authPolicy: "local_actor" } },
     async (request, _reply) => {
       const { habitatId } = request.params as { habitatId: string };
 
@@ -283,7 +285,7 @@ export async function pulseRoutes(fastify: FastifyInstance): Promise<void> {
     },
   );
 
-  fastify.post("/pulse/:id/react", { preHandler: agentOrHumanAuth }, async (request, reply) => {
+  fastify.post("/pulse/:id/react", { config: { authPolicy: "local_actor" } }, async (request, reply) => {
     const { id } = request.params as { id: string };
     const body = request.body as { reaction?: string };
 

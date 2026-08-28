@@ -29,15 +29,17 @@
  *     indirection in `index.ts`.
  */
 import type { FastifyInstance } from "fastify";
-import { agentOrHumanAuth } from "../middleware/auth.js";
 import { checkHabitatAccess } from "../middleware/realtimeAuth.js";
 import { notFound } from "../errors.js";
 import { getAttemptStatus } from "../repositories/taskCreationAttempts.js";
+import { applyDeclaredAuthPolicies } from "../authPolicy.js";
 
 export async function taskCreationAttemptRoutes(fastify: FastifyInstance): Promise<void> {
+  applyDeclaredAuthPolicies(fastify);
+
   fastify.get<{ Params: { attemptId: string } }>(
     "/task-creation-attempts/:attemptId",
-    { preHandler: agentOrHumanAuth },
+    { config: { authPolicy: "local_actor" } },
     async (request, _reply) => {
       const { attemptId } = request.params;
 

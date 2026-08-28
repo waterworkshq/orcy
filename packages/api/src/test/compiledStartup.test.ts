@@ -687,7 +687,7 @@ describe("F1 — ESM-safe compiled API startup", () => {
     ],
   },
   routeHandlers: async (fastify) => {
-    fastify.get('/__char-fixture', async () => ({ fixture: true }));
+    fastify.get('/__char-fixture', { config: { authPolicy: 'anonymous' } }, async () => ({ fixture: true }));
   },
 };\n`,
           "utf8",

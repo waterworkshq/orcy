@@ -1,8 +1,8 @@
-import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
-import * as commentService from '../services/commentService.js';
-import { agentAuth, agentOrHumanAuth } from '../middleware/auth.js';
-import { badRequest, unauthorized, notFound, forbidden } from '../errors.js';
-import { z } from 'zod';
+import type { FastifyInstance, FastifyRequest, FastifyReply } from "fastify";
+import * as commentService from "../services/commentService.js";
+import { badRequest, unauthorized, notFound, forbidden } from "../errors.js";
+import { z } from "zod";
+import { applyDeclaredAuthPolicies } from "../authPolicy.js";
 
 const createCommentSchema = z.object({
   content: z.string().min(1).max(5000),
@@ -22,22 +22,30 @@ const commentsQuerySchema = z.object({
  * Task comment CRUD — create, list, update, and delete comments on tasks.
  */
 export async function commentRoutes(fastify: FastifyInstance): Promise<void> {
+  applyDeclaredAuthPolicies(fastify);
+
   /** POST /tasks/:id/comments - Add a comment to a task. Auth: agentAuth. Returns { comment } with mention metadata or 404 */
   fastify.post<{ Params: { id: string }; Body: z.infer<typeof createCommentSchema> }>(
-    '/tasks/:id/comments',
-    { preHandler: agentAuth },
-    async (request: FastifyRequest<{ Params: { id: string }; Body: z.infer<typeof createCommentSchema> }>, reply: FastifyReply) => {
+    "/tasks/:id/comments",
+    { config: { authPolicy: "agent" } },
+    async (
+      request: FastifyRequest<{
+        Params: { id: string };
+        Body: z.infer<typeof createCommentSchema>;
+      }>,
+      reply: FastifyReply,
+    ) => {
       if (!request.agent && !request.user) {
-        throw unauthorized('Authentication required');
+        throw unauthorized("Authentication required");
       }
 
       const parsed = createCommentSchema.safeParse(request.body);
       if (!parsed.success) {
-        throw badRequest('Validation failed', parsed.error.flatten());
+        throw badRequest("Validation failed", parsed.error.flatten());
       }
 
-      const authorType = request.agent ? 'agent' as const : 'human' as const;
-      const authorId = request.agent?.id ?? request.user?.id ?? 'anonymous';
+      const authorType = request.agent ? ("agent" as const) : ("human" as const);
+      const authorId = request.agent?.id ?? request.user?.id ?? "anonymous";
 
       try {
         const comment = commentService.addComment(
@@ -45,107 +53,128 @@ export async function commentRoutes(fastify: FastifyInstance): Promise<void> {
           authorType,
           authorId,
           parsed.data.content,
-          parsed.data.parentId
+          parsed.data.parentId,
         );
         reply.code(201).send({ comment });
       } catch (err) {
         const error = err as Error;
-        if (error.message === 'Task not found') {
-          throw notFound('Task not found');
-        } else if (error.message === 'Parent comment not found' || error.message === 'Parent comment belongs to a different task') {
+        if (error.message === "Task not found") {
+          throw notFound("Task not found");
+        } else if (
+          error.message === "Parent comment not found" ||
+          error.message === "Parent comment belongs to a different task"
+        ) {
           throw badRequest(error.message);
         } else {
           throw err;
         }
       }
-    }
+    },
   );
 
   /** GET /tasks/:id/comments - List comments for a task. Auth: agentOrHumanAuth. Returns { comments, total } with mention metadata */
   fastify.get<{ Params: { id: string }; Querystring: z.infer<typeof commentsQuerySchema> }>(
-    '/tasks/:id/comments',
-    { preHandler: agentOrHumanAuth },
-    async (request: FastifyRequest<{ Params: { id: string }; Querystring: z.infer<typeof commentsQuerySchema> }>, _reply: FastifyReply) => {
+    "/tasks/:id/comments",
+    { config: { authPolicy: "local_actor" } },
+    async (
+      request: FastifyRequest<{
+        Params: { id: string };
+        Querystring: z.infer<typeof commentsQuerySchema>;
+      }>,
+      _reply: FastifyReply,
+    ) => {
       const parsed = commentsQuerySchema.safeParse(request.query);
       if (!parsed.success) {
-        throw badRequest('Invalid query', parsed.error.flatten());
+        throw badRequest("Invalid query", parsed.error.flatten());
       }
 
       const result = commentService.getComments(
         request.params.id,
         parsed.data.limit,
-        parsed.data.offset
+        parsed.data.offset,
       );
       return result;
-    }
+    },
   );
 
   /** PATCH /tasks/:id/comments/:commentId - Edit a comment. Auth: agentAuth. Returns { comment } or 404/403 */
-  fastify.patch<{ Params: { id: string; commentId: string }; Body: z.infer<typeof updateCommentSchema> }>(
-    '/tasks/:id/comments/:commentId',
-    { preHandler: agentAuth },
-    async (request: FastifyRequest<{ Params: { id: string; commentId: string }; Body: z.infer<typeof updateCommentSchema> }>, _reply: FastifyReply) => {
+  fastify.patch<{
+    Params: { id: string; commentId: string };
+    Body: z.infer<typeof updateCommentSchema>;
+  }>(
+    "/tasks/:id/comments/:commentId",
+    { config: { authPolicy: "agent" } },
+    async (
+      request: FastifyRequest<{
+        Params: { id: string; commentId: string };
+        Body: z.infer<typeof updateCommentSchema>;
+      }>,
+      _reply: FastifyReply,
+    ) => {
       if (!request.agent && !request.user) {
-        throw unauthorized('Authentication required');
+        throw unauthorized("Authentication required");
       }
 
       const parsed = updateCommentSchema.safeParse(request.body);
       if (!parsed.success) {
-        throw badRequest('Validation failed', parsed.error.flatten());
+        throw badRequest("Validation failed", parsed.error.flatten());
       }
 
-      const authorType = request.agent ? 'agent' as const : 'human' as const;
-      const authorId = request.agent?.id ?? request.user?.id ?? 'anonymous';
+      const authorType = request.agent ? ("agent" as const) : ("human" as const);
+      const authorId = request.agent?.id ?? request.user?.id ?? "anonymous";
 
       try {
         const comment = commentService.editComment(
           request.params.commentId,
           authorType,
           authorId,
-          parsed.data.content
+          parsed.data.content,
         );
         if (!comment) {
-          throw notFound('Comment not found');
+          throw notFound("Comment not found");
         }
         return { comment };
       } catch (err) {
         const error = err as Error;
-        if (error.message === 'Comment not found') {
-          throw notFound('Comment not found');
-        } else if (error.message === 'Not authorized to edit this comment') {
-          throw forbidden('Not authorized to edit this comment');
+        if (error.message === "Comment not found") {
+          throw notFound("Comment not found");
+        } else if (error.message === "Not authorized to edit this comment") {
+          throw forbidden("Not authorized to edit this comment");
         } else {
           throw err;
         }
       }
-    }
+    },
   );
 
   /** DELETE /tasks/:id/comments/:commentId - Delete a comment. Auth: agentAuth. Returns 204 or 404/403 */
   fastify.delete<{ Params: { id: string; commentId: string } }>(
-    '/tasks/:id/comments/:commentId',
-    { preHandler: agentAuth },
-    async (request: FastifyRequest<{ Params: { id: string; commentId: string } }>, reply: FastifyReply) => {
+    "/tasks/:id/comments/:commentId",
+    { config: { authPolicy: "agent" } },
+    async (
+      request: FastifyRequest<{ Params: { id: string; commentId: string } }>,
+      reply: FastifyReply,
+    ) => {
       if (!request.agent && !request.user) {
-        throw unauthorized('Authentication required');
+        throw unauthorized("Authentication required");
       }
 
-      const authorType = request.agent ? 'agent' as const : 'human' as const;
-      const authorId = request.agent?.id ?? request.user?.id ?? 'anonymous';
+      const authorType = request.agent ? ("agent" as const) : ("human" as const);
+      const authorId = request.agent?.id ?? request.user?.id ?? "anonymous";
 
       try {
         commentService.removeComment(request.params.commentId, authorType, authorId);
         reply.code(204).send();
       } catch (err) {
         const error = err as Error;
-        if (error.message === 'Comment not found') {
-          throw notFound('Comment not found');
-        } else if (error.message === 'Not authorized to delete this comment') {
-          throw forbidden('Not authorized to delete this comment');
+        if (error.message === "Comment not found") {
+          throw notFound("Comment not found");
+        } else if (error.message === "Not authorized to delete this comment") {
+          throw forbidden("Not authorized to delete this comment");
         } else {
           throw err;
         }
       }
-    }
+    },
   );
 }

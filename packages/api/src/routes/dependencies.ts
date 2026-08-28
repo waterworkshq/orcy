@@ -1,13 +1,15 @@
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import * as dependencyService from '../services/dependencyService.js';
 import * as taskRepo from '../repositories/task.js';
-import { agentOrHumanAuth } from '../middleware/auth.js';
 import { badRequest, notFound, conflict } from '../errors.js';
+import { applyDeclaredAuthPolicies } from "../authPolicy.js";
 
 export async function dependencyRoutes(fastify: FastifyInstance): Promise<void> {
+  applyDeclaredAuthPolicies(fastify);
+
   fastify.post<{ Params: { id: string }; Body: { dependsOnTaskId: string } }>(
     '/tasks/:id/dependencies',
-    { preHandler: agentOrHumanAuth },
+    { config: { authPolicy: "local_actor" } },
     async (request: FastifyRequest<{ Params: { id: string }; Body: { dependsOnTaskId: string } }>, _reply: FastifyReply) => {
       const { dependsOnTaskId } = request.body;
       if (!dependsOnTaskId) {
@@ -35,7 +37,7 @@ export async function dependencyRoutes(fastify: FastifyInstance): Promise<void> 
 
   fastify.delete<{ Params: { id: string; depId: string } }>(
     '/tasks/:id/dependencies/:depId',
-    { preHandler: agentOrHumanAuth },
+    { config: { authPolicy: "local_actor" } },
     async (request: FastifyRequest<{ Params: { id: string; depId: string } }>, _reply: FastifyReply) => {
       const removed = dependencyService.removeTaskDependency(request.params.id, request.params.depId);
       if (!removed) {
@@ -47,7 +49,7 @@ export async function dependencyRoutes(fastify: FastifyInstance): Promise<void> 
 
   fastify.get<{ Params: { id: string } }>(
     '/tasks/:id/dependencies',
-    { preHandler: agentOrHumanAuth },
+    { config: { authPolicy: "local_actor" } },
     async (request: FastifyRequest<{ Params: { id: string } }>, _reply: FastifyReply) => {
       const task = taskRepo.getTaskById(request.params.id);
       if (!task) {
@@ -59,7 +61,7 @@ export async function dependencyRoutes(fastify: FastifyInstance): Promise<void> 
 
   fastify.get<{ Params: { id: string } }>(
     '/tasks/:id/blocked-status',
-    { preHandler: agentOrHumanAuth },
+    { config: { authPolicy: "local_actor" } },
     async (request: FastifyRequest<{ Params: { id: string } }>, _reply: FastifyReply) => {
       const task = taskRepo.getTaskById(request.params.id);
       if (!task) {
@@ -80,7 +82,7 @@ export async function dependencyRoutes(fastify: FastifyInstance): Promise<void> 
 
   fastify.post<{ Params: { missionId: string }; Body: { dependsOnMissionId: string } }>(
     '/missions/:missionId/dependencies',
-    { preHandler: agentOrHumanAuth },
+    { config: { authPolicy: "local_actor" } },
     async (request: FastifyRequest<{ Params: { missionId: string }; Body: { dependsOnMissionId: string } }>, _reply: FastifyReply) => {
       const { dependsOnMissionId } = request.body;
       if (!dependsOnMissionId) {
@@ -97,7 +99,7 @@ export async function dependencyRoutes(fastify: FastifyInstance): Promise<void> 
 
   fastify.delete<{ Params: { missionId: string; depId: string } }>(
     '/missions/:missionId/dependencies/:depId',
-    { preHandler: agentOrHumanAuth },
+    { config: { authPolicy: "local_actor" } },
     async (request: FastifyRequest<{ Params: { missionId: string; depId: string } }>, _reply: FastifyReply) => {
       const removed = dependencyService.removeMissionDependency(request.params.missionId, request.params.depId);
       if (!removed) {
@@ -109,7 +111,7 @@ export async function dependencyRoutes(fastify: FastifyInstance): Promise<void> 
 
   fastify.get<{ Params: { missionId: string } }>(
     '/missions/:missionId/dependencies',
-    { preHandler: agentOrHumanAuth },
+    { config: { authPolicy: "local_actor" } },
     async (request: FastifyRequest<{ Params: { missionId: string } }>, _reply: FastifyReply) => {
       return dependencyService.getMissionDependencies(request.params.missionId);
     }
@@ -117,7 +119,7 @@ export async function dependencyRoutes(fastify: FastifyInstance): Promise<void> 
 
   fastify.get<{ Params: { missionId: string } }>(
     '/missions/:missionId/blocked-status',
-    { preHandler: agentOrHumanAuth },
+    { config: { authPolicy: "local_actor" } },
     async (request: FastifyRequest<{ Params: { missionId: string } }>, _reply: FastifyReply) => {
       return dependencyService.validateMissionCompletion(request.params.missionId);
     }
@@ -125,7 +127,7 @@ export async function dependencyRoutes(fastify: FastifyInstance): Promise<void> 
 
   fastify.get<{ Params: { missionId: string } }>(
     '/missions/:missionId/dependency-graph',
-    { preHandler: agentOrHumanAuth },
+    { config: { authPolicy: "local_actor" } },
     async (request: FastifyRequest<{ Params: { missionId: string } }>, _reply: FastifyReply) => {
       return dependencyService.getDependencyGraph(request.params.missionId);
     }

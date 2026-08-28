@@ -10,11 +10,13 @@ interface CapturedRoute {
   path: string;
   preHandler: any[];
   handler: any;
+  authPolicy: any;
 }
 
 function captureRoutes(...registerFns: Array<(fastify: any) => Promise<void>>): CapturedRoute[] {
   const routes: CapturedRoute[] = [];
   const fakeFastify: any = {
+    addHook: vi.fn(),
     withTypeProvider: () => fakeFastify,
     get: vi.fn((path: string, opts: any, handler: any) => {
       const preHandler = opts?.preHandler;
@@ -23,6 +25,7 @@ function captureRoutes(...registerFns: Array<(fastify: any) => Promise<void>>): 
         path,
         preHandler: Array.isArray(preHandler) ? preHandler : preHandler ? [preHandler] : [],
         handler,
+        authPolicy: opts?.config?.authPolicy,
       });
     }),
     post: vi.fn((path: string, opts: any, handler: any) => {
@@ -32,6 +35,7 @@ function captureRoutes(...registerFns: Array<(fastify: any) => Promise<void>>): 
         path,
         preHandler: Array.isArray(preHandler) ? preHandler : preHandler ? [preHandler] : [],
         handler,
+        authPolicy: opts?.config?.authPolicy,
       });
     }),
     put: vi.fn((path: string, opts: any, handler: any) => {
@@ -41,6 +45,7 @@ function captureRoutes(...registerFns: Array<(fastify: any) => Promise<void>>): 
         path,
         preHandler: Array.isArray(preHandler) ? preHandler : preHandler ? [preHandler] : [],
         handler,
+        authPolicy: opts?.config?.authPolicy,
       });
     }),
     delete: vi.fn((path: string, opts: any, handler: any) => {
@@ -50,6 +55,7 @@ function captureRoutes(...registerFns: Array<(fastify: any) => Promise<void>>): 
         path,
         preHandler: Array.isArray(preHandler) ? preHandler : preHandler ? [preHandler] : [],
         handler,
+        authPolicy: opts?.config?.authPolicy,
       });
     }),
   };
@@ -205,6 +211,7 @@ vi.mock("../middleware/auth.js", () => ({
   agentOrHumanAuth: mockAgentOrHumanAuth,
   humanAuth: mockHumanAuth,
   agentAuth: mockAgentAuth,
+  registrationAuth: async () => {},
 }));
 
 vi.mock("../sse/broadcaster.js", () => ({
@@ -223,6 +230,8 @@ vi.mock("../errors.js", () => ({
   notFound: (msg: string) => new Error(msg),
   badRequest: (msg: string) => new Error(msg),
   forbidden: (msg: string) => new Error(msg),
+  unauthorized: (msg: string) => new Error(msg),
+  AppError: class AppError extends Error {},
 }));
 
 function resetMocks() {
@@ -417,153 +426,153 @@ describe("codeEvidence route registration", () => {
   });
 });
 
-describe("codeEvidence route preHandler (auth)", () => {
-  it("task GET evidence uses agentOrHumanAuth", () => {
+describe("codeEvidence route auth declarations", () => {
+  it("task GET evidence declares local_actor policy", () => {
     const routes = captureRoutes(taskCodeEvidenceRoutes);
     const route = routes.find(
       (r) => r.method === "GET" && r.path === "/tasks/:taskId/code-evidence",
     );
-    expect(route!.preHandler).toContain(mockAgentOrHumanAuth);
+    expect(route!.authPolicy).toBe("local_actor");
   });
 
-  it("task POST link evidence uses agentOrHumanAuth", () => {
+  it("task POST link evidence declares local_actor policy", () => {
     const routes = captureRoutes(taskCodeEvidenceRoutes);
     const route = routes.find(
       (r) => r.method === "POST" && r.path === "/tasks/:taskId/code-evidence",
     );
-    expect(route!.preHandler).toContain(mockAgentOrHumanAuth);
+    expect(route!.authPolicy).toBe("local_actor");
   });
 
-  it("task POST correct uses agentOrHumanAuth", () => {
+  it("task POST correct declares local_actor policy", () => {
     const routes = captureRoutes(taskCodeEvidenceRoutes);
     const route = routes.find(
       (r) => r.method === "POST" && r.path === "/tasks/:taskId/code-evidence/:linkId/correct",
     );
-    expect(route!.preHandler).toContain(mockAgentOrHumanAuth);
+    expect(route!.authPolicy).toBe("local_actor");
   });
 
-  it("task POST not-applicable uses agentOrHumanAuth", () => {
+  it("task POST not-applicable declares local_actor policy", () => {
     const routes = captureRoutes(taskCodeEvidenceRoutes);
     const route = routes.find(
       (r) => r.method === "POST" && r.path === "/tasks/:taskId/code-evidence/not-applicable",
     );
-    expect(route!.preHandler).toContain(mockAgentOrHumanAuth);
+    expect(route!.authPolicy).toBe("local_actor");
   });
 
-  it("task DELETE not-applicable uses agentOrHumanAuth", () => {
+  it("task DELETE not-applicable declares local_actor policy", () => {
     const routes = captureRoutes(taskCodeEvidenceRoutes);
     const route = routes.find(
       (r) => r.method === "DELETE" && r.path === "/tasks/:taskId/code-evidence/not-applicable",
     );
-    expect(route!.preHandler).toContain(mockAgentOrHumanAuth);
+    expect(route!.authPolicy).toBe("local_actor");
   });
 
-  it("task POST gap uses agentOrHumanAuth", () => {
+  it("task POST gap declares local_actor policy", () => {
     const routes = captureRoutes(taskCodeEvidenceRoutes);
     const route = routes.find(
       (r) => r.method === "POST" && r.path === "/tasks/:taskId/code-evidence/gaps",
     );
-    expect(route!.preHandler).toContain(mockAgentOrHumanAuth);
+    expect(route!.authPolicy).toBe("local_actor");
   });
 
-  it("task POST resolve gap uses agentOrHumanAuth", () => {
+  it("task POST resolve gap declares local_actor policy", () => {
     const routes = captureRoutes(taskCodeEvidenceRoutes);
     const route = routes.find(
       (r) => r.method === "POST" && r.path === "/tasks/:taskId/code-evidence/gaps/:gapId/resolve",
     );
-    expect(route!.preHandler).toContain(mockAgentOrHumanAuth);
+    expect(route!.authPolicy).toBe("local_actor");
   });
 
-  it("mission GET evidence uses agentOrHumanAuth", () => {
+  it("mission GET evidence declares local_actor policy", () => {
     const routes = captureRoutes(missionCodeEvidenceRoutes);
     const route = routes.find(
       (r) => r.method === "GET" && r.path === "/missions/:missionId/code-evidence",
     );
-    expect(route!.preHandler).toContain(mockAgentOrHumanAuth);
+    expect(route!.authPolicy).toBe("local_actor");
   });
 
-  it("mission POST link evidence uses agentOrHumanAuth", () => {
+  it("mission POST link evidence declares local_actor policy", () => {
     const routes = captureRoutes(missionCodeEvidenceRoutes);
     const route = routes.find(
       (r) => r.method === "POST" && r.path === "/missions/:missionId/code-evidence",
     );
-    expect(route!.preHandler).toContain(mockAgentOrHumanAuth);
+    expect(route!.authPolicy).toBe("local_actor");
   });
 
-  it("mission POST correct uses agentOrHumanAuth", () => {
+  it("mission POST correct declares local_actor policy", () => {
     const routes = captureRoutes(missionCodeEvidenceRoutes);
     const route = routes.find(
       (r) => r.method === "POST" && r.path === "/missions/:missionId/code-evidence/:linkId/correct",
     );
-    expect(route!.preHandler).toContain(mockAgentOrHumanAuth);
+    expect(route!.authPolicy).toBe("local_actor");
   });
 
-  it("mission POST not-applicable uses agentOrHumanAuth", () => {
+  it("mission POST not-applicable declares local_actor policy", () => {
     const routes = captureRoutes(missionCodeEvidenceRoutes);
     const route = routes.find(
       (r) => r.method === "POST" && r.path === "/missions/:missionId/code-evidence/not-applicable",
     );
-    expect(route!.preHandler).toContain(mockAgentOrHumanAuth);
+    expect(route!.authPolicy).toBe("local_actor");
   });
 
-  it("mission DELETE not-applicable uses agentOrHumanAuth", () => {
+  it("mission DELETE not-applicable declares local_actor policy", () => {
     const routes = captureRoutes(missionCodeEvidenceRoutes);
     const route = routes.find(
       (r) =>
         r.method === "DELETE" && r.path === "/missions/:missionId/code-evidence/not-applicable",
     );
-    expect(route!.preHandler).toContain(mockAgentOrHumanAuth);
+    expect(route!.authPolicy).toBe("local_actor");
   });
 
-  it("mission POST gap uses agentOrHumanAuth", () => {
+  it("mission POST gap declares local_actor policy", () => {
     const routes = captureRoutes(missionCodeEvidenceRoutes);
     const route = routes.find(
       (r) => r.method === "POST" && r.path === "/missions/:missionId/code-evidence/gaps",
     );
-    expect(route!.preHandler).toContain(mockAgentOrHumanAuth);
+    expect(route!.authPolicy).toBe("local_actor");
   });
 
-  it("mission POST resolve gap uses agentOrHumanAuth", () => {
+  it("mission POST resolve gap declares local_actor policy", () => {
     const routes = captureRoutes(missionCodeEvidenceRoutes);
     const route = routes.find(
       (r) =>
         r.method === "POST" && r.path === "/missions/:missionId/code-evidence/gaps/:gapId/resolve",
     );
-    expect(route!.preHandler).toContain(mockAgentOrHumanAuth);
+    expect(route!.authPolicy).toBe("local_actor");
   });
 
-  it("repository GET uses agentOrHumanAuth", () => {
+  it("repository GET declares local_actor policy", () => {
     const routes = captureRoutes(repositorySettingsRoutes);
     const route = routes.find(
       (r) => r.method === "GET" && r.path === "/habitats/:habitatId/repository",
     );
-    expect(route!.preHandler).toContain(mockAgentOrHumanAuth);
+    expect(route!.authPolicy).toBe("local_actor");
   });
 
-  it("repository PUT uses humanAuth", () => {
+  it("repository PUT declares human policy", () => {
     const routes = captureRoutes(repositorySettingsRoutes);
     const route = routes.find(
       (r) => r.method === "PUT" && r.path === "/habitats/:habitatId/repository",
     );
-    expect(route!.preHandler).toContain(mockHumanAuth);
+    expect(route!.authPolicy).toBe("human");
   });
 
-  it("repository infer-from-worktree uses humanAuth", () => {
+  it("repository infer-from-worktree declares human policy", () => {
     const routes = captureRoutes(repositorySettingsRoutes);
     const route = routes.find(
       (r) =>
         r.method === "POST" && r.path === "/habitats/:habitatId/repository/infer-from-worktree",
     );
-    expect(route!.preHandler).toContain(mockHumanAuth);
+    expect(route!.authPolicy).toBe("human");
   });
 
-  it("repository infer-from-integration uses humanAuth", () => {
+  it("repository infer-from-integration declares human policy", () => {
     const routes = captureRoutes(repositorySettingsRoutes);
     const route = routes.find(
       (r) =>
         r.method === "POST" && r.path === "/habitats/:habitatId/repository/infer-from-integration",
     );
-    expect(route!.preHandler).toContain(mockHumanAuth);
+    expect(route!.authPolicy).toBe("human");
   });
 });
 

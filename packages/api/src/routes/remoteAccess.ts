@@ -1,7 +1,7 @@
 import type { FastifyInstance, FastifyRequest, FastifyReply } from "fastify";
 import { z } from "zod";
 import { REMOTE_ACTION_SCOPES } from "@orcy/shared";
-import { humanAuth } from "../middleware/auth.js";
+import { inheritAuthPolicy } from "../authPolicy.js";
 import { adminOnly } from "../middleware/rbac.js";
 import { teamHabitatAccess } from "../middleware/team.js";
 import { badRequest } from "../errors.js";
@@ -209,9 +209,12 @@ function parseBody<T>(schema: z.ZodType<T>, raw: unknown): T {
  * separately under /api/shared/invites/* (pre-remote-auth).
  */
 export async function remoteAccessRoutes(fastify: FastifyInstance): Promise<void> {
-  fastify.addHook("preHandler", humanAuth);
-  fastify.addHook("preHandler", adminOnly);
-  fastify.addHook("preHandler", teamHabitatAccess);
+  // Homogeneous module: every remote-access administration route is a local
+  // human principal. The inherited policy installs humanAuth in front of each
+  // route's authorization chain, preserving the historical scope-hook order
+  // (authenticate, then admin, then habitat access).
+  inheritAuthPolicy(fastify, "human");
+  const authorize = [adminOnly, teamHabitatAccess];
 
   // -----------------------------------------------------------------------
   // Readiness
@@ -220,6 +223,7 @@ export async function remoteAccessRoutes(fastify: FastifyInstance): Promise<void
   /** GET /habitats/:id/remote-access/readiness — reachability/profile checks */
   fastify.get<{ Params: { id: string } }>(
     "/habitats/:id/remote-access/readiness",
+    { preHandler: authorize },
     async (request: FastifyRequest<{ Params: { id: string } }>, _reply: FastifyReply) => {
       const query = request.query as { manualInviteSelected?: string };
       return readinessService.checkReadiness(request.params.id, {
@@ -235,6 +239,7 @@ export async function remoteAccessRoutes(fastify: FastifyInstance): Promise<void
   /** GET /habitats/:id/remote-access/providers — list configured providers */
   fastify.get<{ Params: { id: string } }>(
     "/habitats/:id/remote-access/providers",
+    { preHandler: authorize },
     async (request: FastifyRequest<{ Params: { id: string } }>, _reply: FastifyReply) => {
       return { providers: providerService.listProviders(request.params.id) };
     },
@@ -243,6 +248,7 @@ export async function remoteAccessRoutes(fastify: FastifyInstance): Promise<void
   /** POST /habitats/:id/remote-access/providers — configure a new provider */
   fastify.post<{ Params: { id: string } }>(
     "/habitats/:id/remote-access/providers",
+    { preHandler: authorize },
     async (request: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) => {
       const body = parseBody(createProviderSchema, request.body);
       const provider = providerService.configureProvider({
@@ -260,6 +266,7 @@ export async function remoteAccessRoutes(fastify: FastifyInstance): Promise<void
   /** PATCH /habitats/:id/remote-access/providers/:providerId — update provider */
   fastify.patch<{ Params: { id: string; providerId: string } }>(
     "/habitats/:id/remote-access/providers/:providerId",
+    { preHandler: authorize },
     async (
       request: FastifyRequest<{ Params: { id: string; providerId: string } }>,
       _reply: FastifyReply,
@@ -278,6 +285,7 @@ export async function remoteAccessRoutes(fastify: FastifyInstance): Promise<void
   /** DELETE /habitats/:id/remote-access/providers/:providerId — remove provider */
   fastify.delete<{ Params: { id: string; providerId: string } }>(
     "/habitats/:id/remote-access/providers/:providerId",
+    { preHandler: authorize },
     async (
       request: FastifyRequest<{ Params: { id: string; providerId: string } }>,
       reply: FastifyReply,
@@ -290,6 +298,7 @@ export async function remoteAccessRoutes(fastify: FastifyInstance): Promise<void
   /** POST /habitats/:id/remote-access/providers/:providerId/initiate — start OAuth flow */
   fastify.post<{ Params: { id: string; providerId: string } }>(
     "/habitats/:id/remote-access/providers/:providerId/initiate",
+    { preHandler: authorize },
     async (
       request: FastifyRequest<{ Params: { id: string; providerId: string } }>,
       _reply: FastifyReply,
@@ -310,6 +319,7 @@ export async function remoteAccessRoutes(fastify: FastifyInstance): Promise<void
   /** GET /habitats/:id/remote-access/invites — list invites */
   fastify.get<{ Params: { id: string } }>(
     "/habitats/:id/remote-access/invites",
+    { preHandler: authorize },
     async (request: FastifyRequest<{ Params: { id: string } }>, _reply: FastifyReply) => {
       return { invites: inviteService.listInvites(request.params.id) };
     },
@@ -318,6 +328,7 @@ export async function remoteAccessRoutes(fastify: FastifyInstance): Promise<void
   /** POST /habitats/:id/remote-access/invites — create provider or manual invite */
   fastify.post<{ Params: { id: string } }>(
     "/habitats/:id/remote-access/invites",
+    { preHandler: authorize },
     async (request: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) => {
       const body = parseBody(createInviteSchema, request.body);
 
@@ -347,6 +358,7 @@ export async function remoteAccessRoutes(fastify: FastifyInstance): Promise<void
   /** POST /habitats/:id/remote-access/invites/:inviteId/revoke — revoke invite */
   fastify.post<{ Params: { id: string; inviteId: string } }>(
     "/habitats/:id/remote-access/invites/:inviteId/revoke",
+    { preHandler: authorize },
     async (
       request: FastifyRequest<{ Params: { id: string; inviteId: string } }>,
       _reply: FastifyReply,
@@ -370,6 +382,7 @@ export async function remoteAccessRoutes(fastify: FastifyInstance): Promise<void
   /** GET /habitats/:id/remote-access/remote-pods — list pods */
   fastify.get<{ Params: { id: string } }>(
     "/habitats/:id/remote-access/remote-pods",
+    { preHandler: authorize },
     async (request: FastifyRequest<{ Params: { id: string } }>, _reply: FastifyReply) => {
       const query = request.query as { status?: string };
       return {
@@ -384,6 +397,7 @@ export async function remoteAccessRoutes(fastify: FastifyInstance): Promise<void
   /** GET /habitats/:id/remote-access/remote-pods/:podId — pod details */
   fastify.get<{ Params: { id: string; podId: string } }>(
     "/habitats/:id/remote-access/remote-pods/:podId",
+    { preHandler: authorize },
     async (
       request: FastifyRequest<{ Params: { id: string; podId: string } }>,
       _reply: FastifyReply,
@@ -395,6 +409,7 @@ export async function remoteAccessRoutes(fastify: FastifyInstance): Promise<void
   /** PATCH /habitats/:id/remote-access/remote-pods/:podId — update pod metadata or status */
   fastify.patch<{ Params: { id: string; podId: string } }>(
     "/habitats/:id/remote-access/remote-pods/:podId",
+    { preHandler: authorize },
     async (
       request: FastifyRequest<{ Params: { id: string; podId: string } }>,
       _reply: FastifyReply,
@@ -434,6 +449,7 @@ export async function remoteAccessRoutes(fastify: FastifyInstance): Promise<void
   /** GET /habitats/:id/remote-access/remote-pods/:podId/participants — participants in pod */
   fastify.get<{ Params: { id: string; podId: string } }>(
     "/habitats/:id/remote-access/remote-pods/:podId/participants",
+    { preHandler: authorize },
     async (
       request: FastifyRequest<{ Params: { id: string; podId: string } }>,
       _reply: FastifyReply,
@@ -453,6 +469,7 @@ export async function remoteAccessRoutes(fastify: FastifyInstance): Promise<void
   /** GET /habitats/:id/remote-access/participants/:participantId — participant details */
   fastify.get<{ Params: { id: string; participantId: string } }>(
     "/habitats/:id/remote-access/participants/:participantId",
+    { preHandler: authorize },
     async (
       request: FastifyRequest<{ Params: { id: string; participantId: string } }>,
       _reply: FastifyReply,
@@ -466,6 +483,7 @@ export async function remoteAccessRoutes(fastify: FastifyInstance): Promise<void
   /** PATCH /habitats/:id/remote-access/participants/:participantId — approve/update participant */
   fastify.patch<{ Params: { id: string; participantId: string } }>(
     "/habitats/:id/remote-access/participants/:participantId",
+    { preHandler: authorize },
     async (
       request: FastifyRequest<{ Params: { id: string; participantId: string } }>,
       _reply: FastifyReply,
@@ -525,6 +543,7 @@ export async function remoteAccessRoutes(fastify: FastifyInstance): Promise<void
   /** GET /habitats/:id/remote-access/grants — list grants */
   fastify.get<{ Params: { id: string } }>(
     "/habitats/:id/remote-access/grants",
+    { preHandler: authorize },
     async (request: FastifyRequest<{ Params: { id: string } }>, _reply: FastifyReply) => {
       return { grants: adminService.listGrants(request.params.id) };
     },
@@ -533,6 +552,7 @@ export async function remoteAccessRoutes(fastify: FastifyInstance): Promise<void
   /** GET /habitats/:id/remote-access/grants/:grantId — grant details */
   fastify.get<{ Params: { id: string; grantId: string } }>(
     "/habitats/:id/remote-access/grants/:grantId",
+    { preHandler: authorize },
     async (
       request: FastifyRequest<{ Params: { id: string; grantId: string } }>,
       _reply: FastifyReply,
@@ -544,6 +564,7 @@ export async function remoteAccessRoutes(fastify: FastifyInstance): Promise<void
   /** POST /habitats/:id/remote-access/grants — create grant */
   fastify.post<{ Params: { id: string } }>(
     "/habitats/:id/remote-access/grants",
+    { preHandler: authorize },
     async (request: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) => {
       const body = parseBody(createGrantSchema, request.body);
 
@@ -570,6 +591,7 @@ export async function remoteAccessRoutes(fastify: FastifyInstance): Promise<void
   /** POST /habitats/:id/remote-access/grants/:grantId/revoke — revoke/freeze grant */
   fastify.post<{ Params: { id: string; grantId: string } }>(
     "/habitats/:id/remote-access/grants/:grantId/revoke",
+    { preHandler: authorize },
     async (
       request: FastifyRequest<{ Params: { id: string; grantId: string } }>,
       _reply: FastifyReply,
@@ -590,6 +612,7 @@ export async function remoteAccessRoutes(fastify: FastifyInstance): Promise<void
   /** POST /habitats/:id/remote-access/grants/preview — preview rule-based grant match */
   fastify.post<{ Params: { id: string } }>(
     "/habitats/:id/remote-access/grants/preview",
+    { preHandler: authorize },
     async (request: FastifyRequest<{ Params: { id: string } }>, _reply: FastifyReply) => {
       const body = parseBody(previewGrantSchema, request.body);
       return adminService.previewGrant({
@@ -607,6 +630,7 @@ export async function remoteAccessRoutes(fastify: FastifyInstance): Promise<void
   /** POST /habitats/:id/remote-access/participants/:participantId/credentials — create credential + MCP config */
   fastify.post<{ Params: { id: string; participantId: string } }>(
     "/habitats/:id/remote-access/participants/:participantId/credentials",
+    { preHandler: authorize },
     async (
       request: FastifyRequest<{ Params: { id: string; participantId: string } }>,
       reply: FastifyReply,
@@ -628,6 +652,7 @@ export async function remoteAccessRoutes(fastify: FastifyInstance): Promise<void
   /** GET /habitats/:id/remote-access/credentials/:credentialId — credential metadata (NO secret) */
   fastify.get<{ Params: { id: string; credentialId: string } }>(
     "/habitats/:id/remote-access/credentials/:credentialId",
+    { preHandler: authorize },
     async (
       request: FastifyRequest<{ Params: { id: string; credentialId: string } }>,
       _reply: FastifyReply,
@@ -639,6 +664,7 @@ export async function remoteAccessRoutes(fastify: FastifyInstance): Promise<void
   /** POST /habitats/:id/remote-access/credentials/:credentialId/rotate — rotate credential (returns new one-time secret) */
   fastify.post<{ Params: { id: string; credentialId: string } }>(
     "/habitats/:id/remote-access/credentials/:credentialId/rotate",
+    { preHandler: authorize },
     async (
       request: FastifyRequest<{ Params: { id: string; credentialId: string } }>,
       _reply: FastifyReply,
@@ -656,6 +682,7 @@ export async function remoteAccessRoutes(fastify: FastifyInstance): Promise<void
   /** POST /habitats/:id/remote-access/credentials/:credentialId/revoke — revoke credential */
   fastify.post<{ Params: { id: string; credentialId: string } }>(
     "/habitats/:id/remote-access/credentials/:credentialId/revoke",
+    { preHandler: authorize },
     async (
       request: FastifyRequest<{ Params: { id: string; credentialId: string } }>,
       reply: FastifyReply,
@@ -674,6 +701,7 @@ export async function remoteAccessRoutes(fastify: FastifyInstance): Promise<void
   /** GET /habitats/:id/remote-access/participants/:participantId/credentials — list credentials for participant */
   fastify.get<{ Params: { id: string; participantId: string } }>(
     "/habitats/:id/remote-access/participants/:participantId/credentials",
+    { preHandler: authorize },
     async (
       request: FastifyRequest<{ Params: { id: string; participantId: string } }>,
       _reply: FastifyReply,
@@ -690,6 +718,7 @@ export async function remoteAccessRoutes(fastify: FastifyInstance): Promise<void
   /** POST /habitats/:id/remote-access/credentials/:credentialId/mcp-config — regenerate MCP config snippets (metadata only) */
   fastify.post<{ Params: { id: string; credentialId: string } }>(
     "/habitats/:id/remote-access/credentials/:credentialId/mcp-config",
+    { preHandler: authorize },
     async (
       request: FastifyRequest<{ Params: { id: string; credentialId: string } }>,
       _reply: FastifyReply,
@@ -710,6 +739,7 @@ export async function remoteAccessRoutes(fastify: FastifyInstance): Promise<void
   /** GET /habitats/:id/remote-access/management — unified pod/participant/grant management view */
   fastify.get<{ Params: { id: string } }>(
     "/habitats/:id/remote-access/management",
+    { preHandler: authorize },
     async (request: FastifyRequest<{ Params: { id: string } }>, _reply: FastifyReply) => {
       return adminService.getManagementView(request.params.id);
     },

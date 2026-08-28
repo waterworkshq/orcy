@@ -8,11 +8,13 @@ interface CapturedRoute {
   method: string;
   path: string;
   preHandler: any[];
+  authPolicy: any;
 }
 
 function captureExportRoutes(): CapturedRoute[] {
   const routes: CapturedRoute[] = [];
   const fakeFastify: any = {
+    addHook: vi.fn(),
     withTypeProvider: vi.fn(() => fakeFastify),
     register: vi.fn(),
     post: vi.fn((path: string, opts: any, _handler: any) => {
@@ -21,6 +23,7 @@ function captureExportRoutes(): CapturedRoute[] {
         method: "POST",
         path,
         preHandler: Array.isArray(preHandler) ? preHandler : preHandler ? [preHandler] : [],
+        authPolicy: opts?.config?.authPolicy,
       });
     }),
     patch: vi.fn(),
@@ -31,6 +34,7 @@ function captureExportRoutes(): CapturedRoute[] {
         method: "GET",
         path,
         preHandler: Array.isArray(preHandler) ? preHandler : preHandler ? [preHandler] : [],
+        authPolicy: opts?.config?.authPolicy,
       });
     }),
   };
@@ -43,6 +47,7 @@ function captureHabitatRoutes(): CapturedRoute[] {
   const fakeFastify: any = {
     withTypeProvider: vi.fn(() => fakeFastify),
     register: vi.fn(),
+    addHook: vi.fn(),
     post: vi.fn(),
     patch: vi.fn(),
     put: vi.fn(),
@@ -53,6 +58,7 @@ function captureHabitatRoutes(): CapturedRoute[] {
         method: "GET",
         path,
         preHandler: Array.isArray(preHandler) ? preHandler : preHandler ? [preHandler] : [],
+        authPolicy: opts?.config?.authPolicy,
       });
     }),
   };
@@ -91,42 +97,39 @@ describe("habitatExportRoutes", () => {
     expect(routes.find((r) => r.path === "/habitats/:habitatId/anomalies")).toBeDefined();
   });
 
-  it("export endpoint has humanAuth preHandler", () => {
+  it("export endpoint declares human policy", () => {
     const routes = captureExportRoutes();
     const route = routes.find((r) => r.path === "/habitats/:habitatId/export");
     expect(route).toBeDefined();
-    expect(route!.preHandler).toHaveLength(1);
-    const handlerName =
-      typeof route!.preHandler[0] === "function"
-        ? route!.preHandler[0].name || String(route!.preHandler[0])
-        : String(route!.preHandler[0]);
-    expect(handlerName).toBe("humanAuth");
+    expect(route!.authPolicy).toBe("human");
   });
 
-  it("POST /habitats/import has humanAuth preHandler only (new-habitat, no target to authorize yet)", () => {
+  it("POST /habitats/import declares human policy only (new-habitat, no target to authorize yet)", () => {
     const routes = captureExportRoutes();
     const route = routes.find((r) => r.path === "/habitats/import");
     expect(route).toBeDefined();
-    expect(route!.preHandler).toEqual([humanAuth]);
+    expect(route!.authPolicy).toBe("human");
+    expect(route!.preHandler).toEqual([]);
   });
 
-  it("POST /habitats/:habitatId/import has humanAuth + requireHabitatAccess preHandlers", () => {
+  it("POST /habitats/:habitatId/import declares human policy with requireHabitatAccess", () => {
     const routes = captureExportRoutes();
     const route = routes.find((r) => r.path === "/habitats/:habitatId/import");
     expect(route).toBeDefined();
     // Reference equality — `requireHabitatAccess` is a re-export alias of
     // `authorizeHabitatAccess`, so the aliased binding's .name is
     // "authorizeHabitatAccess"; check by identity, not .name.
-    expect(route!.preHandler).toHaveLength(2);
-    expect(route!.preHandler[0]).toBe(humanAuth);
-    expect(route!.preHandler[1]).toBe(requireHabitatAccess);
+    expect(route!.authPolicy).toBe("human");
+    expect(route!.preHandler).toHaveLength(1);
+    expect(route!.preHandler[0]).toBe(requireHabitatAccess);
   });
 
-  it("anomalies endpoint has agentOrHumanAuth + requireHabitatAccess preHandlers", () => {
+  it("anomalies endpoint declares local_actor policy with requireHabitatAccess", () => {
     const routes = captureExportRoutes();
     const route = routes.find((r) => r.path === "/habitats/:habitatId/anomalies");
     expect(route).toBeDefined();
-    expect(route!.preHandler.length).toBeGreaterThanOrEqual(2);
+    expect(route!.authPolicy).toBe("local_actor");
+    expect(route!.preHandler.length).toBeGreaterThanOrEqual(1);
   });
 });
 

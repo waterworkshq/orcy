@@ -3,9 +3,9 @@ import { z } from 'zod';
 import * as orgRepo from '../repositories/organization.js';
 import * as teamRepo from '../repositories/team.js';
 import * as memberRepo from '../repositories/teamMember.js';
-import { humanAuth } from '../middleware/auth.js';
 import { teamAdminOrOwner, teamExists } from '../middleware/team.js';
 import { badRequest, notFound, conflict, unauthorized } from '../errors.js';
+import { applyDeclaredAuthPolicies } from "../authPolicy.js";
 
 const createOrgSchema = z.object({
   name: z.string().min(1).max(100),
@@ -27,9 +27,11 @@ const updateMemberRoleSchema = z.object({
 });
 
 export async function organizationRoutes(fastify: FastifyInstance): Promise<void> {
+  applyDeclaredAuthPolicies(fastify);
+
   fastify.post(
     '/organizations',
-    { preHandler: humanAuth },
+    { config: { authPolicy: "human" } },
     async (request: FastifyRequest, reply: FastifyReply) => {
       const parsed = createOrgSchema.safeParse(request.body);
       if (!parsed.success) {
@@ -48,7 +50,7 @@ export async function organizationRoutes(fastify: FastifyInstance): Promise<void
 
   fastify.get<{ Params: { id: string } }>(
     '/organizations/:id',
-    { preHandler: humanAuth },
+    { config: { authPolicy: "human" } },
     async (request: FastifyRequest<{ Params: { id: string } }>, _reply: FastifyReply) => {
       const org = orgRepo.getOrganizationById(request.params.id);
       if (!org) {
@@ -60,7 +62,7 @@ export async function organizationRoutes(fastify: FastifyInstance): Promise<void
 
   fastify.get(
     '/organizations',
-    { preHandler: humanAuth },
+    { config: { authPolicy: "human" } },
     async () => {
       return { organizations: orgRepo.listOrganizations() };
     }
@@ -68,7 +70,7 @@ export async function organizationRoutes(fastify: FastifyInstance): Promise<void
 
   fastify.post<{ Params: { id: string }; Body: z.infer<typeof createTeamSchema> }>(
     '/organizations/:id/teams',
-    { preHandler: humanAuth },
+    { config: { authPolicy: "human" } },
     async (request: FastifyRequest<{ Params: { id: string }; Body: z.infer<typeof createTeamSchema> }>, reply: FastifyReply) => {
       const org = orgRepo.getOrganizationById(request.params.id);
       if (!org) {
@@ -100,7 +102,7 @@ export async function organizationRoutes(fastify: FastifyInstance): Promise<void
 
   fastify.get<{ Params: { id: string } }>(
     '/organizations/:id/teams',
-    { preHandler: humanAuth },
+    { config: { authPolicy: "human" } },
     async (request: FastifyRequest<{ Params: { id: string } }>, _reply: FastifyReply) => {
       const org = orgRepo.getOrganizationById(request.params.id);
       if (!org) {
@@ -112,7 +114,7 @@ export async function organizationRoutes(fastify: FastifyInstance): Promise<void
 
   fastify.get<{ Params: { id: string } }>(
     '/teams/:id',
-    { preHandler: [humanAuth, teamExists] },
+    { preHandler: [teamExists], config: { authPolicy: "human" } },
     async (request: FastifyRequest<{ Params: { id: string } }>, _reply: FastifyReply) => {
       const team = teamRepo.getTeamById(request.params.id);
       if (!team) {
@@ -124,7 +126,7 @@ export async function organizationRoutes(fastify: FastifyInstance): Promise<void
 
   fastify.delete<{ Params: { id: string } }>(
     '/teams/:id',
-    { preHandler: [humanAuth, teamAdminOrOwner] },
+    { preHandler: [teamAdminOrOwner], config: { authPolicy: "human" } },
     async (request: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) => {
       teamRepo.deleteTeam(request.params.id);
       reply.code(204).send();
@@ -133,7 +135,7 @@ export async function organizationRoutes(fastify: FastifyInstance): Promise<void
 
   fastify.post<{ Params: { id: string }; Body: z.infer<typeof addMemberSchema> }>(
     '/teams/:id/members',
-    { preHandler: [humanAuth, teamExists, teamAdminOrOwner] },
+    { preHandler: [teamExists, teamAdminOrOwner], config: { authPolicy: "human" } },
     async (request: FastifyRequest<{ Params: { id: string }; Body: z.infer<typeof addMemberSchema> }>, reply: FastifyReply) => {
       const parsed = addMemberSchema.safeParse(request.body);
       if (!parsed.success) {
@@ -157,7 +159,7 @@ export async function organizationRoutes(fastify: FastifyInstance): Promise<void
 
   fastify.get<{ Params: { id: string } }>(
     '/teams/:id/members',
-    { preHandler: [humanAuth, teamExists] },
+    { preHandler: [teamExists], config: { authPolicy: "human" } },
     async (request: FastifyRequest<{ Params: { id: string } }>, _reply: FastifyReply) => {
       return { members: memberRepo.listMembers(request.params.id) };
     }
@@ -165,7 +167,7 @@ export async function organizationRoutes(fastify: FastifyInstance): Promise<void
 
   fastify.delete<{ Params: { id: string; userId: string } }>(
     '/teams/:id/members/:userId',
-    { preHandler: [humanAuth, teamExists, teamAdminOrOwner] },
+    { preHandler: [teamExists, teamAdminOrOwner], config: { authPolicy: "human" } },
     async (request: FastifyRequest<{ Params: { id: string; userId: string } }>, reply: FastifyReply) => {
       memberRepo.removeMember(request.params.id, request.params.userId);
       reply.code(204).send();
@@ -174,7 +176,7 @@ export async function organizationRoutes(fastify: FastifyInstance): Promise<void
 
   fastify.patch<{ Params: { id: string; userId: string }; Body: z.infer<typeof updateMemberRoleSchema> }>(
     '/teams/:id/members/:userId',
-    { preHandler: [humanAuth, teamExists, teamAdminOrOwner] },
+    { preHandler: [teamExists, teamAdminOrOwner], config: { authPolicy: "human" } },
     async (request: FastifyRequest<{ Params: { id: string; userId: string }; Body: z.infer<typeof updateMemberRoleSchema> }>, _reply: FastifyReply) => {
       const parsed = updateMemberRoleSchema.safeParse(request.body);
       if (!parsed.success) {
@@ -191,7 +193,7 @@ export async function organizationRoutes(fastify: FastifyInstance): Promise<void
 
   fastify.get(
     '/users/me/teams',
-    { preHandler: humanAuth },
+    { config: { authPolicy: "human" } },
     async (request: FastifyRequest, _reply: FastifyReply) => {
       if (!request.user) {
         throw unauthorized('Authentication required');

@@ -10,10 +10,10 @@ import {
   isLegacyMigrationComplete,
 } from "../services/notificationMigrationService.js";
 import { adminClearDeliveries } from "../services/notificationClearanceService.js";
-import { humanAuth } from "../middleware/auth.js";
 import { requireHabitatAccess } from "../middleware/team.js";
 import { notFound, badRequest, forbidden } from "../errors.js";
 import type { NotificationChannel } from "@orcy/shared";
+import { applyDeclaredAuthPolicies } from "../authPolicy.js";
 
 const recipientTypeSchema = z.enum(["human", "agent", "remote_human", "remote_orcy"]);
 
@@ -59,6 +59,8 @@ const adminClearSchema = z.object({
 });
 
 export async function notificationRoutes(fastify: FastifyInstance): Promise<void> {
+  applyDeclaredAuthPolicies(fastify);
+
   // ============= Recipient Routes =============
 
   fastify.get<{
@@ -66,7 +68,7 @@ export async function notificationRoutes(fastify: FastifyInstance): Promise<void
     Querystring: { limit?: string; offset?: string; recipientType?: string };
   }>(
     "/habitats/:habitatId/notifications/inbox",
-    { preHandler: [humanAuth, requireHabitatAccess] },
+    { preHandler: [requireHabitatAccess], config: { authPolicy: "human" } },
     async (request, _reply) => {
       const { habitatId } = request.params;
       const userId = request.user!.id;
@@ -82,7 +84,7 @@ export async function notificationRoutes(fastify: FastifyInstance): Promise<void
     Querystring: { limit?: string; offset?: string };
   }>(
     "/habitats/:habitatId/notifications/history",
-    { preHandler: [humanAuth, requireHabitatAccess] },
+    { preHandler: [requireHabitatAccess], config: { authPolicy: "human" } },
     async (request, _reply) => {
       const { habitatId } = request.params;
       const userId = request.user!.id;
@@ -98,7 +100,7 @@ export async function notificationRoutes(fastify: FastifyInstance): Promise<void
 
   fastify.get<{ Params: { habitatId: string; deliveryId: string } }>(
     "/habitats/:habitatId/notifications/deliveries/:deliveryId",
-    { preHandler: [humanAuth, requireHabitatAccess] },
+    { preHandler: [requireHabitatAccess], config: { authPolicy: "human" } },
     async (request, _reply) => {
       const { habitatId, deliveryId } = request.params;
       const userId = request.user!.id;
@@ -116,7 +118,7 @@ export async function notificationRoutes(fastify: FastifyInstance): Promise<void
 
   fastify.post<{ Params: { habitatId: string; deliveryId: string } }>(
     "/habitats/:habitatId/notifications/deliveries/:deliveryId/ack",
-    { preHandler: [humanAuth, requireHabitatAccess] },
+    { preHandler: [requireHabitatAccess], config: { authPolicy: "human" } },
     async (request, _reply) => {
       const { habitatId, deliveryId } = request.params;
       const userId = request.user!.id;
@@ -133,7 +135,7 @@ export async function notificationRoutes(fastify: FastifyInstance): Promise<void
 
   fastify.post<{ Params: { habitatId: string; deliveryId: string } }>(
     "/habitats/:habitatId/notifications/deliveries/:deliveryId/snooze",
-    { preHandler: [humanAuth, requireHabitatAccess] },
+    { preHandler: [requireHabitatAccess], config: { authPolicy: "human" } },
     async (request, _reply) => {
       const { habitatId, deliveryId } = request.params;
       const userId = request.user!.id;
@@ -154,7 +156,7 @@ export async function notificationRoutes(fastify: FastifyInstance): Promise<void
 
   fastify.post<{ Params: { habitatId: string; deliveryId: string } }>(
     "/habitats/:habitatId/notifications/deliveries/:deliveryId/clear",
-    { preHandler: [humanAuth, requireHabitatAccess] },
+    { preHandler: [requireHabitatAccess], config: { authPolicy: "human" } },
     async (request, _reply) => {
       const { habitatId, deliveryId } = request.params;
       const userId = request.user!.id;
@@ -172,7 +174,7 @@ export async function notificationRoutes(fastify: FastifyInstance): Promise<void
   // Own subscription state
   fastify.get<{ Params: { habitatId: string } }>(
     "/habitats/:habitatId/notifications/subscriptions",
-    { preHandler: [humanAuth, requireHabitatAccess] },
+    { preHandler: [requireHabitatAccess], config: { authPolicy: "human" } },
     async (request, _reply) => {
       const { habitatId } = request.params;
       const userId = request.user!.id;
@@ -188,7 +190,7 @@ export async function notificationRoutes(fastify: FastifyInstance): Promise<void
   // List all subscriptions for a habitat (admin)
   fastify.get<{ Params: { habitatId: string } }>(
     "/habitats/:habitatId/notifications/admin/subscriptions",
-    { preHandler: [humanAuth, requireHabitatAccess] },
+    { preHandler: [requireHabitatAccess], config: { authPolicy: "human" } },
     async (request, _reply) => {
       const { habitatId } = request.params;
       const all = subscriptionRepo.getAllSubscriptionsByHabitat(habitatId);
@@ -199,7 +201,7 @@ export async function notificationRoutes(fastify: FastifyInstance): Promise<void
   // Create subscription
   fastify.post<{ Params: { habitatId: string } }>(
     "/habitats/:habitatId/notifications/admin/subscriptions",
-    { preHandler: [humanAuth, requireHabitatAccess] },
+    { preHandler: [requireHabitatAccess], config: { authPolicy: "human" } },
     async (request, _reply) => {
       const parsed = createSubscriptionSchema.safeParse(request.body);
       if (!parsed.success) {
@@ -222,7 +224,7 @@ export async function notificationRoutes(fastify: FastifyInstance): Promise<void
   // Update subscription
   fastify.put<{ Params: { habitatId: string; subscriptionId: string } }>(
     "/habitats/:habitatId/notifications/admin/subscriptions/:subscriptionId",
-    { preHandler: [humanAuth, requireHabitatAccess] },
+    { preHandler: [requireHabitatAccess], config: { authPolicy: "human" } },
     async (request, _reply) => {
       const { subscriptionId } = request.params;
       const parsed = updateSubscriptionSchema.safeParse(request.body);
@@ -239,7 +241,7 @@ export async function notificationRoutes(fastify: FastifyInstance): Promise<void
   // Delete subscription
   fastify.delete<{ Params: { habitatId: string; subscriptionId: string } }>(
     "/habitats/:habitatId/notifications/admin/subscriptions/:subscriptionId",
-    { preHandler: [humanAuth, requireHabitatAccess] },
+    { preHandler: [requireHabitatAccess], config: { authPolicy: "human" } },
     async (request, _reply) => {
       const { subscriptionId } = request.params;
       const deleted = subscriptionRepo.deleteSubscription(subscriptionId);
@@ -250,7 +252,7 @@ export async function notificationRoutes(fastify: FastifyInstance): Promise<void
   // Retention policy
   fastify.get<{ Params: { habitatId: string } }>(
     "/habitats/:habitatId/notifications/admin/retention",
-    { preHandler: [humanAuth, requireHabitatAccess] },
+    { preHandler: [requireHabitatAccess], config: { authPolicy: "human" } },
     async (request, _reply) => {
       return retentionRepo.getRetentionPolicyByHabitat(request.params.habitatId);
     },
@@ -258,7 +260,7 @@ export async function notificationRoutes(fastify: FastifyInstance): Promise<void
 
   fastify.put<{ Params: { habitatId: string } }>(
     "/habitats/:habitatId/notifications/admin/retention",
-    { preHandler: [humanAuth, requireHabitatAccess] },
+    { preHandler: [requireHabitatAccess], config: { authPolicy: "human" } },
     async (request, _reply) => {
       if (request.user!.role !== "admin") {
         throw forbidden("Only admins can change retention policy");
@@ -277,7 +279,7 @@ export async function notificationRoutes(fastify: FastifyInstance): Promise<void
   // Admin-triggered clearance
   fastify.post<{ Params: { habitatId: string } }>(
     "/habitats/:habitatId/notifications/admin/clear",
-    { preHandler: [humanAuth, requireHabitatAccess] },
+    { preHandler: [requireHabitatAccess], config: { authPolicy: "human" } },
     async (request, _reply) => {
       if (request.user!.role !== "admin") {
         throw forbidden("Only admins can clear deliveries");
@@ -293,7 +295,7 @@ export async function notificationRoutes(fastify: FastifyInstance): Promise<void
   // Migration from legacy preferences
   fastify.post<{ Params: { habitatId: string } }>(
     "/habitats/:habitatId/notifications/admin/migrate-legacy",
-    { preHandler: [humanAuth, requireHabitatAccess] },
+    { preHandler: [requireHabitatAccess], config: { authPolicy: "human" } },
     async (request, _reply) => {
       const userId = request.user!.id;
       const result = migrateLegacyPreferences(userId, request.params.habitatId);
@@ -303,7 +305,7 @@ export async function notificationRoutes(fastify: FastifyInstance): Promise<void
 
   fastify.get<{ Params: { habitatId: string } }>(
     "/habitats/:habitatId/notifications/admin/migrate-legacy/status",
-    { preHandler: [humanAuth, requireHabitatAccess] },
+    { preHandler: [requireHabitatAccess], config: { authPolicy: "human" } },
     async (request, _reply) => {
       const userId = request.user!.id;
       const complete = isLegacyMigrationComplete(userId, request.params.habitatId);
@@ -315,7 +317,7 @@ export async function notificationRoutes(fastify: FastifyInstance): Promise<void
 
   fastify.get<{ Params: { habitatId: string }; Querystring: { channel?: string; limit?: string } }>(
     "/habitats/:habitatId/notifications/admin/delivery-monitor",
-    { preHandler: [humanAuth, requireHabitatAccess] },
+    { preHandler: [requireHabitatAccess], config: { authPolicy: "human" } },
     async (request, _reply) => {
       if (request.user!.role !== "admin") {
         throw forbidden("Only admins can view delivery monitor");

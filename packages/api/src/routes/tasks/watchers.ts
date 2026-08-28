@@ -2,13 +2,15 @@ import type { FastifyInstance, FastifyRequest, FastifyReply } from "fastify";
 import * as taskRepo from "../../repositories/task.js";
 import * as watcherRepo from "../../repositories/watcher.js";
 import * as watcherService from "../../services/watcherService.js";
-import { humanAuth } from "../../middleware/auth.js";
 import { notFound, internalError } from "../../errors.js";
+import { applyDeclaredAuthPolicies } from "../../authPolicy.js";
 
 export async function taskWatcherRoutes(fastify: FastifyInstance): Promise<void> {
+  applyDeclaredAuthPolicies(fastify);
+
   fastify.post<{ Params: { id: string } }>(
     "/tasks/:id/watch",
-    { preHandler: humanAuth },
+    { config: { authPolicy: "human" } },
     async (request: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) => {
       const userId = request.user!.id;
       try {
@@ -27,7 +29,7 @@ export async function taskWatcherRoutes(fastify: FastifyInstance): Promise<void>
 
   fastify.delete<{ Params: { id: string } }>(
     "/tasks/:id/watch",
-    { preHandler: humanAuth },
+    { config: { authPolicy: "human" } },
     async (request: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) => {
       const userId = request.user!.id;
       const removed = watcherRepo.removeWatcher(request.params.id, userId);
@@ -40,7 +42,7 @@ export async function taskWatcherRoutes(fastify: FastifyInstance): Promise<void>
 
   fastify.get<{ Params: { id: string } }>(
     "/tasks/:id/watchers",
-    { preHandler: humanAuth },
+    { config: { authPolicy: "human" } },
     async (request: FastifyRequest<{ Params: { id: string } }>, _reply: FastifyReply) => {
       const task = taskRepo.getTaskById(request.params.id);
       if (!task) {

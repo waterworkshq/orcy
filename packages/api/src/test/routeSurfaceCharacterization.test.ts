@@ -85,10 +85,10 @@ const UPDATE_BASELINE = process.env.UPDATE_ROUTE_BASELINE === "1";
 /**
  * Effective authentication policy is derived from the SAME declaration that
  * installs the runtime guard (typed `config.authPolicy`, resolved through the
- * policy module's resolver): one declaration, one classification. Routes that
- * neither declare nor inherit a policy are explicitly `legacy_unclassified` —
- * never silently classified by middleware function name or path regex. The
- * migration ticket removes that state.
+ * policy module's resolver): one declaration, one classification. There is no
+ * fallback classification — a route that somehow reaches this observer with
+ * no effective policy renders as `MISSING_POLICY`, and the installer's
+ * readiness hook has already rejected the application before it could serve.
  */
 type RouteSource = "core" | "plugin" | "static" | "framework";
 
@@ -220,8 +220,14 @@ async function buildObservedApp(options: {
 
   if (options.auditProbeRoute) {
     // Test-only observation route on the production-configured app: returns
-    // exactly what the root audit hooks established for this request.
-    app.get("/__audit-probe__", async () => getAuditProvenanceMetadata() ?? null);
+    // exactly what the root audit hooks established for this request. It
+    // declares its (anonymous) policy — every route on a seam instance must,
+    // or readiness rejects the app.
+    app.get(
+      "/__audit-probe__",
+      { config: { authPolicy: "anonymous" } },
+      async () => getAuditProvenanceMetadata() ?? null,
+    );
   }
 
   await app.ready();
@@ -254,7 +260,7 @@ async function buildObservedApp(options: {
     // guards are independent mechanism evidence.
     rec.guards = handlerNames(routeOptionsRef?.preHandler);
     const policy = resolveEffectiveAuthPolicy(routeOptionsRef?.config);
-    rec.authKind = formatEffectivePolicy(policy);
+    rec.authKind = policy === undefined ? "MISSING_POLICY" : formatEffectivePolicy(policy);
     // Raw-body eligibility follows the declared verifier, not a copied list.
     rec.rawBodyEligible = typeof policy === "object" && policy.policy === "verified_ingress";
   }
@@ -320,9 +326,10 @@ const BEHAVIOR_NOTES: string[] = [
     "deprecation-header parity promise must be re-grounded on onSend when the " +
     "assembly extraction revisits it).",
   "GET /plugins is declared local_actor auth policy (guard installed by " +
-    "the policy registry); the stale public-regex exception lives only in " +
-    "the legacy routeInventory inference, which the route-policy migration " +
-    "ticket deletes.",
+    "the policy registry). The pre-policy public-regex exception and the " +
+    "name-inference classifier that carried it are deleted; there is no " +
+    "public/unauthenticated classification besides an explicit anonymous " +
+    "declaration.",
   "The Discord Ed25519 verifier was structurally inert for two stacked " +
     "reasons (unbound CommonJS require('tweetnacl') in compiled ESM, plus " +
     "tweetnacl absent from the dependency graph), rejecting every signature " +
@@ -363,7 +370,7 @@ async function writeFixturePluginDir(targetDir?: string): Promise<string> {
     ],
   },
   routeHandlers: async (fastify) => {
-    fastify.get('${FIXTURE_PLUGIN_ROUTE}', async () => ({ fixture: true }));
+    fastify.get('${FIXTURE_PLUGIN_ROUTE}', { config: { authPolicy: 'anonymous' } }, async () => ({ fixture: true }));
   },
 };\n`,
     "utf8",

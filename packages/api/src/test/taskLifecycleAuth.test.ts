@@ -60,6 +60,7 @@ interface CapturedRoute {
 function captureRoutes(): CapturedRoute[] {
   const routes: CapturedRoute[] = [];
   const fakeFastify: any = {
+    addHook: vi.fn(),
     withTypeProvider: vi.fn(() => fakeFastify),
     post: vi.fn((path: string, opts: any, handler: any) => {
       routes.push({ method: 'POST', path, handler: typeof opts === 'function' ? opts : handler });

@@ -3,19 +3,21 @@ import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
 import { batchOperateTasks } from "../../services/tasks/index.js";
 import { batchTaskSchema } from "../../models/schemas.js";
-import { agentOrHumanAuth } from "../../middleware/auth.js";
 import { forbidden } from "../../errors.js";
+import { applyDeclaredAuthPolicies } from "../../authPolicy.js";
 
 const habitatIdParamSchema = z.object({ habitatId: z.string() });
 
 export async function taskBatchRoutes(fastify: FastifyInstance): Promise<void> {
+  applyDeclaredAuthPolicies(fastify);
+
   fastify
     .withTypeProvider<ZodTypeProvider>()
     .post(
       "/habitats/:habitatId/tasks/batch",
       {
         schema: { params: habitatIdParamSchema, body: batchTaskSchema },
-        preHandler: [agentOrHumanAuth],
+        config: { authPolicy: "local_actor" },
       },
       async (request, _reply) => {
         const { habitatId } = request.params;

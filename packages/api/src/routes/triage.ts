@@ -28,7 +28,6 @@ import {
   type AuthorityActor,
   type AuthorityFindingShape,
 } from "../services/triageLifecycleAuthority.js";
-import { agentOrHumanAuth } from "../middleware/auth.js";
 import { getHabitatById } from "../repositories/habitat.js";
 import { isTeamMemberByHabitatId } from "../repositories/teamMember.js";
 import {
@@ -41,6 +40,7 @@ import {
   conflictWithCode,
 } from "../errors.js";
 import { logger } from "../lib/logger.js";
+import { applyDeclaredAuthPolicies } from "../authPolicy.js";
 
 /**
  * Derives the canonical lifecycle actor for a Finding write. Local agents map
@@ -363,10 +363,12 @@ const activateFindingBodySchema = z
  * and MCP tool layers.
  */
 export async function triageRoutes(fastify: FastifyInstance): Promise<void> {
+  applyDeclaredAuthPolicies(fastify);
+
   /** GET /triage/findings — list finding triage records for a habitat. */
   fastify.get<{ Querystring: { habitatId: string; status?: string; bucket?: string } }>(
     "/triage/findings",
-    { preHandler: agentOrHumanAuth },
+    { config: { authPolicy: "local_actor" } },
     async (request) => {
       const parsed = listFindingsQuerySchema.safeParse(request.query);
       if (!parsed.success) {
@@ -384,7 +386,7 @@ export async function triageRoutes(fastify: FastifyInstance): Promise<void> {
   /** GET /triage/findings/:id — get a single finding triage record. */
   fastify.get<{ Params: { id: string } }>(
     "/triage/findings/:id",
-    { preHandler: agentOrHumanAuth },
+    { config: { authPolicy: "local_actor" } },
     async (request) => {
       const finding = findingTriageRepo.getById(request.params.id);
       if (!finding) throw notFound("Finding not found");
@@ -408,7 +410,7 @@ export async function triageRoutes(fastify: FastifyInstance): Promise<void> {
    */
   fastify.patch<{ Params: { id: string } }>(
     "/triage/findings/:id",
-    { preHandler: agentOrHumanAuth },
+    { config: { authPolicy: "local_actor" } },
     async (request) => {
       logger.warn(
         { findingId: request.params.id },
@@ -428,7 +430,7 @@ export async function triageRoutes(fastify: FastifyInstance): Promise<void> {
    */
   fastify.post<{ Params: { id: string } }>(
     "/triage/findings/:id/route",
-    { preHandler: agentOrHumanAuth },
+    { config: { authPolicy: "local_actor" } },
     async (request, reply) => {
       const parsed = routeFindingBodySchema.safeParse(request.body);
       if (!parsed.success) {
@@ -463,7 +465,7 @@ export async function triageRoutes(fastify: FastifyInstance): Promise<void> {
    */
   fastify.post<{ Params: { id: string } }>(
     "/triage/findings/:id/activate",
-    { preHandler: agentOrHumanAuth },
+    { config: { authPolicy: "local_actor" } },
     async (request, reply) => {
       const parsed = activateFindingBodySchema.safeParse(request.body ?? {});
       if (!parsed.success) {
@@ -520,7 +522,7 @@ export async function triageRoutes(fastify: FastifyInstance): Promise<void> {
    */
   fastify.post<{ Params: { id: string } }>(
     "/triage/findings/:id/resolve",
-    { preHandler: agentOrHumanAuth },
+    { config: { authPolicy: "local_actor" } },
     async (request, reply) => {
       const parsed = resolveFindingBodySchema.safeParse(request.body);
       if (!parsed.success) {
@@ -572,7 +574,7 @@ export async function triageRoutes(fastify: FastifyInstance): Promise<void> {
    */
   fastify.post<{ Params: { id: string } }>(
     "/triage/findings/:id/wontfix",
-    { preHandler: agentOrHumanAuth },
+    { config: { authPolicy: "local_actor" } },
     async (request, reply) => {
       const parsed = wontfixFindingBodySchema.safeParse(request.body);
       if (!parsed.success) {
@@ -626,7 +628,7 @@ export async function triageRoutes(fastify: FastifyInstance): Promise<void> {
   /** GET /triage/resolutions — proactive lookup of historical resolutions. */
   fastify.get<{ Querystring: { habitatId: string; clusterKey: string } }>(
     "/triage/resolutions",
-    { preHandler: agentOrHumanAuth },
+    { config: { authPolicy: "local_actor" } },
     async (request) => {
       const parsed = resolutionsQuerySchema.safeParse(request.query);
       if (!parsed.success) {
@@ -648,7 +650,7 @@ export async function triageRoutes(fastify: FastifyInstance): Promise<void> {
    */
   fastify.get<{ Querystring: { habitatId: string; limit?: string } }>(
     "/triage/clusters/top",
-    { preHandler: agentOrHumanAuth },
+    { config: { authPolicy: "local_actor" } },
     async (request) => {
       const parsed = topClustersQuerySchema.safeParse({
         ...request.query,
@@ -724,7 +726,7 @@ export async function triageRoutes(fastify: FastifyInstance): Promise<void> {
       releaseType?: ReleaseType;
       releaseNotes?: string;
     };
-  }>("/triage/release-trigger", { preHandler: agentOrHumanAuth }, async (request) => {
+  }>("/triage/release-trigger", { config: { authPolicy: "local_actor" } }, async (request) => {
     const parsed = releaseTriggerBodySchema.safeParse(request.body);
     if (!parsed.success) {
       throw badRequest("Validation failed", parsed.error.flatten());

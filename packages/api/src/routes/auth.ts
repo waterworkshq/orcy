@@ -112,15 +112,16 @@ export async function authRoutes(fastify: FastifyInstance): Promise<void> {
     "/auth/register",
     { config: { authPolicy: "anonymous" } },
     async (request: FastifyRequest, _reply: FastifyReply) => {
-    const parsed = registerSchema.safeParse(request.body);
-    if (!parsed.success) {
-      throw badRequest("Invalid request");
-    }
+      const parsed = registerSchema.safeParse(request.body);
+      if (!parsed.success) {
+        throw badRequest("Invalid request");
+      }
 
-    const result = registerInitialAdmin(parsed.data);
+      const result = registerInitialAdmin(parsed.data);
 
-    return result;
-  });
+      return result;
+    },
+  );
 
   fastify.get("/auth/me", { config: { authPolicy: "human" } }, async (request: FastifyRequest) => {
     const user = request.user!;

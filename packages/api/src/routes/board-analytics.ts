@@ -3,7 +3,6 @@ import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
 import * as habitatService from "../services/habitatService.js";
 import { habitatEventsQuerySchema } from "../models/schemas.js";
-import { agentOrHumanAuth } from "../middleware/auth.js";
 import { requireHabitatAccess } from "../middleware/team.js";
 import { getEventsByHabitatId } from "../repositories/event.js";
 import * as capacityService from "../services/capacityService.js";
@@ -13,16 +12,19 @@ import * as cumulativeFlowService from "../services/cumulativeFlowService.js";
 import * as bottleneckService from "../services/bottleneckService.js";
 import * as agentQualityService from "../services/agentQualityService.js";
 import { notFound } from "../errors.js";
+import { applyDeclaredAuthPolicies } from "../authPolicy.js";
 
 const habitatIdParamsSchema = z.object({ habitatId: z.string() });
 
 export async function habitatAnalyticsRoutes(fastify: FastifyInstance): Promise<void> {
+  applyDeclaredAuthPolicies(fastify);
+
   /** GET /habitats/:habitatId/stats - Get board statistics. Auth: agentOrHumanAuth + board access. Returns stats or 404 */
   fastify.withTypeProvider<ZodTypeProvider>().get(
     "/habitats/:habitatId/stats",
     {
       schema: { params: habitatIdParamsSchema },
-      preHandler: [agentOrHumanAuth, requireHabitatAccess],
+      preHandler: [requireHabitatAccess], config: { authPolicy: "local_actor" },
     },
     async (request, _reply) => {
       const result = habitatService.getHabitat(request.params.habitatId);
@@ -46,7 +48,7 @@ export async function habitatAnalyticsRoutes(fastify: FastifyInstance): Promise<
           includeDigest: z.enum(["true", "false"]).optional(),
         }),
       },
-      preHandler: [agentOrHumanAuth, requireHabitatAccess],
+      preHandler: [requireHabitatAccess], config: { authPolicy: "local_actor" },
     },
     async (request, _reply) => {
       const query = request.query;
@@ -73,7 +75,7 @@ export async function habitatAnalyticsRoutes(fastify: FastifyInstance): Promise<
     "/habitats/:habitatId/events",
     {
       schema: { params: habitatIdParamsSchema, querystring: habitatEventsQuerySchema },
-      preHandler: [agentOrHumanAuth, requireHabitatAccess],
+      preHandler: [requireHabitatAccess], config: { authPolicy: "local_actor" },
     },
     async (request, _reply) => {
       const result = habitatService.getHabitat(request.params.habitatId);
@@ -97,7 +99,7 @@ export async function habitatAnalyticsRoutes(fastify: FastifyInstance): Promise<
     "/habitats/:habitatId/capacity",
     {
       schema: { params: habitatIdParamsSchema },
-      preHandler: [agentOrHumanAuth, requireHabitatAccess],
+      preHandler: [requireHabitatAccess], config: { authPolicy: "local_actor" },
     },
     async (request, _reply) => {
       const result = habitatService.getHabitat(request.params.habitatId);
@@ -114,7 +116,7 @@ export async function habitatAnalyticsRoutes(fastify: FastifyInstance): Promise<
     "/habitats/:habitatId/predictions",
     {
       schema: { params: habitatIdParamsSchema },
-      preHandler: [agentOrHumanAuth, requireHabitatAccess],
+      preHandler: [requireHabitatAccess], config: { authPolicy: "local_actor" },
     },
     async (request, _reply) => {
       const result = habitatService.getHabitat(request.params.habitatId);
@@ -133,7 +135,7 @@ export async function habitatAnalyticsRoutes(fastify: FastifyInstance): Promise<
         params: habitatIdParamsSchema,
         querystring: z.object({ days: z.coerce.number().int().min(7).max(90).optional() }),
       },
-      preHandler: [agentOrHumanAuth, requireHabitatAccess],
+      preHandler: [requireHabitatAccess], config: { authPolicy: "local_actor" },
     },
     async (request, _reply) => {
       const result = habitatService.getHabitat(request.params.habitatId);
@@ -153,7 +155,7 @@ export async function habitatAnalyticsRoutes(fastify: FastifyInstance): Promise<
         params: habitatIdParamsSchema,
         querystring: z.object({ days: z.coerce.number().int().min(7).max(90).optional() }),
       },
-      preHandler: [agentOrHumanAuth, requireHabitatAccess],
+      preHandler: [requireHabitatAccess], config: { authPolicy: "local_actor" },
     },
     async (request, _reply) => {
       const result = habitatService.getHabitat(request.params.habitatId);
@@ -173,7 +175,7 @@ export async function habitatAnalyticsRoutes(fastify: FastifyInstance): Promise<
         params: habitatIdParamsSchema,
         querystring: z.object({ agentId: z.string().optional() }),
       },
-      preHandler: [agentOrHumanAuth, requireHabitatAccess],
+      preHandler: [requireHabitatAccess], config: { authPolicy: "local_actor" },
     },
     async (request, _reply) => {
       const result = habitatService.getHabitat(request.params.habitatId);
@@ -195,7 +197,7 @@ export async function habitatAnalyticsRoutes(fastify: FastifyInstance): Promise<
         params: habitatIdParamsSchema,
         querystring: z.object({ days: z.coerce.number().int().min(7).max(90).optional() }),
       },
-      preHandler: [agentOrHumanAuth, requireHabitatAccess],
+      preHandler: [requireHabitatAccess], config: { authPolicy: "local_actor" },
     },
     async (request, _reply) => {
       const result = habitatService.getHabitat(request.params.habitatId);

@@ -20,6 +20,7 @@ interface CapturedRoute {
 function captureRoutes(): CapturedRoute[] {
   const routes: CapturedRoute[] = [];
   const fakeFastify: any = {
+    addHook: vi.fn(),
     get: vi.fn((path: string, opts: any, handler: any) => {
       routes.push({
         method: "GET",

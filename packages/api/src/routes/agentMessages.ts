@@ -2,19 +2,21 @@ import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import * as agentMessageRepo from '../repositories/agentMessage.js';
 import * as agentRepo from '../repositories/agent.js';
 import { sseBroadcaster } from '../sse/broadcaster.js';
-import { agentAuth } from '../middleware/auth.js';
 import { unauthorized, forbidden, notFound, badRequest } from '../errors.js';
 import { enqueueNotification } from '../services/notificationCommandService.js';
 import { logger } from '../lib/logger.js';
+import { applyDeclaredAuthPolicies } from "../authPolicy.js";
 
 export function requireSelfAgent(request: FastifyRequest, agentId: string): boolean {
   return request.agent?.id === agentId;
 }
 
 export async function agentMessageRoutes(fastify: FastifyInstance): Promise<void> {
+  applyDeclaredAuthPolicies(fastify);
+
   fastify.post<{ Params: { agentId: string }; Body: { habitatId: string; toAgentId: string; taskId?: string; subject: string; body: string; messageType?: 'info' | 'request' | 'response' | 'alert'; priority?: 'low' | 'normal' | 'high' | 'urgent' } }>(
     '/agents/:agentId/messages',
-    { preHandler: agentAuth },
+    { config: { authPolicy: "agent" } },
     async (request: FastifyRequest<{ Params: { agentId: string }; Body: { habitatId: string; toAgentId: string; taskId?: string; subject: string; body: string; messageType?: 'info' | 'request' | 'response' | 'alert'; priority?: 'low' | 'normal' | 'high' | 'urgent' } }>, reply: FastifyReply) => {
       const { agentId } = request.params;
       const body = request.body;
@@ -94,7 +96,7 @@ export async function agentMessageRoutes(fastify: FastifyInstance): Promise<void
 
   fastify.get<{ Params: { agentId: string } }>(
     '/agents/:agentId/messages',
-    { preHandler: agentAuth },
+    { config: { authPolicy: "agent" } },
     async (request: FastifyRequest<{ Params: { agentId: string } }>, _reply: FastifyReply) => {
       const { agentId } = request.params;
 
@@ -119,7 +121,7 @@ export async function agentMessageRoutes(fastify: FastifyInstance): Promise<void
 
   fastify.put<{ Params: { id: string } }>(
     '/agents/messages/:id/read',
-    { preHandler: agentAuth },
+    { config: { authPolicy: "agent" } },
     async (request: FastifyRequest<{ Params: { id: string } }>, _reply: FastifyReply) => {
       if (!request.agent) {
         throw unauthorized('Authentication required');
@@ -144,7 +146,7 @@ export async function agentMessageRoutes(fastify: FastifyInstance): Promise<void
 
   fastify.put<{ Params: { agentId: string } }>(
     '/agents/:agentId/messages/read-all',
-    { preHandler: agentAuth },
+    { config: { authPolicy: "agent" } },
     async (request: FastifyRequest<{ Params: { agentId: string } }>, _reply: FastifyReply) => {
       if (!request.agent || !requireSelfAgent(request, request.params.agentId)) {
         throw forbidden('Agent can only mark its own messages as read');
@@ -157,7 +159,7 @@ export async function agentMessageRoutes(fastify: FastifyInstance): Promise<void
 
   fastify.delete<{ Params: { id: string } }>(
     '/agents/messages/:id',
-    { preHandler: agentAuth },
+    { config: { authPolicy: "agent" } },
     async (request: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) => {
       if (!request.agent) {
         throw unauthorized('Authentication required');

@@ -1,7 +1,6 @@
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import * as reviewRuleRepo from '../repositories/reviewRule.js';
 import * as taskReviewerRepo from '../repositories/taskReviewer.js';
-import { agentOrHumanAuth, humanAuth } from '../middleware/auth.js';
 import { requireHabitatAccess } from '../middleware/team.js';
 import { badRequest, notFound, forbidden, unauthorized } from '../errors.js';
 import { isTeamMemberByHabitatId } from '../repositories/teamMember.js';
@@ -9,6 +8,7 @@ import { getHabitatById } from '../repositories/habitat.js';
 import { getTaskById } from '../repositories/task.js';
 import { getMissionById } from '../repositories/mission.js';
 import { z } from 'zod';
+import { applyDeclaredAuthPolicies } from "../authPolicy.js";
 
 const STRATEGIES = ['domain_expert', 'round_robin', 'least_loaded', 'random', 'fixed'] as const;
 
@@ -70,9 +70,11 @@ function getHabitatIdFromTask(taskId: string): string {
 }
 
 export async function reviewRuleRoutes(fastify: FastifyInstance): Promise<void> {
+  applyDeclaredAuthPolicies(fastify);
+
   fastify.get<{ Params: { habitatId: string } }>(
     '/habitats/:habitatId/review-rules',
-    { preHandler: [agentOrHumanAuth, requireHabitatAccess] },
+    { preHandler: [requireHabitatAccess], config: { authPolicy: "local_actor" } },
     async (request) => {
       const rules = reviewRuleRepo.getByHabitatId(request.params.habitatId);
       return { reviewRules: rules };
@@ -81,7 +83,7 @@ export async function reviewRuleRoutes(fastify: FastifyInstance): Promise<void> 
 
   fastify.post<{ Params: { habitatId: string }; Body: z.infer<typeof createRuleSchema> }>(
     '/habitats/:habitatId/review-rules',
-    { preHandler: [humanAuth, requireHabitatAccess] },
+    { preHandler: [requireHabitatAccess], config: { authPolicy: "human" } },
     async (request, reply) => {
       const parsed = createRuleSchema.safeParse(request.body);
       if (!parsed.success) {
@@ -95,7 +97,7 @@ export async function reviewRuleRoutes(fastify: FastifyInstance): Promise<void> 
 
   fastify.patch<{ Params: { id: string }; Body: z.infer<typeof updateRuleSchema> }>(
     '/review-rules/:id',
-    { preHandler: [humanAuth] },
+    { config: { authPolicy: "human" } },
     async (request) => {
       const parsed = updateRuleSchema.safeParse(request.body);
       if (!parsed.success) {
@@ -114,7 +116,7 @@ export async function reviewRuleRoutes(fastify: FastifyInstance): Promise<void> 
 
   fastify.delete<{ Params: { id: string } }>(
     '/review-rules/:id',
-    { preHandler: [humanAuth] },
+    { config: { authPolicy: "human" } },
     async (request: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) => {
       const existing = reviewRuleRepo.getById(request.params.id);
       if (!existing) throw notFound('Review rule not found');
@@ -128,7 +130,7 @@ export async function reviewRuleRoutes(fastify: FastifyInstance): Promise<void> 
 
   fastify.get<{ Params: { taskId: string } }>(
     '/tasks/:taskId/reviewers',
-    { preHandler: [agentOrHumanAuth] },
+    { config: { authPolicy: "local_actor" } },
     async (request) => {
       const reviewers = taskReviewerRepo.getByTaskId(request.params.taskId);
       return { reviewers };
@@ -137,7 +139,7 @@ export async function reviewRuleRoutes(fastify: FastifyInstance): Promise<void> 
 
   fastify.post<{ Params: { taskId: string }; Body: z.infer<typeof addReviewerSchema> }>(
     '/tasks/:taskId/reviewers',
-    { preHandler: [humanAuth] },
+    { config: { authPolicy: "human" } },
     async (request, reply) => {
       const habitatId = getHabitatIdFromTask(request.params.taskId);
       verifyRuleHabitatAccess(request, habitatId);
@@ -158,7 +160,7 @@ export async function reviewRuleRoutes(fastify: FastifyInstance): Promise<void> 
 
   fastify.delete<{ Params: { taskId: string; reviewerId: string } }>(
     '/tasks/:taskId/reviewers/:reviewerId',
-    { preHandler: [humanAuth] },
+    { config: { authPolicy: "human" } },
     async (request: FastifyRequest<{ Params: { taskId: string; reviewerId: string } }>, reply: FastifyReply) => {
       const habitatId = getHabitatIdFromTask(request.params.taskId);
       verifyRuleHabitatAccess(request, habitatId);

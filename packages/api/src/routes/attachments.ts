@@ -2,16 +2,18 @@ import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import multipart from '@fastify/multipart';
 import * as attachmentRepo from '../repositories/attachment.js';
 import * as fileStorage from '../services/fileStorage.js';
-import { agentOrHumanAuth } from '../middleware/auth.js';
 import { badRequest, notFound, forbidden, payloadTooLarge } from '../errors.js';
 import { getPrincipalFromRequest } from '../middleware/taskAuth.js';
 import { authorizeAttachmentAccess, encodeContentDisposition } from '../middleware/attachmentAuth.js';
 import { getTaskById } from '../repositories/task.js';
+import { applyDeclaredAuthPolicies } from "../authPolicy.js";
 
 const MAX_UPLOAD_SIZE_MB = parseInt(process.env.MAX_UPLOAD_SIZE_MB || '50', 10);
 const MAX_UPLOAD_SIZE_BYTES = MAX_UPLOAD_SIZE_MB * 1024 * 1024;
 
 export async function attachmentRoutes(fastify: FastifyInstance): Promise<void> {
+  applyDeclaredAuthPolicies(fastify);
+
   fastify.register(multipart, {
     limits: {
       fileSize: MAX_UPLOAD_SIZE_BYTES,
@@ -20,7 +22,7 @@ export async function attachmentRoutes(fastify: FastifyInstance): Promise<void> 
 
   fastify.post<{ Params: { taskId: string } }>(
     '/tasks/:taskId/attachments',
-    { preHandler: agentOrHumanAuth },
+    { config: { authPolicy: "local_actor" } },
     async (request: FastifyRequest<{ Params: { taskId: string } }>, reply: FastifyReply) => {
       const task = getTaskById(request.params.taskId);
       if (!task) {
@@ -57,7 +59,7 @@ export async function attachmentRoutes(fastify: FastifyInstance): Promise<void> 
 
   fastify.get<{ Params: { taskId: string } }>(
     '/tasks/:taskId/attachments',
-    { preHandler: agentOrHumanAuth },
+    { config: { authPolicy: "local_actor" } },
     async (request: FastifyRequest<{ Params: { taskId: string } }>, _reply: FastifyReply) => {
       const task = getTaskById(request.params.taskId);
       if (!task) {
@@ -71,7 +73,7 @@ export async function attachmentRoutes(fastify: FastifyInstance): Promise<void> 
 
   fastify.get<{ Params: { id: string } }>(
     '/attachments/:id/download',
-    { preHandler: agentOrHumanAuth },
+    { config: { authPolicy: "local_actor" } },
     async (request: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) => {
       const attachment = attachmentRepo.getAttachmentById(request.params.id);
       if (!attachment) {
@@ -93,7 +95,7 @@ export async function attachmentRoutes(fastify: FastifyInstance): Promise<void> 
 
   fastify.delete<{ Params: { id: string } }>(
     '/attachments/:id',
-    { preHandler: agentOrHumanAuth },
+    { config: { authPolicy: "local_actor" } },
     async (request: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) => {
       const attachment = attachmentRepo.getAttachmentById(request.params.id);
       if (!attachment) {

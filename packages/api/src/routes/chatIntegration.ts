@@ -1,16 +1,21 @@
 import { applyDeclaredAuthPolicies } from "../authPolicy.js";
-import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
-import { getIntegrationsByHabitat, getIntegrationById, createIntegration, updateIntegration, deleteIntegration } from '../repositories/chatIntegration.js';
-import { getHabitatById } from '../repositories/habitat.js';
-import { humanAuth } from '../middleware/auth.js';
-import { adminOnly } from '../middleware/rbac.js';
-import { parseSlackCommand } from '../services/slackService.js';
-import { executeCommand, sendTestMessage } from '../services/chatService.js';
-import { validateOutboundUrl } from '../config/integrationSecurity.js';
-import { badRequest, notFound, internalError } from '../errors.js';
+import type { FastifyInstance, FastifyRequest, FastifyReply } from "fastify";
+import {
+  getIntegrationsByHabitat,
+  getIntegrationById,
+  createIntegration,
+  updateIntegration,
+  deleteIntegration,
+} from "../repositories/chatIntegration.js";
+import { getHabitatById } from "../repositories/habitat.js";
+import { adminOnly } from "../middleware/rbac.js";
+import { parseSlackCommand } from "../services/slackService.js";
+import { executeCommand, sendTestMessage } from "../services/chatService.js";
+import { validateOutboundUrl } from "../config/integrationSecurity.js";
+import { badRequest, notFound, internalError } from "../errors.js";
 
 interface CreateIntegrationBody {
-  provider: 'slack' | 'discord';
+  provider: "slack" | "discord";
   webhookUrl: string;
   channelId?: string;
   botToken?: string;
@@ -26,8 +31,12 @@ interface UpdateIntegrationBody {
 }
 
 const VALID_CHAT_EVENTS = [
-  'task_created', 'task_claimed', 'task_submitted',
-  'task_approved', 'task_rejected', 'task_overdue',
+  "task_created",
+  "task_claimed",
+  "task_submitted",
+  "task_approved",
+  "task_rejected",
+  "task_overdue",
 ];
 
 export async function chatIntegrationRoutes(fastify: FastifyInstance): Promise<void> {
@@ -37,35 +46,38 @@ export async function chatIntegrationRoutes(fastify: FastifyInstance): Promise<v
   applyDeclaredAuthPolicies(fastify);
 
   fastify.get<{ Params: { habitatId: string } }>(
-    '/habitats/:habitatId/chat-integrations',
-    { preHandler: [humanAuth, adminOnly] },
+    "/habitats/:habitatId/chat-integrations",
+    { preHandler: [adminOnly], config: { authPolicy: "human" } },
     async (request: FastifyRequest<{ Params: { habitatId: string } }>, _reply: FastifyReply) => {
       const { habitatId } = request.params;
       const habitat = getHabitatById(habitatId);
       if (!habitat) {
-        throw notFound('Habitat not found');
+        throw notFound("Habitat not found");
       }
       const integrations = getIntegrationsByHabitat(habitatId);
-      return integrations.map(i => ({
+      return integrations.map((i) => ({
         ...i,
-        botToken: i.botToken ? '********' : null,
+        botToken: i.botToken ? "********" : null,
       }));
-    }
+    },
   );
 
   fastify.post<{ Params: { habitatId: string }; Body: CreateIntegrationBody }>(
-    '/habitats/:habitatId/chat-integrations',
-    { preHandler: [humanAuth, adminOnly] },
-    async (request: FastifyRequest<{ Params: { habitatId: string }; Body: CreateIntegrationBody }>, _reply: FastifyReply) => {
+    "/habitats/:habitatId/chat-integrations",
+    { preHandler: [adminOnly], config: { authPolicy: "human" } },
+    async (
+      request: FastifyRequest<{ Params: { habitatId: string }; Body: CreateIntegrationBody }>,
+      _reply: FastifyReply,
+    ) => {
       const { habitatId } = request.params;
       const { provider, webhookUrl, channelId, botToken, events } = request.body;
 
       if (!provider || !webhookUrl) {
-        throw badRequest('provider and webhookUrl are required');
+        throw badRequest("provider and webhookUrl are required");
       }
 
-      if (provider !== 'slack' && provider !== 'discord') {
-        throw badRequest('provider must be slack or discord');
+      if (provider !== "slack" && provider !== "discord") {
+        throw badRequest("provider must be slack or discord");
       }
 
       const urlValidation = await validateOutboundUrl(webhookUrl);
@@ -75,7 +87,7 @@ export async function chatIntegrationRoutes(fastify: FastifyInstance): Promise<v
 
       const habitat = getHabitatById(habitatId);
       if (!habitat) {
-        throw notFound('Habitat not found');
+        throw notFound("Habitat not found");
       }
 
       if (events) {
@@ -96,19 +108,22 @@ export async function chatIntegrationRoutes(fastify: FastifyInstance): Promise<v
       });
 
       return integration;
-    }
+    },
   );
 
   fastify.put<{ Params: { id: string }; Body: UpdateIntegrationBody }>(
-    '/chat-integrations/:id',
-    { preHandler: [humanAuth, adminOnly] },
-    async (request: FastifyRequest<{ Params: { id: string }; Body: UpdateIntegrationBody }>, _reply: FastifyReply) => {
+    "/chat-integrations/:id",
+    { preHandler: [adminOnly], config: { authPolicy: "human" } },
+    async (
+      request: FastifyRequest<{ Params: { id: string }; Body: UpdateIntegrationBody }>,
+      _reply: FastifyReply,
+    ) => {
       const { id } = request.params;
       const updates = request.body;
 
       const existing = getIntegrationById(id);
       if (!existing) {
-        throw notFound('Integration not found');
+        throw notFound("Integration not found");
       }
 
       if (updates.events) {
@@ -128,52 +143,52 @@ export async function chatIntegrationRoutes(fastify: FastifyInstance): Promise<v
 
       const success = updateIntegration(id, updates);
       if (!success) {
-        throw internalError('Failed to update integration');
+        throw internalError("Failed to update integration");
       }
 
       const updated = getIntegrationById(id)!;
       return {
         ...updated,
-        botToken: updated.botToken ? '********' : null,
+        botToken: updated.botToken ? "********" : null,
       };
-    }
+    },
   );
 
   fastify.delete<{ Params: { id: string } }>(
-    '/chat-integrations/:id',
-    { preHandler: [humanAuth, adminOnly] },
+    "/chat-integrations/:id",
+    { preHandler: [adminOnly], config: { authPolicy: "human" } },
     async (request: FastifyRequest<{ Params: { id: string } }>, _reply: FastifyReply) => {
       const { id } = request.params;
       const existing = getIntegrationById(id);
       if (!existing) {
-        throw notFound('Integration not found');
+        throw notFound("Integration not found");
       }
       const success = deleteIntegration(id);
       if (!success) {
-        throw internalError('Failed to delete integration');
+        throw internalError("Failed to delete integration");
       }
       return { success: true };
-    }
+    },
   );
 
   fastify.post<{ Params: { id: string } }>(
-    '/chat-integrations/:id/test',
-    { preHandler: [humanAuth, adminOnly] },
+    "/chat-integrations/:id/test",
+    { preHandler: [adminOnly], config: { authPolicy: "human" } },
     async (request: FastifyRequest<{ Params: { id: string } }>, _reply: FastifyReply) => {
       const { id } = request.params;
       const integration = getIntegrationById(id);
       if (!integration) {
-        throw notFound('Integration not found');
+        throw notFound("Integration not found");
       }
 
       const result = await sendTestMessage(integration.webhookUrl, integration.provider);
       return result;
-    }
+    },
   );
 
   fastify.post(
-    '/chat/slack/command',
-    { config: { authPolicy: { policy: 'verified_ingress', verifier: 'slack_signing' } } },
+    "/chat/slack/command",
+    { config: { authPolicy: { policy: "verified_ingress", verifier: "slack_signing" } } },
     async (request: FastifyRequest, reply: FastifyReply) => {
       // Credential verification runs in the policy-installed
       // slack_verified_ingress guard (preHandler): a configured signing
@@ -188,29 +203,29 @@ export async function chatIntegrationRoutes(fastify: FastifyInstance): Promise<v
         response_url?: string;
       };
 
-      const text = payload.text ?? '';
+      const text = payload.text ?? "";
       const { action, args } = parseSlackCommand(text);
 
-      if (action === 'help' || !text.trim()) {
-        const { response } = await executeCommand('help', 'help', []);
+      if (action === "help" || !text.trim()) {
+        const { response } = await executeCommand("help", "help", []);
         reply.send((response as { slack: object }).slack);
         return;
       }
 
       const habitatId = process.env.ORCY_DEFAULT_HABITAT_ID;
       if (!habitatId) {
-        reply.send({ text: 'No default board configured. Set ORCY_DEFAULT_HABITAT_ID.' });
+        reply.send({ text: "No default board configured. Set ORCY_DEFAULT_HABITAT_ID." });
         return;
       }
 
       const { response } = await executeCommand(habitatId, action, args, payload.user_id);
       reply.send((response as { slack: object }).slack);
-    }
+    },
   );
 
   fastify.post(
-    '/chat/discord/interaction',
-    { config: { authPolicy: { policy: 'verified_ingress', verifier: 'discord_ed25519' } } },
+    "/chat/discord/interaction",
+    { config: { authPolicy: { policy: "verified_ingress", verifier: "discord_ed25519" } } },
     async (request: FastifyRequest, reply: FastifyReply) => {
       // Credential verification runs in the policy-installed
       // discord_verified_ingress guard (preHandler): a configured public key
@@ -219,7 +234,14 @@ export async function chatIntegrationRoutes(fastify: FastifyInstance): Promise<v
 
       const payload = request.body as {
         type?: number;
-        data?: { name?: string; options?: Array<{ name: string; value: string; options?: Array<{ name: string; value: string }> }> };
+        data?: {
+          name?: string;
+          options?: Array<{
+            name: string;
+            value: string;
+            options?: Array<{ name: string; value: string }>;
+          }>;
+        };
         guild_id?: string;
         channel_id?: string;
         member?: { user?: { id: string } };
@@ -231,25 +253,30 @@ export async function chatIntegrationRoutes(fastify: FastifyInstance): Promise<v
       }
 
       if (payload.type === 2 && payload.data) {
-        const { parseDiscordCommand } = await import('../services/discordService.js');
+        const { parseDiscordCommand } = await import("../services/discordService.js");
         const { action, args } = parseDiscordCommand(payload.data);
 
         const habitatId = process.env.ORCY_DEFAULT_HABITAT_ID;
         if (!habitatId) {
           reply.send({
             type: 4,
-            data: { content: 'No default board configured. Set ORCY_DEFAULT_HABITAT_ID.' },
+            data: { content: "No default board configured. Set ORCY_DEFAULT_HABITAT_ID." },
           });
           return;
         }
 
-        const { response } = await executeCommand(habitatId, action, args, payload.member?.user?.id);
+        const { response } = await executeCommand(
+          habitatId,
+          action,
+          args,
+          payload.member?.user?.id,
+        );
         const discordResponse = (response as { discord: object }).discord;
         reply.send({ type: 4, data: discordResponse });
         return;
       }
 
-      throw badRequest('Unknown interaction type');
-    }
+      throw badRequest("Unknown interaction type");
+    },
   );
 }

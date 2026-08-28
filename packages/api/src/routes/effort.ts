@@ -4,9 +4,9 @@ import { z } from "zod";
 import * as effortService from "../services/effortService.js";
 import * as taskRepo from "../repositories/task.js";
 import * as missionRepo from "../repositories/mission.js";
-import { agentOrHumanAuth } from "../middleware/auth.js";
 import { notFound } from "../errors.js";
 import type { CodeEvidenceActorType } from "@orcy/shared";
+import { applyDeclaredAuthPolicies } from "../authPolicy.js";
 
 const taskIdParamsSchema = z.object({ id: z.string() });
 const entryIdParamsSchema = z.object({ id: z.string(), entryId: z.string() });
@@ -57,11 +57,13 @@ function getActor(request: {
 }
 
 export async function effortRoutes(fastify: FastifyInstance): Promise<void> {
+  applyDeclaredAuthPolicies(fastify);
+
   fastify.withTypeProvider<ZodTypeProvider>().get(
     "/tasks/:id/effort-report",
     {
       schema: { params: taskIdParamsSchema },
-      preHandler: agentOrHumanAuth,
+      config: { authPolicy: "local_actor" },
     },
     async (request) => {
       const report = effortService.getTaskEffortReport(request.params.id);
@@ -79,7 +81,7 @@ export async function effortRoutes(fastify: FastifyInstance): Promise<void> {
         params: taskIdParamsSchema,
         querystring: includeCorrectionsQuerySchema,
       },
-      preHandler: agentOrHumanAuth,
+      config: { authPolicy: "local_actor" },
     },
     async (request) => {
       const task = taskRepo.getTaskById(request.params.id);
@@ -101,7 +103,7 @@ export async function effortRoutes(fastify: FastifyInstance): Promise<void> {
         params: taskIdParamsSchema,
         body: logEffortBodySchema,
       },
-      preHandler: agentOrHumanAuth,
+      config: { authPolicy: "local_actor" },
     },
     async (request) => {
       const task = taskRepo.getTaskById(request.params.id);
@@ -127,7 +129,7 @@ export async function effortRoutes(fastify: FastifyInstance): Promise<void> {
         params: entryIdParamsSchema,
         body: correctEffortBodySchema,
       },
-      preHandler: agentOrHumanAuth,
+      config: { authPolicy: "local_actor" },
     },
     async (request) => {
       const task = taskRepo.getTaskById(request.params.id);
@@ -151,7 +153,7 @@ export async function effortRoutes(fastify: FastifyInstance): Promise<void> {
     "/missions/:id/effort-report",
     {
       schema: { params: missionIdParamsSchema },
-      preHandler: agentOrHumanAuth,
+      config: { authPolicy: "local_actor" },
     },
     async (request) => {
       const mission = missionRepo.getMissionById(request.params.id);

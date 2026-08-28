@@ -16,7 +16,6 @@
 import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
-import { humanAuth, agentOrHumanAuth } from "../middleware/auth.js";
 import { requireHabitatAccess } from "../middleware/team.js";
 import { notFound, badRequest } from "../errors.js";
 import * as extractionPolicyService from "../services/extractionPolicyService.js";
@@ -33,6 +32,7 @@ import {
   getLatestAttemptWithClient,
 } from "../repositories/extraction/index.js";
 import { getDb } from "../db/index.js";
+import { applyDeclaredAuthPolicies } from "../authPolicy.js";
 
 const habitatIdParamsSchema = z.object({ habitatId: z.string() });
 
@@ -112,6 +112,8 @@ const promoteBodySchema = z.object({
 // ---------------------------------------------------------------------------
 
 export async function extractionRoutes(fastify: FastifyInstance): Promise<void> {
+  applyDeclaredAuthPolicies(fastify);
+
   // ──────────────────────────────────────────────────────────────
   // Policy CRUD (human-only)
   // ──────────────────────────────────────────────────────────────
@@ -120,7 +122,7 @@ export async function extractionRoutes(fastify: FastifyInstance): Promise<void> 
     "/habitats/:habitatId/extraction/policies",
     {
       schema: { params: habitatIdParamsSchema },
-      preHandler: [humanAuth, requireHabitatAccess],
+      preHandler: [requireHabitatAccess], config: { authPolicy: "human" },
     },
     async (request) => {
       const policies = extractionPolicyService.getPoliciesByHabitat(request.params.habitatId);
@@ -132,7 +134,7 @@ export async function extractionRoutes(fastify: FastifyInstance): Promise<void> 
     "/habitats/:habitatId/extraction/policies",
     {
       schema: { params: habitatIdParamsSchema, body: createPolicyBodySchema },
-      preHandler: [humanAuth, requireHabitatAccess],
+      preHandler: [requireHabitatAccess], config: { authPolicy: "human" },
     },
     async (request, reply) => {
       const result = extractionPolicyService.createPolicy({
@@ -157,7 +159,7 @@ export async function extractionRoutes(fastify: FastifyInstance): Promise<void> 
     "/habitats/:habitatId/extraction/policies/:policyId",
     {
       schema: { params: policyParamsSchema },
-      preHandler: [humanAuth, requireHabitatAccess],
+      preHandler: [requireHabitatAccess], config: { authPolicy: "human" },
     },
     async (request) => {
       const policy = extractionPolicyService.getPolicy(request.params.policyId);
@@ -172,7 +174,7 @@ export async function extractionRoutes(fastify: FastifyInstance): Promise<void> 
     "/habitats/:habitatId/extraction/policies/:policyId",
     {
       schema: { params: policyParamsSchema, body: updatePolicyBodySchema },
-      preHandler: [humanAuth, requireHabitatAccess],
+      preHandler: [requireHabitatAccess], config: { authPolicy: "human" },
     },
     async (request) => {
       const existing = extractionPolicyService.getPolicy(request.params.policyId);
@@ -203,7 +205,7 @@ export async function extractionRoutes(fastify: FastifyInstance): Promise<void> 
     "/habitats/:habitatId/extraction/review/queue",
     {
       schema: { params: habitatIdParamsSchema, querystring: reviewQueueQuerySchema },
-      preHandler: [humanAuth, requireHabitatAccess],
+      preHandler: [requireHabitatAccess], config: { authPolicy: "human" },
     },
     async (request) => {
       const queue = extractionReviewService.getReviewQueue(
@@ -221,7 +223,7 @@ export async function extractionRoutes(fastify: FastifyInstance): Promise<void> 
     "/habitats/:habitatId/extraction/findings",
     {
       schema: { params: habitatIdParamsSchema, querystring: humanFindingsQuerySchema },
-      preHandler: [humanAuth, requireHabitatAccess],
+      preHandler: [requireHabitatAccess], config: { authPolicy: "human" },
     },
     async (request) => {
       const findings = extractionReviewService.listAcceptedFindings(
@@ -241,7 +243,7 @@ export async function extractionRoutes(fastify: FastifyInstance): Promise<void> 
     "/habitats/:habitatId/extraction/findings/:findingId",
     {
       schema: { params: findingParamsSchema },
-      preHandler: [humanAuth, requireHabitatAccess],
+      preHandler: [requireHabitatAccess], config: { authPolicy: "human" },
     },
     async (request) => {
       return extractionReviewService.getFindingDetail(
@@ -259,7 +261,7 @@ export async function extractionRoutes(fastify: FastifyInstance): Promise<void> 
     "/habitats/:habitatId/extraction/findings/:findingId/accept",
     {
       schema: { params: findingParamsSchema, body: decisionBodySchema },
-      preHandler: [humanAuth, requireHabitatAccess],
+      preHandler: [requireHabitatAccess], config: { authPolicy: "human" },
     },
     async (request) => {
       const finding = extractionReviewService.acceptFinding({
@@ -277,7 +279,7 @@ export async function extractionRoutes(fastify: FastifyInstance): Promise<void> 
     "/habitats/:habitatId/extraction/findings/:findingId/reject",
     {
       schema: { params: findingParamsSchema, body: decisionBodySchema },
-      preHandler: [humanAuth, requireHabitatAccess],
+      preHandler: [requireHabitatAccess], config: { authPolicy: "human" },
     },
     async (request) => {
       const finding = extractionReviewService.rejectFinding({
@@ -295,7 +297,7 @@ export async function extractionRoutes(fastify: FastifyInstance): Promise<void> 
     "/habitats/:habitatId/extraction/findings/:findingId/revise",
     {
       schema: { params: findingParamsSchema, body: decisionBodySchema },
-      preHandler: [humanAuth, requireHabitatAccess],
+      preHandler: [requireHabitatAccess], config: { authPolicy: "human" },
     },
     async (request) => {
       return extractionReviewService.requestRevision({
@@ -312,7 +314,7 @@ export async function extractionRoutes(fastify: FastifyInstance): Promise<void> 
     "/habitats/:habitatId/extraction/findings/:findingId/withdraw",
     {
       schema: { params: findingParamsSchema, body: decisionBodySchema },
-      preHandler: [humanAuth, requireHabitatAccess],
+      preHandler: [requireHabitatAccess], config: { authPolicy: "human" },
     },
     async (request) => {
       const finding = extractionReviewService.withdrawFinding({
@@ -334,7 +336,7 @@ export async function extractionRoutes(fastify: FastifyInstance): Promise<void> 
     "/habitats/:habitatId/extraction/findings/:findingId/citations/refresh",
     {
       schema: { params: findingParamsSchema },
-      preHandler: [humanAuth, requireHabitatAccess],
+      preHandler: [requireHabitatAccess], config: { authPolicy: "human" },
     },
     async (request) => {
       const citations = extractionReviewService.refreshCitationStates(
@@ -353,7 +355,7 @@ export async function extractionRoutes(fastify: FastifyInstance): Promise<void> 
     "/habitats/:habitatId/extraction/findings/:findingId/promotion-eligibility",
     {
       schema: { params: findingParamsSchema },
-      preHandler: [humanAuth, requireHabitatAccess],
+      preHandler: [requireHabitatAccess], config: { authPolicy: "human" },
     },
     async (request) => {
       return extractionPromotionService.checkPromotionEligibility(
@@ -371,7 +373,7 @@ export async function extractionRoutes(fastify: FastifyInstance): Promise<void> 
     "/habitats/:habitatId/extraction/findings/:findingId/promote",
     {
       schema: { params: findingParamsSchema, body: promoteBodySchema },
-      preHandler: [humanAuth, requireHabitatAccess],
+      preHandler: [requireHabitatAccess], config: { authPolicy: "human" },
     },
     async (request, reply) => {
       if (request.body.destinationType !== "wiki_draft") {
@@ -398,7 +400,7 @@ export async function extractionRoutes(fastify: FastifyInstance): Promise<void> 
     "/habitats/:habitatId/extraction/agent/findings",
     {
       schema: { params: habitatIdParamsSchema, querystring: agentFindingsQuerySchema },
-      preHandler: [agentOrHumanAuth, requireHabitatAccess],
+      preHandler: [requireHabitatAccess], config: { authPolicy: "local_actor" },
     },
     async (request) => {
       const agentId = request.agent?.id ?? "";
@@ -427,7 +429,7 @@ export async function extractionRoutes(fastify: FastifyInstance): Promise<void> 
         params: findingParamsSchema,
         querystring: z.object({ taskId: z.string().min(1) }),
       },
-      preHandler: [agentOrHumanAuth, requireHabitatAccess],
+      preHandler: [requireHabitatAccess], config: { authPolicy: "local_actor" },
     },
     async (request) => {
       const agentId = request.agent?.id ?? "";
@@ -454,7 +456,7 @@ export async function extractionRoutes(fastify: FastifyInstance): Promise<void> 
     "/habitats/:habitatId/extraction/policies/:policyId/ensure",
     {
       schema: { params: policyParamsSchema },
-      preHandler: [humanAuth, requireHabitatAccess],
+      preHandler: [requireHabitatAccess], config: { authPolicy: "human" },
     },
     async (request) => {
       const policy = extractionPolicyService.getPolicy(request.params.policyId);
@@ -476,7 +478,7 @@ export async function extractionRoutes(fastify: FastifyInstance): Promise<void> 
     "/habitats/:habitatId/extraction/policies/:policyId/fresh-rerun",
     {
       schema: { params: policyParamsSchema, body: freshRerunBodySchema },
-      preHandler: [humanAuth, requireHabitatAccess],
+      preHandler: [requireHabitatAccess], config: { authPolicy: "human" },
     },
     async (request) => {
       const policy = extractionPolicyService.getPolicy(request.params.policyId);
@@ -500,7 +502,7 @@ export async function extractionRoutes(fastify: FastifyInstance): Promise<void> 
     "/habitats/:habitatId/extraction/policies/:policyId/dry-run",
     {
       schema: { params: policyParamsSchema },
-      preHandler: [humanAuth, requireHabitatAccess],
+      preHandler: [requireHabitatAccess], config: { authPolicy: "human" },
     },
     async (request) => {
       const policy = extractionPolicyService.getPolicy(request.params.policyId);
@@ -527,7 +529,7 @@ export async function extractionRoutes(fastify: FastifyInstance): Promise<void> 
     "/habitats/:habitatId/extraction/runs",
     {
       schema: { params: habitatIdParamsSchema },
-      preHandler: [humanAuth, requireHabitatAccess],
+      preHandler: [requireHabitatAccess], config: { authPolicy: "human" },
     },
     async (request) => {
       const db = getDb();

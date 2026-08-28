@@ -1,6 +1,6 @@
 import type { FastifyInstance, FastifyRequest, FastifyReply } from "fastify";
 import { z } from "zod";
-import { humanAuth } from "../middleware/auth.js";
+import { inheritAuthPolicy } from "../authPolicy.js";
 import { adminOnly } from "../middleware/rbac.js";
 import { teamHabitatAccess } from "../middleware/team.js";
 import { validateOutboundUrl } from "../config/integrationSecurity.js";
@@ -85,13 +85,15 @@ function toView(row: endpointRepo.RemoteWebhookEndpointRow) {
 }
 
 export async function remoteWebhookRoutes(fastify: FastifyInstance): Promise<void> {
-  fastify.addHook("preHandler", humanAuth);
-  fastify.addHook("preHandler", adminOnly);
-  fastify.addHook("preHandler", teamHabitatAccess);
+  // Homogeneous module: every remote-webhook administration route is a local
+  // human principal (same historical scope-hook order as remoteAccess).
+  inheritAuthPolicy(fastify, "human");
+  const authorize = [adminOnly, teamHabitatAccess];
 
   /** GET /api/habitats/:id/remote-access/webhook-endpoints — list all */
   fastify.get<{ Params: { id: string } }>(
     "/habitats/:id/remote-access/webhook-endpoints",
+    { preHandler: authorize },
     async (request: FastifyRequest<{ Params: { id: string } }>, _reply: FastifyReply) => {
       const habitatId = request.params.id;
       // Collect endpoints for every pod in the habitat
@@ -106,6 +108,7 @@ export async function remoteWebhookRoutes(fastify: FastifyInstance): Promise<voi
   /** GET .../webhook-endpoints/:endpointId — get one */
   fastify.get<{ Params: { id: string; endpointId: string } }>(
     "/habitats/:id/remote-access/webhook-endpoints/:endpointId",
+    { preHandler: authorize },
     async (
       request: FastifyRequest<{ Params: { id: string; endpointId: string } }>,
       _reply: FastifyReply,
@@ -122,6 +125,7 @@ export async function remoteWebhookRoutes(fastify: FastifyInstance): Promise<voi
   /** POST .../webhook-endpoints — create (starts in pending state) */
   fastify.post<{ Params: { id: string } }>(
     "/habitats/:id/remote-access/webhook-endpoints",
+    { preHandler: authorize },
     async (request: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) => {
       const body = parseBody(createEndpointSchema, request.body);
       await validateWebhookUrl(body.url);
@@ -163,6 +167,7 @@ export async function remoteWebhookRoutes(fastify: FastifyInstance): Promise<voi
   /** PATCH .../webhook-endpoints/:endpointId — update URL/events/description */
   fastify.patch<{ Params: { id: string; endpointId: string } }>(
     "/habitats/:id/remote-access/webhook-endpoints/:endpointId",
+    { preHandler: authorize },
     async (
       request: FastifyRequest<{ Params: { id: string; endpointId: string } }>,
       _reply: FastifyReply,
@@ -191,6 +196,7 @@ export async function remoteWebhookRoutes(fastify: FastifyInstance): Promise<voi
   /** POST .../webhook-endpoints/:endpointId/approve — approve (pending → approved) */
   fastify.post<{ Params: { id: string; endpointId: string } }>(
     "/habitats/:id/remote-access/webhook-endpoints/:endpointId/approve",
+    { preHandler: authorize },
     async (
       request: FastifyRequest<{ Params: { id: string; endpointId: string } }>,
       _reply: FastifyReply,
@@ -217,6 +223,7 @@ export async function remoteWebhookRoutes(fastify: FastifyInstance): Promise<voi
   /** POST .../webhook-endpoints/:endpointId/enable — enable (approved → enabled) */
   fastify.post<{ Params: { id: string; endpointId: string } }>(
     "/habitats/:id/remote-access/webhook-endpoints/:endpointId/enable",
+    { preHandler: authorize },
     async (
       request: FastifyRequest<{ Params: { id: string; endpointId: string } }>,
       _reply: FastifyReply,
@@ -241,6 +248,7 @@ export async function remoteWebhookRoutes(fastify: FastifyInstance): Promise<voi
   /** POST .../webhook-endpoints/:endpointId/disable — disable (any → disabled) */
   fastify.post<{ Params: { id: string; endpointId: string } }>(
     "/habitats/:id/remote-access/webhook-endpoints/:endpointId/disable",
+    { preHandler: authorize },
     async (
       request: FastifyRequest<{ Params: { id: string; endpointId: string } }>,
       _reply: FastifyReply,
@@ -262,6 +270,7 @@ export async function remoteWebhookRoutes(fastify: FastifyInstance): Promise<voi
   /** POST .../webhook-endpoints/:endpointId/reject — reject (pending → rejected) */
   fastify.post<{ Params: { id: string; endpointId: string } }>(
     "/habitats/:id/remote-access/webhook-endpoints/:endpointId/reject",
+    { preHandler: authorize },
     async (
       request: FastifyRequest<{ Params: { id: string; endpointId: string } }>,
       _reply: FastifyReply,
@@ -288,6 +297,7 @@ export async function remoteWebhookRoutes(fastify: FastifyInstance): Promise<voi
   /** DELETE .../webhook-endpoints/:endpointId */
   fastify.delete<{ Params: { id: string; endpointId: string } }>(
     "/habitats/:id/remote-access/webhook-endpoints/:endpointId",
+    { preHandler: authorize },
     async (
       request: FastifyRequest<{ Params: { id: string; endpointId: string } }>,
       reply: FastifyReply,

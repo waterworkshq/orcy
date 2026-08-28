@@ -5,11 +5,13 @@ interface CapturedRoute {
   method: string;
   path: string;
   preHandler: any[];
+  authPolicy: any;
 }
 
 function captureSprintRoutes(): CapturedRoute[] {
   const routes: CapturedRoute[] = [];
   const fakeFastify: any = {
+    addHook: vi.fn(),
     register: vi.fn(),
     withTypeProvider: vi.fn(() => fakeFastify),
     get: vi.fn((path: string, opts: any, _handler: any) => {
@@ -18,6 +20,7 @@ function captureSprintRoutes(): CapturedRoute[] {
         method: "GET",
         path,
         preHandler: Array.isArray(preHandler) ? preHandler : preHandler ? [preHandler] : [],
+        authPolicy: opts?.config?.authPolicy,
       });
     }),
     post: vi.fn(),
@@ -37,7 +40,7 @@ describe("sprintRoutes", () => {
     expect(routes.find((route) => route.path === "/sprints/:id/carry-over")).toBeDefined();
   });
 
-  it("protects sprint analytics endpoints with auth preHandlers", () => {
+  it("protects sprint analytics endpoints with local_actor policy", () => {
     const routes = captureSprintRoutes().filter((route) =>
       ["/sprints/:id/metrics", "/sprints/:id/burndown", "/sprints/:id/carry-over"].includes(
         route.path,
@@ -46,7 +49,7 @@ describe("sprintRoutes", () => {
 
     expect(routes).toHaveLength(3);
     for (const route of routes) {
-      expect(route.preHandler.length).toBeGreaterThanOrEqual(1);
+      expect(route.authPolicy).toBe("local_actor");
     }
   });
 });

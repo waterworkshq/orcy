@@ -51,13 +51,13 @@ import {
 } from "../../db/schema/index.js";
 import { eq } from "drizzle-orm";
 import { getDb } from "../../db/index.js";
-import { agentOrHumanAuth } from "../../middleware/auth.js";
 import { checkHabitatAccess } from "../../middleware/realtimeAuth.js";
 import { assignmentAttemptSchema } from "../../models/schemas.js";
 import { notFound, forbidden, conflict, serviceUnavailable } from "../../errors.js";
 import { claimWithAuthority } from "../../repositories/claimAuthority.js";
 import type { ClaimFailure } from "../../repositories/claimAuthority.js";
 import { getTaskById } from "../../repositories/taskCrud.js";
+import { applyDeclaredAuthPolicies } from "../../authPolicy.js";
 
 const taskParamsSchema = z.object({ taskId: z.string() });
 
@@ -148,11 +148,13 @@ function failureToOutcome(
 }
 
 export async function taskAssignmentRoutes(fastify: FastifyInstance): Promise<void> {
+  applyDeclaredAuthPolicies(fastify);
+
   fastify.withTypeProvider<ZodTypeProvider>().post(
     "/tasks/:taskId/assignment-attempts",
     {
       schema: { params: taskParamsSchema, body: assignmentAttemptSchema },
-      preHandler: agentOrHumanAuth,
+      config: { authPolicy: "local_actor" },
     },
     async (request, _reply) => {
       const { taskId } = request.params;

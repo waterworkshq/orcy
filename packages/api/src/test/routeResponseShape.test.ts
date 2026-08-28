@@ -27,6 +27,7 @@ vi.mock("../middleware/auth.js", () => ({
   agentOrHumanAuth: async () => {},
   humanAuth: async () => {},
   agentAuth: async () => {},
+  registrationAuth: async () => {},
 }));
 vi.mock("../middleware/team.js", () => ({ requireHabitatAccess: async () => {} }));
 vi.mock("../middleware/rbac.js", () => ({ adminOnly: async () => {} }));

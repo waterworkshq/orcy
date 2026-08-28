@@ -42,6 +42,9 @@ const { mockHumanAuth, mockAdminOnly, mockNotFound } = vi.hoisted(() => ({
 
 vi.mock("../middleware/auth.js", () => ({
   humanAuth: mockHumanAuth,
+  agentAuth: async () => {},
+  agentOrHumanAuth: async () => {},
+  registrationAuth: async () => {},
 }));
 
 vi.mock("../middleware/rbac.js", () => ({
@@ -50,6 +53,9 @@ vi.mock("../middleware/rbac.js", () => ({
 
 vi.mock("../errors.js", () => ({
   notFound: mockNotFound,
+  badRequest: (msg: string) => new Error(msg),
+  unauthorized: (msg: string) => new Error(msg),
+  AppError: class AppError extends Error {},
 }));
 
 // Load AFTER mocks are in place.
@@ -66,11 +72,15 @@ interface CapturedRoute {
   path: string;
   preHandler: unknown[];
   handler: (request: unknown, reply: unknown) => Promise<unknown>;
+  authPolicy: unknown;
 }
 
 function captureScheduledOccurrenceRepairRoutes(): CapturedRoute[] {
   const routes: CapturedRoute[] = [];
-  const fakeFastify: Pick<FastifyInstance, "post"> = {
+  const fakeFastify: Pick<FastifyInstance, "post" | "addHook"> = {
+    // Route modules call the policy applier first; on a fake double its
+    // onRoute hook simply never fires (the declaration is captured instead).
+    addHook: vi.fn(),
     post: vi.fn((path: string, opts: any, handler: any) => {
       const preHandler = opts?.preHandler;
       routes.push({
@@ -78,6 +88,7 @@ function captureScheduledOccurrenceRepairRoutes(): CapturedRoute[] {
         path,
         preHandler: Array.isArray(preHandler) ? preHandler : preHandler ? [preHandler] : [],
         handler,
+        authPolicy: (opts?.config as { authPolicy?: unknown } | undefined)?.authPolicy,
       });
     }) as any,
   };
@@ -109,9 +120,9 @@ describe("scheduledOccurrenceRepairRoutes — registration", () => {
     expect(routes[0].path).toBe("/scheduled-occurrences/:id/retry");
   });
 
-  it("registers humanAuth + adminOnly as the preHandler chain (admin-only authorization)", () => {
+  it("declares human policy with adminOnly authorization after the installed guard", () => {
     const routes = captureScheduledOccurrenceRepairRoutes();
-    expect(routes[0].preHandler).toContain(mockHumanAuth);
+    expect(routes[0].authPolicy).toBe("human");
     expect(routes[0].preHandler).toContain(mockAdminOnly);
   });
 });

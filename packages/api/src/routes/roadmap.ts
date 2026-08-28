@@ -5,13 +5,13 @@ import { eq, and, asc } from "drizzle-orm";
 import { missions, missionDependencies, releases as releasesTable } from "../db/schema/index.js";
 import { getDb } from "../db/index.js";
 import { priorityOrderExpr } from "../db/sql-helpers.js";
-import { agentOrHumanAuth } from "../middleware/auth.js";
 import { getHabitatById } from "../repositories/habitat.js";
 import * as habitatService from "../services/habitatService.js";
 import { isTeamMemberByHabitatId } from "../repositories/teamMember.js";
 import { forbidden, unauthorized, notFound } from "../errors.js";
 import * as releaseRepo from "../repositories/release.js";
 import { isReleaseGateSatisfied, type ReleaseType } from "@orcy/shared";
+import { applyDeclaredAuthPolicies } from "../authPolicy.js";
 
 const habitatIdParamsSchema = z.object({ habitatId: z.string() });
 
@@ -23,6 +23,8 @@ const habitatIdParamsSchema = z.object({ habitatId: z.string() });
  * agent so it can position deferred corrective work in the DAG.
  */
 export async function roadmapRoutes(fastify: FastifyInstance): Promise<void> {
+  applyDeclaredAuthPolicies(fastify);
+
   fastify.withTypeProvider<ZodTypeProvider>().get(
     "/habitats/:habitatId/roadmap",
     {
@@ -30,7 +32,7 @@ export async function roadmapRoutes(fastify: FastifyInstance): Promise<void> {
         params: habitatIdParamsSchema,
         querystring: z.object({ summary: z.enum(["true", "false"]).optional() }),
       },
-      preHandler: [agentOrHumanAuth],
+      config: { authPolicy: "local_actor" },
     },
     async (request) => {
       const { habitatId } = request.params;
@@ -165,7 +167,7 @@ export async function roadmapRoutes(fastify: FastifyInstance): Promise<void> {
         params: habitatIdParamsSchema,
         body: z.object({ focusMissionId: z.string().nullable() }),
       },
-      preHandler: [agentOrHumanAuth],
+      config: { authPolicy: "local_actor" },
     },
     async (request) => {
       const { habitatId } = request.params;

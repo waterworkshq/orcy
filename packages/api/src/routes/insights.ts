@@ -2,14 +2,16 @@ import type { FastifyInstance } from "fastify";
 import * as insightRepo from "../repositories/insight.js";
 import * as pulseRepo from "../repositories/pulse.js";
 import * as missionRepo from "../repositories/mission.js";
-import { agentOrHumanAuth } from "../middleware/auth.js";
 import { badRequest, notFound, unauthorized, forbidden } from "../errors.js";
 import { getCallerInfo } from "./pulse-shared.js";
+import { applyDeclaredAuthPolicies } from "../authPolicy.js";
 
 export async function insightsRoutes(fastify: FastifyInstance): Promise<void> {
+  applyDeclaredAuthPolicies(fastify);
+
   fastify.post(
     "/habitats/:habitatId/insights",
-    { preHandler: agentOrHumanAuth },
+    { config: { authPolicy: "local_actor" } },
     async (request, reply) => {
       const { habitatId } = request.params as { habitatId: string };
       const body = request.body as {
@@ -73,7 +75,7 @@ export async function insightsRoutes(fastify: FastifyInstance): Promise<void> {
 
   fastify.get(
     "/habitats/:habitatId/insights",
-    { preHandler: agentOrHumanAuth },
+    { config: { authPolicy: "local_actor" } },
     async (request, _reply) => {
       const { habitatId } = request.params as { habitatId: string };
       const query = request.query as {
@@ -110,7 +112,7 @@ export async function insightsRoutes(fastify: FastifyInstance): Promise<void> {
 
   fastify.delete(
     "/habitats/:habitatId/insights/:insightId",
-    { preHandler: agentOrHumanAuth },
+    { config: { authPolicy: "local_actor" } },
     async (request, reply) => {
       const { habitatId, insightId } = request.params as { habitatId: string; insightId: string };
 

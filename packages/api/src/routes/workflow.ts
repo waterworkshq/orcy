@@ -1,11 +1,11 @@
 import type { FastifyInstance, FastifyRequest, FastifyReply } from "fastify";
 import { z } from "zod";
-import { humanAuth, agentOrHumanAuth } from "../middleware/auth.js";
 import { adminOnly } from "../middleware/rbac.js";
 import * as workflowService from "../services/workflowService.js";
 import * as failureContextService from "../services/failureContextService.js";
 import * as missionRepo from "../repositories/mission.js";
 import { badRequest, conflict, notFound } from "../errors.js";
+import { applyDeclaredAuthPolicies } from "../authPolicy.js";
 
 const joinSpecSchema = z.object({
   mode: z.enum(["all_of", "any_of", "n_of"]),
@@ -87,10 +87,12 @@ const updateWorkflowSchema = z.object({
 
 /** Workflow management routes — admin-gated operations on workflow CRUD and gates. */
 export async function workflowRoutes(fastify: FastifyInstance): Promise<void> {
+  applyDeclaredAuthPolicies(fastify);
+
   /** POST /missions/:id/workflow - Attach a workflow DAG to a mission. Auth: humanAuth + adminOnly. Returns { workflow } or 404/400. */
   fastify.post<{ Params: { id: string }; Body: z.infer<typeof attachWorkflowSchema> }>(
     "/missions/:id/workflow",
-    { preHandler: [humanAuth, adminOnly] },
+    { preHandler: [adminOnly], config: { authPolicy: "human" } },
     async (
       request: FastifyRequest<{
         Params: { id: string };
@@ -125,7 +127,7 @@ export async function workflowRoutes(fastify: FastifyInstance): Promise<void> {
   /** GET /missions/:id/workflow - Get the active workflow shape for a mission. Auth: humanAuth + adminOnly. Returns { workflow, gates } or 404. */
   fastify.get<{ Params: { id: string } }>(
     "/missions/:id/workflow",
-    { preHandler: [humanAuth, adminOnly] },
+    { preHandler: [adminOnly], config: { authPolicy: "human" } },
     async (request: FastifyRequest<{ Params: { id: string } }>, _reply: FastifyReply) => {
       const mission = missionRepo.getMissionById(request.params.id);
       if (!mission) {
@@ -145,7 +147,7 @@ export async function workflowRoutes(fastify: FastifyInstance): Promise<void> {
   /** PATCH /workflows/:id - Update workflow config (failureHandler/joinSpecs) with OCC. Auth: humanAuth + adminOnly. Returns { workflow } or 404/409. */
   fastify.patch<{ Params: { id: string }; Body: z.infer<typeof updateWorkflowSchema> }>(
     "/workflows/:id",
-    { preHandler: [humanAuth, adminOnly] },
+    { preHandler: [adminOnly], config: { authPolicy: "human" } },
     async (
       request: FastifyRequest<{
         Params: { id: string };
@@ -181,7 +183,7 @@ export async function workflowRoutes(fastify: FastifyInstance): Promise<void> {
   /** DELETE /workflows/:id - Detach a workflow (status becomes "detached"; gates stop enforcing). Auth: humanAuth + adminOnly. Returns { detached: true } or 404. */
   fastify.delete<{ Params: { id: string } }>(
     "/workflows/:id",
-    { preHandler: [humanAuth, adminOnly] },
+    { preHandler: [adminOnly], config: { authPolicy: "human" } },
     async (request: FastifyRequest<{ Params: { id: string } }>, _reply: FastifyReply) => {
       const existing = workflowService.getWorkflowById(request.params.id);
       if (!existing) {
@@ -196,7 +198,7 @@ export async function workflowRoutes(fastify: FastifyInstance): Promise<void> {
   /** GET /workflows/:id/failure-contexts - List failure contexts for a workflow. Auth: humanAuth + adminOnly. Returns { failureContexts } or 404. */
   fastify.get<{ Params: { id: string } }>(
     "/workflows/:id/failure-contexts",
-    { preHandler: [humanAuth, adminOnly] },
+    { preHandler: [adminOnly], config: { authPolicy: "human" } },
     async (request: FastifyRequest<{ Params: { id: string } }>, _reply: FastifyReply) => {
       const existing = workflowService.getWorkflowById(request.params.id);
       if (!existing) {
@@ -211,7 +213,7 @@ export async function workflowRoutes(fastify: FastifyInstance): Promise<void> {
   /** POST /workflows/:id/gates/:gateId/unblock - Manually satisfy an on_manual gate. Auth: humanAuth + adminOnly. Returns { satisfied: true } or 404. */
   fastify.post<{ Params: { id: string; gateId: string } }>(
     "/workflows/:id/gates/:gateId/unblock",
-    { preHandler: [humanAuth, adminOnly] },
+    { preHandler: [adminOnly], config: { authPolicy: "human" } },
     async (
       request: FastifyRequest<{ Params: { id: string; gateId: string } }>,
       _reply: FastifyReply,
@@ -227,7 +229,7 @@ export async function workflowRoutes(fastify: FastifyInstance): Promise<void> {
   /** GET /tasks/:id/failure-context - Read the most recent unresolved failure context for a task. Auth: agentOrHumanAuth. Returns { failureContext } or 404. */
   fastify.get<{ Params: { id: string } }>(
     "/tasks/:id/failure-context",
-    { preHandler: [agentOrHumanAuth] },
+    { config: { authPolicy: "local_actor" } },
     async (request: FastifyRequest<{ Params: { id: string } }>, _reply: FastifyReply) => {
       const failureContext = failureContextService.getFailureContext(request.params.id);
       if (!failureContext) {
@@ -240,7 +242,7 @@ export async function workflowRoutes(fastify: FastifyInstance): Promise<void> {
   /** GET /tasks/:id/workflow-context - Read the upstream and downstream workflow gates for a task. Auth: agentOrHumanAuth. Returns { upstream, downstream } or 404 when task is not in a workflow. */
   fastify.get<{ Params: { id: string } }>(
     "/tasks/:id/workflow-context",
-    { preHandler: [agentOrHumanAuth] },
+    { config: { authPolicy: "local_actor" } },
     async (request: FastifyRequest<{ Params: { id: string } }>, _reply: FastifyReply) => {
       const context = workflowService.getTaskWorkflowContext(request.params.id);
       if (context.upstream.length === 0 && context.downstream.length === 0) {

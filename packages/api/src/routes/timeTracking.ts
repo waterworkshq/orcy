@@ -1,13 +1,15 @@
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import * as timeTrackingService from '../services/timeTrackingService.js';
 import * as taskRepo from '../repositories/task.js';
-import { agentOrHumanAuth } from '../middleware/auth.js';
 import { badRequest, notFound } from '../errors.js';
+import { applyDeclaredAuthPolicies } from "../authPolicy.js";
 
 export async function timeTrackingRoutes(fastify: FastifyInstance): Promise<void> {
+  applyDeclaredAuthPolicies(fastify);
+
   fastify.get<{ Params: { id: string } }>(
     '/tasks/:id/time-report',
-    { preHandler: agentOrHumanAuth },
+    { config: { authPolicy: "local_actor" } },
     async (request: FastifyRequest<{ Params: { id: string } }>, _reply: FastifyReply) => {
       const report = timeTrackingService.getTaskTimeReport(request.params.id);
       if (!report) {
@@ -19,7 +21,7 @@ export async function timeTrackingRoutes(fastify: FastifyInstance): Promise<void
 
   fastify.get<{ Params: { habitatId: string } }>(
     '/habitats/:habitatId/metrics',
-    { preHandler: agentOrHumanAuth },
+    { config: { authPolicy: "local_actor" } },
     async (request: FastifyRequest<{ Params: { habitatId: string } }>, _reply: FastifyReply) => {
       return timeTrackingService.getHabitatMetrics(request.params.habitatId);
     }
@@ -27,7 +29,7 @@ export async function timeTrackingRoutes(fastify: FastifyInstance): Promise<void
 
   fastify.put<{ Params: { id: string }; Body: { estimatedMinutes: number } }>(
     '/tasks/:id/estimate',
-    { preHandler: agentOrHumanAuth },
+    { config: { authPolicy: "local_actor" } },
     async (request: FastifyRequest<{ Params: { id: string }; Body: { estimatedMinutes: number } }>, _reply: FastifyReply) => {
       const task = taskRepo.getTaskById(request.params.id);
       if (!task) {

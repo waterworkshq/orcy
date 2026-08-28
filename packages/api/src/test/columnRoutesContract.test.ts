@@ -26,7 +26,12 @@ vi.mock("../sse/broadcaster.js", () => ({
     publish: (_habitatId: string, evt: { type: string; data: unknown }) => publishCalls.push(evt),
   },
 }));
-vi.mock("../middleware/auth.js", () => ({ humanAuth: vi.fn() }));
+vi.mock("../middleware/auth.js", () => ({
+  humanAuth: vi.fn(),
+  agentAuth: vi.fn(),
+  agentOrHumanAuth: vi.fn(),
+  registrationAuth: vi.fn(),
+}));
 vi.mock("../middleware/rbac.js", () => ({ adminOnly: vi.fn() }));
 
 interface CapturedRoute {
@@ -41,6 +46,7 @@ interface CapturedRoute {
 function captureRoutes(): CapturedRoute[] {
   const routes: CapturedRoute[] = [];
   const fakeFastify: any = {
+    addHook: vi.fn(),
     withTypeProvider: vi.fn(() => fakeFastify),
     register: vi.fn(),
     post: (path: string, opts: any, handler: CapturedRoute["handler"]) => {
@@ -67,6 +73,9 @@ function captureRoutes(): CapturedRoute[] {
   Object.assign(routes, {
     withTypeProvider: () => routes,
     register: () => undefined,
+    // Route modules call the policy applier first; on this fake its onRoute
+    // hook simply never fires.
+    addHook: () => undefined,
     post: fakeFastify.post,
     patch: fakeFastify.patch,
     delete: fakeFastify.delete,

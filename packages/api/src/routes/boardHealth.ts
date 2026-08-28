@@ -1,8 +1,8 @@
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import * as habitatHealthService from '../services/boardHealthService.js';
-import { agentOrHumanAuth } from '../middleware/auth.js';
 import { requireHabitatAccess } from '../middleware/team.js';
 import { z } from 'zod';
+import { applyDeclaredAuthPolicies } from "../authPolicy.js";
 
 
 const historyQuerySchema = z.object({
@@ -10,9 +10,11 @@ const historyQuerySchema = z.object({
 });
 
 export async function habitatHealthRoutes(fastify: FastifyInstance): Promise<void> {
+  applyDeclaredAuthPolicies(fastify);
+
   fastify.get(
     '/habitats/:habitatId/health',
-    { preHandler: [agentOrHumanAuth, requireHabitatAccess] },
+    { preHandler: [requireHabitatAccess], config: { authPolicy: "local_actor" } },
     async (request: FastifyRequest, _reply: FastifyReply) => {
       const params = request.params as { habitatId: string };
       const health = habitatHealthService.calculateHealth(params.habitatId);
@@ -22,7 +24,7 @@ export async function habitatHealthRoutes(fastify: FastifyInstance): Promise<voi
 
   fastify.get(
     '/habitats/:habitatId/health/history',
-    { preHandler: [agentOrHumanAuth, requireHabitatAccess] },
+    { preHandler: [requireHabitatAccess], config: { authPolicy: "local_actor" } },
     async (request: FastifyRequest, _reply: FastifyReply) => {
       const params = request.params as { habitatId: string };
       const parsed = historyQuerySchema.safeParse(request.query);

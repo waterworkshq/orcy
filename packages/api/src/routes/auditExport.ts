@@ -1,11 +1,11 @@
 import type { FastifyInstance, FastifyRequest, FastifyReply } from "fastify";
 import * as auditExportService from "../services/auditExportService.js";
-import { humanAuth } from "../middleware/auth.js";
 import { requireHabitatAccess } from "../middleware/team.js";
 import { getHabitatById } from "../repositories/habitat.js";
 import { isTeamMemberByHabitatId } from "../repositories/teamMember.js";
 import { badRequest, forbidden, notFound, unauthorized } from "../errors.js";
 import { z } from "zod";
+import { applyDeclaredAuthPolicies } from "../authPolicy.js";
 
 const exportQuerySchema = z.object({
   format: z.enum(["csv", "json", "jsonl"]),
@@ -62,9 +62,11 @@ async function requireAuditScheduleAccess(
 }
 
 export async function auditExportRoutes(fastify: FastifyInstance): Promise<void> {
+  applyDeclaredAuthPolicies(fastify);
+
   fastify.get<{ Params: { habitatId: string }; Querystring: z.infer<typeof eventsQuerySchema> }>(
     "/habitats/:habitatId/audit/events",
-    { preHandler: [humanAuth, requireHabitatAccess] },
+    { preHandler: [requireHabitatAccess], config: { authPolicy: "human" } },
     async (
       request: FastifyRequest<{
         Params: { habitatId: string };
@@ -83,7 +85,7 @@ export async function auditExportRoutes(fastify: FastifyInstance): Promise<void>
 
   fastify.get<{ Params: { habitatId: string }; Querystring: z.infer<typeof exportQuerySchema> }>(
     "/habitats/:habitatId/audit/export",
-    { preHandler: [humanAuth, requireHabitatAccess] },
+    { preHandler: [requireHabitatAccess], config: { authPolicy: "human" } },
     async (
       request: FastifyRequest<{
         Params: { habitatId: string };
@@ -102,7 +104,7 @@ export async function auditExportRoutes(fastify: FastifyInstance): Promise<void>
 
   fastify.get<{ Params: { habitatId: string }; Querystring: z.infer<typeof summaryQuerySchema> }>(
     "/habitats/:habitatId/audit/summary",
-    { preHandler: [humanAuth, requireHabitatAccess] },
+    { preHandler: [requireHabitatAccess], config: { authPolicy: "human" } },
     async (
       request: FastifyRequest<{
         Params: { habitatId: string };
@@ -120,7 +122,7 @@ export async function auditExportRoutes(fastify: FastifyInstance): Promise<void>
 
   fastify.post<{ Params: { habitatId: string }; Body: z.infer<typeof scheduleBodySchema> }>(
     "/habitats/:habitatId/audit/schedule",
-    { preHandler: [humanAuth, requireHabitatAccess] },
+    { preHandler: [requireHabitatAccess], config: { authPolicy: "human" } },
     async (
       request: FastifyRequest<{
         Params: { habitatId: string };
@@ -140,7 +142,7 @@ export async function auditExportRoutes(fastify: FastifyInstance): Promise<void>
 
   fastify.get<{ Params: { habitatId: string } }>(
     "/habitats/:habitatId/audit/schedules",
-    { preHandler: [humanAuth, requireHabitatAccess] },
+    { preHandler: [requireHabitatAccess], config: { authPolicy: "human" } },
     async (request: FastifyRequest<{ Params: { habitatId: string } }>, _reply: FastifyReply) => {
       const schedules = auditExportService.listSchedules(request.params.habitatId);
       return { schedules };
@@ -149,7 +151,7 @@ export async function auditExportRoutes(fastify: FastifyInstance): Promise<void>
 
   fastify.delete<{ Params: { id: string } }>(
     "/audit/schedules/:id",
-    { preHandler: [humanAuth, requireAuditScheduleAccess] },
+    { preHandler: [requireAuditScheduleAccess], config: { authPolicy: "human" } },
     async (request: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) => {
       auditExportService.deleteSchedule(request.params.id);
       reply.code(204).send();

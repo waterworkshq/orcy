@@ -16,6 +16,7 @@ interface CapturedRoute {
 function captureRoutes(): CapturedRoute[] {
   const routes: CapturedRoute[] = [];
   const fakeFastify: any = {
+    addHook: vi.fn(),
     get: vi.fn((path: string, opts: any, handler: any) => {
       routes.push({
         method: "GET",
@@ -302,9 +303,10 @@ describe("wikiRoutes — registration", () => {
     expect(r, `${method} ${path} not registered`).toBeDefined();
   });
 
-  it("every route uses agentOrHumanAuth + requireHabitatAccess preHandler", () => {
+  it("every route inherits local_actor policy and keeps requireHabitatAccess", () => {
     for (const r of routes) {
-      expect(r.preHandler, `${r.method} ${r.path} has no preHandler`).toHaveLength(2);
+      expect(r.preHandler, `${r.method} ${r.path} has no preHandler`).toHaveLength(1);
+      expect(r.preHandler[0]?.name).toBe("authorizeHabitatAccess");
     }
   });
 });

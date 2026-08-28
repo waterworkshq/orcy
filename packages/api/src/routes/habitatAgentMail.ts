@@ -1,8 +1,8 @@
 import type { FastifyInstance, FastifyRequest } from "fastify";
-import { humanAuth } from "../middleware/auth.js";
 import { requireHabitatAccess } from "../middleware/team.js";
 import { forbidden } from "../errors.js";
 import * as agentMessageRepo from "../repositories/agentMessage.js";
+import { applyDeclaredAuthPolicies } from "../authPolicy.js";
 
 function rejectNonLocalHuman(request: FastifyRequest): void {
   if (request.agent) {
@@ -14,12 +14,14 @@ function rejectNonLocalHuman(request: FastifyRequest): void {
 }
 
 export async function habitatAgentMailRoutes(fastify: FastifyInstance): Promise<void> {
+  applyDeclaredAuthPolicies(fastify);
+
   fastify.get<{
     Params: { habitatId: string };
     Querystring: { limit?: string; offset?: string };
   }>(
     "/habitats/:habitatId/agent-messages",
-    { preHandler: [humanAuth, requireHabitatAccess] },
+    { preHandler: [requireHabitatAccess], config: { authPolicy: "human" } },
     async (request: FastifyRequest<{
       Params: { habitatId: string };
       Querystring: { limit?: string; offset?: string };

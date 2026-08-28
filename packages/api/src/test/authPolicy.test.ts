@@ -20,14 +20,13 @@ import crypto from "node:crypto";
 import jwt from "jsonwebtoken";
 import { createHttpApp, registerHttpSurface, type HttpApp } from "../httpApp.js";
 import {
+  type AuthPolicy,
   AUTH_POLICY_IDS,
   CORE_VERIFIER_IDS,
-  LEGACY_UNCLASSIFIED,
   authPolicyClassifications,
   formatEffectivePolicy,
   inheritAuthPolicy,
   installAuthPolicy,
-  legacyUnclassifiedRoutes,
   policyGuardFor,
   probeVerifierPair,
   resolveEffectiveAuthPolicy,
@@ -594,6 +593,10 @@ describe("auth policy registry and installer", () => {
       expect(byKey.get("GET /sse/habitats/:habitatId/stream")).toBe("realtime");
       expect(byKey.get("GET /api/shared/me")).toBe("remote_participant");
       expect(byKey.get("POST /api/v1/shared/invites/preview")).toBe("manual_invite");
+      expect(byKey.get("GET /api/v1/habitats")).toBe("local_actor"); // migrated local API
+      expect(byKey.get("POST /api/v1/tasks/:id/claim")).toBe("agent");
+      expect(byKey.get("GET /api/v1/habitats/:id/remote-access/readiness")).toBe("human");
+      expect(byKey.get("GET /api/v1/habitats/:habitatId/wiki/pages")).toBe("local_actor");
       expect(byKey.get("POST /api/v1/chat/slack/command")).toEqual({
         policy: "verified_ingress",
         verifier: "slack_signing",
@@ -604,25 +607,33 @@ describe("auth policy registry and installer", () => {
       });
     });
 
-    it("reports legacy routes explicitly without blocking readiness", () => {
-      // app.ready() already resolved in beforeAll — legacy routes did not
-      // block it. The remaining unclassified local routes are listed, never
-      // silently classified.
-      const legacy = legacyUnclassifiedRoutes(app);
-      expect(legacy.length).toBeGreaterThan(0);
-      const keys = new Set(legacy.map((r) => `${r.method} ${r.url}`));
-      expect(keys.has("GET /api/v1/habitats")).toBe(true); // un-migrated local API
-      expect(keys.has("GET /api/v1/auth/me")).toBe(false); // migrated
+    it("reaches readiness with every route policy-classified — no unclassified remainder", () => {
+      // app.ready() already resolved in beforeAll with the readiness hook
+      // active: the full production surface has an effective policy on every
+      // route. The one exception mirrors readiness exactly: @fastify/cors's
+      // wildcard preflight catch-all, which answers preflight before
+      // authentication by design and is registered by the framework.
+      const missing = authPolicyClassifications(app).filter(
+        (c) => c.effectivePolicy === undefined && !(c.method === "OPTIONS" && c.url === "*"),
+      );
+      expect(missing).toEqual([]);
+      // The exemption exists — and covers exactly the framework route shape.
+      const catchAll = authPolicyClassifications(app).filter(
+        (c) => c.effectivePolicy === undefined,
+      );
+      expect(catchAll.map((c) => `${c.method} ${c.url}`)).toEqual(["OPTIONS *"]);
     });
 
     it("keeps prefix parity for effective policy", () => {
       const classified = authPolicyClassifications(app);
+      const render = (p: AuthPolicy | undefined): string =>
+        p === undefined ? "MISSING_POLICY" : formatEffectivePolicy(p);
       const v1 = new Map(
         classified
           .filter((c) => c.url.startsWith("/api/v1/"))
           .map((c) => [
             `${c.method} ${c.url.slice("/api/v1".length)}`,
-            formatEffectivePolicy(c.effectivePolicy),
+            render(c.effectivePolicy),
           ]),
       );
       const deprecated = classified.filter(
@@ -633,7 +644,7 @@ describe("auth policy registry and installer", () => {
         const key = `${c.method} ${c.url.slice("/api".length)}`;
         const twin = v1.get(key);
         expect(twin, `missing /api/v1 twin for ${key}`).toBeDefined();
-        expect(formatEffectivePolicy(c.effectivePolicy)).toBe(twin);
+        expect(render(c.effectivePolicy)).toBe(twin);
       }
     });
 
@@ -660,8 +671,73 @@ describe("auth policy registry and installer", () => {
       expect(probeVerifierPair(() => true, () => true)).toBe(false);
     });
 
-    it("resolves undefined config to the explicit legacy state", () => {
-      expect(resolveEffectiveAuthPolicy(undefined)).toBe(LEGACY_UNCLASSIFIED);
+    it("resolves undefined config to no policy at all (never a fallback)", () => {
+      expect(resolveEffectiveAuthPolicy(undefined)).toBeUndefined();
+    });
+  });
+
+  describe("closed readiness — missing policy fails the application", () => {
+    async function withBareApp(
+      register: (f: FastifyInstance) => Promise<void> | void,
+    ): Promise<FastifyInstance> {
+      const f: FastifyInstance = Fastify({ logger: false });
+      await register(f);
+      await f.ready();
+      return f;
+    }
+
+    it("a normal core route without effective policy prevents readiness", async () => {
+      await expect(
+        withBareApp(async (f) => {
+          installAuthPolicy(f);
+          f.get("/normal-core-route", async () => ({})); // no config.authPolicy
+        }),
+      ).rejects.toThrow(/no effective authentication policy.*GET \/normal-core-route/);
+    });
+
+    it("an inherited scope satisfies readiness for its routes", async () => {
+      const f = await withBareApp(async (inst) => {
+        installAuthPolicy(inst);
+        await inst.register(async (scope) => {
+          inheritAuthPolicy(scope, "human");
+          scope.get("/scoped", async () => ({}));
+        });
+      });
+      try {
+        const res = await f.inject({ method: "GET", url: "/scoped" });
+        expect(res.statusCode).toBe(401);
+      } finally {
+        await f.close();
+      }
+    });
+
+    it("the @fastify/cors preflight catch-all (OPTIONS *) is the one framework exemption", async () => {
+      // The wildcard OPTIONS route is registered by @fastify/cors itself and
+      // answers preflight before authentication by design; readiness must not
+      // fail on it — but that normalization covers exactly this shape.
+      const f = await withBareApp(async (inst) => {
+        installAuthPolicy(inst);
+        inst.options("*", async () => ({}));
+      });
+      await f.close();
+    });
+
+    it("a non-wildcard OPTIONS route without policy still prevents readiness", async () => {
+      await expect(
+        withBareApp(async (f) => {
+          installAuthPolicy(f);
+          f.options("/concrete", async () => ({})); // not the CORS catch-all
+        }),
+      ).rejects.toThrow(/no effective authentication policy/);
+    });
+
+    it("a route with policy and the CORS catch-all together reach readiness", async () => {
+      const f = await withBareApp(async (inst) => {
+        installAuthPolicy(inst);
+        inst.options("*", async () => ({}));
+        inst.get("/health2", { config: { authPolicy: "anonymous" } }, async () => ({}));
+      });
+      await f.close();
     });
   });
 

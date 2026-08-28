@@ -5,7 +5,6 @@ import * as releaseTriggerService from "../services/releaseTriggerService.js";
 import * as releaseSettingsService from "../services/releaseSettingsService.js";
 import * as pipelineRepo from "../repositories/pipelineEvent.js";
 import { findHabitatIdByCiCdSignature } from "../services/habitatSecretCache.js";
-import { humanAuth } from "../middleware/auth.js";
 import {
   dispatchGitHubWebhook,
   dispatchGitLabWebhook,
@@ -128,7 +127,7 @@ export async function ciCdWebhookRoutes(fastify: FastifyInstance): Promise<void>
 
   fastify.get<{ Params: { id: string } }>(
     "/tasks/:id/pipeline-events",
-    { preHandler: [humanAuth] },
+    { config: { authPolicy: "human" } },
     async (request: FastifyRequest<{ Params: { id: string } }>, _reply: FastifyReply) => {
       const { id } = request.params;
       const events = pipelineRepo.getByTaskId(id);

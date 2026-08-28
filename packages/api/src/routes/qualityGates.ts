@@ -2,13 +2,15 @@ import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import * as qualityGateService from '../services/qualityGateService.js';
 import * as qualityRepo from '../repositories/qualityGate.js';
 import * as taskRepo from '../repositories/task.js';
-import { agentOrHumanAuth, humanAuth } from '../middleware/auth.js';
 import { notFound, badRequest } from '../errors.js';
+import { applyDeclaredAuthPolicies } from "../authPolicy.js";
 
 export async function qualityGateRoutes(fastify: FastifyInstance): Promise<void> {
+  applyDeclaredAuthPolicies(fastify);
+
   fastify.get<{ Params: { id: string } }>(
     '/tasks/:id/quality-checklist',
-    { preHandler: agentOrHumanAuth },
+    { config: { authPolicy: 'local_actor' } },
     async (request: FastifyRequest<{ Params: { id: string } }>, _reply: FastifyReply) => {
       const task = taskRepo.getTaskById(request.params.id);
       if (!task) {
@@ -20,7 +22,7 @@ export async function qualityGateRoutes(fastify: FastifyInstance): Promise<void>
 
   fastify.put<{ Params: { id: string; checklistId: string; itemId: string }; Body: { isCompleted?: boolean; evidenceUrl?: string; notes?: string } }>(
     '/tasks/:id/quality-checklist/:checklistId/items/:itemId',
-    { preHandler: agentOrHumanAuth },
+    { config: { authPolicy: 'local_actor' } },
     async (request, _reply) => {
       const result = qualityGateService.updateChecklistItem(
         request.params.id,
@@ -37,7 +39,7 @@ export async function qualityGateRoutes(fastify: FastifyInstance): Promise<void>
 
   fastify.post<{ Params: { id: string } }>(
     '/tasks/:id/quality-checklist/validate',
-    { preHandler: agentOrHumanAuth },
+    { config: { authPolicy: 'local_actor' } },
     async (request: FastifyRequest<{ Params: { id: string } }>, _reply: FastifyReply) => {
       const task = taskRepo.getTaskById(request.params.id);
       if (!task) {
@@ -49,7 +51,7 @@ export async function qualityGateRoutes(fastify: FastifyInstance): Promise<void>
 
   fastify.get<{ Params: { id: string } }>(
     '/tasks/:id/approval-status',
-    { preHandler: agentOrHumanAuth },
+    { config: { authPolicy: 'local_actor' } },
     async (request: FastifyRequest<{ Params: { id: string } }>, _reply: FastifyReply) => {
       const task = taskRepo.getTaskById(request.params.id);
       if (!task) {
@@ -59,13 +61,13 @@ export async function qualityGateRoutes(fastify: FastifyInstance): Promise<void>
     }
   );
 
-  fastify.get('/quality/templates', { preHandler: agentOrHumanAuth }, async () => {
+  fastify.get('/quality/templates', { config: { authPolicy: 'local_actor' } }, async () => {
     return { templates: qualityRepo.listTemplates() };
   });
 
   fastify.post<{ Body: { name: string; description?: string; category: string; isRequired?: boolean; items: { title: string; description?: string; required?: boolean }[] } }>(
     '/quality/templates',
-    { preHandler: humanAuth },
+    { config: { authPolicy: 'human' } },
     async (request, _reply) => {
       const { name, description, category, isRequired, items } = request.body;
       if (!name || !category || !items || items.length === 0) {

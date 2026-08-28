@@ -6,11 +6,13 @@ interface CapturedRoute {
   method: string;
   path: string;
   preHandler: any[];
+  authPolicy: any;
 }
 
 function captureAnalyticsRoutes(): CapturedRoute[] {
   const routes: CapturedRoute[] = [];
   const fakeFastify: any = {
+    addHook: vi.fn(),
     withTypeProvider: vi.fn(() => fakeFastify),
     register: vi.fn(),
     post: vi.fn(),
@@ -22,6 +24,7 @@ function captureAnalyticsRoutes(): CapturedRoute[] {
         method: "GET",
         path,
         preHandler: Array.isArray(preHandler) ? preHandler : preHandler ? [preHandler] : [],
+        authPolicy: opts?.config?.authPolicy,
       });
     }),
   };
@@ -34,6 +37,7 @@ function captureHabitatRoutes(): CapturedRoute[] {
   const fakeFastify: any = {
     withTypeProvider: vi.fn(() => fakeFastify),
     register: vi.fn(),
+    addHook: vi.fn(),
     post: vi.fn(),
     patch: vi.fn(),
     put: vi.fn(),
@@ -44,6 +48,7 @@ function captureHabitatRoutes(): CapturedRoute[] {
         method: "GET",
         path,
         preHandler: Array.isArray(preHandler) ? preHandler : preHandler ? [preHandler] : [],
+        authPolicy: opts?.config?.authPolicy,
       });
     }),
   };
@@ -107,10 +112,11 @@ describe("habitatAnalyticsRoutes", () => {
     expect(routes.find((r) => r.path === "/habitats/:habitatId/agent-quality")).toBeDefined();
   });
 
-  it("all analytics endpoints have auth + habitat access preHandlers", () => {
+  it("all analytics endpoints declare local_actor policy with habitat access", () => {
     const routes = captureAnalyticsRoutes();
     for (const route of routes) {
-      expect(route.preHandler.length).toBeGreaterThanOrEqual(2);
+      expect(route.authPolicy).toBe("local_actor");
+      expect(route.preHandler.length).toBeGreaterThanOrEqual(1);
     }
   });
 });

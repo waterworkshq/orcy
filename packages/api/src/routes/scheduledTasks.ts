@@ -1,12 +1,12 @@
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { z } from 'zod';
-import { humanAuth, agentOrHumanAuth } from '../middleware/auth.js';
 import { requireHabitatAccess } from '../middleware/team.js';
 import * as scheduledTaskRepo from '../repositories/scheduledTask.js';
 import * as scheduledTaskService from '../services/scheduledTaskService.js';
 import { notFound, forbidden, unauthorized } from '../errors.js';
 import { getHabitatById } from '../repositories/habitat.js';
 import { isTeamMemberByHabitatId } from '../repositories/teamMember.js';
+import { applyDeclaredAuthPolicies } from "../authPolicy.js";
 
 const createScheduledTaskSchema = z.object({
   name: z.string().min(1),
@@ -86,9 +86,11 @@ function verifyTaskHabitatAccess(request: FastifyRequest, habitatId: string): vo
 }
 
 export async function scheduledTaskRoutes(fastify: FastifyInstance): Promise<void> {
+  applyDeclaredAuthPolicies(fastify);
+
   fastify.post(
     '/habitats/:habitatId/scheduled-tasks',
-    { preHandler: [humanAuth, requireHabitatAccess] },
+    { preHandler: [requireHabitatAccess], config: { authPolicy: "human" } },
     async (request: FastifyRequest, reply: FastifyReply) => {
       const params = request.params as { habitatId: string };
       const parsed = createScheduledTaskSchema.safeParse(request.body);
@@ -130,7 +132,7 @@ export async function scheduledTaskRoutes(fastify: FastifyInstance): Promise<voi
 
   fastify.get(
     '/habitats/:habitatId/scheduled-tasks',
-    { preHandler: [agentOrHumanAuth, requireHabitatAccess] },
+    { preHandler: [requireHabitatAccess], config: { authPolicy: "local_actor" } },
     async (request: FastifyRequest) => {
       const params = request.params as { habitatId: string };
       const tasks = scheduledTaskRepo.getScheduledTasksByHabitatId(params.habitatId);
@@ -140,7 +142,7 @@ export async function scheduledTaskRoutes(fastify: FastifyInstance): Promise<voi
 
   fastify.get(
     '/scheduled-tasks/:id',
-    { preHandler: [agentOrHumanAuth] },
+    { config: { authPolicy: "local_actor" } },
     async (request: FastifyRequest) => {
       const params = request.params as { id: string };
       const schedule = scheduledTaskRepo.getScheduledTaskById(params.id);
@@ -154,7 +156,7 @@ export async function scheduledTaskRoutes(fastify: FastifyInstance): Promise<voi
 
   fastify.patch(
     '/scheduled-tasks/:id',
-    { preHandler: [humanAuth] },
+    { config: { authPolicy: "human" } },
     async (request: FastifyRequest, reply: FastifyReply) => {
       const params = request.params as { id: string };
       const existing = scheduledTaskRepo.getScheduledTaskById(params.id);
@@ -191,7 +193,7 @@ export async function scheduledTaskRoutes(fastify: FastifyInstance): Promise<voi
 
   fastify.delete(
     '/scheduled-tasks/:id',
-    { preHandler: [humanAuth] },
+    { config: { authPolicy: "human" } },
     async (request: FastifyRequest, reply: FastifyReply) => {
       const params = request.params as { id: string };
       const existing = scheduledTaskRepo.getScheduledTaskById(params.id);
@@ -210,7 +212,7 @@ export async function scheduledTaskRoutes(fastify: FastifyInstance): Promise<voi
 
   fastify.post(
     '/scheduled-tasks/:id/run',
-    { preHandler: [humanAuth] },
+    { config: { authPolicy: "human" } },
     async (request: FastifyRequest) => {
       const params = request.params as { id: string };
       const schedule = scheduledTaskRepo.getScheduledTaskById(params.id);
@@ -225,7 +227,7 @@ export async function scheduledTaskRoutes(fastify: FastifyInstance): Promise<voi
 
   fastify.post(
     '/scheduled-tasks/:id/enable',
-    { preHandler: [humanAuth] },
+    { config: { authPolicy: "human" } },
     async (request: FastifyRequest) => {
       const params = request.params as { id: string };
       const existing = scheduledTaskRepo.getScheduledTaskById(params.id);
@@ -252,7 +254,7 @@ export async function scheduledTaskRoutes(fastify: FastifyInstance): Promise<voi
 
   fastify.post(
     '/scheduled-tasks/:id/disable',
-    { preHandler: [humanAuth] },
+    { config: { authPolicy: "human" } },
     async (request: FastifyRequest) => {
       const params = request.params as { id: string };
       const existing = scheduledTaskRepo.getScheduledTaskById(params.id);

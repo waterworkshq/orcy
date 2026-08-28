@@ -1,9 +1,9 @@
 import type { FastifyInstance, FastifyRequest, FastifyReply } from "fastify";
-import { humanAuth } from "../middleware/auth.js";
 import { adminOnly } from "../middleware/rbac.js";
 import { getExperienceMetrics } from "../services/experienceMetricsService.js";
 import { getWorkflowMetrics } from "../services/workflowMetricsService.js";
 import { badRequest } from "../errors.js";
+import { applyDeclaredAuthPolicies } from "../authPolicy.js";
 
 const metricsDaysSchema = (raw: unknown): number => {
   const n = Number(raw);
@@ -15,10 +15,12 @@ const metricsDaysSchema = (raw: unknown): number => {
 
 /** Admin metrics routes — read-only dashboard aggregations gated by humanAuth + adminOnly. */
 export async function metricsRoutes(fastify: FastifyInstance): Promise<void> {
+  applyDeclaredAuthPolicies(fastify);
+
   /** GET /habitats/:id/experience-metrics - Per-agent experience signal metrics with outlier flags. Auth: humanAuth + adminOnly. Returns the aggregated metrics or an empty agent list. */
   fastify.get<{ Params: { id: string }; Querystring: { days?: string } }>(
     "/habitats/:id/experience-metrics",
-    { preHandler: [humanAuth, adminOnly] },
+    { preHandler: [adminOnly], config: { authPolicy: "human" } },
     async (
       request: FastifyRequest<{
         Params: { id: string };
@@ -34,7 +36,7 @@ export async function metricsRoutes(fastify: FastifyInstance): Promise<void> {
   /** GET /habitats/:id/workflow-metrics - Workflow health metrics (active count, failure rate, recovery success rate). Auth: humanAuth + adminOnly. */
   fastify.get<{ Params: { id: string }; Querystring: { days?: string } }>(
     "/habitats/:id/workflow-metrics",
-    { preHandler: [humanAuth, adminOnly] },
+    { preHandler: [adminOnly], config: { authPolicy: "human" } },
     async (
       request: FastifyRequest<{
         Params: { id: string };

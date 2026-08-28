@@ -47,13 +47,13 @@
  * publication function).
  */
 import type { FastifyInstance, FastifyRequest, FastifyReply } from "fastify";
-import { humanAuth } from "../middleware/auth.js";
 import { adminOnly } from "../middleware/rbac.js";
 import { notFound } from "../errors.js";
 import {
   repairScheduledOccurrence,
   type RepairScheduledOccurrenceOutcome,
 } from "../services/scheduledOccurrenceRepair.js";
+import { applyDeclaredAuthPolicies } from "../authPolicy.js";
 
 /**
  * Maps a {@link RepairScheduledOccurrenceOutcome} to an HTTP status code +
@@ -197,9 +197,11 @@ function repairOutcomeToHttpResponse(
 
 /** The retry route registration. */
 export async function scheduledOccurrenceRepairRoutes(fastify: FastifyInstance): Promise<void> {
+  applyDeclaredAuthPolicies(fastify);
+
   fastify.post(
     "/scheduled-occurrences/:id/retry",
-    { preHandler: [humanAuth, adminOnly] },
+    { preHandler: [adminOnly], config: { authPolicy: "human" } },
     async (request: FastifyRequest, reply: FastifyReply) => {
       const params = request.params as { id: string };
 

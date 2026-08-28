@@ -7,6 +7,7 @@ interface CapturedRoute {
   path: string;
   preHandler: any[];
   handler: any;
+  authPolicy: any;
 }
 
 const { mockGetTaskAuditBundle, mockGetMissionAuditBundle } = vi.hoisted(() => ({
@@ -24,7 +25,12 @@ vi.mock("../services/auditBundleService.js", () => ({
   getTaskAuditBundle: mockGetTaskAuditBundle,
   getMissionAuditBundle: mockGetMissionAuditBundle,
 }));
-vi.mock("../middleware/auth.js", () => ({ agentOrHumanAuth: mockAgentOrHumanAuth }));
+vi.mock("../middleware/auth.js", () => ({
+  humanAuth: async () => {},
+  agentAuth: async () => {},
+  registrationAuth: async () => {},
+  agentOrHumanAuth: mockAgentOrHumanAuth,
+}));
 vi.mock("../repositories/habitat.js", () => ({ getHabitatById: mockGetHabitatById }));
 vi.mock("../repositories/teamMember.js", () => ({
   isTeamMemberByHabitatId: mockIsTeamMemberByHabitatId,
@@ -33,6 +39,7 @@ vi.mock("../repositories/teamMember.js", () => ({
 async function captureRoutes(): Promise<CapturedRoute[]> {
   const routes: CapturedRoute[] = [];
   const fakeFastify: any = {
+    addHook: vi.fn(),
     withTypeProvider: () => fakeFastify,
     get: vi.fn((path: string, opts: any, handler: any) => {
       const preHandler = opts?.preHandler;
@@ -41,6 +48,7 @@ async function captureRoutes(): Promise<CapturedRoute[]> {
         path,
         preHandler: Array.isArray(preHandler) ? preHandler : preHandler ? [preHandler] : [],
         handler,
+        authPolicy: opts?.config?.authPolicy,
       });
     }),
   };
@@ -84,7 +92,9 @@ describe("auditBundleRoutes", () => {
       "/missions/:missionId/audit/bundle",
     ]);
     for (const route of routes) {
-      expect(route.preHandler).toContain(mockAgentOrHumanAuth);
+      // Authentication installs from the declared local_actor policy; the
+      // captured route-level chain holds only the policy declaration.
+      expect(route.authPolicy).toBe("local_actor");
     }
   });
 

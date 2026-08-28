@@ -96,7 +96,6 @@ import {
 
 import { registerErrorHandler } from "./errors/plugin.js";
 import { perAgentRateLimit } from "./middleware/rateLimit.js";
-import { humanAuth } from "./middleware/auth.js";
 import {
   runWithAuditProvenance,
   updateAuditProvenance,
@@ -333,7 +332,7 @@ export async function registerHttpSurface(
 
       f.post<{ Params: { id: string } }>(
         "/habitats/:id/archive-events",
-        { preHandler: humanAuth },
+        { config: { authPolicy: "human" } },
         async (request, _reply) => {
           const result = archiveOldEvents(request.params.id);
           return result;
@@ -363,7 +362,7 @@ export async function registerHttpSurface(
 
       f.post<{ Params: { id: string } }>(
         "/habitats/:id/archive-events",
-        { preHandler: humanAuth },
+        { config: { authPolicy: "human" } },
         async (request, _reply) => {
           const result = archiveOldEvents(request.params.id);
           return result;

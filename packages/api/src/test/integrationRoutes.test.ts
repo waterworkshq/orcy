@@ -11,6 +11,7 @@ interface CapturedRoute {
 function captureIntegrationRoutes(): CapturedRoute[] {
   const routes: CapturedRoute[] = [];
   const fakeFastify: any = {
+    addHook: vi.fn(),
     get: vi.fn((path: string, opts: any, handler: any) => {
       const preHandler = opts?.preHandler;
       routes.push({
@@ -143,6 +144,8 @@ vi.mock("../repositories/teamMember.js", () => ({
 vi.mock("../middleware/auth.js", () => ({
   humanAuth: vi.fn((_req: any, _reply: any, done: any) => done()),
   agentOrHumanAuth: vi.fn((_req: any, _reply: any, done: any) => done()),
+  agentAuth: vi.fn((_req: any, _reply: any, done: any) => done()),
+  registrationAuth: vi.fn((_req: any, _reply: any, done: any) => done()),
 }));
 
 vi.mock("../middleware/team.js", () => ({
@@ -158,12 +161,20 @@ vi.mock("../errors.js", async (importOriginal) => {
 
 vi.mock("uuid", () => ({ v4: () => "mock-uuid-123", default: { v4: () => "mock-uuid-123" } }));
 
-vi.mock("crypto", () => ({
-  randomBytes: () => Buffer.from("mock-secret-abc"),
-  default: {
+vi.mock("crypto", async (importOriginal) => {
+  // Keep the real implementations: the auth-policy module's verified-ingress
+  // self-probes sign and verify with createHmac/sign/generateKeyPairSync at
+  // assembly time — mocked stubs would make every probe fail-closed.
+  const actual = await importOriginal<typeof import("crypto")>();
+  return {
+    ...actual,
     randomBytes: () => Buffer.from("mock-secret-abc"),
-  },
-}));
+    default: {
+      ...actual,
+      randomBytes: () => Buffer.from("mock-secret-abc"),
+    },
+  };
+});
 
 vi.mock("../repositories/externalIntakeCandidate.js", () => ({
   getById: vi.fn(),

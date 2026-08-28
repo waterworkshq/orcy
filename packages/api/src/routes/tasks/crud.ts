@@ -3,17 +3,19 @@ import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
 import * as taskService from "../../services/tasks/index.js";
 import { updateTaskSchema } from "../../models/schemas.js";
-import { agentAuth, agentOrHumanAuth } from "../../middleware/auth.js";
 import { notFound, forbidden, conflict, badRequest } from "../../errors.js";
+import { applyDeclaredAuthPolicies } from "../../authPolicy.js";
 
 const taskParamsSchema = z.object({ id: z.string() });
 
 export async function taskCrudRoutes(fastify: FastifyInstance): Promise<void> {
+  applyDeclaredAuthPolicies(fastify);
+
   fastify
     .withTypeProvider<ZodTypeProvider>()
     .get(
       "/tasks/:id",
-      { schema: { params: taskParamsSchema }, preHandler: [agentOrHumanAuth] },
+      { schema: { params: taskParamsSchema }, config: { authPolicy: "local_actor" } },
       async (request, _reply) => {
         const task = taskService.getTask(request.params.id);
         if (!task) {
@@ -28,7 +30,7 @@ export async function taskCrudRoutes(fastify: FastifyInstance): Promise<void> {
     .withTypeProvider<ZodTypeProvider>()
     .patch(
       "/tasks/:id",
-      { schema: { params: taskParamsSchema, body: updateTaskSchema }, preHandler: [agentAuth] },
+      { schema: { params: taskParamsSchema, body: updateTaskSchema }, config: { authPolicy: "agent" } },
       async (request, _reply) => {
         const parsed = request.body;
         const actorId = request.agent?.id ?? request.user?.id ?? "anonymous";
@@ -55,7 +57,7 @@ export async function taskCrudRoutes(fastify: FastifyInstance): Promise<void> {
     .withTypeProvider<ZodTypeProvider>()
     .delete(
       "/tasks/:id",
-      { schema: { params: taskParamsSchema }, preHandler: [agentOrHumanAuth] },
+      { schema: { params: taskParamsSchema }, config: { authPolicy: "local_actor" } },
       async (request, _reply) => {
         const result = taskService.deleteTask(request.params.id);
         if (!result.success) {

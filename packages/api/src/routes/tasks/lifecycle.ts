@@ -13,7 +13,6 @@ import {
   submitTaskSchema,
   completeTaskSchema,
 } from "../../models/schemas.js";
-import { agentAuth, humanAuth } from "../../middleware/auth.js";
 import { authorizeTaskAction, getPrincipalFromRequest } from "../../middleware/taskAuth.js";
 import type { Artifact } from "../../models/index.js";
 import {
@@ -26,15 +25,18 @@ import {
   unprocessableEntity,
   InterceptorVetoError,
 } from "../../errors.js";
+import { applyDeclaredAuthPolicies } from "../../authPolicy.js";
 
 const taskParamsSchema = z.object({ id: z.string() });
 
 export async function taskLifecycleRoutes(fastify: FastifyInstance): Promise<void> {
+  applyDeclaredAuthPolicies(fastify);
+
   fastify
     .withTypeProvider<ZodTypeProvider>()
     .post(
       "/tasks/:id/claim",
-      { schema: { params: taskParamsSchema, body: claimTaskSchema }, preHandler: agentAuth },
+      { schema: { params: taskParamsSchema, body: claimTaskSchema }, config: { authPolicy: "agent" } },
       async (request, _reply) => {
         const task = taskService.getTask(request.params.id);
         if (!task) {
@@ -108,7 +110,7 @@ export async function taskLifecycleRoutes(fastify: FastifyInstance): Promise<voi
     .withTypeProvider<ZodTypeProvider>()
     .post(
       "/tasks/:id/start",
-      { schema: { params: taskParamsSchema }, preHandler: agentAuth },
+      { schema: { params: taskParamsSchema }, config: { authPolicy: "agent" } },
       async (request, _reply) => {
         const task = taskService.getTask(request.params.id);
         if (!task) {
@@ -134,7 +136,7 @@ export async function taskLifecycleRoutes(fastify: FastifyInstance): Promise<voi
     .withTypeProvider<ZodTypeProvider>()
     .post(
       "/tasks/:id/approve",
-      { schema: { params: taskParamsSchema, body: approveTaskSchema }, preHandler: humanAuth },
+      { schema: { params: taskParamsSchema, body: approveTaskSchema }, config: { authPolicy: "human" } },
       async (request, _reply) => {
         const task = taskService.getTask(request.params.id);
         if (!task) {
@@ -170,7 +172,7 @@ export async function taskLifecycleRoutes(fastify: FastifyInstance): Promise<voi
     .withTypeProvider<ZodTypeProvider>()
     .post(
       "/tasks/:id/reject",
-      { schema: { params: taskParamsSchema, body: rejectTaskSchema }, preHandler: humanAuth },
+      { schema: { params: taskParamsSchema, body: rejectTaskSchema }, config: { authPolicy: "human" } },
       async (request, _reply) => {
         const task = taskService.getTask(request.params.id);
         if (!task) {
@@ -207,7 +209,7 @@ export async function taskLifecycleRoutes(fastify: FastifyInstance): Promise<voi
     .withTypeProvider<ZodTypeProvider>()
     .post(
       "/tasks/:id/release",
-      { schema: { params: taskParamsSchema, body: releaseTaskSchema }, preHandler: agentAuth },
+      { schema: { params: taskParamsSchema, body: releaseTaskSchema }, config: { authPolicy: "agent" } },
       async (request, _reply) => {
         const task = taskService.getTask(request.params.id);
         if (!task) {
@@ -235,7 +237,7 @@ export async function taskLifecycleRoutes(fastify: FastifyInstance): Promise<voi
     .withTypeProvider<ZodTypeProvider>()
     .post(
       "/tasks/:id/fail",
-      { schema: { params: taskParamsSchema, body: failTaskSchema }, preHandler: agentAuth },
+      { schema: { params: taskParamsSchema, body: failTaskSchema }, config: { authPolicy: "agent" } },
       async (request, _reply) => {
         const task = taskService.getTask(request.params.id);
         if (!task) {
@@ -268,7 +270,7 @@ export async function taskLifecycleRoutes(fastify: FastifyInstance): Promise<voi
     .withTypeProvider<ZodTypeProvider>()
     .post(
       "/tasks/:id/submit",
-      { schema: { params: taskParamsSchema, body: submitTaskSchema }, preHandler: agentAuth },
+      { schema: { params: taskParamsSchema, body: submitTaskSchema }, config: { authPolicy: "agent" } },
       async (request, _reply) => {
         const task = taskService.getTask(request.params.id);
         if (!task) {
@@ -329,7 +331,7 @@ export async function taskLifecycleRoutes(fastify: FastifyInstance): Promise<voi
     .withTypeProvider<ZodTypeProvider>()
     .post(
       "/tasks/:id/complete",
-      { schema: { params: taskParamsSchema, body: completeTaskSchema }, preHandler: agentAuth },
+      { schema: { params: taskParamsSchema, body: completeTaskSchema }, config: { authPolicy: "agent" } },
       async (request, _reply) => {
         const task = taskService.getTask(request.params.id);
         if (!task) {
@@ -411,7 +413,7 @@ export async function taskLifecycleRoutes(fastify: FastifyInstance): Promise<voi
     .withTypeProvider<ZodTypeProvider>()
     .post(
       "/tasks/:id/retry",
-      { schema: { params: taskParamsSchema }, preHandler: agentAuth },
+      { schema: { params: taskParamsSchema }, config: { authPolicy: "agent" } },
       async (request, _reply) => {
         const task = taskRepo.getTaskById(request.params.id);
         if (!task) {
@@ -434,7 +436,7 @@ export async function taskLifecycleRoutes(fastify: FastifyInstance): Promise<voi
     .withTypeProvider<ZodTypeProvider>()
     .post(
       "/tasks/:id/unblock",
-      { schema: { params: taskParamsSchema }, preHandler: agentAuth },
+      { schema: { params: taskParamsSchema }, config: { authPolicy: "agent" } },
       async (request, _reply) => {
         if (!request.agent) {
           throw unauthorized("Authentication required");

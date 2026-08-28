@@ -15,10 +15,10 @@
  * action scopes, idempotency) stays in the route's own preHandler chain and
  * runs AFTER the installed guard; this catalog never absorbs it.
  *
- * During migration to the authoritative assembly, local routes that declare
- * no policy and inherit none are classified {@link LEGACY_UNCLASSIFIED} — an
- * explicit, named compatibility state that does not block readiness. Ticket 04
- * migrates the remaining local modules and removes that state.
+ * Readiness is closed: every route on the instance must resolve an effective
+ * policy (declared or inherited) before the application becomes ready. A
+ * route that reaches readiness without one is a boot error — there is no
+ * fallback classification and no inference.
  *
  * Verified ingress moves provider signature/token checking behind closed core
  * verifier IDs (ADR-0028: provider-signed ingress stays in-tree). The same
@@ -92,16 +92,9 @@ export const CORE_VERIFIER_IDS = [
 export type CoreVerifierId = (typeof CORE_VERIFIER_IDS)[number];
 
 /** A route's authentication declaration. `verified_ingress` requires a core verifier ID. */
-export type AuthPolicy = SimpleAuthPolicyId | { policy: "verified_ingress"; verifier: CoreVerifierId };
-
-/**
- * Migration compatibility state (Ticket 03 only): a local route that neither
- * declares nor inherits a policy. Explicitly reported, never silently
- * classified by middleware name or path regex. Ticket 04 removes this state.
- */
-export const LEGACY_UNCLASSIFIED = "legacy_unclassified";
-
-export type EffectiveAuthPolicy = AuthPolicy | typeof LEGACY_UNCLASSIFIED;
+export type AuthPolicy =
+  | SimpleAuthPolicyId
+  | { policy: "verified_ingress"; verifier: CoreVerifierId };
 
 declare module "fastify" {
   interface FastifyContextConfig {
@@ -221,7 +214,12 @@ async function slackVerifiedIngressGuard(request: FastifyRequest): Promise<void>
   const signature = request.headers["x-slack-signature"] as string | undefined;
   const timestamp = request.headers["x-slack-request-timestamp"] as string | undefined;
   if (signingSecret) {
-    const result = verifySlackSignature(signature, timestamp, rawBodyOrStringified(request), signingSecret);
+    const result = verifySlackSignature(
+      signature,
+      timestamp,
+      rawBodyOrStringified(request),
+      signingSecret,
+    );
     if (!result.valid) {
       throw unauthorized(result.reason ?? "Invalid signature");
     }
@@ -476,15 +474,19 @@ function policyEquals(a: AuthPolicy, b: AuthPolicy): boolean {
 }
 
 /** Inventory-facing rendering of an effective policy. */
-export function formatEffectivePolicy(policy: EffectiveAuthPolicy): string {
+export function formatEffectivePolicy(policy: AuthPolicy): string {
   return typeof policy === "string" ? policy : `verified_ingress:${policy.verifier}`;
 }
 
-/** One declaration, one resolver: the runtime guard and the observed inventory both call this. */
+/**
+ * One declaration, one resolver: the runtime guard and the observed inventory
+ * both call this. `undefined` means NO effective policy — a readiness failure,
+ * never a fallback classification.
+ */
 export function resolveEffectiveAuthPolicy(
   config: { authPolicy?: AuthPolicy } | undefined,
-): EffectiveAuthPolicy {
-  return config?.authPolicy ?? LEGACY_UNCLASSIFIED;
+): AuthPolicy | undefined {
+  return config?.authPolicy;
 }
 
 function validatePolicyDeclaration(declared: AuthPolicy, url: string): AuthPolicy {
@@ -529,11 +531,12 @@ function installPolicyGuard(routeOptions: RouteOptions, policy: AuthPolicy): voi
   if (guardInstalledRoutes.has(routeOptions)) return;
   guardInstalledRoutes.add(routeOptions);
   const guard = policyGuardFor(policy);
-  const existing = routeOptions.preHandler == null
-    ? []
-    : Array.isArray(routeOptions.preHandler)
-      ? [...routeOptions.preHandler]
-      : [routeOptions.preHandler];
+  const existing =
+    routeOptions.preHandler == null
+      ? []
+      : Array.isArray(routeOptions.preHandler)
+        ? [...routeOptions.preHandler]
+        : [routeOptions.preHandler];
   // Prepend: authentication runs before every route-level authorization
   // middleware that remains in the route's own preHandler chain.
   routeOptions.preHandler = [guard, ...existing];
@@ -542,7 +545,18 @@ function installPolicyGuard(routeOptions: RouteOptions, policy: AuthPolicy): voi
 export interface AuthPolicyRouteClassification {
   method: string;
   url: string;
-  effectivePolicy: EffectiveAuthPolicy;
+  effectivePolicy: AuthPolicy | undefined;
+}
+
+/**
+ * Framework normalization for readiness validation, mirroring the
+ * characterization suite's rule exactly: the @fastify/cors preflight
+ * catch-all is the ONE wildcard OPTIONS route (`fastify.options('*')` answers
+ * preflight before authentication by design). Any other OPTIONS route — or
+ * any unknown application route — must still declare a policy.
+ */
+function isCorsPreflightCatchAll(routeOptions: RouteOptions): boolean {
+  return routeOptions.url === "*" && methodsOf(routeOptions).includes("OPTIONS");
 }
 
 /**
@@ -550,8 +564,7 @@ export interface AuthPolicyRouteClassification {
  * validates verifier readiness (boot fails if a verifier cannot verify) and
  * installs guards for route-level declarations. Routes that declare nothing
  * here are either filled by their homogeneous scope ({@link inheritAuthPolicy},
- * whose scoped hook runs after this one) or are explicitly
- * {@link LEGACY_UNCLASSIFIED}.
+ * whose scoped hook runs after this one) or fail readiness below.
  */
 export function installAuthPolicy(fastify: FastifyInstance): void {
   for (const [id, spec] of Object.entries(VERIFIED_INGRESS_VERIFIERS) as [
@@ -573,6 +586,30 @@ export function installAuthPolicy(fastify: FastifyInstance): void {
     const declared = routeOptions.config?.authPolicy;
     if (declared === undefined) return;
     installPolicyGuard(routeOptions, validatePolicyDeclaration(declared, routeOptions.url));
+  });
+
+  // Closed readiness: the application may not become ready while any route
+  // reachable on this instance has no effective authentication policy. A
+  // missing declaration is a boot error — never inferred from middleware
+  // names, paths, or an exception list.
+  fastify.addHook("onReady", async () => {
+    const missing: string[] = [];
+    const seen = new Set<RouteOptions>();
+    for (const routeOptions of routes) {
+      if (seen.has(routeOptions)) continue;
+      seen.add(routeOptions);
+      if (isCorsPreflightCatchAll(routeOptions)) continue;
+      if (resolveEffectiveAuthPolicy(routeOptions.config) === undefined) {
+        missing.push(`${methodsOf(routeOptions).join("|")} ${routeOptions.url}`);
+      }
+    }
+    if (missing.length > 0) {
+      const shown = missing.slice(0, 8).join(", ");
+      const more = missing.length > 8 ? ` (and ${missing.length - 8} more)` : "";
+      throw new Error(
+        `Readiness failure: ${missing.length} route(s) have no effective authentication policy: ${shown}${more}. Every route must declare config.authPolicy or inherit one from a homogeneous scope.`,
+      );
+    }
   });
 }
 
@@ -601,20 +638,11 @@ export function authPolicyClassifications(
   );
 }
 
-/** Migration report: routes still classified {@link LEGACY_UNCLASSIFIED}. */
-export function legacyUnclassifiedRoutes(fastify: FastifyInstance): AuthPolicyRouteClassification[] {
-  return authPolicyClassifications(fastify).filter(
-    (r) => r.effectivePolicy === LEGACY_UNCLASSIFIED,
-  );
-}
-
 /**
  * Scope-level applier for heterogeneous plugins whose routes declare policy
- * per route (the Ticket 03 migrated modules). On a seam-constructed instance
- * the root installer has already installed these guards — this is a no-op —
- * but a plugin registered directly on a bare instance still gets enforcement
- * for its own declarations. Routes that declare nothing are left
- * {@link LEGACY_UNCLASSIFIED} (their route-local middleware still runs).
+ * per route. On a seam-constructed instance the root installer has already
+ * installed these guards — this is a no-op — but a plugin registered directly
+ * on a bare instance still gets enforcement for its own declarations.
  */
 export function applyDeclaredAuthPolicies(fastify: FastifyInstance): void {
   fastify.addHook("onRoute", (routeOptions) => {

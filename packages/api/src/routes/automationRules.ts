@@ -16,11 +16,11 @@ import {
 } from "../models/automationRuleSchema.js";
 import { attemptRuleRun } from "../services/automationAttemptLifecycle.js";
 import { agentHasHabitatWork, checkHabitatOwnership } from "../services/automationEventService.js";
-import { humanAuth } from "../middleware/auth.js";
 import { requireHabitatAccess } from "../middleware/team.js";
 import { checkHabitatAccess } from "../middleware/realtimeAuth.js";
 import { notFound, badRequest, conflict } from "../errors.js";
 import type { AutomationTargetType } from "@orcy/shared";
+import { applyDeclaredAuthPolicies } from "../authPolicy.js";
 
 // CS-56 T2 & LL-RM-1: every rule boundary uses strict discriminated schemas
 // for trigger, condition, and actions.
@@ -69,10 +69,12 @@ function deriveTriggerType(trigger: unknown, defaultIfEvent: string): string {
 }
 
 export async function automationRoutes(fastify: FastifyInstance): Promise<void> {
+  applyDeclaredAuthPolicies(fastify);
+
   // List rules for habitat
   fastify.get<{ Params: { habitatId: string } }>(
     "/habitats/:habitatId/automation-rules",
-    { preHandler: [humanAuth, requireHabitatAccess] },
+    { preHandler: [requireHabitatAccess], config: { authPolicy: "human" } },
     async (request, _reply) => {
       return ruleRepo.listAutomationRulesByHabitat(request.params.habitatId);
     },
@@ -81,7 +83,7 @@ export async function automationRoutes(fastify: FastifyInstance): Promise<void> 
   // Create rule
   fastify.post<{ Params: { habitatId: string } }>(
     "/habitats/:habitatId/automation-rules",
-    { preHandler: [humanAuth, requireHabitatAccess] },
+    { preHandler: [requireHabitatAccess], config: { authPolicy: "human" } },
     async (request, _reply) => {
       const parsed = createRuleSchema.safeParse(request.body);
       if (!parsed.success) {
@@ -106,7 +108,7 @@ export async function automationRoutes(fastify: FastifyInstance): Promise<void> 
   // Get single rule
   fastify.get<{ Params: { ruleId: string } }>(
     "/automation-rules/:ruleId",
-    { preHandler: humanAuth },
+    { config: { authPolicy: "human" } },
     async (request, _reply) => {
       const rule = ruleRepo.getAutomationRuleById(request.params.ruleId);
       if (!rule) throw notFound("Rule not found");
@@ -117,7 +119,7 @@ export async function automationRoutes(fastify: FastifyInstance): Promise<void> 
   // Update rule
   fastify.put<{ Params: { ruleId: string } }>(
     "/automation-rules/:ruleId",
-    { preHandler: humanAuth },
+    { config: { authPolicy: "human" } },
     async (request, _reply) => {
       const parsed = updateRuleSchema.safeParse(request.body);
       if (!parsed.success) {
@@ -141,7 +143,7 @@ export async function automationRoutes(fastify: FastifyInstance): Promise<void> 
   // Delete rule
   fastify.delete<{ Params: { ruleId: string } }>(
     "/automation-rules/:ruleId",
-    { preHandler: humanAuth },
+    { config: { authPolicy: "human" } },
     async (request, _reply) => {
       const existing = ruleRepo.getAutomationRuleById(request.params.ruleId);
       if (!existing) throw notFound("Rule not found");
@@ -157,7 +159,7 @@ export async function automationRoutes(fastify: FastifyInstance): Promise<void> 
   // activated. CS-56 decision §4 / technical plan #condition-validation.
   fastify.post<{ Params: { ruleId: string } }>(
     "/automation-rules/:ruleId/enable",
-    { preHandler: humanAuth },
+    { config: { authPolicy: "human" } },
     async (request, _reply) => {
       const existing = ruleRepo.getAutomationRuleById(request.params.ruleId);
       if (!existing) throw notFound("Rule not found");
@@ -174,7 +176,7 @@ export async function automationRoutes(fastify: FastifyInstance): Promise<void> 
 
   fastify.post<{ Params: { ruleId: string } }>(
     "/automation-rules/:ruleId/disable",
-    { preHandler: humanAuth },
+    { config: { authPolicy: "human" } },
     async (request, _reply) => {
       const existing = ruleRepo.getAutomationRuleById(request.params.ruleId);
       if (!existing) throw notFound("Rule not found");
@@ -185,7 +187,7 @@ export async function automationRoutes(fastify: FastifyInstance): Promise<void> 
   // Simulate
   fastify.post<{ Params: { ruleId: string } }>(
     "/automation-rules/:ruleId/simulate",
-    { preHandler: humanAuth },
+    { config: { authPolicy: "human" } },
     async (request, _reply) => {
       const rule = ruleRepo.getAutomationRuleById(request.params.ruleId);
       if (!rule) throw notFound("Rule not found");
@@ -230,7 +232,7 @@ export async function automationRoutes(fastify: FastifyInstance): Promise<void> 
   //     stranded `running` row under normal execution.
   fastify.post<{ Params: { ruleId: string } }>(
     "/automation-rules/:ruleId/run",
-    { preHandler: humanAuth },
+    { config: { authPolicy: "human" } },
     async (request, _reply) => {
       const rule = ruleRepo.getAutomationRuleById(request.params.ruleId);
       if (!rule) throw notFound("Rule not found");
@@ -318,7 +320,7 @@ export async function automationRoutes(fastify: FastifyInstance): Promise<void> 
   // Rule runs history
   fastify.get<{ Params: { ruleId: string }; Querystring: { limit?: string; offset?: string } }>(
     "/automation-rules/:ruleId/runs",
-    { preHandler: humanAuth },
+    { config: { authPolicy: "human" } },
     async (request, _reply) => {
       const { ruleId } = request.params;
       const limit = request.query.limit ? Number(request.query.limit) : 50;
@@ -332,7 +334,7 @@ export async function automationRoutes(fastify: FastifyInstance): Promise<void> 
   // All runs for habitat
   fastify.get<{ Params: { habitatId: string }; Querystring: { limit?: string; offset?: string } }>(
     "/habitats/:habitatId/automation-runs",
-    { preHandler: [humanAuth, requireHabitatAccess] },
+    { preHandler: [requireHabitatAccess], config: { authPolicy: "human" } },
     async (request, _reply) => {
       const { habitatId } = request.params;
       const limit = request.query.limit ? Number(request.query.limit) : 50;
@@ -357,7 +359,7 @@ export async function automationRoutes(fastify: FastifyInstance): Promise<void> 
   // of silently disappearing.
   fastify.get<{ Params: { habitatId: string }; Querystring: { limit?: string; offset?: string } }>(
     "/habitats/:habitatId/automation-inbox",
-    { preHandler: [humanAuth, requireHabitatAccess] },
+    { preHandler: [requireHabitatAccess], config: { authPolicy: "human" } },
     async (request, _reply) => {
       const paging = z
         .object({
@@ -378,7 +380,7 @@ export async function automationRoutes(fastify: FastifyInstance): Promise<void> 
   // Operator waive AFTER external reconciliation (audited).
   fastify.post<{ Params: { deliveryId: string } }>(
     "/automation-deliveries/:deliveryId/waive",
-    { preHandler: humanAuth },
+    { config: { authPolicy: "human" } },
     async (request, reply) => {
       const parsed = dispositionSchema.safeParse(request.body ?? {});
       if (!parsed.success) {
@@ -407,7 +409,7 @@ export async function automationRoutes(fastify: FastifyInstance): Promise<void> 
   // Explicit risk-acknowledged successor attempt generation (audited).
   fastify.post<{ Params: { deliveryId: string } }>(
     "/automation-deliveries/:deliveryId/retry",
-    { preHandler: humanAuth },
+    { config: { authPolicy: "human" } },
     async (request, reply) => {
       const parsed = dispositionSchema.safeParse(request.body ?? {});
       if (!parsed.success) {

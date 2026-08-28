@@ -10,10 +10,10 @@ import {
   sendTestWebhook,
 } from '../services/webhookDispatcher.js';
 import { getHabitatById } from '../repositories/habitat.js';
-import { humanAuth } from '../middleware/auth.js';
 import { adminOnly } from '../middleware/rbac.js';
 import { validateOutboundUrl, filterUnsafeHeaders } from '../config/integrationSecurity.js';
 import { badRequest, notFound, internalError } from '../errors.js';
+import { applyDeclaredAuthPolicies } from "../authPolicy.js";
 
 interface CreateWebhookBody {
   habitatId: string | null;
@@ -46,10 +46,12 @@ const VALID_EVENTS = [
  * send test pings, and inspect delivery history.
  */
 export async function webhookRoutes(fastify: FastifyInstance): Promise<void> {
+  applyDeclaredAuthPolicies(fastify);
+
   /** GET /webhooks - List webhook subscriptions. Auth: humanAuth + adminOnly. Returns subscriptions */
   fastify.get<{ Querystring: { habitatId?: string } }>(
     '/webhooks',
-    { preHandler: [humanAuth, adminOnly] },
+    { preHandler: [adminOnly], config: { authPolicy: "human" } },
     async (request: FastifyRequest<{ Querystring: { habitatId?: string } }>, _reply: FastifyReply) => {
       const habitatId = request.query.habitatId || undefined;
       const subscriptions = getWebhookSubscriptions(habitatId);
@@ -63,7 +65,7 @@ export async function webhookRoutes(fastify: FastifyInstance): Promise<void> {
   /** POST /webhooks - Create a webhook subscription. Auth: humanAuth + adminOnly. Returns subscription */
   fastify.post<{ Body: CreateWebhookBody }>(
     '/webhooks',
-    { preHandler: [humanAuth, adminOnly] },
+    { preHandler: [adminOnly], config: { authPolicy: "human" } },
     async (request: FastifyRequest<{ Body: CreateWebhookBody }>, _reply: FastifyReply) => {
       const { habitatId, name, url, format = 'standard', events = [], headers = {} } = request.body;
 
@@ -113,7 +115,7 @@ export async function webhookRoutes(fastify: FastifyInstance): Promise<void> {
   /** PUT /webhooks/:id - Update a webhook subscription. Auth: humanAuth + adminOnly. Returns updated */
   fastify.put<{ Params: { id: string }; Body: UpdateWebhookBody }>(
     '/webhooks/:id',
-    { preHandler: [humanAuth, adminOnly] },
+    { preHandler: [adminOnly], config: { authPolicy: "human" } },
     async (request: FastifyRequest<{ Params: { id: string }; Body: UpdateWebhookBody }>, _reply: FastifyReply) => {
       const { id } = request.params;
       const updates = request.body;
@@ -162,7 +164,7 @@ export async function webhookRoutes(fastify: FastifyInstance): Promise<void> {
   /** DELETE /webhooks/:id - Delete a webhook subscription. Auth: humanAuth + adminOnly. Returns { success } */
   fastify.delete<{ Params: { id: string } }>(
     '/webhooks/:id',
-    { preHandler: [humanAuth, adminOnly] },
+    { preHandler: [adminOnly], config: { authPolicy: "human" } },
     async (request: FastifyRequest<{ Params: { id: string } }>, _reply: FastifyReply) => {
       const { id } = request.params;
 
@@ -183,7 +185,7 @@ export async function webhookRoutes(fastify: FastifyInstance): Promise<void> {
   /** POST /webhooks/:id/test - Send a test webhook. Auth: humanAuth + adminOnly. Returns { success, statusCode, latencyMs } */
   fastify.post<{ Params: { id: string } }>(
     '/webhooks/:id/test',
-    { preHandler: [humanAuth, adminOnly] },
+    { preHandler: [adminOnly], config: { authPolicy: "human" } },
     async (request: FastifyRequest<{ Params: { id: string } }>, _reply: FastifyReply) => {
       const { id } = request.params;
 
@@ -205,7 +207,7 @@ export async function webhookRoutes(fastify: FastifyInstance): Promise<void> {
   /** POST /webhooks/:id/rotate-secret - Rotate webhook secret. Auth: humanAuth + adminOnly. Returns { secret } */
   fastify.post<{ Params: { id: string } }>(
     '/webhooks/:id/rotate-secret',
-    { preHandler: [humanAuth, adminOnly] },
+    { preHandler: [adminOnly], config: { authPolicy: "human" } },
     async (request: FastifyRequest<{ Params: { id: string } }>, _reply: FastifyReply) => {
       const { id } = request.params;
 
@@ -226,7 +228,7 @@ export async function webhookRoutes(fastify: FastifyInstance): Promise<void> {
   /** GET /webhooks/:id/deliveries - Get webhook delivery history. Auth: humanAuth + adminOnly. Returns deliveries */
   fastify.get<{ Params: { id: string }; Querystring: { limit?: number } }>(
     '/webhooks/:id/deliveries',
-    { preHandler: [humanAuth, adminOnly] },
+    { preHandler: [adminOnly], config: { authPolicy: "human" } },
     async (request: FastifyRequest<{ Params: { id: string }; Querystring: { limit?: number } }>, _reply: FastifyReply) => {
       const { id } = request.params;
       const limit = request.query.limit || 25;

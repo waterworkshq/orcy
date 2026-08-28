@@ -1,7 +1,6 @@
 import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 
-import { agentOrHumanAuth, humanAuth } from "../../middleware/auth.js";
 import { badRequest, notFound } from "../../errors.js";
 import * as habitatRepo from "../../repositories/habitat.js";
 import * as codeEvidenceRepository from "../../repositories/codeEvidenceRepository.js";
@@ -12,6 +11,7 @@ import {
   inferFromWorktreeSchema,
   repositoryInputSchema,
 } from "./shared.js";
+import { applyDeclaredAuthPolicies } from "../../authPolicy.js";
 
 interface WorktreeSettingsPayload {
   path?: unknown;
@@ -20,11 +20,13 @@ interface WorktreeSettingsPayload {
 }
 
 export async function repositorySettingsRoutes(fastify: FastifyInstance): Promise<void> {
+  applyDeclaredAuthPolicies(fastify);
+
   fastify.withTypeProvider<ZodTypeProvider>().get(
     "/habitats/:habitatId/repository",
     {
       schema: { params: habitatIdParamsSchema },
-      preHandler: [agentOrHumanAuth],
+      config: { authPolicy: "local_actor" },
     },
     async (request) => {
       const habitat = habitatRepo.getHabitatById(request.params.habitatId);
@@ -39,7 +41,7 @@ export async function repositorySettingsRoutes(fastify: FastifyInstance): Promis
     "/habitats/:habitatId/repository",
     {
       schema: { params: habitatIdParamsSchema, body: repositoryInputSchema },
-      preHandler: [humanAuth],
+      config: { authPolicy: "human" },
     },
     async (request) => {
       const habitat = habitatRepo.getHabitatById(request.params.habitatId);
@@ -82,7 +84,7 @@ export async function repositorySettingsRoutes(fastify: FastifyInstance): Promis
     "/habitats/:habitatId/repository/infer-from-worktree",
     {
       schema: { params: habitatIdParamsSchema, body: inferFromWorktreeSchema },
-      preHandler: [humanAuth],
+      config: { authPolicy: "human" },
     },
     async (request) => {
       const habitat = habitatRepo.getHabitatById(request.params.habitatId);
@@ -128,7 +130,7 @@ export async function repositorySettingsRoutes(fastify: FastifyInstance): Promis
     "/habitats/:habitatId/repository/infer-from-integration",
     {
       schema: { params: habitatIdParamsSchema, body: inferFromIntegrationSchema },
-      preHandler: [humanAuth],
+      config: { authPolicy: "human" },
     },
     async (request) => {
       const habitat = habitatRepo.getHabitatById(request.params.habitatId);

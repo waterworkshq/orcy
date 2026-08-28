@@ -7,6 +7,7 @@ interface CapturedRoute {
   path: string;
   preHandler: any[];
   handler: any;
+  authPolicy: any;
 }
 
 const {
@@ -69,6 +70,9 @@ vi.mock("../services/auditExportService.js", () => ({
 
 vi.mock("../middleware/auth.js", () => ({
   humanAuth: mockHumanAuth,
+  agentAuth: async () => {},
+  agentOrHumanAuth: async () => {},
+  registrationAuth: async () => {},
 }));
 
 vi.mock("../middleware/team.js", () => ({
@@ -86,6 +90,7 @@ vi.mock("../repositories/teamMember.js", () => ({
 async function captureAuditExportRoutes(): Promise<CapturedRoute[]> {
   const routes: CapturedRoute[] = [];
   const fakeFastify: any = {
+    addHook: vi.fn(),
     get: vi.fn((path: string, opts: any, handler: any) => {
       const preHandler = opts?.preHandler;
       routes.push({
@@ -93,6 +98,7 @@ async function captureAuditExportRoutes(): Promise<CapturedRoute[]> {
         path,
         preHandler: Array.isArray(preHandler) ? preHandler : preHandler ? [preHandler] : [],
         handler,
+        authPolicy: opts?.config?.authPolicy,
       });
     }),
     post: vi.fn((path: string, opts: any, handler: any) => {
@@ -102,6 +108,7 @@ async function captureAuditExportRoutes(): Promise<CapturedRoute[]> {
         path,
         preHandler: Array.isArray(preHandler) ? preHandler : preHandler ? [preHandler] : [],
         handler,
+        authPolicy: opts?.config?.authPolicy,
       });
     }),
     delete: vi.fn((path: string, opts: any, handler: any) => {
@@ -111,6 +118,7 @@ async function captureAuditExportRoutes(): Promise<CapturedRoute[]> {
         path,
         preHandler: Array.isArray(preHandler) ? preHandler : preHandler ? [preHandler] : [],
         handler,
+        authPolicy: opts?.config?.authPolicy,
       });
     }),
   };
@@ -136,7 +144,9 @@ describe("auditExportRoutes auth", () => {
     );
     expect(habitatRoutes).toHaveLength(5);
     for (const route of habitatRoutes) {
-      expect(route.preHandler).toContain(humanAuth);
+      // Authentication installs from the declared human policy; the captured
+      // route-level chain holds the habitat authorization.
+      expect(route.authPolicy).toBe("human");
       expect(route.preHandler).toContain(requireHabitatAccess);
     }
   });
@@ -146,10 +156,10 @@ describe("auditExportRoutes auth", () => {
     const routes = await captureAuditExportRoutes();
     const route = routes.find((r) => r.method === "DELETE" && r.path === "/audit/schedules/:id");
     expect(route).toBeDefined();
-    expect(route!.preHandler).toHaveLength(2);
-    expect(route!.preHandler[0]).toBe(humanAuth);
+    expect(route!.authPolicy).toBe("human");
+    expect(route!.preHandler).toHaveLength(1);
 
-    await route!.preHandler[1](
+    await route!.preHandler[0](
       {
         params: { id: "schedule-1" },
         user: { id: "user-1", role: "viewer", type: "human" },
@@ -168,7 +178,7 @@ describe("auditExportRoutes auth", () => {
     const route = routes.find((r) => r.method === "DELETE" && r.path === "/audit/schedules/:id");
 
     try {
-      await route!.preHandler[1](
+      await route!.preHandler[0](
         {
           params: { id: "schedule-1" },
           user: { id: "stranger", role: "viewer", type: "human" },

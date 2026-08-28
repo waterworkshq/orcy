@@ -3,8 +3,8 @@ import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
 import { getTasksByHabitatId } from "../../repositories/task.js";
 import type { TaskSortField } from "../../repositories/task.js";
-import { agentOrHumanAuth } from "../../middleware/auth.js";
 import { requireHabitatAccess } from "../../middleware/team.js";
+import { applyDeclaredAuthPolicies } from "../../authPolicy.js";
 
 const habitatIdParamsSchema = z.object({ habitatId: z.string() });
 
@@ -49,11 +49,13 @@ const habitatTasksQuerySchema = z.object({
 });
 
 export async function habitatTasksRoutes(fastify: FastifyInstance): Promise<void> {
+  applyDeclaredAuthPolicies(fastify);
+
   fastify.withTypeProvider<ZodTypeProvider>().get(
     "/habitats/:habitatId/tasks",
     {
       schema: { params: habitatIdParamsSchema, querystring: habitatTasksQuerySchema },
-      preHandler: [agentOrHumanAuth, requireHabitatAccess],
+      preHandler: [requireHabitatAccess], config: { authPolicy: "local_actor" },
     },
     async (request, _reply) => {
       const { habitatId } = request.params;

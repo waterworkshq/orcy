@@ -3,7 +3,6 @@ import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
 import * as habitatService from "../services/habitatService.js";
 import { exportQuerySchema, importHabitatSchema } from "../models/schemas.js";
-import { agentOrHumanAuth, humanAuth } from "../middleware/auth.js";
 import { requireHabitatAccess } from "../middleware/team.js";
 import * as anomalyService from "../services/anomalyService.js";
 import { redactSensitiveHeaders } from "../config/integrationSecurity.js";
@@ -22,6 +21,7 @@ import {
   publishImportOutcomeToHttpResponse,
 } from "./helpers/importPublicationHttp.js";
 import type { AuditActorRef } from "@orcy/shared";
+import { applyDeclaredAuthPolicies } from "../authPolicy.js";
 
 const habitatIdParamsSchema = z.object({ habitatId: z.string() });
 
@@ -33,12 +33,14 @@ const habitatIdParamsSchema = z.object({ habitatId: z.string() });
 const importRouteBodySchema = z.union([importHabitatSchema, z.any()]);
 
 export async function habitatExportRoutes(fastify: FastifyInstance): Promise<void> {
+  applyDeclaredAuthPolicies(fastify);
+
   /** GET /habitats/:habitatId/export - Export board data. Auth: humanAuth. Returns filtered board export */
   fastify.withTypeProvider<ZodTypeProvider>().get(
     "/habitats/:habitatId/export",
     {
       schema: { params: habitatIdParamsSchema, querystring: exportQuerySchema },
-      preHandler: humanAuth,
+      config: { authPolicy: "human" },
     },
     async (request, _reply) => {
       const result = habitatService.exportHabitat(request.params.habitatId);
@@ -88,7 +90,7 @@ export async function habitatExportRoutes(fastify: FastifyInstance): Promise<voi
     .withTypeProvider<ZodTypeProvider>()
     .post(
       "/habitats/import",
-      { schema: { body: importRouteBodySchema }, preHandler: humanAuth },
+      { schema: { body: importRouteBodySchema }, config: { authPolicy: "human" } },
       async (request, reply) => {
         await handleManifestImportRequest(request, reply, {
           targetHabitatId: null,
@@ -102,7 +104,7 @@ export async function habitatExportRoutes(fastify: FastifyInstance): Promise<voi
     "/habitats/:habitatId/import",
     {
       schema: { params: habitatIdParamsSchema, body: importRouteBodySchema },
-      preHandler: [humanAuth, requireHabitatAccess],
+      preHandler: [requireHabitatAccess], config: { authPolicy: "human" },
     },
     async (request, reply) => {
       const habitatResult = habitatService.getHabitat(request.params.habitatId);
@@ -122,7 +124,7 @@ export async function habitatExportRoutes(fastify: FastifyInstance): Promise<voi
     "/habitats/:habitatId/anomalies",
     {
       schema: { params: habitatIdParamsSchema },
-      preHandler: [agentOrHumanAuth, requireHabitatAccess],
+      preHandler: [requireHabitatAccess], config: { authPolicy: "local_actor" },
     },
     async (request, _reply) => {
       const result = habitatService.getHabitat(request.params.habitatId);

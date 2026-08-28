@@ -1,9 +1,9 @@
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import * as prefRepo from '../repositories/notificationPreferences.js';
 import * as userRepo from '../repositories/user.js';
-import { humanAuth } from '../middleware/auth.js';
 import { badRequest } from '../errors.js';
 import { z } from 'zod';
+import { applyDeclaredAuthPolicies } from "../authPolicy.js";
 
 const preferencesSchema = z.object({
   taskAssigned: z.boolean().optional(),
@@ -22,9 +22,11 @@ const updateEmailSchema = z.object({
 });
 
 export async function notificationPrefRoutes(fastify: FastifyInstance): Promise<void> {
+  applyDeclaredAuthPolicies(fastify);
+
   fastify.get(
     '/users/me/notification-preferences',
-    { preHandler: humanAuth },
+    { config: { authPolicy: "human" } },
     async (request: FastifyRequest, _reply: FastifyReply) => {
       const userId = request.user!.id;
       const prefs = prefRepo.getPreferences(userId, null);
@@ -35,7 +37,7 @@ export async function notificationPrefRoutes(fastify: FastifyInstance): Promise<
 
   fastify.put(
     '/users/me/notification-preferences',
-    { preHandler: humanAuth },
+    { config: { authPolicy: "human" } },
     async (request: FastifyRequest, _reply: FastifyReply) => {
       const parsed = preferencesSchema.safeParse(request.body);
       if (!parsed.success) {
@@ -50,7 +52,7 @@ export async function notificationPrefRoutes(fastify: FastifyInstance): Promise<
 
   fastify.put(
     '/users/me/email',
-    { preHandler: humanAuth },
+    { config: { authPolicy: "human" } },
     async (request: FastifyRequest, _reply: FastifyReply) => {
       const parsed = updateEmailSchema.safeParse(request.body);
       if (!parsed.success) {
@@ -65,7 +67,7 @@ export async function notificationPrefRoutes(fastify: FastifyInstance): Promise<
 
   fastify.get<{ Params: { habitatId: string } }>(
     '/habitats/:habitatId/notification-preferences',
-    { preHandler: humanAuth },
+    { config: { authPolicy: "human" } },
     async (request: FastifyRequest<{ Params: { habitatId: string } }>, _reply: FastifyReply) => {
       const userId = request.user!.id;
       const prefs = prefRepo.getPreferences(userId, request.params.habitatId);
@@ -75,7 +77,7 @@ export async function notificationPrefRoutes(fastify: FastifyInstance): Promise<
 
   fastify.put<{ Params: { habitatId: string } }>(
     '/habitats/:habitatId/notification-preferences',
-    { preHandler: humanAuth },
+    { config: { authPolicy: "human" } },
     async (request: FastifyRequest<{ Params: { habitatId: string } }>, _reply: FastifyReply) => {
       const parsed = preferencesSchema.safeParse(request.body);
       if (!parsed.success) {

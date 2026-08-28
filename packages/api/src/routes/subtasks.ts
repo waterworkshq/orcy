@@ -1,16 +1,18 @@
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import * as subtaskService from '../services/subtaskService.js';
-import { agentAuth } from '../middleware/auth.js';
 import { badRequest, notFound } from '../errors.js';
+import { applyDeclaredAuthPolicies } from "../authPolicy.js";
 
 /**
  * Subtask CRUD — create, list, update, and delete subtasks attached to a task.
  */
 export async function subtaskRoutes(fastify: FastifyInstance): Promise<void> {
+  applyDeclaredAuthPolicies(fastify);
+
   /** GET /tasks/:taskId/subtasks - List subtasks for a task. Auth: agentAuth. Returns subtask array */
   fastify.get<{ Params: { taskId: string } }>(
     '/tasks/:taskId/subtasks',
-    { preHandler: agentAuth },
+    { config: { authPolicy: "agent" } },
     async (request: FastifyRequest<{ Params: { taskId: string } }>, _reply: FastifyReply) => {
       return subtaskService.getSubtasks(request.params.taskId);
     }
@@ -19,7 +21,7 @@ export async function subtaskRoutes(fastify: FastifyInstance): Promise<void> {
   /** POST /tasks/:taskId/subtasks - Create a subtask. Auth: agentAuth. Returns { subtask } or 404 */
   fastify.post<{ Params: { taskId: string }; Body: { title: string; order?: number; assigneeId?: string } }>(
     '/tasks/:taskId/subtasks',
-    { preHandler: agentAuth },
+    { config: { authPolicy: "agent" } },
     async (request: FastifyRequest<{ Params: { taskId: string }; Body: { title: string; order?: number; assigneeId?: string } }>, reply: FastifyReply) => {
       const parsed = request.body;
       if (!parsed.title || parsed.title.trim().length === 0) {
@@ -43,7 +45,7 @@ export async function subtaskRoutes(fastify: FastifyInstance): Promise<void> {
   /** PATCH /tasks/:taskId/subtasks/:subtaskId - Update a subtask. Auth: agentAuth. Returns { subtask } or 404 */
   fastify.patch<{ Params: { taskId: string; subtaskId: string }; Body: { title?: string; completed?: boolean; order?: number; assigneeId?: string | null } }>(
     '/tasks/:taskId/subtasks/:subtaskId',
-    { preHandler: agentAuth },
+    { config: { authPolicy: "agent" } },
     async (request, _reply) => {
       const subtask = subtaskService.updateSubtask(request.params.subtaskId, request.body);
 
@@ -58,7 +60,7 @@ export async function subtaskRoutes(fastify: FastifyInstance): Promise<void> {
   /** DELETE /tasks/:taskId/subtasks/:subtaskId - Delete a subtask. Auth: agentAuth. Returns 204 or 404 */
   fastify.delete<{ Params: { taskId: string; subtaskId: string } }>(
     '/tasks/:taskId/subtasks/:subtaskId',
-    { preHandler: agentAuth },
+    { config: { authPolicy: "agent" } },
     async (request: FastifyRequest<{ Params: { taskId: string; subtaskId: string } }>, reply: FastifyReply) => {
       const success = subtaskService.deleteSubtask(request.params.subtaskId);
 

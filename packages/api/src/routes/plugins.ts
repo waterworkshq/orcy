@@ -1,7 +1,6 @@
 import { applyDeclaredAuthPolicies } from "../authPolicy.js";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
-import { agentOrHumanAuth } from "../middleware/auth.js";
 import { requireHabitatAccess } from "../middleware/team.js";
 import * as service from "../services/pluginEnrollmentService.js";
 import * as pluginManager from "../plugins/pluginManager.js";
@@ -43,7 +42,7 @@ export async function pluginRoutes(fastify: FastifyInstance): Promise<void> {
 
   fastify.post<{ Params: { habitatId: string } }>(
     "/habitats/:habitatId/plugins/enrollments",
-    { preHandler: [agentOrHumanAuth, requireHabitatAccess] },
+    { preHandler: [requireHabitatAccess], config: { authPolicy: "local_actor" } },
     async (request, _reply) => {
       const parsed = createEnrollmentBody.safeParse(request.body);
       if (!parsed.success) {
@@ -56,7 +55,7 @@ export async function pluginRoutes(fastify: FastifyInstance): Promise<void> {
 
   fastify.patch<{ Params: { habitatId: string; id: string } }>(
     "/habitats/:habitatId/plugins/enrollments/:id",
-    { preHandler: [agentOrHumanAuth, requireHabitatAccess] },
+    { preHandler: [requireHabitatAccess], config: { authPolicy: "local_actor" } },
     async (request, _reply) => {
       const parsed = updateEnrollmentBody.safeParse(request.body);
       if (!parsed.success) {
@@ -68,7 +67,7 @@ export async function pluginRoutes(fastify: FastifyInstance): Promise<void> {
 
   fastify.get<{ Params: { habitatId: string } }>(
     "/habitats/:habitatId/plugins/enrollments",
-    { preHandler: [agentOrHumanAuth, requireHabitatAccess] },
+    { preHandler: [requireHabitatAccess], config: { authPolicy: "local_actor" } },
     async (request, _reply) => {
       return service.listEnrollments(request.params.habitatId);
     },
@@ -76,7 +75,7 @@ export async function pluginRoutes(fastify: FastifyInstance): Promise<void> {
 
   fastify.delete<{ Params: { habitatId: string; id: string } }>(
     "/habitats/:habitatId/plugins/enrollments/:id",
-    { preHandler: [agentOrHumanAuth, requireHabitatAccess] },
+    { preHandler: [requireHabitatAccess], config: { authPolicy: "local_actor" } },
     async (request, _reply) => {
       const deleted = service.deleteEnrollment(request.params.habitatId, request.params.id);
       return { deleted };
@@ -85,7 +84,7 @@ export async function pluginRoutes(fastify: FastifyInstance): Promise<void> {
 
   fastify.get<{ Params: { habitatId: string }; Querystring: Record<string, string | undefined> }>(
     "/habitats/:habitatId/plugins/runs",
-    { preHandler: [agentOrHumanAuth, requireHabitatAccess] },
+    { preHandler: [requireHabitatAccess], config: { authPolicy: "local_actor" } },
     async (request, _reply) => {
       const parsed = listRunsQuery.safeParse(request.query);
       if (!parsed.success) {
@@ -97,7 +96,7 @@ export async function pluginRoutes(fastify: FastifyInstance): Promise<void> {
 
   fastify.get<{ Params: { habitatId: string }; Querystring: Record<string, string | undefined> }>(
     "/habitats/:habitatId/plugins/stale-runs",
-    { preHandler: [agentOrHumanAuth, requireHabitatAccess] },
+    { preHandler: [requireHabitatAccess], config: { authPolicy: "local_actor" } },
     async (request, _reply) => {
       const parsed = staleRunsQuery.safeParse(request.query);
       if (!parsed.success) {
@@ -113,7 +112,7 @@ export async function pluginRoutes(fastify: FastifyInstance): Promise<void> {
 
   fastify.post<{ Params: { habitatId: string; id: string }; Body?: { force?: boolean } }>(
     "/habitats/:habitatId/plugins/runs/:id/lost",
-    { preHandler: [agentOrHumanAuth, requireHabitatAccess] },
+    { preHandler: [requireHabitatAccess], config: { authPolicy: "local_actor" } },
     async (request, _reply) => {
       const parsed = z.object({ force: z.boolean().optional() }).safeParse(request.body ?? {});
       if (!parsed.success) {
@@ -131,13 +130,9 @@ export async function pluginRoutes(fastify: FastifyInstance): Promise<void> {
   // available to any authenticated human or agent (ADR-0049: the stale
   // public-regex exception was inference-only; the served behavior was always
   // local-actor auth, now declared).
-  fastify.get(
-    "/plugins",
-    { config: { authPolicy: "local_actor" } },
-    async (_request, _reply) => {
-      return { plugins: pluginManager.getLoadedPlugins() };
-    },
-  );
+  fastify.get("/plugins", { config: { authPolicy: "local_actor" } }, async (_request, _reply) => {
+    return { plugins: pluginManager.getLoadedPlugins() };
+  });
 
   // Quarantine clear: quarantine is system-global by design (a misbehaving plugin is
   // misbehaving regardless of habitat). The :habitatId param gates access via
@@ -146,7 +141,7 @@ export async function pluginRoutes(fastify: FastifyInstance): Promise<void> {
   // and is deferred to a future release if multi-tenant isolation demands it.
   fastify.delete<{ Params: { habitatId: string; pluginKey: string } }>(
     "/habitats/:habitatId/plugins/:pluginKey/quarantine",
-    { preHandler: [agentOrHumanAuth, requireHabitatAccess] },
+    { preHandler: [requireHabitatAccess], config: { authPolicy: "local_actor" } },
     async (request, _reply) => {
       const cleared = pluginManager.clearQuarantine(request.params.pluginKey);
       return { cleared };

@@ -62,6 +62,8 @@ vi.mock("../services/habitatSecretCache.js", () => ({ rebuildCache: vi.fn() }));
 vi.mock("../middleware/auth.js", () => ({
   humanAuth: vi.fn(),
   agentOrHumanAuth: vi.fn(),
+  agentAuth: vi.fn(),
+  registrationAuth: vi.fn(),
 }));
 vi.mock("../middleware/team.js", () => ({ requireHabitatAccess: vi.fn() }));
 vi.mock("../repositories/teamMember.js", () => ({
@@ -115,6 +117,7 @@ interface CapturedRoute {
 function captureRoutes(): CapturedRoute[] {
   const routes: CapturedRoute[] = [];
   const fake: any = {
+    addHook: vi.fn(),
     withTypeProvider: () => routes,
     register: vi.fn(),
     get: (path: string, _opts: unknown, handler: CapturedRoute["handler"]) =>

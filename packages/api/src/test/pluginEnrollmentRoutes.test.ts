@@ -616,10 +616,11 @@ describe("pluginRoutes", () => {
         expect(r.authPolicy).toBe("local_actor");
         expect(r.preHandler).toHaveLength(0);
       } else {
-        // Habitat-scoped routes: agentOrHumanAuth + requireHabitatAccess
-        expect(r.preHandler[0]).toBe(agentOrHumanAuth);
-        expect(r.preHandler).toHaveLength(2);
-        expect(typeof r.preHandler[1]).toBe("function");
+        // Habitat-scoped routes: local_actor policy (guard installed by the
+        // policy registry) with requireHabitatAccess as its authorization.
+        expect(r.authPolicy).toBe("local_actor");
+        expect(r.preHandler).toHaveLength(1);
+        expect(typeof r.preHandler[0]).toBe("function");
       }
     }
 

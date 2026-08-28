@@ -73,11 +73,11 @@ import { z } from "zod";
 import { taskCreationEnvelopes } from "../db/schema/index.js";
 import { eq } from "drizzle-orm";
 import { getDb } from "../db/index.js";
-import { agentOrHumanAuth } from "../middleware/auth.js";
 import { requireMissionAccess } from "../middleware/team.js";
 import { forbidden, notFound, unprocessableEntity } from "../errors.js";
 import { taskPublicationSchema, type TaskPublicationInput } from "../models/schemas.js";
 import { publishTaskCreation } from "../services/taskCreationPublication.js";
+import { applyDeclaredAuthPolicies } from "../authPolicy.js";
 import * as missionRepo from "../repositories/mission.js";
 import { publicationResultToHttpResponse } from "./helpers/taskPublicationHttp.js";
 
@@ -118,11 +118,13 @@ function surfaceFromEnvelope(envelopeRow: { attemptId: string; taskId: string })
 // terminal carries no `taskId`.
 
 export async function taskPublicationRoutes(fastify: FastifyInstance): Promise<void> {
+  applyDeclaredAuthPolicies(fastify);
+
   fastify.withTypeProvider<ZodTypeProvider>().post(
     "/missions/:missionId/task-publications",
     {
       schema: { params: publicationParamsSchema, body: taskPublicationSchema },
-      preHandler: [agentOrHumanAuth, requireMissionAccess],
+      preHandler: [requireMissionAccess], config: { authPolicy: "local_actor" },
     },
     async (request, reply) => {
       const parsed: TaskPublicationInput = request.body;

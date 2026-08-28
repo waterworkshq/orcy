@@ -1,11 +1,11 @@
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
-import { agentOrHumanAuth } from "../middleware/auth.js";
 import { forbidden, notFound } from "../errors.js";
 import { getHabitatById } from "../repositories/habitat.js";
 import { isTeamMemberByHabitatId } from "../repositories/teamMember.js";
 import * as auditBundleService from "../services/auditBundleService.js";
+import { applyDeclaredAuthPolicies } from "../authPolicy.js";
 
 const taskIdParamsSchema = z.object({ taskId: z.string() });
 const missionIdParamsSchema = z.object({ missionId: z.string() });
@@ -21,11 +21,13 @@ function requireEntityHabitatAccess(request: FastifyRequest, habitatId: string):
 }
 
 export async function auditBundleRoutes(fastify: FastifyInstance): Promise<void> {
+  applyDeclaredAuthPolicies(fastify);
+
   fastify.withTypeProvider<ZodTypeProvider>().get(
     "/tasks/:taskId/audit/bundle",
     {
       schema: { params: taskIdParamsSchema, querystring: bundleQuerySchema },
-      preHandler: [agentOrHumanAuth],
+      config: { authPolicy: "local_actor" },
     },
     async (request) => {
       const bundle = auditBundleService.getTaskAuditBundle(request.params.taskId, {
@@ -40,7 +42,7 @@ export async function auditBundleRoutes(fastify: FastifyInstance): Promise<void>
     "/missions/:missionId/audit/bundle",
     {
       schema: { params: missionIdParamsSchema, querystring: bundleQuerySchema },
-      preHandler: [agentOrHumanAuth],
+      config: { authPolicy: "local_actor" },
     },
     async (request) => {
       const bundle = auditBundleService.getMissionAuditBundle(request.params.missionId, {

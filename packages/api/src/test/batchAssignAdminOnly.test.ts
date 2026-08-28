@@ -22,6 +22,7 @@ interface CapturedRoute {
 function captureBatchRoute(): RouteHandler {
   const routes: CapturedRoute[] = [];
   const fakeFastify: any = {
+    addHook: vi.fn(),
     withTypeProvider: vi.fn(() => fakeFastify),
     post: vi.fn((path: string, _opts: any, handler: any) => {
       routes.push({ method: "POST", path, handler });

@@ -9,7 +9,6 @@ import type {
 } from "@orcy/shared";
 
 import * as codeEvidenceService from "../../services/codeEvidenceService.js";
-import { agentOrHumanAuth } from "../../middleware/auth.js";
 import * as missionEventRepo from "../../repositories/events/event-feature.js";
 import * as missionRepo from "../../repositories/mission.js";
 import { badRequest, notFound } from "../../errors.js";
@@ -27,13 +26,16 @@ import {
   missionLinkIdParamsSchema,
   notApplicableSchema,
 } from "./shared.js";
+import { applyDeclaredAuthPolicies } from "../../authPolicy.js";
 
 export async function missionCodeEvidenceRoutes(fastify: FastifyInstance): Promise<void> {
+  applyDeclaredAuthPolicies(fastify);
+
   fastify.withTypeProvider<ZodTypeProvider>().get(
     "/missions/:missionId/code-evidence",
     {
       schema: { params: missionIdParamsSchema, querystring: includeHistoryQuerySchema },
-      preHandler: [agentOrHumanAuth],
+      config: { authPolicy: "local_actor" },
     },
     async (request) => {
       const mission = missionRepo.getMissionById(request.params.missionId);
@@ -50,7 +52,7 @@ export async function missionCodeEvidenceRoutes(fastify: FastifyInstance): Promi
     "/missions/:missionId/code-evidence",
     {
       schema: { params: missionIdParamsSchema, body: linkCodeSchema },
-      preHandler: [agentOrHumanAuth],
+      config: { authPolicy: "local_actor" },
     },
     async (request) => {
       const { missionId } = request.params;
@@ -77,7 +79,7 @@ export async function missionCodeEvidenceRoutes(fastify: FastifyInstance): Promi
     "/missions/:missionId/code-evidence/:linkId/correct",
     {
       schema: { params: missionLinkIdParamsSchema, body: correctLinkSchema },
-      preHandler: [agentOrHumanAuth],
+      config: { authPolicy: "local_actor" },
     },
     async (request) => {
       const { missionId, linkId } = request.params;
@@ -101,7 +103,7 @@ export async function missionCodeEvidenceRoutes(fastify: FastifyInstance): Promi
     "/missions/:missionId/code-evidence/not-applicable",
     {
       schema: { params: missionIdParamsSchema, body: notApplicableSchema },
-      preHandler: [agentOrHumanAuth],
+      config: { authPolicy: "local_actor" },
     },
     async (request) => {
       const { missionId } = request.params;
@@ -125,7 +127,7 @@ export async function missionCodeEvidenceRoutes(fastify: FastifyInstance): Promi
     "/missions/:missionId/code-evidence/not-applicable",
     {
       schema: { params: missionIdParamsSchema },
-      preHandler: [agentOrHumanAuth],
+      config: { authPolicy: "local_actor" },
     },
     async (request) => {
       const { missionId } = request.params;
@@ -160,7 +162,7 @@ export async function missionCodeEvidenceRoutes(fastify: FastifyInstance): Promi
     "/missions/:missionId/code-evidence/gaps",
     {
       schema: { params: missionIdParamsSchema, body: gapSchema },
-      preHandler: [agentOrHumanAuth],
+      config: { authPolicy: "local_actor" },
     },
     async (request) => {
       const { missionId } = request.params;
@@ -185,7 +187,7 @@ export async function missionCodeEvidenceRoutes(fastify: FastifyInstance): Promi
     "/missions/:missionId/code-evidence/gaps/:gapId/resolve",
     {
       schema: { params: missionGapIdParamsSchema, body: gapResolveSchema },
-      preHandler: [agentOrHumanAuth],
+      config: { authPolicy: "local_actor" },
     },
     async (request) => {
       const { missionId, gapId } = request.params;

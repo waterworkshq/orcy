@@ -4,8 +4,8 @@ import { SKILL_CATEGORIES } from "@orcy/shared";
 import * as skillRepo from "../repositories/habitatSkill.js";
 import * as habitatRepo from "../repositories/habitat.js";
 import * as skillService from "../services/habitatSkillService.js";
-import { agentOrHumanAuth, humanAuth } from "../middleware/auth.js";
 import { notFound, badRequest, forbidden } from "../errors.js";
+import { applyDeclaredAuthPolicies } from "../authPolicy.js";
 
 const contributeBodySchema = z.object({
   insight: z
@@ -23,9 +23,11 @@ const signalsQuerySchema = z.object({
 });
 
 export async function habitatSkillRoutes(fastify: FastifyInstance): Promise<void> {
+  applyDeclaredAuthPolicies(fastify);
+
   fastify.get(
     "/habitats/:habitatId/skill",
-    { preHandler: agentOrHumanAuth },
+    { config: { authPolicy: "local_actor" } },
     async (request, _reply) => {
       const { habitatId } = request.params as { habitatId: string };
 
@@ -40,7 +42,7 @@ export async function habitatSkillRoutes(fastify: FastifyInstance): Promise<void
 
   fastify.post(
     "/habitats/:habitatId/skill/refresh",
-    { preHandler: agentOrHumanAuth },
+    { config: { authPolicy: "local_actor" } },
     async (request, _reply) => {
       const { habitatId } = request.params as { habitatId: string };
 
@@ -60,7 +62,7 @@ export async function habitatSkillRoutes(fastify: FastifyInstance): Promise<void
 
   fastify.post(
     "/habitats/:habitatId/skill/contribute",
-    { preHandler: agentOrHumanAuth },
+    { config: { authPolicy: "local_actor" } },
     async (request, reply) => {
       const { habitatId } = request.params as { habitatId: string };
 
@@ -95,7 +97,7 @@ export async function habitatSkillRoutes(fastify: FastifyInstance): Promise<void
 
   fastify.get(
     "/habitats/:habitatId/skill/signals",
-    { preHandler: humanAuth },
+    { config: { authPolicy: "human" } },
     async (request, _reply) => {
       const { habitatId } = request.params as { habitatId: string };
 
@@ -121,7 +123,7 @@ export async function habitatSkillRoutes(fastify: FastifyInstance): Promise<void
 
   fastify.delete(
     "/habitats/:habitatId/skill/signals/:signalId",
-    { preHandler: humanAuth },
+    { config: { authPolicy: "human" } },
     async (request, reply) => {
       const { habitatId, signalId } = request.params as { habitatId: string; signalId: string };
 

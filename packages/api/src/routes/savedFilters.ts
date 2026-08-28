@@ -1,8 +1,8 @@
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import * as savedFilterRepo from '../repositories/savedFilter.js';
-import { agentOrHumanAuth } from '../middleware/auth.js';
 import { badRequest, notFound, forbidden } from '../errors.js';
 import { z } from 'zod';
+import { applyDeclaredAuthPolicies } from "../authPolicy.js";
 
 const createSavedFilterSchema = z.object({
   name: z.string().min(1).max(100),
@@ -15,9 +15,11 @@ const updateSavedFilterSchema = z.object({
 });
 
 export async function savedFilterRoutes(fastify: FastifyInstance): Promise<void> {
+  applyDeclaredAuthPolicies(fastify);
+
   fastify.get<{ Params: { habitatId: string } }>(
     '/habitats/:habitatId/saved-filters',
-    { preHandler: agentOrHumanAuth },
+    { config: { authPolicy: "local_actor" } },
     async (request: FastifyRequest<{ Params: { habitatId: string } }>, _reply: FastifyReply) => {
       const userId = request.user?.id ?? request.agent?.id ?? 'anonymous';
       const filters = savedFilterRepo.getSavedFilters(request.params.habitatId, userId);
@@ -27,7 +29,7 @@ export async function savedFilterRoutes(fastify: FastifyInstance): Promise<void>
 
   fastify.post<{ Params: { habitatId: string }; Body: { name: string; filterConfig: Record<string, unknown> } }>(
     '/habitats/:habitatId/saved-filters',
-    { preHandler: agentOrHumanAuth },
+    { config: { authPolicy: "local_actor" } },
     async (request, reply) => {
       const parsed = createSavedFilterSchema.safeParse(request.body);
       if (!parsed.success) {
@@ -48,7 +50,7 @@ export async function savedFilterRoutes(fastify: FastifyInstance): Promise<void>
 
   fastify.put<{ Params: { id: string }; Body: { name: string; filterConfig: Record<string, unknown> } }>(
     '/saved-filters/:id',
-    { preHandler: agentOrHumanAuth },
+    { config: { authPolicy: "local_actor" } },
     async (request, _reply) => {
       const parsed = updateSavedFilterSchema.safeParse(request.body);
       if (!parsed.success) {
@@ -71,7 +73,7 @@ export async function savedFilterRoutes(fastify: FastifyInstance): Promise<void>
 
   fastify.delete<{ Params: { id: string } }>(
     '/saved-filters/:id',
-    { preHandler: agentOrHumanAuth },
+    { config: { authPolicy: "local_actor" } },
     async (request: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) => {
       const existing = savedFilterRepo.getSavedFilterById(request.params.id);
       if (!existing) {

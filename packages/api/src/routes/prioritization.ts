@@ -1,6 +1,5 @@
 import type { FastifyInstance, FastifyRequest, FastifyReply } from "fastify";
 import { z } from "zod";
-import { humanAuth, agentOrHumanAuth } from "../middleware/auth.js";
 import { requireHabitatAccess } from "../middleware/team.js";
 import * as prioritizationService from "../services/prioritizationService.js";
 import * as taskRepo from "../repositories/task.js";
@@ -10,6 +9,7 @@ import { publishHabitatUpdate } from "../services/habitatService.js";
 
 import type { PrioritizationSettings } from "../models/index.js";
 import type { PrioritizationRuleCondition } from "../models/index.js";
+import { applyDeclaredAuthPolicies } from "../authPolicy.js";
 
 const PRIORITY_REPORT_DEFAULT_LIMIT = 500;
 const PRIORITY_REPORT_MAX_LIMIT = 2000;
@@ -61,9 +61,11 @@ const updateRulesSchema = z.object({
 });
 
 export async function prioritizationRoutes(fastify: FastifyInstance): Promise<void> {
+  applyDeclaredAuthPolicies(fastify);
+
   fastify.get(
     "/habitats/:habitatId/rules",
-    { preHandler: [agentOrHumanAuth, requireHabitatAccess] },
+    { preHandler: [requireHabitatAccess], config: { authPolicy: "local_actor" } },
     async (request: FastifyRequest, _reply: FastifyReply) => {
       const params = request.params as { habitatId: string };
       const settings = prioritizationService.getPrioritizationRules(params.habitatId);
@@ -73,7 +75,7 @@ export async function prioritizationRoutes(fastify: FastifyInstance): Promise<vo
 
   fastify.put(
     "/habitats/:habitatId/rules",
-    { preHandler: [humanAuth, requireHabitatAccess] },
+    { preHandler: [requireHabitatAccess], config: { authPolicy: "human" } },
     async (request: FastifyRequest, reply: FastifyReply) => {
       const params = request.params as { habitatId: string };
       const parsed = updateRulesSchema.safeParse(request.body);
@@ -108,7 +110,7 @@ export async function prioritizationRoutes(fastify: FastifyInstance): Promise<vo
 
   fastify.post(
     "/habitats/:habitatId/rules/evaluate",
-    { preHandler: [humanAuth, requireHabitatAccess] },
+    { preHandler: [requireHabitatAccess], config: { authPolicy: "human" } },
     async (request: FastifyRequest, _reply: FastifyReply) => {
       const params = request.params as { habitatId: string };
       const result = prioritizationService.applyPrioritization(params.habitatId);
@@ -118,7 +120,7 @@ export async function prioritizationRoutes(fastify: FastifyInstance): Promise<vo
 
   fastify.get(
     "/habitats/:habitatId/priority-report",
-    { preHandler: [agentOrHumanAuth, requireHabitatAccess] },
+    { preHandler: [requireHabitatAccess], config: { authPolicy: "local_actor" } },
     async (request: FastifyRequest, _reply: FastifyReply) => {
       const params = request.params as { habitatId: string };
       const query = request.query as { limit?: string };

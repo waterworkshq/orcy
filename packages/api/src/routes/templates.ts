@@ -4,7 +4,6 @@ import type { AuditActorRef, AuditSource, CausalContext } from "@orcy/shared";
 import * as templateRepo from "../repositories/template.js";
 import * as missionRepo from "../repositories/mission.js";
 import { tasks, workflows, taskCreationEnvelopes } from "../db/schema/index.js";
-import { humanAuth, agentOrHumanAuth } from "../middleware/auth.js";
 import { adminOnly } from "../middleware/rbac.js";
 import { z } from "zod";
 import { badRequest, notFound, forbidden, unprocessableEntity, conflict } from "../errors.js";
@@ -13,6 +12,7 @@ import { prepareTemplateAggregate } from "../services/templateAggregatePreparati
 import { publishTemplateAggregateWithClient } from "../services/templateAggregatePublication.js";
 import { reserveAttemptWithClient } from "../repositories/taskCreationAttempts.js";
 import { stableStringify, stableHash } from "@orcy/shared";
+import { applyDeclaredAuthPolicies } from "../authPolicy.js";
 
 const createTemplateSchema = z.object({
   name: z.string().min(1).max(100),
@@ -102,10 +102,12 @@ function sortRecordKeys(record: Record<string, string>): Record<string, string> 
  * Task template management — create, list, update, delete, and track usage.
  */
 export async function templateRoutes(fastify: FastifyInstance): Promise<void> {
+  applyDeclaredAuthPolicies(fastify);
+
   /** GET /habitats/:habitatId/templates - List templates for a board. Auth: agentOrHumanAuth. Returns { templates } */
   fastify.get<{ Params: { habitatId: string } }>(
     "/habitats/:habitatId/templates",
-    { preHandler: agentOrHumanAuth },
+    { config: { authPolicy: "local_actor" } },
     async (request: FastifyRequest<{ Params: { habitatId: string } }>, _reply: FastifyReply) => {
       const templates = templateRepo.getTemplatesByHabitatId(request.params.habitatId);
       return { templates };
@@ -115,7 +117,7 @@ export async function templateRoutes(fastify: FastifyInstance): Promise<void> {
   /** POST /habitats/:habitatId/templates - Create a template. Auth: humanAuth. Returns { template } */
   fastify.post<{ Params: { habitatId: string }; Body: z.infer<typeof createTemplateSchema> }>(
     "/habitats/:habitatId/templates",
-    { preHandler: humanAuth },
+    { config: { authPolicy: "human" } },
     async (
       request: FastifyRequest<{
         Params: { habitatId: string };
@@ -151,7 +153,7 @@ export async function templateRoutes(fastify: FastifyInstance): Promise<void> {
   /** PATCH /templates/:id - Update a template. Auth: humanAuth. Returns { template } or 404 */
   fastify.patch<{ Params: { id: string }; Body: z.infer<typeof updateTemplateSchema> }>(
     "/templates/:id",
-    { preHandler: humanAuth },
+    { config: { authPolicy: "human" } },
     async (
       request: FastifyRequest<{
         Params: { id: string };
@@ -187,7 +189,7 @@ export async function templateRoutes(fastify: FastifyInstance): Promise<void> {
   /** DELETE /templates/:id - Delete a template. Auth: humanAuth + adminOnly. Returns 204 or 404/403 */
   fastify.delete<{ Params: { id: string } }>(
     "/templates/:id",
-    { preHandler: [humanAuth, adminOnly] },
+    { preHandler: [adminOnly], config: { authPolicy: "human" } },
     async (request: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) => {
       const template = templateRepo.getTemplateById(request.params.id);
       if (!template) {
@@ -210,7 +212,7 @@ export async function templateRoutes(fastify: FastifyInstance): Promise<void> {
   /** POST /templates/:id/usage - Increment template usage count. Auth: agentOrHumanAuth. Returns { success: true } */
   fastify.post<{ Params: { id: string } }>(
     "/templates/:id/usage",
-    { preHandler: agentOrHumanAuth },
+    { config: { authPolicy: "local_actor" } },
     async (request: FastifyRequest<{ Params: { id: string } }>, _reply: FastifyReply) => {
       const template = templateRepo.getTemplateById(request.params.id);
       if (!template) {
@@ -228,7 +230,7 @@ export async function templateRoutes(fastify: FastifyInstance): Promise<void> {
     Body: z.infer<typeof applyTemplateSchema>;
   }>(
     "/missions/:missionId/apply-template/:templateId",
-    { preHandler: humanAuth },
+    { config: { authPolicy: "human" } },
     async (
       request: FastifyRequest<{
         Params: { missionId: string; templateId: string };

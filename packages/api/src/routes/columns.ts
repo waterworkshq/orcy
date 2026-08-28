@@ -6,14 +6,16 @@ import { createColumnSchema, updateColumnSchema, reorderColumnsSchema } from "..
 import type { CreateColumnInput, UpdateColumnInput } from "../models/schemas.js";
 import * as habitatRepo from "../repositories/habitat.js";
 import { sseBroadcaster } from "../sse/broadcaster.js";
-import { humanAuth } from "../middleware/auth.js";
 import { adminOnly } from "../middleware/rbac.js";
 import { notFound, badRequest, conflict, AppError } from "../errors.js";
+import { applyDeclaredAuthPolicies } from "../authPolicy.js";
 
 export async function columnRoutes(fastify: FastifyInstance): Promise<void> {
+  applyDeclaredAuthPolicies(fastify);
+
   fastify.post<{ Params: { habitatId: string }; Body: CreateColumnInput }>(
     "/habitats/:habitatId/columns",
-    { preHandler: humanAuth },
+    { config: { authPolicy: "human" } },
     async (
       request: FastifyRequest<{ Params: { habitatId: string }; Body: CreateColumnInput }>,
       reply: FastifyReply,
@@ -45,7 +47,7 @@ export async function columnRoutes(fastify: FastifyInstance): Promise<void> {
         params: z.object({ habitatId: z.string() }),
         body: reorderColumnsSchema,
       },
-      preHandler: [humanAuth, adminOnly],
+      preHandler: [adminOnly], config: { authPolicy: "human" },
     },
     async (request, reply) => {
       const { expectedOrder, desiredOrder } = request.body;
@@ -81,7 +83,7 @@ export async function columnRoutes(fastify: FastifyInstance): Promise<void> {
 
   fastify.patch<{ Params: { id: string }; Body: UpdateColumnInput }>(
     "/columns/:id",
-    { preHandler: humanAuth },
+    { config: { authPolicy: "human" } },
     async (
       request: FastifyRequest<{ Params: { id: string }; Body: UpdateColumnInput }>,
       _reply: FastifyReply,
@@ -102,7 +104,7 @@ export async function columnRoutes(fastify: FastifyInstance): Promise<void> {
 
   fastify.delete<{ Params: { id: string } }>(
     "/columns/:id",
-    { preHandler: [humanAuth, adminOnly] },
+    { preHandler: [adminOnly], config: { authPolicy: "human" } },
     async (request: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) => {
       const column = columnRepo.getColumnById(request.params.id);
       if (!column) {

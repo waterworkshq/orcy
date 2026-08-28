@@ -78,9 +78,9 @@ import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
 import { taskCreationEnvelopes } from "../db/schema/index.js";
+import { applyDeclaredAuthPolicies } from "../authPolicy.js";
 import { eq } from "drizzle-orm";
 import { getDb } from "../db/index.js";
-import { agentOrHumanAuth } from "../middleware/auth.js";
 import { checkHabitatAccess } from "../middleware/realtimeAuth.js";
 import { forbidden, notFound, unprocessableEntity } from "../errors.js";
 import { clonePublicationSchema, type ClonePublicationInput } from "../models/schemas.js";
@@ -102,6 +102,8 @@ const clonePublicationParamsSchema = z.object({ sourceTaskId: z.string() });
 // carries no `taskId`.
 
 export async function taskClonePublicationRoutes(fastify: FastifyInstance): Promise<void> {
+  applyDeclaredAuthPolicies(fastify);
+
   // ---------------------------------------------------------------------
   // (a) GET /tasks/:sourceTaskId/clone-preparation
   //
@@ -114,7 +116,7 @@ export async function taskClonePublicationRoutes(fastify: FastifyInstance): Prom
     "/tasks/:sourceTaskId/clone-preparation",
     {
       schema: { params: clonePreparationParamsSchema },
-      preHandler: agentOrHumanAuth,
+      config: { authPolicy: "local_actor" },
     },
     async (request, _reply) => {
       const { sourceTaskId } = request.params;
@@ -153,7 +155,7 @@ export async function taskClonePublicationRoutes(fastify: FastifyInstance): Prom
     "/tasks/:sourceTaskId/clone-publications",
     {
       schema: { params: clonePublicationParamsSchema, body: clonePublicationSchema },
-      preHandler: agentOrHumanAuth,
+      config: { authPolicy: "local_actor" },
     },
     async (request, reply) => {
       const parsed: ClonePublicationInput = request.body;

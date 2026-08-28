@@ -6,6 +6,7 @@ interface CapturedRoute {
   path: string;
   preHandler: any[];
   handler: any;
+  authPolicy: any;
 }
 
 const { mockGetScheduledTaskById, mockGetScheduledTasksByHabitatId, mockCreateScheduledTask, mockUpdateScheduledTask, mockDeleteScheduledTask, mockCalculateNextRun, mockExecuteScheduledTask } = vi.hoisted(() => ({
@@ -80,6 +81,8 @@ const { mockHumanAuth, mockAgentOrHumanAuth, mockRequireHabitatAccess } = vi.hoi
 vi.mock('../middleware/auth.js', () => ({
   humanAuth: mockHumanAuth,
   agentOrHumanAuth: mockAgentOrHumanAuth,
+  agentAuth: async () => {},
+  registrationAuth: async () => {},
 }));
 
 vi.mock('../middleware/team.js', () => ({
@@ -90,26 +93,29 @@ vi.mock('../errors.js', () => ({
   notFound: (msg: string) => new Error(msg),
   forbidden: (msg: string) => new Error(msg),
   unauthorized: (msg: string) => new Error(msg),
+  badRequest: (msg: string) => new Error(msg),
+  AppError: class AppError extends Error {},
 }));
 
 function captureScheduledTaskRoutes(): CapturedRoute[] {
   const routes: CapturedRoute[] = [];
   const fakeFastify: any = {
+    addHook: vi.fn(),
     get: vi.fn((path: string, opts: any, handler: any) => {
       const preHandler = opts?.preHandler;
-      routes.push({ method: 'GET', path, preHandler: Array.isArray(preHandler) ? preHandler : preHandler ? [preHandler] : [], handler });
+      routes.push({ method: 'GET', path, preHandler: Array.isArray(preHandler) ? preHandler : preHandler ? [preHandler] : [], handler, authPolicy: opts?.config?.authPolicy });
     }),
     post: vi.fn((path: string, opts: any, handler: any) => {
       const preHandler = opts?.preHandler;
-      routes.push({ method: 'POST', path, preHandler: Array.isArray(preHandler) ? preHandler : preHandler ? [preHandler] : [], handler });
+      routes.push({ method: 'POST', path, preHandler: Array.isArray(preHandler) ? preHandler : preHandler ? [preHandler] : [], handler, authPolicy: opts?.config?.authPolicy });
     }),
     patch: vi.fn((path: string, opts: any, handler: any) => {
       const preHandler = opts?.preHandler;
-      routes.push({ method: 'PATCH', path, preHandler: Array.isArray(preHandler) ? preHandler : preHandler ? [preHandler] : [], handler });
+      routes.push({ method: 'PATCH', path, preHandler: Array.isArray(preHandler) ? preHandler : preHandler ? [preHandler] : [], handler, authPolicy: opts?.config?.authPolicy });
     }),
     delete: vi.fn((path: string, opts: any, handler: any) => {
       const preHandler = opts?.preHandler;
-      routes.push({ method: 'DELETE', path, preHandler: Array.isArray(preHandler) ? preHandler : preHandler ? [preHandler] : [], handler });
+      routes.push({ method: 'DELETE', path, preHandler: Array.isArray(preHandler) ? preHandler : preHandler ? [preHandler] : [], handler, authPolicy: opts?.config?.authPolicy });
     }),
   };
   scheduledTaskRoutes(fakeFastify);
@@ -190,52 +196,52 @@ describe('scheduledTaskRoutes', () => {
 });
 
 describe('scheduled task route auth', () => {
-  it('POST /habitats/:habitatId/scheduled-tasks uses humanAuth', () => {
+  it('POST /habitats/:habitatId/scheduled-tasks declares human policy', () => {
     const routes = captureScheduledTaskRoutes();
     const create = routes.find(r => r.method === 'POST' && r.path === '/habitats/:habitatId/scheduled-tasks');
-    expect(create!.preHandler).toContain(mockHumanAuth);
+    expect(create!.authPolicy).toBe('human');
   });
 
-  it('GET /habitats/:habitatId/scheduled-tasks uses agentOrHumanAuth', () => {
+  it('GET /habitats/:habitatId/scheduled-tasks declares local_actor policy', () => {
     const routes = captureScheduledTaskRoutes();
     const list = routes.find(r => r.method === 'GET' && r.path === '/habitats/:habitatId/scheduled-tasks');
-    expect(list!.preHandler).toContain(mockAgentOrHumanAuth);
+    expect(list!.authPolicy).toBe('local_actor');
   });
 
-  it('GET /scheduled-tasks/:id uses agentOrHumanAuth', () => {
+  it('GET /scheduled-tasks/:id declares local_actor policy', () => {
     const routes = captureScheduledTaskRoutes();
     const get = routes.find(r => r.method === 'GET' && r.path === '/scheduled-tasks/:id');
-    expect(get!.preHandler).toContain(mockAgentOrHumanAuth);
+    expect(get!.authPolicy).toBe('local_actor');
   });
 
-  it('PATCH /scheduled-tasks/:id uses humanAuth', () => {
+  it('PATCH /scheduled-tasks/:id declares human policy', () => {
     const routes = captureScheduledTaskRoutes();
     const patch = routes.find(r => r.method === 'PATCH' && r.path === '/scheduled-tasks/:id');
-    expect(patch!.preHandler).toContain(mockHumanAuth);
+    expect(patch!.authPolicy).toBe('human');
   });
 
-  it('DELETE /scheduled-tasks/:id uses humanAuth', () => {
+  it('DELETE /scheduled-tasks/:id declares human policy', () => {
     const routes = captureScheduledTaskRoutes();
     const del = routes.find(r => r.method === 'DELETE' && r.path === '/scheduled-tasks/:id');
-    expect(del!.preHandler).toContain(mockHumanAuth);
+    expect(del!.authPolicy).toBe('human');
   });
 
-  it('POST /scheduled-tasks/:id/run uses humanAuth', () => {
+  it('POST /scheduled-tasks/:id/run declares human policy', () => {
     const routes = captureScheduledTaskRoutes();
     const run = routes.find(r => r.method === 'POST' && r.path === '/scheduled-tasks/:id/run');
-    expect(run!.preHandler).toContain(mockHumanAuth);
+    expect(run!.authPolicy).toBe('human');
   });
 
-  it('POST /scheduled-tasks/:id/enable uses humanAuth', () => {
+  it('POST /scheduled-tasks/:id/enable declares human policy', () => {
     const routes = captureScheduledTaskRoutes();
     const enable = routes.find(r => r.method === 'POST' && r.path === '/scheduled-tasks/:id/enable');
-    expect(enable!.preHandler).toContain(mockHumanAuth);
+    expect(enable!.authPolicy).toBe('human');
   });
 
-  it('POST /scheduled-tasks/:id/disable uses humanAuth', () => {
+  it('POST /scheduled-tasks/:id/disable declares human policy', () => {
     const routes = captureScheduledTaskRoutes();
     const disable = routes.find(r => r.method === 'POST' && r.path === '/scheduled-tasks/:id/disable');
-    expect(disable!.preHandler).toContain(mockHumanAuth);
+    expect(disable!.authPolicy).toBe('human');
   });
 
   it('habitat-scoped endpoints require habitat access', () => {

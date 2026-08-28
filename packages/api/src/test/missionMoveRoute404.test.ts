@@ -16,6 +16,8 @@ import * as missionRepo from "../repositories/mission.js";
 vi.mock("../middleware/auth.js", () => ({
   agentOrHumanAuth: async () => {},
   humanAuth: async () => {},
+  agentAuth: async () => {},
+  registrationAuth: async () => {},
 }));
 
 vi.mock("../middleware/team.js", () => ({

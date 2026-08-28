@@ -47,6 +47,7 @@ interface CapturedRoute {
   method: string;
   path: string;
   preHandler: any;
+  authPolicy: any;
 }
 
 function captureHabitatRoutes(): CapturedRoute[] {
@@ -54,12 +55,16 @@ function captureHabitatRoutes(): CapturedRoute[] {
   const fakeFastify: any = {
     withTypeProvider: vi.fn(() => fakeFastify),
     register: vi.fn(),
+    // Route modules call the policy applier first; on a fake double its
+    // onRoute hook simply never fires (the declaration is captured instead).
+    addHook: vi.fn(),
     post: vi.fn((path: string, opts: any, _handler: any) => {
       const preHandler = opts?.preHandler;
       routes.push({
         method: "POST",
         path,
         preHandler: Array.isArray(preHandler) ? preHandler : preHandler ? [preHandler] : [],
+        authPolicy: opts?.config?.authPolicy,
       });
     }),
     get: vi.fn((path: string, opts: any, _handler: any) => {
@@ -68,6 +73,7 @@ function captureHabitatRoutes(): CapturedRoute[] {
         method: "GET",
         path,
         preHandler: Array.isArray(preHandler) ? preHandler : preHandler ? [preHandler] : [],
+        authPolicy: opts?.config?.authPolicy,
       });
     }),
     patch: vi.fn((path: string, opts: any, _handler: any) => {
@@ -76,6 +82,7 @@ function captureHabitatRoutes(): CapturedRoute[] {
         method: "PATCH",
         path,
         preHandler: Array.isArray(preHandler) ? preHandler : preHandler ? [preHandler] : [],
+        authPolicy: opts?.config?.authPolicy,
       });
     }),
     put: vi.fn((path: string, opts: any, _handler: any) => {
@@ -84,6 +91,7 @@ function captureHabitatRoutes(): CapturedRoute[] {
         method: "PUT",
         path,
         preHandler: Array.isArray(preHandler) ? preHandler : preHandler ? [preHandler] : [],
+        authPolicy: opts?.config?.authPolicy,
       });
     }),
     delete: vi.fn((path: string, opts: any, _handler: any) => {
@@ -92,6 +100,7 @@ function captureHabitatRoutes(): CapturedRoute[] {
         method: "DELETE",
         path,
         preHandler: Array.isArray(preHandler) ? preHandler : preHandler ? [preHandler] : [],
+        authPolicy: opts?.config?.authPolicy,
       });
     }),
   };
@@ -234,8 +243,10 @@ describe("requireHabitatAccess", () => {
     const routes = captureHabitatRoutes();
     const summaryRoute = routes.find((r) => r.path === "/habitats/:habitatId/summary");
     expect(summaryRoute).toBeDefined();
-    const preHandlerNames = summaryRoute!.preHandler.map((h: any) => h.name || String(h));
-    expect(preHandlerNames.length).toBeGreaterThanOrEqual(2);
+    // Authentication is installed from the declared policy (ADR-0049); the
+    // captured chain therefore holds the authorization middleware, and the
+    // declaration must name the policy whose guard runs in front of it.
+    expect(summaryRoute!.authPolicy).toBe("local_actor");
     const hasHabitatAccess = summaryRoute!.preHandler.some(
       (h: any) => h.name === "authorizeHabitatAccess" || h.name === "requireHabitatAccess",
     );

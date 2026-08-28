@@ -9,7 +9,6 @@ import type {
 } from "@orcy/shared";
 
 import * as codeEvidenceService from "../../services/codeEvidenceService.js";
-import { agentOrHumanAuth } from "../../middleware/auth.js";
 import * as eventRepo from "../../repositories/events/event-crud.js";
 import * as taskRepo from "../../repositories/task.js";
 import { badRequest, notFound } from "../../errors.js";
@@ -28,13 +27,16 @@ import {
   notApplicableSchema,
   taskIdParamsSchema,
 } from "./shared.js";
+import { applyDeclaredAuthPolicies } from "../../authPolicy.js";
 
 export async function taskCodeEvidenceRoutes(fastify: FastifyInstance): Promise<void> {
+  applyDeclaredAuthPolicies(fastify);
+
   fastify.withTypeProvider<ZodTypeProvider>().get(
     "/tasks/:taskId/code-evidence",
     {
       schema: { params: taskIdParamsSchema, querystring: includeHistoryQuerySchema },
-      preHandler: [agentOrHumanAuth],
+      config: { authPolicy: "local_actor" },
     },
     async (request) => {
       const task = taskRepo.getTaskById(request.params.taskId);
@@ -51,7 +53,7 @@ export async function taskCodeEvidenceRoutes(fastify: FastifyInstance): Promise<
     "/tasks/:taskId/code-evidence",
     {
       schema: { params: taskIdParamsSchema, body: linkCodeSchema },
-      preHandler: [agentOrHumanAuth],
+      config: { authPolicy: "local_actor" },
     },
     async (request) => {
       const { taskId } = request.params;
@@ -81,7 +83,7 @@ export async function taskCodeEvidenceRoutes(fastify: FastifyInstance): Promise<
     "/tasks/:taskId/code-evidence/:linkId/correct",
     {
       schema: { params: linkIdParamsSchema, body: correctLinkSchema },
-      preHandler: [agentOrHumanAuth],
+      config: { authPolicy: "local_actor" },
     },
     async (request) => {
       const { taskId, linkId } = request.params;
@@ -107,7 +109,7 @@ export async function taskCodeEvidenceRoutes(fastify: FastifyInstance): Promise<
     "/tasks/:taskId/code-evidence/not-applicable",
     {
       schema: { params: taskIdParamsSchema, body: notApplicableSchema },
-      preHandler: [agentOrHumanAuth],
+      config: { authPolicy: "local_actor" },
     },
     async (request) => {
       const { taskId } = request.params;
@@ -133,7 +135,7 @@ export async function taskCodeEvidenceRoutes(fastify: FastifyInstance): Promise<
     "/tasks/:taskId/code-evidence/not-applicable",
     {
       schema: { params: taskIdParamsSchema },
-      preHandler: [agentOrHumanAuth],
+      config: { authPolicy: "local_actor" },
     },
     async (request) => {
       const { taskId } = request.params;
@@ -171,7 +173,7 @@ export async function taskCodeEvidenceRoutes(fastify: FastifyInstance): Promise<
     "/tasks/:taskId/code-evidence/gaps",
     {
       schema: { params: taskIdParamsSchema, body: gapSchema },
-      preHandler: [agentOrHumanAuth],
+      config: { authPolicy: "local_actor" },
     },
     async (request) => {
       const { taskId } = request.params;
@@ -198,7 +200,7 @@ export async function taskCodeEvidenceRoutes(fastify: FastifyInstance): Promise<
     "/tasks/:taskId/code-evidence/gaps/:gapId/resolve",
     {
       schema: { params: gapIdParamsSchema, body: gapResolveSchema },
-      preHandler: [agentOrHumanAuth],
+      config: { authPolicy: "local_actor" },
     },
     async (request) => {
       const { taskId, gapId } = request.params;

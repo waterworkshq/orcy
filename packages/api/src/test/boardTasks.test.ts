@@ -308,14 +308,14 @@ describe('habitat tasks route integration', () => {
 });
 
 describe('batch route auth fix', () => {
-  it('batch route uses agentOrHumanAuth instead of agentAuth', async () => {
+  it('batch route declares local_actor policy instead of agent-only auth', async () => {
     const fs = await import('fs');
     const path = await import('path');
     const batchContent = fs.readFileSync(
       path.resolve(process.cwd(), 'src/routes/tasks/batch.ts'),
       'utf-8'
     );
-    expect(batchContent).toContain('agentOrHumanAuth');
+    expect(batchContent).toContain('authPolicy: "local_actor"');
     expect(batchContent).not.toContain('import { agentAuth }');
   });
 });

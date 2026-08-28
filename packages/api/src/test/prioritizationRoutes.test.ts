@@ -6,22 +6,24 @@ interface CapturedRoute {
   path: string;
   preHandler: any[];
   handler: any;
+  authPolicy: any;
 }
 
 function capturePrioritizationRoutes(): CapturedRoute[] {
   const routes: CapturedRoute[] = [];
   const fakeFastify: any = {
+    addHook: vi.fn(),
     get: vi.fn((path: string, opts: any, handler: any) => {
       const preHandler = opts?.preHandler;
-      routes.push({ method: 'GET', path, preHandler: Array.isArray(preHandler) ? preHandler : preHandler ? [preHandler] : [], handler });
+      routes.push({ method: 'GET', path, preHandler: Array.isArray(preHandler) ? preHandler : preHandler ? [preHandler] : [], handler, authPolicy: opts?.config?.authPolicy });
     }),
     put: vi.fn((path: string, opts: any, handler: any) => {
       const preHandler = opts?.preHandler;
-      routes.push({ method: 'PUT', path, preHandler: Array.isArray(preHandler) ? preHandler : preHandler ? [preHandler] : [], handler });
+      routes.push({ method: 'PUT', path, preHandler: Array.isArray(preHandler) ? preHandler : preHandler ? [preHandler] : [], handler, authPolicy: opts?.config?.authPolicy });
     }),
     post: vi.fn((path: string, opts: any, handler: any) => {
       const preHandler = opts?.preHandler;
-      routes.push({ method: 'POST', path, preHandler: Array.isArray(preHandler) ? preHandler : preHandler ? [preHandler] : [], handler });
+      routes.push({ method: 'POST', path, preHandler: Array.isArray(preHandler) ? preHandler : preHandler ? [preHandler] : [], handler, authPolicy: opts?.config?.authPolicy });
     }),
   };
   prioritizationRoutes(fakeFastify);
@@ -66,6 +68,8 @@ vi.mock('../repositories/task.js', () => ({
 vi.mock('../middleware/auth.js', () => ({
   humanAuth: vi.fn((_req: any, _reply: any, done: any) => done()),
   agentOrHumanAuth: vi.fn((_req: any, _reply: any, done: any) => done()),
+  agentAuth: vi.fn((_req: any, _reply: any, done: any) => done()),
+  registrationAuth: vi.fn((_req: any, _reply: any, done: any) => done()),
 }));
 
 vi.mock('../middleware/team.js', () => ({
@@ -116,33 +120,29 @@ describe('prioritizationRoutes', () => {
   });
 });
 
-describe('prioritization route auth', () => {
-  it('GET /rules uses agentOrHumanAuth', async () => {
-    const { agentOrHumanAuth } = await import('../middleware/auth.js');
+describe('prioritization route auth declarations', () => {
+  it('GET /rules declares local_actor policy', () => {
     const routes = capturePrioritizationRoutes();
     const getRules = routes.find(r => r.method === 'GET' && r.path === '/habitats/:habitatId/rules');
-    expect(getRules!.preHandler).toContain(agentOrHumanAuth);
+    expect(getRules!.authPolicy).toBe('local_actor');
   });
 
-  it('PUT /rules uses humanAuth', async () => {
-    const { humanAuth } = await import('../middleware/auth.js');
+  it('PUT /rules declares human policy', () => {
     const routes = capturePrioritizationRoutes();
     const putRules = routes.find(r => r.method === 'PUT' && r.path === '/habitats/:habitatId/rules');
-    expect(putRules!.preHandler).toContain(humanAuth);
+    expect(putRules!.authPolicy).toBe('human');
   });
 
-  it('POST /rules/evaluate uses humanAuth', async () => {
-    const { humanAuth } = await import('../middleware/auth.js');
+  it('POST /rules/evaluate declares human policy', () => {
     const routes = capturePrioritizationRoutes();
     const evaluate = routes.find(r => r.method === 'POST' && r.path === '/habitats/:habitatId/rules/evaluate');
-    expect(evaluate!.preHandler).toContain(humanAuth);
+    expect(evaluate!.authPolicy).toBe('human');
   });
 
-  it('GET /priority-report uses agentOrHumanAuth', async () => {
-    const { agentOrHumanAuth } = await import('../middleware/auth.js');
+  it('GET /priority-report declares local_actor policy', () => {
     const routes = capturePrioritizationRoutes();
     const report = routes.find(r => r.method === 'GET' && r.path === '/habitats/:habitatId/priority-report');
-    expect(report!.preHandler).toContain(agentOrHumanAuth);
+    expect(report!.authPolicy).toBe('local_actor');
   });
 
   it('all endpoints require habitat access', async () => {

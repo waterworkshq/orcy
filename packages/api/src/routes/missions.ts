@@ -12,7 +12,6 @@ import {
   missionQuerySchema,
   moveMissionSchema,
 } from "../models/schemas.js";
-import { agentOrHumanAuth, humanAuth } from "../middleware/auth.js";
 import { requireHabitatAccess, requireMissionAccess } from "../middleware/team.js";
 import {
   badRequest,
@@ -22,16 +21,19 @@ import {
   internalError,
   AppError,
 } from "../errors.js";
+import { applyDeclaredAuthPolicies } from "../authPolicy.js";
 
 const habitatIdParamsSchema = z.object({ habitatId: z.string() });
 const missionIdParamsSchema = z.object({ missionId: z.string() });
 
 export async function missionRoutes(fastify: FastifyInstance): Promise<void> {
+  applyDeclaredAuthPolicies(fastify);
+
   fastify.withTypeProvider<ZodTypeProvider>().post(
     "/habitats/:habitatId/missions",
     {
       schema: { params: habitatIdParamsSchema, body: createMissionSchema },
-      preHandler: [agentOrHumanAuth, requireHabitatAccess],
+      preHandler: [requireHabitatAccess], config: { authPolicy: "local_actor" },
     },
     async (request, reply) => {
       const parsed = request.body;
@@ -64,7 +66,7 @@ export async function missionRoutes(fastify: FastifyInstance): Promise<void> {
     "/habitats/:habitatId/missions",
     {
       schema: { params: habitatIdParamsSchema, querystring: missionQuerySchema },
-      preHandler: [agentOrHumanAuth, requireHabitatAccess],
+      preHandler: [requireHabitatAccess], config: { authPolicy: "local_actor" },
     },
     async (request, _reply) => {
       const parsed = request.query;
@@ -85,7 +87,7 @@ export async function missionRoutes(fastify: FastifyInstance): Promise<void> {
     .withTypeProvider<ZodTypeProvider>()
     .get(
       "/missions/:missionId",
-      { schema: { params: missionIdParamsSchema }, preHandler: agentOrHumanAuth },
+      { schema: { params: missionIdParamsSchema }, config: { authPolicy: "local_actor" } },
       async (request, _reply) => {
         const mission = missionService.getMissionWithProgress(request.params.missionId);
         if (!mission) {
@@ -99,7 +101,7 @@ export async function missionRoutes(fastify: FastifyInstance): Promise<void> {
     .withTypeProvider<ZodTypeProvider>()
     .get(
       "/missions/:missionId/details",
-      { schema: { params: missionIdParamsSchema }, preHandler: agentOrHumanAuth },
+      { schema: { params: missionIdParamsSchema }, config: { authPolicy: "local_actor" } },
       async (request, _reply) => {
         const mission = missionService.getMissionWithProgress(request.params.missionId);
         if (!mission) {
@@ -132,7 +134,7 @@ export async function missionRoutes(fastify: FastifyInstance): Promise<void> {
     "/missions/:missionId",
     {
       schema: { params: missionIdParamsSchema, body: updateMissionSchema },
-      preHandler: [agentOrHumanAuth, requireMissionAccess],
+      preHandler: [requireMissionAccess], config: { authPolicy: "local_actor" },
     },
     async (request, reply) => {
       const parsed = request.body;
@@ -181,7 +183,7 @@ export async function missionRoutes(fastify: FastifyInstance): Promise<void> {
     .withTypeProvider<ZodTypeProvider>()
     .post(
       "/missions/:missionId/archive",
-      { schema: { params: missionIdParamsSchema }, preHandler: agentOrHumanAuth },
+      { schema: { params: missionIdParamsSchema }, config: { authPolicy: "local_actor" } },
       async (request, _reply) => {
         const actorId = request.agent?.id ?? request.user?.id ?? "anonymous";
         const result = missionService.archiveMission(request.params.missionId, actorId);
@@ -206,7 +208,7 @@ export async function missionRoutes(fastify: FastifyInstance): Promise<void> {
     .withTypeProvider<ZodTypeProvider>()
     .post(
       "/missions/:missionId/unarchive",
-      { schema: { params: missionIdParamsSchema }, preHandler: agentOrHumanAuth },
+      { schema: { params: missionIdParamsSchema }, config: { authPolicy: "local_actor" } },
       async (request, _reply) => {
         const actorId = request.agent?.id ?? request.user?.id ?? "anonymous";
         const result = missionService.unarchiveMission(request.params.missionId, actorId);
@@ -223,7 +225,7 @@ export async function missionRoutes(fastify: FastifyInstance): Promise<void> {
     .withTypeProvider<ZodTypeProvider>()
     .delete(
       "/missions/:missionId",
-      { schema: { params: missionIdParamsSchema }, preHandler: agentOrHumanAuth },
+      { schema: { params: missionIdParamsSchema }, config: { authPolicy: "local_actor" } },
       async (request, reply) => {
         const actorId = request.agent?.id ?? request.user?.id ?? "anonymous";
         const actorType = request.agent ? "agent" : "human";
@@ -251,7 +253,7 @@ export async function missionRoutes(fastify: FastifyInstance): Promise<void> {
     "/missions/:missionId/move",
     {
       schema: { params: missionIdParamsSchema, body: moveMissionSchema },
-      preHandler: [agentOrHumanAuth, requireMissionAccess],
+      preHandler: [requireMissionAccess], config: { authPolicy: "local_actor" },
     },
     async (request, reply) => {
       const parsed = request.body;
@@ -287,7 +289,7 @@ export async function missionRoutes(fastify: FastifyInstance): Promise<void> {
     .withTypeProvider<ZodTypeProvider>()
     .get(
       "/missions/:missionId/tasks",
-      { schema: { params: missionIdParamsSchema }, preHandler: agentOrHumanAuth },
+      { schema: { params: missionIdParamsSchema }, config: { authPolicy: "local_actor" } },
       async (request, _reply) => {
         const mission = missionRepo.getMissionById(request.params.missionId);
         if (!mission) {
@@ -303,7 +305,7 @@ export async function missionRoutes(fastify: FastifyInstance): Promise<void> {
     .withTypeProvider<ZodTypeProvider>()
     .get(
       "/missions/:missionId/progress",
-      { schema: { params: missionIdParamsSchema }, preHandler: agentOrHumanAuth },
+      { schema: { params: missionIdParamsSchema }, config: { authPolicy: "local_actor" } },
       async (request, _reply) => {
         const mission = missionRepo.getMissionById(request.params.missionId);
         if (!mission) {
@@ -322,7 +324,7 @@ export async function missionRoutes(fastify: FastifyInstance): Promise<void> {
     .withTypeProvider<ZodTypeProvider>()
     .post(
       "/missions/:missionId/decompose",
-      { schema: { params: missionIdParamsSchema }, preHandler: [humanAuth, requireMissionAccess] },
+      { schema: { params: missionIdParamsSchema }, preHandler: [requireMissionAccess], config: { authPolicy: "human" } },
       async (request, _reply) => {
         const mission = missionRepo.getMissionById(request.params.missionId);
         if (!mission) {
