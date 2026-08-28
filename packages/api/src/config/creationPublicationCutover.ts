@@ -23,8 +23,8 @@
  * registered (a request 404s — true dormancy, not a runtime gate). When on
  * (T11 / tests), they register and behave as today.
  *
- * Read at route-registration time (inside `registerApiRoutes` in `index.ts`
- * + `taskRoutes` in `routes/tasks/index.ts`); toggling requires a process
+ * Read at route-registration time (inside the assembly's `registerApiRoutes`
+ * in `httpApp.ts` + `taskRoutes` in `routes/tasks/index.ts`); toggling requires a process
  * restart — routes are fixed for the process lifetime once registered, the
  * same way `ORCY_AUTOMATION_EXECUTE_ACTIONS` is read per-call but effectively
  * fixed within a boot cycle for route registration.

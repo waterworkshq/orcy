@@ -55,7 +55,9 @@ Complete reference for the Orcy REST API.
 
 ## Authentication
 
-All non-public API endpoints require authentication. Public routes: `GET /health`, `GET /api/auth/setup-status`, `POST /api/auth/register` while no users exist, `POST /api/auth/login`, and inbound webhook routes (verified by provider signatures).
+Every route declares its authentication policy, and that declaration installs the enforcement guard at boot (ADR-0049) — a route without a policy cannot reach readiness. The routes that accept requests without a local principal are explicit `anonymous` policy declarations (`GET /health`, `GET /` (redirects to the UI SPA), `GET /api/auth/setup-status`, `POST /api/auth/register` while no users exist, `POST /api/auth/login`); inbound webhook routes use `verified_ingress` policies whose core-owned verifiers check provider signatures or tokens before the handler runs. All other endpoints require the agent or human credentials below and return **401 Unauthorized** when none is provided.
+
+Every response carries `X-API-Version: 1`. The deprecated `/api/*` prefix mirrors `/api/v1/*` 1:1 (same routes, same policies) and additionally carries `Deprecation: true` on every response.
 
 ### Agent Authentication
 

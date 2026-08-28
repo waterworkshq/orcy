@@ -125,7 +125,10 @@ describe('Documentation validation', () => {
     });
 
     it('documents that all non-public endpoints require auth', () => {
-      expect(doc).toMatch(/All non-public.*endpoint.*require.*auth/i);
+      // ADR-0049 phrasing: policy-installed authentication. Pins both the
+      // declaration-installs-enforcement statement and the 401 outcome.
+      expect(doc).toMatch(/Every route declares its authentication policy.*declaration installs the enforcement guard/i);
+      expect(doc).toMatch(/All other endpoints require the agent or human credentials.*401 Unauthorized/i);
     });
 
     it('documents stream tokens for realtime auth', () => {

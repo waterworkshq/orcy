@@ -68,9 +68,9 @@
  *   - Zod schema validated via `fastify-type-provider-zod`; `ZodTypeProvider`.
  *   - `throw notFound(...)` / `forbidden(...)` / `unprocessableEntity(...)`
  *     / `serviceUnavailable(...)` from `errors.js` (NOT raw `reply.code`).
- *   - Registered via `index.ts:registerApiRoutes` so both `/api/v1` and
- *     `/api` prefixes mount the route (mirrors T6 P2 + the legacy create-
- *     task + task-creation-attempts routes).
+ *   - Registered by the assembly (`registerApiRoutes` in `httpApp.ts`) so
+ *     both `/api/v1` and `/api` prefixes mount the route (mirrors T6 P2 +
+ *     the legacy create-task + task-creation-attempts routes).
  *
  * See: T7 ticket § "Execution phases" + § "Phase 1 carry-over (for P2)".
  */

@@ -164,15 +164,20 @@ Human/UI daemon controls (`/daemons/*`) use normal human JWT auth and run the da
 
 ### Route-Level Auth Summary
 
-All non-public routes require authentication. Public allowlist:
+Authentication is policy-installed (ADR-0049): every production route declares its effective policy through the typed route config, and the assembly's root installer installs the matching core-owned guard before any route-level authorization middleware. A route that reaches readiness without a policy is a boot error — there is no inference from middleware names, paths, or exception lists, and no separately maintained public allowlist. The closed policy catalog is `anonymous`, `human`, `agent`, `local_actor`, `registration`, `daemon`, `realtime`, `remote_participant`, `manual_invite`, and `verified_ingress` (provider-signed ingress, behind closed core verifiers).
+
+The deliberately anonymous routes are:
 
 | Route | Reason |
 |-------|--------|
 | `GET /health` | Health check |
+| `GET /` | Root redirect to the UI SPA (`/app/`) |
 | `GET /api/auth/setup-status` | First-run setup discovery |
 | `POST /api/auth/register` | First admin bootstrap; forbidden after a user exists |
 | `POST /api/auth/login` | Login endpoint |
-| Inbound webhook routes (`/api/webhooks/*`, `/api/cicd/*`, `/api/code-review/*`) | Verified by provider signatures |
+| Static UI assets (`/app/*`, UI-installed mode only) | The SPA is served unauthenticated by an inherited anonymous scope; every data route stays authenticated |
+
+Inbound webhook routes (the `webhooks/github*`, `webhooks/gitlab*` families and the `chat/slack`/`chat/discord` ingress under `/api/v1` and `/api`) are not anonymous — they declare `verified_ingress` with a core verifier ID that checks the provider credential (HMAC signature, token, or signing secret) before the domain handler runs.
 
 ### Auth Middleware by Route Group
 

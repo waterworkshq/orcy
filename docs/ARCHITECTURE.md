@@ -43,6 +43,7 @@ This document covers the system architecture, design decisions, key flows, and i
 
 | Layer | Directory | Responsibility |
 |-------|-----------|---------------|
+| HTTP assembly | `src/httpApp.ts` | The single owner of the production HTTP surface (ADR-0049): Fastify construction, root hooks, policy installation, raw-body eligibility, both API prefix groups, realtime, Remote Participant, optional UI, and staged plugin route installation. The executable receives only a narrow runtime handle |
 | Routes | `src/routes/` | HTTP parsing, validation, response formatting. Includes daemon machine routes (`/daemon/*`), human/UI daemon controls (`/daemons/*`), and habitat skill routes (`/habitats/:id/skill/*`) |
 | Services | `src/services/` | Business logic, SSE broadcasting, webhook dispatch, AI features. Includes `featureService.ts`, `prioritizationService.ts`, `scheduledTaskService.ts`, `habitatSkillService.ts`, daemon nudges/digests, and `daemonEngine.ts` for the API in-process daemon runtime; `daemon-wiring.ts` provides lazy dynamic-import DI for the in-process daemon; `inProcessClaimStrategy.ts` implements the in-process claim path |
 | Repositories | `src/repositories/` | Drizzle-backed data access (habitat, mission, task, column, agent, daemon, comment, template, webhook, event-mission, habitatSkill) |
@@ -1750,3 +1751,44 @@ Accepted findings create at most one Habitat Wiki **draft** (never auto-publishe
 | `api/src/db/schema/learningLoop.ts` | 8 ledger tables |
 | `mcp/src/tools/learning.ts` + `learning-dispatch.ts` | `orcy_learning` MCP tool (`list_accepted`/`get`) |
 | `mcp/src/tools/instructions.ts` | Agent skill guide entry for `orcy_learning` |
+
+## HTTP Route Assembly (implementation complete; release pending)
+
+One staged assembly owns the production HTTP application (ADR-0049). `createHttpApplication` (`api/src/httpApp.ts`) constructs the Fastify instance and registers the entire core surface — root CORS/Helmet/error/audit hooks, the policy installer, raw-body capture, health/root, both local API prefix groups (`/api/v1` and deprecated `/api`, behaviorally paired), realtime (`/sse`), the Remote Participant API (`/api/shared`), and the optional static UI. The executable (`api/src/index.ts`) owns operational startup only (DB, caches, schedulers, workers, plugin discovery, daemon wiring, signals, shutdown) and receives a narrow runtime handle — staged plugin install, finalize, listen/inject, close, logging, and the derived inventory — never the `FastifyInstance` or any route registration capability.
+
+### Lifecycle (one-way, closed)
+
+```mermaid
+stateDiagram-v2
+  [*] --> core_registered
+  core_registered --> plugins_installed: installPluginRoutes(catalog) — exactly once, required
+  plugins_installed --> ready: finalize() — every route must carry effective policy
+  ready --> closed: close()
+```
+
+Repeated, skipped, or late plugin installation and repeated or late finalization are boot errors. A source-boundary guard test (`httpRouteAuthorityBoundary.test.ts`) enforces the ownership structurally: only the assembly imports `fastify` as a value, only sanctioned modules hold a Fastify instance type, the executable never mentions fastify at all, and `createHttpApplication` has exactly one production caller.
+
+### Policy-installed authentication
+
+Every route declares its effective policy through the typed route config (`config.authPolicy`); the root installer resolves the declaration, installs the core-owned guard at the preHandler stage (before route-level authorization middleware), and records the same policy in the inventory derived at `finalize`. The closed catalog: `anonymous`, `human`, `agent`, `local_actor`, `registration`, `daemon`, `realtime`, `remote_participant`, `manual_invite`, and `verified_ingress` (with a closed core verifier ID — the provider-signed ingress families of ADR-0028). Homogeneous scopes (`/api/shared`, realtime, Presence, the static UI) declare one inherited policy; a conflicting route-level declaration in such a scope is a boot error. Readiness is closed: a route without effective policy fails boot before listen. The sole exemption is the framework-owned CORS preflight catch-all, exempt by recorded reference — not by shape.
+
+Object-level authorization (`requireHabitatAccess`, `adminOnly`, remote action scopes, idempotency) stays in the route's own preHandler chain and runs after the installed guard; the catalog never absorbs it.
+
+### Production-derived inventory
+
+The route inventory is derived at `finalize` from the same registration stream that serves requests — there is no copied route list. The characterization suite pins it byte-for-byte against committed fixtures in API-only, UI-installed, and fixture-plugin modes; regeneration is gated behind `UPDATE_ROUTE_BASELINE=1`. In-process inventory tests and the compiled-startup suite (which builds and spawns `dist/index.js`) exercise the same assembly.
+
+### Wire headers
+
+`X-API-Version: 1` is stamped at `onSend` on every response, and the deprecated `/api` group additionally stamps `Deprecation: true` (also at `onSend`, so both actually reach the wire — the historical `onResponse` stamping never did; see the resolved RA-2 item in `docs/deferred/roadmap/README.md`).
+
+### Key Files
+
+| File | Role |
+|------|------|
+| `api/src/httpApp.ts` | Staged assembly: Fastify construction, every HTTP surface, lifecycle state machine, inventory derivation |
+| `api/src/authPolicy.ts` | Closed policy catalog, guard registry, verified-ingress verifiers, root installer + scope inheritance, closed readiness |
+| `api/src/index.ts` | Operational boot; narrow runtime handle only |
+| `api/src/plugins/pluginHttpRoutes.ts` | Single core installer for declared plugin routes (ADR-0050) |
+| `api/src/test/httpRouteAuthorityBoundary.test.ts` | Structural escape guard (import/instance/registration boundary) |
+| `api/src/test/routeSurfaceCharacterization.test.ts` | Behavior-derived baseline: fixture parity, prefix parity, verified ingress, header probes |

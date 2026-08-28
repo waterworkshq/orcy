@@ -201,7 +201,7 @@ Orcy pulls external tracker issues into habitat intake, where humans/orcys revie
 
 ### Extensibility
 
-- **Plugin system** — safe, local-drop-in plugin platform with manifest contract (5 contribution kinds), capability whitelist, per-habitat enrollment, lifecycle interceptors, and notification channel registry. 3 reference plugins shipped. In-tree Slack/Discord/in-app/webhook channels migrate to the plugin surface in v0.22.1. See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+- **Plugin system** — safe, local-drop-in plugin platform with manifest contract (9 contribution kinds, including declared `customHttpRoute` HTTP routes with core-owned auth), capability whitelist, per-habitat enrollment, lifecycle interceptors, and notification channel registry. 3 reference plugins shipped. In-tree Slack/Discord/in-app/webhook channels migrate to the plugin surface in v0.22.1. See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 - **Pod Bridge** — federate trust so another admin's pod can collaborate safely in a shared habitat. See the Pod Bridge row in [docs/CAPABILITIES.md](docs/CAPABILITIES.md).
 - **Restored Finding Triage Lifecycle** — one command kernel owns every Finding lifecycle write (ADR-0048): claim-bound agent routing into a single Corrective Mission (canonical `correctiveMissionId`), manual activation of the existing Mission (clears only its release gate), human-only terminal resolution, and immutable terminal history — recurrence opens a new row, never reopens a resolved one. Cluster intake publishes first-writer-frozen canonical occurrences so contending workers and template edits cannot duplicate work. See [docs/CAPABILITIES.md](docs/CAPABILITIES.md).
 - **Release-Aware Automation** — release shipping is a first-class automation trigger. When a release is detected (GitHub release webhook, CI/CD release-workflow completion, CLI, or REST), Orcy classifies it by semver type and freezes one immutable activation epoch (cap, eligible groups, exact Finding ids); deferred corrective missions activate through locked per-Mission reconciliation and completed epochs never reopen. `release.shipped` hands off to immutable Automation rule revisions through a durable fenced inbox with `attention_required` recovery for unprovable actions. A two-layer kill switch gates the activation projection; a retrospective pulse and `release.shipped` automation event fire on every detection. See [docs/CAPABILITIES.md](docs/CAPABILITIES.md).
@@ -212,6 +212,7 @@ Orcy pulls external tracker issues into habitat intake, where humans/orcys revie
 
 | Release | Theme |
 |---------|-------|
+| v0.41.0 (implementation complete; release pending) | [Authoritative HTTP Route Assembly](docs/ROADMAP.md) — one staged assembly owns the production HTTP surface; policy-installed authentication on every route; declared (not raw-callback) plugin HTTP routes; Presence authenticated and the unverified provider-invite route removed. |
 | Soon | Unscheduled seeds (integration OAuth/webhook extraction and similar) wait on demand. See [docs/ROADMAP.md](docs/ROADMAP.md). |
 | Architecture Optimization | Ongoing Architecture Work pertaining to investigated codebase opportunities |
 | npm publishing | GO LIVE on npm for the CLI, MCP server, and daemon for one command installer |

@@ -25,8 +25,8 @@
  *   - 404 via `notFound(...)` from `errors.js`, NOT a raw `reply.code`.
  *   - Typed not-found from the repository (`{ found: false }`) is mapped to
  *     the route 404 — the primitive stays domain-pure, the route owns HTTP.
- *   - Prefixed under `/api/v1` and `/api` via the existing `registerApiRoutes`
- *     indirection in `index.ts`.
+ *   - Prefixed under `/api/v1` and `/api` via the assembly's `registerApiRoutes`
+ *     indirection in `httpApp.ts`.
  */
 import type { FastifyInstance } from "fastify";
 import { checkHabitatAccess } from "../middleware/realtimeAuth.js";

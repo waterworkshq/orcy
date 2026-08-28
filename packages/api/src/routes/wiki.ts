@@ -96,7 +96,8 @@ function verifyPageHabitat(pageId: string, habitatId: string): void {
 /**
  * Wiki routes — pages, versions, links, search, and coverage markers. All routes
  * require an authenticated orcy (human or agent) per ADR-0009 (pure democracy). Mounted
- * under `/habitats/:habitatId/wiki/...` inside `registerApiRoutes`.
+ * under `/habitats/:habitatId/wiki/...` by the assembly's `registerApiRoutes`
+ * (`httpApp.ts`).
  */
 export async function wikiRoutes(fastify: FastifyInstance): Promise<void> {
   // Homogeneous module: every wiki route is a local actor with habitat access.
