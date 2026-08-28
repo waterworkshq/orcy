@@ -1,15 +1,21 @@
 import type { FastifyInstance, FastifyRequest, FastifyReply } from "fastify";
 import { sseBroadcaster } from "../sse/broadcaster.js";
-import { authenticateRealtime, authorizeHabitatAccess } from "../middleware/realtimeAuth.js";
+import { authorizeHabitatAccess } from "../middleware/realtimeAuth.js";
 import { isRemoteConnectionValid } from "../middleware/remoteAuth.js";
+import { inheritAuthPolicy } from "../authPolicy.js";
 import type { SSEEvent } from "../models/index.js";
 
 const SSE_REVALIDATION_INTERVAL_MS = 30_000;
 
 export async function sseRoutes(fastify: FastifyInstance): Promise<void> {
+  // Homogeneous realtime scope: every stream authenticates its actor (human
+  // token, agent key, or remote participant key) through the policy-installed
+  // guard; habitat authorization remains a separate later middleware.
+  inheritAuthPolicy(fastify, "realtime");
+
   fastify.get<{ Params: { habitatId: string } }>(
     "/habitats/:habitatId/stream",
-    { preHandler: [authenticateRealtime, authorizeHabitatAccess] },
+    { preHandler: [authorizeHabitatAccess] },
     async (request: FastifyRequest<{ Params: { habitatId: string } }>, reply: FastifyReply) => {
       const habitatId = request.params.habitatId;
       const remoteCtx = request.remoteParticipant;

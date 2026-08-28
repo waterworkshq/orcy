@@ -1,3 +1,4 @@
+import { applyDeclaredAuthPolicies } from "../authPolicy.js";
 import type { FastifyInstance, FastifyRequest, FastifyReply } from "fastify";
 import { z } from "zod";
 import bcrypt from "bcryptjs";
@@ -5,7 +6,6 @@ import jwt from "jsonwebtoken";
 import { getDb } from "../db/index.js";
 import { users } from "../db/schema/index.js";
 import { eq } from "drizzle-orm";
-import { humanAuth } from "../middleware/auth.js";
 import { getJwtSecret } from "../middleware/jwt-verification.js";
 import { badRequest, unauthorized } from "../errors.js";
 import {
@@ -35,8 +35,14 @@ const updateProfileSchema = z.object({
 });
 
 export async function authRoutes(fastify: FastifyInstance): Promise<void> {
+  // Heterogeneous module: routes declare policy individually; this applier
+  // installs their guards (a no-op on seam-constructed instances, where the
+  // root installer has already done so).
+  applyDeclaredAuthPolicies(fastify);
+
   fastify.post<{ Body: z.infer<typeof loginSchema> }>(
     "/auth/login",
+    { config: { authPolicy: "anonymous" } },
     async (
       request: FastifyRequest<{ Body: z.infer<typeof loginSchema> }>,
       _reply: FastifyReply,
@@ -86,7 +92,7 @@ export async function authRoutes(fastify: FastifyInstance): Promise<void> {
 
   fastify.get(
     "/auth/stream-token",
-    { preHandler: humanAuth },
+    { config: { authPolicy: "human" } },
     async (request: FastifyRequest, _reply: FastifyReply) => {
       const user = request.user!;
       const token = jwt.sign(
@@ -98,11 +104,14 @@ export async function authRoutes(fastify: FastifyInstance): Promise<void> {
     },
   );
 
-  fastify.get("/auth/setup-status", async () => {
+  fastify.get("/auth/setup-status", { config: { authPolicy: "anonymous" } }, async () => {
     return getSetupStatus();
   });
 
-  fastify.post("/auth/register", async (request: FastifyRequest, _reply: FastifyReply) => {
+  fastify.post(
+    "/auth/register",
+    { config: { authPolicy: "anonymous" } },
+    async (request: FastifyRequest, _reply: FastifyReply) => {
     const parsed = registerSchema.safeParse(request.body);
     if (!parsed.success) {
       throw badRequest("Invalid request");
@@ -113,18 +122,18 @@ export async function authRoutes(fastify: FastifyInstance): Promise<void> {
     return result;
   });
 
-  fastify.get("/auth/me", { preHandler: humanAuth }, async (request: FastifyRequest) => {
+  fastify.get("/auth/me", { config: { authPolicy: "human" } }, async (request: FastifyRequest) => {
     const user = request.user!;
     return getCurrentUserProfile(user);
   });
 
-  fastify.post("/auth/logout", { preHandler: humanAuth }, async () => {
+  fastify.post("/auth/logout", { config: { authPolicy: "human" } }, async () => {
     return { success: true };
   });
 
   fastify.post(
     "/auth/change-password",
-    { preHandler: humanAuth },
+    { config: { authPolicy: "human" } },
     async (request: FastifyRequest, _reply: FastifyReply) => {
       const parsed = changePasswordSchema.safeParse(request.body);
       if (!parsed.success) {
@@ -161,7 +170,7 @@ export async function authRoutes(fastify: FastifyInstance): Promise<void> {
 
   fastify.patch(
     "/auth/me",
-    { preHandler: humanAuth },
+    { config: { authPolicy: "human" } },
     async (request: FastifyRequest, _reply: FastifyReply) => {
       const parsed = updateProfileSchema.safeParse(request.body);
       if (!parsed.success) {

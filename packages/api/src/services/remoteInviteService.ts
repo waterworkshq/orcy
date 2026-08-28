@@ -7,7 +7,8 @@ import * as podRepo from "../repositories/remotePod.js";
 import * as participantRepo from "../repositories/remoteParticipant.js";
 import { badRequest, notFound, conflict, forbidden } from "../errors.js";
 
-const MANUAL_TOKEN_PREFIX = "orcy_invite_";
+/** Prefix every manual invite token carries; the manual_invite policy guard validates it. */
+export const MANUAL_TOKEN_PREFIX = "orcy_invite_";
 
 /** Input payload for {@link createManualInvite} describing the habitat, baseline standing/scopes, inviter, and optional pod display name and expiry. */
 export interface CreateManualInviteInput {
@@ -164,6 +165,25 @@ export interface InviteAcceptanceResult {
  * provisioning the corresponding remote pod and admin participant with the
  * invite's baseline {@link ParticipantStanding}.
  */
+/**
+ * Manual-invite credential resolution for the `manual_invite` auth policy:
+ * format check plus hash lookup, throwing the canonical 400s for malformed
+ * and unknown tokens. Route handlers consume the resolved row through
+ * `request.manualInvite`.
+ */
+export function lookupManualInviteByToken(token: string): RemoteInviteRow {
+  if (!token || !token.startsWith(MANUAL_TOKEN_PREFIX)) {
+    throw badRequest("Invalid invite token format", "INVALID_INVITE_TOKEN");
+  }
+
+  const tokenHash = hashToken(token);
+  const invite = inviteRepo.getRemoteInviteByTokenHash(tokenHash);
+  if (!invite) {
+    throw badRequest("Invite token not recognized", "INVITE_NOT_FOUND");
+  }
+  return invite;
+}
+
 export function acceptManualInvite(
   token: string,
   acceptedBy: string,
@@ -174,15 +194,20 @@ export function acceptManualInvite(
     podDescription?: string;
   },
 ): InviteAcceptanceResult {
-  if (!token || !token.startsWith(MANUAL_TOKEN_PREFIX)) {
-    throw badRequest("Invalid invite token format", "INVALID_INVITE_TOKEN");
-  }
+  return acceptInvite(lookupManualInviteByToken(token), acceptedBy, details);
+}
 
-  const tokenHash = hashToken(token);
-  const invite = inviteRepo.getRemoteInviteByTokenHash(tokenHash);
-  if (!invite) {
-    throw badRequest("Invite token not recognized", "INVITE_NOT_FOUND");
-  }
+/** Accepts an already-resolved invite row (the policy guard owns credential resolution). */
+export function acceptInvite(
+  invite: RemoteInviteRow,
+  acceptedBy: string,
+  details: {
+    podName: string;
+    participantDisplayName: string;
+    participantType?: "remote_human" | "remote_orcy";
+    podDescription?: string;
+  },
+): InviteAcceptanceResult {
   if (invite.status === "revoked") {
     throw forbidden("Invite has been revoked", "INVITE_REVOKED");
   }
@@ -269,15 +294,17 @@ export function previewInviteByToken(token: string): {
   expiresAt: string | null;
   status: string;
 } {
-  if (!token || !token.startsWith(MANUAL_TOKEN_PREFIX)) {
-    throw badRequest("Invalid invite token format", "INVALID_INVITE_TOKEN");
-  }
+  return previewInvite(lookupManualInviteByToken(token));
+}
 
-  const tokenHash = hashToken(token);
-  const invite = inviteRepo.getRemoteInviteByTokenHash(tokenHash);
-  if (!invite) {
-    throw badRequest("Invite token not recognized", "INVITE_NOT_FOUND");
-  }
+/** Previews an already-resolved invite row (the policy guard owns credential resolution). */
+export function previewInvite(invite: RemoteInviteRow): {
+  inviteType: string;
+  baselineStanding: string;
+  baselineScopes: string[];
+  expiresAt: string | null;
+  status: string;
+} {
   if (invite.status !== "pending") {
     throw badRequest(`Invite is ${invite.status}`, `INVITE_${invite.status.toUpperCase()}`);
   }

@@ -95,7 +95,7 @@ export async function handleGitHubWebhook(
   handlers: Record<string, EventHandler>,
   options?: { failClosed?: boolean },
 ): Promise<WebhookResponse> {
-  const { body, rawBody, event, signature } = params;
+  const { rawBody, event, signature } = params;
 
   if (!event) {
     return { statusCode: 400, body: { error: "Missing X-GitHub-Event header" } };
@@ -108,6 +108,27 @@ export async function handleGitHubWebhook(
     if (shouldReject) {
       return { statusCode: 401, body: { error: "Invalid or missing signature" } };
     }
+  }
+
+  return dispatchGitHubWebhook(params, handlers);
+}
+
+/**
+ * Dispatch tail of {@link handleGitHubWebhook} for requests whose credentials
+ * the verified-ingress policy guard has already resolved: event dispatch with
+ * the handler statusCode override, and the same 400 for a missing event.
+ */
+export async function dispatchGitHubWebhook(
+  params: {
+    body: Record<string, unknown>;
+    event: string | undefined;
+  },
+  handlers: Record<string, EventHandler>,
+): Promise<WebhookResponse> {
+  const { body, event } = params;
+
+  if (!event) {
+    return { statusCode: 400, body: { error: "Missing X-GitHub-Event header" } };
   }
 
   const handler = handlers[event];
@@ -149,6 +170,26 @@ export function handleGitLabWebhook(
     if (shouldReject) {
       return { statusCode: 401, body: { error: "Invalid or missing token" } };
     }
+  }
+
+  return dispatchGitLabWebhook({ body, objectKind }, handlers);
+}
+
+/**
+ * Dispatch tail of {@link handleGitLabWebhook} for requests whose credentials
+ * the verified-ingress policy guard has already resolved.
+ */
+export function dispatchGitLabWebhook(
+  params: {
+    body: Record<string, unknown>;
+    objectKind: string | undefined;
+  },
+  handlers: Record<string, EventHandler>,
+): WebhookResponse {
+  const { body, objectKind } = params;
+
+  if (!objectKind) {
+    return { statusCode: 400, body: { error: "Missing object_kind" } };
   }
 
   const handler = handlers[objectKind];

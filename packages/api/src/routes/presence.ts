@@ -7,7 +7,7 @@ import {
   getHabitatPresence,
   getPresenceEntry,
 } from '../sse/presence.js';
-import { humanAuth } from '../middleware/auth.js';
+import { inheritAuthPolicy } from '../authPolicy.js';
 import { checkHabitatAccess, requireHabitatAccess } from '../middleware/team.js';
 import { badRequest, forbidden } from '../errors.js';
 
@@ -61,6 +61,11 @@ function assertSessionOwnership(habitatId: string, sessionId: string, userId: st
  * viewer list). Presence identity is always derived from the authenticated user.
  */
 export async function presenceRoutes(fastify: FastifyInstance): Promise<void> {
+  // Homogeneous human scope (containment baseline): every presence route
+  // authenticates a local human through the policy-installed guard; identity
+  // is always derived from request.user.
+  inheritAuthPolicy(fastify, 'human');
+
   fastify.addContentTypeParser('application/json', { parseAs: 'string' }, (req, body, done) => {
     try {
       done(null, JSON.parse(body as string));
@@ -72,7 +77,6 @@ export async function presenceRoutes(fastify: FastifyInstance): Promise<void> {
   /** POST /presence/join - Register presence on a board. Requires human auth. Returns { success: true } */
   fastify.post(
     '/presence/join',
-    { preHandler: humanAuth },
     async (request: FastifyRequest, _reply: FastifyReply) => {
       const { sessionId, habitatId } = parseBody(joinSchema, request.body);
       const user = request.user!;
@@ -93,7 +97,6 @@ export async function presenceRoutes(fastify: FastifyInstance): Promise<void> {
   /** POST /presence/heartbeat - Send presence heartbeat. Requires human auth. Returns { success: true } */
   fastify.post(
     '/presence/heartbeat',
-    { preHandler: humanAuth },
     async (request: FastifyRequest, _reply: FastifyReply) => {
       const { sessionId, habitatId, viewingTaskId } = parseBody(heartbeatSchema, request.body);
       const user = request.user!;
@@ -110,7 +113,6 @@ export async function presenceRoutes(fastify: FastifyInstance): Promise<void> {
   /** POST /presence/leave - Leave a board session. Requires human auth. Returns { success: true } */
   fastify.post(
     '/presence/leave',
-    { preHandler: humanAuth },
     async (request: FastifyRequest, _reply: FastifyReply) => {
       const { sessionId, habitatId } = parseBody(leaveSchema, request.body);
       const user = request.user!;
@@ -128,7 +130,7 @@ export async function presenceRoutes(fastify: FastifyInstance): Promise<void> {
   /** GET /presence/viewers/:habitatId - Get active viewers on a board. Requires human auth + habitat access. Returns { viewers } */
   fastify.get<{ Params: { habitatId: string } }>(
     '/presence/viewers/:habitatId',
-    { preHandler: [humanAuth, requireHabitatAccess] },
+    { preHandler: [requireHabitatAccess] },
     async (request: FastifyRequest<{ Params: { habitatId: string } }>, _reply: FastifyReply) => {
       const { habitatId } = request.params;
       const viewers = getHabitatPresence(habitatId);

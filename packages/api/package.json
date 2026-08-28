@@ -44,6 +44,7 @@
     "jsonwebtoken": "^9.0.3",
     "nodemailer": "^8.0.5",
     "pino": "^9.0.0",
+    "tweetnacl": "^1.0.3",
     "undici": "^8.10.0",
     "uuid": "^14.0.0",
     "zod": "^3.25.76"

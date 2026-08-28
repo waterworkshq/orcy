@@ -16,17 +16,18 @@
  * an audit provenance probe route reading what the root audit hooks
  * established, and Remote Participant key rejection.
  *
- * Every verified-ingress family in `RAW_BODY_ROUTES` is exercised under BOTH
- * prefixes with its real credential model: HMAC families (code-review
- * GitHub, CI GitHub, GitHub issues, Slack v0) prove exact-byte acceptance
- * and altered-byte rejection; GitLab token families (code review + CI) prove
+ * Every verified-ingress family is exercised under BOTH prefixes with its
+ * real credential model: HMAC families (code-review GitHub, CI GitHub,
+ * GitHub issues, Slack v0, Discord Ed25519) prove exact-byte acceptance and
+ * altered-byte rejection; GitLab token families (code review + CI) prove
  * valid-token acceptance and invalid-token rejection — their raw body is
  * captured but not credential-bearing, and is recorded as such rather than
- * inventing a signature claim. The Discord Ed25519 family is pinned as
- * deployed: the compiled ESM verifier calls an unbound CommonJS
- * require('tweetnacl') AND tweetnacl is absent from the dependency graph,
- * so it rejects every signature (including correct ones) when a public key
- * is configured — a recorded finding, not something this ticket changes.
+ * inventing a signature claim. Raw-body eligibility and the verifier guards
+ * both derive from the policy declarations in `authPolicy.ts` (one
+ * declaration, no copied path list). The Discord Ed25519 verifier was
+ * repaired by the auth-policy ticket (ESM-safe tweetnacl import + runtime
+ * dependency): correctly signed requests now verify, and the policy
+ * readiness self-probe fails assembly if either cause ever regresses.
  *
  * Three modes are pinned against committed fixtures under
  * `src/test/fixtures/routeBaseline/`:
@@ -64,6 +65,11 @@ import {
   type HttpApp,
   type HookInstallationRecord,
 } from "../httpApp.js";
+import {
+  resolveEffectiveAuthPolicy,
+  formatEffectivePolicy,
+  type AuthPolicy,
+} from "../authPolicy.js";
 import { setJwtSecret } from "../middleware/jwt-verification.js";
 import { getAuditProvenanceMetadata } from "../services/auditProvenanceContext.js";
 import { closeDb, initTestDb } from "../db/index.js";
@@ -77,25 +83,13 @@ const FIXTURE_DIR = path.join(import.meta.dirname, "fixtures", "routeBaseline");
 const UPDATE_BASELINE = process.env.UPDATE_ROUTE_BASELINE === "1";
 
 /**
- * Authentication guards observable at the route level today. This is a
- * descriptive snapshot of current behavior (middleware function names), NOT
- * the future policy catalog — Ticket 03 replaces name inference with typed
- * policy declarations.
+ * Effective authentication policy is derived from the SAME declaration that
+ * installs the runtime guard (typed `config.authPolicy`, resolved through the
+ * policy module's resolver): one declaration, one classification. Routes that
+ * neither declare nor inherit a policy are explicitly `legacy_unclassified` —
+ * never silently classified by middleware function name or path regex. The
+ * migration ticket removes that state.
  */
-const AUTH_GUARD_KIND: Record<string, string> = {
-  humanAuth: "human",
-  agentAuth: "agent",
-  agentOrHumanAuth: "local_actor",
-  registrationAuth: "registration",
-  authenticateRealtime: "realtime",
-  daemonAuth: "daemon",
-};
-
-/** Scope-level authentication installed inside a route plugin, not the seam. */
-const SURFACE_SCOPE_AUTH: Record<string, string> = {
-  "api-shared": "remote_participant",
-};
-
 type RouteSource = "core" | "plugin" | "static" | "framework";
 
 interface RouteRecord {
@@ -138,16 +132,6 @@ function classifySurface(url: string): string {
   return "other";
 }
 
-function classifyAuth(surface: string, guardNames: string[]): string {
-  for (const name of guardNames) {
-    const kind = AUTH_GUARD_KIND[name];
-    if (kind) return kind;
-  }
-  const scopeAuth = SURFACE_SCOPE_AUTH[surface];
-  if (scopeAuth) return `${scopeAuth} (scope-level)`;
-  return "none-observed";
-}
-
 function handlerNames(preHandler: unknown): string[] {
   if (!preHandler) return [];
   const fns = Array.isArray(preHandler) ? preHandler : [preHandler];
@@ -183,22 +167,33 @@ async function buildObservedApp(options: {
   let pluginBoundaryReached = false;
   let routeCaptureClosed = false;
 
+  // Route-options references (not their config snapshots) are captured so
+  // scope-level inheritance — applied by scoped onRoute hooks AFTER this
+  // root-level observer, potentially creating the config object itself — is
+  // final when classification resolves below.
+  const recordRouteOptions = new Map<
+    RouteRecord,
+    { config?: { authPolicy?: AuthPolicy }; preHandler?: unknown }
+  >();
+
   app.addHook("onRoute", (routeOptions) => {
     if (routeCaptureClosed) return;
     const methods = Array.isArray(routeOptions.method)
       ? routeOptions.method
       : [routeOptions.method as string];
     for (const m of methods) {
-      records.push({
+      const record: RouteRecord = {
         method: m.toUpperCase(),
         path: routeOptions.url,
         surface: classifySurface(routeOptions.url),
-        guards: handlerNames(routeOptions.preHandler),
+        guards: [], // resolved post-ready, below, from the final installed chain
         authKind: "pending",
-        rawBodyEligible: (RAW_BODY_ROUTES as readonly string[]).includes(routeOptions.url),
+        rawBodyEligible: false,
         source: pluginBoundaryReached ? "plugin" : "core",
         generatedTwin: false,
-      });
+      };
+      records.push(record);
+      recordRouteOptions.set(record, routeOptions);
     }
   });
 
@@ -251,7 +246,17 @@ async function buildObservedApp(options: {
     if (rec.surface === "ui-static" && !rec.generatedTwin) {
       rec.source = "static";
     }
-    rec.authKind = classifyAuth(rec.surface, rec.guards);
+    const routeOptionsRef = recordRouteOptions.get(rec);
+    // Guards resolve from the FINAL installed preHandler chain: scoped
+    // inheritance installs its guard after this root-level observer ran, so
+    // an early snapshot would silently lose realtime/presence/remote guards.
+    // authKind (below) remains the authoritative policy classification;
+    // guards are independent mechanism evidence.
+    rec.guards = handlerNames(routeOptionsRef?.preHandler);
+    const policy = resolveEffectiveAuthPolicy(routeOptionsRef?.config);
+    rec.authKind = formatEffectivePolicy(policy);
+    // Raw-body eligibility follows the declared verifier, not a copied list.
+    rec.rawBodyEligible = typeof policy === "object" && policy.policy === "verified_ingress";
   }
 
   records.sort((a, b) => (a.method + " " + a.path).localeCompare(b.method + " " + b.path));
@@ -314,18 +319,19 @@ const BEHAVIOR_NOTES: string[] = [
     "clients on any prefix (pre-existing at the characterization commit; the " +
     "deprecation-header parity promise must be re-grounded on onSend when the " +
     "assembly extraction revisits it).",
-  "GET /plugins is agentOrHumanAuth-guarded today; the stale public-regex " +
-    "exception lives only in the legacy routeInventory inference, not in " +
-    "served behavior.",
-  "The Discord Ed25519 verifier is structurally inert for two stacked " +
-    "reasons: the compiled ESM module calls an unbound CommonJS " +
-    "require('tweetnacl') (ReferenceError in ESM, swallowed by the catch), " +
-    "and tweetnacl is additionally absent from the dependency graph. With " +
-    "DISCORD_PUBLIC_KEY configured every interaction (including correctly " +
-    "signed ones) is rejected 401; without a key, non-remote posture passes " +
-    "requests unverified. Adding the dependency alone does NOT repair " +
-    "verification — the import mechanism must be corrected too. Both are " +
-    "behavior changes owned by a later ticket.",
+  "GET /plugins is declared local_actor auth policy (guard installed by " +
+    "the policy registry); the stale public-regex exception lives only in " +
+    "the legacy routeInventory inference, which the route-policy migration " +
+    "ticket deletes.",
+  "The Discord Ed25519 verifier was structurally inert for two stacked " +
+    "reasons (unbound CommonJS require('tweetnacl') in compiled ESM, plus " +
+    "tweetnacl absent from the dependency graph), rejecting every signature " +
+    "when a key was configured. The auth-policy ticket repaired BOTH causes " +
+    "as an explicit characterized-defect correction: correctly signed " +
+    "interactions now verify under both prefixes, the configured-key / " +
+    "missing-key posture matrix and invalid-request response shape are " +
+    "unchanged, and the policy readiness self-probe fails assembly if the " +
+    "verifier ever regresses to inert.",
   "Slack slash-command traffic is form-encoded on the real wire, but a " +
     "validly signed application/x-www-form-urlencoded request returns 500 " +
     "(only application/json bodies complete); the app registers no formbody " +
@@ -846,14 +852,34 @@ describe("production route surface characterization", () => {
         expect(res.statusCode).toBe(500);
       });
 
-      it(`Discord interaction: correctly signed request is STILL rejected under ${prefix} (inert verifier)`, async () => {
-        // tweetnacl is absent from the dependency graph, so
-        // verifyDiscordSignature cannot accept anything: a mathematically
-        // correct Ed25519 signature over the exact bytes is rejected with
-        // 401 when a public key is configured. Pinned as-deployed; if the
-        // verifier is ever repaired, this probe flips and forces a conscious
-        // fixture/behavior update.
+      it(`Discord interaction: correctly signed request is accepted under ${prefix} (repaired verifier)`, async () => {
+        // The Ticket 03 defect correction: the verifier now imports tweetnacl
+        // ESM-safely and the dependency exists, so a mathematically correct
+        // Ed25519 signature over the exact bytes verifies. The pre-repair
+        // baseline pinned this same probe at 401 (structurally inert
+        // verifier); the policy readiness self-probe makes any regression of
+        // either cause a boot failure instead of a silent 401-everything.
         const { ts, sig } = discordSign(DISCORD_BYTES);
+        const res = await apiOnly.app.inject({
+          method: "POST",
+          url: `${prefix}/chat/discord/interaction`,
+          headers: {
+            "content-type": "application/json",
+            "x-signature-ed25519": sig,
+            "x-signature-timestamp": ts,
+          },
+          payload: DISCORD_BYTES,
+        });
+        expect(res.statusCode, res.body).toBe(200);
+        expect(res.json()).toEqual({ type: 1 });
+      });
+
+      it(`Discord interaction: bad signature rejected under ${prefix}`, async () => {
+        const ts = String(Math.floor(Date.now() / 1000));
+        const wrongKey = crypto.generateKeyPairSync("ed25519");
+        const sig = crypto
+          .sign(null, Buffer.from(ts + DISCORD_BYTES), wrongKey.privateKey)
+          .toString("hex");
         const res = await apiOnly.app.inject({
           method: "POST",
           url: `${prefix}/chat/discord/interaction`,
@@ -1092,6 +1118,15 @@ describe("production route surface characterization", () => {
   // -------------------------------------------------------------------------
   // HEAD/OPTIONS normalization honesty.
   // -------------------------------------------------------------------------
+  describe("raw-body eligibility follows the declared verifier", () => {
+    it("the capture list equals the verified-ingress-classified route set", () => {
+      const classified = new Set(
+        apiOnly.records.filter((r) => r.rawBodyEligible).map((r) => r.path),
+      );
+      expect(classified).toEqual(new Set(RAW_BODY_ROUTES as readonly string[]));
+    });
+  });
+
   describe("framework-generated twins", () => {
     it("marks HEAD twins as generated only when a GET twin exists", () => {
       const heads = apiOnly.records.filter((r) => r.method === "HEAD");

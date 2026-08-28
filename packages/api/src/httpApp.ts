@@ -26,6 +26,7 @@ import fastifyStatic from "@fastify/static";
 import fastifyRawBody from "fastify-raw-body";
 import fs from "node:fs";
 import { ORCY_PATHS } from "@orcy/shared";
+import { installAuthPolicy, inheritAuthPolicy, verifiedIngressRoutePaths } from "./authPolicy.js";
 import { habitatRoutes } from "./routes/habitats.js";
 import { habitatAnalyticsRoutes } from "./routes/board-analytics.js";
 import { habitatExportRoutes } from "./routes/board-export.js";
@@ -132,26 +133,12 @@ function installHook(
 }
 
 /**
- * Routes eligible for exact raw-body capture (provider-signed ingress).
- * Single source: the fastify-raw-body registration below reads it and the
- * route characterization baseline records eligibility from it.
+ * Routes eligible for exact raw-body capture (provider-signed ingress),
+ * derived from the verified-ingress verifier declarations in `authPolicy.ts`
+ * — the same declarations that install the verifier guards. There is no
+ * separately maintained literal path list.
  */
-export const RAW_BODY_ROUTES: readonly string[] = [
-  "/api/webhooks/github",
-  "/api/webhooks/gitlab",
-  "/api/webhooks/github-ci",
-  "/api/webhooks/gitlab-ci",
-  "/api/chat/slack/command",
-  "/api/chat/discord/interaction",
-  "/api/v1/webhooks/github",
-  "/api/v1/webhooks/gitlab",
-  "/api/v1/webhooks/github-ci",
-  "/api/v1/webhooks/gitlab-ci",
-  "/api/v1/chat/slack/command",
-  "/api/v1/chat/discord/interaction",
-  "/api/webhooks/github/issues",
-  "/api/v1/webhooks/github/issues",
-];
+export const RAW_BODY_ROUTES: readonly string[] = verifiedIngressRoutePaths();
 
 function productionLogger(): FastifyLoggerOptions | boolean {
   const isDev = process.env.NODE_ENV !== "production";
@@ -174,6 +161,9 @@ export function createHttpApp(logger: FastifyLoggerOptions | boolean = productio
 
   fastify.setValidatorCompiler(validatorCompiler);
   fastify.setSerializerCompiler(serializerCompiler);
+  // Authentication authority (ADR-0049): validates verifier readiness, then
+  // installs policy guards for every declaration made on this instance.
+  installAuthPolicy(fastify);
   return fastify;
 }
 
@@ -326,7 +316,11 @@ export async function registerHttpSurface(
       }),
   );
 
-  fastify.get("/health", async () => ({ status: "ok", timestamp: new Date().toISOString() }));
+  fastify.get(
+    "/health",
+    { config: { authPolicy: "anonymous" } },
+    async () => ({ status: "ok", timestamp: new Date().toISOString() }),
+  );
 
   await fastify.register(
     async (f) => {
@@ -411,19 +405,30 @@ export async function registerHttpSurface(
 
   // Redirect root to /app/ so users hitting / (which returns a 404 JSON)
   // are sent to the SPA instead.
-  fastify.get("/", async (_request, reply) => reply.redirect("/app/"));
+  fastify.get(
+    "/",
+    { config: { authPolicy: "anonymous" } },
+    async (_request, reply) => reply.redirect("/app/"),
+  );
 
   const uiPath = process.env.ORCY_UI_PATH || ORCY_PATHS.ui;
   if (fs.existsSync(uiPath)) {
-    await fastify.register(fastifyStatic, {
-      root: uiPath,
-      prefix: "/app/",
-      wildcard: false,
-    });
-    // SPA fallback: serve index.html for all /app/* routes that don't match a file
-    fastify.get("/app/*", async (request, reply) => {
-      return reply.sendFile("index.html", uiPath);
-    });
+    // Homogeneous anonymous scope: the static UI serves unauthenticated by
+    // design, and every route it installs inherits that one declaration.
+    await fastify.register(
+      async (f) => {
+        inheritAuthPolicy(f, "anonymous");
+        await f.register(fastifyStatic, {
+          root: uiPath,
+          prefix: "/app/",
+          wildcard: false,
+        });
+        // SPA fallback: serve index.html for all /app/* routes that don't match a file
+        f.get("/app/*", async (request, reply) => {
+          return reply.sendFile("index.html", uiPath);
+        });
+      },
+    );
   }
 }
 

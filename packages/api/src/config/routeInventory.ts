@@ -54,7 +54,19 @@ export function captureRouteInventory(app: FastifyInstance): RouteAuthInfo[] {
   app.addHook('onRoute', (routeOptions) => {
     const method = routeOptions.method as string;
     const url = routeOptions.url;
-    const { hasAuth, names } = checkPreHandlerAuth(routeOptions.preHandler);
+    const { hasAuth: preHandlerAuth, names } = checkPreHandlerAuth(routeOptions.preHandler);
+    // Policy-installed authentication (ADR-0049): a declared non-anonymous
+    // authPolicy installs the guard through the policy registry — the guard
+    // may be prepended after this observer runs, so the declaration itself is
+    // authoritative here. Legacy name inference is removed by the route-policy
+    // migration ticket.
+    const declaredPolicy = (routeOptions.config as { authPolicy?: unknown } | undefined)
+      ?.authPolicy;
+    const policyAuth =
+      typeof declaredPolicy === 'string'
+        ? declaredPolicy !== 'anonymous' && declaredPolicy !== undefined
+        : declaredPolicy !== undefined;
+    const hasAuth = preHandlerAuth || policyAuth;
     const isPublic = isPublicRoute(method, url);
 
     routes.push({ method, url, hasAuth, preHandlerNames: names, isPublic });

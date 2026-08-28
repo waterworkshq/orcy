@@ -564,19 +564,45 @@ describe("pluginRoutes", () => {
     const { pluginRoutes } = await import("../routes/plugins.js");
     const { agentOrHumanAuth } = await import("../middleware/auth.js");
 
-    const routes: Array<{ method: string; path: string; preHandler: any[] }> = [];
+    const routes: Array<{
+      method: string;
+      path: string;
+      preHandler: any[];
+      authPolicy?: unknown;
+    }> = [];
     const fakeFastify: any = {
+      addHook: vi.fn(),
       post: vi.fn((path: string, opts: any) =>
-        routes.push({ method: "POST", path, preHandler: opts?.preHandler ?? [] }),
+        routes.push({
+          method: "POST",
+          path,
+          preHandler: opts?.preHandler ?? [],
+          authPolicy: opts?.config?.authPolicy,
+        }),
       ),
       patch: vi.fn((path: string, opts: any) =>
-        routes.push({ method: "PATCH", path, preHandler: opts?.preHandler ?? [] }),
+        routes.push({
+          method: "PATCH",
+          path,
+          preHandler: opts?.preHandler ?? [],
+          authPolicy: opts?.config?.authPolicy,
+        }),
       ),
       get: vi.fn((path: string, opts: any) =>
-        routes.push({ method: "GET", path, preHandler: opts?.preHandler ?? [] }),
+        routes.push({
+          method: "GET",
+          path,
+          preHandler: opts?.preHandler ?? [],
+          authPolicy: opts?.config?.authPolicy,
+        }),
       ),
       delete: vi.fn((path: string, opts: any) =>
-        routes.push({ method: "DELETE", path, preHandler: opts?.preHandler ?? [] }),
+        routes.push({
+          method: "DELETE",
+          path,
+          preHandler: opts?.preHandler ?? [],
+          authPolicy: opts?.config?.authPolicy,
+        }),
       ),
     };
 
@@ -584,12 +610,14 @@ describe("pluginRoutes", () => {
 
     expect(routes).toHaveLength(9);
     for (const r of routes) {
-      expect(r.preHandler[0]).toBe(agentOrHumanAuth);
       if (r.path === "/plugins") {
-        // Global catalog route: auth only, no habitat scope
-        expect(r.preHandler).toHaveLength(1);
+        // Global catalog route: local_actor policy (guard installed by the
+        // policy registry), no habitat scope and no route-level preHandler.
+        expect(r.authPolicy).toBe("local_actor");
+        expect(r.preHandler).toHaveLength(0);
       } else {
         // Habitat-scoped routes: agentOrHumanAuth + requireHabitatAccess
+        expect(r.preHandler[0]).toBe(agentOrHumanAuth);
         expect(r.preHandler).toHaveLength(2);
         expect(typeof r.preHandler[1]).toBe("function");
       }

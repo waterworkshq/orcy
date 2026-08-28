@@ -1,3 +1,4 @@
+import { applyDeclaredAuthPolicies } from "../authPolicy.js";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { agentOrHumanAuth } from "../middleware/auth.js";
@@ -35,6 +36,11 @@ const staleRunsQuery = z.object({
  * All routes require agentOrHumanAuth + a valid habitat id.
  */
 export async function pluginRoutes(fastify: FastifyInstance): Promise<void> {
+  // Heterogeneous module: routes declare policy individually; this applier
+  // installs their guards (a no-op on seam-constructed instances, where the
+  // root installer has already done so).
+  applyDeclaredAuthPolicies(fastify);
+
   fastify.post<{ Params: { habitatId: string } }>(
     "/habitats/:habitatId/plugins/enrollments",
     { preHandler: [agentOrHumanAuth, requireHabitatAccess] },
@@ -121,10 +127,17 @@ export async function pluginRoutes(fastify: FastifyInstance): Promise<void> {
   );
 
   // Plugin catalog: lists loaded plugins (ids, versions, descriptions) and load errors.
-  // Authenticated but not habitat-scoped — it's a global catalog available to any authenticated user.
-  fastify.get("/plugins", { preHandler: [agentOrHumanAuth] }, async (_request, _reply) => {
-    return { plugins: pluginManager.getLoadedPlugins() };
-  });
+  // Authenticated local actor, not habitat-scoped — it's a global catalog
+  // available to any authenticated human or agent (ADR-0049: the stale
+  // public-regex exception was inference-only; the served behavior was always
+  // local-actor auth, now declared).
+  fastify.get(
+    "/plugins",
+    { config: { authPolicy: "local_actor" } },
+    async (_request, _reply) => {
+      return { plugins: pluginManager.getLoadedPlugins() };
+    },
+  );
 
   // Quarantine clear: quarantine is system-global by design (a misbehaving plugin is
   // misbehaving regardless of habitat). The :habitatId param gates access via

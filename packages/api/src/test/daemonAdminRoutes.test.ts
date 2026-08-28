@@ -33,6 +33,12 @@ vi.mock("../middleware/daemonAuth.js", () => ({
 }));
 vi.mock("../middleware/auth.js", () => ({
   registrationAuth: async () => {},
+  agentAuth: async (req: any) => {
+    req.agent = { id: "agent-1" };
+  },
+  agentOrHumanAuth: async (req: any) => {
+    req.user = { id: "user-1", role: "admin" };
+  },
   humanAuth: async (req: any) => {
     req.user = { id: "user-1", role: "admin" };
   },
@@ -68,14 +74,31 @@ import type { FastifyInstance } from "fastify";
 const D1 = "00000000-0000-0000-0000-000000000001";
 const HAB = "00000000-0000-0000-0000-000000000010";
 
-function captureAdminRoutes(): Map<string, { handler: Function; preHandler?: any[] }> {
-  const routes = new Map<string, { handler: Function; preHandler?: any[] }>();
+function captureAdminRoutes(): Map<string, {
+  handler: Function;
+  preHandler?: any[];
+  authPolicy?: unknown;
+}> {
+  const routes = new Map<string, {
+    handler: Function;
+    preHandler?: any[];
+    authPolicy?: unknown;
+  }>();
   const fake = {
+    addHook: vi.fn(),
     get: vi.fn((path: string, opts: any, handler?: Function) => {
-      routes.set(`GET ${path}`, { handler: handler ?? opts, preHandler: opts?.preHandler });
+      routes.set(`GET ${path}`, {
+        handler: handler ?? opts,
+        preHandler: opts?.preHandler,
+        authPolicy: opts?.config?.authPolicy,
+      });
     }),
     post: vi.fn((path: string, opts: any, handler?: Function) => {
-      routes.set(`POST ${path}`, { handler: handler ?? opts, preHandler: opts?.preHandler });
+      routes.set(`POST ${path}`, {
+        handler: handler ?? opts,
+        preHandler: opts?.preHandler,
+        authPolicy: opts?.config?.authPolicy,
+      });
     }),
     patch: vi.fn(),
     delete: vi.fn(),
@@ -91,22 +114,25 @@ function mockReply() {
 }
 
 describe("daemonAdminRoutes", () => {
-  let routes: Map<string, { handler: Function; preHandler?: any[] }>;
+  let routes: Map<string, {
+    handler: Function;
+    preHandler?: any[];
+    authPolicy?: unknown;
+  }>;
 
   beforeEach(() => {
     vi.clearAllMocks();
     routes = captureAdminRoutes();
   });
 
-  it("protects every human daemon route with admin authorization", async () => {
+  it("protects every human daemon route with policy auth + admin authorization", async () => {
     for (const route of routes.values()) {
-      expect(route.preHandler).toHaveLength(2);
-      const req: any = {};
-      await route.preHandler![0](req);
-      expect(req.user.role).toBe("admin");
-
+      // Authentication is the policy-installed guard (declared human); admin
+      // authorization remains a separate later middleware in the route chain.
+      expect(route.authPolicy).toBe("human");
+      expect(route.preHandler).toHaveLength(1);
       await expect(
-        route.preHandler![1]({ user: { id: "viewer-1", role: "viewer" } }),
+        route.preHandler![0]({ user: { id: "viewer-1", role: "viewer" } }),
       ).rejects.toThrow("Insufficient permissions");
     }
   });

@@ -1,4 +1,5 @@
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
+import { applyDeclaredAuthPolicies } from '../authPolicy.js';
 import * as agentService from '../services/agentService.js';
 import { getAgentStats, getAllAgentStats } from '../repositories/event.js';
 import {
@@ -11,7 +12,7 @@ import type {
   UpdateAgentInput,
   HeartbeatInput,
 } from '../models/schemas.js';
-import { agentAuth, registrationAuth, humanAuth, agentOrHumanAuth } from '../middleware/auth.js';
+import { agentAuth, humanAuth, agentOrHumanAuth } from '../middleware/auth.js';
 import { adminOnly } from '../middleware/rbac.js';
 import { badRequest, notFound, unauthorized, forbidden } from '../errors.js';
 import { getSuggestionsForAgent } from '../services/taskSuggestion.js';
@@ -20,6 +21,11 @@ import { getSuggestionsForAgent } from '../services/taskSuggestion.js';
  * Agent registration, heartbeat, status updates, and per-agent / aggregate stats.
  */
 export async function agentRoutes(fastify: FastifyInstance): Promise<void> {
+  // Heterogeneous module: agent registration declares policy; the remaining
+  // routes keep route-local middleware until the exhaustive route-policy
+  // migration.
+  applyDeclaredAuthPolicies(fastify);
+
   /** GET /agents - List all registered agents. Auth: agentOrHumanAuth. Returns { agents } */
   fastify.get('/agents', { preHandler: agentOrHumanAuth }, async (request: FastifyRequest, _reply: FastifyReply) => {
     const query = request.query as { status?: string; domain?: string; include?: string };
@@ -31,10 +37,10 @@ export async function agentRoutes(fastify: FastifyInstance): Promise<void> {
     return { agents };
   });
 
-  /** POST /agents - Register a new agent. Auth: registrationAuth. Returns { agent, apiKey } */
+  /** POST /agents - Register a new agent. Auth: registration policy. Returns { agent, apiKey } */
   fastify.post<{ Body: CreateAgentInput }>(
     '/agents',
-    { preHandler: registrationAuth },
+    { config: { authPolicy: 'registration' } },
     async (request: FastifyRequest<{ Body: CreateAgentInput }>, reply: FastifyReply) => {
       const parsed = createAgentSchema.safeParse(request.body);
       if (!parsed.success) {

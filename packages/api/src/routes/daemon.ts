@@ -1,7 +1,6 @@
+import { applyDeclaredAuthPolicies } from "../authPolicy.js";
 import type { FastifyInstance, FastifyRequest, FastifyReply } from "fastify";
 import * as daemonRepo from "../repositories/daemon.js";
-import { daemonAuth } from "../middleware/daemonAuth.js";
-import { registrationAuth, humanAuth } from "../middleware/auth.js";
 import { adminOnly } from "../middleware/rbac.js";
 import {
   daemonRegisterSchema,
@@ -19,9 +18,14 @@ import { badRequest, notFound, forbidden } from "../errors.js";
 import * as daemonEngine from "../services/daemonEngine.js";
 
 export async function daemonRoutes(fastify: FastifyInstance): Promise<void> {
+  // Heterogeneous module: routes declare policy individually; this applier
+  // installs their guards (a no-op on seam-constructed instances, where the
+  // root installer has already done so).
+  applyDeclaredAuthPolicies(fastify);
+
   fastify.post<{ Body: DaemonRegisterInput }>(
     "/daemon/register",
-    { preHandler: registrationAuth },
+    { config: { authPolicy: "registration" } },
     async (request: FastifyRequest<{ Body: DaemonRegisterInput }>, reply: FastifyReply) => {
       const parsed = daemonRegisterSchema.safeParse(request.body);
       if (!parsed.success) {
@@ -37,7 +41,7 @@ export async function daemonRoutes(fastify: FastifyInstance): Promise<void> {
 
   fastify.get(
     "/daemon/sessions",
-    { preHandler: daemonAuth },
+    { config: { authPolicy: "daemon" } },
     async (request: FastifyRequest, _reply: FastifyReply) => {
       const daemonId = request.daemon!.id;
       const sessions = daemonRepo.getActiveSessionsByDaemonId(daemonId);
@@ -47,7 +51,7 @@ export async function daemonRoutes(fastify: FastifyInstance): Promise<void> {
 
   fastify.post<{ Body: DaemonHeartbeatInput }>(
     "/daemon/heartbeat",
-    { preHandler: daemonAuth },
+    { config: { authPolicy: "daemon" } },
     async (request: FastifyRequest<{ Body: DaemonHeartbeatInput }>, _reply: FastifyReply) => {
       const parsed = daemonHeartbeatSchema.safeParse(request.body);
       if (!parsed.success) {
@@ -85,7 +89,7 @@ export async function daemonRoutes(fastify: FastifyInstance): Promise<void> {
 
   fastify.post<{ Body: DaemonClaimNextInput }>(
     "/daemon/tasks/claim-next",
-    { preHandler: daemonAuth },
+    { config: { authPolicy: "daemon" } },
     async (request: FastifyRequest<{ Body: DaemonClaimNextInput }>, _reply: FastifyReply) => {
       const parsed = daemonClaimNextSchema.safeParse(request.body);
       if (!parsed.success) {
@@ -112,7 +116,7 @@ export async function daemonRoutes(fastify: FastifyInstance): Promise<void> {
 
   fastify.patch<{ Params: { id: string }; Body: DaemonSessionUpdateInput }>(
     "/daemon/sessions/:id",
-    { preHandler: daemonAuth },
+    { config: { authPolicy: "daemon" } },
     async (
       request: FastifyRequest<{ Params: { id: string }; Body: DaemonSessionUpdateInput }>,
       _reply: FastifyReply,
@@ -156,9 +160,11 @@ export async function daemonRoutes(fastify: FastifyInstance): Promise<void> {
 }
 
 export async function daemonAdminRoutes(fastify: FastifyInstance): Promise<void> {
-  const adminPreHandlers = [humanAuth, adminOnly];
+  applyDeclaredAuthPolicies(fastify);
 
-  fastify.get("/daemons", { preHandler: adminPreHandlers }, async () => {
+  const adminPreHandlers = [adminOnly];
+
+  fastify.get("/daemons", { config: { authPolicy: "human" }, preHandler: adminPreHandlers }, async () => {
     const daemons = daemonRepo.listDaemons();
     return {
       daemons: daemons.map((d) => {
@@ -184,7 +190,7 @@ export async function daemonAdminRoutes(fastify: FastifyInstance): Promise<void>
 
   fastify.get<{ Params: { id: string } }>(
     "/daemons/:id",
-    { preHandler: adminPreHandlers },
+    { config: { authPolicy: "human" }, preHandler: adminPreHandlers },
     async (request: FastifyRequest<{ Params: { id: string } }>, _reply: FastifyReply) => {
       const daemon = daemonRepo.getDaemonById(request.params.id);
       if (!daemon) {
@@ -233,7 +239,7 @@ export async function daemonAdminRoutes(fastify: FastifyInstance): Promise<void>
     Body: { name: string; habitatIds: string[]; maxConcurrent?: number; cliPreferences?: string[] };
   }>(
     "/daemons/register",
-    { preHandler: adminPreHandlers },
+    { config: { authPolicy: "human" }, preHandler: adminPreHandlers },
     async (
       request: FastifyRequest<{
         Body: {
@@ -259,7 +265,7 @@ export async function daemonAdminRoutes(fastify: FastifyInstance): Promise<void>
 
   fastify.post<{ Params: { id: string }; Body?: { dataDir?: string } }>(
     "/daemons/:id/start",
-    { preHandler: adminPreHandlers },
+    { config: { authPolicy: "human" }, preHandler: adminPreHandlers },
     async (request: FastifyRequest<{ Params: { id: string }; Body?: { dataDir?: string } }>) => {
       const daemon = daemonRepo.getDaemonById(request.params.id);
       if (!daemon) {
@@ -278,7 +284,7 @@ export async function daemonAdminRoutes(fastify: FastifyInstance): Promise<void>
 
   fastify.post<{ Params: { id: string } }>(
     "/daemons/:id/stop",
-    { preHandler: adminPreHandlers },
+    { config: { authPolicy: "human" }, preHandler: adminPreHandlers },
     async (request: FastifyRequest<{ Params: { id: string } }>) => {
       const daemon = daemonRepo.getDaemonById(request.params.id);
       if (!daemon) {
@@ -290,7 +296,7 @@ export async function daemonAdminRoutes(fastify: FastifyInstance): Promise<void>
     },
   );
 
-  fastify.get("/daemons/detect-clis", { preHandler: adminPreHandlers }, async () => {
+  fastify.get("/daemons/detect-clis", { config: { authPolicy: "human" }, preHandler: adminPreHandlers }, async () => {
     const detected = daemonEngine.detectClisOnHost();
     return { clis: detected };
   });

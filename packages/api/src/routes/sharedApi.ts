@@ -1,7 +1,7 @@
 import type { FastifyInstance, FastifyRequest, FastifyReply } from "fastify";
 import { z } from "zod";
+import { inheritAuthPolicy } from "../authPolicy.js";
 import {
-  remoteParticipantAuth,
   remoteActionScope,
   mapParticipantToActorType,
 } from "../middleware/remoteAuth.js";
@@ -230,8 +230,10 @@ function remoteAccessDenied(
 // ---------------------------------------------------------------------------
 
 export async function sharedApiRoutes(fastify: FastifyInstance): Promise<void> {
-  // Every route requires remote participant auth
-  fastify.addHook("preHandler", remoteParticipantAuth);
+  // Homogeneous remote-participant scope: every route authenticates its
+  // X-Orcy-Remote-Key credential through the policy-installed guard. Action
+  // scopes, visibility, and idempotency remain separate later middlewares.
+  inheritAuthPolicy(fastify, "remote_participant");
 
   fastify.addHook("onError", async (request, _reply, error) => {
     if (request.remoteIdempotency) {

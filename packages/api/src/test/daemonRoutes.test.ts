@@ -43,8 +43,27 @@ vi.mock("../middleware/daemonAuth.js", () => ({
 }));
 vi.mock("../middleware/auth.js", () => ({
   registrationAuth: async () => {},
+  agentAuth: async (req: any) => {
+    req.agent = { id: "agent-1" };
+  },
+  agentOrHumanAuth: async (req: any) => {
+    req.user = { id: "user-1", role: "admin" };
+  },
+  humanAuth: async (req: any) => {
+    req.user = { id: "user-1", role: "admin" };
+  },
 }));
 vi.mock("../errors.js", () => ({
+  AppError: class AppError extends Error {
+    constructor(
+      public statusCode: number,
+      public code: string,
+      message: string,
+    ) {
+      super(message);
+      this.name = "AppError";
+    }
+  },
   badRequest: (msg: string) => Object.assign(new Error(msg), { statusCode: 400 }),
   notFound: (msg: string) => Object.assign(new Error(msg), { statusCode: 404 }),
   forbidden: (msg: string) => Object.assign(new Error(msg), { statusCode: 403 }),
@@ -67,6 +86,7 @@ const BAD_HAB = "99999999-9999-9999-9999-999999999999";
 function captureRoutes(): Map<string, { handler: Function; preHandler?: any[] }> {
   const routes = new Map<string, { handler: Function; preHandler?: any[] }>();
   const fake = {
+    addHook: vi.fn(),
     post: vi.fn((path: string, opts: any, handler?: Function) => {
       routes.set(`POST ${path}`, { handler: handler ?? opts, preHandler: opts?.preHandler });
     }),

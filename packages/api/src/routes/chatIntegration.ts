@@ -1,13 +1,13 @@
+import { applyDeclaredAuthPolicies } from "../authPolicy.js";
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { getIntegrationsByHabitat, getIntegrationById, createIntegration, updateIntegration, deleteIntegration } from '../repositories/chatIntegration.js';
 import { getHabitatById } from '../repositories/habitat.js';
 import { humanAuth } from '../middleware/auth.js';
 import { adminOnly } from '../middleware/rbac.js';
-import { verifySlackRequestWithTimestamp, parseSlackCommand } from '../services/slackService.js';
-import { verifyDiscordRequest } from '../services/discordService.js';
+import { parseSlackCommand } from '../services/slackService.js';
 import { executeCommand, sendTestMessage } from '../services/chatService.js';
-import { isRemotePosture, validateOutboundUrl } from '../config/integrationSecurity.js';
-import { badRequest, notFound, unauthorized, internalError } from '../errors.js';
+import { validateOutboundUrl } from '../config/integrationSecurity.js';
+import { badRequest, notFound, internalError } from '../errors.js';
 
 interface CreateIntegrationBody {
   provider: 'slack' | 'discord';
@@ -31,6 +31,11 @@ const VALID_CHAT_EVENTS = [
 ];
 
 export async function chatIntegrationRoutes(fastify: FastifyInstance): Promise<void> {
+  // Heterogeneous module: routes declare policy individually; this applier
+  // installs their guards (a no-op on seam-constructed instances, where the
+  // root installer has already done so).
+  applyDeclaredAuthPolicies(fastify);
+
   fastify.get<{ Params: { habitatId: string } }>(
     '/habitats/:habitatId/chat-integrations',
     { preHandler: [humanAuth, adminOnly] },
@@ -168,20 +173,12 @@ export async function chatIntegrationRoutes(fastify: FastifyInstance): Promise<v
 
   fastify.post(
     '/chat/slack/command',
+    { config: { authPolicy: { policy: 'verified_ingress', verifier: 'slack_signing' } } },
     async (request: FastifyRequest, reply: FastifyReply) => {
-      const signingSecret = process.env.SLACK_SIGNING_SECRET ?? '';
-      const signature = request.headers['x-slack-signature'] as string | undefined;
-      const timestamp = request.headers['x-slack-request-timestamp'] as string | undefined;
-      const rawBody = typeof request.rawBody === 'string' ? request.rawBody : JSON.stringify(request.body);
-
-      if (signingSecret) {
-        const result = verifySlackRequestWithTimestamp(signature, timestamp, rawBody, signingSecret);
-        if (!result.valid) {
-          throw unauthorized(result.reason ?? 'Invalid signature');
-        }
-      } else if (isRemotePosture()) {
-        throw unauthorized('Slack signing secret not configured');
-      }
+      // Credential verification runs in the policy-installed
+      // slack_verified_ingress guard (preHandler): a configured signing
+      // secret must verify over the exact raw bytes; a missing secret fails
+      // closed only under remote posture.
 
       const payload = request.body as {
         text?: string;
@@ -213,20 +210,12 @@ export async function chatIntegrationRoutes(fastify: FastifyInstance): Promise<v
 
   fastify.post(
     '/chat/discord/interaction',
+    { config: { authPolicy: { policy: 'verified_ingress', verifier: 'discord_ed25519' } } },
     async (request: FastifyRequest, reply: FastifyReply) => {
-      const publicKey = process.env.DISCORD_PUBLIC_KEY ?? '';
-      const signature = request.headers['x-signature-ed25519'] as string | undefined;
-      const timestamp = request.headers['x-signature-timestamp'] as string | undefined;
-
-      const rawBody = typeof request.rawBody === 'string' ? request.rawBody : JSON.stringify(request.body);
-
-      if (publicKey) {
-        if (!verifyDiscordRequest(signature, timestamp, rawBody, publicKey)) {
-          throw unauthorized('Invalid signature');
-        }
-      } else if (isRemotePosture()) {
-        throw unauthorized('Discord public key not configured');
-      }
+      // Credential verification runs in the policy-installed
+      // discord_verified_ingress guard (preHandler): a configured public key
+      // must verify the Ed25519 signature over the exact raw bytes; a missing
+      // key fails closed only under remote posture.
 
       const payload = request.body as {
         type?: number;

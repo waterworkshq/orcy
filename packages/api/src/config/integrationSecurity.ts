@@ -1,6 +1,7 @@
 import { createHmac, timingSafeEqual } from 'crypto';
 import * as dns from 'dns';
 import { Agent } from 'undici';
+import nacl from 'tweetnacl';
 import { classifyPosture } from './security.js';
 import { logger } from '../lib/logger.js';
 
@@ -374,7 +375,6 @@ export function verifyDiscordSignature(
 ): boolean {
   if (!signature || !timestamp || !publicKey) return false;
   try {
-    const nacl = require('tweetnacl');
     const enc = new TextEncoder();
     const message = enc.encode(timestamp + rawBody);
     const sigBytes = Buffer.from(signature, 'hex');

@@ -1,3 +1,4 @@
+import { applyDeclaredAuthPolicies } from "../authPolicy.js";
 import type { FastifyInstance, FastifyRequest, FastifyReply } from "fastify";
 import * as ciCdService from "../services/ciCdService.js";
 import * as releaseTriggerService from "../services/releaseTriggerService.js";
@@ -6,25 +7,32 @@ import * as pipelineRepo from "../repositories/pipelineEvent.js";
 import { findHabitatIdByCiCdSignature } from "../services/habitatSecretCache.js";
 import { humanAuth } from "../middleware/auth.js";
 import {
-  createCiCdSecretSource,
-  handleGitHubWebhook,
-  handleGitLabWebhook,
+  dispatchGitHubWebhook,
+  dispatchGitLabWebhook,
 } from "../services/webhooks/webhook-secret-verification.js";
 import { parseVersion, isPreRelease } from "@orcy/shared";
 
-const secretSource = createCiCdSecretSource();
-
 export async function ciCdWebhookRoutes(fastify: FastifyInstance): Promise<void> {
-  fastify.post("/webhooks/github-ci", async (request: FastifyRequest, reply: FastifyReply) => {
-    const signature = request.headers["x-hub-signature-256"] as string | undefined;
-    const event = request.headers["x-github-event"] as string | undefined;
-    const body = request.body as Record<string, unknown>;
-    const rawBody = (request.rawBody ?? JSON.stringify(body)) as string;
+  // Heterogeneous module: routes declare policy individually; this applier
+  // installs their guards (a no-op on seam-constructed instances, where the
+  // root installer has already done so).
+  applyDeclaredAuthPolicies(fastify);
 
-    const result = await handleGitHubWebhook(
-      secretSource,
-      { body, rawBody, event, signature },
-      {
+  // Credential verification runs in the policy-installed verified-ingress
+  // guards (preHandler) over the exact raw bytes, with the historical
+  // configured-key/missing-key posture matrix; these handlers only dispatch.
+  fastify.post(
+    "/webhooks/github-ci",
+    { config: { authPolicy: { policy: "verified_ingress", verifier: "github_ci_hmac" } } },
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      const signature = request.headers["x-hub-signature-256"] as string | undefined;
+      const event = request.headers["x-github-event"] as string | undefined;
+      const body = request.body as Record<string, unknown>;
+      const rawBody = (request.rawBody ?? JSON.stringify(body)) as string;
+
+      const result = await dispatchGitHubWebhook(
+        { body, event },
+        {
         workflow_run: async (b) => {
           const event = b as Parameters<typeof ciCdService.handleGitHubWorkflowRunEvent>[0];
           const run = event.workflow_run;
@@ -79,41 +87,44 @@ export async function ciCdWebhookRoutes(fastify: FastifyInstance): Promise<void>
             b as Parameters<typeof ciCdService.handleGitHubWorkflowJobEvent>[0],
           ),
       },
-    );
+      );
 
-    if (result.statusCode !== 200) {
-      reply.code(result.statusCode).send(result.body);
-      return;
-    }
-    return result.body;
-  });
+      if (result.statusCode !== 200) {
+        reply.code(result.statusCode).send(result.body);
+        return;
+      }
+      return result.body;
+    },
+  );
 
-  fastify.post("/webhooks/gitlab-ci", async (request: FastifyRequest, reply: FastifyReply) => {
-    const providedToken = request.headers["x-gitlab-token"] as string | undefined;
-    const body = request.body as Record<string, unknown>;
-    const objectKind = body.object_kind as string | undefined;
+  fastify.post(
+    "/webhooks/gitlab-ci",
+    { config: { authPolicy: { policy: "verified_ingress", verifier: "gitlab_ci_token" } } },
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      const body = request.body as Record<string, unknown>;
+      const objectKind = body.object_kind as string | undefined;
 
-    const result = handleGitLabWebhook(
-      secretSource,
-      { body, providedToken, objectKind },
-      {
-        pipeline: (b) =>
-          ciCdService.handleGitLabPipelineEvent(
-            b as Parameters<typeof ciCdService.handleGitLabPipelineEvent>[0],
-          ),
-        build: (b) =>
-          ciCdService.handleGitLabJobEvent(
-            b as Parameters<typeof ciCdService.handleGitLabJobEvent>[0],
-          ),
-      },
-    );
+      const result = dispatchGitLabWebhook(
+        { body, objectKind },
+        {
+          pipeline: (b) =>
+            ciCdService.handleGitLabPipelineEvent(
+              b as Parameters<typeof ciCdService.handleGitLabPipelineEvent>[0],
+            ),
+          build: (b) =>
+            ciCdService.handleGitLabJobEvent(
+              b as Parameters<typeof ciCdService.handleGitLabJobEvent>[0],
+            ),
+        },
+      );
 
-    if (result.statusCode !== 200) {
-      reply.code(result.statusCode).send(result.body);
-      return;
-    }
-    return result.body;
-  });
+      if (result.statusCode !== 200) {
+        reply.code(result.statusCode).send(result.body);
+        return;
+      }
+      return result.body;
+    },
+  );
 
   fastify.get<{ Params: { id: string } }>(
     "/tasks/:id/pipeline-events",
