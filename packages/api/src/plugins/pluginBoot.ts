@@ -2,12 +2,17 @@ import type { FastifyInstance } from "fastify";
 import * as pluginManager from "./pluginManager.js";
 
 /**
- * Crash-loud activation contract (ADR-0041): `loadPlugins` failures are
- * non-fatal (a malformed plugin is recorded in pluginErrors; the server
- * boots without it) while `initializePlugins` failures are fatal (a throwing
- * `routeHandlers` poisons the Fastify instance and the server cannot boot).
- * The two regimes MUST NOT share a catch — the shared "continuing without
- * plugins" message lies for the fatal case.
+ * Two-regime plugin boot contract: `loadPlugins` failures are non-fatal (a
+ * malformed plugin is recorded in pluginErrors; the server boots without it)
+ * while `initializePlugins` failures are fatal. The two regimes MUST NOT share
+ * a catch — the shared "continuing without plugins" message lies for the fatal
+ * case.
+ *
+ * Since ADR-0050, `initializePlugins` no longer executes plugin code at mount
+ * time: it hands the pre-validated route catalog to the core installer, so a
+ * failure there is a core registration fault (still boot-fatal), not a plugin
+ * handler fault. The superseded ADR-0041 crash-loud unrestricted-callback
+ * mount case no longer exists.
  *
  * Extracted verbatim from `index.ts` so the two catch regimes are unit-testable
  * without spawning the full compiled server. The boot sequence order

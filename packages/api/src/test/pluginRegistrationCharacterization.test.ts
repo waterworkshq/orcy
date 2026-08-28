@@ -163,14 +163,14 @@ describe("v0.28-T1: contributionLabel (kind→id)", () => {
     await cleanup(dir);
   });
 
-  it("customHttpRoute: label returns path", async () => {
+  it("customHttpRoute: label returns routeId", async () => {
     const dir = await writePlugin(
       "lbl-route",
-      `{ manifest: { id: 'lbl-route', version: '1.0.0', description: 'x', contributions: [{ kind: 'customHttpRoute', scope: 'system', method: 'GET', path: '/lbl-route-id', requires: ['pulseReader'] }] }, routeHandlers: async () => {} }`,
+      `{ manifest: { id: 'lbl-route', version: '1.0.0', description: 'x', contributions: [{ kind: 'customHttpRoute', scope: 'system', routeId: 'lbl-route-id', method: 'GET', path: '/status', requires: ['pulseReader'] }] }, httpHandlers: { 'lbl-route-id': async () => ({ status: 200 }) } }`,
     );
     const entry = findEntry("lbl-route");
     expect(entry?.error).toBe(
-      'customHttpRoute "/lbl-route-id" cannot require capability "pulseReader"',
+      'customHttpRoute "lbl-route-id" cannot require capability "pulseReader"',
     );
     await cleanup(dir);
   });
@@ -323,105 +323,105 @@ describe("v0.28-T1: orphanHandler (handler present?)", () => {
     await cleanup(dir);
   });
 
-  it("customHttpRoute: routeHandlers function present → no orphan error", async () => {
+  it("customHttpRoute: keyed httpHandler present → no orphan error", async () => {
     const dir = await writePlugin(
       "orph-route-ok",
-      `{ manifest: { id: 'orph-route-ok', version: '1.0.0', description: 'x', contributions: [{ kind: 'customHttpRoute', scope: 'system', method: 'GET', path: '/r1', requires: [] }] }, routeHandlers: async () => {} }`,
+      `{ manifest: { id: 'orph-route-ok', version: '1.0.0', description: 'x', contributions: [{ kind: 'customHttpRoute', scope: 'system', routeId: 'r1', method: 'GET', path: '/r1', requires: [] }] }, httpHandlers: { r1: async () => ({ status: 200 }) } }`,
     );
     const entry = findEntry("orph-route-ok");
     expect(entry?.error).toBeUndefined();
     await cleanup(dir);
   });
 
-  it("customHttpRoute: routeHandlers missing → orphan error names routeHandlers", async () => {
+  it("customHttpRoute: httpHandlers missing → orphan error names httpHandlers and routeId", async () => {
     const dir = await writePlugin(
       "orph-route-miss",
-      `{ manifest: { id: 'orph-route-miss', version: '1.0.0', description: 'x', contributions: [{ kind: 'customHttpRoute', scope: 'system', method: 'GET', path: '/r1', requires: [] }] } }`,
+      `{ manifest: { id: 'orph-route-miss', version: '1.0.0', description: 'x', contributions: [{ kind: 'customHttpRoute', scope: 'system', routeId: 'r1', method: 'GET', path: '/r1', requires: [] }] } }`,
     );
     const entry = findEntry("orph-route-miss");
     expect(entry?.error).toBeDefined();
     expect(entry?.error).toBe(
-      "customHttpRoute declared but module.routeHandlers is missing or not a function",
+      'customHttpRoute "r1" declared but no matching handler in module.httpHandlers',
     );
     await cleanup(dir);
   });
 
-  it("customHttpRoute: routeHandlers is an object, not a function → orphan error", async () => {
+  it("customHttpRoute: handler value is an object, not a function → orphan error", async () => {
     const dir = await writePlugin(
       "orph-route-obj",
-      `{ manifest: { id: 'orph-route-obj', version: '1.0.0', description: 'x', contributions: [{ kind: 'customHttpRoute', scope: 'system', method: 'GET', path: '/r2', requires: [] }] }, routeHandlers: { not: 'a function' } }`,
+      `{ manifest: { id: 'orph-route-obj', version: '1.0.0', description: 'x', contributions: [{ kind: 'customHttpRoute', scope: 'system', routeId: 'r2', method: 'GET', path: '/r2', requires: [] }] }, httpHandlers: { r2: { not: 'a function' } } }`,
     );
     const entry = findEntry("orph-route-obj");
     expect(entry?.error).toBeDefined();
     expect(entry?.error).toBe(
-      "customHttpRoute declared but module.routeHandlers is missing or not a function",
+      'customHttpRoute "r2" declared but no matching handler in module.httpHandlers',
     );
     await cleanup(dir);
   });
 
   it("customHttpRoute: method is a non-string (123) → rejected at validation, not crash (F1)", async () => {
-    // F1 regression pin: pre-fix, a non-string method made
-    // detectIdCollisions call `c.method.toUpperCase()` → TypeError that
-    // rejected the entire loadPlugins() promise. Now orphanCheck field-shape
+    // F1 regression pin: pre-fix, a non-string method made collision-key
+    // construction call `c.method.toUpperCase()` → TypeError that rejected
+    // the entire loadPlugins() promise. Now orphanCheck field-shape
     // validation catches it → plugin rejected, pluginErrors set, scan
-    // continues (ADR-0041 structural-at-load).
+    // continues (structural-at-load, retained under ADR-0050).
     const dir = await writePlugin(
       "orph-route-method-num",
-      `{ manifest: { id: 'orph-route-method-num', version: '1.0.0', description: 'x', contributions: [{ kind: 'customHttpRoute', scope: 'system', method: 123, path: '/r1', requires: [] }] }, routeHandlers: async () => {} }`,
+      `{ manifest: { id: 'orph-route-method-num', version: '1.0.0', description: 'x', contributions: [{ kind: 'customHttpRoute', scope: 'system', routeId: 'r1', method: 123, path: '/r1', requires: [] }] }, httpHandlers: { r1: async () => ({ status: 200 }) } }`,
     );
     const entry = findEntry("orph-route-method-num");
     expect(entry?.error).toBeDefined();
-    expect(entry?.error).toBe("customHttpRoute method must be a non-empty string");
+    expect(entry?.error).toBe('customHttpRoute "r1" method must be one of: GET, POST, PATCH, DELETE');
     await cleanup(dir);
   });
 
   it("customHttpRoute: path is a non-string (42) → rejected at validation (F1)", async () => {
     const dir = await writePlugin(
       "orph-route-path-num",
-      `{ manifest: { id: 'orph-route-path-num', version: '1.0.0', description: 'x', contributions: [{ kind: 'customHttpRoute', scope: 'system', method: 'GET', path: 42, requires: [] }] }, routeHandlers: async () => {} }`,
+      `{ manifest: { id: 'orph-route-path-num', version: '1.0.0', description: 'x', contributions: [{ kind: 'customHttpRoute', scope: 'system', routeId: 'r1', method: 'GET', path: 42, requires: [] }] }, httpHandlers: { r1: async () => ({ status: 200 }) } }`,
     );
     const entry = findEntry("orph-route-path-num");
     expect(entry?.error).toBeDefined();
-    expect(entry?.error).toBe("customHttpRoute path must be a non-empty string");
+    expect(entry?.error).toBe(
+      'customHttpRoute "r1" has a malformed path — expected a relative path of unreserved-character segments starting with "/"',
+    );
     await cleanup(dir);
   });
 
   it("customHttpRoute: path missing entirely → rejected at validation (F1)", async () => {
     const dir = await writePlugin(
       "orph-route-path-missing",
-      `{ manifest: { id: 'orph-route-path-missing', version: '1.0.0', description: 'x', contributions: [{ kind: 'customHttpRoute', scope: 'system', method: 'GET', requires: [] }] }, routeHandlers: async () => {} }`,
+      `{ manifest: { id: 'orph-route-path-missing', version: '1.0.0', description: 'x', contributions: [{ kind: 'customHttpRoute', scope: 'system', routeId: 'r1', method: 'GET', requires: [] }] }, httpHandlers: { r1: async () => ({ status: 200 }) } }`,
     );
     const entry = findEntry("orph-route-path-missing");
     expect(entry?.error).toBeDefined();
-    expect(entry?.error).toBe("customHttpRoute path must be a non-empty string");
+    expect(entry?.error).toBe(
+      'customHttpRoute "r1" has a malformed path — expected a relative path of unreserved-character segments starting with "/"',
+    );
     await cleanup(dir);
   });
 
   it("customHttpRoute: unsupported method (TRACE) → rejected at validation (F1b)", async () => {
-    // F1b regression pin: F1 only validated method/path were non-empty
-    // strings, so any string (e.g. "TRACE") was accepted — contradicting the
-    // `CustomHttpRouteContribution.method` union and ADR-0041's
-    // "invalid method rejected at load." Now a case-insensitive membership
-    // check over the 4 supported methods rejects anything else.
+    // F1b regression pin: field-shape validation alone accepted any string
+    // method (e.g. "TRACE") — contradicting the union. The membership check
+    // over the 4 supported methods rejects anything else (case-insensitive).
     const dir = await writePlugin(
       "orph-route-method-trace",
-      `{ manifest: { id: 'orph-route-method-trace', version: '1.0.0', description: 'x', contributions: [{ kind: 'customHttpRoute', scope: 'system', method: 'TRACE', path: '/r1', requires: [] }] }, routeHandlers: async () => {} }`,
+      `{ manifest: { id: 'orph-route-method-trace', version: '1.0.0', description: 'x', contributions: [{ kind: 'customHttpRoute', scope: 'system', routeId: 'r1', method: 'TRACE', path: '/r1', requires: [] }] }, httpHandlers: { r1: async () => ({ status: 200 }) } }`,
     );
     const entry = findEntry("orph-route-method-trace");
     expect(entry?.error).toBeDefined();
-    expect(entry?.error).toBe("customHttpRoute method must be one of: GET, POST, PATCH, DELETE");
+    expect(entry?.error).toBe('customHttpRoute "r1" method must be one of: GET, POST, PATCH, DELETE');
     await cleanup(dir);
   });
 
-  it("customHttpRoute: lowercase method (get) → accepted, case-insensitive (F1b)", async () => {
-    // F1b: membership check uppercases the incoming method before lookup,
-    // matching the collision key's `c.method.toUpperCase()`. `get` and `GET`
-    // are equivalent — this pins that case-insensitivity at the validation
-    // layer (no orphanCheck error), so a lowercase method does not need a
-    // separate collision-key branch.
+  it("customHttpRoute: lowercase method (get) → accepted, normalized to GET (F1b)", async () => {
+    // Membership check uppercases the incoming method; the catalog entry
+    // carries the normalized method (pinned in the seam suite's catalog
+    // tests). `get` and `GET` are equivalent at both validation and mount.
     const dir = await writePlugin(
       "orph-route-method-lower",
-      `{ manifest: { id: 'orph-route-method-lower', version: '1.0.0', description: 'x', contributions: [{ kind: 'customHttpRoute', scope: 'system', method: 'get', path: '/r1', requires: [] }] }, routeHandlers: async () => {} }`,
+      `{ manifest: { id: 'orph-route-method-lower', version: '1.0.0', description: 'x', contributions: [{ kind: 'customHttpRoute', scope: 'system', routeId: 'r1', method: 'get', path: '/r1', requires: [] }] }, httpHandlers: { r1: async () => ({ status: 200 }) } }`,
     );
     const entry = findEntry("orph-route-method-lower");
     expect(entry?.error).toBeUndefined();
@@ -826,12 +826,13 @@ describe("v0.28-T1: detectIdCollisions (within + cross-plugin)", () => {
   });
 
   it("customHttpRoute: method-distinct routes in same manifest do not collide", async () => {
-    // `GET /dup` and `POST /dup` are distinct HTTP routes — no collision even
-    // though they share the path. The collision key prefixes the method
-    // (uppercased) so different methods on the same path register separately.
+    // `GET /dup` and `POST /dup` are distinct HTTP routes — no duplicate even
+    // though they share the path. Duplicate detection keys on the normalized
+    // `METHOD path` pair (distinct routeIds), so different methods on the
+    // same path validate separately.
     const dir = await writePlugin(
       "col-route-method-distinct",
-      `{ manifest: { id: 'col-route-method-distinct', version: '1.0.0', description: 'x', contributions: [{ kind: 'customHttpRoute', scope: 'system', method: 'GET', path: '/dup', requires: [] }, { kind: 'customHttpRoute', scope: 'system', method: 'POST', path: '/dup', requires: [] }] }, routeHandlers: async () => {} }`,
+      `{ manifest: { id: 'col-route-method-distinct', version: '1.0.0', description: 'x', contributions: [{ kind: 'customHttpRoute', scope: 'system', routeId: 'get-dup', method: 'GET', path: '/dup', requires: [] }, { kind: 'customHttpRoute', scope: 'system', routeId: 'post-dup', method: 'POST', path: '/dup', requires: [] }] }, httpHandlers: { 'get-dup': async () => ({ status: 200 }), 'post-dup': async () => ({ status: 201 }) } }`,
     );
     const entry = findEntry("col-route-method-distinct");
     expect(entry?.error).toBeUndefined();
@@ -840,12 +841,12 @@ describe("v0.28-T1: detectIdCollisions (within + cross-plugin)", () => {
 
   it("customHttpRoute: within-manifest duplicate (method, path) → error", async () => {
     // Two `customHttpRoute` contributions in the same manifest that resolve to
-    // the same uppercased `(method, path)` must be rejected. Collision key is
-    // `route:${M} ${path}` so the second contribution collides on the within
-    // key. Byte-exact assertion per the design's input-state table.
+    // the same normalized `(method, path)` must be rejected — even with
+    // distinct routeIds, one URL cannot dispatch to two handlers. Detected by
+    // validatePluginHttpRouteDeclarations during discovery (ADR-0050).
     const dir = await writePlugin(
       "col-route-within",
-      `{ manifest: { id: 'col-route-within', version: '1.0.0', description: 'x', contributions: [{ kind: 'customHttpRoute', scope: 'system', method: 'GET', path: '/foo', requires: [] }, { kind: 'customHttpRoute', scope: 'system', method: 'GET', path: '/foo', requires: [] }] }, routeHandlers: async () => {} }`,
+      `{ manifest: { id: 'col-route-within', version: '1.0.0', description: 'x', contributions: [{ kind: 'customHttpRoute', scope: 'system', routeId: 'first', method: 'GET', path: '/foo', requires: [] }, { kind: 'customHttpRoute', scope: 'system', routeId: 'second', method: 'GET', path: '/foo', requires: [] }] }, httpHandlers: { first: async () => ({ status: 200 }), second: async () => ({ status: 200 }) } }`,
     );
     const entry = findEntry("col-route-within");
     expect(entry?.error).toBeDefined();
@@ -853,13 +854,12 @@ describe("v0.28-T1: detectIdCollisions (within + cross-plugin)", () => {
     await cleanup(dir);
   });
 
-  it("customHttpRoute: within-manifest method-case `get` vs `GET` → error (uppercased)", async () => {
-    // Fastify normalizes method case (`get` ≡ `GET` at mount), so the load-time
-    // collision key also uppercases the method. Two contributions declaring the
-    // same path under differing method case collide.
+  it("customHttpRoute: within-manifest method-case `get` vs `GET` → error (normalized)", async () => {
+    // Methods normalize to uppercase before duplicate detection, so `get` and
+    // `GET` on the same path collide even though the raw strings differ.
     const dir = await writePlugin(
       "col-route-method-case",
-      `{ manifest: { id: 'col-route-method-case', version: '1.0.0', description: 'x', contributions: [{ kind: 'customHttpRoute', scope: 'system', method: 'get', path: '/foo', requires: [] }, { kind: 'customHttpRoute', scope: 'system', method: 'GET', path: '/foo', requires: [] }] }, routeHandlers: async () => {} }`,
+      `{ manifest: { id: 'col-route-method-case', version: '1.0.0', description: 'x', contributions: [{ kind: 'customHttpRoute', scope: 'system', routeId: 'lower', method: 'get', path: '/foo', requires: [] }, { kind: 'customHttpRoute', scope: 'system', routeId: 'upper', method: 'GET', path: '/foo', requires: [] }] }, httpHandlers: { lower: async () => ({ status: 200 }), upper: async () => ({ status: 200 }) } }`,
     );
     const entry = findEntry("col-route-method-case");
     expect(entry?.error).toBeDefined();
@@ -867,25 +867,51 @@ describe("v0.28-T1: detectIdCollisions (within + cross-plugin)", () => {
     await cleanup(dir);
   });
 
-  it("customHttpRoute: cross-plugin duplicate (method, path) → second plugin fails with exact 'already registered' string", async () => {
-    // Two plugins declaring the same `(method, path)` → the second is rejected
-    // with the cross-plugin byte-exact error. Order-independent assertion,
-    // mirroring notificationChannel cross-plugin: readdir order is filesystem-
-    // dependent, so we pin "exactly one fails", not which.
+  it("customHttpRoute: within-manifest duplicate routeId → error", async () => {
+    // The routeId keys the handler map; two declarations cannot share one.
+    const dir = await writePlugin(
+      "col-route-id-within",
+      `{ manifest: { id: 'col-route-id-within', version: '1.0.0', description: 'x', contributions: [{ kind: 'customHttpRoute', scope: 'system', routeId: 'twin', method: 'GET', path: '/a', requires: [] }, { kind: 'customHttpRoute', scope: 'system', routeId: 'twin', method: 'POST', path: '/b', requires: [] }] }, httpHandlers: { twin: async () => ({ status: 200 }) } }`,
+    );
+    const entry = findEntry("col-route-id-within");
+    expect(entry?.error).toBeDefined();
+    expect(entry?.error).toBe('duplicate routeId "twin" within manifest');
+    await cleanup(dir);
+  });
+
+  it("customHttpRoute: undeclared extra handler key → whole plugin rejected", async () => {
+    // Every httpHandlers key must match a declared routeId — a plugin cannot
+    // smuggle an undeclared handler past discovery (ADR-0050 catalog
+    // completeness).
+    const dir = await writePlugin(
+      "col-route-extra-handler",
+      `{ manifest: { id: 'col-route-extra-handler', version: '1.0.0', description: 'x', contributions: [{ kind: 'customHttpRoute', scope: 'system', routeId: 'declared', method: 'GET', path: '/ok', requires: [] }] }, httpHandlers: { declared: async () => ({ status: 200 }), smuggled: async () => ({ status: 200 }) } }`,
+    );
+    const entry = findEntry("col-route-extra-handler");
+    expect(entry?.error).toBeDefined();
+    expect(entry?.error).toContain('httpHandlers["smuggled"] with no matching customHttpRoute declaration');
+    expect(pluginManager.getPluginRouteCatalog()).toHaveLength(0);
+    await cleanup(dir);
+  });
+
+  it("customHttpRoute: cross-plugin same relative path → both load (per-plugin namespaces)", async () => {
+    // ADR-0050 obsoletes the cross-plugin collision registry: each plugin
+    // mounts inside its own namespace (`/api/v1|api/plugins/:pluginId/*`), so
+    // identical relative paths across plugins are distinct URLs by
+    // construction. Both plugins load and both reach the catalog.
     const tmpDir = `/tmp/test-char-col-route-cross-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     await mkdir(tmpDir, { recursive: true });
     const mk = (id: string) =>
-      `export default { manifest: { id: '${id}', version: '1.0.0', description: 'x', contributions: [{ kind: 'customHttpRoute', scope: 'system', method: 'GET', path: '/shared-route', requires: [] }] }, routeHandlers: async () => {} };`;
+      `export default { manifest: { id: '${id}', version: '1.0.0', description: 'x', contributions: [{ kind: 'customHttpRoute', scope: 'system', routeId: 'shared', method: 'GET', path: '/shared-route', requires: [] }] }, httpHandlers: { shared: async () => ({ status: 200 }) } };`;
     await writeFile(`${tmpDir}/aa.mjs`, mk("aa"));
     await writeFile(`${tmpDir}/bb.mjs`, mk("bb"));
     pluginManager.setPluginDirectory(tmpDir);
     await pluginManager.loadPlugins();
     const errored = pluginManager.getLoadedPlugins().filter((p) => p.error);
-    expect(errored).toHaveLength(1);
-    expect(errored[0].error).toBe('route "GET /shared-route" already registered by another plugin');
-    const loaded = pluginManager.getLoadedPlugins().filter((p) => !p.error);
-    expect(loaded).toHaveLength(1);
-    expect([errored[0].id, loaded[0].id].toSorted()).toEqual(["aa", "bb"]);
+    expect(errored).toHaveLength(0);
+    const catalog = pluginManager.getPluginRouteCatalog();
+    expect(catalog).toHaveLength(2);
+    expect(catalog.map((e) => e.pluginId).toSorted()).toEqual(["aa", "bb"]);
     await cleanup(tmpDir);
   });
 
@@ -1043,16 +1069,16 @@ describe("v0.28-F1: malformed customHttpRoute does not abort the scan", () => {
   it("malformed plugin followed by a valid plugin → malformed rejected, valid still loads", async () => {
     const tmpDir = `/tmp/test-char-f1-scan-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     await mkdir(tmpDir, { recursive: true });
-    // Malformed: method is a number — pre-fix this threw in
-    // detectIdCollisions and rejected the entire loadPlugins() promise.
+    // Malformed: method is a number — pre-fix this threw during collision-key
+    // construction and rejected the entire loadPlugins() promise.
     await writeFile(
       `${tmpDir}/aa-bad.mjs`,
-      `export default { manifest: { id: 'aa-bad', version: '1.0.0', description: 'bad', contributions: [{ kind: 'customHttpRoute', scope: 'system', method: 123, path: '/bad', requires: [] }] }, routeHandlers: async () => {} };`,
+      `export default { manifest: { id: 'aa-bad', version: '1.0.0', description: 'bad', contributions: [{ kind: 'customHttpRoute', scope: 'system', routeId: 'bad-route', method: 123, path: '/bad', requires: [] }] }, httpHandlers: { 'bad-route': async () => ({ status: 200 }) } };`,
     );
     // Valid plugin that follows in readdir order — must still be discovered.
     await writeFile(
       `${tmpDir}/bb-good.mjs`,
-      `export default { manifest: { id: 'bb-good', version: '1.0.0', description: 'good', contributions: [{ kind: 'customHttpRoute', scope: 'system', method: 'GET', path: '/good', requires: [] }] }, routeHandlers: async () => {} };`,
+      `export default { manifest: { id: 'bb-good', version: '1.0.0', description: 'good', contributions: [{ kind: 'customHttpRoute', scope: 'system', routeId: 'good-route', method: 'GET', path: '/good', requires: [] }] }, httpHandlers: { 'good-route': async () => ({ status: 200 }) } };`,
     );
     pluginManager.setPluginDirectory(tmpDir);
     await pluginManager.loadPlugins();
@@ -1060,7 +1086,12 @@ describe("v0.28-F1: malformed customHttpRoute does not abort the scan", () => {
     // The malformed plugin must have a pluginErrors entry — not a TypeError.
     const badEntry = findEntry("aa-bad");
     expect(badEntry?.error).toBeDefined();
-    expect(badEntry?.error).toBe("customHttpRoute method must be a non-empty string");
+    expect(badEntry?.error).toBe(
+      'customHttpRoute "bad-route" method must be one of: GET, POST, PATCH, DELETE',
+    );
+    // The bad plugin's route must NOT reach the catalog.
+    expect(pluginManager.getPluginRouteCatalog()).toHaveLength(1);
+    expect(pluginManager.getPluginRouteCatalog()[0].pluginId).toBe("bb-good");
 
     // The valid plugin MUST still load — the scan was not aborted.
     const goodEntry = findEntry("bb-good");
@@ -1081,12 +1112,12 @@ describe("v0.28-F1: malformed customHttpRoute does not abort the scan", () => {
     // Unsupported method — orphanCheck rejects via the membership check.
     await writeFile(
       `${tmpDir}/aa-bad.mjs`,
-      `export default { manifest: { id: 'aa-bad', version: '1.0.0', description: 'bad', contributions: [{ kind: 'customHttpRoute', scope: 'system', method: 'TRACE', path: '/bad', requires: [] }] }, routeHandlers: async () => {} };`,
+      `export default { manifest: { id: 'aa-bad', version: '1.0.0', description: 'bad', contributions: [{ kind: 'customHttpRoute', scope: 'system', routeId: 'bad-route', method: 'TRACE', path: '/bad', requires: [] }] }, httpHandlers: { 'bad-route': async () => ({ status: 200 }) } };`,
     );
     // Valid plugin that follows in readdir order — must still be discovered.
     await writeFile(
       `${tmpDir}/bb-good.mjs`,
-      `export default { manifest: { id: 'bb-good', version: '1.0.0', description: 'good', contributions: [{ kind: 'customHttpRoute', scope: 'system', method: 'GET', path: '/good', requires: [] }] }, routeHandlers: async () => {} };`,
+      `export default { manifest: { id: 'bb-good', version: '1.0.0', description: 'good', contributions: [{ kind: 'customHttpRoute', scope: 'system', routeId: 'good-route', method: 'GET', path: '/good', requires: [] }] }, httpHandlers: { 'good-route': async () => ({ status: 200 }) } };`,
     );
     pluginManager.setPluginDirectory(tmpDir);
     await pluginManager.loadPlugins();
@@ -1094,7 +1125,9 @@ describe("v0.28-F1: malformed customHttpRoute does not abort the scan", () => {
     // The unsupported-method plugin must have a pluginErrors entry.
     const badEntry = findEntry("aa-bad");
     expect(badEntry?.error).toBeDefined();
-    expect(badEntry?.error).toBe("customHttpRoute method must be one of: GET, POST, PATCH, DELETE");
+    expect(badEntry?.error).toBe(
+      'customHttpRoute "bad-route" method must be one of: GET, POST, PATCH, DELETE',
+    );
 
     // The valid plugin MUST still load — the scan was not aborted.
     const goodEntry = findEntry("bb-good");

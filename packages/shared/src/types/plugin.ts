@@ -101,13 +101,21 @@ export interface CustomMcpToolContribution {
   requires: [];
 }
 
-/** System-scoped custom HTTP route mounted on the API (ADR-0011). */
+/**
+ * System-scoped custom HTTP route (ADR-0011; core-owned mounting per ADR-0050).
+ * Declares a stable `routeId`, one supported method, and a path relative to the
+ * plugin's namespace (`/api/v1/plugins/:pluginId` + deprecated
+ * `/api/plugins/:pluginId`). The module exports the request handler keyed by
+ * `routeId` in `httpHandlers`; core alone registers the route with fixed
+ * `local_actor` authentication — a plugin cannot choose, remove, or widen it.
+ */
 export interface CustomHttpRouteContribution {
   kind: "customHttpRoute";
   scope: "system";
+  routeId: string;
   method: "GET" | "POST" | "PATCH" | "DELETE";
+  /** Safe relative path under the plugin namespace: starts "/", static segments only. */
   path: string;
-  timeoutMs?: number;
   requires: [];
 }
 

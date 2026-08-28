@@ -151,66 +151,150 @@ describe("pluginLoader: registry construction", () => {
   });
 });
 
-describe("pluginLoader: crash-loud activation contract (ADR-0041)", () => {
+describe("pluginLoader: core-owned HTTP seam (ADR-0050, supersedes ADR-0041)", () => {
   beforeEach(() => pluginManager.resetPlugins());
   afterEach(() => pluginManager.resetPlugins());
 
-  it("a throwing routeHandlers causes initializePlugins to reject AND fastify.listen to reject with the same error", async () => {
-    // A plugin whose `routeHandlers` deliberately throws — emulates the
-    // exact-mount-time failure mode this contract pins. Uses a real
-    // Fastify() instance (not a mock) because the Fastify-poisoning chain
-    // (register rejects AND poisons listen) is the central empirical claim
-    // this contract rests on; pinning only the upstream rejection would
-    // under-test it.
-    const dir = await writePlugin(
-      "crashy",
-      `{
-        manifest: {
-          id: 'crashy',
-          version: '1.0.0',
-          description: 'plugin whose routes throw at mount',
-          contributions: [
-            { kind: 'customHttpRoute', scope: 'system', method: 'GET', path: '/crashy', requires: [] },
-          ],
-        },
-        routeHandlers: async () => { throw new Error('boom-at-mount'); },
-      }`,
+  it("rejects a plugin exporting legacy routeHandlers with the migration error, while a later valid plugin still loads", async () => {
+    // Breaking plugin-SDK contract: the unrestricted callback is gone. The
+    // rejection is a structural LOAD fault (whole plugin, scan continues) —
+    // not a mount-time crash. There is no mount-time plugin execution anymore.
+    const { mkdir, writeFile } = await import("node:fs/promises");
+    const dir = `/tmp/test-loader-legacy-${Date.now()}`;
+    await mkdir(`${dir}/aa-legacy`, { recursive: true });
+    await mkdir(`${dir}/bb-good`, { recursive: true });
+    await writeFile(
+      `${dir}/aa-legacy/index.mjs`,
+      `export default { manifest: { id: 'aa-legacy', version: '1.0.0', description: 'old sdk', contributions: [{ kind: 'customHttpRoute', scope: 'system', routeId: 'legacy-route', method: 'GET', path: '/legacy', requires: [] }] }, routeHandlers: async () => {} };`,
     );
+    await writeFile(
+      `${dir}/bb-good/index.mjs`,
+      `export default { manifest: { id: 'bb-good', version: '1.0.0', description: 'new sdk', contributions: [{ kind: 'customHttpRoute', scope: 'system', routeId: 'good-route', method: 'GET', path: '/good', requires: [] }] }, httpHandlers: { 'good-route': async () => ({ status: 200, body: { ok: true } }) } };`,
+    );
+    pluginManager.setPluginDirectory(dir);
+    await pluginManager.loadPlugins();
+
+    const legacy = pluginManager.getLoadedPlugins().find((p) => p.id === "aa-legacy");
+    expect(legacy?.error).toContain("routeHandlers is no longer supported");
+    expect(legacy?.error).toContain("httpHandlers keyed by routeId");
+    expect(pluginManager.getPluginManifest("aa-legacy")).toBeNull();
+
+    // Whole-plugin containment: the later valid plugin still loads and its
+    // route reaches the validated catalog.
+    const good = pluginManager.getLoadedPlugins().find((p) => p.id === "bb-good");
+    expect(good?.error).toBeUndefined();
+    const catalog = pluginManager.getPluginRouteCatalog();
+    expect(catalog).toHaveLength(1);
+    expect(catalog[0]).toMatchObject({ pluginId: "bb-good", routeId: "good-route", method: "GET", path: "/good" });
+
+    await cleanup(dir);
+  });
+
+  it("prototype-chain 'handler' (constructor) with no own export rejects the whole plugin; a later valid plugin still loads", async () => {
+    // Review finding 1 at the loader level: `{}`["constructor"] resolves to
+    // a function through the prototype chain. Without the own-property
+    // check, this plugin validated and the builtin was mounted as the
+    // handler. It must reject during discovery and leave the catalog empty
+    // of its entries while the later valid plugin loads.
+    const { mkdir, writeFile } = await import("node:fs/promises");
+    const dir = `/tmp/test-loader-magic-${Date.now()}`;
+    await mkdir(`${dir}/aa-magic`, { recursive: true });
+    await mkdir(`${dir}/bb-good`, { recursive: true });
+    await writeFile(
+      `${dir}/aa-magic/index.mjs`,
+      // `httpHandlers: {}` is load-bearing: an ordinary empty object whose
+      // inherited `constructor`/`toString` ARE the defect under test. Without
+      // an own-property check, `{}`["constructor"] resolves through the
+      // prototype chain and the builtin would be accepted as the handler.
+      `export default { manifest: { id: 'aa-magic', version: '1.0.0', description: 'magic key', contributions: [{ kind: 'customHttpRoute', scope: 'system', routeId: 'constructor', method: 'GET', path: '/magic', requires: [] }, { kind: 'customHttpRoute', scope: 'system', routeId: 'toString', method: 'GET', path: '/stringify', requires: [] }] }, httpHandlers: {} };`,
+    );
+    await writeFile(
+      `${dir}/bb-good/index.mjs`,
+      `export default { manifest: { id: 'bb-good', version: '1.0.0', description: 'good', contributions: [{ kind: 'customHttpRoute', scope: 'system', routeId: 'good-route', method: 'GET', path: '/good', requires: [] }] }, httpHandlers: { 'good-route': async () => ({ status: 200, body: { ok: true } }) } };`,
+    );
+    pluginManager.setPluginDirectory(dir);
+    await pluginManager.loadPlugins();
+
+    const magic = pluginManager.getLoadedPlugins().find((p) => p.id === "aa-magic");
+    expect(magic?.error).toBe(
+      'customHttpRoute "constructor" declared but no matching handler in module.httpHandlers',
+    );
+    expect(pluginManager.getPluginManifest("aa-magic")).toBeNull();
+
+    const catalog = pluginManager.getPluginRouteCatalog();
+    expect(catalog).toHaveLength(1);
+    expect(catalog[0]).toMatchObject({ pluginId: "bb-good", routeId: "good-route" });
+    expect(catalog[0].handler).toBeTypeOf("function");
+
+    await cleanup(dir);
+  });
+
+  it("repeated loadPlugins() without resetPlugins() converges: one identity-keyed catalog entry", async () => {
+    // Review finding 2: the sibling registries are identity-keyed Maps whose
+    // re-set converges; the catalog must not append duplicates on a repeated
+    // identical scan (a duplicate would double-register the same route at
+    // install and pollute the Ticket 06 handoff).
+    const dir = await writePlugin(
+      "idem",
+      `{ manifest: { id: 'idem', version: '1.0.0', description: 'x', contributions: [{ kind: 'customHttpRoute', scope: 'system', routeId: 'the-route', method: 'GET', path: '/x', requires: [] }] }, httpHandlers: { 'the-route': async () => ({ status: 200, body: { idem: true } }) } }`,
+    );
+    // writePlugin already ran one loadPlugins(); run it twice more without
+    // any resetPlugins() between scans.
+    await pluginManager.loadPlugins();
+    await pluginManager.loadPlugins();
+
+    const catalog = pluginManager.getPluginRouteCatalog();
+    expect(catalog).toHaveLength(1);
+    expect(catalog[0]).toMatchObject({
+      pluginId: "idem",
+      routeId: "the-route",
+      method: "GET",
+      path: "/x",
+    });
+    await cleanup(dir);
+  });
+
+  it("a throwing httpHandler loads fine — mount stays clean and the fault is request-scoped", async () => {
+    // The superseded ADR-0041 crash-loud contract pinned a mount-time throw
+    // poisoning the instance. Under ADR-0050 the handler runs only inside a
+    // request: initializePlugins resolves, ready resolves, and one inject
+    // fails that one request without deactivating the plugin.
+    const manifest = {
+      id: "thrower",
+      version: "1.0.0",
+      description: "throws per request",
+      contributions: [
+        { kind: "customHttpRoute", scope: "system", routeId: "boom", method: "GET", path: "/boom", requires: [] },
+      ],
+    };
+    const dir = `/tmp/test-loader-thrower-${Date.now()}`;
+    const { mkdir, writeFile } = await import("node:fs/promises");
+    await mkdir(dir, { recursive: true });
+    await writeFile(
+      `${dir}/thrower.mjs`,
+      `export default { manifest: ${JSON.stringify(manifest)}, httpHandlers: { boom: async () => { throw new Error('boom-per-request'); } } };`,
+    );
+    pluginManager.setPluginDirectory(dir);
+    await pluginManager.loadPlugins();
+
+    const entry = pluginManager.getLoadedPlugins().find((p) => p.id === "thrower");
+    expect(entry?.error).toBeUndefined();
 
     const fastify = Fastify({ logger: false });
-
-    // 1. initializePlugins must reject — the throw is NOT swallowed by any
-    //    rollback. The rejected error object is the exact one thrown by the
-    //    plugin's routeHandlers so the operator can see the plugin-specific
-    //    cause.
-    let initRejection: unknown;
+    await expect(pluginManager.initializePlugins(fastify)).resolves.toBeUndefined();
+    let readyError: unknown;
     try {
-      await pluginManager.initializePlugins(fastify);
+      await fastify.ready();
     } catch (err) {
-      initRejection = err;
+      readyError = err;
     }
-    expect(initRejection).toBeInstanceOf(Error);
-    expect((initRejection as Error).message).toBe("boom-at-mount");
+    expect(readyError).toBeUndefined(); // no mount-time execution reached the handler
 
-    // 2. fastify.listen must ALSO reject with the same error object — the
-    //    Fastify instance is poisoned by the failed register call and cannot
-    //    serve. This is the load-bearing empirical claim: a route-mount throw
-    //    is not just an upstream rejection, it permanently corrupts the
-    //    server. The operator MUST NOT see "continuing without plugins".
-    let listenRejection: unknown;
-    try {
-      await fastify.listen({ port: 0, host: "127.0.0.1" });
-    } catch (err) {
-      listenRejection = err;
-    }
-    expect(listenRejection).toBeInstanceOf(Error);
-    expect((listenRejection as Error).message).toBe("boom-at-mount");
-
-    // 3. Both rejections are the SAME error object — proving the upstream
-    //    throw propagates byte-identically through to the listen call. This
-    //    is the diagnostic guarantee the operator relies on to trace the
-    //    crash back to the plugin's routeHandlers.
-    expect(listenRejection).toBe(initRejection);
+    // Bare instance (no auth installer): the request reaches the handler and
+    // the throw fails exactly that request. Plugin stays loaded.
+    const res = await fastify.inject({ method: "GET", url: "/api/v1/plugins/thrower/boom" });
+    expect(res.statusCode).toBe(500);
+    expect(pluginManager.getPluginManifest("thrower")).not.toBeNull();
 
     await fastify.close();
     await cleanup(dir);
@@ -246,8 +330,8 @@ describe("pluginLoader: non-fatal loadPlugins path (regression pin)", () => {
     expect(pluginManager.getPluginManifest("nonfatal")).toBeNull();
 
     // initializePlugins still resolves cleanly — no plugins are loaded, so
-    // the route loop is a no-op. The fatal regime is specifically a
-    // routeHandlers throw during initializePlugins, NOT a load-time error.
+    // route installation is a no-op. Load-time faults never reach the fatal
+    // boot regime; under ADR-0050 only a core registration fault would.
     const fastify = Fastify({ logger: false });
     await expect(pluginManager.initializePlugins(fastify)).resolves.toBeUndefined();
 

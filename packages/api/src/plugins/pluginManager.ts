@@ -22,6 +22,12 @@ import type {
 import type { NotificationDelivery, NotificationEvent } from "@orcy/shared";
 import { buildPluginContext } from "./context.js";
 import {
+  installPluginRoutes,
+  validatePluginHttpRouteDeclarations,
+  type PluginRouteCatalog,
+  type PluginRouteCatalogEntry,
+} from "./pluginHttpRoutes.js";
+import {
   CAPABILITY_MATRIX,
   CONTRIBUTION_KIND_KEYS,
   buildContributionCatalog,
@@ -106,13 +112,14 @@ const interceptorRegistry: {
 } = { pre: new Map(), post: new Map() };
 
 /**
- * Collision-only — not the route dispatch source. Fastify's router owns
- * dispatch; this map is read only by `detectIdCollisions`. Key format:
- * `${method.toUpperCase()} ${path}` (method uppercased to match Fastify's
- * case-insensitive method handling; path byte-equal as-declared).
- * See ADR-0041 + Work Item 1 of docs/plans/v4/05-plugin-activation-design.md.
+ * Validated operational plugin-route catalog (ADR-0050). Appended during
+ * `registerContributions` for every accepted `customHttpRoute` declaration
+ * (discovery rejects structurally bad plugins first), then mounted once by
+ * the core installer in `initializePlugins`. Replaces the collision-only
+ * `customHttpRouteRegistry` — per-plugin mount namespaces make cross-plugin
+ * collisions structurally impossible.
  */
-const customHttpRouteRegistry: Map<string, string> = new Map();
+const pluginRouteCatalog: PluginRouteCatalogEntry[] = [];
 
 /** Bag of the 8 module-level registries passed to the catalog factory. Also passed (by
  * reference) to each adapter's `register` callback for downstream flexibility, even
@@ -125,7 +132,7 @@ const REGISTRIES: PluginRegistries = {
   conditionRegistry,
   actionRegistry,
   providerRegistry,
-  customHttpRouteRegistry,
+  pluginRouteCatalog,
 };
 
 /** v0.28 catalog of per-kind registration behavior (label/orphanCheck/collisionKey/register).
@@ -365,9 +372,9 @@ export async function loadPlugins(enabledList?: string[]): Promise<void> {
         }
         const mod = await loadPluginFromPath(join(entryPath, idx), entry);
         if (mod) {
-          const collision = detectIdCollisions(mod);
-          if (collision) {
-            pluginErrors.set(mod.manifest.id, collision);
+          const fault = detectIdCollisions(mod) ?? validatePluginHttpRouteDeclarations(mod);
+          if (fault) {
+            pluginErrors.set(mod.manifest.id, fault);
             break;
           }
           loadedPlugins.set(mod.manifest.id, mod);
@@ -383,9 +390,9 @@ export async function loadPlugins(enabledList?: string[]): Promise<void> {
       const name = entry.replace(/\.(js|mjs|ts)$/, "");
       const mod = await loadPluginFromPath(entryPath, name);
       if (mod) {
-        const collision = detectIdCollisions(mod);
-        if (collision) {
-          pluginErrors.set(mod.manifest.id, collision);
+        const fault = detectIdCollisions(mod) ?? validatePluginHttpRouteDeclarations(mod);
+        if (fault) {
+          pluginErrors.set(mod.manifest.id, fault);
         } else {
           loadedPlugins.set(mod.manifest.id, mod);
           registerContributions(mod);
@@ -407,17 +414,23 @@ function parseEnabledFromEnv(): string[] {
 }
 
 export async function initializePlugins(fastify: FastifyInstance): Promise<void> {
-  // Crash-loud contract (ADR-0041): a throwing `routeHandlers` propagates as a
-  // boot-aborting error. We intentionally do NOT swallow it via a try/catch —
-  // Fastify poisons the instance on register failure, so a recovered plugin
-  // would still be unsafe to serve. The boot caller (`index.ts`) wraps this
-  // call in its own fatal catch + `process.exit(1)`.
-  for (const [, mod] of loadedPlugins) {
-    if (mod.routeHandlers) {
-      await fastify.register(mod.routeHandlers);
-    }
-  }
+  // Core-owned route installation (ADR-0050, supersedes ADR-0041): the
+  // validated discovery catalog is mounted by the single core installer under
+  // both plugin namespaces with fixed `local_actor` policy. No plugin code
+  // executes at mount time — handler faults are request-scoped — so the old
+  // crash-loud mount contract no longer exists. A failure here is a core
+  // registration fault (the catalog is pre-validated), still fatal to boot.
+  await installPluginRoutes(fastify, pluginRouteCatalog);
   registerDetectorHooks();
+}
+
+/**
+ * Copy of the validated plugin-route catalog built during discovery (ADR-0050).
+ * Consumed by the staged HTTP assembly (`installPluginRoutes`) and by tests;
+ * a copy so later discovery cycles cannot mutate an already-installed catalog.
+ */
+export function getPluginRouteCatalog(): PluginRouteCatalog {
+  return [...pluginRouteCatalog];
 }
 
 export function getLoadedPlugins(): PluginManifestView[] {
@@ -1315,7 +1328,7 @@ export function resetPlugins(): void {
   detectorRegistry.clear();
   interceptorRegistry.pre.clear();
   interceptorRegistry.post.clear();
-  customHttpRouteRegistry.clear();
+  pluginRouteCatalog.length = 0;
   enrollmentCache.clear();
   quarantineSet.clear();
   errorCounters.clear();

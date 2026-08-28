@@ -348,12 +348,13 @@ const BEHAVIOR_NOTES: string[] = [
 // ---------------------------------------------------------------------------
 // Fixture System Plugin — registered through the real plugin discovery seams
 // (setPluginDirectory → loadPlugins → initializePlugins), never a test-local
-// route registration. Mirrors what a production System Plugin can do today:
-// an unrestricted FastifyPluginCallback mounted at root (ADR-0050 replaces
-// this contract in a later ticket; the baseline records the current truth).
+// route registration. Mirrors the ADR-0050 contract: a manifest-declared
+// route (stable routeId, method, plugin-relative path) with a keyed request
+// handler; core mounts it under both plugin namespaces with fixed
+// local_actor policy. The plugin author never sees Fastify.
 // ---------------------------------------------------------------------------
 const FIXTURE_PLUGIN_ID = "char-fixture";
-const FIXTURE_PLUGIN_ROUTE = "/__char-fixture";
+const FIXTURE_PLUGIN_ROUTE_ID = "status";
 
 async function writeFixturePluginDir(targetDir?: string): Promise<string> {
   const dir = targetDir ?? (await mkdtemp(path.join("/tmp", "route-char-plugins-")));
@@ -366,11 +367,11 @@ async function writeFixturePluginDir(targetDir?: string): Promise<string> {
     version: '0.0.1',
     description: 'route characterization fixture plugin',
     contributions: [
-      { kind: 'customHttpRoute', scope: 'system', method: 'GET', path: '${FIXTURE_PLUGIN_ROUTE}', requires: [] },
+      { kind: 'customHttpRoute', scope: 'system', routeId: '${FIXTURE_PLUGIN_ROUTE_ID}', method: 'GET', path: '/status', requires: [] },
     ],
   },
-  routeHandlers: async (fastify) => {
-    fastify.get('${FIXTURE_PLUGIN_ROUTE}', { config: { authPolicy: 'anonymous' } }, async () => ({ fixture: true }));
+  httpHandlers: {
+    '${FIXTURE_PLUGIN_ROUTE_ID}': async (request) => ({ status: 200, body: { fixture: true, actorType: request.actor?.type ?? null } }),
   },
 };\n`,
     "utf8",
@@ -575,12 +576,20 @@ describe("production route surface characterization", () => {
       }
     });
 
-    it("fixture plugin route appears only in fixture-plugin mode", () => {
+    it("fixture plugin routes appear only in fixture-plugin mode, under both namespaces", () => {
       expect(
         apiOnly.records.filter((r) => r.source === "plugin"),
       ).toEqual([]);
       const pluginRoutes = fixturePlugin.records.filter((r) => r.source === "plugin");
-      expect(pluginRoutes.map(recordKey)).toEqual([`GET ${FIXTURE_PLUGIN_ROUTE}`]);
+      // Core mounts the validated catalog under both the current and the
+      // deprecated plugin namespace (ADR-0050) — two records, one declaration.
+      expect(pluginRoutes.map(recordKey)).toEqual([
+        `GET /api/plugins/${FIXTURE_PLUGIN_ID}/status`,
+        `GET /api/v1/plugins/${FIXTURE_PLUGIN_ID}/status`,
+      ]);
+      for (const r of pluginRoutes) {
+        expect(r.authKind, `${r.path} policy`).toBe("local_actor");
+      }
     });
   });
 
@@ -1115,10 +1124,27 @@ describe("production route surface characterization", () => {
       expect(authed.statusCode).toBe(200);
     });
 
-    it("fixture plugin route serves unauthenticated today (pre-ADR-0050 truth)", async () => {
-      const res = await fixturePlugin.app.inject({ method: "GET", url: FIXTURE_PLUGIN_ROUTE });
-      expect(res.statusCode).toBe(200);
-      expect(res.json()).toEqual({ fixture: true });
+    it("fixture plugin route requires local-actor auth under both namespaces (ADR-0050 truth)", async () => {
+      // The superseded seam mounted an anonymous root route; the declared
+      // seam installs fixed local_actor policy under both plugin namespaces.
+      for (const prefix of ["/api/v1", "/api"]) {
+        const anon = await fixturePlugin.app.inject({
+          method: "GET",
+          url: `${prefix}/plugins/${FIXTURE_PLUGIN_ID}/status`,
+        });
+        expect(anon.statusCode, `${prefix} anonymous`).toBe(401);
+
+        const authed = await fixturePlugin.app.inject({
+          method: "GET",
+          url: `${prefix}/plugins/${FIXTURE_PLUGIN_ID}/status`,
+          headers: { authorization: `Bearer ${adminToken}` },
+        });
+        expect(authed.statusCode, `${prefix} authenticated`).toBe(200);
+        expect(authed.json()).toEqual({ fixture: true, actorType: "human" });
+        expect(authed.headers.deprecation, `${prefix} deprecation header`).toBe(
+          prefix === "/api" ? "true" : undefined,
+        );
+      }
     });
   });
 

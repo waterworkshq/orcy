@@ -673,6 +673,8 @@ describe("F1 — ESM-safe compiled API startup", () => {
 
         // Controlled fixture System Plugin input, registered through the real
         // plugin discovery seams (PLUGINS_DIR → loadPlugins → initializePlugins).
+        // ADR-0050 shape: declared routeId + keyed handler; core mounts it under
+        // both plugin namespaces with fixed local_actor policy.
         const pluginDir = join(tempDir, "plugins");
         mkdirSync(pluginDir, { recursive: true });
         writeFileSync(
@@ -683,11 +685,11 @@ describe("F1 — ESM-safe compiled API startup", () => {
     version: '0.0.1',
     description: 'compiled surface characterization fixture plugin',
     contributions: [
-      { kind: 'customHttpRoute', scope: 'system', method: 'GET', path: '/__char-fixture', requires: [] },
+      { kind: 'customHttpRoute', scope: 'system', routeId: 'status', method: 'GET', path: '/status', requires: [] },
     ],
   },
-  routeHandlers: async (fastify) => {
-    fastify.get('/__char-fixture', { config: { authPolicy: 'anonymous' } }, async () => ({ fixture: true }));
+  httpHandlers: {
+    status: async (request) => ({ status: 200, body: { fixture: true, actorType: request.actor?.type ?? null } }),
   },
 };\n`,
           "utf8",
@@ -741,10 +743,17 @@ describe("F1 — ESM-safe compiled API startup", () => {
             expect(await ingress.json()).toEqual({ error: "Invalid or missing signature" });
           }
 
-          // Fixture plugin route.
-          const plugin = await fetch(`${base}/__char-fixture`);
-          expect(plugin.status).toBe(200);
-          expect(await plugin.json()).toEqual({ fixture: true });
+          // Fixture plugin routes: core-mounted under both plugin namespaces
+          // with fixed local_actor policy (ADR-0050). Unauthenticated → 401
+          // under both; the deprecated mirror alone carries Deprecation.
+          for (const prefix of ["/api/v1", "/api"]) {
+            const pluginRoute = await fetch(`${base}${prefix}/plugins/char-fixture/status`);
+            expect(pluginRoute.status, `${prefix} plugin route`).toBe(401);
+            const deprecation = pluginRoute.headers.get("deprecation");
+            expect(deprecation, `${prefix} plugin deprecation header`).toBe(
+              prefix === "/api" ? "true" : null,
+            );
+          }
         });
       } finally {
         rmSync(tempDir, { recursive: true, force: true });

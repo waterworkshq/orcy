@@ -4,9 +4,10 @@
  * Localizes per-kind registration behavior (id extraction, orphan-handler
  * validation, within-manifest + cross-plugin collision detection, registry
  * write) behind a single record adapter table. The factory receives the
- * 7 module-level registry Maps from `pluginManager.ts`, so this file imports
- * ONLY types (`./types.js`, `@orcy/shared`) — no Maps, no `pluginManager`
- * import → no circular dependency.
+ * 7 module-level registry Maps plus the plugin route catalog from
+ * `pluginManager.ts`, so this file imports no Maps and no `pluginManager`
+ * (only `./types.js`, `@orcy/shared`, and validators from
+ * `./pluginHttpRoutes.js`) → no circular dependency.
  *
  * Unconsumed by `pluginManager.ts` in this ticket (T4 wires it in). Acceptable
  * foundation state: typechecks, behavior-equivalent by construction to the
@@ -37,6 +38,13 @@ import type {
   PluginModule,
   ProviderHandler,
 } from "./types.js";
+import type { PluginRouteCatalogEntry } from "./pluginHttpRoutes.js";
+import {
+  legacyRouteHandlersFault,
+  normalizePluginRouteMethod,
+  validatePluginRouteId,
+  validatePluginRoutePath,
+} from "./pluginHttpRoutes.js";
 
 /**
  * The 9 contribution kinds a plugin may declare
@@ -134,11 +142,14 @@ export function canonicalContributionKey(identity: CanonicalContributionIdentity
 /**
  * Per-kind registration-time behavior. Dispatch is NOT part of the adapter
  * — only the validation/registration callbacks below. `label` and
- * `orphanCheck` are required for all 9 kinds; `collisionKey`, `collisions`,
- * and `register` are present for 8 of 9 kinds — all except `customMcpTool`
- * (its runtime exposure lives outside the catalog in `getCustomMcpTools()`).
- * `customHttpRoute` uses them for collision-only registration; the route
- * itself is mounted by `initializePlugins()` (ADR-0041).
+ * `orphanCheck` are required for all 9 kinds; `register` is present for 8 of
+ * 9 kinds (all except `customMcpTool`, whose runtime exposure lives outside
+ * the catalog in `getCustomMcpTools()`). `collisionKey`/`collisions` are
+ * absent for `customMcpTool` and for `customHttpRoute`: plugin routes mount
+ * inside per-plugin namespaces (`/api/v1|api/plugins/:pluginId/*`), so
+ * cross-plugin collisions are structurally impossible, and within-manifest
+ * duplicate detection (routeId + normalized method/path) runs in
+ * `validatePluginHttpRouteDeclarations` during discovery (ADR-0050).
  */
 export interface ContributionAdapter {
   /** Human-readable identifier for error messages (e.g. `detectorId`, `channelId`). */
@@ -261,11 +272,12 @@ export const CAPABILITY_MATRIX: Readonly<Record<ContributionKind, CapabilityPoli
 
 /**
  * The bag of 8 module-level registries the factory receives. Value types
- * mirror the Maps declared in `pluginManager.ts` (channel / detector /
+ * mirror the containers declared in `pluginManager.ts` (channel / detector /
  * interceptor{pre,post} / formatter / condition / action / provider /
- * customHttpRoute). The customHttpRoute registry is collision-only — its
- * presence here is required by `detectIdCollisions` for cross-plugin
- * dedup; Fastify's router owns actual dispatch (see ADR-0041).
+ * pluginRouteCatalog). The plugin route catalog is the validated operational
+ * output of discovery: each accepted `customHttpRoute` declaration appends one
+ * entry, and the core installer (`installPluginRoutes`, ADR-0050) mounts the
+ * catalog — the collision-only `customHttpRouteRegistry` it replaced is gone.
  *
  * T2 enrichment: managed-kind registries (channel/detector/interceptor/action)
  * carry their full {@link ManagedRegistryEntry} payload (contribution metadata,
@@ -283,7 +295,7 @@ export interface PluginRegistries {
   conditionRegistry: Map<string, { pluginId: string; handler: ConditionHandler }>;
   actionRegistry: Map<string, ActionRegistryEntry>;
   providerRegistry: Map<string, { pluginId: string; handler: ProviderHandler }>;
-  customHttpRouteRegistry: Map<string, string>;
+  pluginRouteCatalog: PluginRouteCatalogEntry[];
 }
 
 /** Enriched detector registry entry. Uniform managed-kind shape (T2). */
@@ -344,17 +356,6 @@ export type ManagedRegistryEntry =
   | InterceptorRegistryEntry;
 
 /**
- * Supported HTTP methods for `customHttpRoute`. Source of truth is the
- * `CustomHttpRouteContribution.method` union in `@orcy/shared`
- * (`"GET" | "POST" | "PATCH" | "DELETE"`); this runtime Set mirrors it so
- * orphanCheck can reject unsupported method strings (e.g. "TRACE") at load
- * (ADR-0041). Uppercase because `customHttpRoute.orphanCheck` uppercases the
- * incoming method before the membership check, matching the collision key's
- * `c.method.toUpperCase()`. Keep in sync with the union if it ever widens.
- */
-const SUPPORTED_CUSTOM_HTTP_METHODS = new Set(["GET", "POST", "PATCH", "DELETE"]);
-
-/**
  * Build the per-kind adapter catalog. Each adapter's `register` closes over
  * the specific Map from the passed `registries` bag (via destructure) so
  * per-call lookup is O(1) and the adapter body stays small. Called once at
@@ -371,7 +372,6 @@ export function buildContributionCatalog(
     conditionRegistry,
     actionRegistry,
     providerRegistry,
-    customHttpRouteRegistry,
   } = registries;
 
   // Collision-error template helpers. The catalog owns the per-kind error
@@ -563,72 +563,86 @@ export function buildContributionCatalog(
       },
     },
 
-    // `customHttpRoute` joins the collision-detection surface (ADR-0041). The
-    // route itself is mounted by `initializePlugins` (Fastify.register call)
-    // — that adapter is NOT here. The registry written by `register` here is
-    // collision-only and is read only by `detectIdCollisions`; Fastify's
-    // router owns actual dispatch at runtime. Method uppercased in the key
-    // (matches Fastify's case-insensitive method handling); path byte-equal
-    // as-declared. Path-case / trailing-slash variants are a documented
-    // known hole — see `Exact-match boundary` in
-    // docs/plans/v4/05-plugin-activation-design.md.
+    // `customHttpRoute` (ADR-0050): per-contribution field-shape validation
+    // runs here for the earliest possible rejection; the cross-contribution
+    // checks (legacy `routeHandlers` export, duplicate routeId, duplicate
+    // normalized method/path, undeclared handler keys, segment-safe plugin id)
+    // run in `validatePluginHttpRouteDeclarations` during discovery, and the
+    // core installer mounts the appended catalog — a plugin never receives
+    // Fastify registration capability. No collisionKey/collisions: routes
+    // mount inside per-plugin namespaces, so cross-plugin collisions are
+    // structurally impossible.
     customHttpRoute: {
-      label: (c) => (c.kind === "customHttpRoute" ? c.path : ""),
-      // Error string deliberately omits the path — `routeHandlers` is a single
-      // module-level function (one per plugin), not a per-contribution handler,
-      // so the orphan doesn't carry a path identifier.
+      label: (c) => (c.kind === "customHttpRoute" ? c.routeId : ""),
       orphanCheck: (c, mod) => {
         if (c.kind !== "customHttpRoute") return null;
-        // Field-shape validation (ADR-0041): structural route faults are
-        // rejected at validation — not deferred to collision-key construction
-        // where a non-string method would throw TypeError and abort the
-        // entire plugin scan. Mirrors validatePlugin's manifest-field pattern
-        // (`typeof X !== "string" || !X`); at runtime JS/MJS plugins can
-        // bypass the TS type (`"GET" | "POST" | "PATCH" | "DELETE"`).
-        if (typeof c.method !== "string" || !c.method) {
-          return `customHttpRoute method must be a non-empty string`;
+        // Earliest rejection point: the legacy raw-callback export gets the
+        // actionable migration error before any generic field complaint.
+        const legacyFault = legacyRouteHandlersFault(mod);
+        if (legacyFault) return legacyFault;
+        // Field-shape validation: structural route faults are rejected at
+        // validation, not deferred to catalog construction where a non-string
+        // would throw TypeError and abort the entire plugin scan. JS/MJS
+        // plugins can bypass the TS union at runtime.
+        if (!validatePluginRouteId(c.routeId)) {
+          return `customHttpRoute routeId must match [A-Za-z0-9][A-Za-z0-9._-]{0,99}`;
         }
-        if (typeof c.path !== "string" || !c.path) {
-          return `customHttpRoute path must be a non-empty string`;
+        if (!normalizePluginRouteMethod(c.method)) {
+          return `customHttpRoute "${c.routeId}" method must be one of: GET, POST, PATCH, DELETE`;
         }
-        // Method membership (F1b): the type union is `"GET" | "POST" | "PATCH"
-        // | "DELETE"`, but JS/MJS plugins bypass TS at runtime. Case-insensitive
-        // (uppercase before lookup) to match the collision key's
-        // `c.method.toUpperCase()` — `get` and `GET` both pass, `TRACE`/`BOGUS`
-        // reject. See ADR-0041 "invalid method rejected at load."
-        if (!SUPPORTED_CUSTOM_HTTP_METHODS.has(c.method.toUpperCase())) {
-          return `customHttpRoute method must be one of: GET, POST, PATCH, DELETE`;
+        if (!validatePluginRoutePath(c.path)) {
+          return `customHttpRoute "${c.routeId}" has a malformed path — expected a relative path of unreserved-character segments starting with "/"`;
         }
-        return typeof mod.routeHandlers === "function"
+        // Own-property agreement (review finding 1): an inherited
+        // Object.prototype function must not count as the keyed handler, and
+        // a non-object map (null/array at runtime) has no own handlers.
+        const handlerMap = mod.httpHandlers;
+        const hasOwnHandler =
+          handlerMap !== null &&
+          handlerMap !== undefined &&
+          typeof handlerMap === "object" &&
+          !Array.isArray(handlerMap) &&
+          Object.hasOwn(handlerMap, c.routeId) &&
+          typeof handlerMap[c.routeId] === "function";
+        return hasOwnHandler
           ? null
-          : `customHttpRoute declared but module.routeHandlers is missing or not a function`;
+          : `customHttpRoute "${c.routeId}" declared but no matching handler in module.httpHandlers`;
       },
-      collisionKey: (c) => {
-        if (c.kind !== "customHttpRoute") return { within: "" };
-        const M = c.method.toUpperCase();
-        return { within: `route:${M} ${c.path}`, cross: `${M} ${c.path}` };
-      },
-      collisions: {
-        idFieldName: "route",
-        crossRegistry: customHttpRouteRegistry,
-        withinError: (c) => {
-          if (c.kind !== "customHttpRoute") return "";
-          const M = c.method.toUpperCase();
-          return `duplicate route "${M} ${c.path}" within manifest`;
-        },
-        crossError: (c) => {
-          if (c.kind !== "customHttpRoute") return "";
-          const M = c.method.toUpperCase();
-          return `route "${M} ${c.path}" already registered by another plugin`;
-        },
-      },
-      // Invoked AFTER `detectIdCollisions` passes (see `loadPlugins` order);
-      // writes to the cross-plugin registry only if collision detection
-      // accepted this plugin's contributions.
-      register: (c, mod) => {
+      // Invoked only when the plugin survived discovery validation (see
+      // `loadPlugins` order); writes the validated entry to the catalog the
+      // core installer mounts under both plugin namespaces.
+      register: (c, mod, registries) => {
         if (c.kind !== "customHttpRoute") return;
-        const M = c.method.toUpperCase();
-        customHttpRouteRegistry.set(`${M} ${c.path}`, mod.manifest.id);
+        const handlerMap = mod.httpHandlers;
+        const method = normalizePluginRouteMethod(c.method);
+        if (
+          handlerMap == null ||
+          typeof handlerMap !== "object" ||
+          !Object.hasOwn(handlerMap, c.routeId) ||
+          typeof handlerMap[c.routeId] !== "function" ||
+          !method ||
+          !validatePluginRoutePath(c.path)
+        )
+          return;
+        const entry: PluginRouteCatalogEntry = {
+          pluginId: mod.manifest.id,
+          routeId: c.routeId,
+          method,
+          path: c.path,
+          handler: handlerMap[c.routeId],
+        };
+        // Identity-keyed replace on {pluginId, routeId} (review finding 2): a
+        // repeated `loadPlugins()` without `resetPlugins()` converges like the
+        // sibling Map registries instead of appending duplicates — a stale
+        // duplicate would double-register the same (method, url) at install.
+        // Deliberately NOT a general hot-reload/removal contract for the
+        // other registries.
+        const catalog = registries.pluginRouteCatalog;
+        const existing = catalog.findIndex(
+          (e) => e.pluginId === entry.pluginId && e.routeId === entry.routeId,
+        );
+        if (existing === -1) catalog.push(entry);
+        else catalog[existing] = entry;
       },
     },
 

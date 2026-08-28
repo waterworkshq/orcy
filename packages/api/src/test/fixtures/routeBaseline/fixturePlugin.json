@@ -1111,18 +1111,6 @@
     },
     {
       "method": "GET",
-      "path": "/__char-fixture",
-      "surface": "other",
-      "guards": [
-        "anonymousPolicyGuard"
-      ],
-      "authKind": "anonymous",
-      "rawBodyEligible": false,
-      "source": "plugin",
-      "generatedTwin": false
-    },
-    {
-      "method": "GET",
       "path": "/api/agents",
       "surface": "api-deprecated",
       "guards": [
@@ -2750,6 +2738,18 @@
       "authKind": "local_actor",
       "rawBodyEligible": false,
       "source": "core",
+      "generatedTwin": false
+    },
+    {
+      "method": "GET",
+      "path": "/api/plugins/char-fixture/status",
+      "surface": "api-deprecated",
+      "guards": [
+        "agentOrHumanAuth"
+      ],
+      "authKind": "local_actor",
+      "rawBodyEligible": false,
+      "source": "plugin",
       "generatedTwin": false
     },
     {
@@ -5034,6 +5034,18 @@
       "authKind": "local_actor",
       "rawBodyEligible": false,
       "source": "core",
+      "generatedTwin": false
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/plugins/char-fixture/status",
+      "surface": "api-v1",
+      "guards": [
+        "agentOrHumanAuth"
+      ],
+      "authKind": "local_actor",
+      "rawBodyEligible": false,
+      "source": "plugin",
       "generatedTwin": false
     },
     {
@@ -5696,18 +5708,6 @@
     },
     {
       "method": "HEAD",
-      "path": "/__char-fixture",
-      "surface": "other",
-      "guards": [
-        "anonymousPolicyGuard"
-      ],
-      "authKind": "anonymous",
-      "rawBodyEligible": false,
-      "source": "framework",
-      "generatedTwin": true
-    },
-    {
-      "method": "HEAD",
       "path": "/api/agents",
       "surface": "api-deprecated",
       "guards": [
@@ -7328,6 +7328,18 @@
     {
       "method": "HEAD",
       "path": "/api/plugins",
+      "surface": "api-deprecated",
+      "guards": [
+        "agentOrHumanAuth"
+      ],
+      "authKind": "local_actor",
+      "rawBodyEligible": false,
+      "source": "framework",
+      "generatedTwin": true
+    },
+    {
+      "method": "HEAD",
+      "path": "/api/plugins/char-fixture/status",
       "surface": "api-deprecated",
       "guards": [
         "agentOrHumanAuth"
@@ -9612,6 +9624,18 @@
     {
       "method": "HEAD",
       "path": "/api/v1/plugins",
+      "surface": "api-v1",
+      "guards": [
+        "agentOrHumanAuth"
+      ],
+      "authKind": "local_actor",
+      "rawBodyEligible": false,
+      "source": "framework",
+      "generatedTwin": true
+    },
+    {
+      "method": "HEAD",
+      "path": "/api/v1/plugins/char-fixture/status",
       "surface": "api-v1",
       "guards": [
         "agentOrHumanAuth"

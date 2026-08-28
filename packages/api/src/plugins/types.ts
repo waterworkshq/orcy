@@ -1,4 +1,3 @@
-import type { FastifyPluginCallback } from "fastify";
 import type {
   PluginManifest,
   DetectedSignalInput,
@@ -30,11 +29,79 @@ export interface PluginModule {
   conditions?: Record<string, ConditionHandler>;
   actions?: Record<string, ActionListener>;
   providers?: Record<string, ProviderHandler>;
-  routeHandlers?: FastifyPluginCallback;
+  /**
+   * Keyed request handlers for declared `customHttpRoute` contributions
+   * (ADR-0050). Each key MUST be a declared contribution's `routeId`; keys
+   * without a matching declaration reject the whole plugin at load. A handler
+   * receives only bounded request-scoped inputs — never a Fastify instance,
+   * registration capability, or reply object. Core alone registers the route.
+   */
+  httpHandlers?: Record<string, PluginHttpHandler>;
 }
 
 /** Issue-provider adapter handler that lists and fetches external issues (ADR-0028). Mirrors the in-tree `IssueProviderAdapter` minus the self-identifying `provider` field (the registry is keyed by provider). */
 export type ProviderHandler = Omit<IssueProviderAdapter, "provider">;
+
+/**
+ * Authenticated local actor resolved by the fixed `local_actor` policy guard
+ * before a plugin HTTP handler runs (ADR-0050). Derived from the verified
+ * credential — a plugin can neither forge nor choose it.
+ */
+export interface PluginHttpActor {
+  type: "human" | "agent";
+  id: string;
+  /** Human username or agent name when the credential carries one. */
+  name: string | null;
+}
+
+/**
+ * Bounded request-scoped input handed to a plugin HTTP handler (ADR-0050).
+ * Deliberately carries no Fastify request/reply objects and no registration
+ * capability. `headers`/`query`/`body` are the request's parsed values as
+ * the server received them — plain top-level records, NOT deep copies
+ * (nested body values are shared with the request); handlers must treat
+ * them as read-only.
+ */
+export interface PluginHttpRequest {
+  /** Uppercase HTTP method of the matched route. */
+  method: string;
+  /** Normalized declared path, relative to the plugin's namespace. */
+  path: string;
+  /** Static path parameters (empty while declarations are static-only). */
+  params: Readonly<Record<string, string>>;
+  /** Parsed query string. */
+  query: Record<string, unknown>;
+  /** Parsed request body (`undefined` when absent). */
+  body: unknown;
+  /** Raw request headers. */
+  headers: Readonly<Record<string, string | string[] | undefined>>;
+  /**
+   * Authenticated local actor. `null` is defensive at the type boundary:
+   * under the fixed `local_actor` policy the guard rejects absent
+   * credentials before the handler runs, so a normally installed route
+   * always resolves a principal.
+   */
+  actor: PluginHttpActor | null;
+}
+
+/** Bounded response a plugin HTTP handler may return. */
+export interface PluginHttpResponse {
+  /** HTTP status code (default 200; a `void` return maps to 204). */
+  status?: number;
+  /** Serialized response body. */
+  body?: unknown;
+}
+
+/**
+ * Request handler for a declared `customHttpRoute` contribution, keyed by its
+ * `routeId` in {@link PluginModule.httpHandlers}. Faults are contained to the
+ * request: they flow through the global error envelope with plugin/route
+ * identity logging — never into quarantine counters or process shutdown
+ * (ADR-0050 supersedes ADR-0041's mount-time crash-loud contract).
+ */
+export type PluginHttpHandler = (
+  request: PluginHttpRequest,
+) => Promise<PluginHttpResponse | void> | PluginHttpResponse | void;
 
 /** Delivers a notification through a channel; invoked by the channel dispatcher. */
 export type ChannelHandler = (
