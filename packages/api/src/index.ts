@@ -15,7 +15,7 @@ import { runExtractionReconciliationPass } from "./services/extractionRecovery.j
 import { initWikiScheduler } from "./services/wikiSchedulerService.js";
 import { initDb } from "./db/index.js";
 
-import { createHttpApp, registerHttpSurface } from "./httpApp.js";
+import { createHttpApplication } from "./httpApp.js";
 import { setJwtSecret } from "./middleware/jwt-verification.js";
 import * as pluginManager from "./plugins/pluginManager.js";
 import { runPluginBoot } from "./plugins/pluginBoot.js";
@@ -31,20 +31,21 @@ let occurrenceRecoveryHandle: NodeJS.Timeout | undefined;
 let creationDispatchHandle: { stop: () => void } | undefined;
 
 // The entire HTTP surface (root plugins/hooks, both API prefix groups,
-// realtime, remote participant API, root redirect, optional UI) is registered
-// through the production seam in `httpApp.ts`. Boot keeps only operational
-// startup — DB, caches, schedulers, workers, plugin boot, listen.
-const fastify = createHttpApp();
-await registerHttpSurface(fastify, {
+// realtime, remote participant API, root redirect, optional UI) is owned by
+// the staged assembly in `httpApp.ts` (ADR-0049); boot holds only the narrow
+// runtime handle — staged plugin install, finalize, listen, close, logging.
+// Boot keeps operational startup outside it: DB, caches, schedulers, workers,
+// plugin discovery, daemon wiring, listen orchestration.
+const app = await createHttpApplication({
   // T11 Phase 1A — boot-registration of the creation dispatch infrastructure,
   // at its historical waypoint (dd75a98): after both local API prefix groups,
   // before realtime / Remote Participant / root redirect / optional static
-  // registration. Moved OUTSIDE registerApiRoutes to prevent double-startup
-  // (registerApiRoutes is called for both /api/v1 and /api prefixes).
-  // Always started (not gated by the flag) so that a rollback (flag OFF after
-  // being ON) can still drain committed published_pending_observation /
-  // published_pending_assignment / publishing attempts. The workers are no-ops
-  // when there are no post-cutover attempts to process.
+  // registration. The assembly invokes this exactly once — never once per
+  // prefix group. Always started (not gated by the flag) so that a rollback
+  // (flag OFF after being ON) can still drain committed
+  // published_pending_observation / published_pending_assignment / publishing
+  // attempts. The workers are no-ops when there are no post-cutover attempts
+  // to process.
   onLocalPrefixesRegistered: () => {
     registerCreationDispatchAdapters();
     occurrenceRecoveryHandle = startOccurrenceLeaseRecoveryWorker(60_000);
@@ -62,33 +63,33 @@ if (!process.env.DB_PATH && process.env.NODE_ENV !== "production") {
 try {
   rebuildHabitatSecretCache();
 } catch (err) {
-  fastify.log.error({ err }, "Failed to rebuild habitat secret cache");
+  app.log.error({ err }, "Failed to rebuild habitat secret cache");
 }
 
 try {
   seedQualityTemplates();
 } catch (err) {
-  fastify.log.error({ err }, "Failed to seed quality templates");
+  app.log.error({ err }, "Failed to seed quality templates");
 }
 
-const schedulers = startAllSchedulers(fastify);
+const schedulers = startAllSchedulers(app.log);
 
 try {
   initSkillHooks();
 } catch (err) {
-  fastify.log.error({ err }, "Failed to initialize skill hooks");
+  app.log.error({ err }, "Failed to initialize skill hooks");
 }
 
 try {
   initWorkflowService();
 } catch (err) {
-  fastify.log.error({ err }, "Failed to initialize workflow service");
+  app.log.error({ err }, "Failed to initialize workflow service");
 }
 
 try {
   initWikiScheduler();
 } catch (err) {
-  fastify.log.error({ err }, "Failed to initialize wiki scheduler");
+  app.log.error({ err }, "Failed to initialize wiki scheduler");
 }
 
 const healthSnapshotInterval = setInterval(async () => {
@@ -98,22 +99,22 @@ const healthSnapshotInterval = setInterval(async () => {
       try {
         habitatHealthService.calculateHealth(habitat.id);
       } catch (err) {
-        fastify.log.error({ err, habitatId: habitat.id }, "Health snapshot failed");
+        app.log.error({ err, habitatId: habitat.id }, "Health snapshot failed");
       }
     }
   } catch (err) {
-    fastify.log.error({ err }, "Health snapshot scan failed");
+    app.log.error({ err }, "Health snapshot scan failed");
   }
 }, 60 * 60_000);
 
 const shutdown = async () => {
-  await fastify.close();
+  await app.close();
   process.exit(0);
 };
 process.on("SIGTERM", shutdown);
 process.on("SIGINT", shutdown);
 
-fastify.addHook("onClose", async () => {
+app.onClose(async () => {
   schedulers.stop();
   clearInterval(healthSnapshotInterval);
   creationDispatchHandle?.stop();
@@ -126,13 +127,14 @@ fastify.addHook("onClose", async () => {
 
 pluginManager.loadQuarantinesFromDb();
 
-// Crash-loud activation contract (ADR-0041): `loadPlugins` failures are
-// non-fatal while `initializePlugins` failures are fatal. The two regimes
-// live in `runPluginBoot` so they are unit-testable without spawning the
-// compiled server (see pluginBoot.test.ts). Boot order is unchanged:
-// loadQuarantinesFromDb → runPluginBoot (loadPlugins → initializePlugins)
-// → initDaemonWiring → listen.
-await runPluginBoot(fastify);
+// Crash-loud activation contract (ADR-0041/0050): `loadPlugins` failures are
+// non-fatal while catalog installation / detector-hook failures are fatal.
+// The two regimes live in `runPluginBoot` so they are unit-testable without
+// spawning the compiled server (see pluginBoot.test.ts). Boot order is
+// unchanged: loadQuarantinesFromDb → runPluginBoot (loadPlugins → assembly
+// installPluginRoutes → registerDetectorHooks) → initDaemonWiring → finalize
+// → listen.
+await runPluginBoot(app);
 
 const { initDaemonWiring } = await import("./daemon-wiring.js");
 await initDaemonWiring();
@@ -146,7 +148,7 @@ try {
   // scheduled; operators/tests may call the exported pass on demand.
   runRecoveryReconciliationPass();
 } catch (err) {
-  fastify.log.error({ err }, "Failed to reconcile workflow recovery handoffs at boot");
+  app.log.error({ err }, "Failed to reconcile workflow recovery handoffs at boot");
 }
 
 try {
@@ -155,7 +157,7 @@ try {
   // work items whose finalization failed after candidate commit.
   runExtractionReconciliationPass();
 } catch (err) {
-  fastify.log.error({ err }, "Failed to reconcile extraction stale leases at boot");
+  app.log.error({ err }, "Failed to reconcile extraction stale leases at boot");
 }
 
 const { initExtractionScan } = await import("./services/extractionScheduler.js");
@@ -172,9 +174,10 @@ const { registerExtractionAuditEmitter } = await import("./services/extractionAu
 registerExtractionAuditEmitter();
 
 try {
-  await fastify.listen({ port: PORT, host: HOST });
-  fastify.log.info(`Orcy API running at http://${HOST}:${PORT}`);
+  await app.finalize();
+  await app.listen({ port: PORT, host: HOST });
+  app.log.info(`Orcy API running at http://${HOST}:${PORT}`);
 } catch (err) {
-  fastify.log.error(err);
+  app.log.error(err);
   process.exit(1);
 }

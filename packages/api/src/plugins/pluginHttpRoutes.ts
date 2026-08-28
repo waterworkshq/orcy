@@ -322,10 +322,10 @@ export async function installPluginRoutes(
   await fastify.register(
     async (f) => {
       f.addHook("preHandler", perAgentRateLimit);
-      // Deprecated mirror only. Deliberately `onSend` — not the `onResponse`
-      // stamping the core `/api` group uses, which the characterization
-      // proved never reaches the wire (deferred defect, owned by the assembly
-      // ticket): the plugin mirror actually delivers `Deprecation: true`.
+      // Deprecated mirror only. The authoritative assembly uses the same
+      // wire-effective `onSend` stage for the core `/api` group, preserving
+      // current/deprecated prefix parity while keeping the header scoped to
+      // deprecated routes.
       f.addHook("onSend", (_request, reply, _payload, done) => {
         reply.header("Deprecation", "true");
         done();

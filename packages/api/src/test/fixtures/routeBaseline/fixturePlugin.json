@@ -6,7 +6,7 @@
   "hookInstallations": [
     {
       "surface": "root",
-      "hookKind": "onResponse",
+      "hookKind": "onSend",
       "name": "api-version"
     },
     {
@@ -31,7 +31,7 @@
     },
     {
       "surface": "api-deprecated",
-      "hookKind": "onResponse",
+      "hookKind": "onSend",
       "name": "deprecation-header"
     },
     {
@@ -41,7 +41,7 @@
     }
   ],
   "behaviorNotes": [
-    "X-API-Version and Deprecation headers are set inside onResponse hooks; Fastify has already sent the response by then, so neither header reaches clients on any prefix (pre-existing at the characterization commit; the deprecation-header parity promise must be re-grounded on onSend when the assembly extraction revisits it).",
+    "X-API-Version and Deprecation headers were historically set inside onResponse hooks — after Fastify had already sent the response, so neither header reached clients on any prefix. The assembly extraction corrected this at the owning seam: both headers are now installed at onSend and wire-visible; Deprecation is scoped to the deprecated /api group (and the deprecated plugin mirror) only.",
     "GET /plugins is declared local_actor auth policy (guard installed by the policy registry). The pre-policy public-regex exception and the name-inference classifier that carried it are deleted; there is no public/unauthenticated classification besides an explicit anonymous declaration.",
     "The Discord Ed25519 verifier was structurally inert for two stacked reasons (unbound CommonJS require('tweetnacl') in compiled ESM, plus tweetnacl absent from the dependency graph), rejecting every signature when a key was configured. The auth-policy ticket repaired BOTH causes as an explicit characterized-defect correction: correctly signed interactions now verify under both prefixes, the configured-key / missing-key posture matrix and invalid-request response shape are unchanged, and the policy readiness self-probe fails assembly if the verifier ever regresses to inert.",
     "Slack slash-command traffic is form-encoded on the real wire, but a validly signed application/x-www-form-urlencoded request returns 500 (only application/json bodies complete); the app registers no formbody parser. Recorded for the owning ticket."

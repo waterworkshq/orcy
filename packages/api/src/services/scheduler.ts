@@ -1,4 +1,4 @@
-import type { FastifyInstance } from "fastify";
+import type { FastifyBaseLogger } from "fastify";
 import { releaseStaleTasks } from "./agentService.js";
 import { startRetryProcessor as startTaskRetryProcessor } from "./retryService.js";
 import { startPresenceCleanup } from "../sse/presence.js";
@@ -76,7 +76,7 @@ export function checkOverdueTasks(
 }
 
 /** Registers every background scheduler (stale-task release, anomaly scans, archival, prioritization, automation, digests, etc.) and returns a handle that stops them all. */
-export function startAllSchedulers(fastify: FastifyInstance): { stop: () => void } {
+export function startAllSchedulers(log: FastifyBaseLogger): { stop: () => void } {
   const intervals: NodeJS.Timeout[] = [];
 
   intervals.push(
@@ -84,7 +84,7 @@ export function startAllSchedulers(fastify: FastifyInstance): { stop: () => void
       try {
         releaseStaleTasks(30);
       } catch (err) {
-        fastify.log.error({ err }, "Error releasing stale tasks");
+        log.error({ err }, "Error releasing stale tasks");
       }
     }, 60_000),
   );
@@ -94,7 +94,7 @@ export function startAllSchedulers(fastify: FastifyInstance): { stop: () => void
   intervals.push(
     setInterval(() => {
       checkOverdueTasks(overdueNotifiedIds, (err) => {
-        fastify.log.error({ err }, "Error checking overdue tasks");
+        log.error({ err }, "Error checking overdue tasks");
       });
     }, 60_000),
   );
@@ -106,7 +106,7 @@ export function startAllSchedulers(fastify: FastifyInstance): { stop: () => void
       try {
         scanAllHabitats();
       } catch (err) {
-        fastify.log.error({ err }, "Error scanning for anomalies");
+        log.error({ err }, "Error scanning for anomalies");
       }
     }, 5 * 60_000),
   );
@@ -115,9 +115,9 @@ export function startAllSchedulers(fastify: FastifyInstance): { stop: () => void
   intervals.push(
     setInterval(() => {
       try {
-        scanStalePluginRuns(stalePluginRunThresholdMinutes, fastify.log);
+        scanStalePluginRuns(stalePluginRunThresholdMinutes, log);
       } catch (err) {
-        fastify.log.error({ err }, "Error scanning for stale plugin runs");
+        log.error({ err }, "Error scanning for stale plugin runs");
       }
     }, 5 * 60_000),
   );
@@ -128,10 +128,10 @@ export function startAllSchedulers(fastify: FastifyInstance): { stop: () => void
         try {
           const results = archiveAllHabitats();
           if (results.length > 0) {
-            fastify.log.info({ results }, "Audit archival completed");
+            log.info({ results }, "Audit archival completed");
           }
         } catch (err) {
-          fastify.log.error({ err }, "Error archiving old events");
+          log.error({ err }, "Error archiving old events");
         }
       },
       24 * 60 * 60_000,
@@ -143,10 +143,10 @@ export function startAllSchedulers(fastify: FastifyInstance): { stop: () => void
       try {
         const results = applyAllHabitats();
         if (results.length > 0) {
-          fastify.log.info({ count: results.length }, "Prioritization evaluation completed");
+          log.info({ count: results.length }, "Prioritization evaluation completed");
         }
       } catch (err) {
-        fastify.log.error({ err }, "Error applying prioritization rules");
+        log.error({ err }, "Error applying prioritization rules");
       }
     }, 5 * 60_000),
   );
@@ -158,7 +158,7 @@ export function startAllSchedulers(fastify: FastifyInstance): { stop: () => void
       try {
         autoCompleteSprints();
       } catch (err) {
-        fastify.log.error({ err }, "Error auto-completing expired sprints");
+        log.error({ err }, "Error auto-completing expired sprints");
       }
     }, 5 * 60_000),
   );
@@ -169,10 +169,10 @@ export function startAllSchedulers(fastify: FastifyInstance): { stop: () => void
         const results = nudgeAllDaemons();
         const nudged = results.filter((r) => r.pulseId);
         if (nudged.length > 0) {
-          fastify.log.info({ count: nudged.length }, "Daemon idle nudge emitted");
+          log.info({ count: nudged.length }, "Daemon idle nudge emitted");
         }
       } catch (err) {
-        fastify.log.error({ err }, "Error nudging idle daemons");
+        log.error({ err }, "Error nudging idle daemons");
       }
     }, 5 * 60_000),
   );
@@ -184,10 +184,10 @@ export function startAllSchedulers(fastify: FastifyInstance): { stop: () => void
           const results = generateAllHabitatDigests();
           const generated = results.filter((r) => r.pulseId);
           if (generated.length > 0) {
-            fastify.log.info({ count: generated.length }, "Habitat digest generated");
+            log.info({ count: generated.length }, "Habitat digest generated");
           }
         } catch (err) {
-          fastify.log.error({ err }, "Error generating habitat digests");
+          log.error({ err }, "Error generating habitat digests");
         }
       },
       24 * 60 * 60_000,
@@ -200,11 +200,11 @@ export function startAllSchedulers(fastify: FastifyInstance): { stop: () => void
         regenerateAllSkills()
           .then((results) => {
             if (results.regenerated > 0) {
-              fastify.log.info({ count: results.regenerated }, "Habitat skills regenerated");
+              log.info({ count: results.regenerated }, "Habitat skills regenerated");
             }
           })
           .catch((err) => {
-            fastify.log.error({ err }, "Error regenerating habitat skills");
+            log.error({ err }, "Error regenerating habitat skills");
           });
       },
       24 * 60 * 60_000,
@@ -217,11 +217,11 @@ export function startAllSchedulers(fastify: FastifyInstance): { stop: () => void
         .then((reports) => {
           const matched = reports.reduce((sum, r) => sum + r.rulesMatched, 0);
           if (matched > 0 || reports.some((r) => r.errors.length > 0)) {
-            fastify.log.info({ count: reports.length, matched }, "Automation scans completed");
+            log.info({ count: reports.length, matched }, "Automation scans completed");
           }
         })
         .catch((err) => {
-          fastify.log.error({ err }, "Error running automation scans");
+          log.error({ err }, "Error running automation scans");
         });
     }, 5 * 60_000),
   );
@@ -232,13 +232,13 @@ export function startAllSchedulers(fastify: FastifyInstance): { stop: () => void
         const digestResults = generateAllNotificationDigests();
         const grouped = digestResults.reduce((sum, r) => sum + r.deliveriesGrouped, 0);
         if (grouped > 0) {
-          fastify.log.info(
+          log.info(
             { results: digestResults.length, grouped },
             "Notification digests generated",
           );
         }
       } catch (err) {
-        fastify.log.error({ err }, "Error generating notification digests");
+        log.error({ err }, "Error generating notification digests");
       }
     }, 60 * 60_000),
   );
@@ -250,13 +250,13 @@ export function startAllSchedulers(fastify: FastifyInstance): { stop: () => void
           const clearanceResults = runScheduledClearance();
           const cleared = clearanceResults.reduce((sum, r) => sum + r.cleared, 0);
           if (cleared > 0) {
-            fastify.log.info(
+            log.info(
               { habitats: clearanceResults.length, cleared },
               "Notification clearance completed",
             );
           }
         } catch (err) {
-          fastify.log.error({ err }, "Error running notification clearance");
+          log.error({ err }, "Error running notification clearance");
         }
       },
       24 * 60 * 60_000,

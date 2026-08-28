@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import Fastify from "fastify";
 import * as pluginManager from "../plugins/pluginManager.js";
+import { installPluginRoutes } from "../plugins/pluginHttpRoutes.js";
 
 vi.mock("../lib/logger.js", () => ({
   logger: { error: vi.fn(), warn: vi.fn(), info: vi.fn() },
@@ -257,7 +258,7 @@ describe("pluginLoader: core-owned HTTP seam (ADR-0050, supersedes ADR-0041)", (
   it("a throwing httpHandler loads fine — mount stays clean and the fault is request-scoped", async () => {
     // The superseded ADR-0041 crash-loud contract pinned a mount-time throw
     // poisoning the instance. Under ADR-0050 the handler runs only inside a
-    // request: initializePlugins resolves, ready resolves, and one inject
+    // request: staged catalog installation resolves, ready resolves, one inject
     // fails that one request without deactivating the plugin.
     const manifest = {
       id: "thrower",
@@ -281,7 +282,9 @@ describe("pluginLoader: core-owned HTTP seam (ADR-0050, supersedes ADR-0041)", (
     expect(entry?.error).toBeUndefined();
 
     const fastify = Fastify({ logger: false });
-    await expect(pluginManager.initializePlugins(fastify)).resolves.toBeUndefined();
+    await expect(
+      installPluginRoutes(fastify, pluginManager.getPluginRouteCatalog()),
+    ).resolves.toBeUndefined();
     let readyError: unknown;
     try {
       await fastify.ready();
@@ -329,11 +332,13 @@ describe("pluginLoader: non-fatal loadPlugins path (regression pin)", () => {
     expect(entry?.error).toBeDefined();
     expect(pluginManager.getPluginManifest("nonfatal")).toBeNull();
 
-    // initializePlugins still resolves cleanly — no plugins are loaded, so
-    // route installation is a no-op. Load-time faults never reach the fatal
-    // boot regime; under ADR-0050 only a core registration fault would.
+    // Catalog installation still resolves cleanly — no plugins are loaded,
+    // so route installation is a no-op. Load-time faults never reach the
+    // fatal boot regime; under ADR-0050 only a core registration fault would.
     const fastify = Fastify({ logger: false });
-    await expect(pluginManager.initializePlugins(fastify)).resolves.toBeUndefined();
+    await expect(
+      installPluginRoutes(fastify, pluginManager.getPluginRouteCatalog()),
+    ).resolves.toBeUndefined();
 
     await fastify.close();
     await cleanup(dir);

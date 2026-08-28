@@ -1,4 +1,3 @@
-import type { FastifyInstance } from "fastify";
 import type {
   PluginManifest,
   Contribution,
@@ -22,7 +21,6 @@ import type {
 import type { NotificationDelivery, NotificationEvent } from "@orcy/shared";
 import { buildPluginContext } from "./context.js";
 import {
-  installPluginRoutes,
   validatePluginHttpRouteDeclarations,
   type PluginRouteCatalog,
   type PluginRouteCatalogEntry,
@@ -115,9 +113,9 @@ const interceptorRegistry: {
  * Validated operational plugin-route catalog (ADR-0050). Appended during
  * `registerContributions` for every accepted `customHttpRoute` declaration
  * (discovery rejects structurally bad plugins first), then mounted once by
- * the core installer in `initializePlugins`. Replaces the collision-only
- * `customHttpRouteRegistry` — per-plugin mount namespaces make cross-plugin
- * collisions structurally impossible.
+ * the staged HTTP assembly's `installPluginRoutes` lifecycle step. Replaces
+ * the collision-only `customHttpRouteRegistry` — per-plugin mount namespaces
+ * make cross-plugin collisions structurally impossible.
  */
 const pluginRouteCatalog: PluginRouteCatalogEntry[] = [];
 
@@ -411,17 +409,6 @@ function parseEnabledFromEnv(): string[] {
     .split(",")
     .map((s) => s.trim())
     .filter(Boolean);
-}
-
-export async function initializePlugins(fastify: FastifyInstance): Promise<void> {
-  // Core-owned route installation (ADR-0050, supersedes ADR-0041): the
-  // validated discovery catalog is mounted by the single core installer under
-  // both plugin namespaces with fixed `local_actor` policy. No plugin code
-  // executes at mount time — handler faults are request-scoped — so the old
-  // crash-loud mount contract no longer exists. A failure here is a core
-  // registration fault (the catalog is pre-validated), still fatal to boot.
-  await installPluginRoutes(fastify, pluginRouteCatalog);
-  registerDetectorHooks();
 }
 
 /**
@@ -1178,7 +1165,12 @@ function invokePostInterceptorThroughRuntime(
   return runtime.invokeManaged(request) as Promise<PostInterceptorOutcome>;
 }
 
-function registerDetectorHooks(): void {
+/**
+ * Operational detector-hook activation, called once by plugin boot after the
+ * route catalog installs. Kept separate from discovery so the staged HTTP
+ * assembly owns route mounting while plugin runtime wiring stays here.
+ */
+export function registerDetectorHooks(): void {
   pulseService.onPulseCreated((pulse) => {
     if (!pulse.habitatId) return;
     // Recursion guard: detected signals are themselves detector OUTPUT. Without this check, a

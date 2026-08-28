@@ -9,20 +9,21 @@
  * served. A structural source guard pins that the production plugin seam
  * carries no Fastify registration capability.
  *
- * Auth runs through the production policy installer (`createHttpApp`) with a
- * stateless human JWT — no DB required.
+ * Auth runs through the production policy installer inside the staged
+ * assembly (`createHttpApplication`) with a stateless human JWT — no DB
+ * required.
  */
 import { describe, it, expect, beforeEach } from "vitest";
 import { readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import jwt from "jsonwebtoken";
-import type { FastifyInstance } from "fastify";
-import { createHttpApp } from "../httpApp.js";
-import { registerErrorHandler } from "../errors/plugin.js";
-import { setJwtSecret } from "../middleware/jwt-verification.js";
-import { authPolicyClassifications } from "../authPolicy.js";
 import {
-  installPluginRoutes,
+  createHttpApplication,
+  type CreateHttpApplicationOptions,
+  type HttpRuntimeHandle,
+} from "../httpApp.js";
+import { setJwtSecret } from "../middleware/jwt-verification.js";
+import {
   validatePluginHttpRouteDeclarations,
   normalizePluginRouteMethod,
   validatePluginRoutePath,
@@ -44,11 +45,11 @@ function humanToken(): string {
 /** Log capture: pino options with an in-memory stream, read back as lines. */
 function makeCaptureLogger(): {
   lines: string[];
-  options: Parameters<typeof createHttpApp>[0];
+  options: CreateHttpApplicationOptions["logger"];
 } {
   const lines: string[] = [];
   const stream = { write: (chunk: string) => lines.push(chunk) };
-  return { lines, options: { level: "error", stream } as Parameters<typeof createHttpApp>[0] };
+  return { lines, options: { level: "error", stream } as CreateHttpApplicationOptions["logger"] };
 }
 
 function fixtureEntry(overrides: Partial<PluginRouteCatalogEntry> = {}): PluginRouteCatalogEntry {
@@ -67,12 +68,15 @@ function fixtureEntry(overrides: Partial<PluginRouteCatalogEntry> = {}): PluginR
 
 async function buildSeamApp(
   entries: readonly PluginRouteCatalogEntry[],
-  logger: Parameters<typeof createHttpApp>[0] = false,
-): Promise<FastifyInstance> {
-  const app = createHttpApp(logger);
-  await registerErrorHandler(app);
-  await installPluginRoutes(app, entries);
-  await app.ready();
+  logger: CreateHttpApplicationOptions["logger"] = false,
+): Promise<HttpRuntimeHandle> {
+  // The staged assembly boots the full production core surface, then the
+  // catalog installs through the assembly's one-shot lifecycle step — the
+  // same path production boot takes (runPluginBoot hands the discovery
+  // catalog to installPluginRoutes).
+  const app = await createHttpApplication({ logger });
+  await app.installPluginRoutes(entries);
+  await app.finalize();
   return app;
 }
 
@@ -327,16 +331,17 @@ describe("pluginHttpRoutes: core installer", () => {
     await app.close();
   });
 
-  it("classifies both mirrored routes as local_actor through the policy inventory", async () => {
+  it("classifies both mirrored routes as local_actor through the assembly inventory", async () => {
     const app = await buildSeamApp([fixtureEntry()]);
-    const pluginClassifications = authPolicyClassifications(app).filter(
-      // Method-explicit: Fastify synthesizes HEAD twins for GET routes.
+    const pluginClassifications = app.routeInventory().filter(
+      // Method-explicit: the twin mounts are distinct URLs; only GET matches.
       (c) => c.url.endsWith("/plugins/fixture/status") && c.method === "GET",
     );
     expect(pluginClassifications).toHaveLength(2);
     for (const c of pluginClassifications) {
       expect(c.method).toBe("GET");
       expect(c.effectivePolicy).toBe("local_actor");
+      expect(c.source).toBe("plugin");
     }
     const urls = pluginClassifications.map((c) => c.url).sort();
     expect(urls).toEqual([

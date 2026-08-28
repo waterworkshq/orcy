@@ -672,7 +672,7 @@ describe("F1 — ESM-safe compiled API startup", () => {
         writeFileSync(join(uiDir, "index.html"), "<html>char-compiled-ui</html>", "utf8");
 
         // Controlled fixture System Plugin input, registered through the real
-        // plugin discovery seams (PLUGINS_DIR → loadPlugins → initializePlugins).
+        // plugin discovery seams (PLUGINS_DIR → loadPlugins → staged install).
         // ADR-0050 shape: declared routeId + keyed handler; core mounts it under
         // both plugin namespaces with fixed local_actor policy.
         const pluginDir = join(tempDir, "plugins");

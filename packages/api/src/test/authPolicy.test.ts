@@ -3,11 +3,11 @@
  * inheritance, verified-ingress verifiers, readiness self-probes, and the
  * observed inventory.
  *
- * The seam-constructed app (createHttpApp + registerHttpSurface) exercises
- * the production path: the root installer validates declarations, runs the
- * verifier readiness probes, and installs guards. A separate bare instance
- * proves the plugin-level applier keeps enforcement for plugins registered
- * outside the seam (no double installation on seam instances).
+ * The seam-constructed app (the staged assembly, `createHttpApplication`)
+ * exercises the production path: the root installer validates declarations,
+ * runs the verifier readiness probes, and installs guards. A separate bare
+ * instance proves the plugin-level applier keeps enforcement for plugins
+ * registered outside the seam (no double installation on seam instances).
  *
  * Route-level response parity for every verified-ingress family under both
  * prefixes is pinned by the route-surface characterization suite; this file
@@ -18,17 +18,17 @@ import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
 import Fastify, { type FastifyInstance, type FastifyRequest } from "fastify";
 import crypto from "node:crypto";
 import jwt from "jsonwebtoken";
-import { createHttpApp, registerHttpSurface, type HttpApp } from "../httpApp.js";
+import { createHttpApplication, type HttpRuntimeHandle } from "../httpApp.js";
 import {
   type AuthPolicy,
   AUTH_POLICY_IDS,
   CORE_VERIFIER_IDS,
-  authPolicyClassifications,
   formatEffectivePolicy,
   inheritAuthPolicy,
   installAuthPolicy,
   policyGuardFor,
   probeVerifierPair,
+  registerFrameworkCorsRoute,
   resolveEffectiveAuthPolicy,
   verifiedIngressRoutePaths,
 } from "../authPolicy.js";
@@ -40,7 +40,7 @@ import { initTestDb, closeDb } from "../db/index.js";
 const JWT_SECRET = "auth-policy-test-secret";
 const SLACK_SECRET = "auth-policy-slack-secret";
 
-let app: HttpApp;
+let app: HttpRuntimeHandle;
 let adminToken: string;
 let priorSlackSecret: string | undefined;
 let priorDiscordKey: string | undefined;
@@ -84,9 +84,9 @@ describe("auth policy registry and installer", () => {
     process.env.ORCY_REGISTRATION_TOKEN = "reg-token-1";
     delete process.env.HOST; // 127.0.0.1 default → local-dev posture
 
-    app = createHttpApp(false);
-    await registerHttpSurface(app);
-    await app.ready();
+    app = await createHttpApplication({ logger: false });
+    await app.installPluginRoutes([]); // no discovery cycle: empty validated catalog
+    await app.finalize();
   });
 
   afterAll(async () => {
@@ -583,7 +583,7 @@ describe("auth policy registry and installer", () => {
   describe("observed inventory", () => {
     it("classifies every route from the same declaration the guard used", () => {
       const byKey = new Map(
-        authPolicyClassifications(app).map((c) => [`${c.method} ${c.url}`, c.effectivePolicy]),
+        app.routeInventory().map((c) => [`${c.method} ${c.url}`, c.effectivePolicy]),
       );
       expect(byKey.get("GET /health")).toBe("anonymous");
       expect(byKey.get("GET /api/v1/auth/me")).toBe("human");
@@ -608,26 +608,24 @@ describe("auth policy registry and installer", () => {
     });
 
     it("reaches readiness with every route policy-classified — no unclassified remainder", () => {
-      // app.ready() already resolved in beforeAll with the readiness hook
+      // finalize() already resolved in beforeAll with the readiness hook
       // active: the full production surface has an effective policy on every
-      // route. The one exception mirrors readiness exactly: @fastify/cors's
-      // wildcard preflight catch-all, which answers preflight before
-      // authentication by design and is registered by the framework.
-      const missing = authPolicyClassifications(app).filter(
-        (c) => c.effectivePolicy === undefined && !(c.method === "OPTIONS" && c.url === "*"),
+      // route. The one exception mirrors readiness exactly: the framework
+      // CORS wildcard preflight catch-all, recorded by the assembly's own
+      // @fastify/cors registration (ADR-0049 record-based exemption).
+      const missing = app.routeInventory().filter(
+        (c) => c.effectivePolicy === null && !(c.method === "OPTIONS" && c.url === "*"),
       );
       expect(missing).toEqual([]);
-      // The exemption exists — and covers exactly the framework route shape.
-      const catchAll = authPolicyClassifications(app).filter(
-        (c) => c.effectivePolicy === undefined,
-      );
+      // The exemption exists — and covers exactly the recorded framework route.
+      const catchAll = app.routeInventory().filter((c) => c.effectivePolicy === null);
       expect(catchAll.map((c) => `${c.method} ${c.url}`)).toEqual(["OPTIONS *"]);
     });
 
     it("keeps prefix parity for effective policy", () => {
-      const classified = authPolicyClassifications(app);
-      const render = (p: AuthPolicy | undefined): string =>
-        p === undefined ? "MISSING_POLICY" : formatEffectivePolicy(p);
+      const classified = app.routeInventory();
+      const render = (p: AuthPolicy | null | undefined): string =>
+        p == null ? "MISSING_POLICY" : formatEffectivePolicy(p);
       const v1 = new Map(
         classified
           .filter((c) => c.url.startsWith("/api/v1/"))
@@ -650,9 +648,11 @@ describe("auth policy registry and installer", () => {
 
     it("derives raw-body eligibility from the declared verifiers (round trip)", () => {
       const classified = new Set(
-        authPolicyClassifications(app)
+        app
+          .routeInventory()
           .filter(
             (c) =>
+              c.effectivePolicy !== null &&
               typeof c.effectivePolicy === "object" &&
               c.effectivePolicy.policy === "verified_ingress",
           )
@@ -711,13 +711,34 @@ describe("auth policy registry and installer", () => {
       }
     });
 
-    it("the @fastify/cors preflight catch-all (OPTIONS *) is the one framework exemption", async () => {
-      // The wildcard OPTIONS route is registered by @fastify/cors itself and
-      // answers preflight before authentication by design; readiness must not
-      // fail on it — but that normalization covers exactly this shape.
+    it("an UNRECORDED wildcard OPTIONS route without policy now prevents readiness (record-based exemption)", async () => {
+      // The shape exemption is gone: a wildcard OPTIONS route is exempt only
+      // when the assembly recorded it as its own core @fastify/cors
+      // registration. Any application/plugin route with this shape — no
+      // matter who registers it — fails closed readiness.
+      await expect(
+        withBareApp(async (f) => {
+          installAuthPolicy(f);
+          f.options("*", async () => ({}));
+        }),
+      ).rejects.toThrow(/no effective authentication policy/);
+    });
+
+    it("the RECORDED framework CORS route is the one readiness exemption", async () => {
+      // Mirror of the assembly's recording rule: the wildcard OPTIONS route
+      // registered by the core-owned @fastify/cors registration is recorded
+      // (registerFrameworkCorsRoute) and therefore exempt.
       const f = await withBareApp(async (inst) => {
         installAuthPolicy(inst);
+        inst.addHook("onRoute", (routeOptions) => {
+          const raw = routeOptions.method;
+          const methods = (Array.isArray(raw) ? raw : [raw]).map((m) => String(m).toUpperCase());
+          if (routeOptions.url === "*" && methods.includes("OPTIONS")) {
+            registerFrameworkCorsRoute(inst, routeOptions);
+          }
+        });
         inst.options("*", async () => ({}));
+        inst.get("/health2", { config: { authPolicy: "anonymous" } }, async () => ({}));
       });
       await f.close();
     });
@@ -729,15 +750,6 @@ describe("auth policy registry and installer", () => {
           f.options("/concrete", async () => ({})); // not the CORS catch-all
         }),
       ).rejects.toThrow(/no effective authentication policy/);
-    });
-
-    it("a route with policy and the CORS catch-all together reach readiness", async () => {
-      const f = await withBareApp(async (inst) => {
-        installAuthPolicy(inst);
-        inst.options("*", async () => ({}));
-        inst.get("/health2", { config: { authPolicy: "anonymous" } }, async () => ({}));
-      });
-      await f.close();
     });
   });
 
@@ -802,8 +814,8 @@ describe("auth policy registry and installer", () => {
       const f = await withBareApp(async (inst) => {
         // The root installer must predate the scope's encapsulation context —
         // a hook added to the parent DURING a child plugin's execution never
-        // reaches the child's routes. This mirrors production, where
-        // createHttpApp installs before registerHttpSurface registers scopes.
+        // reaches the child's routes. This mirrors production, where the
+        // assembly installs before core registration registers scopes.
         installAuthPolicy(inst);
         inst.addHook("onRoute", (o) => {
           captured.push(o);

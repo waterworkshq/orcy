@@ -4,7 +4,7 @@
  *
  * A route DECLARES its effective policy through the typed native Fastify
  * route config (`config.authPolicy`). The root installer installed by
- * `createHttpApp` resolves that declaration, prepends the registry's guard at
+ * `createHttpApplication` resolves that declaration, prepends the registry's guard at
  * the preHandler stage (before every route-level authorization middleware),
  * and records the same declaration in the observed inventory. Homogeneous
  * scoped plugins instead declare one inherited policy via
@@ -548,23 +548,48 @@ export interface AuthPolicyRouteClassification {
   effectivePolicy: AuthPolicy | undefined;
 }
 
+/** Per-instance installer bookkeeping: captured routes and recorded exemptions. */
+interface AuthPolicyInstallState {
+  routes: RouteOptions[];
+  /**
+   * Route-options references recorded as the framework-owned CORS preflight
+   * catch-all. Only a recorded reference is exempt from closed readiness —
+   * the exemption is provenance, never a shape an application or plugin
+   * route could acquire unnoticed.
+   */
+  frameworkCorsExemptions: Set<RouteOptions>;
+}
+
+const installStates = new WeakMap<FastifyInstance, AuthPolicyInstallState>();
+
 /**
- * Framework normalization for readiness validation, mirroring the
- * characterization suite's rule exactly: the @fastify/cors preflight
- * catch-all is the ONE wildcard OPTIONS route (`fastify.options('*')` answers
- * preflight before authentication by design). Any other OPTIONS route — or
- * any unknown application route — must still declare a policy.
+ * Records the framework-owned CORS preflight catch-all for readiness
+ * exemption. Called by the HTTP assembly for the wildcard OPTIONS route(s)
+ * registered by ITS OWN core `@fastify/cors` registration — nowhere else.
+ * `fastify.options('*')` answers preflight before authentication by design;
+ * an unrecorded wildcard OPTIONS route (any application or plugin route)
+ * still fails closed readiness.
  */
-function isCorsPreflightCatchAll(routeOptions: RouteOptions): boolean {
-  return routeOptions.url === "*" && methodsOf(routeOptions).includes("OPTIONS");
+export function registerFrameworkCorsRoute(
+  fastify: FastifyInstance,
+  routeOptions: RouteOptions,
+): void {
+  const installState = installStates.get(fastify);
+  if (!installState) {
+    throw new Error(
+      "auth policy installer is not active on this instance — construct through createHttpApplication",
+    );
+  }
+  installState.frameworkCorsExemptions.add(routeOptions);
 }
 
 /**
- * Root installer. Called by `createHttpApp` before any route registration:
- * validates verifier readiness (boot fails if a verifier cannot verify) and
- * installs guards for route-level declarations. Routes that declare nothing
- * here are either filled by their homogeneous scope ({@link inheritAuthPolicy},
- * whose scoped hook runs after this one) or fail readiness below.
+ * Root installer. Called by `createHttpApplication` before any route
+ * registration: validates verifier readiness (boot fails if a verifier cannot
+ * verify) and installs guards for route-level declarations. Routes that
+ * declare nothing here are either filled by their homogeneous scope
+ * ({@link inheritAuthPolicy}, whose scoped hook runs after this one) or fail
+ * readiness below.
  */
 export function installAuthPolicy(fastify: FastifyInstance): void {
   for (const [id, spec] of Object.entries(VERIFIED_INGRESS_VERIFIERS) as [
@@ -578,11 +603,14 @@ export function installAuthPolicy(fastify: FastifyInstance): void {
     }
   }
 
-  const routes: RouteOptions[] = [];
-  installStates.set(fastify, routes);
+  const installState: AuthPolicyInstallState = {
+    routes: [],
+    frameworkCorsExemptions: new Set(),
+  };
+  installStates.set(fastify, installState);
 
   fastify.addHook("onRoute", (routeOptions) => {
-    routes.push(routeOptions);
+    installState.routes.push(routeOptions);
     const declared = routeOptions.config?.authPolicy;
     if (declared === undefined) return;
     installPolicyGuard(routeOptions, validatePolicyDeclaration(declared, routeOptions.url));
@@ -591,14 +619,15 @@ export function installAuthPolicy(fastify: FastifyInstance): void {
   // Closed readiness: the application may not become ready while any route
   // reachable on this instance has no effective authentication policy. A
   // missing declaration is a boot error — never inferred from middleware
-  // names, paths, or an exception list.
+  // names, paths, or an exception list. The sole exemption is the recorded
+  // framework CORS catch-all (see {@link registerFrameworkCorsRoute}).
   fastify.addHook("onReady", async () => {
     const missing: string[] = [];
     const seen = new Set<RouteOptions>();
-    for (const routeOptions of routes) {
+    for (const routeOptions of installState.routes) {
       if (seen.has(routeOptions)) continue;
       seen.add(routeOptions);
-      if (isCorsPreflightCatchAll(routeOptions)) continue;
+      if (installState.frameworkCorsExemptions.has(routeOptions)) continue;
       if (resolveEffectiveAuthPolicy(routeOptions.config) === undefined) {
         missing.push(`${methodsOf(routeOptions).join("|")} ${routeOptions.url}`);
       }
@@ -611,31 +640,6 @@ export function installAuthPolicy(fastify: FastifyInstance): void {
       );
     }
   });
-}
-
-const installStates = new WeakMap<FastifyInstance, RouteOptions[]>();
-
-/**
- * Effective policy of every route on an assembly-installed instance. Resolved
- * lazily so scope-level inheritance (applied by scoped onRoute hooks after the
- * root hook) is final. This is the observed inventory's classification source.
- */
-export function authPolicyClassifications(
-  fastify: FastifyInstance,
-): AuthPolicyRouteClassification[] {
-  const routes = installStates.get(fastify);
-  if (!routes) {
-    throw new Error(
-      "auth policy installer is not active on this instance — construct through createHttpApp",
-    );
-  }
-  return routes.flatMap((routeOptions) =>
-    methodsOf(routeOptions).map((method) => ({
-      method,
-      url: routeOptions.url,
-      effectivePolicy: resolveEffectiveAuthPolicy(routeOptions.config),
-    })),
-  );
 }
 
 /**

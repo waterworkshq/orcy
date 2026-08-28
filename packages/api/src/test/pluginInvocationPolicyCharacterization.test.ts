@@ -226,8 +226,8 @@ describe("ADR-0039 T1: pre priority + first-veto short-circuit", () => {
 // 2a. Detector recursion guard — live hook (onPulseCreated callback)
 // The live entry registers a callback on pulseService.onPulseCreated that
 // checks `if (pulse.signalType === "detected") return;` before dispatching.
-// We capture the callback by calling initializePlugins (which triggers
-// registerDetectorHooks), then invoke it directly with detected and normal
+// We capture the callback by calling registerDetectorHooks (production
+// boot's hook-activation step), then invoke it directly with detected and normal
 // pulses to prove the guard and fire-and-forget semantics.
 // ---------------------------------------------------------------------------
 describe("ADR-0039 T1: Detector live-entry recursion guard + fire-and-forget", () => {
@@ -265,8 +265,8 @@ describe("ADR-0039 T1: Detector live-entry recursion guard + fire-and-forget", (
     const habitatId = setupHabitat();
     enroll(habitatId, "live-recursion-det", "lrd", "signalDetector");
 
-    // Trigger registerDetectorHooks via initializePlugins.
-    await pluginManager.initializePlugins({ register: vi.fn() } as never);
+    // Production boot's hook-activation step (post-installation).
+    pluginManager.registerDetectorHooks();
 
     // Extract the callback registered on onPulseCreated.
     const mockFn = pulseService.onPulseCreated as unknown as {
@@ -323,7 +323,7 @@ describe("ADR-0039 T1: Detector live-entry recursion guard + fire-and-forget", (
     const habitatId = setupHabitat();
     enroll(habitatId, "live-ff-det", "ffd", "signalDetector");
 
-    await pluginManager.initializePlugins({ register: vi.fn() } as never);
+    pluginManager.registerDetectorHooks();
 
     const mockFn = pulseService.onPulseCreated as unknown as {
       mock: { calls: Array<[(pulse: unknown) => void]> };

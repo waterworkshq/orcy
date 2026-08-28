@@ -2,13 +2,13 @@
  * Production router characterization (pre-extraction baseline).
  *
  * Captures the exact post-containment HTTP surface through the SAME
- * production registration seam the executable boots from — `createHttpApp` +
- * `registerHttpSurface` in `src/httpApp.ts`. There is no copied module list
+ * staged assembly the executable boots from — `createHttpApplication` in
+ * `src/httpApp.ts`. There is no copied module list
  * here: a route added through the normal production seam changes the observed
  * inventory and fails the fixture comparison automatically (the sentinel
  * discriminator — proven by mutate/revert, see the ticket report).
  *
- * Hook parity is OBSERVED, not described: `registerHttpSurface` emits one
+ * Hook parity is OBSERVED, not described: the assembly emits one
  * `HookInstallationRecord` at the exact statement that installs each root or
  * scoped hook (per-registration `onHookInstalled` option), and the fixtures
  * pin that production-emitted stream. Behavioral discriminators additionally
@@ -34,7 +34,7 @@
  *   - api-only       no UI directory, no plugins
  *   - ui-installed   ORCY_UI_PATH points at a directory holding index.html
  *   - fixture-plugin one fixture System Plugin registered through the real
- *                    `pluginManager.loadPlugins` + `initializePlugins` seams
+ *                    `runPluginBoot` (loadPlugins → staged install → hooks)
  *
  * The fixtures are the pre-extraction parity artifact for the assembly
  * extraction: regenerate with `UPDATE_ROUTE_BASELINE=1
@@ -59,19 +59,14 @@ import path from "node:path";
 import crypto from "node:crypto";
 import jwt from "jsonwebtoken";
 import {
-  createHttpApp,
-  registerHttpSurface,
+  createHttpApplication,
   RAW_BODY_ROUTES,
-  type HttpApp,
+  type HttpRuntimeHandle,
   type HookInstallationRecord,
 } from "../httpApp.js";
-import {
-  resolveEffectiveAuthPolicy,
-  formatEffectivePolicy,
-  type AuthPolicy,
-} from "../authPolicy.js";
+import { formatEffectivePolicy } from "../authPolicy.js";
+import { runPluginBoot } from "../plugins/pluginBoot.js";
 import { setJwtSecret } from "../middleware/jwt-verification.js";
-import { getAuditProvenanceMetadata } from "../services/auditProvenanceContext.js";
 import { closeDb, initTestDb } from "../db/index.js";
 import { rebuildCache as rebuildHabitatSecretCache } from "../services/habitatSecretCache.js";
 import * as pluginManager from "../plugins/pluginManager.js";
@@ -85,10 +80,11 @@ const UPDATE_BASELINE = process.env.UPDATE_ROUTE_BASELINE === "1";
 /**
  * Effective authentication policy is derived from the SAME declaration that
  * installs the runtime guard (typed `config.authPolicy`, resolved through the
- * policy module's resolver): one declaration, one classification. There is no
- * fallback classification — a route that somehow reaches this observer with
- * no effective policy renders as `MISSING_POLICY`, and the installer's
- * readiness hook has already rejected the application before it could serve.
+ * policy module's resolver): one declaration, one classification, surfaced by
+ * the assembly-derived inventory. There is no fallback classification — a
+ * route that reaches the inventory with no effective policy renders as
+ * `MISSING_POLICY`, and the installer's readiness hook has already rejected
+ * the application before it could serve.
  */
 type RouteSource = "core" | "plugin" | "static" | "framework";
 
@@ -132,27 +128,22 @@ function classifySurface(url: string): string {
   return "other";
 }
 
-function handlerNames(preHandler: unknown): string[] {
-  if (!preHandler) return [];
-  const fns = Array.isArray(preHandler) ? preHandler : [preHandler];
-  return fns.map((fn) => (typeof fn === "function" && fn.name ? fn.name : "<anonymous>"));
-}
-
 interface ObservedApp {
-  app: HttpApp;
+  app: HttpRuntimeHandle;
   records: RouteRecord[];
   hookInstallations: HookInstallationRecord[];
   waypoint?: { fired: boolean; afterHookCount: number };
 }
 
 /**
- * Builds the production application and observes every registered route and
- * hook installation. `withPlugins` flips the capture boundary so routes
- * registered by the production plugin seam are attributed `source: "plugin"`;
- * `waypoint` receives the seam's operational interposition callback slot so
- * the boot ordering can be pinned; `auditProbeRoute` registers a test-only
- * route AFTER route capture closes so it reads (without polluting) the
- * inventory.
+ * Builds the production application through the SAME staged assembly the
+ * executable boots from (`createHttpApplication`) and renders its derived
+ * route inventory. `withPlugins` runs the REAL production plugin boot
+ * (`runPluginBoot`) so plugin-stage routes are attributed
+ * `source: "plugin"`; `waypoint` wraps the assembly's operational
+ * interposition slot so the boot ordering can be pinned; `auditProbeRoute`
+ * asks the assembly for its finalize-time observation route (outside the
+ * inventory by construction).
  */
 async function buildObservedApp(options: {
   logger?: boolean;
@@ -160,44 +151,11 @@ async function buildObservedApp(options: {
   waypoint?: () => void;
   auditProbeRoute?: boolean;
 }): Promise<ObservedApp> {
-  const app = createHttpApp(options.logger ?? false);
-  const records: RouteRecord[] = [];
   const hookInstallations: HookInstallationRecord[] = [];
   const waypoint: ObservedApp["waypoint"] = { fired: false, afterHookCount: -1 };
-  let pluginBoundaryReached = false;
-  let routeCaptureClosed = false;
 
-  // Route-options references (not their config snapshots) are captured so
-  // scope-level inheritance — applied by scoped onRoute hooks AFTER this
-  // root-level observer, potentially creating the config object itself — is
-  // final when classification resolves below.
-  const recordRouteOptions = new Map<
-    RouteRecord,
-    { config?: { authPolicy?: AuthPolicy }; preHandler?: unknown }
-  >();
-
-  app.addHook("onRoute", (routeOptions) => {
-    if (routeCaptureClosed) return;
-    const methods = Array.isArray(routeOptions.method)
-      ? routeOptions.method
-      : [routeOptions.method as string];
-    for (const m of methods) {
-      const record: RouteRecord = {
-        method: m.toUpperCase(),
-        path: routeOptions.url,
-        surface: classifySurface(routeOptions.url),
-        guards: [], // resolved post-ready, below, from the final installed chain
-        authKind: "pending",
-        rawBodyEligible: false,
-        source: pluginBoundaryReached ? "plugin" : "core",
-        generatedTwin: false,
-      };
-      records.push(record);
-      recordRouteOptions.set(record, routeOptions);
-    }
-  });
-
-  await registerHttpSurface(app, {
+  const app = await createHttpApplication({
+    logger: options.logger ?? false,
     onHookInstalled: (record) => {
       hookInstallations.push(structuredClone(record));
     },
@@ -208,64 +166,35 @@ async function buildObservedApp(options: {
           options.waypoint!();
         }
       : undefined,
+    auditProbeRoute: options.auditProbeRoute,
   });
 
   if (options.withPlugins) {
-    pluginBoundaryReached = true;
-    await pluginManager.loadPlugins();
-    await pluginManager.initializePlugins(app);
+    // Real production plugin boot: discovery, staged installation, detector
+    // hooks — nothing test-local.
+    await runPluginBoot(app);
+  } else {
+    // No discovery cycle ran: install the (empty) validated catalog
+    // explicitly — installation is required and exactly once.
+    await app.installPluginRoutes(pluginManager.getPluginRouteCatalog());
   }
 
-  routeCaptureClosed = true;
+  await app.finalize();
 
-  if (options.auditProbeRoute) {
-    // Test-only observation route on the production-configured app: returns
-    // exactly what the root audit hooks established for this request. It
-    // declares its (anonymous) policy — every route on a seam instance must,
-    // or readiness rejects the app.
-    app.get(
-      "/__audit-probe__",
-      { config: { authPolicy: "anonymous" } },
-      async () => getAuditProvenanceMetadata() ?? null,
-    );
-  }
+  const records: RouteRecord[] = app.routeInventory().map((entry) => ({
+    method: entry.method,
+    path: entry.url,
+    surface: classifySurface(entry.url),
+    guards: entry.guards,
+    authKind:
+      entry.effectivePolicy === null
+        ? "MISSING_POLICY"
+        : formatEffectivePolicy(entry.effectivePolicy),
+    rawBodyEligible: entry.rawBodyEligible,
+    source: entry.source,
+    generatedTwin: entry.generatedTwin,
+  }));
 
-  await app.ready();
-
-  // HEAD twins: a HEAD entry whose GET twin exists is Fastify-synthesized.
-  // A HEAD entry without a GET twin stays a first-class record.
-  for (const rec of records) {
-    if (rec.method === "HEAD") {
-      const twin = records.some((r) => r.method === "GET" && r.path === rec.path);
-      rec.generatedTwin = twin;
-      if (twin) rec.source = "framework";
-    }
-    // Narrow framework normalization: the CORS preflight catch-all is the one
-    // wildcard OPTIONS route (@fastify/cors). Any OTHER OPTIONS route — or any
-    // unknown application route — stays first-class and lands in the diff.
-    if (rec.method === "OPTIONS" && rec.path === "*") {
-      rec.generatedTwin = true;
-      rec.source = "framework";
-    }
-    // The optional UI's GET routes come from @fastify/static / the SPA
-    // fallback — static surface, not core application routes.
-    if (rec.surface === "ui-static" && !rec.generatedTwin) {
-      rec.source = "static";
-    }
-    const routeOptionsRef = recordRouteOptions.get(rec);
-    // Guards resolve from the FINAL installed preHandler chain: scoped
-    // inheritance installs its guard after this root-level observer ran, so
-    // an early snapshot would silently lose realtime/presence/remote guards.
-    // authKind (below) remains the authoritative policy classification;
-    // guards are independent mechanism evidence.
-    rec.guards = handlerNames(routeOptionsRef?.preHandler);
-    const policy = resolveEffectiveAuthPolicy(routeOptionsRef?.config);
-    rec.authKind = policy === undefined ? "MISSING_POLICY" : formatEffectivePolicy(policy);
-    // Raw-body eligibility follows the declared verifier, not a copied list.
-    rec.rawBodyEligible = typeof policy === "object" && policy.policy === "verified_ingress";
-  }
-
-  records.sort((a, b) => (a.method + " " + a.path).localeCompare(b.method + " " + b.path));
   return { app, records, hookInstallations, waypoint: options.waypoint ? waypoint : undefined };
 }
 
@@ -320,11 +249,12 @@ function assertMatchesFixture(name: string, fixture: BaselineFixture, observed: 
  * owning tickets — NOT fixed here (out of scope per the ticket).
  */
 const BEHAVIOR_NOTES: string[] = [
-  "X-API-Version and Deprecation headers are set inside onResponse hooks; " +
-    "Fastify has already sent the response by then, so neither header reaches " +
-    "clients on any prefix (pre-existing at the characterization commit; the " +
-    "deprecation-header parity promise must be re-grounded on onSend when the " +
-    "assembly extraction revisits it).",
+  "X-API-Version and Deprecation headers were historically set inside " +
+    "onResponse hooks — after Fastify had already sent the response, so " +
+    "neither header reached clients on any prefix. The assembly extraction " +
+    "corrected this at the owning seam: both headers are now installed at " +
+    "onSend and wire-visible; Deprecation is scoped to the deprecated /api " +
+    "group (and the deprecated plugin mirror) only.",
   "GET /plugins is declared local_actor auth policy (guard installed by " +
     "the policy registry). The pre-policy public-regex exception and the " +
     "name-inference classifier that carried it are deleted; there is no " +
@@ -347,7 +277,7 @@ const BEHAVIOR_NOTES: string[] = [
 
 // ---------------------------------------------------------------------------
 // Fixture System Plugin — registered through the real plugin discovery seams
-// (setPluginDirectory → loadPlugins → initializePlugins), never a test-local
+// (setPluginDirectory → loadPlugins → staged install), never a test-local
 // route registration. Mirrors the ADR-0050 contract: a manifest-declared
 // route (stable routeId, method, plugin-relative path) with a keyed request
 // handler; core mounts it under both plugin namespaces with fixed
@@ -474,13 +404,15 @@ describe("production route surface characterization", () => {
   describe("hook installation (observed at the installing statement)", () => {
     it("emits the seven seam-installed hooks in registration order", () => {
       // Ordered production observations, identical across all three modes.
+      // The two header hooks install at onSend — the assembly's correction of
+      // the characterized onResponse defect (headers now reach the wire).
       expect(apiOnly.hookInstallations).toEqual([
-        { surface: "root", hookKind: "onResponse", name: "api-version" },
+        { surface: "root", hookKind: "onSend", name: "api-version" },
         { surface: "root", hookKind: "onRequest", name: "audit-context" },
         { surface: "root", hookKind: "preHandler", name: "audit-enrichment" },
         { surface: "api-v1", hookKind: "preHandler", name: "per-agent-rate-limit" },
         { surface: "api-deprecated", hookKind: "preHandler", name: "per-agent-rate-limit" },
-        { surface: "api-deprecated", hookKind: "onResponse", name: "deprecation-header" },
+        { surface: "api-deprecated", hookKind: "onSend", name: "deprecation-header" },
         { surface: "sse", hookKind: "preHandler", name: "per-agent-rate-limit" },
       ]);
       expect(uiInstalled.hookInstallations).toEqual(apiOnly.hookInstallations);
@@ -1055,24 +987,28 @@ describe("production route surface characterization", () => {
       expect(authed.statusCode).toBe(200);
     });
 
-    it("deprecated /api prefix parity: the Deprecation header never reaches the wire (pre-existing)", async () => {
-      // The deprecated group installs an onResponse hook stamping
-      // `Deprecation: true`, but Fastify sends the response before onResponse
-      // runs, so the header is absent on BOTH prefixes today. Recorded as a
-      // behavior note for the owning ticket — not fixed here.
+    it("deprecated /api prefix: the Deprecation header is wire-visible, scoped only to /api", async () => {
+      // The assembly corrected the characterized onResponse defect at the
+      // owning seam: the deprecated group stamps `Deprecation: true` at
+      // onSend, so it reaches clients — and ONLY the deprecated group does.
       const deprecated = await apiOnly.app.inject({ method: "GET", url: "/api/habitats" });
       expect(deprecated.statusCode).toBe(401);
-      expect(deprecated.headers.deprecation).toBeUndefined();
+      expect(deprecated.headers.deprecation).toBe("true");
       const current = await apiOnly.app.inject({ method: "GET", url: "/api/v1/habitats" });
       expect(current.statusCode).toBe(401);
       expect(current.headers.deprecation).toBeUndefined();
+      // The Remote Participant scope (/api/shared) must not leak the
+      // deprecated-prefix header.
+      const shared = await apiOnly.app.inject({ method: "GET", url: "/api/shared/me" });
+      expect(shared.statusCode).toBe(401);
+      expect(shared.headers.deprecation).toBeUndefined();
     });
 
-    it("X-API-Version never reaches the wire either (same pre-existing onResponse defect)", async () => {
+    it("X-API-Version is wire-visible on its API surface (onSend correction)", async () => {
       for (const prefix of ["/api/v1", "/api"]) {
         const res = await apiOnly.app.inject({ method: "GET", url: `${prefix}/habitats` });
         expect(res.statusCode).toBe(401);
-        expect(res.headers["x-api-version"]).toBeUndefined();
+        expect(res.headers["x-api-version"]).toBe("1");
       }
     });
 

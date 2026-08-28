@@ -18,7 +18,7 @@
  * Per ticket: Tier-C kinds (customMcpTool, customHttpRoute) are documented
  * as having no registry round-trip — runtime exposure for customMcpTool is
  * via the `getCustomMcpTools()` scan, and for customHttpRoute via
- * `initializePlugins()` (Fastify mount). We do not assert a getter round-trip
+ * the staged assembly's `installPluginRoutes` (Fastify mount). We do not assert a getter round-trip
  * for those two.
  *
  * Per ticket: the lifecycle interceptor "registry round-trip" is asserted by
