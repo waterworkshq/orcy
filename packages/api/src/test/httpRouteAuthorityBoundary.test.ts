@@ -21,7 +21,14 @@
  *      modules are flagged — a tripwire for an instance smuggled as `any`
  *      past check B; and
  *   E. `createHttpApplication` has exactly one production caller: the
- *      executable. A second assembly site would fork the authority.
+ *      executable. A second assembly site would fork the authority; and
+ *   F. no production module may acquire Node's `createRequire` capability —
+ *      a per-module CommonJS `require()` loader — from a literal
+ *      `node:module`/`module` specifier in any import/export-from, dynamic
+ *      `import()`, or `require()` form (epic-review P1: a created loader's
+ *      `load("fastify")` constructs an instance none of A–E can see, so the
+ *      capability itself is denied). No production module needs it, so the
+ *      reviewed allowlist is empty by default.
  *
  * Honest scope: the type-stripped TS7 toolchain exposes no JS compiler API,
  * so this is a structured source scan (string/comment-aware), not a typed
@@ -30,7 +37,26 @@
  * backtick-literal — pinned by the standing matching table below); its known
  * residual is any NON-literal specifier — a variable `import(mod)` or an
  * interpolated template head (`import(`${base}/fastify`)`) — which needs
- * dataflow an AST would not catch either. Checks
+ * dataflow an AST would not catch either. Check F holds the same
+ * literal-specifier precision on the loader side: a non-literal
+ * `node:module` specifier, or a `createRequire` binding re-exported
+ * indirectly through another module, is the same dataflow residual — the
+ * guard denies acquisition at every literal specifier form rather than
+ * tracking loader aliases. Literal means COOKED value: escape spellings
+ * (`"module"`, `"\x6dodule"`) and the ES2022 string-named binding form
+ * (`import { "createRequire" as cr }`) are literals and are rejected
+ * (fixup 01); the clause captures in checks A and F are tempered on the
+ * import/export keywords so a semicolon-less preceding statement cannot be
+ * swallowed into an acquiring clause. Fixup 02 makes the scan
+ * escape-aware end to end: line continuations cook to nothing (`"mod\
+ * ule"` is the literal `module`), and quoted module-export names are
+ * opaque units — a `,`/`}`/the words import/export inside one (including
+ * the `}` of a `\u{…}` escape) are string content, never a delimiter or
+ * statement boundary. Shared A/F residual (documented, not fixed): an
+ * ESCAPED module keyword (`\u0069mport { createRequire } from
+ * "node:module"`) is not recognized — the scan anchors on the literal
+ * keywords, and closing that spelling needs keyword-escape normalization
+ * a structured regex does not attempt (fixup 03, R3-4). Checks
  * B and C are exact at this precision; check D is a named tripwire. The
  * allowlists below ARE the sanctioned boundary — a new legitimate holder
  * must extend them deliberately, in review-visible diffs.
@@ -54,6 +80,15 @@ const INSTANCE_TYPE_MODULES: readonly string[] = [
 /** Fastify receiver names whose route-verb calls are registration. */
 const FASTIFY_RECEIVERS = "(?:fastify|f|app|instance|server|httpApp|application)";
 const ROUTE_VERBS = "(?:register|get|post|put|patch|delete|head|options|all|route)";
+
+/**
+ * Production modules reviewed to need Node's `createRequire` capability.
+ * EMPTY by design: no production API module needs a CommonJS loader — the
+ * assembly imports fastify through normal ESM — and a module holding
+ * `createRequire` can construct Fastify outside the authority. A genuine
+ * future need extends this list deliberately, in a review-visible diff.
+ */
+const CREATE_REQUIRE_ALLOWLIST: readonly string[] = [];
 
 function listTypeScriptFiles(dir: string): string[] {
   const out: string[] = [];
@@ -171,7 +206,14 @@ function stripComments(source: string): string {
  */
 function fastifyImportClauses(stripped: string): string[] {
   const clauses: string[] = [];
-  const re = /(?:import|export)\s+([^;]*?)\s*from\s*(['"])fastify(?:\/[^'"]*)?\2/gs;
+  // The clause capture is tempered on the import/export keywords (a real
+  // clause can never contain them — reserved), so a semicolon-less preceding
+  // import/export statement cannot be swallowed into this clause (fixup 01,
+  // finding 3). Quoted module-export names are consumed as opaque units
+  // FIRST, so the words import/export inside them — `import { "import" as
+  // imp }` — are string content, not a statement boundary (fixup 02, N3).
+  const re =
+    /(?:import|export)\s+((?:"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|(?!;|\b(?:import|export)\b)[^;"'])*?)\s*from\s*(['"])fastify(?:\/[^'"]*)?\2/gs;
   for (const match of stripped.matchAll(re)) {
     clauses.push(match[1]);
   }
@@ -207,6 +249,245 @@ export function fastifyConstructionImportIn(stripped: string): boolean {
   const dynamic =
     new RegExp(`(?:require|import)\\s*\\(\\s*(['"\`])fastify(?:/[^'"\`]*)?\\1`);
   return fastifyImportClauses(stripped).some(importsValueBinding) || dynamic.test(stripped);
+}
+
+/**
+ * Computes the cooked value of a string-literal body (the raw text between
+ * the delimiters, backslashes intact). Standard escape forms are decoded by
+ * hand — `\uXXXX`, `\u{…}`, `\xXX`, the single-char escapes, and identity for
+ * anything else — so `"module"` cooks to `module`. This is the safe
+ * literal-cooking mechanism for a structured scan: no eval/Function, no
+ * parser dependency (fixup 01, review finding 2). Malformed escapes are kept
+ * raw — a file carrying one does not compile, so precision there is moot.
+ */
+function cookStringLiteral(body: string): string {
+  let out = "";
+  let i = 0;
+  while (i < body.length) {
+    const c = body[i];
+    if (c !== "\\") {
+      out += c;
+      i += 1;
+      continue;
+    }
+    const e = body[i + 1];
+    if (e === undefined) {
+      out += c; // trailing backslash — keep raw
+      break;
+    }
+    // Line continuations cook to NOTHING (LF, CR, CRLF as one unit, U+2028,
+    // U+2029) — `"mod\<LF>ule"` cooks to `module` (fixup 02, review N2).
+    if (e === "\n" || e === "\u2028" || e === "\u2029") {
+      i += 2;
+      continue;
+    }
+    if (e === "\r") {
+      i += body[i + 2] === "\n" ? 3 : 2;
+      continue;
+    }
+    switch (e) {
+      case "n":
+      case "t":
+      case "r":
+      case "b":
+      case "f":
+      case "v":
+      case "0":
+        out += { n: "\n", t: "\t", r: "\r", b: "\b", f: "\f", v: "\v", 0: "\0" }[e];
+        i += 2;
+        break;
+      case "u": {
+        let codePoint = NaN;
+        let next = i + 6; // `\uXXXX`
+        if (body[i + 2] === "{") {
+          const end = body.indexOf("}", i + 3);
+          if (end !== -1) {
+            codePoint = Number.parseInt(body.slice(i + 3, end), 16);
+            next = end + 1;
+          }
+        } else {
+          codePoint = Number.parseInt(body.slice(i + 2, i + 6), 16);
+        }
+        if (Number.isNaN(codePoint) || codePoint > 0x10ffff) {
+          out += e + body.slice(i + 2, next); // malformed — keep raw
+        } else {
+          out += String.fromCodePoint(codePoint);
+        }
+        i = next;
+        break;
+      }
+      case "x": {
+        const codePoint = Number.parseInt(body.slice(i + 2, i + 4), 16);
+        if (Number.isNaN(codePoint)) {
+          out += e + body.slice(i + 2, i + 4); // malformed — keep raw
+        } else {
+          out += String.fromCharCode(codePoint);
+        }
+        i += 4;
+        break;
+      }
+      default:
+        out += e; // `\\`, `\'`, `\"`, and any other escaped char → itself
+        i += 2;
+    }
+  }
+  return out;
+}
+
+/** True when a cooked module specifier names Node's module builtin. */
+function namesNodeModule(cookedSpecifier: string): boolean {
+  return cookedSpecifier === "node:module" || cookedSpecifier === "module";
+}
+
+/**
+ * Every `import`/`export … from "node:module"` (or bare `"module"`) clause in
+ * the file, as raw clause text (between the keyword and `from`). The
+ * specifier is captured as an arbitrary string literal and compared by its
+ * COOKED value, so escaped spellings (`"module"`, `"\x6dodule"`) are
+ * rejected like their plain forms (fixup 01, finding 2). The clause capture
+ * is tempered on the import/export keywords so a semicolon-less preceding
+ * statement cannot be swallowed into the acquiring clause (finding 3). Quote
+ * class is `'`/`"` only, matching the fastify static matcher's recorded
+ * reasoning: `from` clauses require string literals syntactically, so a
+ * backtick specifier cannot occur there.
+ */
+function nodeModuleImportClauses(stripped: string): string[] {
+  const clauses: string[] = [];
+  // Clause capture tempered on the import/export keywords (fixup 01,
+  // finding 3) with quoted names as opaque units so a quoted "import"/
+  // "export" export-name is not mistaken for a statement boundary (fixup
+  // 02, N3).
+  const re =
+    /(?:import|export)\s+((?:"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|(?!;|\b(?:import|export)\b)[^;"'])*?)\s*from\s*(['"])((?:\\.|[^\\])*?)\2/gs;
+  for (const match of stripped.matchAll(re)) {
+    if (namesNodeModule(cookStringLiteral(match[3]))) clauses.push(match[1]);
+  }
+  return clauses;
+}
+
+/**
+ * True when the clause binds the `createRequire` capability (or the whole
+ * namespace/default that reaches it): a `createRequire` binding under any
+ * alias, a namespace (`*`/`* as ns`) — `createRequire` is a member — or the
+ * default import (`node:module` is CommonJS, so the default IS `module.exports`).
+ * A named binding of only non-capability exports (e.g. `isBuiltin`) does not
+ * acquire the loader.
+ */
+function clauseAcquiresCreateRequire(clause: string): boolean {
+  const trimmed = clause.trim();
+  if (trimmed.startsWith("type ")) return false; // `import type …` — erased
+  if (/^\*(\s+as\b)?/.test(trimmed)) return true; // `* as ns` / bare `export *`
+  const bindings = splitNamedBindings(trimmed);
+  if (bindings === null) return true; // default import — the CJS exports object
+  // A default binding before the named list acquires too: `import d, { x }`
+  // binds module.exports (createRequire reachable as `d.createRequire`),
+  // even when every named binding is a bystander (fixup 03, R3-1).
+  if (trimmed.slice(0, trimmed.indexOf("{")).trim() !== "") return true;
+  return bindings.some(bindingGrantsCreateRequire);
+}
+
+/**
+ * Quote-aware named-binding list for a clause's `{…}` span (fixup 02, review
+ * N1): walks the span tracking string quotes and escape pairs, so a `}` or
+ * `,` inside a quoted module-export name — including the `}` of a
+ * `\u{…}` code-point escape — is string content, never a delimiter. Returns
+ * null when the clause has no closed braces span (default-import form).
+ */
+function splitNamedBindings(clause: string): string[] | null {
+  const start = clause.indexOf("{");
+  if (start === -1) return null;
+  let quote: string | null = null;
+  let closed = false;
+  const bindings: string[] = [];
+  let current = "";
+  for (let i = start + 1; i < clause.length; i += 1) {
+    const c = clause[i];
+    if (c === "\\") {
+      // an escape never ends the enclosing quote and never terminates the
+      // span; a `\u{…}` code-point escape is consumed as ONE unit — inside
+      // or outside quotes — so its closing brace cannot terminate the list
+      // (fixup 03, R3-2)
+      if (clause[i + 1] === "u" && clause[i + 2] === "{") {
+        const end = clause.indexOf("}", i + 3);
+        const stop = end === -1 ? clause.length : end + 1;
+        current += clause.slice(i, stop);
+        i = stop - 1; // the loop's i += 1 lands past the escape
+        continue;
+      }
+      current += c + (clause[i + 1] ?? "");
+      i += 1;
+      continue;
+    }
+    if (quote !== null) {
+      if (c === quote) quote = null;
+      current += c;
+      continue;
+    }
+    if (c === '"' || c === "'") {
+      quote = c;
+      current += c;
+      continue;
+    }
+    if (c === "}") {
+      closed = true;
+      break;
+    }
+    if (c === ",") {
+      bindings.push(current);
+      current = "";
+      continue;
+    }
+    current += c;
+  }
+  if (!closed) return null;
+  bindings.push(current);
+  return bindings.map((binding) => binding.trim()).filter((binding) => binding.length > 0);
+}
+
+/**
+ * True when one import/export binding names the capability: a bare
+ * `createRequire`/`default` (under any alias), or the ES2022
+ * module-export-name string form — `import { "createRequire" as cr }` —
+ * whose name is a quoted literal compared by cooked value (fixup 01,
+ * review finding 1). Type-erased bindings never grant anything.
+ */
+function bindingGrantsCreateRequire(binding: string): boolean {
+  if (/^type\s/.test(binding)) return false;
+  // Identifier names may be Unicode-escaped — `createRequire`,
+  // `\u{63}reateRequire` are valid IdentifierName spellings and classic
+  // minifier output — so cook the whole token before the bare-name test
+  // (fixup 03, R3-2). Plain tokens cook to themselves.
+  if (/^(?:createRequire|default)\b/.test(cookStringLiteral(binding))) return true;
+  // `s`: a line continuation inside a quoted name (`"create\<LF>Require"`)
+  // must not cut the quoted capture short — the cooker then removes it
+  // (fixup 03, R3-3, mirroring loaderForm's N2 fix).
+  const quoted = binding.match(/^(['"])((?:\\.|[^\\])*?)\1/s);
+  if (!quoted) return false;
+  const cooked = cookStringLiteral(quoted[2]);
+  return cooked === "createRequire" || cooked === "default";
+}
+
+/**
+ * Check F's full predicate: true when the (comment-stripped) source acquires
+ * Node's `createRequire` loader capability from a literal `node:module`/`module`
+ * specifier — a static import/export-from clause binding the capability, or any
+ * dynamic `import()`/`require()` of the specifier (both hand over the whole
+ * namespace). Exported for the standing matching table so the scan and the
+ * table share one truth. Residual: non-literal specifiers and bindings
+ * re-exported indirectly through other modules (no dataflow tracking).
+ */
+export function createRequireCapabilityIn(stripped: string): boolean {
+  // Dynamic quote class includes backticks (check A's F6 reasoning): a
+  // template-literal specifier without interpolation is a plain string to
+  // the module loader — same capability, same flag. Specifiers are compared
+  // by COOKED value, so escaped spellings (`"\x6dodule"`) are rejected like
+  // their plain forms (fixup 01, finding 2); interpolated template heads
+  // stay the documented non-literal residual.
+  const loaderForm = /(?:require|import)\s*\(\s*(['"`])((?:\\.|[^\\])*?)\1/gs;
+  for (const match of stripped.matchAll(loaderForm)) {
+    if (namesNodeModule(cookStringLiteral(match[2]))) return true;
+  }
+  return nodeModuleImportClauses(stripped).some(clauseAcquiresCreateRequire);
 }
 
 /** Check B's predicate: the source names a Fastify instance/plugin-callback type. */
@@ -282,6 +563,19 @@ describe("HTTP route authority boundary (ADR-0049)", () => {
       EXECUTABLE,
     ]);
   });
+
+  it("no production module acquires Node's createRequire capability (empty reviewed allowlist)", () => {
+    const offenders: string[] = [];
+    for (const rel of productionFiles()) {
+      if (CREATE_REQUIRE_ALLOWLIST.includes(rel)) continue;
+      const stripped = stripComments(readFileSync(join(SRC_ROOT, rel), "utf-8"));
+      if (createRequireCapabilityIn(stripped)) offenders.push(rel);
+    }
+    expect(
+      offenders,
+      `createRequire capability acquired outside the reviewed (empty-by-default) allowlist: ${offenders.join(", ")}`,
+    ).toEqual([]);
+  });
 });
 
 describe("HTTP route authority boundary — standing matching table (review F1)", () => {
@@ -300,6 +594,9 @@ describe("HTTP route authority boundary — standing matching table (review F1)"
       // the module loader — same capability, same flag.
       'const F = await import(`fastify`);',
       'const F = await import(`fastify/fastify`);',
+      // A quoted reserved-word export name must not read as a statement
+      // boundary and hide the value binding beside it (fixup 02, N3).
+      `import { "import" as imp, fastify as f } from "fastify";`,
     ];
     for (const snippet of valueImports) {
       expect(fastifyConstructionImportIn(strip(snippet)), snippet).toBe(true);
@@ -336,5 +633,143 @@ export const rogueRouter = router;`);
     expect(holdsFastifyInstanceType(bypass), "check B stays silent").toBe(false);
     expect(hasTripwireRegistration(bypass), "check D stays silent").toBe(false);
     expect(mentionsCreateHttpApplication(bypass), "check E stays silent").toBe(false);
+  });
+
+  it("flags every createRequire capability acquisition from literal node:module/module", () => {
+    const acquisitions = [
+      `import { createRequire } from "node:module";`,
+      `import { createRequire } from "module";`,
+      `import { createRequire as cr } from "node:module";`,
+      `import * as mod from "node:module";
+mod.createRequire(import.meta.url);`,
+      `import nodeModule from "node:module";`,
+      `import { default as nodeModule } from "node:module";`,
+      `export { createRequire } from "node:module";`,
+      `export * from "module";`,
+      `export * as nodeModule from "node:module";`,
+      `const { createRequire } = await import("node:module");`,
+      `const mod = await import("node:module");`,
+      `const mod2 = await import("module");`,
+      `const { createRequire } = require("node:module");`,
+      `const mod3 = require("module");`,
+      'const mod4 = await import(`node:module`);',
+      // ES2022 module-export-name string bindings (fixup 01, finding 1).
+      `import { "createRequire" as cr } from "node:module";`,
+      `import { 'default' as d } from "node:module";`,
+      `export { "createRequire" as cr } from "node:module";`,
+      // Escaped literal specifiers — cooked value is module/node:module
+      // (fixup 01, finding 2; \\u and \\x spellings across all three forms).
+      `import { createRequire } from "node:\\u006dodule";`,
+      `import { createRequire } from "\\u006dodule";`,
+      `import { createRequire } from "node:\\x6dodule";`,
+      `const { createRequire } = require("modu\\x6ce");`,
+      `const mod5 = await import("\\u006eode:module");`,
+      'const mod6 = await import(`\\u006dodule`);',
+      // A semicolon-less preceding import must not swallow the acquiring
+      // clause (fixup 01, finding 3).
+      `import { left } from "left-pad"
+import { createRequire } from "node:module"`,
+      // Quoted Unicode code-point escapes in binding names — the `}` of
+      // `\u{…}` must not terminate the binding list (fixup 02, N1).
+      `import { "\\u{63}reateRequire" as cr } from "node:module";`,
+      `export { "\\u{63}reateRequire" as cr } from "node:module";`,
+      `import { "\\u{64}efault" as d } from "node:module";`,
+      // Line continuations inside literal specifiers cook to NOTHING
+      // (fixup 02, N2) — LF, CR, CRLF-as-one-unit, U+2028, U+2029 across
+      // static, dynamic, and require forms (composed via interpolation so
+      // the snippet carries the real control characters).
+      `import { createRequire } from "mod\\${"\n"}ule";`,
+      `const { createRequire } = require("mod\\${"\r"}ule");`,
+      `const mod7 = await import("node:\\${"\r\n"}module");`,
+      `const mod8 = await import("mod\\${"\u2028"}ule");`,
+      `import { createRequire } from "mod\\${"\u2029"}ule";`,
+      // Quoted reserved-word export names must not read as statement
+      // boundaries (fixup 02, N3).
+      `import { "import" as imp, "createRequire" as cr } from "node:module";`,
+      `export { "export" as ex, "createRequire" as cr } from "node:module";`,
+      // Mixed default+named: the default binding acquires module.exports
+      // even when every named binding is a bystander (fixup 03, R3-1);
+      // default+namespace stays flagged.
+      `import nodeModule, { isBuiltin } from "node:module";`,
+      `import d, { "isBuiltin" as ib } from "node:module";`,
+      `import mod, * as ns from "node:module";`,
+      // Unicode-escaped identifier names — valid IdentifierName spellings,
+      // classic minifier output (fixup 03, R3-2): \\uXXXX, \\u{…}, escaped
+      // `default`, alias-only escape control, and the export-from variant.
+      `import { \\u0063reateRequire as cr } from "node:module";`,
+      `import { \\u{63}reateRequire as cr } from "node:module";`,
+      `import { \\u0064efault as d } from "node:module";`,
+      `import { createRequire as \\u0063r } from "node:module";`,
+      `export { \\u0063reateRequire as cr } from "node:module";`,
+      // Line continuation inside a QUOTED binding name (fixup 03, R3-3).
+      `import { "create\\${"\n"}Require" as cr } from "node:module";`,
+    ];
+    for (const snippet of acquisitions) {
+      expect(createRequireCapabilityIn(strip(snippet)), snippet).toBe(true);
+    }
+  });
+
+  it("allows non-capability node:module bindings, near-miss specifiers, and prose", () => {
+    const allowed = [
+      `import { isBuiltin } from "node:module";`,
+      `import type { createRequire } from "node:module";`,
+      `import { type createRequire } from "node:module";`,
+      `import { something } from "my-module";`,
+      `import { other } from "node:modules";`,
+      // String-named and escaped NEAR-MISS forms stay precise: the cooked
+      // names are not the capability / not the builtin's specifier.
+      `import { "isBuiltin" as ib } from "node:module";`,
+      `import { createRequire } from "\\u006dodules";`,
+      // No binding, no capability: side-effect-only and empty braces.
+      `import "node:module";`,
+      `import {} from "node:module";`,
+      // Fixup-02 near-misses: quoted escaped names and continuations that
+      // cook to something other than the capability/specifier, plus a
+      // quoted reserved-word name with no capability alongside.
+      `import { "\\u{63}sNotTheCapability" as x } from "node:module";`,
+      `import { createRequire } from "mod\\${"\n"}ulers";`,
+      `import { "import" as imp, isBuiltin } from "node:module";`,
+      `import { \\u0069sBuiltin as ib } from "node:module";`,
+      `const util = require("module-utils");`,
+      `import fs from "node:fs";`,
+      // Mere prose — comments are stripped before matching, so a comment
+      // describing the banned pattern cannot flag (same promise as A–E).
+      `// load fastify via createRequire(import.meta.url) from "node:module"`,
+    ];
+    for (const snippet of allowed) {
+      expect(createRequireCapabilityIn(strip(snippet)), snippet).toBe(false);
+    }
+  });
+
+  it("the epic review's realistic createRequire construction fails check F alone — no other check masks it", () => {
+    // Review P1's exact shape: Node's CommonJS bridge gives any ESM module a
+    // require() loader; load("fastify") has no fastify import clause (A
+    // silent), no Fastify* type (B silent), receiver `router` is not a
+    // conventional tripwire name (D silent), no assembly call (E silent), and
+    // the module is not the executable (C is scoped to index.ts). F is the
+    // only check that can fire — and it must.
+    const bypass = strip(`import { createRequire } from "node:module";
+const load = createRequire(import.meta.url);
+const make = load("fastify");
+const router = make({ logger: false });
+router.get("/rogue", async () => "x");`);
+    expect(createRequireCapabilityIn(bypass), "check F fires").toBe(true);
+    expect(fastifyConstructionImportIn(bypass), "check A stays silent").toBe(false);
+    expect(holdsFastifyInstanceType(bypass), "check B stays silent").toBe(false);
+    expect(hasTripwireRegistration(bypass), "check D stays silent").toBe(false);
+    expect(mentionsCreateHttpApplication(bypass), "check E stays silent").toBe(false);
+  });
+
+  it("a semicolon-less preceding type-only import cannot hide a fastify value import from check A", () => {
+    // The check-A half of fixup finding 3 (same clause-capture family as
+    // check F): without the keyword-tempered capture, the lazy clause
+    // swallows the second statement and the leftmost — type-only — braces
+    // hide the real value import below it.
+    const swallow = strip(`import { type Left } from "left-pad"
+import Fastify from "fastify";`);
+    expect(
+      fastifyConstructionImportIn(swallow),
+      "check A fires on the second statement",
+    ).toBe(true);
   });
 });

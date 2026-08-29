@@ -1766,7 +1766,7 @@ stateDiagram-v2
   ready --> closed: close()
 ```
 
-Repeated, skipped, or late plugin installation and repeated or late finalization are boot errors. A source-boundary guard test (`httpRouteAuthorityBoundary.test.ts`) enforces the ownership structurally: only the assembly imports `fastify` as a value, only sanctioned modules hold a Fastify instance type, the executable never mentions fastify at all, and `createHttpApplication` has exactly one production caller.
+Repeated, skipped, or late plugin installation and repeated or late finalization are boot errors. A source-boundary guard test (`httpRouteAuthorityBoundary.test.ts`) enforces the ownership structurally: only the assembly imports `fastify` as a value, only sanctioned modules hold a Fastify instance type, the executable never mentions fastify at all, `createHttpApplication` has exactly one production caller, and no production module may acquire Node's `createRequire` capability from a literal `node:module`/`module` import/export/dynamic/require form (a created CommonJS loader could construct Fastify outside the assembly — the reviewed allowlist is empty by default). The guard is a comment-stripped structured source scan, not an AST walk: its documented residual is any non-literal/interpolated module specifier and loader aliases re-exported indirectly through another module, which would require dataflow tracking the scan deliberately does not attempt.
 
 ### Policy-installed authentication
 
