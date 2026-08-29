@@ -390,11 +390,13 @@ interface VerifiedIngressVerifierSpec {
   /**
    * Sole posture authority for GitHub/GitLab families — the installed guard
    * reads this exact field at request time. `true` rejects an unmatched
-   * credential under remote posture even with zero configured secrets (the
-   * code-review routes' historical `{ failClosed: true }`); `false` (the CI
-   * families' pre-policy behavior, no failClosed option passed) rejects only
-   * when a corresponding Habitat secret exists. Absent for families whose
-   * disposition is not rejection-based (github_issues_hmac is fail-soft).
+   * credential under remote posture even with zero configured secrets (local
+   * posture with zero secrets still fail-opens for development); `false`
+   * rejects only when a corresponding Habitat secret exists. Every GitHub and
+   * GitLab entry is `true` — the CI families were tightened from their
+   * pre-policy `false` behavior, closing the remote zero-secret dispatch
+   * cell. Absent for families whose disposition is not rejection-based
+   * (github_issues_hmac is fail-soft).
    */
   failClosed?: boolean;
   guard: PolicyGuard;
@@ -411,7 +413,7 @@ const VERIFIED_INGRESS_VERIFIERS: { [V in CoreVerifierId]: VerifiedIngressVerifi
   },
   github_ci_hmac: {
     routePaths: ["/webhooks/github-ci"],
-    failClosed: false,
+    failClosed: true,
     guard: githubCiVerifiedIngressGuard,
     selfProbe: makeGitHubHmacSelfProbe(),
   },
@@ -428,7 +430,7 @@ const VERIFIED_INGRESS_VERIFIERS: { [V in CoreVerifierId]: VerifiedIngressVerifi
   },
   gitlab_ci_token: {
     routePaths: ["/webhooks/gitlab-ci"],
-    failClosed: false,
+    failClosed: true,
     guard: gitlabCiVerifiedIngressGuard,
     selfProbe: makeGitLabTokenSelfProbe(),
   },

@@ -18,8 +18,10 @@ export async function ciCdWebhookRoutes(fastify: FastifyInstance): Promise<void>
   applyDeclaredAuthPolicies(fastify);
 
   // Credential verification runs in the policy-installed verified-ingress
-  // guards (preHandler) over the exact raw bytes, with the historical
-  // configured-key/missing-key posture matrix; these handlers only dispatch.
+  // guards (preHandler) over the exact raw bytes — fail-closed under remote
+  // posture (zero configured secrets included) and whenever a secret is
+  // configured; only zero-secret local development fail-opens. These
+  // handlers only dispatch.
   fastify.post(
     "/webhooks/github-ci",
     { config: { authPolicy: { policy: "verified_ingress", verifier: "github_ci_hmac" } } },

@@ -212,7 +212,7 @@ Orcy pulls external tracker issues into habitat intake, where humans/orcys revie
 
 | Release | Theme |
 |---------|-------|
-| v0.41.0 (implementation complete; release pending) | [Authoritative HTTP Route Assembly](docs/ROADMAP.md) — one staged assembly owns the production HTTP surface; policy-installed authentication on every route; declared (not raw-callback) plugin HTTP routes; Presence authenticated and the unverified provider-invite route removed. |
+| v0.41.0 (implementation complete; release pending) | [Authoritative HTTP Route Assembly](docs/ROADMAP.md) — one staged assembly owns the production HTTP surface; policy-installed authentication on every route; declared (not raw-callback) plugin HTTP routes; Presence authenticated, the unverified provider-invite route removed, and unmatched CI webhooks fail closed under remote posture. |
 | Soon | Unscheduled seeds (integration OAuth/webhook extraction and similar) wait on demand. See [docs/ROADMAP.md](docs/ROADMAP.md). |
 | Architecture Optimization | Ongoing Architecture Work pertaining to investigated codebase opportunities |
 | npm publishing | GO LIVE on npm for the CLI, MCP server, and daemon for one command installer |

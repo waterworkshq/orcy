@@ -419,11 +419,13 @@ describe("auth policy registry and installer", () => {
       }
     });
 
-    describe("historical CI vs code-review posture cells (remote posture, zero secrets)", () => {
+    describe("CI and code-review posture cells (remote posture, zero secrets)", () => {
       // No GitHub/GitLab secret is configured for any habitat in this file's
-      // database, and posture is forced remote. Historically the CI routes
-      // passed no failClosed option, so an unmatched credential dispatched;
-      // the code-review routes passed failClosed: true and rejected.
+      // database, and posture is forced remote. All four GitHub/GitLab
+      // registry entries are fail-closed: an unmatched credential rejects.
+      // (RA-3 — the CI families were tightened from their pre-policy
+      // no-option behavior, under which an unmatched CI credential
+      // dispatched in exactly this cell.)
       beforeAll(() => {
         process.env.HOST = "0.0.0.0";
       });
@@ -431,25 +433,68 @@ describe("auth policy registry and installer", () => {
         delete process.env.HOST;
       });
 
-      it("CI GitHub and CI GitLab fail OPEN: unmatched credentials dispatch, both prefixes", async () => {
-        for (const prefix of ["/api/v1", "/api"]) {
-          const github = await app.inject({
-            method: "POST",
-            url: `${prefix}/webhooks/github-ci`,
-            headers: { "content-type": "application/json", "x-github-event": "ping" },
-            payload: { zen: "ci fail-open cell" },
-          });
-          expect(github.statusCode, `${prefix} github-ci`).toBe(200);
-          expect(github.json()).toEqual({ status: "ignored", event: "ping" });
+      it("CI GitHub fails CLOSED: missing and invalid signatures 401 without dispatching, both prefixes", async () => {
+        const verification = await import("../services/webhooks/webhook-secret-verification.js");
+        const dispatch = vi.spyOn(verification, "dispatchGitHubWebhook");
+        try {
+          for (const prefix of ["/api/v1", "/api"]) {
+            const missing = await app.inject({
+              method: "POST",
+              url: `${prefix}/webhooks/github-ci`,
+              headers: { "content-type": "application/json", "x-github-event": "ping" },
+              payload: { zen: "ci fail-closed cell" },
+            });
+            expect(missing.statusCode, `${prefix} missing signature`).toBe(401);
+            expect(missing.json()).toEqual({ error: "Invalid or missing signature" });
 
-          const gitlab = await app.inject({
-            method: "POST",
-            url: `${prefix}/webhooks/gitlab-ci`,
-            headers: { "content-type": "application/json" },
-            payload: { object_kind: "char" },
-          });
-          expect(gitlab.statusCode, `${prefix} gitlab-ci`).toBe(200);
-          expect(gitlab.json()).toEqual({ status: "ignored", objectKind: "char" });
+            const invalid = await app.inject({
+              method: "POST",
+              url: `${prefix}/webhooks/github-ci`,
+              headers: {
+                "content-type": "application/json",
+                "x-github-event": "ping",
+                "x-hub-signature-256": "sha256=" + "0".repeat(64),
+              },
+              payload: { zen: "ci fail-closed cell" },
+            });
+            expect(invalid.statusCode, `${prefix} invalid signature`).toBe(401);
+            expect(invalid.json()).toEqual({ error: "Invalid or missing signature" });
+          }
+          expect(dispatch, "no CI GitHub dispatch for unmatched credentials").not.toHaveBeenCalled();
+        } finally {
+          dispatch.mockRestore();
+        }
+      });
+
+      it("CI GitLab fails CLOSED: missing and invalid tokens 401 without dispatching, both prefixes", async () => {
+        const verification = await import("../services/webhooks/webhook-secret-verification.js");
+        const dispatch = vi.spyOn(verification, "dispatchGitLabWebhook");
+        try {
+          for (const prefix of ["/api/v1", "/api"]) {
+            const missing = await app.inject({
+              method: "POST",
+              url: `${prefix}/webhooks/gitlab-ci`,
+              headers: { "content-type": "application/json" },
+              payload: { object_kind: "char" },
+            });
+            expect(missing.statusCode, `${prefix} missing token`).toBe(401);
+            expect(missing.json()).toEqual({ error: "Invalid or missing token" });
+
+            const invalid = await app.inject({
+              method: "POST",
+              url: `${prefix}/webhooks/gitlab-ci`,
+              headers: {
+                "content-type": "application/json",
+                "x-gitlab-token": "definitely-wrong",
+              },
+              payload: { object_kind: "char" },
+            });
+            expect(invalid.statusCode, `${prefix} invalid token`).toBe(401);
+            expect(invalid.json()).toEqual({ error: "Invalid or missing token" });
+          }
+          expect(dispatch, "no CI GitLab dispatch for unmatched credentials").not.toHaveBeenCalled();
+        } finally {
+          dispatch.mockRestore();
         }
       });
 
@@ -474,6 +519,37 @@ describe("auth policy registry and installer", () => {
           expect(gitlab.json()).toEqual({ error: "Invalid or missing token" });
         }
       });
+    });
+
+    it("CI GitHub and CI GitLab fail OPEN for zero-secret local development", async () => {
+      // The preserved other half of the CI posture matrix: local posture
+      // with zero configured secrets still fail-opens, so a development
+      // instance without secrets is not bricked. HOST is deleted explicitly —
+      // never rely on sibling hook ordering for posture.
+      delete process.env.HOST;
+      try {
+        for (const prefix of ["/api/v1", "/api"]) {
+          const github = await app.inject({
+            method: "POST",
+            url: `${prefix}/webhooks/github-ci`,
+            headers: { "content-type": "application/json", "x-github-event": "ping" },
+            payload: { zen: "ci local fail-open cell" },
+          });
+          expect(github.statusCode, `${prefix} github-ci`).toBe(200);
+          expect(github.json()).toEqual({ status: "ignored", event: "ping" });
+
+          const gitlab = await app.inject({
+            method: "POST",
+            url: `${prefix}/webhooks/gitlab-ci`,
+            headers: { "content-type": "application/json" },
+            payload: { object_kind: "char" },
+          });
+          expect(gitlab.statusCode, `${prefix} gitlab-ci`).toBe(200);
+          expect(gitlab.json()).toEqual({ status: "ignored", objectKind: "char" });
+        }
+      } finally {
+        delete process.env.HOST;
+      }
     });
 
     it("github guards preserve the missing-event 400 precedence over signature rejection", async () => {
