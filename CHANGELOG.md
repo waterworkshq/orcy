@@ -2,6 +2,159 @@
 
 > Older releases: see [git tags](https://github.com/waterworkshq/orcy/tags) and [GitHub Releases](https://github.com/waterworkshq/orcy/releases).
 
+## 0.41.0 — 2026-08-29
+
+### Bug Fixes
+
+#### contain presence and provider invite surfaces ([`dd75a98`](https://github.com/waterworkshq/orcy/commit/dd75a98d95ec4d5504112c8c71dff3ecc7c24c40))
+
+
+
+
+- Require authenticated, habitat-authorized, owner-bound human presence with server-derived identity, remove speculative agent presence and anonymous unload beacons, and close the unverified provider-invite acceptance path while preserving manual invites. Add discriminating route, ownership, spoofing, expiry, and closed-surface coverage.
+
+
+
+
+#### dispatch GitHub issues to every verified connection ([`e6302d1`](https://github.com/waterworkshq/orcy/commit/e6302d1771d803856357456261607dd44fa65854))
+
+
+
+
+- Preserve every same-repository integration whose secret verifies, process each match independently, and keep the fail-soft webhook response when one connection fails.
+
+
+
+
+#### fail closed unmatched CI webhooks ([`1b1354d`](https://github.com/waterworkshq/orcy/commit/1b1354da9fc7335cd9fe899e895ce73dc8a25479))
+
+
+
+
+- Reject unmatched GitHub and GitLab CI credentials under remote posture even when no Habitat secrets are configured, while preserving zero-secret local development behavior and both-prefix parity.
+
+
+
+
+#### accept signed form-encoded Slack commands ([`e943ce7`](https://github.com/waterworkshq/orcy/commit/e943ce7e4475d8416dbefe61f61eb3b21478a850))
+
+
+
+
+- Slack slash commands arrive on the wire as application/x-www-form-urlencoded, but the command route only parsed JSON bodies, so validly signed form traffic failed with a 500. The route now registers a route-scoped urlencoded parser (platform URLSearchParams decoding, duplicate keys last-wins, null-prototype string fields) inside a nested Fastify scope, so correctly signed form commands complete under both local prefixes while exact-byte signature verification — which runs on the raw-body capture taken before parsing — and every other route's content-type handling are unchanged.
+
+
+
+
+
+### Documentation
+
+#### record v0.40.8 delivery in roadmap and README ([`6e361e8`](https://github.com/waterworkshq/orcy/commit/6e361e89c4ddc8230f96a4943031eaa9e89fea06))
+
+
+#### add ADR-0049/0050 for HTTP assembly and plugin routes ([`651ed0b`](https://github.com/waterworkshq/orcy/commit/651ed0bd4064b0d8cee61e1a1707e8146d783d6f))
+
+
+
+
+- ADR-0049: establish authoritative HTTP assembly with policy-installed   authentication; every route carries a typed effective auth policy and   production boot cannot register routes outside the assembly boundary - ADR-0050: replace unrestricted System Plugin Fastify mounting with   core-owned, authenticated manifest-declared routes; supersedes   ADR-0041, which is now marked superseded - README: add "What Orcy Does" overview and one-line Quick Start   install snippet; trim stale release history entries - ROADMAP: refresh release notes
+
+
+
+
+#### correct authentication and compatibility guidance ([`96b3cbd`](https://github.com/waterworkshq/orcy/commit/96b3cbda2ea36347803c114528a881d1181d77d6))
+
+
+
+
+- Document the closed authentication policies, conditional anonymous UI surface, remote and daemon credentials, and exact local-prefix compatibility boundary, while adding behavior-backed validation and clearing the epic range whitespace defect.
+
+
+
+
+#### add v0.41.0 operator notes ([`58b6cca`](https://github.com/waterworkshq/orcy/commit/58b6ccaa145b003f59088ed393042ba4b59e21e8))
+
+
+
+### Features
+
+#### install authentication from route policies ([`df33fcf`](https://github.com/waterworkshq/orcy/commit/df33fcfb24e4911d93c76909de1db9521c512167))
+
+
+
+
+- Introduce a closed route authentication and verified-ingress registry that installs guards from typed declarations, derives raw-body capture and inventory from the same policy source, preserves prefix and posture behavior, and restores Discord signature verification with compiled readiness probes.
+
+
+
+
+#### require declared authentication on every route ([`fe9779d`](https://github.com/waterworkshq/orcy/commit/fe9779d1a9df57839d876dcb623fab8b65925b6d))
+
+
+
+
+- Migrate core routes from middleware-name inference to policy-installed authentication, preserve downstream authorization order, fail readiness on missing policy, and remove the obsolete route classifier and exception list.
+
+
+
+
+#### add declared plugin HTTP routes ([`f446bc7`](https://github.com/waterworkshq/orcy/commit/f446bc79ff9380c1ddb4bfe0324925f6358b0a36))
+
+
+
+
+- Replace unrestricted plugin Fastify callbacks with validated manifest declarations and keyed request handlers, install authenticated twin namespaces through core-owned routing, and contain handler failures to individual requests.
+
+
+
+
+
+### Refactors
+
+#### centralize HTTP application assembly ([`14b342b`](https://github.com/waterworkshq/orcy/commit/14b342bdffc9bbd4b9ae8080e5711c30f431d7bc))
+
+
+
+
+- Own Fastify construction, route registration, plugin installation, readiness, and route inventory behind a staged runtime handle while preserving operational boot order and making version and deprecation headers wire-visible.
+
+
+
+
+
+### Tests
+
+#### characterize the production HTTP surface ([`b6e895f`](https://github.com/waterworkshq/orcy/commit/b6e895f489794385dd72a1ba9396584833ddcf74))
+
+
+
+
+- Extract Fastify construction and route registration behind the production-used HTTP seam, preserve the historical worker waypoint, and pin route, hook, prefix, raw-body, conditional UI/plugin, verified-ingress, and compiled-startup behavior for the upcoming assembly migration.
+
+
+
+
+#### enforce the HTTP route authority boundary ([`0f9b1c1`](https://github.com/waterworkshq/orcy/commit/0f9b1c1c05630eadb70f7d0cc38faebcdacf3af2))
+
+
+
+
+- Reject Fastify construction and route-registration escapes outside the authoritative assembly, pin package-subpath and dynamic-import bypasses, and update API, security, architecture, roadmap, and contributor-facing documentation to the shipped policy-installed route model.
+
+
+
+
+#### block CommonJS loader authority escapes ([`330f026`](https://github.com/waterworkshq/orcy/commit/330f026072ddfe821b669bb101b5ceec5e1d8714))
+
+
+
+
+- Extend the route-authority boundary guard to reject literal Node module loader acquisition across aliased, escaped, mixed, and line-continued import forms, with mutation-backed coverage and precise documentation of the remaining structured-scan limits.
+
+
+
+
+
 ## 0.40.8 — 2026-08-23
 
 ### Bug Fixes
@@ -80,57 +233,3 @@
 
 
 #### add v0.40.7 operator notes ([`d9e9995`](https://github.com/waterworkshq/orcy/commit/d9e999536d63fa302e642011e35a041c7ee44670))
-
-
-
-## 0.40.6 — 2026-08-23
-
-### Bug Fixes
-
-#### fail closed on empty DNS answers and pin webhook fetches to their validated resolution ([`637bc27`](https://github.com/waterworkshq/orcy/commit/637bc279339f1fc7d02e6cb709cde003f9317d9d))
-
-
-
-
-- validateOutboundUrl returned only a verdict and every caller re-resolved DNS at fetch time, so a rebinding hostname — public at validation and private at fetch, or simply unresolvable at validation, which passed as valid — bypassed the private-IP block. The checker now fails closed when DNS yields no addresses (a previously committed test pinned that fail-open behavior; it is rewritten to the closed contract), returns its resolved IPs, and treats literal-IP hosts as their own resolution. A new fetchValidated helper validates and fetches PINNED to exactly those addresses via an undici Agent custom lookup (one DNS resolution total, SNI preserved, fail-closed redirects, 10s timeout, allowlisted hosts fetch unpinned), and both webhook paths use it. Closes #26
-
-
-
-
-#### validate the remote-webhook, compact dispatcher, and notification webhook outbound paths ([`e6559af`](https://github.com/waterworkshq/orcy/commit/e6559af4a9845f7fea15a52f835c9af7d9812fed))
-
-
-
-
-- Three outbound fetch paths bypassed the canonical SSRF checker entirely: remote webhook registration used a hostname-prefix blacklist with no DNS resolution, the compact remote dispatcher fetched stored endpoints without dispatch-time validation, and the notification webhook channel had no validation at all. All three now go through the pinned, fail-closed canonical helper — re-validated at dispatch and delivery time, not just at configuration time — with fail-closed redirects. Operators with deliberately internal webhook targets must list them in ORCY_SSRF_ALLOWLIST. Closes #27
-
-
-
-
-#### give notification channels and post-interceptors a 30s watchdog ([`df65b06`](https://github.com/waterworkshq/orcy/commit/df65b06eec67be3dc97f7c44581b4fa5300d3017))
-
-
-
-
-- Both kinds kept the zero default that disables the invocation watchdog, leaving the never-settling hang class open for them — latent today, since channel delivery is production-unwired and post-interceptors are fire-and-forget, but closed preemptively per the same liveness rationale as the automation-action fix. The watchdog terminates and faults the run; quarantine accounting is unchanged per ADR-0039 (faults do not count for either kind), and a manifest timeoutMs of 0 remains an explicit opt-out — both semantics pinned through the production dispatch seams. Closes #29
-
-
-
-
-#### adversarial-review remediation for the outbound-fetch hardening ([`b792b6a`](https://github.com/waterworkshq/orcy/commit/b792b6a862ac2c1229f99541f043ef9e019aa622))
-
-
-
-
-- A pre-release review pass over the v0.40.6 fixes surfaced four items: a dead duplicated statement in fetchValidated (mutate-proof restore artifact), an out-of-range dotted-quad literal check that is now octet-bounded as defense-in-depth (Node's URL parser already rejects such hosts, pinned by test), an overclaiming SECURITY.md coverage sentence narrowed to the paths that actually pin, and shared-mock hygiene in the channel watchdog tests. The review also confirmed SNI is preserved under pinned lookup and the agent-cache eviction cannot break in-flight fetches.
-
-
-
-
-
-### Documentation
-
-#### record v0.40.5 delivery in roadmap and README ([`2caffb0`](https://github.com/waterworkshq/orcy/commit/2caffb02dae00abc3d11e748f1c543063ef10b68))
-
-
-#### add v0.40.6 operator notes ([`1913d1e`](https://github.com/waterworkshq/orcy/commit/1913d1e26d3d70b22aa92a8bac85daf1c568eb84))
