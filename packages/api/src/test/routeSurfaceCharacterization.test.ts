@@ -269,10 +269,16 @@ const BEHAVIOR_NOTES: string[] = [
     "missing-key posture matrix and invalid-request response shape are " +
     "unchanged, and the policy readiness self-probe fails assembly if the " +
     "verifier ever regresses to inert.",
-  "Slack slash-command traffic is form-encoded on the real wire, but a " +
-    "validly signed application/x-www-form-urlencoded request returns 500 " +
-    "(only application/json bodies complete); the app registers no formbody " +
-    "parser. Recorded for the owning ticket.",
+  "Slack slash-command traffic is form-encoded on the real wire, but the " +
+    "app historically registered no urlencoded parser, so a validly signed " +
+    "application/x-www-form-urlencoded request returned 500 (only JSON " +
+    "bodies completed). The ingress ticket resolved deferred item RA-1: a " +
+    "route-scoped parser (nested Fastify scope around /chat/slack/command " +
+    "only — WHATWG plus/percent decoding, last-wins duplicate keys, " +
+    "null-prototype string fields) now completes correctly signed form " +
+    "commands under both prefixes, altered form bytes still verify-reject, " +
+    "and no other route's content-type handling changed. Exact-byte " +
+    "verification still runs on the fastify-raw-body capture, unchanged.",
 ];
 
 // ---------------------------------------------------------------------------
@@ -779,11 +785,15 @@ describe("production route surface characterization", () => {
         expect(res.statusCode).toBe(401);
       });
 
-      it(`Slack command: validly signed form-encoded traffic 500s under ${prefix} (recorded)`, async () => {
-        // Slack's actual wire format. The signature verifies (exact bytes),
-        // but no formbody parser is registered, so the route cannot complete.
-        // Pinned as-deployed for the owning ticket.
-        const body = "text=hi&team_id=T0001";
+      // ---- Slack form-encoded wire format (RA-1 resolved) ----
+      // Slack's actual wire format. Each probe is signed over its exact
+      // bytes; the response body proves the DECODED text reached the
+      // command handler (help and unknown-command responses embed the
+      // parsed action, so an undecoded or unparsed body cannot produce
+      // them).
+
+      it(`Slack command: correctly signed form-encoded command completes under ${prefix}`, async () => {
+        const body = "text=help&team_id=T0001&user_id=U0001";
         const ts = String(Math.floor(Date.now() / 1000));
         const sig =
           "v0=" + crypto.createHmac("sha256", SLACK_SECRET).update(`v0:${ts}:${body}`).digest("hex");
@@ -797,7 +807,119 @@ describe("production route surface characterization", () => {
           },
           payload: body,
         });
-        expect(res.statusCode).toBe(500);
+        expect(res.statusCode, res.body).toBe(200);
+        expect(res.json(), "decoded text=help must reach the command handler").toMatchObject({
+          text: "Available commands",
+        });
+      });
+
+      it(`Slack command: form percent-decoding reaches the command handler under ${prefix}`, async () => {
+        // %75 decodes to "u": the action must arrive as "unknowncmd", not
+        // the raw "%75nknowncmd" — the unknown-command response echoes the
+        // parsed action, so the body discriminates decoded from undecoded.
+        const body = "text=%75nknowncmd&team_id=T0001";
+        const ts = String(Math.floor(Date.now() / 1000));
+        const sig =
+          "v0=" + crypto.createHmac("sha256", SLACK_SECRET).update(`v0:${ts}:${body}`).digest("hex");
+        const restore = process.env.ORCY_DEFAULT_HABITAT_ID;
+        process.env.ORCY_DEFAULT_HABITAT_ID = habitatId;
+        try {
+          const res = await apiOnly.app.inject({
+            method: "POST",
+            url: `${prefix}/chat/slack/command`,
+            headers: {
+              "content-type": "application/x-www-form-urlencoded",
+              "x-slack-signature": sig,
+              "x-slack-request-timestamp": ts,
+            },
+            payload: body,
+          });
+          expect(res.statusCode, res.body).toBe(200);
+          expect(res.json().text).toBe(
+            "Unknown command: unknowncmd. Type /orcy help for available commands.",
+          );
+        } finally {
+          if (restore === undefined) delete process.env.ORCY_DEFAULT_HABITAT_ID;
+          else process.env.ORCY_DEFAULT_HABITAT_ID = restore;
+        }
+      });
+
+      it(`Slack command: form plus-decoding reaches the command handler under ${prefix}`, async () => {
+        // "+" decodes to a space: "help me" parses to the help action. With
+        // plus decoding broken the action is "help+me" and the response
+        // becomes the unknown-command echo instead.
+        const body = "text=help+me&team_id=T0001";
+        const ts = String(Math.floor(Date.now() / 1000));
+        const sig =
+          "v0=" + crypto.createHmac("sha256", SLACK_SECRET).update(`v0:${ts}:${body}`).digest("hex");
+        const restore = process.env.ORCY_DEFAULT_HABITAT_ID;
+        process.env.ORCY_DEFAULT_HABITAT_ID = habitatId;
+        try {
+          const res = await apiOnly.app.inject({
+            method: "POST",
+            url: `${prefix}/chat/slack/command`,
+            headers: {
+              "content-type": "application/x-www-form-urlencoded",
+              "x-slack-signature": sig,
+              "x-slack-request-timestamp": ts,
+            },
+            payload: body,
+          });
+          expect(res.statusCode, res.body).toBe(200);
+          expect(res.json(), "decoded 'help me' must parse to the help action").toMatchObject({
+            text: "Available commands",
+          });
+        } finally {
+          if (restore === undefined) delete process.env.ORCY_DEFAULT_HABITAT_ID;
+          else process.env.ORCY_DEFAULT_HABITAT_ID = restore;
+        }
+      });
+
+      it(`Slack command: duplicate form fields resolve last-wins under ${prefix}`, async () => {
+        // The deliberate duplicate-key rule: LAST value wins, as a plain
+        // string. An array value would crash the handler (no .trim) and
+        // first-wins would answer the unknown-command echo instead.
+        const body = "text=unknowncmd&text=help&team_id=T0001";
+        const ts = String(Math.floor(Date.now() / 1000));
+        const sig =
+          "v0=" + crypto.createHmac("sha256", SLACK_SECRET).update(`v0:${ts}:${body}`).digest("hex");
+        const res = await apiOnly.app.inject({
+          method: "POST",
+          url: `${prefix}/chat/slack/command`,
+          headers: {
+            "content-type": "application/x-www-form-urlencoded",
+            "x-slack-signature": sig,
+            "x-slack-request-timestamp": ts,
+          },
+          payload: body,
+        });
+        expect(res.statusCode, res.body).toBe(200);
+        expect(res.json(), "the LAST text field (help) must win").toMatchObject({
+          text: "Available commands",
+        });
+      });
+
+      it(`Slack command: signature over different form bytes rejected under ${prefix}`, async () => {
+        const body = "text=help&team_id=T0001&user_id=U0001";
+        const ts = String(Math.floor(Date.now() / 1000));
+        const sig =
+          "v0=" +
+          crypto
+            .createHmac("sha256", SLACK_SECRET)
+            .update(`v0:${ts}:${body} `)
+            .digest("hex");
+        const res = await apiOnly.app.inject({
+          method: "POST",
+          url: `${prefix}/chat/slack/command`,
+          headers: {
+            "content-type": "application/x-www-form-urlencoded",
+            "x-slack-signature": sig,
+            "x-slack-request-timestamp": ts,
+          },
+          payload: body,
+        });
+        expect(res.statusCode, res.body).toBe(401);
+        expect(res.json()).toMatchObject({ code: "UNAUTHORIZED" });
       });
 
       it(`Discord interaction: correctly signed request is accepted under ${prefix} (repaired verifier)`, async () => {
@@ -947,6 +1069,22 @@ describe("production route surface characterization", () => {
         expect(res.statusCode).toBe(401);
       });
     }
+
+    it("the form parser is route-scoped: form-encoded traffic to other routes still fails content parsing", async () => {
+      // Fastify encapsulation confines the urlencoded parser to the nested
+      // scope holding /chat/slack/command. A form-encoded request anywhere
+      // else must keep hitting the unsupported-media-type fallthrough (the
+      // same generic 500 the Slack route answered before RA-1) — proving no
+      // global content-type behavior changed.
+      const res = await apiOnly.app.inject({
+        method: "POST",
+        url: "/api/v1/habitats",
+        headers: { "content-type": "application/x-www-form-urlencoded" },
+        payload: "name=not-a-json-habitat",
+      });
+      expect(res.statusCode, res.body).toBe(500);
+      expect(res.json()).toMatchObject({ code: "INTERNAL_ERROR" });
+    });
   });
 
   // -------------------------------------------------------------------------

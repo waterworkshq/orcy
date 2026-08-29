@@ -39,6 +39,24 @@ const VALID_CHAT_EVENTS = [
   "task_overdue",
 ];
 
+/**
+ * Decodes one `application/x-www-form-urlencoded` body (Slack's actual
+ * slash-command wire format) into plain string-valued fields using the
+ * platform parser: WHATWG `URLSearchParams` semantics — `+` decodes to a
+ * space and `%XX` percent-sequences decode to their bytes; undecodable
+ * sequences pass through as-is instead of throwing. Duplicate keys resolve
+ * deterministic LAST-WINS (never an array), and the container is
+ * null-prototype so adversarial keys (`__proto__`, `constructor`) become
+ * own properties instead of mutating the prototype chain.
+ */
+function parseFormUrlEncoded(body: string): Record<string, string> {
+  const fields: Record<string, string> = Object.create(null);
+  for (const [key, value] of new URLSearchParams(body)) {
+    fields[key] = value;
+  }
+  return fields;
+}
+
 export async function chatIntegrationRoutes(fastify: FastifyInstance): Promise<void> {
   // Heterogeneous module: routes declare policy individually; this applier
   // installs their guards (a no-op on seam-constructed instances, where the
@@ -186,42 +204,62 @@ export async function chatIntegrationRoutes(fastify: FastifyInstance): Promise<v
     },
   );
 
-  fastify.post(
-    "/chat/slack/command",
-    { config: { authPolicy: { policy: "verified_ingress", verifier: "slack_signing" } } },
-    async (request: FastifyRequest, reply: FastifyReply) => {
-      // Credential verification runs in the policy-installed
-      // slack_verified_ingress guard (preHandler): a configured signing
-      // secret must verify over the exact raw bytes; a missing secret fails
-      // closed only under remote posture.
+  // Slack's slash commands arrive as application/x-www-form-urlencoded —
+  // the wire format Slack itself sends. The urlencoded parser is confined
+  // to this nested scope: Fastify encapsulation makes a content-type
+  // parser visible only to routes registered inside the scope that
+  // declares it, so no other route's content-type handling changes.
+  // fastify-raw-body already captured the exact wire bytes at preParsing
+  // (runFirst) before any parser runs, so the policy-installed
+  // slack_signing guard still verifies the untouched bytes.
+  await fastify.register(async (slackCommandScope: FastifyInstance) => {
+    slackCommandScope.addContentTypeParser(
+      "application/x-www-form-urlencoded",
+      { parseAs: "string" },
+      (_request, body, done) => {
+        // parseAs "string" always delivers a string; the Buffer arm of the
+        // declared parameter type is unreachable and kept total without a cast.
+        done(null, parseFormUrlEncoded(typeof body === "string" ? body : body.toString("utf8")));
+      },
+    );
 
-      const payload = request.body as {
-        text?: string;
-        team_id?: string;
-        channel_id?: string;
-        user_id?: string;
-        response_url?: string;
-      };
+    slackCommandScope.post(
+      "/chat/slack/command",
+      { config: { authPolicy: { policy: "verified_ingress", verifier: "slack_signing" } } },
+      async (request: FastifyRequest, reply: FastifyReply) => {
+        // Credential verification runs in the policy-installed
+        // slack_verified_ingress guard (preHandler): a configured signing
+        // secret must verify over the exact raw bytes; a missing secret fails
+        // closed only under remote posture.
 
-      const text = payload.text ?? "";
-      const { action, args } = parseSlackCommand(text);
+        const payload = request.body as {
+          text?: string;
+          team_id?: string;
+          channel_id?: string;
+          user_id?: string;
+          response_url?: string;
+        };
 
-      if (action === "help" || !text.trim()) {
-        const { response } = await executeCommand("help", "help", []);
+        const text = payload.text ?? "";
+        const { action, args } = parseSlackCommand(text);
+
+        if (action === "help" || !text.trim()) {
+          const { response } = await executeCommand("help", "help", []);
+          reply.send((response as { slack: object }).slack);
+          return;
+        }
+
+        const habitatId = process.env.ORCY_DEFAULT_HABITAT_ID;
+        if (!habitatId) {
+          reply.send({ text: "No default board configured. Set ORCY_DEFAULT_HABITAT_ID." });
+          return;
+        }
+
+        const { response } = await executeCommand(habitatId, action, args, payload.user_id);
         reply.send((response as { slack: object }).slack);
-        return;
-      }
-
-      const habitatId = process.env.ORCY_DEFAULT_HABITAT_ID;
-      if (!habitatId) {
-        reply.send({ text: "No default board configured. Set ORCY_DEFAULT_HABITAT_ID." });
-        return;
-      }
-
-      const { response } = await executeCommand(habitatId, action, args, payload.user_id);
-      reply.send((response as { slack: object }).slack);
-    },
-  );
+      },
+    );
+  });
 
   fastify.post(
     "/chat/discord/interaction",
