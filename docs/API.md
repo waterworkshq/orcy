@@ -55,9 +55,22 @@ Complete reference for the Orcy REST API.
 
 ## Authentication
 
-Every route declares its authentication policy, and that declaration installs the enforcement guard at boot (ADR-0049) — a route without a policy cannot reach readiness. The routes that accept requests without a local principal are explicit `anonymous` policy declarations (`GET /health`, `GET /` (redirects to the UI SPA), `GET /api/auth/setup-status`, `POST /api/auth/register` while no users exist, `POST /api/auth/login`); inbound webhook routes use `verified_ingress` policies whose core-owned verifiers check provider signatures or tokens before the handler runs. All other endpoints require the agent or human credentials below and return **401 Unauthorized** when none is provided.
+Every route declares its authentication policy, and that declaration installs the enforcement guard at boot (ADR-0049) — a route without a policy cannot reach readiness. The closed policy catalog is `anonymous`, `human`, `agent`, `local_actor`, `registration`, `daemon`, `realtime`, `remote_participant`, `manual_invite`, and `verified_ingress` (provider-signed ingress behind closed core verifiers). These are distinct credential models, not variants of human/agent auth.
 
-Every response carries `X-API-Version: 1`. The deprecated `/api/*` prefix mirrors `/api/v1/*` 1:1 (same routes, same policies) and additionally carries `Deprecation: true` on every response.
+Routes that accept requests without a local principal declare the explicit `anonymous` policy — for example `GET /health`, `GET /` (redirects to the UI SPA), `GET /api/auth/setup-status`, `POST /api/auth/register` while no users exist, and `POST /api/auth/login`. That list is representative, not exhaustive: when the static UI is installed, its `/app/*` routes serve unauthenticated through an inherited anonymous scope. Inbound webhook routes declare `verified_ingress` policies whose core-owned verifiers check provider signatures or tokens before the handler runs. Every other policy authenticates one specific credential — except `registration`, which requires its token only when one is configured, so local-dev posture accepts registration with no credential at all — and each guard rejects requests that arrive without the credential it requires: the `human`, `agent`, `local_actor`, `daemon`, `realtime`, and `remote_participant` guards answer **401 Unauthorized**; `registration` answers a wrong or missing registration token with **403 Forbidden** when one is configured; and `manual_invite` answers a missing or malformed invite token with **400 Bad Request**.
+
+| Policy | Credential |
+|--------|------------|
+| `human` | `Authorization: Bearer <JWT>` (see below) |
+| `agent` | `X-Agent-API-Key: <uuid>-<32-hex-chars>` (see below) |
+| `local_actor` | Either of the two local credentials — local human or local agent |
+| `registration` | `X-Registration-Token` (agent and daemon registration; required only when configured — open in local-dev posture) |
+| `daemon` | `X-Daemon-Token` (machine routes under `/api/v1/daemon/*` and deprecated `/api/daemon/*`) |
+| `realtime` | SSE channels: `X-Orcy-Remote-Key`, agent API key, Bearer JWT, or short-lived `?token=` stream token |
+| `remote_participant` | `X-Orcy-Remote-Key` (the `/api/shared` Remote Participant namespace) |
+| `manual_invite` | `X-Orcy-Invite-Token` (one-time remote invite tokens) |
+
+Every response carries `X-API-Version: 1`. The deprecated local `/api` prefix mirrors `/api/v1` 1:1 — same routes, same policies — and additionally carries `Deprecation: true` on every response. That pairing covers the two local API groups only: the separately mounted Remote Participant API lives under `/api/shared` behind `X-Orcy-Remote-Key` and has no `/api/v1` counterpart, while the mirrored `/shared/invites/*` manual-invite routes (`X-Orcy-Invite-Token`) are part of the paired local groups — their deprecated twins land inside the `/api/shared` path space without being part of the Remote Participant API.
 
 ### Agent Authentication
 

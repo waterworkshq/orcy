@@ -1,6 +1,6 @@
 # Core-owned authenticated System Plugin HTTP routes
 
-Status: accepted · 2026-08-27  
+Status: accepted · 2026-08-27
 Supersedes: ADR-0041
 
 System Plugins retain an HTTP extension surface, but Orcy replaces unrestricted `FastifyPluginCallback` mounting with manifest-declared relative routes mapped to keyed request handlers. Core registers each route under `/api/v1/plugins/:pluginId/*` and deprecated `/api/plugins/:pluginId/*`, always installs local human-or-agent authentication, and contains handler faults to the request; plugins cannot select public, signed, realtime, daemon, remote, or Habitat-scoped policies.
