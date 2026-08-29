@@ -4,6 +4,7 @@ import * as habitatRepo from "../repositories/habitat.js";
 import * as columnRepo from "../repositories/column.js";
 import * as connectionRepo from "../repositories/integrationConnection.js";
 import * as missionRepo from "../repositories/mission.js";
+import * as candidateRepo from "../repositories/externalIntakeCandidate.js";
 import { handleGitHubIssueWebhook } from "../services/integrations/webhookService.js";
 import type { GitHubWebhookPayload } from "../services/integrations/webhookService.js";
 import { tasks, columns as columnsTable, habitats } from "../db/schema/index.js";
@@ -218,5 +219,90 @@ describe("handleGitHubIssueWebhook", () => {
 
     expect(result.statusCode).toBe(200);
     expect(result.body).toBe("Pull request ignored");
+  });
+});
+
+describe("handleGitHubIssueWebhook plural dispatch", () => {
+  // normalizeWebhookIssue keys candidates on issue.node_id, not the numeric id.
+  const EXTERNAL_ID = "NODE_12345";
+
+  function makeConnection(
+    id: string,
+    overrides: Partial<Parameters<typeof connectionRepo.create>[0]> = {},
+  ) {
+    return connectionRepo.create({
+      habitatId,
+      provider: "github",
+      name: `Connection ${id}`,
+      authMethod: "pat",
+      repositoryOwner: "acme",
+      repositoryName: "repo",
+      createdBy: "user1",
+      ...overrides,
+    });
+  }
+
+  it("delivers one connection-scoped intake candidate to every enabled same-repository connection whose secret verifies", () => {
+    const habitatA = habitatRepo.createHabitat({ name: "Habitat A" });
+    const habitatB = habitatRepo.createHabitat({ name: "Habitat B" });
+    const connA = makeConnection("A", { habitatId: habitatA.id, webhookSecret: "shared-secret" });
+    const connB = makeConnection("B", { habitatId: habitatB.id, webhookSecret: "shared-secret" });
+    // Same repository and secret, but disabled — must receive nothing.
+    const connDisabled = makeConnection("D", { webhookSecret: "shared-secret", enabled: false });
+
+    const payload = makePayload();
+    const rawBody = JSON.stringify(payload);
+    const result = handleGitHubIssueWebhook(rawBody, signPayload(rawBody, "shared-secret"), payload);
+
+    expect(result.statusCode).toBe(200);
+    expect(result.body).toBe("OK");
+    const candidateA = candidateRepo.findByConnectionAndExternalId(connA.id, EXTERNAL_ID);
+    const candidateB = candidateRepo.findByConnectionAndExternalId(connB.id, EXTERNAL_ID);
+    expect(candidateA).toBeTruthy();
+    expect(candidateB).toBeTruthy();
+    expect(candidateA!.habitatId).toBe(habitatA.id);
+    expect(candidateB!.habitatId).toBe(habitatB.id);
+    expect(candidateRepo.findByConnectionAndExternalId(connDisabled.id, EXTERNAL_ID)).toBeFalsy();
+  });
+
+  it("skips a wrong-secret connection while valid connections still dispatch", () => {
+    const conn1 = makeConnection("1", { webhookSecret: "shared-secret" });
+    const conn2 = makeConnection("2", { webhookSecret: "wrong-secret" });
+    const conn3 = makeConnection("3", { webhookSecret: "shared-secret" });
+
+    const payload = makePayload();
+    const rawBody = JSON.stringify(payload);
+    const result = handleGitHubIssueWebhook(rawBody, signPayload(rawBody, "shared-secret"), payload);
+
+    expect(result.statusCode).toBe(200);
+    expect(result.body).toBe("OK");
+    expect(candidateRepo.findByConnectionAndExternalId(conn1.id, EXTERNAL_ID)).toBeTruthy();
+    expect(candidateRepo.findByConnectionAndExternalId(conn2.id, EXTERNAL_ID)).toBeFalsy();
+    expect(candidateRepo.findByConnectionAndExternalId(conn3.id, EXTERNAL_ID)).toBeTruthy();
+  });
+
+  it("contains a first connection's processing failure and still dispatches the second", () => {
+    // autoImport with no non-terminal column in its habitat makes
+    // syncExternalIssue throw before any write — a genuine production-path
+    // failure for the FIRST match that must not suppress the second.
+    const habitatNoColumns = habitatRepo.createHabitat({ name: "Columnless Habitat" });
+    const connA = makeConnection("A", {
+      habitatId: habitatNoColumns.id,
+      webhookSecret: "shared-secret",
+      autoImport: true,
+    });
+    const connB = makeConnection("B", { webhookSecret: "shared-secret" });
+
+    const payload = makePayload();
+    const rawBody = JSON.stringify(payload);
+    const result = handleGitHubIssueWebhook(rawBody, signPayload(rawBody, "shared-secret"), payload);
+
+    // Fail-soft response contract is unchanged.
+    expect(result.statusCode).toBe(200);
+    expect(result.body).toBe("OK");
+    expect(candidateRepo.findByConnectionAndExternalId(connB.id, EXTERNAL_ID)).toBeTruthy();
+    // The failing connection left no partial domain state behind.
+    expect(missionRepo.getMissionsByHabitatId(habitatNoColumns.id).missions).toHaveLength(0);
+    expect(candidateRepo.findByConnectionAndExternalId(connA.id, EXTERNAL_ID)).toBeFalsy();
   });
 });

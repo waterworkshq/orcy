@@ -72,14 +72,16 @@ export function isActionableGitHubIssueEvent(payload: GitHubWebhookPayload): boo
 export interface GitHubIssueIngressResolution {
   /** Enabled connections for the payload's repository, in listing order. */
   connections: IntegrationConnection[];
-  /** The connection whose webhook secret matched the signature, if any. */
-  matched: IntegrationConnection | null;
+  /** Every connection whose webhook secret verified the signature, in listing order. */
+  matched: IntegrationConnection[];
 }
 
 /**
- * Resolves which enabled connection's secret, if any, verifies the request's
- * HMAC signature. Never rejects — this family is fail-soft: an unverified
- * request is acknowledged without syncing.
+ * Resolves every enabled connection whose webhook secret verifies the
+ * request's HMAC signature over the exact raw bytes. Never rejects — this
+ * family is fail-soft: an unverified request is acknowledged without
+ * syncing, and one connection's failed verification never stops later
+ * connections from being checked.
  */
 export function resolveGitHubIssueIngress(
   rawBody: string,
@@ -88,11 +90,12 @@ export function resolveGitHubIssueIngress(
 ): GitHubIssueIngressResolution {
   const fullName = payload.repository?.full_name;
   if (!fullName) {
-    return { connections: [], matched: null };
+    return { connections: [], matched: [] };
   }
   const [owner, repo] = fullName.split("/");
   const connections = connectionRepo.listEnabledByProviderAndRepo("github", owner, repo);
 
+  const matched: IntegrationConnection[] = [];
   for (const connection of connections) {
     if (!connection.webhookSecret) continue;
 
@@ -104,9 +107,9 @@ export function resolveGitHubIssueIngress(
       continue;
     }
 
-    return { connections, matched: connection };
+    matched.push(connection);
   }
-  return { connections, matched: null };
+  return { connections, matched };
 }
 
 /** Handles a GitHub issue webhook, verifies signatures per connection, and syncs the issue into Orcy. */
@@ -120,8 +123,10 @@ export function handleGitHubIssueWebhook(
 
 /**
  * Dispatch tail of {@link handleGitHubIssueWebhook} for requests whose
- * credentials the verified-ingress policy guard has already resolved: only
- * the matched connection is synced.
+ * credentials the verified-ingress policy guard has already resolved: every
+ * matched connection is synced exactly once, with the historical
+ * per-connection fault containment — one connection's processing failure is
+ * logged and cannot suppress later matches.
  */
 export function dispatchGitHubIssueWebhook(
   payload: GitHubWebhookPayload,
@@ -149,8 +154,7 @@ export function dispatchGitHubIssueWebhook(
   const [owner, repo] = fullName.split("/");
   const normalizedIssue = normalizeWebhookIssue(owner, repo, issue);
 
-  const connection = resolution.matched;
-  if (connection) {
+  for (const connection of resolution.matched) {
     try {
       syncExternalIssue(connection, normalizedIssue);
     } catch (err: any) {

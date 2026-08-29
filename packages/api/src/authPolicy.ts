@@ -113,8 +113,8 @@ declare module "fastify" {
 export interface VerifiedIngressContext {
   verifier: CoreVerifierId;
   verified: boolean;
-  /** github_issues_hmac: eligible connections and the one whose secret matched (fail-soft family). */
-  issues?: { connections: unknown[]; matched: unknown | null };
+  /** github_issues_hmac: eligible connections and every one whose secret verified (fail-soft family). */
+  issues?: { connections: unknown[]; matched: unknown[] };
 }
 
 // ---------------------------------------------------------------------------
@@ -259,7 +259,7 @@ async function githubIssuesVerifiedIngressGuard(request: FastifyRequest): Promis
   const resolution = resolveGitHubIssueIngress(rawBodyOrStringified(request), signature, payload);
   request.verifiedIngress = {
     verifier: "github_issues_hmac",
-    verified: resolution.matched !== null,
+    verified: resolution.matched.length > 0,
     issues: { connections: resolution.connections, matched: resolution.matched },
   };
 }

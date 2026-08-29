@@ -9,7 +9,7 @@ export async function githubIssueWebhookRoutes(fastify: FastifyInstance): Promis
   applyDeclaredAuthPolicies(fastify);
 
   // Credential resolution runs in the policy-installed github_issues_hmac
-  // guard (preHandler), which finds the enabled connection whose secret
+  // guard (preHandler), which finds every enabled connection whose secret
   // verifies the request's HMAC over the exact raw bytes and stashes the
   // resolution. This family is fail-soft by design: an unverified request is
   // acknowledged without syncing.
@@ -18,7 +18,7 @@ export async function githubIssueWebhookRoutes(fastify: FastifyInstance): Promis
     { config: { authPolicy: { policy: 'verified_ingress', verifier: 'github_issues_hmac' } } },
     async (request: FastifyRequest, reply: FastifyReply) => {
       const body = request.body as Parameters<typeof dispatchGitHubIssueWebhook>[0];
-      const resolution = request.verifiedIngress?.issues ?? { connections: [], matched: null };
+      const resolution = request.verifiedIngress?.issues ?? { connections: [], matched: [] };
       const result = dispatchGitHubIssueWebhook(body, resolution as Parameters<typeof dispatchGitHubIssueWebhook>[1]);
       reply.code(result.statusCode).send(result.body);
     },
