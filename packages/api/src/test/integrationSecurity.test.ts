@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { createHmac } from "crypto";
+import { createHmac, generateKeyPairSync, sign } from "crypto";
 import { buildPinnedLookup, fetchValidated, validateOutboundUrl, UrlRejectedError } from "../config/integrationSecurity.js";
 const dnsState = vi.hoisted(() => ({
   v4: ["93.184.216.34"],
@@ -346,6 +346,87 @@ describe("integrationSecurity helpers", () => {
         "b".repeat(64),
       );
       expect(result).toBe(false);
+    });
+
+    // Ed25519 characterization: a generated keypair stands in for the Discord
+    // application key (raw 32-byte hex — SPKI DER's last 32 bytes, the form
+    // DISCORD_PUBLIC_KEY takes). These cases pin the acceptance/rejection
+    // domain the verifier must preserve across implementations.
+    const keypair = generateKeyPairSync("ed25519");
+    const rawPublicHex = keypair.publicKey
+      .export({ type: "spki", format: "der" })
+      .subarray(-32)
+      .toString("hex");
+    const BODY = '{"type": 1}';
+    const TS = "1719420000";
+    const VALID_SIG = sign(null, Buffer.from(TS + BODY), keypair.privateKey).toString("hex");
+
+    it("accepts a valid Ed25519 signature over exact timestamp+body bytes", async () => {
+      const { verifyDiscordSignature } = await import("../config/integrationSecurity.js");
+      expect(verifyDiscordSignature(VALID_SIG, TS, BODY, rawPublicHex)).toBe(true);
+    });
+
+    it("rejects a one-byte body change", async () => {
+      const { verifyDiscordSignature } = await import("../config/integrationSecurity.js");
+      expect(verifyDiscordSignature(VALID_SIG, TS, '{"type": 2}', rawPublicHex)).toBe(false);
+    });
+
+    it("rejects a changed timestamp over the same body", async () => {
+      const { verifyDiscordSignature } = await import("../config/integrationSecurity.js");
+      expect(verifyDiscordSignature(VALID_SIG, "1719420001", BODY, rawPublicHex)).toBe(false);
+    });
+
+    it("rejects a valid signature made under a different key", async () => {
+      const { verifyDiscordSignature } = await import("../config/integrationSecurity.js");
+      const other = generateKeyPairSync("ed25519");
+      const otherSig = sign(null, Buffer.from(TS + BODY), other.privateKey).toString("hex");
+      expect(verifyDiscordSignature(otherSig, TS, BODY, rawPublicHex)).toBe(false);
+    });
+
+    it("rejects malformed hex signature text", async () => {
+      const { verifyDiscordSignature } = await import("../config/integrationSecurity.js");
+      expect(verifyDiscordSignature("zz".repeat(64), TS, BODY, rawPublicHex)).toBe(false);
+    });
+
+    it("rejects odd-length and non-hex public key text", async () => {
+      const { verifyDiscordSignature } = await import("../config/integrationSecurity.js");
+      expect(verifyDiscordSignature(VALID_SIG, TS, BODY, rawPublicHex.slice(0, 63))).toBe(false);
+      expect(verifyDiscordSignature(VALID_SIG, TS, BODY, "nothexkey")).toBe(false);
+    });
+
+    it("rejects 63-byte and 65-byte signatures", async () => {
+      const { verifyDiscordSignature } = await import("../config/integrationSecurity.js");
+      expect(verifyDiscordSignature(VALID_SIG.slice(0, 126), TS, BODY, rawPublicHex)).toBe(false);
+      expect(verifyDiscordSignature(VALID_SIG + "00", TS, BODY, rawPublicHex)).toBe(false);
+    });
+
+    it("rejects 31-byte and 33-byte public keys", async () => {
+      const { verifyDiscordSignature } = await import("../config/integrationSecurity.js");
+      expect(verifyDiscordSignature(VALID_SIG, TS, BODY, rawPublicHex.slice(0, 62))).toBe(false);
+      expect(verifyDiscordSignature(VALID_SIG, TS, BODY, rawPublicHex + "00")).toBe(false);
+    });
+
+    // Strict encoding: Buffer.from(x, 'hex') stops silently at the first
+    // non-hex character, so valid hex plus trailing junk decodes to the
+    // valid prefix bytes — the verifier must reject it as malformed.
+    it("rejects a valid signature with trailing non-hex text", async () => {
+      const { verifyDiscordSignature } = await import("../config/integrationSecurity.js");
+      expect(verifyDiscordSignature(VALID_SIG + "zz", TS, BODY, rawPublicHex)).toBe(false);
+    });
+
+    it("rejects a valid public key with trailing non-hex text", async () => {
+      const { verifyDiscordSignature } = await import("../config/integrationSecurity.js");
+      expect(verifyDiscordSignature(VALID_SIG, TS, BODY, rawPublicHex + "zz")).toBe(false);
+    });
+
+    it("rejects an odd-length signature", async () => {
+      const { verifyDiscordSignature } = await import("../config/integrationSecurity.js");
+      expect(verifyDiscordSignature(VALID_SIG + "a", TS, BODY, rawPublicHex)).toBe(false);
+    });
+
+    it("accepts an uppercase exact valid signature and key", async () => {
+      const { verifyDiscordSignature } = await import("../config/integrationSecurity.js");
+      expect(verifyDiscordSignature(VALID_SIG.toUpperCase(), TS, BODY, rawPublicHex.toUpperCase())).toBe(true);
     });
   });
 });

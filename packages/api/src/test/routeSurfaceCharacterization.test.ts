@@ -25,9 +25,10 @@
  * inventing a signature claim. Raw-body eligibility and the verifier guards
  * both derive from the policy declarations in `authPolicy.ts` (one
  * declaration, no copied path list). The Discord Ed25519 verifier was
- * repaired by the auth-policy ticket (ESM-safe tweetnacl import + runtime
- * dependency): correctly signed requests now verify, and the policy
- * readiness self-probe fails assembly if either cause ever regresses.
+ * repaired by the auth-policy ticket (then an ESM-safe tweetnacl import +
+ * runtime dependency; Node's native Ed25519 crypto now): correctly signed
+ * requests verify, and the policy readiness self-probe fails assembly if
+ * the verifier ever regresses.
  *
  * Three modes are pinned against committed fixtures under
  * `src/test/fixtures/routeBaseline/`:
@@ -264,11 +265,11 @@ const BEHAVIOR_NOTES: string[] = [
     "reasons (unbound CommonJS require('tweetnacl') in compiled ESM, plus " +
     "tweetnacl absent from the dependency graph), rejecting every signature " +
     "when a key was configured. The auth-policy ticket repaired BOTH causes " +
-    "as an explicit characterized-defect correction: correctly signed " +
-    "interactions now verify under both prefixes, the configured-key / " +
-    "missing-key posture matrix and invalid-request response shape are " +
-    "unchanged, and the policy readiness self-probe fails assembly if the " +
-    "verifier ever regresses to inert.",
+    "as an explicit characterized-defect correction (tweetnacl then; Node's " +
+    "native Ed25519 crypto now): correctly signed interactions verify under " +
+    "both prefixes, the configured-key / missing-key posture matrix and " +
+    "invalid-request response shape are unchanged, and the policy readiness " +
+    "self-probe fails assembly if the verifier ever regresses to inert.",
   "Slack slash-command traffic is form-encoded on the real wire, but the " +
     "app historically registered no urlencoded parser, so a validly signed " +
     "application/x-www-form-urlencoded request returned 500 (only JSON " +
@@ -813,6 +814,32 @@ describe("production route surface characterization", () => {
         });
       });
 
+      it(`Slack command: charset-parameter form content-type completes under ${prefix}`, async () => {
+        // `application/x-www-form-urlencoded; charset=utf-8` is the same
+        // media type to the parser (Fastify matches the bare media type once
+        // parameters are stripped) — Slack SDKs commonly send the parameter.
+        // The signature still covers the exact payload bytes; the decoded
+        // text must reach the command handler under the parametered header.
+        const body = "text=help&team_id=T0001&user_id=U0001";
+        const ts = String(Math.floor(Date.now() / 1000));
+        const sig =
+          "v0=" + crypto.createHmac("sha256", SLACK_SECRET).update(`v0:${ts}:${body}`).digest("hex");
+        const res = await apiOnly.app.inject({
+          method: "POST",
+          url: `${prefix}/chat/slack/command`,
+          headers: {
+            "content-type": "application/x-www-form-urlencoded; charset=utf-8",
+            "x-slack-signature": sig,
+            "x-slack-request-timestamp": ts,
+          },
+          payload: body,
+        });
+        expect(res.statusCode, res.body).toBe(200);
+        expect(res.json(), "decoded text=help must reach the command handler").toMatchObject({
+          text: "Available commands",
+        });
+      });
+
       it(`Slack command: form percent-decoding reaches the command handler under ${prefix}`, async () => {
         // %75 decodes to "u": the action must arrive as "unknowncmd", not
         // the raw "%75nknowncmd" — the unknown-command response echoes the
@@ -923,12 +950,12 @@ describe("production route surface characterization", () => {
       });
 
       it(`Discord interaction: correctly signed request is accepted under ${prefix} (repaired verifier)`, async () => {
-        // The Ticket 03 defect correction: the verifier now imports tweetnacl
-        // ESM-safely and the dependency exists, so a mathematically correct
-        // Ed25519 signature over the exact bytes verifies. The pre-repair
-        // baseline pinned this same probe at 401 (structurally inert
-        // verifier); the policy readiness self-probe makes any regression of
-        // either cause a boot failure instead of a silent 401-everything.
+        // The defect correction: the verifier (tweetnacl then, Node's native
+        // Ed25519 crypto now) verifies a mathematically correct signature
+        // over the exact bytes. The pre-repair baseline pinned this same
+        // probe at 401 (structurally inert verifier); the policy readiness
+        // self-probe makes any regression a boot failure instead of a
+        // silent 401-everything.
         const { ts, sig } = discordSign(DISCORD_BYTES);
         const res = await apiOnly.app.inject({
           method: "POST",
@@ -1070,20 +1097,25 @@ describe("production route surface characterization", () => {
       });
     }
 
-    it("the form parser is route-scoped: form-encoded traffic to other routes still fails content parsing", async () => {
+    it("the form parser is route-scoped: form-encoded traffic to other routes still fails content parsing under both prefixes", async () => {
       // Fastify encapsulation confines the urlencoded parser to the nested
       // scope holding /chat/slack/command. A form-encoded request anywhere
-      // else must keep hitting the unsupported-media-type fallthrough (the
-      // same generic 500 the Slack route answered before RA-1) — proving no
-      // global content-type behavior changed.
-      const res = await apiOnly.app.inject({
-        method: "POST",
-        url: "/api/v1/habitats",
-        headers: { "content-type": "application/x-www-form-urlencoded" },
-        payload: "name=not-a-json-habitat",
-      });
-      expect(res.statusCode, res.body).toBe(500);
-      expect(res.json()).toMatchObject({ code: "INTERNAL_ERROR" });
+      // else — under EITHER prefix — must keep hitting the
+      // unsupported-media-type fallthrough (the same generic 500 the Slack
+      // route answered before RA-1), proving no global content-type behavior
+      // changed and neither prefix mirror smuggled the parser out of scope.
+      for (const prefix of ["/api/v1", "/api"]) {
+        const res = await apiOnly.app.inject({
+          method: "POST",
+          url: `${prefix}/habitats`,
+          headers: { "content-type": "application/x-www-form-urlencoded" },
+          payload: "name=not-a-json-habitat",
+        });
+        expect(res.statusCode, `${prefix} form post: status`).toBe(500);
+        expect(res.json(), `${prefix} form post: body`).toMatchObject({
+          code: "INTERNAL_ERROR",
+        });
+      }
     });
   });
 

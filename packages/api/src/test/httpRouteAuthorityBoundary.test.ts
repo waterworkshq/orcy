@@ -32,18 +32,30 @@
  *
  * Honest scope: the type-stripped TS7 toolchain exposes no JS compiler API,
  * so this is a structured source scan (string/comment-aware), not a typed
- * AST walk. Check A matches every module specifier that resolves into the
- * fastify package (bare and subpath, static/dynamic/require, quoted or
- * backtick-literal — pinned by the standing matching table below); its known
- * residual is any NON-literal specifier — a variable `import(mod)` or an
- * interpolated template head (`import(`${base}/fastify`)`) — which needs
- * dataflow an AST would not catch either. Check F holds the same
+ * AST walk. Check A matches every module specifier whose COOKED value
+ * resolves into the fastify package (bare and subpath,
+ * static/dynamic/require, quoted or backtick-literal — pinned by the
+ * standing matching table below): escape spellings (`"fastify"`,
+ * `"fa\<LF>stify"`) cook to the package name and are caught like their plain
+ * forms. Comments are stripped string-aware, but matching is NOT
+ * token-context-aware: import-/loader-shaped text inside ordinary strings
+ * or regex literals (prose, generated source) may fail closed as a FALSE
+ * POSITIVE — deliberately retained over grammar emulation, which adversarial
+ * review proved needs parser-level token context; the false-positive class
+ * itself is fail-closed. Known FALSE-NEGATIVE residuals: any NON-literal
+ * specifier — a variable `import(mod)` or an interpolated template head
+ * (`import(`${base}/fastify`)`) — which needs dataflow an AST would not
+ * catch either; and the comment-stripper's template-interpolation blindness
+ * (see `stripComments`), which can erase a real literal acquisition. Check F
+ * holds the same
  * literal-specifier precision on the loader side: a non-literal
  * `node:module` specifier, or a `createRequire` binding re-exported
  * indirectly through another module, is the same dataflow residual — the
  * guard denies acquisition at every literal specifier form rather than
- * tracking loader aliases. Literal means COOKED value: escape spellings
- * (`"module"`, `"\x6dodule"`) and the ES2022 string-named binding form
+ * tracking loader aliases. Literal means COOKED value — for check F's
+ * `node:module`/`module` specifiers and, since the RA-4 fixup, for check A's
+ * fastify specifiers alike: escape spellings (`"module"`, `"\x6dodule"`,
+ * `"fastify"`) and the ES2022 string-named binding form
  * (`import { "createRequire" as cr }`) are literals and are rejected
  * (fixup 01); the clause captures in checks A and F are tempered on the
  * import/export keywords so a semicolon-less preceding statement cannot be
@@ -52,11 +64,20 @@
  * ule"` is the literal `module`), and quoted module-export names are
  * opaque units — a `,`/`}`/the words import/export inside one (including
  * the `}` of a `\u{…}` escape) are string content, never a delimiter or
- * statement boundary. Shared A/F residual (documented, not fixed): an
+ * statement boundary. Shared A/F residuals (documented, not fixed): an
  * ESCAPED module keyword (`\u0069mport { createRequire } from
  * "node:module"`) is not recognized — the scan anchors on the literal
  * keywords, and closing that spelling needs keyword-escape normalization
- * a structured regex does not attempt (fixup 03, R3-4). Checks
+ * a structured regex does not attempt (fixup 03, R3-4); TOKEN-CONTEXT
+ * false positives — neither check knows whether an acquiring clause sits
+ * in code or inside ordinary string/regex text, so such text fails closed
+ * for A and F alike (the safe direction; revisit only if a legitimate
+ * production string/regex ever trips it); and the comment-stripper's
+ * TEMPLATE-INTERPOLATION blindness — comments inside `${…}` are not lexed
+ * by the prepass, so comment content carrying a backtick or comment-looking
+ * tokens can desynchronize it and blank later executable code, a false
+ * NEGATIVE shared by everything that reads the prepass (see
+ * `stripComments`). Checks
  * B and C are exact at this precision; check D is a named tripwire. The
  * allowlists below ARE the sanctioned boundary — a new legitimate holder
  * must extend them deliberately, in review-visible diffs.
@@ -114,8 +135,21 @@ function productionFiles(): string[] {
 /**
  * Replaces comments with spaces so docblocks mentioning Fastify APIs cannot
  * false-positive. String/template contents are preserved (a URL containing
- * `//` must not eat the rest of the line); comments inside template
- * interpolations are not tracked — none exist in this codebase's src/.
+ * `//` must not eat the rest of the line).
+ *
+ * FALSE-NEGATIVE residual (pre-existing, accepted): comments inside template
+ * `${…}` interpolations are NOT lexed — the whole template is opaque text to
+ * this pass. Comment content carrying a backtick or comment-looking tokens
+ * desynchronizes it: a backtick inside an interpolation comment reads as the
+ * template terminator, and `//`-shaped text in that comment then re-enters
+ * code mode as a fresh line comment, blanking later executable source. The
+ * final acceptance review's counterexample — a valid literal require placed
+ * after such a comment inside an interpolation — scans clean, hidden from
+ * every check that reads this prepass. Closing this needs template-lexical
+ * context in the prepass — the same parser-level grammar emulation the
+ * execution deviation rejected. Accepted with that deviation; revisit if
+ * production code ever introduces comments inside template interpolations
+ * (none exist in src/ today).
  */
 function stripComments(source: string): string {
   let out = "";
@@ -202,7 +236,18 @@ function stripComments(source: string): string {
  * Every `import`/`export … from "fastify…"` clause in the file (bare or any
  * `fastify/*` subpath — Fastify 5 ships no `exports` map, so subpaths resolve
  * package files directly), as raw clause text (between the keyword and
- * `from`). Multi-line imports included.
+ * `from`). Multi-line imports included. The specifier is captured as an
+ * arbitrary string literal and compared by its COOKED value, so escaped
+ * spellings (`"fa\u0073tify"`, `"fa\<LF>stify"`) are caught like their plain
+ * forms — the same literal handling check F already reviewed, through the
+ * shared `cookStringLiteral` (no second cooker). Quote class is `'`/`"` only,
+ * matching the recorded grammar reasoning: `from` clauses require string
+ * literals syntactically, so a backtick specifier cannot occur there.
+ * Matching is NOT token-context-aware: import-shaped text inside an
+ * ordinary string or regex literal fails closed as a false positive (the
+ * shared token-context residual — see the file header). False negatives
+ * are the header's named residuals: non-literal specifiers, and the
+ * comment-stripper's template-interpolation blindness.
  */
 function fastifyImportClauses(stripped: string): string[] {
   const clauses: string[] = [];
@@ -213,9 +258,9 @@ function fastifyImportClauses(stripped: string): string[] {
   // FIRST, so the words import/export inside them — `import { "import" as
   // imp }` — are string content, not a statement boundary (fixup 02, N3).
   const re =
-    /(?:import|export)\s+((?:"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|(?!;|\b(?:import|export)\b)[^;"'])*?)\s*from\s*(['"])fastify(?:\/[^'"]*)?\2/gs;
+    /(?:import|export)\s+((?:"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|(?!;|\b(?:import|export)\b)[^;"'])*?)\s*from\s*(['"])((?:\\.|[^\\])*?)\2/gs;
   for (const match of stripped.matchAll(re)) {
-    clauses.push(match[1]);
+    if (namesFastifyPackage(cookStringLiteral(match[3]))) clauses.push(match[1]);
   }
   return clauses;
 }
@@ -243,12 +288,20 @@ function importsValueBinding(clause: string): boolean {
 export function fastifyConstructionImportIn(stripped: string): boolean {
   // Quote class includes backticks: a template-literal specifier (no
   // interpolation) is a plain string to the module loader — `await
-  // import(`fastify`)` must be caught like its quoted forms. Interpolated
-  // heads (`import(`${base}/fastify`)`) are part of the named residual, not
-  // solved here.
-  const dynamic =
-    new RegExp(`(?:require|import)\\s*\\(\\s*(['"\`])fastify(?:/[^'"\`]*)?\\1`);
-  return fastifyImportClauses(stripped).some(importsValueBinding) || dynamic.test(stripped);
+  // import(`fastify`)` must be caught like its quoted forms. The specifier is
+  // captured as an arbitrary literal body with dot-all behavior (line
+  // continuations survive the capture) and compared by its COOKED value —
+  // the same loaderForm handling check F already reviewed. Matching is NOT
+  // token-context-aware: loader-shaped text inside an ordinary string or
+  // regex literal fails closed as a false positive (the shared token-context
+  // residual — see the file header). False negatives are the header's named
+  // residuals: non-literal/interpolated specifiers, and the
+  // comment-stripper's template-interpolation blindness.
+  const loaderForm = /(?:require|import)\s*\(\s*(['"`])((?:\\.|[^\\])*?)\1/gs;
+  for (const match of stripped.matchAll(loaderForm)) {
+    if (namesFastifyPackage(cookStringLiteral(match[2]))) return true;
+  }
+  return fastifyImportClauses(stripped).some(importsValueBinding);
 }
 
 /**
@@ -337,6 +390,17 @@ function cookStringLiteral(body: string): string {
 /** True when a cooked module specifier names Node's module builtin. */
 function namesNodeModule(cookedSpecifier: string): boolean {
   return cookedSpecifier === "node:module" || cookedSpecifier === "module";
+}
+
+/**
+ * True when a cooked module specifier resolves into the fastify package: the
+ * bare package, or any `fastify/` subpath (Fastify 5 ships no `exports` map,
+ * so subpaths resolve package files directly). The prefix test is
+ * segment-precise on purpose — `fastify-raw-body` and `@fastify/cors` are
+ * different packages and must stay allowed.
+ */
+function namesFastifyPackage(cookedSpecifier: string): boolean {
+  return cookedSpecifier === "fastify" || cookedSpecifier.startsWith("fastify/");
 }
 
 /**
@@ -603,6 +667,52 @@ describe("HTTP route authority boundary — standing matching table (review F1)"
     }
   });
 
+  describe("cooked-literal fastify discriminators — family × spelling (all red under raw)", () => {
+    // Every case spells the package HEAD in escapes or continuations, so its
+    // RAW text is invisible to the old raw comparison — restoring that
+    // matcher (mutation record) fails each named case individually. One
+    // named test per family × spelling so a missing family or spelling is
+    // structurally visible, not hidden behind the first failing assertion.
+    const HEAD_SPELLINGS = [
+      { name: "Unicode-escape head", specifier: "f\\u0061stify" },
+      { name: "hex-escape head", specifier: "fa\\x73tify" },
+      { name: "LF-continuation head", specifier: 'fa\\' + "\n" + 'stify' },
+      { name: "CRLF-continuation head", specifier: 'fa\\' + "\r\n" + 'stify' },
+      { name: "head-escaped subpath", specifier: "fa\\u0073tify/\\u0066astify" },
+    ] as const;
+    const FAMILIES = [
+      { name: "static import", wrap: (specifier: string) => `import Fastify from "${specifier}";` },
+      {
+        name: "dynamic import()",
+        wrap: (specifier: string) => `const F = await import("${specifier}");`,
+      },
+      { name: "require()", wrap: (specifier: string) => `const F = require("${specifier}");` },
+    ] as const;
+    for (const family of FAMILIES) {
+      for (const spelling of HEAD_SPELLINGS) {
+        const source = family.wrap(spelling.specifier);
+        it(`${family.name} catches the ${spelling.name}`, () => {
+          expect(fastifyConstructionImportIn(strip(source)), source).toBe(true);
+        });
+      }
+    }
+
+    it("preservation: literal raw `fastify/` heads with escaped subpaths stay matched", () => {
+      // These three were ALREADY caught by the raw comparison — escapes
+      // confined to the subpath behind a literal `fastify/` head. They are
+      // deliberately NOT in the red matrix above; cooking must not regress
+      // them.
+      const preserved = [
+        `import Fastify from "fastify/\\u0066astify";`,
+        `const F = await import("fastify/\\u0066astify");`,
+        `const F = require("fastify/\\u0066astify");`,
+      ];
+      for (const snippet of preserved) {
+        expect(fastifyConstructionImportIn(strip(snippet)), snippet).toBe(true);
+      }
+    });
+  });
+
   it("allows type-only imports and near-miss package specifiers", () => {
     const allowed = [
       `import type { FastifyInstance } from "fastify";`,
@@ -613,6 +723,18 @@ describe("HTTP route authority boundary — standing matching table (review F1)"
       `import rawBody from "fastify-raw-body";`,
       `import { ZodTypeProvider } from "fastify-type-provider-zod";`,
       'const C = await import(`@fastify/cors`);',
+      // Cooked-literal controls: the predicate must stay segment-precise on
+      // cooked values — escapes that cook to scoped packages or hyphenated
+      // look-alikes are NOT the fastify package, and a type-only import from
+      // a cooked fastify specifier binds no value.
+      `import { type FastifyInstance } from "f\\u0061stify";`,
+      `import cors from "@\\u0066astify/cors";`,
+      `import rawBody from "fa\\u0073tify-raw-body";`,
+      `import tools from "fastify\\u002dtools";`,
+      'const D = await import(`@\\u0066astify/cors`);',
+      // Interpolated template heads remain the documented non-literal
+      // residual (shared with check F): there is no cooked value to compare.
+      `const F = await import(\`\${base}/fastify\`);`,
     ];
     for (const snippet of allowed) {
       expect(fastifyConstructionImportIn(strip(snippet)), snippet).toBe(false);
@@ -633,6 +755,19 @@ export const rogueRouter = router;`);
     expect(holdsFastifyInstanceType(bypass), "check B stays silent").toBe(false);
     expect(hasTripwireRegistration(bypass), "check D stays silent").toBe(false);
     expect(mentionsCreateHttpApplication(bypass), "check E stays silent").toBe(false);
+
+    // The cooked-literal twin of the same bypass: the specifier spelled in
+    // Unicode escapes (cooked value `fastify/fastify`) changes nothing about
+    // the capability, and still only check A can see the shape — B/D/E
+    // silence is what keeps the discriminator load-bearing.
+    const cookedBypass = strip(`import { fastify as srvFactory } from "fa\\u0073tify/fastify";
+const router = srvFactory({ logger: false });
+router.get("/rogue", async () => "x");
+export const rogueRouter = router;`);
+    expect(fastifyConstructionImportIn(cookedBypass), "check A fires on the cooked spelling").toBe(true);
+    expect(holdsFastifyInstanceType(cookedBypass), "check B stays silent (cooked)").toBe(false);
+    expect(hasTripwireRegistration(cookedBypass), "check D stays silent (cooked)").toBe(false);
+    expect(mentionsCreateHttpApplication(cookedBypass), "check E stays silent (cooked)").toBe(false);
   });
 
   it("flags every createRequire capability acquisition from literal node:module/module", () => {

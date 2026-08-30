@@ -1,7 +1,6 @@
-import { createHmac, timingSafeEqual } from 'crypto';
+import { createHmac, createPublicKey, timingSafeEqual, verify } from 'crypto';
 import * as dns from 'dns';
 import { Agent } from 'undici';
-import nacl from 'tweetnacl';
 import { classifyPosture } from './security.js';
 import { logger } from '../lib/logger.js';
 
@@ -367,6 +366,18 @@ export function verifySlackSignature(
   }
 }
 
+/** Standard Ed25519 SubjectPublicKeyInfo DER prefix — prepended to the raw
+ * 32-byte public key (the hex form a Discord application configures) so it
+ * can be loaded as a native crypto KeyObject. */
+const ED25519_SPKI_PREFIX = Buffer.from('302a300506032b6570032100', 'hex');
+
+// Exact encoded length + hex alphabet (case-insensitive). Buffer.from(x,
+// 'hex') decodes leniently — it stops at the first non-hex character — so a
+// valid signature/key followed by trailing junk still decodes to the valid
+// prefix bytes; malformed encodings must be rejected before decoding.
+const ED25519_SIGNATURE_HEX = /^[0-9a-fA-F]{128}$/;
+const ED25519_PUBLIC_KEY_HEX = /^[0-9a-fA-F]{64}$/;
+
 export function verifyDiscordSignature(
   signature: string | undefined,
   timestamp: string | undefined,
@@ -375,11 +386,15 @@ export function verifyDiscordSignature(
 ): boolean {
   if (!signature || !timestamp || !publicKey) return false;
   try {
-    const enc = new TextEncoder();
-    const message = enc.encode(timestamp + rawBody);
+    if (!ED25519_SIGNATURE_HEX.test(signature) || !ED25519_PUBLIC_KEY_HEX.test(publicKey)) return false;
     const sigBytes = Buffer.from(signature, 'hex');
     const keyBytes = Buffer.from(publicKey, 'hex');
-    return nacl.sign.detached.verify(message, sigBytes, keyBytes);
+    if (sigBytes.length !== 64 || keyBytes.length !== 32) return false;
+    const spki = Buffer.concat([ED25519_SPKI_PREFIX, keyBytes]);
+    const key = createPublicKey({ key: spki, format: 'der', type: 'spki' });
+    // Exact `timestamp + rawBody` UTF-8 bytes — the same signed message the
+    // tweetnacl verifier (TextEncoder) covered.
+    return verify(null, Buffer.from(timestamp + rawBody), key, sigBytes);
   } catch {
     return false;
   }
