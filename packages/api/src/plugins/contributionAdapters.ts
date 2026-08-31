@@ -356,6 +356,21 @@ export type ManagedRegistryEntry =
   | InterceptorRegistryEntry;
 
 /**
+ * Own-property handler-map retrieval shared by every legacy family's
+ * `orphanCheck` and `register`: a declared id may only resolve
+ * to a handler the plugin module's map actually owns. Ordinary property access
+ * walks the prototype chain, so an inherited function (`constructor`/
+ * `toString` on an empty ordinary object) or an inherited provider-shaped
+ * object would validate and register as if it were a real handler. Returns
+ * `undefined` unless `map` is non-null and owns `key`. `customHttpRoute`
+ * deliberately stays on its stricter inline own-agreement path (ADR-0050),
+ * not this helper.
+ */
+function ownMapEntry<T>(map: Record<string, T> | undefined | null, key: string): T | undefined {
+  return map != null && Object.hasOwn(map, key) ? map[key] : undefined;
+}
+
+/**
  * Build the per-kind adapter catalog. Each adapter's `register` closes over
  * the specific Map from the passed `registries` bag (via destructure) so
  * per-call lookup is O(1) and the adapter body stays small. Called once at
@@ -401,7 +416,7 @@ export function buildContributionCatalog(
       label: (c) => (c.kind === "notificationChannel" ? c.channelId : ""),
       orphanCheck: (c, mod) => {
         if (c.kind !== "notificationChannel") return null;
-        return typeof mod.channels?.[c.channelId] === "function"
+        return typeof ownMapEntry(mod.channels, c.channelId) === "function"
           ? null
           : `notificationChannel "${c.channelId}" declared but no matching handler in module.channels`;
       },
@@ -423,7 +438,7 @@ export function buildContributionCatalog(
       },
       register: (c, mod) => {
         if (c.kind !== "notificationChannel") return;
-        const handler = mod.channels?.[c.channelId];
+        const handler = ownMapEntry(mod.channels, c.channelId);
         if (!handler) return;
         channelRegistry.set(c.channelId, {
           pluginId: mod.manifest.id,
@@ -444,7 +459,7 @@ export function buildContributionCatalog(
       label: (c) => (c.kind === "signalDetector" ? c.detectorId : ""),
       orphanCheck: (c, mod) => {
         if (c.kind !== "signalDetector") return null;
-        return typeof mod.detectors?.[c.detectorId] === "function"
+        return typeof ownMapEntry(mod.detectors, c.detectorId) === "function"
           ? null
           : `signalDetector "${c.detectorId}" declared but no matching handler in module.detectors`;
       },
@@ -477,7 +492,7 @@ export function buildContributionCatalog(
       },
       register: (c, mod) => {
         if (c.kind !== "signalDetector") return;
-        const handler = mod.detectors?.[c.detectorId];
+        const handler = ownMapEntry(mod.detectors, c.detectorId);
         if (!handler) return;
         detectorRegistry.set(`${mod.manifest.id}:${c.detectorId}`, {
           pluginId: mod.manifest.id,
@@ -498,7 +513,7 @@ export function buildContributionCatalog(
       label: (c) => (c.kind === "lifecycleInterceptor" ? c.interceptorId : ""),
       orphanCheck: (c, mod) => {
         if (c.kind !== "lifecycleInterceptor") return null;
-        return typeof mod.interceptors?.[c.interceptorId] === "function"
+        return typeof ownMapEntry(mod.interceptors, c.interceptorId) === "function"
           ? null
           : `lifecycleInterceptor "${c.interceptorId}" declared but no matching handler in module.interceptors`;
       },
@@ -528,7 +543,7 @@ export function buildContributionCatalog(
       // to pluginManager.ts:511.
       register: (c, mod) => {
         if (c.kind !== "lifecycleInterceptor") return;
-        const handler = mod.interceptors?.[c.interceptorId];
+        const handler = ownMapEntry(mod.interceptors, c.interceptorId);
         if (!handler) return;
         const bucket = interceptorRegistry[c.phase];
         const list = bucket.get(c.event) ?? [];
@@ -557,7 +572,7 @@ export function buildContributionCatalog(
       label: (c) => (c.kind === "customMcpTool" ? c.toolName : ""),
       orphanCheck: (c, mod) => {
         if (c.kind !== "customMcpTool") return null;
-        return typeof mod.mcpHandlers?.[c.toolName] === "function"
+        return typeof ownMapEntry(mod.mcpHandlers, c.toolName) === "function"
           ? null
           : `customMcpTool "${c.toolName}" declared but no matching handler in module.mcpHandlers`;
       },
@@ -650,7 +665,7 @@ export function buildContributionCatalog(
       label: (c) => (c.kind === "webhookFormatter" ? c.formatId : ""),
       orphanCheck: (c, mod) => {
         if (c.kind !== "webhookFormatter") return null;
-        return typeof mod.formatters?.[c.formatId] === "function"
+        return typeof ownMapEntry(mod.formatters, c.formatId) === "function"
           ? null
           : `webhookFormatter "${c.formatId}" declared but no matching handler in module.formatters`;
       },
@@ -672,7 +687,7 @@ export function buildContributionCatalog(
       },
       register: (c, mod) => {
         if (c.kind !== "webhookFormatter") return;
-        const handler = mod.formatters?.[c.formatId];
+        const handler = ownMapEntry(mod.formatters, c.formatId);
         if (!handler) return;
         formatterRegistry.set(c.formatId, {
           pluginId: mod.manifest.id,
@@ -685,7 +700,7 @@ export function buildContributionCatalog(
       label: (c) => (c.kind === "automationCondition" ? c.conditionId : ""),
       orphanCheck: (c, mod) => {
         if (c.kind !== "automationCondition") return null;
-        return typeof mod.conditions?.[c.conditionId] === "function"
+        return typeof ownMapEntry(mod.conditions, c.conditionId) === "function"
           ? null
           : `automationCondition "${c.conditionId}" declared but no matching handler in module.conditions`;
       },
@@ -707,7 +722,7 @@ export function buildContributionCatalog(
       },
       register: (c, mod) => {
         if (c.kind !== "automationCondition") return;
-        const handler = mod.conditions?.[c.conditionId];
+        const handler = ownMapEntry(mod.conditions, c.conditionId);
         if (!handler) return;
         conditionRegistry.set(c.conditionId, {
           pluginId: mod.manifest.id,
@@ -720,7 +735,7 @@ export function buildContributionCatalog(
       label: (c) => (c.kind === "automationAction" ? c.actionId : ""),
       orphanCheck: (c, mod) => {
         if (c.kind !== "automationAction") return null;
-        return typeof mod.actions?.[c.actionId] === "function"
+        return typeof ownMapEntry(mod.actions, c.actionId) === "function"
           ? null
           : `automationAction "${c.actionId}" declared but no matching handler in module.actions`;
       },
@@ -742,7 +757,7 @@ export function buildContributionCatalog(
       },
       register: (c, mod) => {
         if (c.kind !== "automationAction") return;
-        const handler = mod.actions?.[c.actionId];
+        const handler = ownMapEntry(mod.actions, c.actionId);
         if (!handler) return;
         actionRegistry.set(c.actionId, {
           pluginId: mod.manifest.id,
@@ -767,7 +782,7 @@ export function buildContributionCatalog(
       // — a partial handler is not load-bearing.
       orphanCheck: (c, mod) => {
         if (c.kind !== "integrationProvider") return null;
-        const provider = mod.providers?.[c.provider];
+        const provider = ownMapEntry(mod.providers, c.provider);
         return typeof provider === "object" &&
           typeof provider?.listIssues === "function" &&
           typeof provider?.getIssue === "function"
@@ -792,7 +807,7 @@ export function buildContributionCatalog(
       },
       register: (c, mod) => {
         if (c.kind !== "integrationProvider") return;
-        const handler = mod.providers?.[c.provider];
+        const handler = ownMapEntry(mod.providers, c.provider);
         if (!handler) return;
         providerRegistry.set(c.provider, {
           pluginId: mod.manifest.id,

@@ -38,6 +38,21 @@
       "surface": "sse",
       "hookKind": "preHandler",
       "name": "per-agent-rate-limit"
+    },
+    {
+      "surface": "plugin-current",
+      "hookKind": "preHandler",
+      "name": "per-agent-rate-limit"
+    },
+    {
+      "surface": "plugin-deprecated",
+      "hookKind": "preHandler",
+      "name": "per-agent-rate-limit"
+    },
+    {
+      "surface": "plugin-deprecated",
+      "hookKind": "onSend",
+      "name": "deprecation-header"
     }
   ],
   "behaviorNotes": [

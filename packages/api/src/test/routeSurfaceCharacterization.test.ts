@@ -409,10 +409,15 @@ describe("production route surface characterization", () => {
   // Hook installation — production-emitted, ordered, and behaviorally real.
   // -------------------------------------------------------------------------
   describe("hook installation (observed at the installing statement)", () => {
-    it("emits the seven seam-installed hooks in registration order", () => {
-      // Ordered production observations, identical across all three modes.
-      // The two header hooks install at onSend — the assembly's correction of
-      // the characterized onResponse defect (headers now reach the wire).
+    it("emits the seven core hooks plus the three plugin-namespace hooks in registration order", () => {
+      // Ordered production observations. The two header hooks install at
+      // onSend — the assembly's correction of the characterized onResponse
+      // defect (headers now reach the wire). Core-only modes install exactly
+      // the seven seam hooks (the empty catalog adds no records); a plugin
+      // catalog appends its namespaces' three hooks in mount order — current
+      // rate limit, deprecated rate limit, then the deprecated deprecation
+      // header (the same wire-effective onSend stage the core /api group
+      // uses).
       expect(apiOnly.hookInstallations).toEqual([
         { surface: "root", hookKind: "onSend", name: "api-version" },
         { surface: "root", hookKind: "onRequest", name: "audit-context" },
@@ -423,7 +428,12 @@ describe("production route surface characterization", () => {
         { surface: "sse", hookKind: "preHandler", name: "per-agent-rate-limit" },
       ]);
       expect(uiInstalled.hookInstallations).toEqual(apiOnly.hookInstallations);
-      expect(fixturePlugin.hookInstallations).toEqual(apiOnly.hookInstallations);
+      expect(fixturePlugin.hookInstallations).toEqual([
+        ...apiOnly.hookInstallations,
+        { surface: "plugin-current", hookKind: "preHandler", name: "per-agent-rate-limit" },
+        { surface: "plugin-deprecated", hookKind: "preHandler", name: "per-agent-rate-limit" },
+        { surface: "plugin-deprecated", hookKind: "onSend", name: "deprecation-header" },
+      ]);
     });
 
     it("rate-limited scopes stamp X-RateLimit headers on every response", async () => {

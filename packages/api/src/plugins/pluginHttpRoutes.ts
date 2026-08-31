@@ -297,21 +297,54 @@ function registerPluginRoute(
 }
 
 /**
+ * Narrow structural record of one plugin-namespace hook installation — the
+ * plugin-seam mirror of the assembly's hook-installation observation. Declared
+ * structurally here rather than imported from `httpApp.ts` so the installer
+ * never depends on its consumer: the assembly threads its per-construction
+ * observer through the runtime handle's `installPluginRoutes` lifecycle step.
+ */
+export interface PluginHookInstallationRecord {
+  surface: "plugin-current" | "plugin-deprecated";
+  hookKind: "preHandler" | "onSend";
+  name: string;
+}
+
+/** Options for {@link installPluginRoutes}. */
+export interface InstallPluginRoutesOptions {
+  /**
+   * Per-construction observer invoked at the exact statement that installs
+   * each plugin-namespace hook. When omitted (ordinary boot without
+   * observation) installation is identical to a bare `addHook` — no records,
+   * no behavior difference.
+   */
+  onHookInstalled?: (record: PluginHookInstallationRecord) => void;
+}
+
+/**
  * The single core installer for validated plugin routes (ADR-0050). Mounts
  * every catalog entry under both the current and deprecated plugin namespaces.
  * Registration is declaration-only — no plugin code executes at mount time,
  * and one request dispatches exactly one handler invocation (each prefix
- * yields a distinct URL, so the twin mounts cannot double-match).
+ * yields a distinct URL, so the twin mounts cannot double-match). Each
+ * namespace hook installation emits its record through the optional
+ * per-construction observer.
  */
 export async function installPluginRoutes(
   fastify: FastifyInstance,
   catalog: PluginRouteCatalog,
+  options?: InstallPluginRoutesOptions,
 ): Promise<void> {
   if (catalog.length === 0) return;
+  const onHookInstalled = options?.onHookInstalled;
 
   await fastify.register(
     async (f) => {
       f.addHook("preHandler", perAgentRateLimit);
+      onHookInstalled?.({
+        surface: "plugin-current",
+        hookKind: "preHandler",
+        name: "per-agent-rate-limit",
+      });
       for (const entry of catalog) {
         registerPluginRoute(f, entry);
       }
@@ -322,6 +355,11 @@ export async function installPluginRoutes(
   await fastify.register(
     async (f) => {
       f.addHook("preHandler", perAgentRateLimit);
+      onHookInstalled?.({
+        surface: "plugin-deprecated",
+        hookKind: "preHandler",
+        name: "per-agent-rate-limit",
+      });
       // Deprecated mirror only. The authoritative assembly uses the same
       // wire-effective `onSend` stage for the core `/api` group, preserving
       // current/deprecated prefix parity while keeping the header scoped to
@@ -329,6 +367,11 @@ export async function installPluginRoutes(
       f.addHook("onSend", (_request, reply, _payload, done) => {
         reply.header("Deprecation", "true");
         done();
+      });
+      onHookInstalled?.({
+        surface: "plugin-deprecated",
+        hookKind: "onSend",
+        name: "deprecation-header",
       });
       for (const entry of catalog) {
         registerPluginRoute(f, entry);

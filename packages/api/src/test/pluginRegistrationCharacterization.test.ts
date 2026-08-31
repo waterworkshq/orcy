@@ -1412,3 +1412,387 @@ describe("v0.28-T1: register round-trip (lifecycleInterceptor priority sort)", (
     await cleanup(dir);
   });
 });
+
+// ---------------------------------------------------------------------------
+// PLG-9 (v0.41.2) — inherited handler-map entries must not validate or register.
+//
+// Ordinary property access (`mod.channels?.[id]`) walks the prototype chain: a
+// contribution whose id is `constructor` or `toString` resolves to the inherited
+// Object.prototype function on an otherwise EMPTY map, and a provider id
+// resolves to an object living on a custom prototype. Validation must reject
+// such contributions with the family's existing orphan error, no registry,
+// getter, or tool-definition surface may expose the inherited value, and a
+// later valid plugin in the SAME discovery pass must still load (per-plugin
+// containment, mirroring the F1 scan pins). Own properties under the SAME
+// magic keys with correct handler shapes must remain valid — the controls that
+// keep the fix from over-rejecting.
+//
+// Table-driven over the 6 function-map families with an exported getter or
+// tool surface. lifecycleInterceptor has no exported registry getter — its
+// exposure proof drives `runPreInterceptors` under real enrollment (dedicated
+// describe below, same pattern as the priority-sort suite). integrationProvider's
+// handler is an object, not a function — dedicated describe below.
+// ---------------------------------------------------------------------------
+async function writePluginsToDir(
+  tag: string,
+  bodies: { file: string; body: string }[],
+): Promise<string> {
+  const tmpDir = `/tmp/test-char-plg9-${tag}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  await mkdir(tmpDir, { recursive: true });
+  for (const { file, body } of bodies) {
+    await writeFile(`${tmpDir}/${file}.mjs`, `export default ${body};`);
+  }
+  pluginManager.setPluginDirectory(tmpDir);
+  await pluginManager.loadPlugins();
+  return tmpDir;
+}
+
+describe("PLG-9: inherited handler-map entries (function families)", () => {
+  const MAGIC_KEYS = ["constructor", "toString"] as const;
+
+  interface FamilySpec {
+    /** Display name identifying map + kind in failure messages. */
+    name: string;
+    /** PluginModule handler-map field (e.g. `channels`). */
+    mapField: string;
+    /** Normal id for the same-pass later valid plugin. */
+    laterId: string;
+    contributionSrc: (id: string) => string;
+    ownHandlerSrc: (id: string) => string;
+    orphanError: (id: string) => string;
+    /** Asserts the inherited value is absent from the family's exposure surface. */
+    assertAbsent: (pluginId: string, key: string) => void;
+    /** Asserts the own-property controls are fully exposed (not shadowed). */
+    assertOwn: (pluginId: string, keys: readonly string[]) => void;
+  }
+
+  const FAMILIES: FamilySpec[] = [
+    {
+      name: "notificationChannel (module.channels)",
+      mapField: "channels",
+      laterId: "legacy-ch-ok",
+      contributionSrc: (id) =>
+        `{ kind: 'notificationChannel', scope: 'system', channelId: '${id}', label: 'l', requires: [] }`,
+      ownHandlerSrc: () => `async () => ({ success: true })`,
+      orphanError: (id) =>
+        `notificationChannel "${id}" declared but no matching handler in module.channels`,
+      assertAbsent: (_pluginId, key) => {
+        expect(pluginManager.getChannelHandler(key)).toBeUndefined();
+      },
+      assertOwn: (pluginId, keys) => {
+        for (const key of keys) {
+          const handler = pluginManager.getChannelHandler(key);
+          expect(handler, `${pluginId} own "${key}"`).toBeTypeOf("function");
+          expect(handler).not.toBe(Object);
+          expect(handler).not.toBe(Object.prototype.toString);
+        }
+      },
+    },
+    {
+      name: "signalDetector (module.detectors)",
+      mapField: "detectors",
+      laterId: "legacy-det-ok",
+      contributionSrc: (id) =>
+        `{ kind: 'signalDetector', scope: 'habitat', detectorId: '${id}', label: 'l', detects: 'pulseCreated', rateLimitDefaults: { maxDetectionsPerMinute: 1, maxSignalsPerHour: 1 }, requires: [] }`,
+      ownHandlerSrc: () => `async () => []`,
+      orphanError: (id) =>
+        `signalDetector "${id}" declared but no matching handler in module.detectors`,
+      assertAbsent: (pluginId, key) => {
+        expect(pluginManager.getDetectorEntry(`${pluginId}:${key}`)).toBeNull();
+      },
+      assertOwn: (pluginId, keys) => {
+        for (const key of keys) {
+          const entry = pluginManager.getDetectorEntry(`${pluginId}:${key}`);
+          expect(entry, `${pluginId} own "${key}"`).not.toBeNull();
+          expect(entry?.handler).toBeTypeOf("function");
+          expect(entry?.handler).not.toBe(Object);
+          expect(entry?.handler).not.toBe(Object.prototype.toString);
+        }
+      },
+    },
+    {
+      name: "customMcpTool (module.mcpHandlers)",
+      mapField: "mcpHandlers",
+      laterId: "legacy-tool-ok",
+      contributionSrc: (id) =>
+        `{ kind: 'customMcpTool', scope: 'system', toolName: '${id}', description: 'd', inputSchema: {}, requires: [] }`,
+      ownHandlerSrc: () => `async () => null`,
+      orphanError: (id) =>
+        `customMcpTool "${id}" declared but no matching handler in module.mcpHandlers`,
+      assertAbsent: (_pluginId, key) => {
+        expect(pluginManager.getCustomMcpTools().map((t) => t.name)).not.toContain(key);
+      },
+      assertOwn: (pluginId, keys) => {
+        expect(
+          pluginManager
+            .getCustomMcpTools()
+            .map((t) => t.name)
+            .toSorted(),
+          `${pluginId} own tools`,
+        ).toEqual([...keys].toSorted());
+      },
+    },
+    {
+      name: "webhookFormatter (module.formatters)",
+      mapField: "formatters",
+      laterId: "legacy-fmt-ok",
+      contributionSrc: (id) =>
+        `{ kind: 'webhookFormatter', scope: 'system', formatId: '${id}', label: 'l', requires: [] }`,
+      ownHandlerSrc: () => `() => ({})`,
+      orphanError: (id) =>
+        `webhookFormatter "${id}" declared but no matching handler in module.formatters`,
+      assertAbsent: (_pluginId, key) => {
+        expect(pluginManager.getFormatterHandler(key)).toBeUndefined();
+      },
+      assertOwn: (pluginId, keys) => {
+        for (const key of keys) {
+          const handler = pluginManager.getFormatterHandler(key);
+          expect(handler, `${pluginId} own "${key}"`).toBeTypeOf("function");
+          expect(handler).not.toBe(Object);
+          expect(handler).not.toBe(Object.prototype.toString);
+        }
+      },
+    },
+    {
+      name: "automationCondition (module.conditions)",
+      mapField: "conditions",
+      laterId: "legacy-cond-ok",
+      contributionSrc: (id) =>
+        `{ kind: 'automationCondition', scope: 'system', conditionId: '${id}', label: 'l', description: 'd', requires: [] }`,
+      ownHandlerSrc: () => `() => ({ matched: true, reason: 'plg9' })`,
+      orphanError: (id) =>
+        `automationCondition "${id}" declared but no matching handler in module.conditions`,
+      assertAbsent: (_pluginId, key) => {
+        expect(pluginManager.getConditionHandler(key)).toBeUndefined();
+      },
+      assertOwn: (pluginId, keys) => {
+        for (const key of keys) {
+          const handler = pluginManager.getConditionHandler(key);
+          expect(handler, `${pluginId} own "${key}"`).toBeTypeOf("function");
+          expect(handler).not.toBe(Object);
+          expect(handler).not.toBe(Object.prototype.toString);
+        }
+      },
+    },
+    {
+      name: "automationAction (module.actions)",
+      mapField: "actions",
+      laterId: "legacy-act-ok",
+      contributionSrc: (id) =>
+        `{ kind: 'automationAction', scope: 'system', actionId: '${id}', label: 'l', description: 'd', requires: [] }`,
+      ownHandlerSrc: () => `async () => ({ status: 'succeeded' })`,
+      orphanError: (id) =>
+        `automationAction "${id}" declared but no matching handler in module.actions`,
+      assertAbsent: (_pluginId, key) => {
+        expect(pluginManager.getActionEntry(key)).toBeNull();
+      },
+      assertOwn: (pluginId, keys) => {
+        for (const key of keys) {
+          const entry = pluginManager.getActionEntry(key);
+          expect(entry, `${pluginId} own "${key}"`).not.toBeNull();
+          expect(entry?.handler).toBeTypeOf("function");
+          expect(entry?.handler).not.toBe(Object);
+          expect(entry?.handler).not.toBe(Object.prototype.toString);
+        }
+      },
+    },
+  ];
+
+  for (const spec of FAMILIES) {
+    describe(spec.name, () => {
+      for (const key of MAGIC_KEYS) {
+        it(`inherited "${key}" on an empty ordinary map is rejected with the exact orphan error`, async () => {
+          const dir = await writePluginsToDir(`reject-${spec.mapField}-${key}`, [
+            {
+              file: "aa-inherit",
+              body: `{ manifest: { id: 'aa-inherit', version: '1.0.0', description: 'inherits Object.prototype entries', contributions: [${spec.contributionSrc(key)}] }, ${spec.mapField}: {} }`,
+            },
+            {
+              file: "bb-later",
+              body: `{ manifest: { id: 'bb-later', version: '1.0.0', description: 'valid later plugin', contributions: [${spec.contributionSrc(spec.laterId)}] }, ${spec.mapField}: { '${spec.laterId}': ${spec.ownHandlerSrc(spec.laterId)} } }`,
+            },
+          ]);
+          expect(findEntry("aa-inherit")?.error, `${spec.name} inherited "${key}"`).toBe(
+            spec.orphanError(key),
+          );
+          const later = findEntry("bb-later");
+          expect(later, `${spec.name} later plugin after "${key}" rejection`).not.toBeNull();
+          expect(later?.error).toBeUndefined();
+          spec.assertAbsent("aa-inherit", key);
+          await cleanup(dir);
+        });
+      }
+
+      it("own properties under the magic keys with correct handler shapes remain valid", async () => {
+        const dir = await writePluginsToDir(`own-${spec.mapField}`, [
+          {
+            file: "own-ctl",
+            body: `{ manifest: { id: 'own-ctl', version: '1.0.0', description: 'own-property controls', contributions: [${MAGIC_KEYS.map((k) => spec.contributionSrc(k)).join(", ")}] }, ${spec.mapField}: { ${MAGIC_KEYS.map((k) => `'${k}': ${spec.ownHandlerSrc(k)}`).join(", ")} } }`,
+          },
+        ]);
+        const own = findEntry("own-ctl");
+        expect(own, `${spec.name} own control`).not.toBeNull();
+        expect(own?.error).toBeUndefined();
+        spec.assertOwn("own-ctl", MAGIC_KEYS);
+        await cleanup(dir);
+      });
+    });
+  }
+});
+
+describe("PLG-9: lifecycleInterceptor inherited vs own entries (dispatch observation)", () => {
+  beforeEach(async () => {
+    pluginManager.resetPlugins();
+    await initTestDb();
+  });
+
+  afterEach(async () => {
+    pluginManager.resetPlugins();
+    closeDb();
+    delete (globalThis as { __intCalls?: string[] }).__intCalls;
+  });
+
+  for (const key of ["constructor", "toString"] as const) {
+    it(`inherited "${key}" interceptor is rejected, never dispatches; later valid plugin still loads`, async () => {
+      // The interceptor registry has no exported getter, so exposure is proven
+      // through the minimum-viable dispatch observation: BOTH contributions are
+      // enrolled, and only the later plugin's own handler may run. If the
+      // inherited entry had registered, the inherited builtin would run as a
+      // pre-interceptor, return an invalid result, and produce a failure veto
+      // (non-null).
+      const dir = await writePluginsToDir(`int-reject-${key}`, [
+        {
+          file: "aa-inherit",
+          body: `{ manifest: { id: 'aa-inherit', version: '1.0.0', description: 'inherits Object.prototype entries', contributions: [{ kind: 'lifecycleInterceptor', scope: 'habitat', interceptorId: '${key}', phase: 'pre', event: 'taskClaimed', priority: 0, requires: [] }] }, interceptors: {} }`,
+        },
+        {
+          file: "bb-later",
+          body: `{ manifest: { id: 'bb-later', version: '1.0.0', description: 'valid later plugin', contributions: [{ kind: 'lifecycleInterceptor', scope: 'habitat', interceptorId: 'legacy-int-ok', phase: 'pre', event: 'taskClaimed', priority: 0, requires: [] }] }, interceptors: { 'legacy-int-ok': () => { (globalThis.__intCalls = globalThis.__intCalls || []).push('legacy-int-ok'); return { allow: true }; } } }`,
+        },
+      ]);
+      expect(findEntry("aa-inherit")?.error).toBe(
+        `lifecycleInterceptor "${key}" declared but no matching handler in module.interceptors`,
+      );
+      const later = findEntry("bb-later");
+      expect(later).not.toBeNull();
+      expect(later?.error).toBeUndefined();
+
+      const { createHabitat } = await import("../repositories/habitat.js");
+      const { create: createEnrollment } = await import("../repositories/pluginEnrollment.js");
+      const habitat = createHabitat({ name: `plg9 int inherited ${key} habitat` });
+      for (const [pluginId, cid] of [
+        ["aa-inherit", key],
+        ["bb-later", "legacy-int-ok"],
+      ] as const) {
+        createEnrollment({
+          habitatId: habitat.id,
+          pluginId,
+          contributionId: cid,
+          contributionKind: "lifecycleInterceptor",
+          enrolledBy: "test",
+          enabled: 1,
+        });
+      }
+      pluginManager.invalidateEnrollmentCache(habitat.id);
+
+      const veto = pluginManager.runPreInterceptors("task-plg9", "taskClaimed", habitat.id, {
+        actor: "test",
+      } as never);
+      expect(veto).toBeNull();
+      expect((globalThis as { __intCalls?: string[] }).__intCalls).toEqual(["legacy-int-ok"]);
+
+      await cleanup(dir);
+    });
+  }
+
+  it('own "constructor"/"toString" interceptors remain valid and dispatch', async () => {
+    const dir = await writePluginsToDir(`int-own`, [
+      {
+        file: "own-ctl",
+        body: `{ manifest: { id: 'own-ctl', version: '1.0.0', description: 'own-property controls', contributions: [
+          { kind: 'lifecycleInterceptor', scope: 'habitat', interceptorId: 'constructor', phase: 'pre', event: 'taskClaimed', priority: 0, requires: [] },
+          { kind: 'lifecycleInterceptor', scope: 'habitat', interceptorId: 'toString', phase: 'pre', event: 'taskClaimed', priority: 0, requires: [] }
+        ] }, interceptors: {
+          'constructor': () => { (globalThis.__intCalls = globalThis.__intCalls || []).push('own:constructor'); return { allow: true }; },
+          'toString': () => { (globalThis.__intCalls = globalThis.__intCalls || []).push('own:toString'); return { allow: true }; }
+        } }`,
+      },
+    ]);
+    const own = findEntry("own-ctl");
+    expect(own).not.toBeNull();
+    expect(own?.error).toBeUndefined();
+
+    const { createHabitat } = await import("../repositories/habitat.js");
+    const { create: createEnrollment } = await import("../repositories/pluginEnrollment.js");
+    const habitat = createHabitat({ name: "plg9 int own habitat" });
+    for (const cid of ["constructor", "toString"]) {
+      createEnrollment({
+        habitatId: habitat.id,
+        pluginId: "own-ctl",
+        contributionId: cid,
+        contributionKind: "lifecycleInterceptor",
+        enrolledBy: "test",
+        enabled: 1,
+      });
+    }
+    pluginManager.invalidateEnrollmentCache(habitat.id);
+
+    const veto = pluginManager.runPreInterceptors("task-plg9b", "taskClaimed", habitat.id, {
+      actor: "test",
+    } as never);
+    expect(veto).toBeNull();
+    // Same priority (0) → registration order (manifest order).
+    expect((globalThis as { __intCalls?: string[] }).__intCalls).toEqual([
+      "own:constructor",
+      "own:toString",
+    ]);
+
+    await cleanup(dir);
+  });
+});
+
+describe("PLG-9: integrationProvider inherited vs own entries", () => {
+  it("prototype-inherited provider object is rejected; later valid provider still loads", async () => {
+    // The provider map's prototype carries a fully provider-shaped object
+    // under the declared key — current ordinary access resolves through the
+    // chain and accepts it. The fix must reject it with the existing orphan
+    // error and leave the registry untouched under that key.
+    const dir = await writePluginsToDir(`prov-reject`, [
+      {
+        file: "aa-inherit",
+        body: `{ manifest: { id: 'aa-inherit', version: '1.0.0', description: 'prototype-inherited provider', contributions: [{ kind: 'integrationProvider', scope: 'system', provider: 'proto-prov', label: 'l', authMethods: ['pat'], requires: [] }] }, providers: Object.create({ 'proto-prov': { listIssues: async () => [], getIssue: async () => null } }) }`,
+      },
+      {
+        file: "bb-later",
+        body: `{ manifest: { id: 'bb-later', version: '1.0.0', description: 'valid later plugin', contributions: [{ kind: 'integrationProvider', scope: 'system', provider: 'own-prov', label: 'l', authMethods: ['pat'], requires: [] }] }, providers: { 'own-prov': { listIssues: async () => [], getIssue: async () => null } } }`,
+      },
+    ]);
+    expect(findEntry("aa-inherit")?.error).toBe(
+      'integrationProvider "proto-prov" declared but no matching handler in module.providers',
+    );
+    const later = findEntry("bb-later");
+    expect(later).not.toBeNull();
+    expect(later?.error).toBeUndefined();
+    // No registry exposure of the inherited object under the declared key.
+    expect(pluginManager.getProviderAdapter("proto-prov")).toBeNull();
+    expect(pluginManager.getProviderAdapter("own-prov")).not.toBeNull();
+    await cleanup(dir);
+  });
+
+  it("own provider object under the same key remains valid", async () => {
+    const dir = await writePluginsToDir(`prov-own`, [
+      {
+        file: "own-ctl",
+        body: `{ manifest: { id: 'own-ctl', version: '1.0.0', description: 'own-property control', contributions: [{ kind: 'integrationProvider', scope: 'system', provider: 'proto-prov', label: 'l', authMethods: ['pat'], requires: [] }] }, providers: { 'proto-prov': { listIssues: async () => [], getIssue: async () => null } } }`,
+      },
+    ]);
+    const own = findEntry("own-ctl");
+    expect(own).not.toBeNull();
+    expect(own?.error).toBeUndefined();
+    const adapter = pluginManager.getProviderAdapter("proto-prov");
+    expect(adapter).not.toBeNull();
+    expect(typeof adapter?.listIssues).toBe("function");
+    expect(typeof adapter?.getIssue).toBe("function");
+    await cleanup(dir);
+  });
+});

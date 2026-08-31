@@ -141,7 +141,7 @@ const API_VERSION = 1;
  * rather than asserted from a hand-written description.
  */
 export interface HookInstallationRecord {
-  surface: "root" | "api-v1" | "api-deprecated" | "sse";
+  surface: "root" | "api-v1" | "api-deprecated" | "sse" | "plugin-current" | "plugin-deprecated";
   hookKind: "onRequest" | "preHandler" | "onSend" | "onResponse";
   name: string;
 }
@@ -296,9 +296,10 @@ export interface CreateHttpApplicationOptions {
 
   /**
    * Per-construction hook-installation observer: invoked at the exact
-   * statement that installs each root or scoped hook. Scoped to this one
-   * assembly, so concurrent app constructions cannot cross-contaminate
-   * observation streams. Side-effect-free when omitted.
+   * statement that installs each root, scoped, or plugin-namespace hook
+   * (plugin namespaces install through the staged plugin step). Scoped to
+   * this one assembly, so concurrent app constructions cannot
+   * cross-contaminate observation streams. Side-effect-free when omitted.
    */
   onHookInstalled?: HookInstallObserver;
 
@@ -693,7 +694,11 @@ export async function createHttpApplication(
       const previousSource = registrationSource;
       registrationSource = "plugin";
       try {
-        await mountPluginRouteCatalog(fastify, catalog);
+        await mountPluginRouteCatalog(
+          fastify,
+          catalog,
+          onHookInstalled ? { onHookInstalled } : undefined,
+        );
       } finally {
         registrationSource = previousSource;
       }
