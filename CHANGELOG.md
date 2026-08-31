@@ -2,6 +2,30 @@
 
 > Older releases: see [git tags](https://github.com/waterworkshq/orcy/tags) and [GitHub Releases](https://github.com/waterworkshq/orcy/releases).
 
+## 0.41.1 — 2026-08-31
+
+### Bug Fixes
+
+#### harden HTTP ingress verification ([`1fb335d`](https://github.com/waterworkshq/orcy/commit/1fb335d7ef67d70cf5be467979c51690bfa713ab))
+
+
+
+
+- Recognize escaped Fastify package specifiers in the authority guard, replace Discord signature verification with strict native Ed25519 validation, and pin Slack parser behavior across both API prefixes.
+
+
+
+
+
+### Documentation
+
+#### record v0.41.0 delivery in roadmap and README ([`90d5857`](https://github.com/waterworkshq/orcy/commit/90d585747f3daf0db83314e57f164014bea3e7b5))
+
+
+#### add v0.41.1 operator notes ([`28bd194`](https://github.com/waterworkshq/orcy/commit/28bd194d33a46000013d9302fcc52ed76873e309))
+
+
+
 ## 0.41.0 — 2026-08-29
 
 ### Bug Fixes
@@ -187,49 +211,3 @@
 
 
 - The mutate-and-revert proof restored the guard by re-inserting both the comment and the if block, leaving the same three-line comment twice and an extra blank line. One copy was cosmetic; the code is unchanged.
-
-
-
-
-
-## 0.40.7 — 2026-08-23
-
-### Bug Fixes
-
-#### restrict Jira api-key connections to Jira Cloud tenant URLs ([`e46dc2a`](https://github.com/waterworkshq/orcy/commit/e46dc2af867a2813cbe27c9abba50774033ca2d8))
-
-
-
-
-- The api-key Jira connection accepted any member-supplied siteUrl and the adapter fetched it with the team's Jira credential attached, unvalidated — an internal-network SSRF and a token-capture vector in one field. Instead of an allowlist or an auth escalation, the surface now accepts only https Jira Cloud tenant URLs (https://<tenant>.atlassian.net), a structural known-good rule: Atlassian's own servers receive every credentialed request, so neither internal targets nor capture hosts can be configured. Legacy non-Atlassian rows fail safely before any fetch with a reconnect message, and the adapter's fetches go through the validated, pinned, redirect-fail-closed helper. Closes #32
-
-
-
-
-#### pin the outgoing-webhook, Slack, and Discord fetches to their validated resolution ([`aec30aa`](https://github.com/waterworkshq/orcy/commit/aec30aa407e58b8fa4e17b839081756be990f6bf))
-
-
-
-
-- The last four outbound surfaces still validated a URL and then fetched it unpinned — a second DNS lookup at fetch time reopened the rebinding window, and undici's default redirect-following let a validated URL redirect to an internal target. All three fetch sites now go through the validated, pinned, fail-closed helper (chat delegatesto Slack/Discord), UrlRejectedError carries its reason so each surface's rejection contract is byte-identical, and SECURITY.md again states the full pinned set. Closes #31
-
-
-
-
-#### review-remediation — SECURITY.md full pinned set + real-helper delivery test ([`2c20823`](https://github.com/waterworkshq/orcy/commit/2c20823f800c1f9cd4409e5d74d151f93f38484e))
-
-
-
-
-- Adversarial review over the v0.40.7 fixes caught two items: SECURITY.md still claimed the narrowed v0.40.6 wording (the python batch that was supposed to widen it had aborted on an earlier file), and webhook-delivery executeHttpRequest had no real-helper test proving it goes through fetchValidated with a dispatcher (the test file's module mock reimplements the helper, so a regression there would not have been caught). Both fixed.
-
-
-
-
-
-### Documentation
-
-#### record v0.40.6 delivery in roadmap and README ([`02ab618`](https://github.com/waterworkshq/orcy/commit/02ab618e1398a369de3c5e5200812d5aa8f09fac))
-
-
-#### add v0.40.7 operator notes ([`d9e9995`](https://github.com/waterworkshq/orcy/commit/d9e999536d63fa302e642011e35a041c7ee44670))
