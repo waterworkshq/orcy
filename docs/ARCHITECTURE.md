@@ -994,10 +994,11 @@ The GitHub adapter (`githubAdapter.ts`) implements this with REST API calls, pag
 ### Webhook Flow
 
 ```
-GitHub Issue Event → POST /webhooks/github/issues → webhookService.handleGitHubIssueWebhook()
-  → Verify HMAC signature (constant-time)
-  → Match repository owner/name to enabled connection(s)
-  → Route event to syncExternalIssue (opened/reopened/edited) or guarded close (closed)
+GitHub Issue Event → POST /webhooks/github/issues
+  → verified-ingress guard resolves HMAC over exact raw bytes
+  → resolution stashed on request.verifiedIngress.issues
+  → route calls dispatchGitHubIssueWebhook() exactly once
+  → syncExternalIssue (opened/reopened/edited) or guarded close (closed), per matched connection
 ```
 
 Supported events: `opened`, `reopened`, `edited`, `labeled`, `unlabeled`, `closed`. Unlinked issues with auto-import enabled are imported; without auto-import, unlinked events are no-ops. Pull requests in the issue payload are filtered out.

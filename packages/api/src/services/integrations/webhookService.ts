@@ -112,21 +112,12 @@ export function resolveGitHubIssueIngress(
   return { connections, matched };
 }
 
-/** Handles a GitHub issue webhook, verifies signatures per connection, and syncs the issue into Orcy. */
-export function handleGitHubIssueWebhook(
-  rawBody: string,
-  signature: string | undefined,
-  payload: GitHubWebhookPayload,
-): { statusCode: number; body: string } {
-  return dispatchGitHubIssueWebhook(payload, resolveGitHubIssueIngress(rawBody, signature, payload));
-}
-
 /**
- * Dispatch tail of {@link handleGitHubIssueWebhook} for requests whose
- * credentials the verified-ingress policy guard has already resolved: every
- * matched connection is synced exactly once, with the historical
- * per-connection fault containment — one connection's processing failure is
- * logged and cannot suppress later matches.
+ * Dispatch tail for requests whose credentials the verified-ingress policy
+ * guard has already resolved: every matched connection is synced exactly
+ * once, with the historical per-connection fault containment — one
+ * connection's processing failure is logged and cannot suppress later
+ * matches.
  */
 export function dispatchGitHubIssueWebhook(
   payload: GitHubWebhookPayload,

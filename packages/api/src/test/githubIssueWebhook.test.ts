@@ -5,7 +5,10 @@ import * as columnRepo from "../repositories/column.js";
 import * as connectionRepo from "../repositories/integrationConnection.js";
 import * as missionRepo from "../repositories/mission.js";
 import * as candidateRepo from "../repositories/externalIntakeCandidate.js";
-import { handleGitHubIssueWebhook } from "../services/integrations/webhookService.js";
+import {
+  dispatchGitHubIssueWebhook,
+  resolveGitHubIssueIngress,
+} from "../services/integrations/webhookService.js";
 import type { GitHubWebhookPayload } from "../services/integrations/webhookService.js";
 import { tasks, columns as columnsTable, habitats } from "../db/schema/index.js";
 import crypto from "crypto";
@@ -39,6 +42,18 @@ function makePayload(overrides: Partial<GitHubWebhookPayload> = {}): GitHubWebho
 
 function signPayload(body: string, secret: string): string {
   return "sha256=" + crypto.createHmac("sha256", secret).update(body).digest("hex");
+}
+
+// Composition helper mirroring the historical combined handler: resolve
+// credential authority from the signature, then dispatch. Production composes
+// these at the route (verified-ingress guard → dispatch); this file-local
+// seam keeps the service-level cases readable.
+function handleGitHubIssueWebhook(
+  rawBody: string,
+  signature: string | undefined,
+  payload: GitHubWebhookPayload,
+): { statusCode: number; body: string } {
+  return dispatchGitHubIssueWebhook(payload, resolveGitHubIssueIngress(rawBody, signature, payload));
 }
 
 beforeEach(async () => {
