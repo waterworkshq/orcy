@@ -2,6 +2,30 @@
 
 > Older releases: see [git tags](https://github.com/waterworkshq/orcy/tags) and [GitHub Releases](https://github.com/waterworkshq/orcy/releases).
 
+## 0.41.2 — 2026-09-01
+
+### Bug Fixes
+
+#### enforce plugin handler and hook contracts ([`9793230`](https://github.com/waterworkshq/orcy/commit/979323036db22891578fbbdfaf9edd9ade3fb3c6))
+
+
+
+
+- Require plugin handler maps to own their declared entries and extend per-construction hook observation to the current and deprecated plugin namespaces without changing route behavior.
+
+
+
+
+
+### Documentation
+
+#### record v0.41.1 delivery in roadmap ([`5bdde32`](https://github.com/waterworkshq/orcy/commit/5bdde325021a089caaf233f1af629e59477eaa8b))
+
+
+#### add v0.41.2 operator notes ([`923a056`](https://github.com/waterworkshq/orcy/commit/923a056833b9dbf4061eeb73549aadff777f14ac))
+
+
+
 ## 0.41.1 — 2026-08-31
 
 ### Bug Fixes
@@ -174,40 +198,3 @@
 
 
 - Extend the route-authority boundary guard to reject literal Node module loader acquisition across aliased, escaped, mixed, and line-continued import forms, with mutation-backed coverage and precise documentation of the remaining structured-scan limits.
-
-
-
-
-
-## 0.40.8 — 2026-08-23
-
-### Bug Fixes
-
-#### webhook delivery failures now surface to operators; Jira port tightened to 443 ([`489facb`](https://github.com/waterworkshq/orcy/commit/489facb660341840bf70755455b8454083051080))
-
-
-
-
-- Failed remote webhook deliveries previously wrote a failed row but never told anyone — an operator's broken endpoint was invisible until manual inspection. Delivery failures now publish a webhook.delivery_failed SSE event (rendered as a warning toast in the UI) and enqueue an in-app notification for habitat admins with the endpoint URL and error. The Jira known-good check now rejects any explicit port other than 443, tightening the trust domain to the actual Jira API surface. Closes #33, Closes #34
-
-
-
-
-
-### Documentation
-
-#### record v0.40.7 delivery in roadmap and README ([`1b77c76`](https://github.com/waterworkshq/orcy/commit/1b77c76ee0cd8f6faaf5a86c6cb1db3c5ee27ec3))
-
-
-#### add v0.40.8 operator notes ([`22fff88`](https://github.com/waterworkshq/orcy/commit/22fff88515b4e17eede37fd39440758466d60322))
-
-
-
-### Style
-
-#### remove duplicated Jira known-good comment from route edit artifact ([`1979c55`](https://github.com/waterworkshq/orcy/commit/1979c55021d1494838c48035f62f78af715e7b00))
-
-
-
-
-- The mutate-and-revert proof restored the guard by re-inserting both the comment and the if block, leaving the same three-line comment twice and an extra blank line. One copy was cosmetic; the code is unchanged.
