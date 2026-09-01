@@ -54,11 +54,12 @@ export function create(input: {
 
 export function getById(id: string): ExternalIssueLink | null {
   const db = getDb();
-  return db
+  const row = db
     .select()
     .from(externalIssueLinks)
     .where(eq(externalIssueLinks.id, id))
-    .get() as ExternalIssueLink | null;
+    .get();
+  return (row as ExternalIssueLink) ?? null;
 }
 
 export function findByConnectionAndExternalId(
@@ -66,7 +67,7 @@ export function findByConnectionAndExternalId(
   externalId: string,
 ): ExternalIssueLink | null {
   const db = getDb();
-  return db
+  const row = db
     .select()
     .from(externalIssueLinks)
     .where(
@@ -75,7 +76,8 @@ export function findByConnectionAndExternalId(
         eq(externalIssueLinks.externalId, externalId),
       ),
     )
-    .get() as ExternalIssueLink | null;
+    .get();
+  return (row as ExternalIssueLink) ?? null;
 }
 
 export function listByMissionId(missionId: string): ExternalIssueLink[] {

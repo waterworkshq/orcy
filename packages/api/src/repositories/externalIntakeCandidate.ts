@@ -67,11 +67,12 @@ export function create(input: {
 
 export function getById(id: string): ExternalIntakeCandidate | null {
   const db = getDb();
-  return db
+  const row = db
     .select()
     .from(externalIntakeCandidates)
     .where(eq(externalIntakeCandidates.id, id))
-    .get() as ExternalIntakeCandidate | null;
+    .get();
+  return (row as ExternalIntakeCandidate) ?? null;
 }
 
 export function findByConnectionAndExternalId(
@@ -79,7 +80,7 @@ export function findByConnectionAndExternalId(
   externalId: string,
 ): ExternalIntakeCandidate | null {
   const db = getDb();
-  return db
+  const row = db
     .select()
     .from(externalIntakeCandidates)
     .where(
@@ -88,7 +89,8 @@ export function findByConnectionAndExternalId(
         eq(externalIntakeCandidates.externalId, externalId),
       ),
     )
-    .get() as ExternalIntakeCandidate | null;
+    .get();
+  return (row as ExternalIntakeCandidate) ?? null;
 }
 
 export function listByHabitat(

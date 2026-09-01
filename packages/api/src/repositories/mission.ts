@@ -222,7 +222,8 @@ export function createMissionWithClient(
     throw repositoryCreateError("mission", err as Error, id);
   }
 
-  const mission = client.select().from(missions).where(eq(missions.id, id)).get() as Mission | null;
+  const row = client.select().from(missions).where(eq(missions.id, id)).get();
+  const mission = (row as Mission) ?? null;
   if (!mission) throw repositoryNotFoundError("mission", id);
   return mission;
 }
@@ -299,7 +300,8 @@ export function activationVersionCasWithClient(
 export function getMissionById(id: string): Mission | null {
   const db = getDb();
   const { exact, withPrefix } = normalizeMissionId(id);
-  const result = db.select().from(missions).where(eq(missions.id, exact)).get() as Mission | null;
+  const row = db.select().from(missions).where(eq(missions.id, exact)).get();
+  const result = (row as Mission) ?? null;
   if (result) return result;
   if (withPrefix) {
     return (db.select().from(missions).where(eq(missions.id, withPrefix)).get() as Mission) ?? null;

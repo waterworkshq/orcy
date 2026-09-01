@@ -22,7 +22,8 @@ export function getByHabitatId(habitatId: string): ReviewRule[] {
 
 export function getById(id: string): ReviewRule | null {
   const db = getDb();
-  return db.select().from(reviewRules).where(eq(reviewRules.id, id)).get() as ReviewRule | null;
+  const row = db.select().from(reviewRules).where(eq(reviewRules.id, id)).get();
+  return (row as ReviewRule) ?? null;
 }
 
 export function getEnabledRulesForHabitat(habitatId: string): ReviewRule[] {

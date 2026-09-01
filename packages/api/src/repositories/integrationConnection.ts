@@ -78,11 +78,12 @@ export function create(input: {
 
 export function getById(id: string): IntegrationConnection | null {
   const db = getDb();
-  return db
+  const row = db
     .select()
     .from(integrationConnections)
     .where(eq(integrationConnections.id, id))
-    .get() as IntegrationConnection | null;
+    .get();
+  return (row as IntegrationConnection) ?? null;
 }
 
 export function listByHabitat(habitatId: string): IntegrationConnection[] {

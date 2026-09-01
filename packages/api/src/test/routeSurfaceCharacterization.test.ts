@@ -1058,7 +1058,7 @@ describe("production route surface characterization", () => {
           issuesConnectionId,
           nodeId,
         );
-        expect(link, "invalid signature must not sync").toBeUndefined();
+        expect(link, "invalid signature must not sync").toBeNull();
       });
 
       // ---- Token families: raw body captured but NOT credential-bearing ----

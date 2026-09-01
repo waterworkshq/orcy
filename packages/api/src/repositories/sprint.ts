@@ -24,11 +24,12 @@ export function getById(id: string): Sprint | null {
 
 export function getActiveForHabitat(habitatId: string): Sprint | null {
   const db = getDb();
-  return db
+  const row = db
     .select()
     .from(sprints)
     .where(and(eq(sprints.habitatId, habitatId), eq(sprints.status, "active")))
-    .get() as Sprint | null;
+    .get();
+  return (row as Sprint) ?? null;
 }
 
 export function create(

@@ -42,11 +42,12 @@ export function create(input: {
 
 export function getById(id: string): IntegrationSyncRun | null {
   const db = getDb();
-  return db
+  const row = db
     .select()
     .from(integrationSyncRuns)
     .where(eq(integrationSyncRuns.id, id))
-    .get() as IntegrationSyncRun | null;
+    .get();
+  return (row as IntegrationSyncRun) ?? null;
 }
 
 export function finish(

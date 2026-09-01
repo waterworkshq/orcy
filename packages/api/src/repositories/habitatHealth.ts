@@ -45,13 +45,14 @@ export function createHealthSnapshot(input: CreateHealthSnapshotInput): void {
 
 export function getLatestHealthSnapshot(habitatId: string): HealthSnapshotRow | null {
   const db = getDb();
-  return db
+  const row = db
     .select()
     .from(habitatHealthSnapshots)
     .where(eq(habitatHealthSnapshots.habitatId, habitatId))
     .orderBy(desc(habitatHealthSnapshots.snapshotAt))
     .limit(1)
-    .get() as HealthSnapshotRow | null;
+    .get();
+  return (row as HealthSnapshotRow) ?? null;
 }
 
 export function getHealthSnapshotHistory(habitatId: string, since: string): HealthSnapshotRow[] {

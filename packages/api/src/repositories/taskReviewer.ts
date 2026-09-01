@@ -21,11 +21,12 @@ export function getByTaskId(taskId: string): TaskReviewer[] {
 
 export function getById(id: string): TaskReviewer | null {
   const db = getDb();
-  return db
+  const row = db
     .select()
     .from(taskReviewers)
     .where(eq(taskReviewers.id, id))
-    .get() as TaskReviewer | null;
+    .get();
+  return (row as TaskReviewer) ?? null;
 }
 
 export function create(
