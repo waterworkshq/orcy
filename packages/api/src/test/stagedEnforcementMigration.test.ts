@@ -27,7 +27,7 @@
  *     attestations all abort; a parity test pins the guard's literals to the
  *     live preflight constants the runner emits.
  */
-import { vi, describe, it, expect, beforeEach, afterEach } from "vitest";
+import { vi, describe, it, expect, beforeAll, beforeEach, afterEach, afterAll } from "vitest";
 
 // Migration-chain tests build file-backed databases through the full journal
 // (now including the staged preflight/enforcement protocol) — allow headroom
@@ -35,7 +35,7 @@ import { vi, describe, it, expect, beforeEach, afterEach } from "vitest";
 vi.setConfig({ testTimeout: 60_000 });
 import { closeDb, initDb } from "../db/index.js";
 import { join } from "node:path";
-import { existsSync, readFileSync, unlinkSync, mkdirSync } from "node:fs";
+import { existsSync, readFileSync, unlinkSync, mkdirSync, rmSync } from "node:fs";
 import { createHash } from "node:crypto";
 import Database from "better-sqlite3";
 import {
@@ -58,7 +58,7 @@ function ensureTempDir(): void {
 }
 
 function cleanupDb(dbPath: string): void {
-  for (const suffix of ["", "-wal", "-shm"]) {
+  for (const suffix of ["", "-wal", "-shm", "-journal"]) {
     if (existsSync(`${dbPath}${suffix}`)) {
       try {
         unlinkSync(`${dbPath}${suffix}`);
@@ -271,6 +271,18 @@ function attestation(dbPath: string):
 }
 
 describe("Staged enforcement — production initDb discriminators", () => {
+  // Suite-owned residue recovery: a hard abort (crash/SIGKILL mid-test) can
+  // leave `.test-staged-enforcement` behind. Remove ONLY this exact constant
+  // directory at suite start — never a broad glob or env-derived path — and
+  // let the per-test helper recreate it. Teardown closes DB state and takes
+  // the same single directory with it.
+  beforeAll(() => {
+    rmSync(TEMP_DIR, { recursive: true, force: true });
+  });
+  afterAll(() => {
+    closeDb();
+    rmSync(TEMP_DIR, { recursive: true, force: true });
+  });
   beforeEach(() => {
     ensureTempDir();
     closeDb();

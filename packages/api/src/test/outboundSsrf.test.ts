@@ -413,20 +413,26 @@ describe('executeHttpRequest SSRF blocking', () => {
 describe('sendTestWebhook SSRF blocking', () => {
   it('blocks test webhook to localhost', async () => {
     const { sendTestWebhook } = await import('../services/webhooks/webhook-delivery.js');
-    const result = await sendTestWebhook({
-      id: 'sub-1',
-      habitatId: null,
-      name: 'Test',
-      url: 'http://localhost:3000/hook',
-      secret: null,
-      events: [],
-      headers: {},
-      format: 'standard',
-      enabled: 1,
-    });
-    expect(result.success).toBe(false);
-    expect(result.statusCode).toBe(0);
-    expect(result.latencyMs).toBe(0);
+    const fetchSpy = vi.fn(async (_url: string, _init?: RequestInit) => new Response('ok', { status: 200 }));
+    vi.stubGlobal('fetch', fetchSpy);
+    try {
+      const result = await sendTestWebhook({
+        id: 'sub-1',
+        habitatId: null,
+        name: 'Test',
+        url: 'http://localhost:3000/hook',
+        secret: null,
+        events: [],
+        headers: {},
+        format: 'standard',
+        enabled: 1,
+      });
+      expect(fetchSpy, 'localhost SSRF rejection must never reach transport').not.toHaveBeenCalled();
+      expect(result.success).toBe(false);
+      expect(result.statusCode).toBe(0);
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 
   it('blocks test webhook to private IP', async () => {
