@@ -28,17 +28,6 @@ if [ "$NODE_MAJOR" -lt 20 ]; then
 fi
 echo "    Node $NODE_VERSION found"
 
-# Check / install pnpm
-if ! command -v pnpm >/dev/null 2>&1; then
-  echo "    pnpm not found. Installing pnpm via npm..."
-  npm install -g pnpm
-  if ! command -v pnpm >/dev/null 2>&1; then
-    echo "    Failed to install pnpm. Please install manually: npm install -g pnpm"
-    exit 1
-  fi
-  echo "    pnpm installed"
-fi
-
 # Download source
 echo "==> Downloading source from GitHub..."
 mkdir -p "$CACHE_DIR" "$SRC_DIR"
@@ -59,14 +48,52 @@ mkdir -p "$SRC_DIR"
 tar -xzf "$ARCHIVE_PATH" -C "$SRC_DIR" --strip-components=1
 echo "    Extracted to ${SRC_DIR}"
 
+# Resolve the exact pnpm version pinned by the extracted source. Anything other
+# than a strict pnpm@<version> pin (optional corepack hash suffix) fails closed.
+PNPM_VERSION=$(node -e '
+const fs = require("fs");
+let spec;
+try { spec = JSON.parse(fs.readFileSync(process.argv[1], "utf8")).packageManager; } catch {}
+const m = typeof spec === "string" ? spec.match(/^pnpm@(\d+\.\d+\.\d+)(\+[A-Za-z0-9._-]+)?$/) : null;
+if (!m) {
+  console.error("install.sh: source packageManager field must pin an exact pnpm version (e.g. pnpm@9.0.0), got: " + String(spec));
+  process.exit(1);
+}
+console.log(m[1]);
+' "$SRC_DIR/package.json")
+echo "    Source pins pnpm@${PNPM_VERSION}"
+
+# Pin-aware pnpm dispatch: prefer corepack (bundled with Node.js), fall back to
+# an ephemeral npx run of the same pin. No global pnpm is installed or mutated.
+PNPM_RUNNER=""
+run_pnpm() {
+  if [ "$PNPM_RUNNER" = "corepack" ]; then
+    corepack "pnpm@${PNPM_VERSION}" "$@"
+  else
+    npx --yes "pnpm@${PNPM_VERSION}" "$@"
+  fi
+}
+
+if corepack "pnpm@${PNPM_VERSION}" --version >/dev/null 2>&1; then
+  PNPM_RUNNER="corepack"
+  echo "    Running pnpm@${PNPM_VERSION} via corepack"
+elif npx --yes "pnpm@${PNPM_VERSION}" --version >/dev/null 2>&1; then
+  PNPM_RUNNER="npx"
+  echo "    Running pnpm@${PNPM_VERSION} via npx"
+else
+  echo "Unable to run the pinned pnpm (pnpm@${PNPM_VERSION}) via corepack or npx."
+  echo "Install corepack (bundled with Node.js) or npm, then retry."
+  exit 1
+fi
+
 # Install dependencies
 echo "==> Installing dependencies..."
-(cd "$SRC_DIR" && pnpm install --frozen-lockfile 2>/dev/null || pnpm install)
+(cd "$SRC_DIR" && { run_pnpm install --frozen-lockfile 2>/dev/null || run_pnpm install; })
 echo "    Dependencies installed"
 
 # Build
 echo "==> Building packages..."
-(cd "$SRC_DIR" && pnpm -r build)
+(cd "$SRC_DIR" && run_pnpm -r build)
 echo "    Build complete"
 
 # Run installer
