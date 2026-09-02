@@ -71,3 +71,10 @@ jobs:
         # Runs emitted JS through `node` (compiledStartup) and the real
         # production better-sqlite3 driver (initDb) — not only tsx.
         run: pnpm --filter @orcy/api test:production-migration
+
+      - name: Package-manager boundary guard
+        # REL-INFRA-2: a bare `pnpm` token in a root script resolves an
+        # ambient pnpm shim under nested shells and breaks the canonical
+        # corepack entry points. Fast, hermetic, no DB — mirrors the local
+        # pre-push gate so the regression fails before release, not after.
+        run: pnpm --filter @orcy/installer exec vitest run test/root-package-manager-boundary.test.ts

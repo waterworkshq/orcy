@@ -12,6 +12,10 @@
 # clean-environment post-push verification; the active main ruleset blocks
 # deletion and non-fast-forward without requiring PRs.
 #
+# The gate runs the focused production-migration suites plus the fast
+# package-manager boundary guard (a bare-pnpm root script must fail before a
+# main push — REL-INFRA-2's nested-shim mismatch class).
+#
 # Git invokes: pre-push <remote-name> <remote-url>
 # stdin lines: <local-ref> <local-sha> <remote-ref> <remote-sha>
 
@@ -43,6 +47,16 @@ if ! (cd "$repo_root" && corepack pnpm --filter @orcy/api test:production-migrat
   echo "" >&2
   echo "pre-push: production-migration gate FAILED — push to main blocked." >&2
   echo "pre-push: fix the failing suites above, then re-run the push." >&2
+  exit 1
+fi
+
+# Package-manager boundary guard: a bare `pnpm` token in a root script must
+# fail before the push (nested bare pnpm resolves an ambient shim and breaks
+# the canonical corepack entry points). Fast and hermetic — no DB, no build.
+if ! (cd "$repo_root" && corepack pnpm --filter @orcy/installer exec vitest run test/root-package-manager-boundary.test.ts); then
+  echo "" >&2
+  echo "pre-push: package-manager boundary guard FAILED — push to main blocked." >&2
+  echo "pre-push: root scripts must invoke pnpm through corepack (see packages/installer/test/root-package-manager-boundary.test.ts)." >&2
   exit 1
 fi
 

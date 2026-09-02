@@ -5,7 +5,7 @@
 | Tool | Version | Purpose |
 |------|---------|---------|
 | Node.js | 20+ | Runtime |
-| pnpm | — | Package manager (auto-installed by `install.sh` if missing) |
+| pnpm | — | Package manager (development only; `install.sh` runs the source-pinned pnpm via corepack/npx — nothing is installed globally) |
 
 ## Two Workflows
 
