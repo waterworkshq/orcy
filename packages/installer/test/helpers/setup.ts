@@ -32,8 +32,18 @@ const M = vi.hoisted(() => {
     savedHome: undefined as string | undefined,
     savedFetch: null as typeof globalThis.fetch | null,
     // Per-command exec override hook: a test may return a value to short-circuit,
-    // or throw to simulate a failure at a specific command.
+    // or throw to simulate a failure at a specific command. For execSync the cmd
+    // is the literal command string; for execFileSync it is `file args.join(" ")`.
     execHook: null as null | ((cmd: string, opts?: unknown) => unknown),
+    // Every intercepted child-process invocation (both execSync and execFileSync),
+    // cleared in beforeEach, so tests can assert on exact file/args/cwd triples.
+    execLog: [] as Array<{
+      kind: "execSync" | "execFileSync";
+      cmd: string;
+      file?: string;
+      args?: string[];
+      opts?: unknown;
+    }>,
   };
 });
 
@@ -77,6 +87,16 @@ vi.mock("node:child_process", async () => {
   const npath = await import("node:path");
 
   function seedFakeSource(srcDir: string): void {
+    // Root package.json carries the packageManager pin the pin-aware pnpm
+    // runner derives its version from (mirrors the real repo root).
+    nfs.writeFileSync(
+      npath.join(srcDir, "package.json"),
+      JSON.stringify({
+        name: "orcy",
+        private: true,
+        packageManager: "pnpm@9.0.0",
+      }),
+    );
     for (const c of ["cli", "api", "mcp"]) {
       const dist = npath.join(srcDir, "packages", c, "dist");
       nfs.mkdirSync(dist, { recursive: true });
@@ -101,6 +121,7 @@ vi.mock("node:child_process", async () => {
 
   return {
     execSync: (cmd: string, opts?: unknown): string => {
+      M.execLog.push({ kind: "execSync", cmd, opts });
       if (M.execHook) {
         const r = M.execHook(cmd, opts);
         if (r !== undefined) return r as string;
@@ -126,6 +147,39 @@ vi.mock("node:child_process", async () => {
       if (cmd === "id -u") return "1000";
       throw new Error(`test execSync: unhandled command: ${cmd}`);
     },
+    // Argument-array form used by the pin-aware pnpm runner: handle by file so
+    // quoting-sensitive string matching is never relied on for these calls.
+    execFileSync: (file: string, args: string[], opts?: unknown): string => {
+      const argv = Array.isArray(args) ? args : [];
+      const joined = [file, ...argv].join(" ");
+      M.execLog.push({ kind: "execFileSync", cmd: joined, file, args: argv, opts });
+      if (M.execHook) {
+        const r = M.execHook(joined, opts);
+        if (r !== undefined) return r as string;
+      }
+      if (file === "curl") {
+        const out = argv[argv.indexOf("-o") + 1];
+        if (out && out.endsWith(".tmp")) {
+          nfs.mkdirSync(npath.dirname(out), { recursive: true });
+          nfs.writeFileSync(out, "fake-archive");
+          return "";
+        }
+        throw new Error(`test execFileSync: unhandled curl args: ${joined}`);
+      }
+      if (file === "tar") {
+        const dir = argv[argv.indexOf("-C") + 1];
+        if (dir) {
+          seedFakeSource(dir);
+          return "";
+        }
+        throw new Error(`test execFileSync: unhandled tar args: ${joined}`);
+      }
+      // corepack / npx (pin-aware pnpm runner: probes, installs, builds) → no-op
+      if (file === "corepack" || file === "npx") return "";
+      if (file === "systemctl" || file === "launchctl") return "";
+      if (file === "id") return "1000";
+      throw new Error(`test execFileSync: unhandled command: ${joined}`);
+    },
   };
 });
 
@@ -133,7 +187,9 @@ vi.mock("node:child_process", async () => {
 vi.mock("@clack/prompts", () => ({
   confirm: vi.fn(async () => true),
   multiselect: vi.fn(async () => []),
-  select: vi.fn(async (opts: { options: Array<{ value: string }> }) => opts.options[0]?.value ?? ""),
+  select: vi.fn(
+    async (opts: { options: Array<{ value: string }> }) => opts.options[0]?.value ?? "",
+  ),
   text: vi.fn(async () => ""),
 }));
 
@@ -165,6 +221,7 @@ globalThis.fetch = vi.fn(async (input: unknown, _init?: unknown) => {
 
 // Reset install/agent side-effects between tests within a file.
 beforeEach(() => {
+  M.execLog.length = 0;
   fs.rmSync(M.orcyHome, { recursive: true, force: true });
   fs.mkdirSync(M.orcyHome, { recursive: true });
   for (const sub of [
@@ -242,8 +299,20 @@ export function defaultSkillRoot(): string {
 /**
  * Install/clear a per-command execSync override. A test hook may return a value
  * to short-circuit a command, or throw to simulate a failure at a specific
- * command (e.g. a service-install failure). Pass `null` to clear.
+ * command (e.g. a service-install failure). For `execFileSync` calls the hook
+ * receives `file args.join(" ")`. Pass `null` to clear.
  */
 export function setExecHook(fn: ((cmd: string, opts?: unknown) => unknown) | null): void {
   M.execHook = fn;
+}
+
+/** All child-process invocations intercepted since the last beforeEach reset. */
+export function execLog(): ReadonlyArray<{
+  kind: "execSync" | "execFileSync";
+  cmd: string;
+  file?: string;
+  args?: string[];
+  opts?: unknown;
+}> {
+  return M.execLog;
 }
