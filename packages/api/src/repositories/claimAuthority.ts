@@ -297,7 +297,7 @@ export function claimWithAuthorityClient(
     // only the publication gates are now enforced on both paths.
     const gate = publicationGateFailure(tx, row, claimant);
     if (gate) return gate;
-    const budget = budgetGateFailure(tx, row.id, opts);
+    const budget = budgetGateFailure(tx, row.id, opts, "claimed_delegated");
     if (budget) return budget;
     return commitDelegatedClaim(tx, row);
   }
@@ -332,7 +332,7 @@ export function claimWithAuthorityClient(
   const gate = publicationGateFailure(tx, row, claimant);
   if (gate) return gate;
 
-  const budget = budgetGateFailure(tx, row.id, opts);
+  const budget = budgetGateFailure(tx, row.id, opts, "claimed");
   if (budget) return budget;
 
   return commitPlainClaim(tx, row, claimant);
@@ -426,13 +426,14 @@ function publicationGateFailure(
 function budgetGateFailure(
   tx: TaskPublicationDbClient,
   taskId: string,
-  opts?: ClaimAuthorityOptions,
+  opts: ClaimAuthorityOptions | undefined,
+  attemptedAction: "claimed" | "claimed_delegated",
 ): ClaimFailure | undefined {
   // Absent actorType → a metered default; only the remote wrappers thread a
   // `remote_human` claimant through opts.actorType for the exemption.
   const actorType: ActorType = opts?.actorType ?? "agent";
   const habitatId = habitatIdForTaskWithClient(tx, taskId) ?? "";
-  const outcome = guardTransition(tx, taskId, habitatId, actorType);
+  const outcome = guardTransition(tx, taskId, habitatId, actorType, attemptedAction);
   if (outcome.outcome === "refused") {
     return {
       success: false,
@@ -572,7 +573,7 @@ function progressWithAuthorityClient(
   //     metered default applies; human resolution paths (reject/release/
   //     approve) live in the service layer where the actor is known.
   const budgetHabitatId = habitatIdForTaskWithClient(tx, taskId) ?? "";
-  const budget = guardTransition(tx, taskId, budgetHabitatId, "agent");
+  const budget = guardTransition(tx, taskId, budgetHabitatId, "agent", "started");
   if (budget.outcome === "refused") return null;
 
   // 3. conditional UPDATE on tx. The WHERE re-asserts id + identity + claimed

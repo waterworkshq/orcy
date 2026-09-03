@@ -233,6 +233,8 @@ export function submitTaskForRemote(
       success: false;
       reason: string;
       missingQualityItems?: { category: string; missingItems: string[] }[];
+      budgetCount?: number;
+      budgetCeiling?: number;
     } {
   // 1. Load task; ownership pre-check
   const task = taskRepo.getTaskById(taskId);
@@ -275,9 +277,11 @@ export function submitTaskForRemote(
   const { submittedTask, eventId, budgetRefused } = getDb().transaction((tx) => {
     // Transition budget (plan §5): submit by a remote_orcy participant is
     // metered; remote_human participants are exempt (plan §2 human exemption).
-    const budget = guardTransition(tx, taskId, habitatId, actorType);
+    // The refused outcome rides out of the tx for the operator-actionable
+    // diagnostics on the wrapper's failure return (plan §6).
+    const budget = guardTransition(tx, taskId, habitatId, actorType, "submitted");
     if (budget.outcome === "refused") {
-      return { submittedTask: null as Task | null, eventId: undefined, budgetRefused: true };
+      return { submittedTask: null as Task | null, eventId: undefined, budgetRefused: budget };
     }
     const submitted = submitWithAuthorityClient(tx, taskId, participantId, result, artifacts);
     let evId: string | undefined;
@@ -293,11 +297,16 @@ export function submitTaskForRemote(
       });
       evId = event.id;
     }
-    return { submittedTask: submitted, eventId: evId, budgetRefused: false };
+    return { submittedTask: submitted, eventId: evId, budgetRefused: undefined };
   });
 
   if (budgetRefused) {
-    return { success: false, reason: "transition_budget_exhausted" };
+    return {
+      success: false,
+      reason: "transition_budget_exhausted",
+      budgetCount: budgetRefused.count,
+      budgetCeiling: budgetRefused.ceiling,
+    };
   }
   if (!submittedTask) {
     return { success: false, reason: "submit_failed" };
@@ -374,7 +383,10 @@ export function releaseTaskForRemote(
   taskId: string,
   ctx: RemoteParticipantContext,
   reason?: string,
-): { success: true; task: Task } | { success: false; reason: string } {
+): {
+  success: true;
+  task: Task;
+} | { success: false; reason: string; budgetCount?: number; budgetCeiling?: number } {
   // 1. Load task; ownership pre-check
   const task = taskRepo.getTaskById(taskId);
   if (!task) return { success: false, reason: "not_found" };
@@ -392,21 +404,22 @@ export function releaseTaskForRemote(
   const { releasedTask, eventId, budgetRefused } = getDb().transaction((tx) => {
     type TaskRow = typeof tasks.$inferSelect;
     const row = tx.select().from(tasks).where(eq(tasks.id, taskId)).get() as TaskRow | undefined;
-    if (!row) return { releasedTask: null as Task | null, eventId: undefined, budgetRefused: false };
+    if (!row) return { releasedTask: null as Task | null, eventId: undefined, budgetRefused: undefined };
 
     // Gate: status must be claimed or in_progress, and owned by this participant
     if (
       (row.status !== "claimed" && row.status !== "in_progress") ||
       row.remoteAssignedParticipantId !== participantId
     ) {
-      return { releasedTask: null as Task | null, eventId: undefined, budgetRefused: false };
+      return { releasedTask: null as Task | null, eventId: undefined, budgetRefused: undefined };
     }
 
     // Transition budget (plan §5): release by a remote_orcy participant is
-    // metered; remote_human participants are exempt.
-    const budget = guardTransition(tx, taskId, habitatId, actorType);
+    // metered; remote_human participants are exempt. The refused outcome
+    // rides out of the tx for the wrapper's failure diagnostics (plan §6).
+    const budget = guardTransition(tx, taskId, habitatId, actorType, "released");
     if (budget.outcome === "refused") {
-      return { releasedTask: null as Task | null, eventId: undefined, budgetRefused: true };
+      return { releasedTask: null as Task | null, eventId: undefined, budgetRefused: budget };
     }
 
     const now = new Date().toISOString();
@@ -425,7 +438,7 @@ export function releaseTaskForRemote(
       | TaskRow
       | undefined;
     const released = (updated as unknown as Task) ?? null;
-    if (!released) return { releasedTask: null, eventId: undefined, budgetRefused: false };
+    if (!released) return { releasedTask: null, eventId: undefined, budgetRefused: undefined };
 
     const event = createEventWithClient(tx, {
       taskId,
@@ -436,11 +449,16 @@ export function releaseTaskForRemote(
       toStatus: "pending" as never,
       metadata: withAuditProvenanceMetadata({ reason }),
     });
-    return { releasedTask: released, eventId: event.id, budgetRefused: false };
+    return { releasedTask: released, eventId: event.id, budgetRefused: undefined };
   });
 
   if (budgetRefused) {
-    return { success: false, reason: "transition_budget_exhausted" };
+    return {
+      success: false,
+      reason: "transition_budget_exhausted",
+      budgetCount: budgetRefused.count,
+      budgetCeiling: budgetRefused.ceiling,
+    };
   }
   if (!releasedTask) {
     return { success: false, reason: "release_failed" };

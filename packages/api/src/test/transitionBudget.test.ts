@@ -23,11 +23,38 @@
  *   - ceiling n → (n+1)th refuses [RED]
  *   - created/updated/delegated events consume nothing [GREEN-stays]
  *   - human-actor metered events do not count (actor_type filter) [GREEN-stays]
+ *
+ * Ticket 3 — escalation closure (plan §6, user-selected breach semantics):
+ *   - first breach: refusal + exactly one `escalated` event with breach
+ *     metadata (attempted action / actor / ceiling / count) + notification +
+ *     SSE `task.escalated` [RED]
+ *   - repeat attempts: refusal, NO second escalation or notification [RED]
+ *   - human transitions still succeed post-breach, without re-escalating [RED]
+ *   - breach event's actor/metadata survive the audit projection [RED]
+ *   - a prior retry-ladder escalation does NOT suppress the budget escalation
+ *     (emit-once is scoped by the metadata.transitionBudget marker) [RED]
+ *   - over-budget human approval succeeds with zero escalations [GREEN-stays]
+ *   - notification DELIVERED to habitat team humans on first breach [RED]
+ *   - submitTask typed refusal carries count/ceiling diagnostics [RED]
+ *   - remote submit refusal carries count/ceiling diagnostics [RED]
  */
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { closeDb, getDb, initTestDb } from "../db/index.js";
-import { habitats, tasks, taskEvents } from "../db/schema/index.js";
+import {
+  habitats,
+  notificationDeliveries,
+  notificationEvents,
+  tasks,
+  taskEvents,
+} from "../db/schema/index.js";
+import { sseBroadcaster } from "../sse/broadcaster.js";
+import { queryAuditEvents } from "../services/auditQueryService.js";
+import * as organizationRepo from "../repositories/organization.js";
+import * as teamRepo from "../repositories/team.js";
+import * as teamMemberRepo from "../repositories/teamMember.js";
+import * as subscriptionRepo from "../repositories/notificationSubscription.js";
+import * as userRepo from "../repositories/user.js";
 import * as habitatRepo from "../repositories/habitat.js";
 import * as columnRepo from "../repositories/column.js";
 import * as missionRepo from "../repositories/mission.js";
@@ -138,6 +165,130 @@ function countEvents(taskId: string): number {
     .from(taskEvents)
     .where(eq(taskEvents.taskId, taskId))
     .all().length;
+}
+
+// ---------------------------------------------------------------------------
+// Breach-escalation observation helpers (ticket 3)
+// ---------------------------------------------------------------------------
+
+interface EscalatedEventRow {
+  id: string;
+  actorType: string;
+  actorId: string | null;
+  metadata: unknown;
+}
+
+/**
+ * Drains the event loop so guard-scheduled breach escalations have run: the
+ * guard defers via queueMicrotask (never joining the refusing caller's open
+ * transaction), and the escalation module loads via dynamic import inside
+ * that microtask — setImmediate drains AFTER all pending microtasks
+ * (including the import resolution); two turns cover a first-ever load.
+ */
+async function flushEscalations(): Promise<void> {
+  await new Promise<void>((resolve) => setImmediate(resolve));
+  await new Promise<void>((resolve) => setImmediate(resolve));
+}
+
+/** All `escalated` task_events rows for a task (any origin: retry-ladder or budget). */
+function escalatedEvents(taskId: string): EscalatedEventRow[] {
+  return getDb()
+    .select({
+      id: taskEvents.id,
+      actorType: taskEvents.actorType,
+      actorId: taskEvents.actorId,
+      metadata: taskEvents.metadata,
+    })
+    .from(taskEvents)
+    .where(and(eq(taskEvents.taskId, taskId), eq(taskEvents.action, "escalated")))
+    .all() as EscalatedEventRow[];
+}
+
+/**
+ * `escalated` rows whose metadata carries the transitionBudget marker — the
+ * budget-breach discriminator that keeps retry-ladder escalations (metadata
+ * `{retryCount, maxRetries, rejectionReason}`) a distinct population.
+ */
+function budgetBreachEscalations(taskId: string): EscalatedEventRow[] {
+  return escalatedEvents(taskId).filter(
+    (row) => (row.metadata as Record<string, unknown> | null)?.transitionBudget !== undefined,
+  );
+}
+
+function notificationEventRows(
+  habitatId: string,
+): Array<{
+  id: string;
+  eventType: string;
+  title: string | null;
+  body: string | null;
+  targetId: string | null;
+}> {
+  return getDb()
+    .select({
+      id: notificationEvents.id,
+      eventType: notificationEvents.eventType,
+      title: notificationEvents.title,
+      body: notificationEvents.body,
+      targetId: notificationEvents.targetId,
+    })
+    .from(notificationEvents)
+    .where(eq(notificationEvents.habitatId, habitatId))
+    .all() as Array<{
+    id: string;
+    eventType: string;
+    title: string | null;
+    body: string | null;
+    targetId: string | null;
+  }>;
+}
+
+function notificationDeliveriesFor(eventId: string) {
+  return getDb()
+    .select({
+      recipientType: notificationDeliveries.recipientType,
+      recipientId: notificationDeliveries.recipientId,
+      status: notificationDeliveries.status,
+    })
+    .from(notificationDeliveries)
+    .where(eq(notificationDeliveries.eventId, eventId))
+    .all();
+}
+
+/** Seeds an org → team → member chain, attaches it to the test habitat (so
+ * human-recipient gathering finds user-1), and registers a habitat_default
+ * subscription for task.blocked (explicit recipients resolve their channels
+ * through habitat defaults — none means "no_default" suppression). */
+function seedDeliveryTargets(): void {
+  userRepo.createUser({
+    id: "user-1",
+    username: "budget-user",
+    passwordHash: "x",
+    displayName: "Budget User",
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  });
+  const org = organizationRepo.createOrganization({ name: "Budget Org", slug: "budget-org" });
+  const team = teamRepo.createTeam({
+    organizationId: org.id,
+    name: "Budget Team",
+    slug: "budget-team",
+  });
+  teamMemberRepo.addMember({ teamId: team.id, userId: "user-1" });
+  getDb()
+    .update(habitats)
+    .set({ teamId: team.id })
+    .where(eq(habitats.id, habitatId))
+    .run();
+  subscriptionRepo.createSubscription({
+    habitatId,
+    scope: "habitat_default",
+    eventType: "task.blocked",
+    enabled: true,
+    required: false,
+    channels: ["in_app"],
+    cadence: "immediate",
+  });
 }
 
 /** Drives pending → claimed → in_progress at the REPO level (no events, no
@@ -512,3 +663,252 @@ describe("transition budget — remote wrapper wiring", () => {
     expect(taskCrud.getTaskById(task.id)?.status).toBe("claimed");
   });
 });
+
+// ---------------------------------------------------------------------------
+// Ticket 3 — escalation closure (plan §6: refuse + escalated event + human
+// notification, emit-once, no status change)
+// ---------------------------------------------------------------------------
+
+describe("transition budget — escalation module contract", () => {
+  it("hasBudgetBreachEscalation: only marker-carrying escalated events count", async () => {
+    const mod = await import("../services/tasks/transitionBudget.js");
+    const task = seedTask("marker-contract");
+    expect(mod.hasBudgetBreachEscalation(getDb(), task.id)).toBe(false);
+
+    // A retry-ladder escalation (no marker) is a distinct population.
+    eventRepo.createEvent({
+      taskId: task.id,
+      actorType: "system",
+      actorId: "retry-service",
+      action: "escalated",
+      metadata: { retryCount: 3, maxRetries: 3, rejectionReason: "keep failing" },
+    });
+    expect(mod.hasBudgetBreachEscalation(getDb(), task.id)).toBe(false);
+
+    // A budget-marked escalation is the discriminator.
+    eventRepo.createEvent({
+      taskId: task.id,
+      actorType: "system",
+      actorId: "transition-budget",
+      action: "escalated",
+      metadata: { transitionBudget: { attemptedAction: "claimed", ceiling: 2, count: 2 } },
+    });
+    expect(mod.hasBudgetBreachEscalation(getDb(), task.id)).toBe(true);
+  });
+});
+
+describe("transition budget — breach escalation closure", () => {
+  it("first breach: refusal + exactly one escalated event with breach metadata + notification event + SSE task.escalated", async () => {
+    const agent = seedAgent("breach-claimer");
+    const task = seedTask("breach-first");
+    seedEvents(task.id, 21, "claimed", "agent");
+
+    const sse: Array<{ type: string; data?: unknown }> = [];
+    const unsubscribe = sseBroadcaster.subscribe(habitatId, (e) =>
+      sse.push({ type: e.type, data: e.data }),
+    );
+    try {
+      const result = taskStateMachine.claimTask(task.id, agent.id);
+      expect(result.success).toBe(false);
+      await flushEscalations();
+
+      // Exactly one budget escalation, authored by the guard, with breach metadata.
+      const breaches = budgetBreachEscalations(task.id);
+      expect(breaches).toHaveLength(1);
+      expect(breaches[0].actorType).toBe("system");
+      expect(breaches[0].actorId).toBe("transition-budget");
+      expect(breachMetadata(breaches[0])).toMatchObject({
+        attemptedAction: "claimed",
+        attemptedActorType: "agent",
+        ceiling: 21,
+        count: 21,
+      });
+
+      // SSE task.escalated observed exactly once, for this task.
+      const escalatedSse = sse.filter((e) => e.type === "task.escalated");
+      expect(escalatedSse).toHaveLength(1);
+      expect((escalatedSse[0].data as { taskId?: string } | undefined)?.taskId).toBe(task.id);
+
+      // Human notification recorded (event row; delivery is the team test below).
+      const notes = notificationEventRows(habitatId).filter(
+        (n) => n.eventType === "task.blocked" && n.targetId === task.id,
+      );
+      expect(notes).toHaveLength(1);
+      expect(notes[0].title).toContain("transition budget");
+      expect(notes[0].body ?? "").toContain("21");
+
+      // Trail arithmetic: 21 seeded metered + 1 escalated (not metered, no status change).
+      expect(countEvents(task.id)).toBe(22);
+      expect(taskCrud.getTaskById(task.id)?.status).toBe("pending");
+    } finally {
+      unsubscribe();
+    }
+  });
+
+  it("repeat refused attempts do not re-escalate or re-notify (emit-once)", async () => {
+    const agent = seedAgent("breach-repeater");
+    const task = seedTask("breach-repeat");
+    seedEvents(task.id, 21, "claimed", "agent");
+
+    expect(taskStateMachine.claimTask(task.id, agent.id).success).toBe(false);
+    await flushEscalations();
+    expect(taskStateMachine.claimTask(task.id, agent.id).success).toBe(false);
+    await flushEscalations();
+
+    expect(budgetBreachEscalations(task.id)).toHaveLength(1);
+    expect(escalatedEvents(task.id)).toHaveLength(1);
+    expect(
+      notificationEventRows(habitatId).filter((n) => n.targetId === task.id),
+    ).toHaveLength(1);
+    expect(countEvents(task.id)).toBe(22);
+  });
+
+  it("human transitions still succeed after the breach and add no escalation", async () => {
+    const agent = seedAgent("breach-human-resolution");
+    const task = seedTask("breach-human-resolve");
+    driveToSubmittedRepo(task.id, agent.id);
+    seedEvents(task.id, 21, "claimed", "agent");
+
+    // Agent rejection is metered → refused + first escalation.
+    expect(taskLifecycle.rejectTask(task.id, "agent-reviewer", "needs work", "agent")).toBeNull();
+    await flushEscalations();
+    expect(budgetBreachEscalations(task.id)).toHaveLength(1);
+
+    // Human rejection is exempt → succeeds, no second escalation.
+    const rejected = taskLifecycle.rejectTask(task.id, "reviewer-1", "human taking over", "human");
+    expect(rejected).not.toBeNull();
+    expect(rejected?.status).toBe("rejected");
+    await flushEscalations();
+    expect(budgetBreachEscalations(task.id)).toHaveLength(1);
+  });
+
+  it("the breach escalation survives the audit projection with actor and metadata", async () => {
+    const agent = seedAgent("breach-audit");
+    const task = seedTask("breach-audit-projection");
+    seedEvents(task.id, 21, "claimed", "agent");
+
+    expect(taskStateMachine.claimTask(task.id, agent.id).success).toBe(false);
+    await flushEscalations();
+
+    const audit = queryAuditEvents({ habitatId, taskId: task.id });
+    const projected = audit.events.filter((e) => e.action === "escalated");
+    expect(projected).toHaveLength(1);
+    expect(projected[0].actor.type).toBe("system");
+    expect(projected[0].actor.id).toBe("transition-budget");
+    expect((projected[0].metadata as Record<string, unknown>).transitionBudget).toMatchObject({
+      attemptedAction: "claimed",
+      ceiling: 21,
+      count: 21,
+    });
+  });
+
+  it("a prior retry-ladder escalation does not suppress the budget escalation (metadata-scoped emit-once)", async () => {
+    const agent = seedAgent("breach-coexist");
+    const task = seedTask("breach-after-ladder-escalation");
+    eventRepo.createEvent({
+      taskId: task.id,
+      actorType: "system",
+      actorId: "retry-service",
+      action: "escalated",
+      metadata: { retryCount: 3, maxRetries: 3, rejectionReason: "keep failing" },
+    });
+    seedEvents(task.id, 21, "claimed", "agent");
+
+    expect(taskStateMachine.claimTask(task.id, agent.id).success).toBe(false);
+    await flushEscalations();
+
+    expect(budgetBreachEscalations(task.id)).toHaveLength(1);
+    expect(escalatedEvents(task.id)).toHaveLength(2);
+  });
+
+  it("an over-budget approval by a human succeeds without any escalation [GREEN-stays]", async () => {
+    const agent = seedAgent("breach-human-approver");
+    const task = seedTask("breach-human-approve");
+    driveToSubmittedRepo(task.id, agent.id);
+    seedEvents(task.id, 21, "claimed", "agent");
+
+    const approved = taskLifecycle.approveTask(task.id, "reviewer-1", "human");
+    expect(approved).not.toBeNull();
+    expect(approved?.status).toBe("approved");
+
+    await flushEscalations();
+    expect(escalatedEvents(task.id)).toHaveLength(0);
+    expect(notificationEventRows(habitatId)).toHaveLength(0);
+    // Approved exits untaxed: the 21 seeded events are still the whole meter.
+    expect(countEvents(task.id)).toBe(22); // 21 seeded + 1 approved transition event
+  });
+
+  it("delivers the breach notification to the habitat's human team members", async () => {
+    seedDeliveryTargets();
+    const agent = seedAgent("breach-delivery");
+    const task = seedTask("breach-delivery");
+    seedEvents(task.id, 21, "claimed", "agent");
+
+    expect(taskStateMachine.claimTask(task.id, agent.id).success).toBe(false);
+    await flushEscalations();
+
+    const note = notificationEventRows(habitatId).find((n) => n.targetId === task.id);
+    expect(note).toBeDefined();
+    const deliveries = notificationDeliveriesFor(note!.id);
+    expect(
+      deliveries.some((d) => d.recipientType === "human" && d.recipientId === "user-1"),
+    ).toBe(true);
+  });
+
+  it("submitTask refusal carries operator-actionable budget diagnostics", async () => {
+    const agent = seedAgent("breach-submit-diagnostics");
+    const task = seedTask("breach-submit-diagnostics");
+    claimAndStartRepo(task.id, agent.id);
+    seedEvents(task.id, 21, "claimed", "agent");
+
+    const submitted = taskLifecycle.submitTask(task.id, agent.id, "result", []);
+
+    expect(submitted.task).toBeNull();
+    expect(submitted.error).toBe("TRANSITION_BUDGET_EXHAUSTED");
+    expect(submitted.budgetExhausted).toEqual({ count: 21, ceiling: 21 });
+
+    await flushEscalations();
+    expect(breachMetadata(budgetBreachEscalations(task.id)[0]).attemptedAction).toBe("submitted");
+  });
+
+  it("remote submit refusal carries budget diagnostics on the wrapper surface", async () => {
+    const { ctx } = setupRemoteFixture("remote_orcy");
+    const task = seedTask("breach-remote-submit-diagnostics");
+    claimAndStartRemoteRepo(task.id, ctx.participant.id);
+    seedEvents(task.id, 21, "claimed", "remote_orcy");
+
+    const result = submitTaskForRemote(task.id, ctx, "result", []);
+
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.reason).toBe("transition_budget_exhausted");
+      expect(result.budgetCount).toBe(21);
+      expect(result.budgetCeiling).toBe(21);
+    }
+
+    await flushEscalations();
+    const breaches = budgetBreachEscalations(task.id);
+    expect(breaches).toHaveLength(1);
+    expect(breachMetadata(breaches[0]).attemptedAction).toBe("submitted");
+    expect(breachMetadata(breaches[0]).attemptedActorType).toBe("remote_orcy");
+  });
+});
+
+/** Narrows an escalation row's metadata to the transitionBudget marker payload. */
+function breachMetadata(row: EscalatedEventRow): {
+  attemptedAction: string;
+  attemptedActorType: string;
+  ceiling: number;
+  count: number;
+} {
+  const marker = (row.metadata as Record<string, unknown> | null)?.transitionBudget as
+    | {
+        attemptedAction: string;
+        attemptedActorType: string;
+        ceiling: number;
+        count: number;
+      }
+    | undefined;
+  expect(marker).toBeDefined();
+  return marker!;
+}

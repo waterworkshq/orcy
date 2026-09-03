@@ -83,9 +83,10 @@ export function executeRetry(task: Task): Task | null {
   // when written, but scheduling itself is not guarded). The retry processor
   // is a system actor: metered. Refusal follows this function's null-on-
   // failed-update convention; the task keeps its nextRetryAt until a human
-  // resolves it or the ceiling is raised (breach surfacing is Ticket 3).
+  // resolves it or the ceiling is raised. The first refusal escalates (plan
+  // §6) — emitted once, outside this module, by the guard's breach site.
   const budgetHabitatId = taskRepo.getHabitatIdForTask(task.id) ?? "";
-  const budget = guardTransitionTop(task.id, budgetHabitatId, "system");
+  const budget = guardTransitionTop(task.id, budgetHabitatId, "system", "retry_executed");
   if (budget.outcome === "refused") return null;
 
   const newRetryCount = task.retryCount + 1;
