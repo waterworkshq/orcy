@@ -3,7 +3,7 @@
   "version": "0.41.3",
   "private": true,
   "license": "MIT",
-  "packageManager": "pnpm@9.0.0",
+  "packageManager": "pnpm@9.15.9",
   "scripts": {
     "build:installer": "corepack pnpm --filter @orcy/installer build",
     "dev:installer": "corepack pnpm --filter @orcy/installer dev",

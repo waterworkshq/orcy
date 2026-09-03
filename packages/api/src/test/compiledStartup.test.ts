@@ -340,7 +340,10 @@ function assertNoWorkspaceAncestor(start: string): void {
 
 describe("F1 — ESM-safe compiled API startup", () => {
   beforeAll(() => {
-    execSync("npx pnpm@9.0.0 --filter @orcy/api build", {
+    // Corepack resolves pnpm from the root packageManager field, so this
+    // follows deliberate pin bumps; the explicit entry avoids the ambient
+    // pnpm that broke this smoke test pre-TG-16.
+    execSync("corepack pnpm --filter @orcy/api build", {
       cwd: WORKSPACE_ROOT,
       stdio: "pipe",
       timeout: 120_000,
@@ -699,62 +702,66 @@ describe("F1 — ESM-safe compiled API startup", () => {
         const port = await getFreePort();
         prepareCurrentSchemaDatabase(dbPath);
 
-        await launchAndWaitForHealth(DIST_ENTRY, {
-          ...process.env,
-          NODE_ENV: "production",
-          DB_PATH: dbPath,
-          PORT: String(port),
-          HOST: "127.0.0.1",
-          JWT_SECRET: STRONG_JWT,
-          ORCY_REGISTRATION_TOKEN: "char-compiled-only-token",
-          ORCY_UI_PATH: uiDir,
-          PLUGINS_DIR: pluginDir,
-          HOME: tempDir,
-          LOG_LEVEL: "error",
-        }, async (base) => {
-          // redirect: "manual" — observe the 302 itself rather than following it.
-          const root = await fetch(`${base}/`, { redirect: "manual" });
-          expect(root.status).toBe(302);
-          expect(root.headers.get("location")).toBe("/app/");
+        await launchAndWaitForHealth(
+          DIST_ENTRY,
+          {
+            ...process.env,
+            NODE_ENV: "production",
+            DB_PATH: dbPath,
+            PORT: String(port),
+            HOST: "127.0.0.1",
+            JWT_SECRET: STRONG_JWT,
+            ORCY_REGISTRATION_TOKEN: "char-compiled-only-token",
+            ORCY_UI_PATH: uiDir,
+            PLUGINS_DIR: pluginDir,
+            HOME: tempDir,
+            LOG_LEVEL: "error",
+          },
+          async (base) => {
+            // redirect: "manual" — observe the 302 itself rather than following it.
+            const root = await fetch(`${base}/`, { redirect: "manual" });
+            expect(root.status).toBe(302);
+            expect(root.headers.get("location")).toBe("/app/");
 
-          const spa = await fetch(`${base}/app/`);
-          expect(spa.status).toBe(200);
-          expect(await spa.text()).toContain("char-compiled-ui");
+            const spa = await fetch(`${base}/app/`);
+            expect(spa.status).toBe(200);
+            expect(await spa.text()).toContain("char-compiled-ui");
 
-          // Local API under both prefixes.
-          expect((await fetch(`${base}/api/v1/habitats`)).status).toBe(401);
-          expect((await fetch(`${base}/api/habitats`)).status).toBe(401);
+            // Local API under both prefixes.
+            expect((await fetch(`${base}/api/v1/habitats`)).status).toBe(401);
+            expect((await fetch(`${base}/api/habitats`)).status).toBe(401);
 
-          // Realtime + Remote Participant.
-          expect((await fetch(`${base}/sse/habitats/char/stream`)).status).toBe(401);
-          expect((await fetch(`${base}/api/shared/me`)).status).toBe(401);
+            // Realtime + Remote Participant.
+            expect((await fetch(`${base}/sse/habitats/char/stream`)).status).toBe(401);
+            expect((await fetch(`${base}/api/shared/me`)).status).toBe(401);
 
-          // Verified ingress under both prefixes: the compiled process runs
-          // in production (remote) posture, so fail-closed rejection applies
-          // even with no secrets configured — proving the route exists AND
-          // enforces.
-          for (const prefix of ["/api/v1", "/api"]) {
-            const ingress = await fetch(`${base}${prefix}/webhooks/github`, {
-              method: "POST",
-              headers: { "content-type": "application/json", "x-github-event": "ping" },
-              body: "{}",
-            });
-            expect(ingress.status, `${prefix} ingress route`).toBe(401);
-            expect(await ingress.json()).toEqual({ error: "Invalid or missing signature" });
-          }
+            // Verified ingress under both prefixes: the compiled process runs
+            // in production (remote) posture, so fail-closed rejection applies
+            // even with no secrets configured — proving the route exists AND
+            // enforces.
+            for (const prefix of ["/api/v1", "/api"]) {
+              const ingress = await fetch(`${base}${prefix}/webhooks/github`, {
+                method: "POST",
+                headers: { "content-type": "application/json", "x-github-event": "ping" },
+                body: "{}",
+              });
+              expect(ingress.status, `${prefix} ingress route`).toBe(401);
+              expect(await ingress.json()).toEqual({ error: "Invalid or missing signature" });
+            }
 
-          // Fixture plugin routes: core-mounted under both plugin namespaces
-          // with fixed local_actor policy (ADR-0050). Unauthenticated → 401
-          // under both; the deprecated mirror alone carries Deprecation.
-          for (const prefix of ["/api/v1", "/api"]) {
-            const pluginRoute = await fetch(`${base}${prefix}/plugins/char-fixture/status`);
-            expect(pluginRoute.status, `${prefix} plugin route`).toBe(401);
-            const deprecation = pluginRoute.headers.get("deprecation");
-            expect(deprecation, `${prefix} plugin deprecation header`).toBe(
-              prefix === "/api" ? "true" : null,
-            );
-          }
-        });
+            // Fixture plugin routes: core-mounted under both plugin namespaces
+            // with fixed local_actor policy (ADR-0050). Unauthenticated → 401
+            // under both; the deprecated mirror alone carries Deprecation.
+            for (const prefix of ["/api/v1", "/api"]) {
+              const pluginRoute = await fetch(`${base}${prefix}/plugins/char-fixture/status`);
+              expect(pluginRoute.status, `${prefix} plugin route`).toBe(401);
+              const deprecation = pluginRoute.headers.get("deprecation");
+              expect(deprecation, `${prefix} plugin deprecation header`).toBe(
+                prefix === "/api" ? "true" : null,
+              );
+            }
+          },
+        );
       } finally {
         rmSync(tempDir, { recursive: true, force: true });
       }

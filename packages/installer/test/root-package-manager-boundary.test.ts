@@ -2,8 +2,8 @@
  * REL-INFRA-2.1 — root package-script pnpm re-entry boundary.
  *
  * Under a Corepack parent, a nested bare `pnpm` inside a root package script
- * resolves the ambient pnpm (11.24.0) and refuses to self-switch to the
- * repository's `packageManager` pin (9.0.0) — exit 1. Every root-script pnpm
+ * resolves an ambient pnpm and refuses to self-switch to the repository's
+ * `packageManager` pin — exit 1. Every root-script pnpm
  * invocation must therefore enter through `corepack pnpm` so the pin stays the
  * single version authority.
  *
