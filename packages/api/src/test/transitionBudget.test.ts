@@ -11,7 +11,7 @@
  *
  * Coverage (each test states its discriminating failure mode in a tail
  * comment):
- *   - default ceiling 12 (null blob) → 13th metered claim refuses [RED]
+ *   - default ceiling 21 (null blob) → 22nd metered claim refuses [RED]
  *   - repo-level claim flattens to legacy "transition_budget_exhausted" [RED]
  *   - submit refuses with typed error, status unchanged [RED]
  *   - start / release / fail / agent-reject refuse (null convention) [RED]
@@ -227,19 +227,19 @@ function claimAndStartRemoteRepo(taskId: string, participantId: string) {
 // ---------------------------------------------------------------------------
 
 describe("transitionBudget module contract", () => {
-  it("resolves the ceiling: null/absent blob → 12, 0 → opt-out, n → n", async () => {
+  it("resolves the ceiling: null/absent blob → 21, 0 → opt-out, n → n", async () => {
     const mod = await import("../services/tasks/transitionBudget.js");
     const db = getDb();
-    // Fresh habitat: blob null → default 12
-    expect(mod.resolveCeiling(db, habitatId)).toBe(12);
+    // Fresh habitat: blob null → default 21
+    expect(mod.resolveCeiling(db, habitatId)).toBe(21);
     setLifecycle({ taskTransitionCeiling: null });
-    expect(mod.resolveCeiling(db, habitatId)).toBe(12);
+    expect(mod.resolveCeiling(db, habitatId)).toBe(21);
     setLifecycle({ taskTransitionCeiling: 0 });
     expect(mod.resolveCeiling(db, habitatId)).toBe(0);
     setLifecycle({ taskTransitionCeiling: 7 });
     expect(mod.resolveCeiling(db, habitatId)).toBe(7);
     // Missing habitat → finite default, never unbounded
-    expect(mod.resolveCeiling(db, "no-such-habitat")).toBe(12);
+    expect(mod.resolveCeiling(db, "no-such-habitat")).toBe(21);
   });
 
   it("counts only metered actions by non-human actors", async () => {
@@ -257,7 +257,7 @@ describe("transitionBudget module contract", () => {
   it("guardTransition: refuses at count>=ceiling, skips human actors and opt-out", async () => {
     const mod = await import("../services/tasks/transitionBudget.js");
     const task = seedTask("guard-contract");
-    seedEvents(task.id, 12, "claimed", "agent");
+    seedEvents(task.id, 21, "claimed", "agent");
     const refused = mod.guardTransition(getDb(), task.id, habitatId, "agent");
     expect(refused.outcome).toBe("refused");
     const human = mod.guardTransition(getDb(), task.id, habitatId, "human");
@@ -273,17 +273,17 @@ describe("transitionBudget module contract", () => {
 // ---------------------------------------------------------------------------
 
 describe("transition budget — claim wiring", () => {
-  it("refuses the 13th metered claim at the default ceiling (null habitat blob) and leaves the task pending", () => {
+  it("refuses the 22nd metered claim at the default ceiling (null habitat blob) and leaves the task pending", () => {
     const agent = seedAgent("budget-claimer");
     const task = seedTask("claim-13th");
-    seedEvents(task.id, 12, "claimed", "agent");
+    seedEvents(task.id, 21, "claimed", "agent");
 
     const result = taskStateMachine.claimTask(task.id, agent.id);
 
     expect(result.success).toBe(false);
     if (!result.success) expect(result.reason).toBe("transition_budget_exhausted");
     expect(taskCrud.getTaskById(task.id)?.status).toBe("pending");
-    expect(countEvents(task.id)).toBe(12);
+    expect(countEvents(task.id)).toBe(21);
   });
 
   it("refuses at a custom ceiling: ceiling 2, 2 seeded events → 3rd refuses; 1 event → allows", () => {
@@ -324,8 +324,8 @@ describe("transition budget — claim wiring", () => {
   it("human-actor metered events do not count (actor_type filter at count time)", () => {
     const agent = seedAgent("budget-human-events");
     const task = seedTask("human-actor-events");
-    seedEvents(task.id, 12, "claimed", "human");
-    seedEvents(task.id, 12, "submitted", "remote_human");
+    seedEvents(task.id, 21, "claimed", "human");
+    seedEvents(task.id, 21, "submitted", "remote_human");
 
     const result = taskStateMachine.claimTask(task.id, agent.id);
     expect(result.success).toBe(true);
@@ -337,7 +337,7 @@ describe("transition budget — exempt exits and human actors", () => {
     const agent = seedAgent("budget-approver");
     const task = seedTask("approve-over-budget");
     driveToSubmittedRepo(task.id, agent.id);
-    seedEvents(task.id, 12, "claimed", "agent");
+    seedEvents(task.id, 21, "claimed", "agent");
 
     const approved = taskLifecycle.approveTask(task.id, "reviewer-1");
     expect(approved).not.toBeNull();
@@ -348,7 +348,7 @@ describe("transition budget — exempt exits and human actors", () => {
     const agent = seedAgent("budget-completer");
     const task = seedTask("complete-over-budget");
     driveToSubmittedRepo(task.id, agent.id);
-    seedEvents(task.id, 12, "claimed", "agent");
+    seedEvents(task.id, 21, "claimed", "agent");
 
     const completed = taskLifecycle.completeTask(task.id, agent.id, "note", [], true);
     expect(completed.task).not.toBeNull();
@@ -359,7 +359,7 @@ describe("transition budget — exempt exits and human actors", () => {
     const agent = seedAgent("budget-human-rejector");
     const task = seedTask("human-reject-over-budget");
     driveToSubmittedRepo(task.id, agent.id);
-    seedEvents(task.id, 12, "claimed", "agent");
+    seedEvents(task.id, 21, "claimed", "agent");
 
     const rejected = taskLifecycle.rejectTask(task.id, "reviewer-1", "needs work", "human");
     expect(rejected).not.toBeNull();
@@ -370,7 +370,7 @@ describe("transition budget — exempt exits and human actors", () => {
     const agent = seedAgent("budget-agent-rejector");
     const task = seedTask("agent-reject-over-budget");
     driveToSubmittedRepo(task.id, agent.id);
-    seedEvents(task.id, 12, "claimed", "agent");
+    seedEvents(task.id, 21, "claimed", "agent");
 
     const rejected = taskLifecycle.rejectTask(task.id, "agent-reviewer", "needs work", "agent");
     expect(rejected).toBeNull();
@@ -383,7 +383,7 @@ describe("transition budget — local mutation wiring", () => {
     const agent = seedAgent("budget-submitter");
     const task = seedTask("submit-over-budget");
     claimAndStartRepo(task.id, agent.id);
-    seedEvents(task.id, 12, "claimed", "agent");
+    seedEvents(task.id, 21, "claimed", "agent");
 
     const submitted = taskLifecycle.submitTask(task.id, agent.id, "result", []);
 
@@ -397,7 +397,7 @@ describe("transition budget — local mutation wiring", () => {
     const task = seedTask("start-over-budget");
     const claimed = taskStateMachine.claimTask(task.id, agent.id);
     if (!claimed.success) throw new Error("setup claim failed");
-    seedEvents(task.id, 12, "claimed", "agent");
+    seedEvents(task.id, 21, "claimed", "agent");
 
     expect(taskLifecycle.startTask(task.id, agent.id)).toBeNull();
     expect(taskCrud.getTaskById(task.id)?.status).toBe("claimed");
@@ -408,7 +408,7 @@ describe("transition budget — local mutation wiring", () => {
     const task = seedTask("release-over-budget");
     const claimed = taskStateMachine.claimTask(task.id, agent.id);
     if (!claimed.success) throw new Error("setup claim failed");
-    seedEvents(task.id, 12, "claimed", "agent");
+    seedEvents(task.id, 21, "claimed", "agent");
 
     expect(taskLifecycle.releaseTask(task.id, agent.id, "done for now")).toBeNull();
     expect(taskCrud.getTaskById(task.id)?.status).toBe("claimed");
@@ -425,7 +425,7 @@ describe("transition budget — local mutation wiring", () => {
       .set({ assignedAgentId: null })
       .where(eq(tasks.id, task.id))
       .run();
-    seedEvents(task.id, 12, "claimed", "agent");
+    seedEvents(task.id, 21, "claimed", "agent");
 
     const released = taskLifecycle.releaseTask(task.id, "human-operator", "taking over");
     expect(released).not.toBeNull();
@@ -436,7 +436,7 @@ describe("transition budget — local mutation wiring", () => {
     const agent = seedAgent("budget-failer");
     const task = seedTask("fail-over-budget");
     claimAndStartRepo(task.id, agent.id);
-    seedEvents(task.id, 12, "claimed", "agent");
+    seedEvents(task.id, 21, "claimed", "agent");
 
     expect(taskLifecycle.failTask(task.id, agent.id, "agent", "boom")).toBeNull();
     expect(taskCrud.getTaskById(task.id)?.status).toBe("in_progress");
@@ -446,7 +446,7 @@ describe("transition budget — local mutation wiring", () => {
     const agent = seedAgent("budget-retry");
     const task = seedTask("retry-over-budget");
     claimAndStartRepo(task.id, agent.id);
-    seedEvents(task.id, 12, "claimed", "agent");
+    seedEvents(task.id, 21, "claimed", "agent");
     const before = taskCrud.getTaskById(task.id)!;
 
     const retried = retryService.executeRetry(before);
@@ -465,7 +465,7 @@ describe("transition budget — remote wrapper wiring", () => {
   it("claimTaskForRemote refuses over budget with the legacy reason", () => {
     const { ctx } = setupRemoteFixture("remote_orcy");
     const task = seedTask("remote-claim-over-budget");
-    seedEvents(task.id, 12, "claimed", "remote_orcy");
+    seedEvents(task.id, 21, "claimed", "remote_orcy");
 
     const result = claimTaskForRemote(task.id, ctx);
 
@@ -477,7 +477,7 @@ describe("transition budget — remote wrapper wiring", () => {
     const { ctx } = setupRemoteFixture("remote_orcy");
     const task = seedTask("remote-submit-over-budget");
     claimAndStartRemoteRepo(task.id, ctx.participant.id);
-    seedEvents(task.id, 12, "claimed", "remote_orcy");
+    seedEvents(task.id, 21, "claimed", "remote_orcy");
 
     const result = submitTaskForRemote(task.id, ctx, "result", []);
 
@@ -490,7 +490,7 @@ describe("transition budget — remote wrapper wiring", () => {
     const { ctx } = setupRemoteFixture("remote_human");
     const task = seedTask("remote-human-submit-over-budget");
     claimAndStartRemoteRepo(task.id, ctx.participant.id);
-    seedEvents(task.id, 12, "claimed", "agent");
+    seedEvents(task.id, 21, "claimed", "agent");
 
     const result = submitTaskForRemote(task.id, ctx, "human fixes", []);
 
@@ -503,7 +503,7 @@ describe("transition budget — remote wrapper wiring", () => {
     const task = seedTask("remote-release-over-budget");
     const claimed = taskStateMachine.claimTaskByRemoteParticipant(task.id, ctx.participant.id);
     if (!claimed.success) throw new Error("setup remote claim failed");
-    seedEvents(task.id, 12, "claimed", "remote_orcy");
+    seedEvents(task.id, 21, "claimed", "remote_orcy");
 
     const result = releaseTaskForRemote(task.id, ctx, "reason");
 

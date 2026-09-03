@@ -223,11 +223,16 @@ export interface LifecycleSettings {
 
 /**
  * Default per-task transition ceiling used when a habitat has no
- * `lifecycleSettings` or a null `taskTransitionCeiling`. Derived in the
- * originating design discussion: first pass (claimed + started + submitted)
- * plus three fix rounds (~3 metered transitions each) = 12.
+ * `lifecycleSettings` or a null `taskTransitionCeiling`. Derivation under the
+ * contracted metered set: a first pass costs 3 transitions (claimed + started
+ * + submitted); each fix round costs 6 with a retry policy (re-claim,
+ * re-start, retry_scheduled, retry_executed, submit, reject) or 4 without —
+ * so 21 buys the first pass plus three policy-driven fix rounds, or four
+ * no-policy rounds with headroom, honoring the "three or four fix rounds"
+ * design intent in both regimes. Arithmetic corrected per the Ticket 2 final
+ * review (the original sketch assumed ~3 per round).
  */
-export const DEFAULT_TASK_TRANSITION_CEILING = 12;
+export const DEFAULT_TASK_TRANSITION_CEILING = 21;
 
 /**
  * Zod schema for validating `lifecycleSettings` patches via PATCH

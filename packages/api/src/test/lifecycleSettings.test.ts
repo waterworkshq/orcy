@@ -95,7 +95,11 @@ describe("lifecycleSettings surface (transition budget ticket 1)", () => {
     await initTestDb();
     if (app) await app.close();
     app = await setupApp();
-    token = makeToken({ sub: "user-lifecycle-tester", username: "lifecycle-tester", role: "admin" });
+    token = makeToken({
+      sub: "user-lifecycle-tester",
+      username: "lifecycle-tester",
+      role: "admin",
+    });
   });
 
   afterEach(async () => {
@@ -178,6 +182,6 @@ describe("lifecycleSettings surface (transition budget ticket 1)", () => {
     // Dynamic import keeps this file loadable pre-implementation so the
     // PATCH-surface RED stays per-test attributable.
     const shared = await import("@orcy/shared");
-    expect((shared as Record<string, unknown>).DEFAULT_TASK_TRANSITION_CEILING).toBe(12);
+    expect((shared as Record<string, unknown>).DEFAULT_TASK_TRANSITION_CEILING).toBe(21);
   });
 });
