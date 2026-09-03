@@ -87,7 +87,7 @@ function notifyHabitatHumansOfBreach(
   attemptedAction: MeteredTaskAction,
   attemptedActorType: BudgetActorType,
 ): void {
-  if (!habitatId) return; // unresolvable habitat — the event + SSE already surfaced
+  if (!habitatId) return; // unresolvable habitat — the escalated event row is the durable record; SSE has no audience here
   try {
     const breach = {
       attemptedAction,
