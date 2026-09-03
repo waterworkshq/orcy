@@ -20,9 +20,10 @@
     "dev": "tsx watch src/index.ts",
     "build": "tsc",
     "start": "node dist/index.js",
-    "test": "vitest run --exclude src/test/perfWorkflow.test.ts",
+    "test": "vitest run --exclude src/test/perfWorkflow.test.ts --exclude src/test/stagedEnforcementOverlap.test.ts",
     "test:watch": "vitest",
     "test:perf": "vitest run src/test/perfWorkflow.test.ts --fileParallelism=false",
+    "test:staged-overlap": "vitest run src/test/stagedEnforcementOverlap.test.ts",
     "test:production-migration": "vitest run src/test/migrationCompletenessGuard.test.ts src/test/productionMigrationChain.test.ts src/test/f3QuarantineResetFreeze.test.ts src/test/pluginQuarantineProductionMigration.test.ts src/test/compiledStartup.test.ts",
     "typecheck": "tsc --noEmit",
     "db:seed": "tsx ../../scripts/seed.ts"

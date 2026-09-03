@@ -21,6 +21,7 @@ test-request.ps1
 playwright-report/
 test-results/
 coverage/
+packages/api/.test-staged-enforcement/
 
 # TypeScript compiler artifacts (emitted when tsc runs without --noEmit)
 *.js.map

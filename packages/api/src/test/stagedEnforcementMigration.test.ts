@@ -26,8 +26,13 @@
  *     wrong-schema_version, and wrong-anomaly-query-digest clean
  *     attestations all abort; a parity test pins the guard's literals to the
  *     live preflight constants the runner emits.
+ *
+ * Temp ownership: every invocation of this file allocates its OWN run-*
+ * directory under the checkout-constant `.test-staged-enforcement` parent,
+ * so two Vitest processes running this suite in one checkout never unlink
+ * each other's live databases (see helpers/stagedRunDir.ts).
  */
-import { vi, describe, it, expect, beforeAll, beforeEach, afterEach, afterAll } from "vitest";
+import { vi, describe, it, expect, beforeEach, afterEach, afterAll } from "vitest";
 
 // Migration-chain tests build file-backed databases through the full journal
 // (now including the staged preflight/enforcement protocol) — allow headroom
@@ -48,13 +53,25 @@ import {
   ADDITIVE_SCHEMA_VERSION,
   computeAnomalyQueryDigest,
 } from "../services/findingTriagePreflight.js";
+import { allocateStagedRunDir, recoverStaleRuns } from "./helpers/stagedRunDir.js";
 
 const PACKAGE_ROOT = join(import.meta.dirname, "..", "..");
 const DRIZZLE_DIR = join(PACKAGE_ROOT, "drizzle");
+// Checkout-constant PARENT of every per-invocation run directory. Never
+// removed directly — only individual run-* directories are owned and torn
+// down.
 const TEMP_DIR = join(PACKAGE_ROOT, ".test-staged-enforcement");
 
+// Per-invocation ownership: recover dead-run residue first (liveness-aware —
+// a live sibling run is never touched), then allocate this invocation's
+// unique run directory. This happens at module load, not in beforeAll,
+// because the per-describe `dbPath` constants below are evaluated at
+// collection time — before any hook runs.
+recoverStaleRuns(TEMP_DIR);
+const RUN_DIR = allocateStagedRunDir(TEMP_DIR);
+
 function ensureTempDir(): void {
-  if (!existsSync(TEMP_DIR)) mkdirSync(TEMP_DIR, { recursive: true });
+  if (!existsSync(RUN_DIR)) mkdirSync(RUN_DIR, { recursive: true });
 }
 
 function cleanupDb(dbPath: string): void {
@@ -271,17 +288,13 @@ function attestation(dbPath: string):
 }
 
 describe("Staged enforcement — production initDb discriminators", () => {
-  // Suite-owned residue recovery: a hard abort (crash/SIGKILL mid-test) can
-  // leave `.test-staged-enforcement` behind. Remove ONLY this exact constant
-  // directory at suite start — never a broad glob or env-derived path — and
-  // let the per-test helper recreate it. Teardown closes DB state and takes
-  // the same single directory with it.
-  beforeAll(() => {
-    rmSync(TEMP_DIR, { recursive: true, force: true });
-  });
+  // Residue recovery and run-dir allocation happened at module load
+  // (liveness-aware, never destructive to live sibling runs). Teardown closes
+  // DB state and removes ONLY this invocation's own unique run directory;
+  // the constant parent is never removed directly.
   afterAll(() => {
     closeDb();
-    rmSync(TEMP_DIR, { recursive: true, force: true });
+    rmSync(RUN_DIR, { recursive: true, force: true });
   });
   beforeEach(() => {
     ensureTempDir();
@@ -293,7 +306,7 @@ describe("Staged enforcement — production initDb discriminators", () => {
   // Fresh install
   // ------------------------------------------------------------------
   describe("fresh install", () => {
-    const dbPath = join(TEMP_DIR, "fresh.db");
+    const dbPath = join(RUN_DIR, "fresh.db");
     afterEach(() => cleanupDb(dbPath));
 
     it("runs the full staged chain: watermark, clean attestation, enforcement", async () => {
@@ -338,7 +351,7 @@ describe("Staged enforcement — production initDb discriminators", () => {
   // additive watermark) — clean
   // ------------------------------------------------------------------
   describe("direct clean upgrade from before the additive watermark", () => {
-    const dbPath = join(TEMP_DIR, "direct-clean.db");
+    const dbPath = join(RUN_DIR, "direct-clean.db");
     afterEach(() => cleanupDb(dbPath));
 
     it("commits the watermark, attests clean, enforces, preserves data", async () => {
@@ -393,7 +406,7 @@ describe("Staged enforcement — production initDb discriminators", () => {
   // enforcement, remediation + restart completes
   // ------------------------------------------------------------------
   describe("direct dirty upgrade stops before enforcement", () => {
-    const dbPath = join(TEMP_DIR, "direct-dirty.db");
+    const dbPath = join(RUN_DIR, "direct-dirty.db");
     afterEach(() => cleanupDb(dbPath));
 
     it("defers enforcement with a stable code + machine-readable report, then enforces after remediation", async () => {
@@ -514,7 +527,7 @@ describe("Staged enforcement — production initDb discriminators", () => {
   // Interrupted stage restarts
   // ------------------------------------------------------------------
   describe("interrupted stages restart safely", () => {
-    const dbPath = join(TEMP_DIR, "interrupted.db");
+    const dbPath = join(RUN_DIR, "interrupted.db");
     afterEach(() => cleanupDb(dbPath));
 
     it("restarts after a crash between stage 1 (watermark committed) and the preflight", async () => {
@@ -563,7 +576,7 @@ describe("Staged enforcement — production initDb discriminators", () => {
   // Post-enforcement invariants
   // ------------------------------------------------------------------
   describe("post-enforcement invariants", () => {
-    const dbPath = join(TEMP_DIR, "invariants.db");
+    const dbPath = join(RUN_DIR, "invariants.db");
     afterEach(() => cleanupDb(dbPath));
 
     async function enforced(prefix: string): Promise<TriageWorldIds> {
@@ -733,7 +746,7 @@ describe("Staged enforcement — production initDb discriminators", () => {
   // the runner) — proves the enforcement SQL itself aborts.
   // ------------------------------------------------------------------
   describe("enforcement SQL CHECK guard (direct apply, no runner)", () => {
-    const dbPath = join(TEMP_DIR, "guard.db");
+    const dbPath = join(RUN_DIR, "guard.db");
 
     function applyEnforcementDirectly(db: Database.Database): void {
       const sqlText = readFileSync(join(DRIZZLE_DIR, `${ENFORCEMENT_MIGRATION_TAG}.sql`), "utf-8");
@@ -923,7 +936,7 @@ describe("Staged enforcement — production initDb discriminators", () => {
   // Legacy bridge + prerelease marker compatibility through the staged path
   // ------------------------------------------------------------------
   describe("legacy databases upgrade through the staged path", () => {
-    const dbPath = join(TEMP_DIR, "legacy.db");
+    const dbPath = join(RUN_DIR, "legacy.db");
     afterEach(() => cleanupDb(dbPath));
 
     it("legacy __migrations database crosses the bridge, enforces, and records the full journal", async () => {
