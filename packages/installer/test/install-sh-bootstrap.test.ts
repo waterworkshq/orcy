@@ -29,6 +29,14 @@ import path from "node:path";
 const REPO_ROOT = path.resolve(import.meta.dirname, "..", "..", "..");
 const INSTALL_SH = path.join(REPO_ROOT, "install.sh");
 
+/** The repo root's packageManager pin — the fake source mirrors it and the
+ *  assertions follow it, so a deliberate pin bump needs no test edit. */
+const REPO_PIN = (JSON.parse(
+  fs.readFileSync(path.join(REPO_ROOT, "package.json"), "utf-8"),
+) as { packageManager?: string }).packageManager;
+if (!REPO_PIN) throw new Error("repo packageManager pin missing");
+const PIN_RE = REPO_PIN.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
 /** Resolve a real binary through the test process's own PATH. */
 function resolveBin(name: string): string {
   for (const dir of (process.env.PATH ?? "").split(path.delimiter)) {
@@ -71,7 +79,7 @@ function buildScenario(opts: {
   const markerPath = path.join(home, "installer-exec-marker");
   fs.mkdirSync(stubDir, { recursive: true });
 
-  const pin = "pin" in opts ? opts.pin : "pnpm@9.0.0";
+  const pin = "pin" in opts ? opts.pin : REPO_PIN;
   const withCorepack = opts.withCorepack !== false;
   const withNpx = opts.withNpx !== false;
 
@@ -180,9 +188,9 @@ describe("install.sh — pin-aware pnpm bootstrap (hermetic)", () => {
     const lines = readLog(s);
     const curl = firstIndex(lines, /^curl/);
     const tar = firstIndex(lines, /^tar/);
-    const probe = firstIndex(lines, /^corepack pnpm@9\.0\.0 --version /);
-    const install = firstIndex(lines, /^corepack pnpm@9\.0\.0 install --frozen-lockfile /);
-    const build = firstIndex(lines, /^corepack pnpm@9\.0\.0 -r build /);
+    const probe = firstIndex(lines, new RegExp(`^corepack ${PIN_RE} --version `));
+    const install = firstIndex(lines, new RegExp(`^corepack ${PIN_RE} install --frozen-lockfile `));
+    const build = firstIndex(lines, new RegExp(`^corepack ${PIN_RE} -r build `));
     expect(curl).toBeGreaterThanOrEqual(0);
     expect(tar).toBeGreaterThan(curl);
     expect(probe).toBeGreaterThan(tar);
@@ -208,9 +216,9 @@ describe("install.sh — pin-aware pnpm bootstrap (hermetic)", () => {
     expect(r.status).toBe(0);
 
     const lines = readLog(s);
-    const probe = firstIndex(lines, /^npx --yes pnpm@9\.0\.0 --version /);
-    const install = firstIndex(lines, /^npx --yes pnpm@9\.0\.0 install --frozen-lockfile /);
-    const build = firstIndex(lines, /^npx --yes pnpm@9\.0\.0 -r build /);
+    const probe = firstIndex(lines, new RegExp(`^npx --yes ${PIN_RE} --version `));
+    const install = firstIndex(lines, new RegExp(`^npx --yes ${PIN_RE} install --frozen-lockfile `));
+    const build = firstIndex(lines, new RegExp(`^npx --yes ${PIN_RE} -r build `));
     expect(probe).toBeGreaterThanOrEqual(0);
     expect(install).toBeGreaterThan(probe);
     expect(build).toBeGreaterThan(install);
@@ -223,7 +231,7 @@ describe("install.sh — pin-aware pnpm bootstrap (hermetic)", () => {
     const s = buildScenario({ withCorepack: false, withNpx: false });
     const r = runInstallSh(s);
     expect(r.status).not.toBe(0);
-    expect(`${r.stdout}\n${r.stderr}`).toMatch(/pnpm@9\.0\.0/);
+    expect(`${r.stdout}\n${r.stderr}`).toMatch(new RegExp(PIN_RE));
     // Extraction happened, but nothing ran after resolution failed.
     const lines = readLog(s);
     expect(lines.some((l) => l.startsWith("tar"))).toBe(true);

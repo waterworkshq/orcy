@@ -44,6 +44,12 @@ const M = vi.hoisted(() => {
       args?: string[];
       opts?: unknown;
     }>,
+    // The repo root's packageManager pin, mirrored into fake sources so a
+    // deliberate pin bump needs no fixture edit (assigned at module top level
+    // below — the vi.mock factories execute lazily, after it is set). Empty
+    // placeholder: if the assignment ever fails, seeding an empty pin makes
+    // every pin-aware suite fail loudly instead of silently reverting.
+    repoPin: "" as string,
   };
 });
 
@@ -88,13 +94,14 @@ vi.mock("node:child_process", async () => {
 
   function seedFakeSource(srcDir: string): void {
     // Root package.json carries the packageManager pin the pin-aware pnpm
-    // runner derives its version from (mirrors the real repo root).
+    // runner derives its version from (mirrors the real repo root — derived,
+    // so a deliberate pin bump needs no fixture edit).
     nfs.writeFileSync(
       npath.join(srcDir, "package.json"),
       JSON.stringify({
         name: "orcy",
         private: true,
-        packageManager: "pnpm@9.0.0",
+        packageManager: M.repoPin,
       }),
     );
     for (const c of ["cli", "api", "mcp"]) {
@@ -199,6 +206,16 @@ M.orcyHome = path.join(M.home, ".orcy");
 fs.mkdirSync(M.orcyHome, { recursive: true });
 M.savedHome = process.env.HOME;
 process.env.HOME = M.home;
+// The repo root's pin, read once (top-level runs before any lazily-executed
+// vi.mock factory, so seedFakeSource sees the derived value).
+M.repoPin = (
+  JSON.parse(
+    fs.readFileSync(
+      path.resolve(import.meta.dirname, "..", "..", "..", "..", "package.json"),
+      "utf-8",
+    ),
+  ) as { packageManager?: string }
+).packageManager!;
 
 // --- Mock global fetch (agent registration POST; doctor health check) -----------
 M.savedFetch = globalThis.fetch;
@@ -315,4 +332,9 @@ export function execLog(): ReadonlyArray<{
   opts?: unknown;
 }> {
   return M.execLog;
+}
+
+/** The repo root's packageManager pin (e.g. "pnpm@9.0.0") — derived, not hardcoded. */
+export function repoPin(): string {
+  return M.repoPin;
 }

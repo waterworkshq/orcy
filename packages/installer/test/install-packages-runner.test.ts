@@ -19,9 +19,13 @@ import { describe, it, expect, afterEach } from "vitest";
 import fs from "node:fs";
 import path from "node:path";
 import "./helpers/setup.js";
-import { orcyHome, setExecHook, execLog } from "./helpers/setup.js";
+import { orcyHome, setExecHook, execLog, repoPin } from "./helpers/setup.js";
 import { getContext } from "../src/context.js";
 import { installPackages } from "../src/install-packages.js";
+
+/** The repo root's pin — assertions follow it so a bump needs no test edit. */
+const REPO_PIN = repoPin();
+const PIN_RE = new RegExp(REPO_PIN.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
 
 const srcRoot = () => path.join(orcyHome(), "src", "orcy");
 /** The repo root the local install path resolves to (real tree, real pin). */
@@ -59,18 +63,18 @@ describe("pin-aware pnpm runner — selection", () => {
     // Probe: corepack can run the pinned version.
     expect(
       entries.some(
-        (e) => e.file === "corepack" && e.args?.[0] === "pnpm@9.0.0" && e.args?.[1] === "--version",
+        (e) => e.file === "corepack" && e.args?.[0] === REPO_PIN && e.args?.[1] === "--version",
       ),
     ).toBe(true);
     // Commands run through corepack on the same pin (never a bare pnpm).
     expect(
       entries.some(
-        (e) => e.file === "corepack" && e.args?.[0] === "pnpm@9.0.0" && e.args?.includes("install"),
+        (e) => e.file === "corepack" && e.args?.[0] === REPO_PIN && e.args?.includes("install"),
       ),
     ).toBe(true);
     expect(
       entries.some(
-        (e) => e.file === "corepack" && e.args?.[0] === "pnpm@9.0.0" && e.args?.includes("-r"),
+        (e) => e.file === "corepack" && e.args?.[0] === REPO_PIN && e.args?.includes("-r"),
       ),
     ).toBe(true);
     // Preferred runner means no npx invocation at all.
@@ -94,7 +98,7 @@ describe("pin-aware pnpm runner — selection", () => {
         (e) =>
           e.file === "npx" &&
           e.args?.[0] === "--yes" &&
-          e.args?.[1] === "pnpm@9.0.0" &&
+          e.args?.[1] === REPO_PIN &&
           e.args?.[2] === "--version",
       ),
     ).toBe(true);
@@ -103,7 +107,7 @@ describe("pin-aware pnpm runner — selection", () => {
         (e) =>
           e.file === "npx" &&
           e.args?.[0] === "--yes" &&
-          e.args?.[1] === "pnpm@9.0.0" &&
+          e.args?.[1] === REPO_PIN &&
           e.args?.includes("install"),
       ),
     ).toBe(true);
@@ -123,7 +127,7 @@ describe("pin-aware pnpm runner — selection", () => {
       return undefined;
     });
 
-    await expect(installPackages(getContext(), ["api"], {})).rejects.toThrow(/pnpm@9\.0\.0/);
+    await expect(installPackages(getContext(), ["api"], {})).rejects.toThrow(PIN_RE);
   });
 
   it.each(["npm@10.0.0", "pnpm@^9.0.0", "pnpm", "pnpm@9"])(
@@ -146,7 +150,7 @@ describe("pin-aware pnpm runner — command propagation", () => {
 
     const entries = execFileSyncEntries();
     const install = entries.find(
-      (e) => e.file === "corepack" && e.args?.[0] === "pnpm@9.0.0" && e.args?.includes("install"),
+      (e) => e.file === "corepack" && e.args?.[0] === REPO_PIN && e.args?.includes("install"),
     );
     expect(install).toBeDefined();
     expect(optsCwd(install!)).toBe(srcRoot());
@@ -154,7 +158,7 @@ describe("pin-aware pnpm runner — command propagation", () => {
     const build = entries.find(
       (e) =>
         e.file === "corepack" &&
-        e.args?.[0] === "pnpm@9.0.0" &&
+        e.args?.[0] === REPO_PIN &&
         e.args?.includes("-r") &&
         e.args?.includes("build"),
     );
@@ -167,7 +171,7 @@ describe("pin-aware pnpm runner — command propagation", () => {
     // early-returns on empty deps); inject one into the seeded api package at
     // probe time so the runtime-dependency branch actually executes.
     setExecHook((cmd: string) => {
-      if (cmd === "corepack pnpm@9.0.0 --version") {
+      if (cmd === `corepack ${REPO_PIN} --version`) {
         const apiPkg = path.join(srcRoot(), "packages", "api", "package.json");
         fs.writeFileSync(
           apiPkg,
@@ -190,7 +194,7 @@ describe("pin-aware pnpm runner — command propagation", () => {
     );
     expect(runtimeInstall).toBeDefined();
     expect(runtimeInstall!.file).toBe("corepack");
-    expect(runtimeInstall!.args?.[0]).toBe("pnpm@9.0.0");
+    expect(runtimeInstall!.args?.[0]).toBe(REPO_PIN);
     expect(optsCwd(runtimeInstall!)).toBe(orcyHome());
   });
 
@@ -201,7 +205,7 @@ describe("pin-aware pnpm runner — command propagation", () => {
     // The pin came from the REAL repo root's packageManager field.
     expect(
       entries.some(
-        (e) => e.file === "corepack" && e.args?.[0] === "pnpm@9.0.0" && e.args?.[1] === "--version",
+        (e) => e.file === "corepack" && e.args?.[0] === REPO_PIN && e.args?.[1] === "--version",
       ),
     ).toBe(true);
     // Runtime deps still thread the same runner into the orcy home cwd.
@@ -209,7 +213,7 @@ describe("pin-aware pnpm runner — command propagation", () => {
       (e) => e.args?.includes("install") && e.args?.includes("--prod"),
     );
     expect(runtimeInstall).toBeDefined();
-    expect(runtimeInstall!.args?.[0]).toBe("pnpm@9.0.0");
+    expect(runtimeInstall!.args?.[0]).toBe(REPO_PIN);
     expect(optsCwd(runtimeInstall!)).toBe(orcyHome());
   });
 });

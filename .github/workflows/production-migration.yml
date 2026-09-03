@@ -34,18 +34,19 @@ jobs:
           node-version: '24'
           # No built-in `cache: pnpm`: setup-node's pnpm cache resolves the
           # store path by invoking pnpm, which would run a runner-global pnpm
-          # before the Corepack step activates the pinned pnpm@9.0.0 below.
+          # before the Corepack step activates the pinned pnpm below.
           # Determinism of the pinned-pnpm contract outranks caching for this
           # focused correctness gate.
 
-      - name: Enable Corepack (pinned pnpm@9.0.0)
-        # Corepack resolves pnpm from the root `packageManager` field
-        # (pnpm@9.0.0). Preparing explicitly avoids relying on whatever
+      - name: Enable Corepack (pin derived from packageManager)
+        # Corepack resolves pnpm from the root `packageManager` field — the
+        # version is derived, never duplicated, so a deliberate pin bump needs
+        # no workflow edit. Preparing explicitly avoids relying on whatever
         # pnpm the runner ships globally, which can make the compiled
         # installed-package smoke fail for environmental reasons.
         run: |
           corepack enable
-          corepack prepare pnpm@9.0.0 --activate
+          corepack prepare "$(node -p "require('./package.json').packageManager")" --activate
           pnpm --version
 
       - name: Install dependencies
