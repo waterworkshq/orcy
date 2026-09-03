@@ -48,12 +48,14 @@ import {
   isLegacyPartialHistory,
 } from "../db/schema/taskPublication.js";
 import { and, eq, sql } from "drizzle-orm";
+import type { ActorType } from "@orcy/shared";
 import type { Task } from "../models/index.js";
 import { logger } from "../lib/logger.js";
 import { isSqliteError } from "../errors/sqlite.js";
 import { checkClaimability } from "./taskQueries.js";
 import { creationObservationStateForTaskWithClient } from "./taskPublication.js";
 import type { TaskPublicationDbClient } from "./taskPublication.js";
+import { guardTransition, habitatIdForTaskWithClient } from "../services/tasks/transitionBudget.js";
 
 // ---------------------------------------------------------------------------
 // Coarse failure categories (the plan's layer)
@@ -78,6 +80,7 @@ export type ClaimFailureCategory =
   | "version_conflict"
   | "infrastructure_failure"
   | "observation_pending"
+  | "budget_exhausted"
   | "not_found";
 
 // ---------------------------------------------------------------------------
@@ -114,6 +117,8 @@ export type ClaimRefusalReason =
   // publication gates
   | "reserved_for_other"
   | "observation_pending"
+  // transition budget (plan §5 — the aggregate cycle brake)
+  | "transition_budget_exhausted"
   // infra / serialization detail
   | "claim_failed"
   | "version_conflict"
@@ -152,6 +157,15 @@ export type ClaimFailure =
       reservedFor?: string;
     }
   | { success: false; category: "observation_pending"; reason: "observation_pending" }
+  | {
+      success: false;
+      category: "budget_exhausted";
+      reason: "transition_budget_exhausted";
+      /** Metered transitions already consumed by the task (diagnostics). */
+      count: number;
+      /** The habitat's effective ceiling at refusal time (diagnostics). */
+      ceiling: number;
+    }
   | {
       success: false;
       category: "version_conflict";
@@ -219,6 +233,15 @@ export interface ClaimAuthorityOptions {
    * `status ← "claimed"`, `claimedAt ← COALESCE(claimedAt, now)`, `version++`.
    */
   delegated?: boolean;
+  /**
+   * Actor type for the transition-budget guard's human exemption. The
+   * authority's signature is transport-agnostic (a bare claimant id), so the
+   * remote wrappers — the only claim callers whose claimant can be a
+   * `remote_human` — thread their resolved `RemoteParticipantContext` actor
+   * through here. Absent → a metered default ("agent" local /
+   * "remote_orcy" remote); `human`/`remote_human` claimants are exempt.
+   */
+  actorType?: ActorType;
 }
 
 // ---------------------------------------------------------------------------
@@ -274,6 +297,8 @@ export function claimWithAuthorityClient(
     // only the publication gates are now enforced on both paths.
     const gate = publicationGateFailure(tx, row, claimant);
     if (gate) return gate;
+    const budget = budgetGateFailure(tx, row.id, opts);
+    if (budget) return budget;
     return commitDelegatedClaim(tx, row);
   }
 
@@ -306,6 +331,9 @@ export function claimWithAuthorityClient(
   //    STILL reserved_for_other; an active NULL reservation blocks).
   const gate = publicationGateFailure(tx, row, claimant);
   if (gate) return gate;
+
+  const budget = budgetGateFailure(tx, row.id, opts);
+  if (budget) return budget;
 
   return commitPlainClaim(tx, row, claimant);
 }
@@ -380,6 +408,38 @@ function publicationGateFailure(
       category: "reserved_for_other",
       reason: "reserved_for_other",
       reservedFor,
+    };
+  }
+  return undefined;
+}
+
+/**
+ * Transition-budget gate (plan §5): refuses the (N+1)th metered claim when the
+ * task's metered-event count has reached the habitat ceiling. Runs LAST, just
+ * before the commit, so every pre-existing refusal reason keeps its
+ * precedence byte-for-byte. The meter is the `task_events` trail read on the
+ * SAME tx as the mutation (the serialization discipline claimWithAuthority
+ * already uses: the count read and the assignment write share one
+ * transaction). Human actors (`human`/`remote_human` via {@link
+ * ClaimAuthorityOptions.actorType}) and opted-out habitats (ceiling 0) skip.
+ */
+function budgetGateFailure(
+  tx: TaskPublicationDbClient,
+  taskId: string,
+  opts?: ClaimAuthorityOptions,
+): ClaimFailure | undefined {
+  // Absent actorType → a metered default; only the remote wrappers thread a
+  // `remote_human` claimant through opts.actorType for the exemption.
+  const actorType: ActorType = opts?.actorType ?? "agent";
+  const habitatId = habitatIdForTaskWithClient(tx, taskId) ?? "";
+  const outcome = guardTransition(tx, taskId, habitatId, actorType);
+  if (outcome.outcome === "refused") {
+    return {
+      success: false,
+      category: "budget_exhausted",
+      reason: "transition_budget_exhausted",
+      count: outcome.count,
+      ceiling: outcome.ceiling,
     };
   }
   return undefined;
@@ -505,6 +565,15 @@ function progressWithAuthorityClient(
 
   // 2. progression gates on tx (observation + reservation). Open for legacy.
   if (!evaluateProgressionGates(tx, row, claimant).ok) return null;
+
+  // 2.5 transition-budget gate (plan §5): same last-before-write placement as
+  //     the claim paths. Progression is always driven by the assignee (a
+  //     local agent or a remote participant — never a human actor), so the
+  //     metered default applies; human resolution paths (reject/release/
+  //     approve) live in the service layer where the actor is known.
+  const budgetHabitatId = habitatIdForTaskWithClient(tx, taskId) ?? "";
+  const budget = guardTransition(tx, taskId, budgetHabitatId, "agent");
+  if (budget.outcome === "refused") return null;
 
   // 3. conditional UPDATE on tx. The WHERE re-asserts id + identity + claimed
   //    AND inlines the reservation gate as a NOT EXISTS subquery. A

@@ -3,6 +3,7 @@ import * as habitatRepo from "../repositories/habitat.js";
 import { logger } from "../lib/logger.js";
 import type { Task, RetryPolicy } from "../models/index.js";
 import { emitTransition } from "./tasks/transition-emitter.js";
+import { guardTransitionTop } from "./tasks/transitionBudget.js";
 
 const DEFAULT_POLICY: RetryPolicy = {
   maxRetries: 3,
@@ -77,6 +78,16 @@ export function scheduleRetry(task: Task): Task | null {
 
 /** Resets a task back to pending for the next attempt, increments its retry count, and emits a transition. */
 export function executeRetry(task: Task): Task | null {
+  // Transition budget (plan §5): retry_executed is the metered progression of
+  // the retry ladder (retry_scheduled is bookkeeping — counted in the meter
+  // when written, but scheduling itself is not guarded). The retry processor
+  // is a system actor: metered. Refusal follows this function's null-on-
+  // failed-update convention; the task keeps its nextRetryAt until a human
+  // resolves it or the ceiling is raised (breach surfacing is Ticket 3).
+  const budgetHabitatId = taskRepo.getHabitatIdForTask(task.id) ?? "";
+  const budget = guardTransitionTop(task.id, budgetHabitatId, "system");
+  if (budget.outcome === "refused") return null;
+
   const newRetryCount = task.retryCount + 1;
 
   const result = taskRepo.updateTask(task.id, {

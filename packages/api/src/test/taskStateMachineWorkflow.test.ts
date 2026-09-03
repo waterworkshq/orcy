@@ -7,6 +7,13 @@ const claimabilityMocks = vi.hoisted(() => ({
   workflowGates: vi.fn().mockReturnValue(true),
 }));
 
+vi.mock("../services/tasks/transitionBudget.js", () => ({
+  // The budget guard is a module seam for this suite (its subject is gate
+  // ordering, not metering): allow every transition.
+  guardTransition: vi.fn(() => ({ outcome: "allow", count: 0, ceiling: 12 })),
+  habitatIdForTaskWithClient: vi.fn(() => "habitat-1"),
+}));
+
 vi.mock("../db/index.js", () => ({
   getDb: () => ({
     transaction: (fn: (tx: any) => any) =>

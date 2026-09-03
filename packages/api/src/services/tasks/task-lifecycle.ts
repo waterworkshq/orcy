@@ -12,6 +12,7 @@ import { logger } from "../../lib/logger.js";
 import { InterceptorVetoError } from "../../errors.js";
 import * as reviewAssignment from "../reviewAssignmentService.js";
 import { emitTransition } from "./transition-emitter.js";
+import { guardTransitionTop } from "./transitionBudget.js";
 
 /** Arguments passed to every registered {@link TaskEventHook} when a task lifecycle event fires. */
 export interface TaskEventOpts {
@@ -209,6 +210,13 @@ export function submitTask(
       error: "QUALITY_GATES_NOT_MET",
       missingQualityItems: qualityValidation.failures,
     };
+  }
+
+  // Transition budget (plan §5): submit is metered and the actor here is the
+  // assigned agent. Refusal follows this function's typed-error convention.
+  const budget = guardTransitionTop(taskId, getHabitatId(current), "agent");
+  if (budget.outcome === "refused") {
+    return { task: null, error: "TRANSITION_BUDGET_EXHAUSTED" };
   }
 
   const task = taskRepo.submitTask(taskId, agentId, result, artifacts);
@@ -511,6 +519,12 @@ export function rejectTask(
     }
   }
 
+  // Transition budget (plan §5): rejection by an AGENT reviewer is metered;
+  // human reviewers are exempt (the brake exists to stop autonomous spend —
+  // the human resolving an exhausted task must never be blocked by it).
+  const budget = guardTransitionTop(taskId, getHabitatId(current), reviewerType);
+  if (budget.outcome === "refused") return null;
+
   // Pre-interceptor seam (ADR-0014): veto before the rejection DB write.
   {
     const preHabitatId = getHabitatId(current);
@@ -578,6 +592,13 @@ export function releaseTask(taskId: string, actorId: string, reason: string): Ta
 
   if (current.assignedAgentId && current.assignedAgentId !== actorId) return null;
 
+  // Transition budget (plan §5): release by the assigned agent is metered; a
+  // human releasing an unassigned task is exempt. The derived actor matches
+  // the one emitTransition records below, so guard and meter agree.
+  const releaseActorType = current.assignedAgentId ? "agent" : "human";
+  const budget = guardTransitionTop(taskId, getHabitatId(current), releaseActorType);
+  if (budget.outcome === "refused") return null;
+
   const task = taskRepo.releaseTask(taskId, reason);
   if (!task) return null;
 
@@ -609,6 +630,11 @@ export function failTask(
   if (!validateTransition(current.status, "failed")) return null;
 
   if (actorType === "agent" && current.assignedAgentId !== actorId) return null;
+
+  // Transition budget (plan §5): both failTask actor kinds (agent / system)
+  // are metered — there is no human actor on this path.
+  const budget = guardTransitionTop(taskId, getHabitatId(current), actorType);
+  if (budget.outcome === "refused") return null;
 
   const task = taskRepo.failTask(taskId, reason);
   if (!task) return null;

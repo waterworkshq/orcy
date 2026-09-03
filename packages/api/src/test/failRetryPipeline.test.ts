@@ -1,6 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { makeTask } from './factories/task.js';
 
+vi.mock('../services/tasks/transitionBudget.js', () => ({
+  // Budget guard seam: allow (this suite exercises failTask→retry wiring).
+  guardTransitionTop: vi.fn(() => ({ outcome: 'allow', count: 0, ceiling: 12 })),
+}));
+
 vi.mock('../repositories/task.js', () => ({
   getTaskById: vi.fn(),
   getHabitatIdForTask: vi.fn(() => 'habitat-1'),

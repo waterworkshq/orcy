@@ -34,6 +34,7 @@ import { claimWithAuthorityClient, type ClaimResult } from "../../repositories/c
 import { submitWithAuthorityClient } from "../../repositories/taskStateMachine.js";
 import { createEventWithClient } from "../../repositories/events/event-crud.js";
 import { emitTransition } from "./transition-emitter.js";
+import { guardTransition } from "./transitionBudget.js";
 import * as pluginManager from "../../plugins/pluginManager.js";
 import { validateAgentCapabilities, validateAgentDomain } from "./helpers.js";
 import * as qualityGateService from "../qualityGateService.js";
@@ -140,7 +141,11 @@ export function claimTaskForRemote(
 
   // 4. The atomic tx — only *WithClient(tx) primitives inside (invariant #8)
   const { result, eventId } = getDb().transaction((tx) => {
-    const r = claimWithAuthorityClient(tx, taskId, { kind: "remote", id: participantId });
+    // actorType threads the budget guard's human exemption into the
+    // transport-agnostic authority (remote_human claimants are exempt).
+    const r = claimWithAuthorityClient(tx, taskId, { kind: "remote", id: participantId }, {
+      actorType,
+    });
     let evId: string | undefined;
     if (r.success) {
       const event = createEventWithClient(tx, {
@@ -265,8 +270,15 @@ export function submitTaskForRemote(
     };
   }
 
-  // 4. Atomic tx — submitWithAuthorityClient + createEventWithClient (invariant #8)
-  const { submittedTask, eventId } = getDb().transaction((tx) => {
+  // 4. Atomic tx — budget guard + submitWithAuthorityClient + createEventWithClient
+  //    (invariant #8 — only client-scoped primitives inside the tx)
+  const { submittedTask, eventId, budgetRefused } = getDb().transaction((tx) => {
+    // Transition budget (plan §5): submit by a remote_orcy participant is
+    // metered; remote_human participants are exempt (plan §2 human exemption).
+    const budget = guardTransition(tx, taskId, habitatId, actorType);
+    if (budget.outcome === "refused") {
+      return { submittedTask: null as Task | null, eventId: undefined, budgetRefused: true };
+    }
     const submitted = submitWithAuthorityClient(tx, taskId, participantId, result, artifacts);
     let evId: string | undefined;
     if (submitted) {
@@ -281,9 +293,12 @@ export function submitTaskForRemote(
       });
       evId = event.id;
     }
-    return { submittedTask: submitted, eventId: evId };
+    return { submittedTask: submitted, eventId: evId, budgetRefused: false };
   });
 
+  if (budgetRefused) {
+    return { success: false, reason: "transition_budget_exhausted" };
+  }
   if (!submittedTask) {
     return { success: false, reason: "submit_failed" };
   }
@@ -372,19 +387,26 @@ export function releaseTaskForRemote(
   const habitatId = ctx.habitatId;
   const { actorType, actorId } = remoteActor(ctx);
 
-  // 2. Atomic tx — release mutation (inline, mirroring releaseTaskByRemoteParticipant)
-  //    + createEventWithClient (invariant #8)
-  const { releasedTask, eventId } = getDb().transaction((tx) => {
+  // 2. Atomic tx — budget guard + release mutation (inline, mirroring
+  //    releaseTaskByRemoteParticipant) + createEventWithClient (invariant #8)
+  const { releasedTask, eventId, budgetRefused } = getDb().transaction((tx) => {
     type TaskRow = typeof tasks.$inferSelect;
     const row = tx.select().from(tasks).where(eq(tasks.id, taskId)).get() as TaskRow | undefined;
-    if (!row) return { releasedTask: null as Task | null, eventId: undefined };
+    if (!row) return { releasedTask: null as Task | null, eventId: undefined, budgetRefused: false };
 
     // Gate: status must be claimed or in_progress, and owned by this participant
     if (
       (row.status !== "claimed" && row.status !== "in_progress") ||
       row.remoteAssignedParticipantId !== participantId
     ) {
-      return { releasedTask: null as Task | null, eventId: undefined };
+      return { releasedTask: null as Task | null, eventId: undefined, budgetRefused: false };
+    }
+
+    // Transition budget (plan §5): release by a remote_orcy participant is
+    // metered; remote_human participants are exempt.
+    const budget = guardTransition(tx, taskId, habitatId, actorType);
+    if (budget.outcome === "refused") {
+      return { releasedTask: null as Task | null, eventId: undefined, budgetRefused: true };
     }
 
     const now = new Date().toISOString();
@@ -403,7 +425,7 @@ export function releaseTaskForRemote(
       | TaskRow
       | undefined;
     const released = (updated as unknown as Task) ?? null;
-    if (!released) return { releasedTask: null, eventId: undefined };
+    if (!released) return { releasedTask: null, eventId: undefined, budgetRefused: false };
 
     const event = createEventWithClient(tx, {
       taskId,
@@ -414,9 +436,12 @@ export function releaseTaskForRemote(
       toStatus: "pending" as never,
       metadata: withAuditProvenanceMetadata({ reason }),
     });
-    return { releasedTask: released, eventId: event.id };
+    return { releasedTask: released, eventId: event.id, budgetRefused: false };
   });
 
+  if (budgetRefused) {
+    return { success: false, reason: "transition_budget_exhausted" };
+  }
   if (!releasedTask) {
     return { success: false, reason: "release_failed" };
   }

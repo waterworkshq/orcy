@@ -33,6 +33,12 @@ type LegacyClaimResult = { success: true; task: Task } | { success: false; reaso
  *                                     capability_mismatch / not_delegated_to_you)
  *   - reserved_for_other            → `"reserved_for_other"` (NEW, dormant until T5)
  *   - observation_pending           → `"observation_pending"` (NEW, dormant)
+ *   - budget_exhausted              → `"transition_budget_exhausted"` (NEW —
+ *                                     the per-task transition budget refusal,
+ *                                     plan §5. Never collapsed into
+ *                                     `claim_failed`/`already_claimed`:
+ *                                     callers/routes distinguish exhaustion
+ *                                     from contention by the literal string)
  *   - version_conflict              → `"claim_failed"`  (serialization conflict)
  *   - infrastructure_failure        → `"claim_failed"`  (THE COLLAPSE FIX — was
  *                                     `already_claimed` under claimTask/
@@ -65,6 +71,8 @@ function flattenClaimResult(r: ClaimResult): LegacyClaimResult {
       return { success: false, reason: "reserved_for_other" };
     case "observation_pending":
       return { success: false, reason: "observation_pending" };
+    case "budget_exhausted":
+      return { success: false, reason: "transition_budget_exhausted" };
     case "version_conflict":
       return { success: false, reason: "claim_failed" };
     case "infrastructure_failure":
