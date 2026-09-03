@@ -358,6 +358,13 @@
       "when": 1786901482000,
       "tag": "0074_epoch_group_release_composite_fk",
       "breakpoints": true
+    },
+    {
+      "idx": 51,
+      "version": "6",
+      "when": 1788456682000,
+      "tag": "0075_habitat_lifecycle_settings",
+      "breakpoints": true
     }
   ]
 }

@@ -3,6 +3,7 @@ import {
   AGENT_TYPES,
   releaseSettingsSchema,
   roadmapSettingsSchema,
+  lifecycleSettingsSchema,
   codeReviewSettingsSchema,
   ciCdSettingsSchema,
 } from "@orcy/shared";
@@ -402,6 +403,7 @@ export const updateHabitatSchema = z.object({
   triageSettings: triageSettingsSchema.nullable().optional(),
   releaseSettings: releaseSettingsSchema.nullable().optional(),
   roadmapSettings: roadmapSettingsSchema.nullable().optional(),
+  lifecycleSettings: lifecycleSettingsSchema.nullable().optional(),
   codeReviewSettings: codeReviewSettingsSchema.nullable().optional(),
   ciCdSettings: ciCdSettingsSchema.nullable().optional(),
   eventRetentionDays: z.number().int().min(1).max(3650).optional(),

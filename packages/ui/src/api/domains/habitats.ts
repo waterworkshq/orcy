@@ -11,6 +11,7 @@ import type {
   PrioritizationSettings,
   TriageSettings,
   RoadmapSettings,
+  LifecycleSettings,
   CapacityReport,
   PredictionResponse,
   BurndownResponse,
@@ -49,6 +50,7 @@ export const habitatsApi = {
       gitWorktreeSettings?: import("../../types/index.js").GitWorktreeSettings | null;
       triageSettings?: TriageSettings | null;
       roadmapSettings?: RoadmapSettings | null;
+      lifecycleSettings?: LifecycleSettings | null;
     },
   ) =>
     request<{ habitat: PublicHabitat }>(`/habitats/${id}`, {

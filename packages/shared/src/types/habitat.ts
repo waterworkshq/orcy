@@ -12,6 +12,7 @@ import type {
   TriageSettings,
   ReleaseSettings,
   RoadmapSettings,
+  LifecycleSettings,
 } from "./settings.js";
 import type { TaskPriority } from "./task.js";
 import type { MissionStatus } from "./mission.js";
@@ -50,6 +51,7 @@ export interface Habitat {
   triageSettings: TriageSettings | null;
   releaseSettings: ReleaseSettings | null;
   roadmapSettings: RoadmapSettings | null;
+  lifecycleSettings: LifecycleSettings | null;
   eventRetentionDays: number | null;
   createdAt: string;
   updatedAt: string;

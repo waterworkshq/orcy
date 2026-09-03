@@ -208,6 +208,37 @@ export const roadmapSettingsSchema = z.object({
 });
 
 /**
+ * Per-habitat task-lifecycle transition budget settings. Stored as a JSON
+ * column on `habitats.lifecycle_settings`. The ceiling bounds how many
+ * metered task transitions one task may consume before the budget guard
+ * refuses the (N+1)th attempt and escalates to a human.
+ */
+export interface LifecycleSettings {
+  /**
+   * Max metered transitions per task. `null` = default ceiling
+   * ({@link DEFAULT_TASK_TRANSITION_CEILING}); `0` = explicit opt-out.
+   */
+  taskTransitionCeiling: number | null;
+}
+
+/**
+ * Default per-task transition ceiling used when a habitat has no
+ * `lifecycleSettings` or a null `taskTransitionCeiling`. Derived in the
+ * originating design discussion: first pass (claimed + started + submitted)
+ * plus three fix rounds (~3 metered transitions each) = 12.
+ */
+export const DEFAULT_TASK_TRANSITION_CEILING = 12;
+
+/**
+ * Zod schema for validating `lifecycleSettings` patches via PATCH
+ * /habitats/:id. All fields optional — NO field-level `.default()` (absent
+ * fields must preserve their stored values through the settings deep-merge).
+ */
+export const lifecycleSettingsSchema = z.object({
+  taskTransitionCeiling: z.number().int().min(0).max(10_000).nullable().optional(),
+});
+
+/**
  * Per-habitat wiki cadence configuration. Stored as a JSON column on `habitats.wiki_settings`
  * (mirrors the v0.18.1 `automation_settings` precedent). When `enabled` is `true`, the
  * {@link wikiSchedulerService} registers a `scheduled_tasks` row that runs `runCadence` on the

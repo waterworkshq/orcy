@@ -166,6 +166,7 @@ const mockHabitat: PublicHabitat = {
   triageSettings: null,
   releaseSettings: null,
   roadmapSettings: null,
+  lifecycleSettings: null,
   eventRetentionDays: null,
   createdAt: "2024-01-01",
   updatedAt: "2024-01-01",

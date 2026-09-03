@@ -104,6 +104,7 @@ function qcWithDetail(missions: MissionWithProgress[] = [], columns: Column[] = 
     triageSettings: null,
     releaseSettings: null,
     roadmapSettings: null,
+    lifecycleSettings: null,
     eventRetentionDays: null,
     createdAt: "",
     updatedAt: "",

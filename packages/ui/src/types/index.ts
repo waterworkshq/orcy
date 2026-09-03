@@ -174,6 +174,8 @@ import type {
   // Roadmap scoring types (v0.25)
   RoadmapSettings,
   RoadmapScoringAlgorithm,
+  // Lifecycle settings (v0.42 task transition budget)
+  LifecycleSettings,
   // Notification types (v2)
   NotificationEventType,
   NotificationSourceType,
@@ -366,6 +368,8 @@ export type {
   // Roadmap scoring types (v0.25)
   RoadmapSettings,
   RoadmapScoringAlgorithm,
+  // Lifecycle settings (v0.42 task transition budget)
+  LifecycleSettings,
   // Notification types (v2)
   NotificationEventType,
   NotificationSourceType,

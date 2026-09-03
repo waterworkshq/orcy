@@ -15,6 +15,7 @@ import type {
   TriageSettings,
   ReleaseSettings,
   RoadmapSettings,
+  LifecycleSettings,
   CodeReviewSettings,
   CiCdSettings,
 } from "../models/index.js";
@@ -47,6 +48,7 @@ export interface UpdateHabitatInput {
   triageSettings?: TriageSettings | null;
   releaseSettings?: ReleaseSettings | null;
   roadmapSettings?: RoadmapSettings | null;
+  lifecycleSettings?: LifecycleSettings | null;
   codeReviewSettings?: CodeReviewSettings | null;
   ciCdSettings?: CiCdSettings | null;
 }
@@ -128,6 +130,7 @@ export function updateHabitat(id: string, input: UpdateHabitatInput): Habitat | 
   if (input.triageSettings !== undefined) values.triageSettings = input.triageSettings;
   if (input.releaseSettings !== undefined) values.releaseSettings = input.releaseSettings;
   if (input.roadmapSettings !== undefined) values.roadmapSettings = input.roadmapSettings;
+  if (input.lifecycleSettings !== undefined) values.lifecycleSettings = input.lifecycleSettings;
   if (input.codeReviewSettings !== undefined) values.codeReviewSettings = input.codeReviewSettings;
   if (input.ciCdSettings !== undefined) values.ciCdSettings = input.ciCdSettings;
 

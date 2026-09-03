@@ -71,8 +71,10 @@ export {
   DEFAULT_TRIAGE_SETTINGS,
   DEFAULT_RELEASE_SETTINGS,
   DEFAULT_ROADMAP_SETTINGS,
+  DEFAULT_TASK_TRANSITION_CEILING,
   releaseSettingsSchema,
   roadmapSettingsSchema,
+  lifecycleSettingsSchema,
   codeReviewSettingsSchema,
   ciCdSettingsSchema,
 } from "./settings.js";
@@ -85,6 +87,7 @@ export type {
   TriageSettings,
   ReleaseSettings,
   RoadmapSettings,
+  LifecycleSettings,
   RoadmapScoringAlgorithm,
   GitWorktreeSettings,
   CodeReviewSettings,

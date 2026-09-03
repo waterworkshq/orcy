@@ -156,6 +156,7 @@ const settingsBlobs = [
   "triageSettings",
   "releaseSettings",
   "roadmapSettings",
+  "lifecycleSettings",
   "codeReviewSettings",
   "ciCdSettings",
 ] as const;
@@ -176,6 +177,7 @@ const SETTINGS_BLOB_DEFAULTS: Partial<
   triageSettings: () => ({ ...DEFAULT_TRIAGE_SETTINGS }),
   releaseSettings: () => ({ ...DEFAULT_RELEASE_SETTINGS }),
   roadmapSettings: () => ({ ...DEFAULT_ROADMAP_SETTINGS }),
+  lifecycleSettings: () => ({ taskTransitionCeiling: null }),
   autoAssignSettings: () => getDefaultAutoAssignSettings() as unknown as Record<string, unknown>,
   codeReviewSettings: () => ({ autoApproveOnMerge: false }),
 };
@@ -199,7 +201,7 @@ function isPlainSettingsObject(value: unknown): value is Record<string, unknown>
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-/** Applies a partial update to a {@link Habitat}'s editable fields; side effect: rebuilds the board secret cache and publishes `habitat.updated` SSE when the update succeeds. Settings blobs (`retrySettings`, `anomalySettings`, `autoAssignSettings`, `triageSettings`, `releaseSettings`, `roadmapSettings`, `codeReviewSettings`, `ciCdSettings`) are deep-merged with existing stored values so a partial PATCH only overwrites the fields the caller explicitly provided — unmentioned fields preserve their current values. */
+/** Applies a partial update to a {@link Habitat}'s editable fields; side effect: rebuilds the board secret cache and publishes `habitat.updated` SSE when the update succeeds. Settings blobs (`retrySettings`, `anomalySettings`, `autoAssignSettings`, `triageSettings`, `releaseSettings`, `roadmapSettings`, `lifecycleSettings`, `codeReviewSettings`, `ciCdSettings`) are deep-merged with existing stored values so a partial PATCH only overwrites the fields the caller explicitly provided — unmentioned fields preserve their current values. */
 export function updateHabitat(habitatId: string, input: UpdateHabitatInput): PublicHabitat | null {
   const needsMerge = settingsBlobs.some((key) => input[key] != null);
   if (needsMerge) {
