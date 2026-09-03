@@ -41,7 +41,7 @@ echo "pre-push: running production-migration gate for refs/heads/main..." >&2
 
 # Run from repo root so pnpm workspace resolution is deterministic. The
 # invocation MUST be corepack-prefixed: a bare `pnpm` resolves an ambient
-# pnpm shim under spawned shells (release-it), which refuses the 9.0.0-pinned
+# pnpm shim under spawned shells (release-it), which refuses the pinned
 # project and aborts the push.
 if ! (cd "$repo_root" && corepack pnpm --filter @orcy/api test:production-migration); then
   echo "" >&2
@@ -60,5 +60,5 @@ if ! (cd "$repo_root" && corepack pnpm --filter @orcy/installer exec vitest run 
   exit 1
 fi
 
-echo "pre-push: production-migration gate passed." >&2
+echo "pre-push: production-migration and package-manager boundary gates passed." >&2
 exit 0

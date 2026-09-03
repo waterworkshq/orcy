@@ -28,8 +28,6 @@ const REPO_PIN = repoPin();
 const PIN_RE = new RegExp(REPO_PIN.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
 
 const srcRoot = () => path.join(orcyHome(), "src", "orcy");
-/** The repo root the local install path resolves to (real tree, real pin). */
-const repoRoot = () => path.resolve(import.meta.dirname, "..", "..");
 
 type ExecEntry = ReturnType<typeof execLog>[number];
 
@@ -141,6 +139,23 @@ describe("pin-aware pnpm runner — selection", () => {
   it("rejects a source tree with no packageManager pin", async () => {
     overwriteSourcePin({ name: "orcy", private: true });
     await expect(installPackages(getContext(), ["api"], {})).rejects.toThrow(/packageManager/i);
+  });
+
+  it("accepts a corepack integrity-hash suffix and runs the bare version", async () => {
+    overwriteSourcePin({
+      name: "orcy",
+      private: true,
+      packageManager: `${REPO_PIN}+sha512-0uQ2z4BGUZm4ldAQiSCW2pt5bUMAJY16N5MZMuVYtYIbvK7J5A6I2fJ`,
+    });
+    await installPackages(getContext(), ["api"], {});
+    const entries = execFileSyncEntries();
+    // Hash stripped: commands run the bare pnpm@<version> pin, not the suffix.
+    expect(
+      entries.some(
+        (e) => e.file === "corepack" && e.args?.[0] === REPO_PIN && e.args?.[1] === "--version",
+      ),
+    ).toBe(true);
+    expect(entries.some((e) => e.args?.[0]?.includes("sha512"))).toBe(false);
   });
 });
 

@@ -2,7 +2,7 @@
  * Hermetic bootstrap contract for install.sh (REL-INFRA-2.3).
  *
  * MOCK BOUNDARY: unlike the other installer suites this file does NOT import
- * `helpers/setup.js` (whose global child_process mock would break spawning).
+ * `helpers/setup.ts` (whose global child_process mock would break spawning).
  * Instead it runs the REAL `install.sh` via `sh` in a fully controlled
  * environment: a temp HOME and a PATH containing only stubs plus symlinks to
  * the real node/coreutils. Every subprocess invocation is recorded to one
@@ -31,9 +31,11 @@ const INSTALL_SH = path.join(REPO_ROOT, "install.sh");
 
 /** The repo root's packageManager pin — the fake source mirrors it and the
  *  assertions follow it, so a deliberate pin bump needs no test edit. */
-const REPO_PIN = (JSON.parse(
-  fs.readFileSync(path.join(REPO_ROOT, "package.json"), "utf-8"),
-) as { packageManager?: string }).packageManager;
+const REPO_PIN = (
+  JSON.parse(fs.readFileSync(path.join(REPO_ROOT, "package.json"), "utf-8")) as {
+    packageManager?: string;
+  }
+).packageManager;
 if (!REPO_PIN) throw new Error("repo packageManager pin missing");
 const PIN_RE = REPO_PIN.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
@@ -217,7 +219,10 @@ describe("install.sh — pin-aware pnpm bootstrap (hermetic)", () => {
 
     const lines = readLog(s);
     const probe = firstIndex(lines, new RegExp(`^npx --yes ${PIN_RE} --version `));
-    const install = firstIndex(lines, new RegExp(`^npx --yes ${PIN_RE} install --frozen-lockfile `));
+    const install = firstIndex(
+      lines,
+      new RegExp(`^npx --yes ${PIN_RE} install --frozen-lockfile `),
+    );
     const build = firstIndex(lines, new RegExp(`^npx --yes ${PIN_RE} -r build `));
     expect(probe).toBeGreaterThanOrEqual(0);
     expect(install).toBeGreaterThan(probe);
