@@ -11,7 +11,7 @@
  *
  * Ceiling resolution ({@link resolveCeiling}) reads the ticket-1 setting
  * surface (`habitats.lifecycle_settings`, a `LifecycleSettings` JSON blob):
- *   - blob absent / `taskTransitionCeiling` null  → DEFAULT_TASK_TRANSITION_CEILING (12)
+ *   - blob absent / `taskTransitionCeiling` null  → DEFAULT_TASK_TRANSITION_CEILING (21)
  *   - `taskTransitionCeiling` 0                   → explicit opt-out (unmetered)
  *   - positive integer n                          → that ceiling
  *

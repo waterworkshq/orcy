@@ -16,7 +16,7 @@
  *      (deep-merge discriminator — the CS-20 no-field-default guard).
  *   5. Negative / non-integer / >10_000 ceilings are rejected with 400.
  *   6. Default-null contract: a fresh habitat GETs `lifecycleSettings: null`
- *      and the shared default ceiling constant is 12 (resolver lands in
+ *      and the shared default ceiling constant is 21 (resolver lands in
  *      ticket 2; this pins the contract it consumes).
  */
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
@@ -175,7 +175,7 @@ describe("lifecycleSettings surface (transition budget ticket 1)", () => {
     }
   });
 
-  it("default-null contract: fresh habitat GETs a null blob and the shared default is 12", async () => {
+  it("default-null contract: fresh habitat GETs a null blob and the shared default is 21", async () => {
     const habitatId = await createHabitat(app, token, "Lifecycle Default Habitat");
     expect(await getHabitatBlob(app, token, habitatId)).toBeNull();
 

@@ -1,6 +1,6 @@
 # Orcy — Product Roadmap
 
-> **Version:** v0.41.4 | **Updated:** 2026-09-03
+> **Version:** v0.41.4 | **Updated:** 2026-09-04
 
 Each minor release tells a story — a coherent set of changes with a clear "why."
 Release boundaries are risk management decisions: breaking changes, fragile features, and big refactors never ship together.
@@ -122,6 +122,12 @@ Release boundaries are risk management decisions: breaking changes, fragile feat
 ---
 
 ## Upcoming
+
+### Next Minor — v0.42.0 "Task Transition Budget" (implementation complete; release pending)
+
+| Ship | Story |
+|------|-------|
+| v0.42.0 | "Task Transition Budget" — a per-habitat brake on runaway review loops. Every task's Execute↔Review cycle is metered against `lifecycleSettings.taskTransitionCeiling` (new habitat setting: `null` = finite default 21, `0` = explicit opt-out, `n` = that ceiling); the meter is the `task_events` audit trail itself (no counter column), exits (`approved`/`completed`) and bookkeeping actions are untaxed, and human actors are unmetered entirely — the brake stops autonomous spend, never the human resolving it. The (N+1)th metered transition is refused with a typed reason while the first breach escalates to the habitat's humans via the existing `escalated` event + SSE + direct notification (emit-once, marker-scoped so the retry ladder's escalations never interfere): no new task status, no tasks-table schema change (ADR-0051). The budget composes above the existing partial brakes — the retry ladder still governs backoff per retry and `MAX_RECOVERY_DEPTH` still governs recovery-spawn depth. Default-21 arithmetic is review-corrected: first pass = 3 transitions, fix round = 6 with a retry policy / 4 without — 21 buys the first pass plus three policy-driven or four no-policy fix rounds. |
 
 ### Architecture Deepening (2026-08-13 Review)
 
