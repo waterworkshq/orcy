@@ -212,7 +212,6 @@ Orcy pulls external tracker issues into habitat intake, where humans/orcys revie
 
 | Release | Theme |
 |---------|-------|
-| v0.42.0 | Task Transition Budget — a configurable per-task cap on review-loop cycles, derived from the audit trail (default 21 metered transitions; human actors unmetered; breach refuses the transition and escalates to humans). See [ADR-0051](docs/adr/0051-task-transition-budget.md). |
 | Soon | Unscheduled seeds (integration OAuth/webhook extraction and similar) wait on demand. See [docs/ROADMAP.md](docs/ROADMAP.md). |
 | Architecture Optimization | Ongoing Architecture Work pertaining to investigated codebase opportunities |
 | npm publishing | GO LIVE on npm for the CLI, MCP server, and daemon for one command installer |
