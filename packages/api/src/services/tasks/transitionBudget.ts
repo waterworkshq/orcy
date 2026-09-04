@@ -21,7 +21,7 @@
  * remote wrappers' atomic txs without opening nested transactions or calling
  * `getDb()` behind a caller's back.
  *
- * Breach semantics (plan §6, Ticket 3 — user-selected): on the FIRST refusal
+ * Breach semantics (user-selected design, ADR-0051): on the FIRST refusal
  * the guard escalates — emits the existing `escalated` TaskAction (SSE
  * `task.escalated` + `task_events` row; `ACTION_EFFECTS.escalated` has no
  * `eventToStatus`, so no status change) with breach metadata, and direct-calls

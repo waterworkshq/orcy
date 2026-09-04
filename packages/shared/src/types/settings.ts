@@ -229,8 +229,8 @@ export interface LifecycleSettings {
  * re-start, retry_scheduled, retry_executed, submit, reject) or 4 without —
  * so 21 buys the first pass plus three policy-driven fix rounds, or four
  * no-policy rounds with headroom, honoring the "three or four fix rounds"
- * design intent in both regimes. Arithmetic corrected per the Ticket 2 final
- * review (the original sketch assumed ~3 per round).
+ * design intent in both regimes. Arithmetic corrected by an independent
+ * review of the implemented meter costs (the original sketch assumed ~3 per round).
  */
 export const DEFAULT_TASK_TRANSITION_CEILING = 21;
 
