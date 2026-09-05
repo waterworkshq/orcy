@@ -8,7 +8,6 @@ export {
   rotateWebhookSecret,
   executeHttpRequest,
   handleDeliveryOutcome,
-  updateDeliveryStatus,
   createDeliveryRecord,
   getDeliveriesForSubscription,
   sendTestWebhook,

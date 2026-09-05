@@ -1,9 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-let updatePayloads: Array<Record<string, unknown>> = [];
-let insertPayloads: Array<Record<string, unknown>> = [];
-let selectRows: Array<Record<string, unknown>> = [];
-
 const securityMocks = vi.hoisted(() => ({
   validateOutboundUrl: vi.fn(),
   filterUnsafeHeaders: vi.fn(),
@@ -40,65 +36,27 @@ vi.mock("../config/integrationSecurity.js", () => {
 });
 vi.mock("../lib/logger.js", () => ({ logger: loggerMock }));
 vi.mock("uuid", () => ({ v4: vi.fn(() => "delivery-id") }));
-vi.mock("../db/schema/index.js", () => ({
-  webhookDeliveries: {
-    id: "id",
-    subscriptionId: "subscription_id",
-    eventType: "event_type",
-    payload: "payload",
-    status: "status",
-    attempts: "attempts",
-    nextRetryAt: "next_retry_at",
-    createdAt: "created_at",
-  },
-  webhookSubscriptions: {
-    id: "sub_id",
-    url: "url",
-    secret: "secret",
-    headers: "headers",
-  },
+
+// The repository layer (claim/fence CAS against the real DB) has its own
+// real-DB discriminator suite (webhookRetryRecovery.test.ts); this service
+// suite mocks the repo boundary and asserts the service's orchestration.
+const repoMocks = vi.hoisted(() => ({
+  createWebhookDeliveryRecord: vi.fn(() => ({ created: true, fence: "fence-new" })),
+  recordFencedWebhookDeliveryOutcome: vi.fn(() => true),
+  claimWebhookDeliveryForRetry: vi.fn(() => ({ acquired: false, fence: null, delivery: null })),
+  listRetryEligibleWebhookDeliveries: vi.fn(() => []),
+  terminalizeWebhookDelivery: vi.fn(() => true),
+  listWebhookDeliveriesForSubscription: vi.fn(
+    (_subscriptionId: string, _limit?: number): Array<Record<string, unknown>> => [],
+  ),
+  getWebhookDeliveryById: vi.fn(() => null),
+  WEBHOOK_DISPOSITION_SUBSCRIPTION_DISABLED: "Webhook delivery abandoned: subscription is disabled.",
+  WEBHOOK_DISPOSITION_SUBSCRIPTION_MISSING: "Webhook delivery abandoned: subscription is missing.",
+  WEBHOOK_DISPOSITION_HEADERS_MALFORMED: "Webhook delivery abandoned: subscription headers are malformed.",
+  WEBHOOK_DISPOSITION_BUDGET_EXHAUSTED:
+    "Webhook delivery abandoned: retry budget exhausted; outcome of the final attempt is unknown.",
 }));
-vi.mock("../db/index.js", () => ({
-  getDb: () => ({
-    update: () => ({
-      set: (payload: Record<string, unknown>) => ({
-        where: () => ({
-          run: () => {
-            updatePayloads.push(payload);
-          },
-        }),
-      }),
-    }),
-    insert: () => ({
-      values: (payload: Record<string, unknown>) => ({
-        run: () => {
-          insertPayloads.push(payload);
-        },
-      }),
-    }),
-    select: () => {
-      const chain = {
-        from: () => chain,
-        innerJoin: () => chain,
-        where: () => chain,
-        orderBy: () => chain,
-        limit: () => chain,
-        all: () => selectRows,
-      };
-      return chain;
-    },
-  }),
-}));
-vi.mock("drizzle-orm", async () => {
-  const actual = await vi.importActual("drizzle-orm");
-  return {
-    ...actual,
-    eq: vi.fn((left, right) => ({ type: "eq", left, right })),
-    and: vi.fn((...conditions) => ({ type: "and", conditions })),
-    desc: vi.fn((value) => ({ type: "desc", value })),
-    sql: vi.fn((_strings: TemplateStringsArray, ..._values: unknown[]) => ({ type: "sql" })),
-  };
-});
+vi.mock("../repositories/webhookDelivery.js", () => repoMocks);
 
 import {
   createDeliveryRecord,
@@ -106,16 +64,12 @@ import {
   getDeliveriesForSubscription,
   handleDeliveryOutcome,
   sendTestWebhook,
-  updateDeliveryStatus,
 } from "../services/webhooks/webhook-delivery.js";
 
 describe("webhook delivery service", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.useRealTimers();
-    updatePayloads = [];
-    insertPayloads = [];
-    selectRows = [];
     securityMocks.validateOutboundUrl.mockResolvedValue({ valid: true });
     securityMocks.filterUnsafeHeaders.mockReturnValue({
       headers: { "X-Safe": "yes" },
@@ -203,53 +157,57 @@ describe("webhook delivery service", () => {
     ).resolves.toEqual({ success: false, statusCode: 0, responseBody: "network down" });
   });
 
-  it("updates delivery status and schedules retries according to attempt number", () => {
+  it("records fenced outcomes and schedules retries according to attempt number", () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-05-28T10:00:00.000Z"));
 
-    handleDeliveryOutcome("d1", { success: true, statusCode: 200, responseBody: "ok" }, 1);
-    handleDeliveryOutcome("d2", { success: false, statusCode: 503, responseBody: "busy" }, 2);
-    handleDeliveryOutcome("d3", { success: false, statusCode: 500, responseBody: "dead" }, 3);
+    handleDeliveryOutcome("d1", "fence-1", { success: true, statusCode: 200, responseBody: "ok" }, 1);
+    handleDeliveryOutcome("d2", "fence-2", { success: false, statusCode: 503, responseBody: "busy" }, 2);
+    handleDeliveryOutcome("d3", "fence-3", { success: false, statusCode: 500, responseBody: "dead" }, 3);
 
-    expect(updatePayloads[0]).toMatchObject({
+    expect(repoMocks.recordFencedWebhookDeliveryOutcome).toHaveBeenNthCalledWith(1, {
+      deliveryId: "d1",
+      fence: "fence-1",
       status: "success",
       statusCode: 200,
       responseBody: "ok",
-      nextRetryAt: null,
+      now: "2026-05-28T10:00:00.000Z",
     });
-    expect(updatePayloads[1]).toMatchObject({
+    expect(repoMocks.recordFencedWebhookDeliveryOutcome).toHaveBeenNthCalledWith(2, {
+      deliveryId: "d2",
+      fence: "fence-2",
       status: "pending",
       statusCode: 503,
       responseBody: "busy",
       nextRetryAt: "2026-05-28T10:00:02.000Z",
+      now: "2026-05-28T10:00:00.000Z",
     });
-    expect(updatePayloads[2]).toMatchObject({
+    expect(repoMocks.recordFencedWebhookDeliveryOutcome).toHaveBeenNthCalledWith(3, {
+      deliveryId: "d3",
+      fence: "fence-3",
       status: "failed",
       statusCode: 500,
       responseBody: "dead",
-      nextRetryAt: null,
+      now: "2026-05-28T10:00:00.000Z",
     });
   });
 
   it("creates and lists delivery records", () => {
-    vi.useFakeTimers();
-    vi.setSystemTime(new Date("2026-05-28T10:00:00.000Z"));
-    selectRows = [{ id: "d1", subscriptionId: "s1", eventType: "task.updated" }];
-
     createDeliveryRecord("s1", "task.updated", '{"id":"task-1"}', "d1");
 
-    expect(insertPayloads).toEqual([
-      {
-        id: "d1",
-        subscriptionId: "s1",
-        eventType: "task.updated",
-        payload: '{"id":"task-1"}',
-        status: "pending",
-        attempts: 0,
-        createdAt: "2026-05-28T10:00:00.000Z",
-      },
+    expect(repoMocks.createWebhookDeliveryRecord).toHaveBeenCalledWith(
+      "s1",
+      "task.updated",
+      '{"id":"task-1"}',
+      "d1",
+      { owner: "webhook-dispatch:d1", ttlMs: 60_000 },
+    );
+    repoMocks.listWebhookDeliveriesForSubscription.mockReturnValueOnce([
+      { id: "d1", subscriptionId: "s1", eventType: "task.updated" },
     ]);
-    expect(getDeliveriesForSubscription("s1")).toEqual(selectRows);
+    expect(getDeliveriesForSubscription("s1")).toEqual([
+      { id: "d1", subscriptionId: "s1", eventType: "task.updated" },
+    ]);
   });
 
   it("returns test webhook latency and status, and skips invalid URLs", async () => {
@@ -278,14 +236,13 @@ describe("webhook delivery service", () => {
     ).resolves.toEqual({ success: false, statusCode: 0, latencyMs: 0 });
   });
 
-  it("allows direct delivery status updates with nullable fields", () => {
-    updateDeliveryStatus("d1", "failed");
-
-    expect(updatePayloads[0]).toMatchObject({
-      status: "failed",
-      statusCode: null,
-      responseBody: null,
-      nextRetryAt: null,
-    });
+  it("returns the fenced-write landing flag from handleDeliveryOutcome", () => {
+    repoMocks.recordFencedWebhookDeliveryOutcome.mockReturnValueOnce(false);
+    const landed = handleDeliveryOutcome("d1", "fence-1", {
+      success: true,
+      statusCode: 200,
+      responseBody: "ok",
+    }, 1);
+    expect(landed).toBe(false);
   });
 });

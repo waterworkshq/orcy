@@ -428,6 +428,19 @@ All three must be set. If `ORCY_API_KEY` or `ORCY_AGENT_ID` is empty, the server
 - Until habitat-level webhook subscription is wired, supply the webhook URL in the event payload (`payload.webhookUrl`)
 - For reliable delivery, prefer Slack/Discord/in-app channels
 
+### Delivery retries (outgoing board webhooks)
+
+**Behavior:** Outgoing board webhook deliveries retry automatically. A delivery carries **at most three send reservations** — the first is spent inline at dispatch (lease-at-insert), retries are spent by the boot-owned worker (`startRetryProcessor` in `packages/api/src/services/webhooks/webhook-delivery.ts`, started by the `index.ts` boot callback). Failed attempts back off 1 s then 2 s on a 60 s scan cadence. A reservation can be lost before its send, so at most three physical sends are possible and delivery is not guaranteed.
+
+**Semantics to expect (not bugs):**
+
+- **Finite policy** — once the three reservations are spent, retrying stops and the delivery terminalizes `failed`. If the budget is exhausted with the last outcome unknown (an owner lost between send and outcome write, or a reservation lost before its send), the row terminalizes with the fixed disposition `Webhook delivery abandoned: retry budget exhausted; outcome of the final attempt is unknown.`
+- **Possible duplicate after a crash** — if an owner dies after the receiver already got the payload but before the outcome is recorded, the delivery may be re-sent once its 60 s lease expires. Receivers should deduplicate on the stable `X-Kanban-Delivery` header (constant per delivery, never changes across attempts). This window allows a possible duplicate redelivery — it is not a delivery guarantee (the reservations are finite and can be spent without a send), and delivery is never exactly-once.
+- **Disabled subscriptions** stop being retried immediately: their pending rows terminalize `failed` with `Webhook delivery abandoned: subscription is disabled.` (no send, no attempt spent). Deleted subscriptions cascade their delivery rows away.
+- **After upgrading** past the lease migration (`0076`), every pre-existing pending delivery is made due at once. The worker scans up to 50 rows per tick: enabled, valid, eligible rows retry toward each subscription's **current** URL with each attempt's frozen payload; disabled, missing-subscription, malformed, or budget-exhausted rows receive their terminal disposition without a send. A burst of retry activity right after upgrade is expected, bounded by the 3-reservation budget per row.
+
+**Still a known limitation (separate surface):** Notification V2 channel delivery (Slack/Discord/webhook/in-app) is not production-wired — the push-delivery engine and its retry consumer do not run, so no routine push attempt is guaranteed; inbox records remain readable in the meantime.
+
 ---
 
 ## Daemon Engine

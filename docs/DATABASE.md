@@ -615,10 +615,13 @@ Within-feature sibling task dependencies only. Cross-feature dependencies use `f
 | `status` | TEXT | NOT NULL CHECK (IN 'pending','success','failed') | Delivery status |
 | `status_code` | INTEGER | DEFAULT NULL | HTTP response status code |
 | `response_body` | TEXT | DEFAULT NULL | Truncated response body |
-| `attempts` | INTEGER | NOT NULL DEFAULT 0 | Number of delivery attempts |
+| `attempts` | INTEGER | NOT NULL DEFAULT 0 | Send reservations consumed (max 3, spent at claim/insert time — not at outcome time). Legacy rows preserve their pre-migration outcome-time accounting |
 | `created_at` | TEXT | NOT NULL DEFAULT (datetime('now')) | First attempt timestamp |
 | `last_attempt_at` | TEXT | DEFAULT NULL | Last attempt timestamp |
 | `next_retry_at` | TEXT | DEFAULT NULL | Next retry scheduled time |
+| `lease_owner` | TEXT | DEFAULT NULL | Retry-lease owner (exclusive while unexpired; single control plane) |
+| `lease_fence` | TEXT | DEFAULT NULL | Unique per-claim/insert fence; fences completion writes |
+| `lease_expires_at` | TEXT | DEFAULT NULL | Lease expiry; expired leases are re-claimable |
 
 **Indexes:** `idx_webhook_deliveries_subscription`, `idx_webhook_deliveries_status`, `idx_webhook_deliveries_retry`
 
@@ -2495,6 +2498,8 @@ entries are:
 | `0068` | `0068_finding_triage_lifecycle_enforcement.sql` | **Staged enforcement entry** — applied only by the staged production runner after a clean versioned preflight attestation; its internal CHECK guard aborts any attempt to apply it without one. |
 | `0069`–`0070` | `0069_automation_completion_outbox.sql`, `0070_automation_checkpoint_proved_receipt.sql` | Post-enforcement additive entries. The staged runner applies them in Stage 2 after `0068`. Tests skip `0068` by tag but still apply these. |
 | `0071`–`0074` | `0071_automation_checkpoint_legacy_disposition.sql`, `0072_lineage_repair_before_state_digest.sql`, `0073_finding_evidence_habitat_composite_fk.sql`, `0074_epoch_group_release_composite_fk.sql` | Post-enforcement hardening entries (applied like `0069`–`0070`). `0071` relabels historically-proved checkpoints that 0070 coerced without a receipt (`failed:legacy_proved_no_receipt` — successor re-runs of these require an explicit operator acknowledgement). `0072` adds `finding_triage_lineage_repairs.before_state_digest` so exact repair replay verifies against the recorded digest instead of mutable current state. `0073` rebuilds `finding_triage_evidence` with a composite `(finding_triage_id, habitat_id)` foreign key backed by a parent unique index; `0074` does the same for `release_activation_epoch_groups (epoch_id, release_id)`. Both rebuilds archive any row that cannot satisfy the replacement foreign keys into an explicit `*_orphans_*` table instead of dropping it (the `0068` evidence rebuild archives the same way). |
+| `0075` | `0075_habitat_lifecycle_settings.sql` | Adds `habitats.lifecycle_settings` (per-habitat lifecycle settings blob; NULL = defaults) for the task transition budget. |
+| `0076` | `0076_webhook_delivery_leases.sql` | Webhook retry restoration: adds the `lease_owner` / `lease_fence` / `lease_expires_at` ownership columns to `webhook_deliveries` and backfills `next_retry_at = created_at` for every pending row with NULL `next_retry_at`. **Operator note:** the backfill makes the entire accumulated pending backlog due at once. After upgrade the retry worker scans up to 50 rows per tick: enabled, valid, eligible rows retry (bounded by the 3-reservation budget per row); disabled, missing-subscription, malformed, or already-exhausted rows receive their terminal disposition without a send. Legacy rows keep their existing `attempts` accounting; unknown historical outcomes are not reconstructed. |
 
 The gap `0003`–`0026` is **intentional**. Those migrations were consolidated
 into `0000_schema.sql` at the boundary commit and are deliberately NOT in the

@@ -5,6 +5,10 @@ import * as habitatHealthService from "./services/boardHealthService.js";
 import { registerCreationDispatchAdapters } from "./services/taskCreationDispatchAdapters.js";
 import { startOccurrenceLeaseRecoveryWorker } from "./services/scheduledOccurrenceRecovery.js";
 import { startCreationDispatchWorker } from "./services/creationDispatchWorker.js";
+import {
+  startRetryProcessor as startWebhookRetryProcessor,
+  stopRetryProcessor as stopWebhookRetryProcessor,
+} from "./services/webhooks/webhook-delivery.js";
 import { rebuildCache as rebuildHabitatSecretCache } from "./services/habitatSecretCache.js";
 import { seedDefaultTemplates as seedQualityTemplates } from "./services/qualityGateService.js";
 import { startAllSchedulers } from "./services/scheduler.js";
@@ -50,6 +54,10 @@ const app = await createHttpApplication({
     registerCreationDispatchAdapters();
     occurrenceRecoveryHandle = startOccurrenceLeaseRecoveryWorker(60_000);
     creationDispatchHandle = startCreationDispatchWorker(5_000);
+    // Outgoing-webhook retry/recovery worker (lease/fence + bounded claim
+    // budget). Interval-only start: the first pass fires one tick later, by
+    // which time initDb() (awaited further down boot) has completed.
+    startWebhookRetryProcessor();
   },
 });
 
@@ -119,6 +127,9 @@ app.onClose(async () => {
   clearInterval(healthSnapshotInterval);
   creationDispatchHandle?.stop();
   if (occurrenceRecoveryHandle) clearInterval(occurrenceRecoveryHandle);
+  // Drain-aware stop: awaits in-flight webhook sends (bounded by the fetch
+  // cap) so outcome writes cannot race process teardown.
+  await stopWebhookRetryProcessor();
   const { shutdownAll } = await import("./services/daemonEngine.js");
   shutdownAll();
   const { stopExtractionScan } = await import("./services/extractionScheduler.js");

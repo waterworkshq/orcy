@@ -67,7 +67,16 @@ async function dispatchToSubscription(
   const payloadString = JSON.stringify(formattedPayload);
   const signature = subscription.secret ? signPayload(payloadString, subscription.secret) : null;
 
-  createDeliveryRecord(subscription.id, eventType, payloadString, deliveryId);
+  // Lease-at-insert: the row is born owned by this dispatch (initial send
+  // reservation already consumed, attempts = 1). `created: false` means the
+  // subscription was disabled/removed at the insert boundary — do not send.
+  const { created, fence } = createDeliveryRecord(
+    subscription.id,
+    eventType,
+    payloadString,
+    deliveryId,
+  );
+  if (!created) return;
 
   const result = await executeHttpRequest(
     subscription.url,
@@ -77,7 +86,7 @@ async function dispatchToSubscription(
     deliveryId,
     "webhook.delivery",
   );
-  handleDeliveryOutcome(deliveryId, result, 1);
+  handleDeliveryOutcome(deliveryId, fence, result, 1);
 }
 
 /** Dispatches an event to every enabled webhook subscription for a habitat. */

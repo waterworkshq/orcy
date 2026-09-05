@@ -25,7 +25,7 @@ const discordFormatterMock = vi.hoisted(() =>
 );
 
 const deliveryMocks = vi.hoisted(() => ({
-  createDeliveryRecord: vi.fn(),
+  createDeliveryRecord: vi.fn(() => ({ created: true, fence: "fence-from-mock" })),
   executeHttpRequest: vi.fn(async () => ({ success: true, statusCode: 200, responseBody: "ok" })),
   handleDeliveryOutcome: vi.fn(),
 }));
@@ -166,10 +166,41 @@ describe("webhook dispatch service", () => {
     );
     expect(deliveryMocks.handleDeliveryOutcome).toHaveBeenCalledWith(
       "delivery-id",
+      "fence-from-mock",
       { success: true, statusCode: 200, responseBody: "ok" },
       1,
     );
     expect(discordFormatterMock).not.toHaveBeenCalled();
+  });
+
+  it("does not send when the insert boundary refuses a disabled subscription", async () => {
+    subscriptionRows = [
+      {
+        id: "refused",
+        url: "https://example.com/refused",
+        secret: null,
+        headers: {},
+        format: "standard",
+        events: ["task.updated"],
+        enabled: 1,
+      },
+    ];
+    deliveryMocks.createDeliveryRecord.mockReturnValueOnce({ created: false, fence: "f1" });
+
+    await dispatchWebhooks("habitat-1", {
+      type: "task.updated",
+      data: { taskId: "task-1" },
+    } as any);
+    await flushDispatch();
+
+    expect(deliveryMocks.createDeliveryRecord).toHaveBeenCalledWith(
+      "refused",
+      "task.updated",
+      expect.any(String),
+      "delivery-id",
+    );
+    expect(deliveryMocks.executeHttpRequest).not.toHaveBeenCalled();
+    expect(deliveryMocks.handleDeliveryOutcome).not.toHaveBeenCalled();
   });
 
   it("falls back to the standard formatter for unknown formats", async () => {

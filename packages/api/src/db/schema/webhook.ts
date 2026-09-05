@@ -30,6 +30,12 @@ export const webhookDeliveries = sqliteTable('webhook_deliveries', {
   createdAt: text('created_at').notNull().default("(datetime('now'))"),
   lastAttemptAt: text('last_attempt_at'),
   nextRetryAt: text('next_retry_at'),
+  // Retry ownership (single control plane): the lease is exclusive DB state —
+  // while unexpired it blocks every other claim/send authority for the row;
+  // the fence is unique per claim/insert and fences completion writes.
+  leaseOwner: text('lease_owner'),
+  leaseFence: text('lease_fence'),
+  leaseExpiresAt: text('lease_expires_at'),
 }, (table) => [
   index('idx_webhook_deliveries_subscription').on(table.subscriptionId),
   index('idx_webhook_deliveries_status').on(table.status),
