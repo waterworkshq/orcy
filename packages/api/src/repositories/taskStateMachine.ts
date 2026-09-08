@@ -377,7 +377,8 @@ export function approveTask(taskId: string): Task | null {
   const db = getDb();
   const now = new Date().toISOString();
 
-  db.update(tasks)
+  const runResult = db
+    .update(tasks)
     .set({
       status: "approved",
       completedAt: now,
@@ -387,7 +388,18 @@ export function approveTask(taskId: string): Task | null {
     .where(and(eq(tasks.id, taskId), eq(tasks.status, "submitted")))
     .run();
 
-  return getTaskById(taskId);
+  // Terminal-write CAS: a conditional UPDATE that matched zero rows means the
+  // task left `submitted` under us — that is a LOST transition, not success.
+  // Never treat a refetched non-null task as proof this write landed. The
+  // changes field exists on better-sqlite3 ({changes:N}); sql.js may not
+  // report it (undefined), so the refetched status is the cross-backend
+  // verification: a task that is not `approved` after this UPDATE did not
+  // transition through it.
+  const changes = (runResult as { changes?: number } | undefined)?.changes;
+  const updated = getTaskById(taskId);
+  if (changes === 0) return null;
+  if (!updated || updated.status !== "approved") return null;
+  return updated;
 }
 
 export function markTaskDone(taskId: string): Task | null {
@@ -411,7 +423,8 @@ export function rejectTask(taskId: string, reason: string): Task | null {
   const db = getDb();
   const now = new Date().toISOString();
 
-  db.update(tasks)
+  const runResult = db
+    .update(tasks)
     .set({
       status: "rejected",
       rejectionReason: reason,
@@ -422,5 +435,11 @@ export function rejectTask(taskId: string, reason: string): Task | null {
     .where(and(eq(tasks.id, taskId), eq(tasks.status, "submitted")))
     .run();
 
-  return getTaskById(taskId);
+  // Terminal-write CAS — same contract as approveTask: zero matched rows or a
+  // non-terminal refetched status is a lost race, surfaced as null.
+  const changes = (runResult as { changes?: number } | undefined)?.changes;
+  const updated = getTaskById(taskId);
+  if (changes === 0) return null;
+  if (!updated || updated.status !== "rejected") return null;
+  return updated;
 }

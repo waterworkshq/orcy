@@ -274,12 +274,13 @@ describe('Documentation validation', () => {
       expect(claimSection.substring(0, 500)).toMatch(/Agent auth required/i);
     });
 
-    it('approve/reject endpoints document JWT-only auth', () => {
+    it('approve/reject endpoints document principal-derived reviewer auth (human JWT or agent key)', () => {
       const approveSection = doc.substring(doc.indexOf('POST /tasks/:id/approve'));
-      expect(approveSection.substring(0, 500)).toMatch(/JWT auth required/i);
+      expect(approveSection.substring(0, 500)).toMatch(/human JWT \*\*or\*\* agent API key/i);
 
       const rejectSection = doc.substring(doc.indexOf('POST /tasks/:id/reject'));
-      expect(rejectSection.substring(0, 500)).toMatch(/JWT auth required/i);
+      expect(rejectSection.substring(0, 500)).toMatch(/human JWT \*\*or\*\* agent API key/i);
+      expect(approveSection.substring(0, 700)).toMatch(/pending agent-typed reviewer row/i);
     });
   });
 

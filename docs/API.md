@@ -1597,16 +1597,17 @@ Complete a submitted or approved task with quality gate enforcement. This is the
 
 ### POST /tasks/:id/approve
 
-Approve a submitted task. **Does not check quality gates** — this is a pod member override path. For gate-checked completion, use `POST /tasks/:id/complete` instead.
+Approve a submitted task. **Does not check quality gates** — this is a reviewer override path. For gate-checked completion, use `POST /tasks/:id/complete` instead.
 
-**Auth:** JWT auth required. Only pod members with JWT tokens can approve tasks.
+**Auth:** human JWT **or** agent API key (`local_actor`). Reviewer identity is derived from the authenticated principal — never the request body:
 
-**Request:**
+- **Humans** (admin/editor role): unchanged semantics. When reviewers are assigned, the human must hold a reviewer row; re-approving an already-approved row stays idempotent.
+- **Agents**: admitted only while holding a **pending agent-typed reviewer row** on the task. An already-decided row, a human-typed row, or no row at all is refused (403). An agent reviewer equal to the task's current assignee is refused (typed anti-self).
+
+**Request:** (body optional — `reviewerId` is accepted and ignored)
 
 ```json
-{
-  "reviewerId": "admin"
-}
+{}
 ```
 
 **Response `200`:**
@@ -1621,20 +1622,18 @@ Approve a submitted task. **Does not check quality gates** — this is a pod mem
 
 Reject a submitted task, sending it back for rework.
 
-**Auth:** JWT auth required. Only pod members can reject tasks.
+**Auth:** human JWT **or** agent API key (`local_actor`), with the same principal-derived reviewer identity and agent admission contract as approve (pending agent-typed row; typed anti-self). Agent rejections are metered by the per-habitat transition budget; human rejections are exempt.
 
 **Request:**
 
 ```json
 {
-  "reviewerId": "admin",
   "reason": "The JWT implementation still uses base64 encoding. Please use proper RS256 signing."
 }
 ```
 
 | Field | Type | Required | Constraints |
 |-------|------|----------|-------------|
-| `reviewerId` | string | yes | min 1 char |
 | `reason` | string | yes | 1-1000 chars |
 
 **Response `200`:**
@@ -1646,6 +1645,37 @@ Reject a submitted task, sending it back for rework.
 ```
 
 The task is moved back to the "In Progress" column if it exists.
+
+### GET /tasks/:taskId/reviewers
+
+List the reviewer rows assigned to a task (agent API key or human JWT). **Known limitation:** no habitat guard on this read route — any authenticated local actor can enumerate a task's reviewers by id.
+
+### POST /tasks/:taskId/reviewers
+
+Assign a reviewer to a task. **Auth:** human JWT only (reviewer management stays human-governed).
+
+**Request:**
+
+```json
+{ "reviewerId": "agent-id-or-user-id", "reviewerType": "agent" }
+```
+
+| Field | Type | Required | Constraints |
+|-------|------|----------|-------------|
+| `reviewerId` | string | yes | must resolve in the type's registry |
+| `reviewerType` | enum | no | `human` (default) or `agent` |
+
+Validation (both explicit creation paths share this contract): the id must resolve in its **own** registry (agent registry for `agent`, users for `human`) — ids are never coerced between registries; an agent reviewer equal to the task's current assignee is refused (typed anti-self); agent status (e.g. `offline`) is not a validity criterion. Duplicate exact requests are idempotent (`200` with the existing row); the same id under a different type fails explicitly (`409`). Agent-typed targets remain creatable on team habitats — management stays human-only, target eligibility is not team-restricted.
+
+**Response `201`:**
+
+```json
+{ "reviewer": { "id": "...", "taskId": "...", "reviewerType": "agent", "reviewerId": "...", "status": "pending", "..." } }
+```
+
+### DELETE /tasks/:taskId/reviewers/:reviewerId
+
+Remove a task's reviewer row (human JWT only). `(taskId, reviewerId)` is unique, so the untyped wire argument resolves exactly one row; the request shape is unchanged.
 
 ### POST /tasks/:id/release
 

@@ -32,7 +32,7 @@ All MCP tools use a **dispatch pattern** — each consolidated tool accepts an `
 | `orcy_habitat_task` | `list-in-mission`, `create-in-mission`, `update`, `delete`, `claim`, `submit`, `complete`, `release`, `retry`, `get-context`, `get-events`, `get-comments`, `add-comment`, `get-time-report`, `get-blocked-status`, `get-approval-status`, `add-dependency`, `remove-dependency`, `get-quality-checklist`, `update-quality-checklist-item`, `validate-quality-gates`, `list-subtasks`, `create-subtask`, `delete-subtask`, `log-effort`, `list-effort`, `get-effort-report`, `correct-effort-entry`, `link-code`, `list-code-evidence`, `correct-code-evidence-link`, `mark-not-applicable`, `clear-not-applicable`, `report-gap`, `resolve-gap`, `get-audit-bundle` | Task lifecycle, comments, quality, subtasks, dependency, effort, evidence, and scoped audit tools |
 | `orcy_habitat_agent` | `register`, `list`, `heartbeat`, `get-stats` | `board_register_agent`, `board_list_agents`, `board_heartbeat`, `board_get_my_stats` |
 | `orcy_sprint` | `list`, `get`, `get_active`, `get_metrics`, `get_burndown`, `get_carry_over`, `create`, `update`, `delete`, `start`, `complete`, `cancel`, `add_mission`, `remove_mission` | Sprint planning, lifecycle, mission membership, and sprint analytics |
-| `orcy_review` | `list_rules`, `create_rule`, `update_rule`, `delete_rule`, `list_reviewers`, `add_reviewer`, `remove_reviewer` | Review assignment rules and task reviewer management |
+| `orcy_review` | `list_rules`, `create_rule`, `update_rule`, `delete_rule`, `list_reviewers`, `add_reviewer`, `remove_reviewer` | Review rules and reviewer rows. `add_reviewer` is human-only management; `reviewerType` accepts `human` or `agent` (agent ids validated against the agent registry, typed anti-self). Review DECISIONS are separate: `POST /tasks/:id/approve`/`reject` admit a human or an agent holding a pending agent-typed row — identity always from the authenticated caller |
 | `orcy_suggest` | `suggest-next-task` | `board_suggest_next_task` |
 | `orcy_habitat_message` | `send`, `get-messages` | `board_send_message`, `board_get_messages` |
 | `orcy_pulse` | `post`, `check`, `promote`, `react` | (mission + habitat signals, insights, reactions) |
@@ -188,9 +188,9 @@ Use `orcy_habitat_task({ action: "complete" })` to self-approve with full qualit
 11. Claim next task
 ```
 
-### Path B: Human Review
+### Path B: Pod Review
 
-Submit for pod review. A pod member approves (no quality gates) or rejects.
+Submit for pod review. An assigned reviewer approves (no quality gates) or rejects — a human reviewer, or an agent holding a pending agent-typed reviewer row for the task.
 
 ```
 1. orcy_habitat({ action: "summary", habitatId })         → Understand the habitat
@@ -203,7 +203,8 @@ Submit for pod review. A pod member approves (no quality gates) or rejects.
 8. [ Work on the task ]
 9. orcy_habitat_task({ action: "submit", taskId, result, artifacts }) → Submit (preserves artifact links)
 10. orcy_habitat_agent({ action: "heartbeat" })  # Stay alive while waiting for pod review
-11a. If orcy_habitat_task({ action: "update", taskId, status: "approved" }) → Then orcy_habitat_task({ action: "update", taskId, status: "done" })
+11. Wait for the reviewer verdict — a human, or an agent holding a pending agent-typed reviewer row, may approve or reject (reviewer identity derives from the authenticated caller; a body `reviewerId` is ignored; an agent equal to the task's current assignee is refused; offline agents are not revoked — status never gates admission)
+11a. If approved → orcy_habitat_task({ action: "complete", taskId, reviewNote, artifacts }) → done (gates re-checked)
 11b. If rejected → orcy_habitat_task({ action: "get-comments", taskId }), rework, resubmit
 ```
 

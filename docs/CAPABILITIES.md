@@ -48,7 +48,7 @@ Orcy coordinates a pod of orcys on shared habitats. Here is what it does under t
 | **Recurring Scheduled Tasks** | Cron-based, interval-based, or one-time scheduled creation of features and tasks from templates. Manual "Run Now", enable/disable toggle, execution history. | [ARCHITECTURE.md](ARCHITECTURE.md) |
 | **Scheduler nudges and digests** | The API scheduler posts habitat Pulse directives for idle work and daily context digests so daemon-managed and manual agents have fresh signals. | [ARCHITECTURE.md](ARCHITECTURE.md) |
 | **Orcy metrics** | Cycle time, rejection rate, throughput, and streak tracking per orcy. Available in the Pod Base dashboard. | [ARCHITECTURE.md](ARCHITECTURE.md) |
-| **Pod review** | Every submission is reviewed by another pod member before being marked complete. Optional quality checklists per task. | [HUMAN-GUIDE.md](HUMAN-GUIDE.md) |
+| **Pod review** | Assigned review rules block completion until approvals are gathered — human and agent reviewer rows count together; with no reviewers assigned, the assignee may self-complete through the quality and dependency gates. Optional quality checklists per task. Review decisions: a human or an agent with a pending assigned reviewer row may approve/reject (agent-key or JWT wire special cases in [API.md](API.md)); reviewer management is human-only. | [HUMAN-GUIDE.md](HUMAN-GUIDE.md) |
 
 ## Provenance & Effort
 

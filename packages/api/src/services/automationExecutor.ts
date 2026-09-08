@@ -12,6 +12,8 @@ import { enqueueNotificationForRecipients } from "./notificationCommandService.j
 import * as pulseRepo from "../repositories/pulse.js";
 import * as taskRepo from "../repositories/task.js";
 import * as taskReviewerRepo from "../repositories/taskReviewer.js";
+import * as agentRepo from "../repositories/agent.js";
+import * as userRepo from "../repositories/user.js";
 import { claimTask } from "./tasks/task-lifecycle.js";
 import { assignReviewers } from "./reviewAssignmentService.js";
 import { logger } from "../lib/logger.js";
@@ -394,16 +396,71 @@ function executeRequestReview(
   }
 
   if (action.reviewerId) {
-    taskReviewerRepo.create(
-      ctx.task.id,
-      (action.reviewerType as "human" | "agent") ?? "agent",
-      action.reviewerId,
-    );
+    // Explicit-assignment validation (typed identity, no coercion):
+    //   1. reviewerType must be a known type — an invalid value FAILS the
+    //      action; it is never coerced or silently defaulted.
+    //   2. The reviewer id must resolve in the type's OWN registry (agents
+    //      in the agent registry, humans in users).
+    //   3. Typed anti-self: an agent reviewer may not be the task's current
+    //      assignee. Agent status is NOT a validity criterion (offline
+    //      agents remain assignable — heartbeat revives them).
+    //   4. Duplicate valid requests stay idempotent; a same-id row of a
+    //      DIFFERENT type fails explicitly instead of flipping the row.
+    // Validation failures are ACTION RESULTS (in-run outcomes), never HTTP.
+    const reviewerType = action.reviewerType ?? "agent";
+    const failed = (error: string): AutomationActionResult => ({
+      actionType: "request_review",
+      actionIndex: index,
+      status: "failed",
+      error,
+    });
+
+    if (reviewerType !== "human" && reviewerType !== "agent") {
+      return failed(
+        `Invalid reviewerType "${String(action.reviewerType)}" — expected "human" or "agent"`,
+      );
+    }
+    if (reviewerType === "agent") {
+      const agent = agentRepo.getAgentById(action.reviewerId);
+      if (!agent) {
+        return failed(`Reviewer "${action.reviewerId}" not found in the agent registry`);
+      }
+      if (ctx.task.assignedAgentId === action.reviewerId) {
+        return failed("Agent reviewer is the task's current assignee (self-review)");
+      }
+    } else {
+      const user = userRepo.getUserById(action.reviewerId);
+      if (!user) {
+        return failed(`Reviewer "${action.reviewerId}" not found in the user registry`);
+      }
+    }
+
+    const existing = taskReviewerRepo.findByTaskAndReviewer(ctx.task.id, action.reviewerId);
+    if (existing) {
+      if (existing.reviewerType === reviewerType) {
+        // Idempotent duplicate: no phantom second row, still a success.
+        return {
+          actionType: "request_review",
+          actionIndex: index,
+          status: "succeeded",
+          result: { taskId: ctx.task.id, reviewerId: action.reviewerId, duplicate: true },
+        };
+      }
+      return failed(
+        `Reviewer "${action.reviewerId}" is already assigned as type "${existing.reviewerType}"`,
+      );
+    }
+
+    const created = taskReviewerRepo.create(ctx.task.id, reviewerType, action.reviewerId);
     return {
       actionType: "request_review",
       actionIndex: index,
       status: "succeeded",
-      result: { taskId: ctx.task.id, reviewerId: action.reviewerId },
+      result: {
+        taskId: ctx.task.id,
+        reviewerId: action.reviewerId,
+        reviewerType: created.reviewerType,
+      },
     };
   }
 

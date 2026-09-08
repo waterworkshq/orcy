@@ -469,11 +469,16 @@ export const assignmentAttemptSchema = z.object({
 });
 
 export const approveTaskSchema = z.object({
-  reviewerId: z.string().min(1),
+  // Deprecated wire field: reviewer identity is derived from the
+  // authenticated principal (human user or agent key), never the body.
+  // Still accepted (and ignored) for wire compatibility.
+  reviewerId: z.string().min(1).optional(),
 });
 
 export const rejectTaskSchema = z.object({
-  reviewerId: z.string().min(1),
+  // Deprecated wire field: reviewer identity is derived from the
+  // authenticated principal (human user or agent key), never the body.
+  reviewerId: z.string().min(1).optional(),
   reason: z.string().min(1).max(1000),
 });
 

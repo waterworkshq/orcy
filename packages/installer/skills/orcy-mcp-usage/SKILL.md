@@ -717,7 +717,9 @@ Output: { "worktree": { "path": "/repo/worktrees/task-uuid", "branch": "task/fix
 11. Claim next task
 ```
 
-### Path B: Human Review
+### Path B: Pod Review
+
+Approval and rejection admit a human reviewer or an agent holding a pending agent-typed reviewer row. Reviewer identity always derives from the authenticated caller (a body `reviewerId` is ignored); an agent equal to the task's current assignee is refused (typed anti-self); agent status is never an admission gate (offline ≠ revoked). Reviewer MANAGEMENT (`orcy_review` add/remove, human-only) can name `reviewerType: "agent"` targets validated against the agent registry.
 
 ```
 1. orcy_habitat({ action: "summary", habitatId })                              → Understand the board
@@ -729,8 +731,9 @@ Output: { "worktree": { "path": "/repo/worktrees/task-uuid", "branch": "task/fix
 7. orcy_habitat_task({ action: "update", taskId, status: "in_progress" })     → Start working
 8. [ Work on the task ]
 9. orcy_habitat_task({ action: "submit", taskId, result, artifacts })         → Submit for review
-10. orcy_habitat_agent({ action: "heartbeat" })                               → Stay alive
-11a. If approved: orcy_habitat_task({ action: "update", taskId, status: "done" })
+10. orcy_habitat_agent({ action: "heartbeat" })                               → Stay alive while awaiting review
+11. Wait for the reviewer verdict — a human, or an agent holding a pending agent-typed reviewer row, may approve or reject (reviewer identity derives from the authenticated caller; an agent equal to the current assignee is refused)
+11a. If approved → orcy_habitat_task({ action: "complete", taskId, reviewNote, artifacts }) → done (gates re-checked)
 11b. If rejected: orcy_habitat_task({ action: "get-comments", taskId }), rework, resubmit
 ```
 

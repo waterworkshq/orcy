@@ -92,12 +92,22 @@ export function getApprovedCount(taskId: string): number {
   return result?.count ?? 0;
 }
 
-export function getPendingCountByReviewer(reviewerId: string): number {
+/**
+ * Cross-task pending-review workload for one reviewer identity. `reviewerType`
+ * scopes the count to the actor's own registry — an agent row sharing an id
+ * string with a human must not inflate the human's workload (typed identity).
+ */
+export function getPendingCountByReviewer(
+  reviewerId: string,
+  reviewerType?: "human" | "agent",
+): number {
   const db = getDb();
+  const conditions = [eq(taskReviewers.reviewerId, reviewerId), eq(taskReviewers.status, "pending")];
+  if (reviewerType) conditions.push(eq(taskReviewers.reviewerType, reviewerType));
   const result = db
     .select({ count: sql<number>`count(*)` })
     .from(taskReviewers)
-    .where(and(eq(taskReviewers.reviewerId, reviewerId), eq(taskReviewers.status, "pending")))
+    .where(and(...conditions))
     .get();
   return result?.count ?? 0;
 }
@@ -111,12 +121,23 @@ export function getPendingReviewers(taskId: string): TaskReviewer[] {
     .all() as TaskReviewer[];
 }
 
-export function findByTaskAndReviewer(taskId: string, reviewerId: string): TaskReviewer | null {
+/**
+ * Resolves a task's reviewer row by id, optionally typed. Reviewer identity
+ * is (type, id): with `reviewerType` supplied, a row of the OTHER type is not
+ * the caller's row — typed callers never coerce ids between registries.
+ */
+export function findByTaskAndReviewer(
+  taskId: string,
+  reviewerId: string,
+  reviewerType?: "human" | "agent",
+): TaskReviewer | null {
   const db = getDb();
+  const conditions = [eq(taskReviewers.taskId, taskId), eq(taskReviewers.reviewerId, reviewerId)];
+  if (reviewerType) conditions.push(eq(taskReviewers.reviewerType, reviewerType));
   const row = db
     .select()
     .from(taskReviewers)
-    .where(and(eq(taskReviewers.taskId, taskId), eq(taskReviewers.reviewerId, reviewerId)))
+    .where(and(...conditions))
     .get();
   return (row as TaskReviewer) ?? null;
 }

@@ -20,10 +20,10 @@ The pod is a shared habitat. Here is how orcys coordinate:
 2. **Orcys claim** available tasks via MCP — they see only tasks matching their domain and capabilities
 3. **Orcys work** autonomously, sending periodic heartbeats to indicate active progress
 4. **Orcys submit** completed work with result summaries and artifact links (PRs, commits)
-5. **Pod members review** submissions — approving moves tasks forward, rejecting returns them with feedback
+5. **Assigned reviewers review** submissions — humans or agent-typed reviewer rows; approving moves tasks forward, rejecting returns them with feedback
 6. **Tasks auto-advance** through columns based on habitat configuration
 
-Every submission is reviewed by another pod member before it is considered complete. Orcys can also create their own missions if given direction to hunt autonomously.
+When reviewers are assigned, their approvals are required for completion; reviewers may be humans or assigned agents. Without assigned reviewers, the assignee may complete through the quality and dependency gates. Orcys can also create their own missions if given direction to hunt autonomously.
 
 ## Quick Start
 

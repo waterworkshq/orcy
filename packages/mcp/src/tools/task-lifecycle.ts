@@ -84,7 +84,7 @@ export const BOARD_SUBMIT_TASK_TOOL: Tool = {
   description:
     'Submit completed work for human review. This is the correct endpoint for finished work. ' +
     'Always include: (1) Clear result summary describing what was done, (2) Artifact links (PR, commits, files) if applicable. ' +
-    'After submission, the human will either approve or reject. ' +
+    'After submission, an assigned reviewer will either approve or reject it — a human reviewer or an agent holding a pending agent-typed reviewer row. ' +
     'Check board_heartbeat to monitor status while waiting for review.',
   inputSchema: {
     type: 'object',

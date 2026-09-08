@@ -24,6 +24,21 @@ export interface AuthorizationResult {
   reason?: string;
 }
 
+/**
+ * Decision-time admission inputs for REVIEWER_ONLY actions. Route callers
+ * supply the real typed lookup; tests may inject fakes. Omission is
+ * deny-by-default — an agent branch is never admitted on the strength of
+ * authentication alone.
+ */
+export interface ReviewDecisionEligibility {
+  /**
+   * Typed pending-row admission for agent approve/reject decisions: true only
+   * when a reviewer row with reviewerType 'agent' and this agent's id is
+   * still pending on the task.
+   */
+  hasPendingAgentReviewerRow?: (taskId: string, agentId: string) => boolean;
+}
+
 const OWNER_ONLY_ACTIONS: LifecycleAction[] = ['start', 'submit', 'complete'];
 
 const OWNER_OR_REVIEWER_ACTIONS: LifecycleAction[] = ['release', 'fail'];
@@ -41,7 +56,8 @@ function isHumanReviewer(principal: Principal): boolean {
 export function authorizeTaskAction(
   task: Task,
   principal: Principal | undefined,
-  action: LifecycleAction
+  action: LifecycleAction,
+  eligibility?: ReviewDecisionEligibility
 ): AuthorizationResult {
   if (!principal || !principal.id) {
     return { allowed: false, reason: 'Authentication required' };
@@ -68,6 +84,20 @@ export function authorizeTaskAction(
   if (REVIEWER_ONLY_ACTIONS.includes(action)) {
     if (isHumanReviewer(principal)) {
       return { allowed: true };
+    }
+    // Agent decisions are reviewer-row-bound: admission requires a pending
+    // agent-typed row for this authenticated id (identity derives from the
+    // principal — never the request body). Deny-by-default when no
+    // eligibility resolver is supplied.
+    if (principal.type === 'agent') {
+      const admitted = eligibility?.hasPendingAgentReviewerRow?.(task.id, principal.id) ?? false;
+      if (admitted) {
+        return { allowed: true };
+      }
+      return {
+        allowed: false,
+        reason: `Agent must hold a pending reviewer assignment to ${action} this task`,
+      };
     }
     return { allowed: false, reason: `Only a human reviewer can ${action} this task` };
   }

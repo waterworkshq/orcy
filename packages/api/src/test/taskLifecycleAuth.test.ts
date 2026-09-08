@@ -5,6 +5,8 @@ import * as habitatRepo from '../repositories/habitat.js';
 import * as columnRepo from '../repositories/column.js';
 import * as missionRepo from '../repositories/mission.js';
 import * as taskRepo from '../repositories/task.js';
+import * as taskReviewerRepo from '../repositories/taskReviewer.js';
+import * as reviewAssignment from '../services/reviewAssignmentService.js';
 import * as taskService from '../services/tasks/index.js';
 import { taskLifecycleRoutes } from '../routes/tasks/lifecycle.js';
 import {
@@ -218,6 +220,15 @@ describe('Task Lifecycle Authorization', () => {
       expect(result.allowed).toBe(false);
     });
 
+    it('agent holding a pending typed reviewer row can approve task', () => {
+      taskReviewerRepo.create(claimedTask.id, 'agent', agent1Id);
+      const principal: Principal = { type: 'agent', id: agent1Id };
+      const result = authorizeTaskAction(claimedTask, principal, 'approve', {
+        hasPendingAgentReviewerRow: reviewAssignment.hasPendingAgentReviewerRow,
+      });
+      expect(result.allowed).toBe(true);
+    });
+
     it('human admin can reject task', () => {
       const principal: Principal = { type: 'human', id: 'human-1', role: 'admin' };
       expect(authorizeTaskAction(claimedTask, principal, 'reject').allowed).toBe(true);
@@ -227,6 +238,15 @@ describe('Task Lifecycle Authorization', () => {
       const principal: Principal = { type: 'agent', id: agent1Id };
       const result = authorizeTaskAction(claimedTask, principal, 'reject');
       expect(result.allowed).toBe(false);
+    });
+
+    it('agent holding a pending typed reviewer row can reject task', () => {
+      taskReviewerRepo.create(claimedTask.id, 'agent', agent1Id);
+      const principal: Principal = { type: 'agent', id: agent1Id };
+      const result = authorizeTaskAction(claimedTask, principal, 'reject', {
+        hasPendingAgentReviewerRow: reviewAssignment.hasPendingAgentReviewerRow,
+      });
+      expect(result.allowed).toBe(true);
     });
 
     it('human admin can release any task', () => {
@@ -389,6 +409,41 @@ describe('Task Lifecycle Authorization', () => {
 
       const result = await callHandler(handler, request, reply);
       expect(result.code).toBe(403);
+    });
+
+    it('agent with a pending typed reviewer row approves a submitted task', async () => {
+      const { taskId } = setupBoardWithTask(agent1Id, 'submitted');
+      taskReviewerRepo.create(taskId, 'agent', agent2Id);
+      const handler = findRoute(routes, '/tasks/:id/approve');
+
+      const { request, reply } = mockReqRes({
+        params: { id: taskId },
+        body: {},
+        agent: { id: agent2Id, name: 'agent-b', domain: 'fullstack' },
+      });
+
+      const result = await callHandler(handler, request, reply);
+      // No AppError thrown (null code) and the decision persisted — the
+      // real-app 200 wire is pinned by agentReviewApiBoundary.test.ts.
+      expect(result.code).toBeNull();
+      expect(taskRepo.getTaskById(taskId)!.status).toBe('approved');
+      expect(taskReviewerRepo.findByTaskAndReviewer(taskId, agent2Id)?.status).toBe('approved');
+    });
+
+    it('agent with a pending typed reviewer row rejects a submitted task', async () => {
+      const { taskId } = setupBoardWithTask(agent1Id, 'submitted');
+      taskReviewerRepo.create(taskId, 'agent', agent2Id);
+      const handler = findRoute(routes, '/tasks/:id/reject');
+
+      const { request, reply } = mockReqRes({
+        params: { id: taskId },
+        body: { reason: 'needs work' },
+        agent: { id: agent2Id, name: 'agent-b', domain: 'fullstack' },
+      });
+
+      const result = await callHandler(handler, request, reply);
+      expect(result.code).toBeNull();
+      expect(taskRepo.getTaskById(taskId)!.status).toBe('rejected');
     });
 
     it('agent cannot approve submitted task', async () => {

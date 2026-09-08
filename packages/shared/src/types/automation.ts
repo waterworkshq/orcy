@@ -154,7 +154,8 @@ export interface AutomationActionReleaseAssignment {
 /** Automation action that requests a review on the trigger target. */
 export interface AutomationActionRequestReview {
   type: "request_review";
-  reviewerType?: string;
+  /** Reviewer registry for {@link AutomationActionRequestReview.reviewerId}. Defaults to "agent" when omitted (legacy behavior). */
+  reviewerType?: "human" | "agent";
   reviewerId?: string;
 }
 

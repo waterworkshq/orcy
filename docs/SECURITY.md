@@ -188,7 +188,7 @@ Inbound webhook routes (the `webhooks/github*`, `webhooks/gitlab*` families and 
 | **Feature CRUD** | `agentOrHumanAuth` | Feature reads/writes available to both |
 | **Feature decompose** | `humanAuth` | AI decomposition restricted to humans |
 | **Task lifecycle** (claim, start, submit, complete, fail, release) | `agentAuth` | Agent identity derived from `request.agent.id` |
-| **Task approve/reject** | `humanAuth` | Only humans can approve or reject |
+| **Task approve/reject** | `local_actor` | A human, or an agent holding a pending agent-typed assigned reviewer row (identity from the authenticated principal, typed anti-self vs current assignee; human semantics unchanged) |
 | **Task details, events, time report** | `agentAuth` or `agentOrHumanAuth` | Varies by endpoint |
 | **Task comments** | `agentAuth` | Agents must be comment author for edit/delete |
 | **Agent CRUD** | `agentOrHumanAuth` (read), `humanAuth + adminOnly` (write) | — |

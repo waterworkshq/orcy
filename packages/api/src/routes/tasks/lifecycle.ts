@@ -14,6 +14,7 @@ import {
   completeTaskSchema,
 } from "../../models/schemas.js";
 import { authorizeTaskAction, getPrincipalFromRequest } from "../../middleware/taskAuth.js";
+import * as reviewAssignment from "../../services/reviewAssignmentService.js";
 import type { Artifact } from "../../models/index.js";
 import {
   notFound,
@@ -136,7 +137,7 @@ export async function taskLifecycleRoutes(fastify: FastifyInstance): Promise<voi
     .withTypeProvider<ZodTypeProvider>()
     .post(
       "/tasks/:id/approve",
-      { schema: { params: taskParamsSchema, body: approveTaskSchema }, config: { authPolicy: "human" } },
+      { schema: { params: taskParamsSchema, body: approveTaskSchema }, config: { authPolicy: "local_actor" } },
       async (request, _reply) => {
         const task = taskService.getTask(request.params.id);
         if (!task) {
@@ -144,14 +145,20 @@ export async function taskLifecycleRoutes(fastify: FastifyInstance): Promise<voi
         }
 
         const principal = getPrincipalFromRequest(request);
-        const auth = authorizeTaskAction(task, principal, "approve");
+        const auth = authorizeTaskAction(task, principal, "approve", {
+          hasPendingAgentReviewerRow: reviewAssignment.hasPendingAgentReviewerRow,
+        });
         if (!auth.allowed) {
           throw forbidden(auth.reason ?? "Forbidden");
         }
 
-        const reviewerId = request.user!.id;
+        // Reviewer identity derives from the authenticated principal — never
+        // the request body. Humans keep today's semantics exactly; agents are
+        // admitted only through the pending typed reviewer row above.
+        const reviewerId = principal!.id;
+        const reviewerType = principal!.type;
         try {
-          const approved = taskService.approveTask(request.params.id, reviewerId);
+          const approved = taskService.approveTask(request.params.id, reviewerId, reviewerType);
 
           if (!approved) {
             throw badRequest("Task cannot be approved in current state");
@@ -172,7 +179,7 @@ export async function taskLifecycleRoutes(fastify: FastifyInstance): Promise<voi
     .withTypeProvider<ZodTypeProvider>()
     .post(
       "/tasks/:id/reject",
-      { schema: { params: taskParamsSchema, body: rejectTaskSchema }, config: { authPolicy: "human" } },
+      { schema: { params: taskParamsSchema, body: rejectTaskSchema }, config: { authPolicy: "local_actor" } },
       async (request, _reply) => {
         const task = taskService.getTask(request.params.id);
         if (!task) {
@@ -180,15 +187,25 @@ export async function taskLifecycleRoutes(fastify: FastifyInstance): Promise<voi
         }
 
         const principal = getPrincipalFromRequest(request);
-        const auth = authorizeTaskAction(task, principal, "reject");
+        const auth = authorizeTaskAction(task, principal, "reject", {
+          hasPendingAgentReviewerRow: reviewAssignment.hasPendingAgentReviewerRow,
+        });
         if (!auth.allowed) {
           throw forbidden(auth.reason ?? "Forbidden");
         }
 
         const parsed = request.body;
-        const reviewerId = request.user!.id;
+        // Reviewer identity derives from the authenticated principal — never
+        // the request body.
+        const reviewerId = principal!.id;
+        const reviewerType = principal!.type;
         try {
-          const rejected = taskService.rejectTask(request.params.id, reviewerId, parsed.reason);
+          const rejected = taskService.rejectTask(
+            request.params.id,
+            reviewerId,
+            parsed.reason,
+            reviewerType,
+          );
 
           if (!rejected) {
             throw badRequest("Task cannot be rejected in current state");

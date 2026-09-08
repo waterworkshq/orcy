@@ -77,7 +77,9 @@ export function getEligibleReviewers(
       id: u.id,
       username: u.username,
       displayName: u.displayName,
-      pendingReviewCount: taskReviewerRepo.getPendingCountByReviewer(u.id),
+      // Typed workload: an agent row sharing this user's id string must not
+      // inflate a human reviewer's pending count (identity is (type, id)).
+      pendingReviewCount: taskReviewerRepo.getPendingCountByReviewer(u.id, "human"),
     }));
 }
 
@@ -131,7 +133,7 @@ function selectReviewer(
 
 /** Outcome of {@link assignReviewers}: the reviewers created, or a skip flag with a machine-readable reason when none were assigned. */
 export interface AssignReviewersResult {
-  assigned: Array<{ reviewerId: string; reviewerName: string }>;
+  assigned: Array<{ reviewerId: string; reviewerName: string; reviewerType: "human" | "agent" }>;
   skipped: boolean;
   reason?: string;
 }
@@ -167,7 +169,7 @@ export function assignReviewers(
     return { assigned: [], skipped: true, reason: "no_eligible_reviewers" };
   }
 
-  const assigned: Array<{ reviewerId: string; reviewerName: string }> = [];
+  const assigned: AssignReviewersResult["assigned"] = [];
   const reviewsNeeded = primaryRule.requiredReviews;
 
   for (let i = 0; i < reviewsNeeded; i++) {
@@ -182,11 +184,14 @@ export function assignReviewers(
     );
     if (!selected) break;
 
-    if (taskReviewerRepo.findByTaskAndReviewer(taskId, selected.id)) continue;
-    taskReviewerRepo.create(taskId, "human", selected.id);
+    // Typed dedupe: an agent-typed row sharing this human's id string is a
+    // different reviewer — only a human row dedupes a human selection.
+    if (taskReviewerRepo.findByTaskAndReviewer(taskId, selected.id, "human")) continue;
+    const createdRow = taskReviewerRepo.create(taskId, "human", selected.id);
     assigned.push({
       reviewerId: selected.id,
       reviewerName: selected.displayName || selected.username,
+      reviewerType: createdRow.reviewerType,
     });
   }
 
@@ -216,17 +221,38 @@ export function hasAssignedReviewers(taskId: string): boolean {
 }
 
 /**
- * Returns whether the given user is registered as a reviewer on the task.
+ * Returns whether the given reviewer (typed identity) is registered on the task.
+ * With `reviewerType`, a row of the other type is not this reviewer's row.
  */
-export function isAssignedReviewer(taskId: string, reviewerId: string): boolean {
-  return taskReviewerRepo.findByTaskAndReviewer(taskId, reviewerId) !== null;
+export function isAssignedReviewer(
+  taskId: string,
+  reviewerId: string,
+  reviewerType?: "human" | "agent",
+): boolean {
+  return taskReviewerRepo.findByTaskAndReviewer(taskId, reviewerId, reviewerType) !== null;
+}
+
+/**
+ * Returns whether the agent holds a PENDING agent-typed reviewer row on the
+ * task — the admission contract for agent approve/reject decisions. Row
+ * existence of the wrong type, or an already-decided row, does not admit.
+ */
+export function hasPendingAgentReviewerRow(taskId: string, reviewerId: string): boolean {
+  const row = taskReviewerRepo.findByTaskAndReviewer(taskId, reviewerId, "agent");
+  return row !== null && row.status === "pending";
 }
 
 /**
  * Marks the reviewer's taskReviewer row as approved (idempotent when already approved); side effect: persists the status update and returns false when the reviewer row does not exist.
+ * `reviewerType` scopes the lookup to the caller's registry — a row of the
+ * other type is never the caller's row (no id coercion).
  */
-export function recordApproval(taskId: string, reviewerId: string): boolean {
-  const reviewer = taskReviewerRepo.findByTaskAndReviewer(taskId, reviewerId);
+export function recordApproval(
+  taskId: string,
+  reviewerId: string,
+  reviewerType?: "human" | "agent",
+): boolean {
+  const reviewer = taskReviewerRepo.findByTaskAndReviewer(taskId, reviewerId, reviewerType);
   if (!reviewer) return false;
   if (reviewer.status === "approved") return true; // already approved, idempotent
   taskReviewerRepo.updateStatus(reviewer.id, "approved");
@@ -258,11 +284,15 @@ export function hasAllRequiredApprovals(taskId: string, requiredCount?: number):
  * other reviewer is already approved). Returns the current `hasAllRequiredApprovals`
  * result when the reviewer is already approved (idempotent case) or not found.
  */
-export function wouldCompleteReview(taskId: string, reviewerId: string): boolean {
+export function wouldCompleteReview(
+  taskId: string,
+  reviewerId: string,
+  reviewerType?: "human" | "agent",
+): boolean {
   const reviewers = taskReviewerRepo.getByTaskId(taskId);
   if (reviewers.length === 0) return true;
 
-  const reviewer = taskReviewerRepo.findByTaskAndReviewer(taskId, reviewerId);
+  const reviewer = taskReviewerRepo.findByTaskAndReviewer(taskId, reviewerId, reviewerType);
   if (!reviewer || reviewer.status === "approved") {
     return hasAllRequiredApprovals(taskId);
   }
@@ -279,6 +309,15 @@ export interface FinalApprovalGateResult {
   wasFinal: boolean;
   /** Pre-veto decision — non-null when the final approval was vetoed */
   veto: { allow: false; reason: string; details?: string } | null;
+  /**
+   * Machine-readable admission refusal from the in-transaction recheck —
+   * non-null when the decision was refused under the write lock (never
+   * together with `recorded: true`):
+   *   not_assigned — no reviewer row for this typed identity
+   *   not_pending  — agent decisions require a still-pending row
+   *   self_review  — typed anti-self: agent reviewer is the current assignee
+   */
+  refusedFor?: "not_assigned" | "not_pending" | "self_review";
 }
 
 /**
@@ -324,13 +363,36 @@ export interface FinalApprovalGateResult {
 export function recordApprovalWithFinalityGate(
   taskId: string,
   reviewerId: string,
+  reviewerType: "human" | "agent",
   runPreVetoIfFinal: () => { allow: false; reason: string; details?: string } | null,
 ): FinalApprovalGateResult {
   const db = getDb();
 
   db.run(sql`BEGIN IMMEDIATE`);
   try {
-    const wouldBeFinal = wouldCompleteReview(taskId, reviewerId);
+    // Decision-time revalidation under the same write lock as the finality
+    // decision (prehandler checks alone do not suffice): typed identity,
+    // pending-only agent admission, and the typed anti-self check against
+    // the CURRENT assignee — a release/reclaim that raced the precheck
+    // cannot turn into an approval decided on stale state.
+    const row = taskReviewerRepo.findByTaskAndReviewer(taskId, reviewerId, reviewerType);
+    if (!row) {
+      db.run(sql`COMMIT`);
+      return { recorded: false, wasFinal: false, veto: null, refusedFor: "not_assigned" };
+    }
+    if (reviewerType === "agent" && row.status !== "pending") {
+      db.run(sql`COMMIT`);
+      return { recorded: false, wasFinal: false, veto: null, refusedFor: "not_pending" };
+    }
+    if (reviewerType === "agent") {
+      const current = taskRepo.getTaskById(taskId);
+      if (current && current.assignedAgentId === reviewerId) {
+        db.run(sql`COMMIT`);
+        return { recorded: false, wasFinal: false, veto: null, refusedFor: "self_review" };
+      }
+    }
+
+    const wouldBeFinal = wouldCompleteReview(taskId, reviewerId, reviewerType);
 
     if (wouldBeFinal) {
       const veto = runPreVetoIfFinal();
@@ -342,7 +404,7 @@ export function recordApprovalWithFinalityGate(
       }
     }
 
-    const recorded = recordApproval(taskId, reviewerId);
+    const recorded = recordApproval(taskId, reviewerId, reviewerType);
     db.run(sql`COMMIT`);
     return { recorded, wasFinal: wouldBeFinal, veto: null };
   } catch (err) {

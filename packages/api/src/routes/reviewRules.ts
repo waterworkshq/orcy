@@ -2,10 +2,12 @@ import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import * as reviewRuleRepo from '../repositories/reviewRule.js';
 import * as taskReviewerRepo from '../repositories/taskReviewer.js';
 import { requireHabitatAccess } from '../middleware/team.js';
-import { badRequest, notFound, forbidden, unauthorized } from '../errors.js';
+import { badRequest, notFound, forbidden, unauthorized, conflict } from '../errors.js';
 import { isTeamMemberByHabitatId } from '../repositories/teamMember.js';
 import { getHabitatById } from '../repositories/habitat.js';
 import { getTaskById } from '../repositories/task.js';
+import * as agentRepo from '../repositories/agent.js';
+import * as userRepo from '../repositories/user.js';
 import { getMissionById } from '../repositories/mission.js';
 import { z } from 'zod';
 import { applyDeclaredAuthPolicies } from "../authPolicy.js";
@@ -149,9 +151,55 @@ export async function reviewRuleRoutes(fastify: FastifyInstance): Promise<void> 
         throw badRequest('Validation failed', parsed.error.flatten());
       }
 
+      // Creation validation (typed identity, no coercion). Management stays
+      // human-only; TARGET eligibility is deliberately not restricted by the
+      // habitat's team membership — agent-typed rows remain creatable on team
+      // habitats (authorized humans/server automation can already produce
+      // them, and the restoration must make such rows resolvable).
+      const reviewerType = parsed.data.reviewerType ?? 'human';
+      const task = getTaskById(request.params.taskId);
+      if (!task) throw notFound('Task not found');
+
+      if (reviewerType === 'agent') {
+        const agent = agentRepo.getAgentById(parsed.data.reviewerId);
+        if (!agent) {
+          throw badRequest(
+            `Reviewer "${parsed.data.reviewerId}" not found in the agent registry`,
+          );
+        }
+        // Typed anti-self: an agent row may not name the task's current
+        // assignee. A human id that merely collides with the assignee's id
+        // string is NOT self-review.
+        if (task.assignedAgentId === parsed.data.reviewerId) {
+          throw badRequest('Agent reviewer cannot be the task\'s current assignee (self-review)');
+        }
+      } else {
+        const user = userRepo.getUserById(parsed.data.reviewerId);
+        if (!user) {
+          throw badRequest(
+            `Reviewer "${parsed.data.reviewerId}" not found in the user registry`,
+          );
+        }
+      }
+
+      const existing = taskReviewerRepo.findByTaskAndReviewer(
+        request.params.taskId,
+        parsed.data.reviewerId
+      );
+      if (existing) {
+        if (existing.reviewerType === reviewerType) {
+          // Idempotent duplicate: return the existing row, create nothing.
+          reply.code(200).send({ reviewer: existing });
+          return;
+        }
+        throw conflict(
+          `Reviewer "${parsed.data.reviewerId}" is already assigned as type "${existing.reviewerType}"`,
+        );
+      }
+
       const reviewer = taskReviewerRepo.create(
         request.params.taskId,
-        parsed.data.reviewerType ?? 'human',
+        reviewerType,
         parsed.data.reviewerId
       );
       reply.code(201).send({ reviewer });

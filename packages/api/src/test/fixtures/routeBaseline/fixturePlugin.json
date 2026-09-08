@@ -12777,9 +12777,9 @@
       "path": "/api/tasks/:id/approve",
       "surface": "api-deprecated",
       "guards": [
-        "humanAuth"
+        "agentOrHumanAuth"
       ],
-      "authKind": "human",
+      "authKind": "local_actor",
       "rawBodyEligible": false,
       "source": "core",
       "generatedTwin": false
@@ -12909,9 +12909,9 @@
       "path": "/api/tasks/:id/reject",
       "surface": "api-deprecated",
       "guards": [
-        "humanAuth"
+        "agentOrHumanAuth"
       ],
-      "authKind": "human",
+      "authKind": "local_actor",
       "rawBodyEligible": false,
       "source": "core",
       "generatedTwin": false
@@ -14845,9 +14845,9 @@
       "path": "/api/v1/tasks/:id/approve",
       "surface": "api-v1",
       "guards": [
-        "humanAuth"
+        "agentOrHumanAuth"
       ],
-      "authKind": "human",
+      "authKind": "local_actor",
       "rawBodyEligible": false,
       "source": "core",
       "generatedTwin": false
@@ -14977,9 +14977,9 @@
       "path": "/api/v1/tasks/:id/reject",
       "surface": "api-v1",
       "guards": [
-        "humanAuth"
+        "agentOrHumanAuth"
       ],
-      "authKind": "human",
+      "authKind": "local_actor",
       "rawBodyEligible": false,
       "source": "core",
       "generatedTwin": false
