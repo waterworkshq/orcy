@@ -43,6 +43,8 @@ export interface UpdateTaskInput {
   cycleTimeMinutes?: number | null;
   leadTimeMinutes?: number | null;
   estimationAccuracy?: number | null;
+  /** Claim-epoch identity. System writers ONLY (clears to NULL) — excluded from the route zod schema. */
+  executionToken?: string | null;
 }
 
 export function createTask(input: CreateTaskInput): Task {
@@ -154,6 +156,10 @@ export function updateTask(
   if (input.cycleTimeMinutes !== undefined) set.cycleTimeMinutes = input.cycleTimeMinutes;
   if (input.leadTimeMinutes !== undefined) set.leadTimeMinutes = input.leadTimeMinutes;
   if (input.estimationAccuracy !== undefined) set.estimationAccuracy = input.estimationAccuracy;
+  // Execution token (claim-epoch identity): system writers (retry ladder)
+  // clear it to NULL on ownership-ending transitions. NOT part of the zod
+  // UpdateTaskInput surface — routes can never write it.
+  if (input.executionToken !== undefined) set.executionToken = input.executionToken;
 
   db.update(tasks)
     .set({ ...set, version: sql`${tasks.version} + 1` })

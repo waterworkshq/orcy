@@ -1275,6 +1275,10 @@ Tasks are work units inside missions. Every task belongs to exactly one mission.
 
 Get a task by ID.
 
+> **Migration 0078:** every serialized `task` object gains an optional
+> read-only `executionToken` field (string | null) — the claim-epoch identity
+> minted at claim time. It is not a credential; task PATCH input rejects it.
+
 **Response `200`:**
 
 ```json

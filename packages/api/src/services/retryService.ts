@@ -97,6 +97,7 @@ export function executeRetry(task: Task): Task | null {
     rejectionReason: null,
     retryCount: newRetryCount,
     nextRetryAt: null,
+    executionToken: null,
   });
 
   if (!result.success) return null;
@@ -123,6 +124,7 @@ export function escalateToHuman(task: Task): Task | null {
   const result = taskRepo.updateTask(task.id, {
     assignedAgentId: null,
     nextRetryAt: null,
+    executionToken: null,
   });
 
   if (!result.success) return null;

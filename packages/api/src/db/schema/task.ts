@@ -82,6 +82,10 @@ export const tasks = sqliteTable(
     // full publication boundary. Additive: old inserts continue to produce 0.
     // See TASK_CREATION_INTEGRITY_VERSION + isLegacyPartialHistory in taskPublication.ts.
     creationIntegrity: integer("creation_integrity").notNull().default(0),
+    // Execution token (claim-epoch identity): a fresh uuid minted inside each
+    // successful claim transaction; NULL = pre-migration / released / terminal.
+    // Never backfilled; not settable through any task PATCH schema.
+    executionToken: text("execution_token"),
   },
   (table) => [
     index("idx_tasks_mission").on(table.missionId),

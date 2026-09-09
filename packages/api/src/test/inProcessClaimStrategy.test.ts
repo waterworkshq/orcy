@@ -8,7 +8,7 @@ function makeDeps(overrides?: Partial<InProcessClaimDeps>): InProcessClaimDeps {
     isAgentOwnedByDaemon: vi.fn().mockReturnValue(true),
     getHabitatById: vi.fn().mockReturnValue({ id: "h1", gitWorktreeSettings: null }),
     getSuggestionsForAgent: vi.fn().mockReturnValue({ suggestions: [{ taskId: "t1" }] }),
-    claimTask: vi.fn().mockReturnValue({ success: true }),
+    claimTaskWithSession: vi.fn().mockReturnValue({ success: true, daemonSessionId: "s1" }),
     getTaskById: vi.fn().mockReturnValue({
       id: "t1",
       title: "T",
@@ -18,7 +18,6 @@ function makeDeps(overrides?: Partial<InProcessClaimDeps>): InProcessClaimDeps {
       requiredDomain: null,
       requiredCapabilities: null,
     }),
-    createDaemonSession: vi.fn().mockReturnValue({ id: "s1" }),
     ...overrides,
   };
 }
@@ -42,8 +41,7 @@ describe("InProcessClaimStrategy", () => {
       daemonSessionId: "s1",
       task: { id: "t1", title: "T", missionId: "m1", habitatId: "h1" },
     });
-    expect(deps.claimTask).toHaveBeenCalledWith("t1", "a1");
-    expect(deps.createDaemonSession).toHaveBeenCalledWith({
+    expect(deps.claimTaskWithSession).toHaveBeenCalledWith("t1", {
       daemonId: "d1",
       agentId: "a1",
       taskId: "t1",
@@ -61,13 +59,13 @@ describe("InProcessClaimStrategy", () => {
     expect(await strategy.claimNext("a1", "h1", "d1")).toBeNull();
   });
 
-  it("returns null when claimTask fails for all suggestions", async () => {
+  it("returns null when the claim+session seam fails for all suggestions", async () => {
     const strategy = new InProcessClaimStrategy(
       makeDeps({
         getSuggestionsForAgent: () => ({
           suggestions: [{ taskId: "t1" }, { taskId: "t2" }],
         }),
-        claimTask: vi.fn().mockReturnValue({ success: false }),
+        claimTaskWithSession: vi.fn().mockReturnValue({ success: false }),
       }),
     );
     expect(await strategy.claimNext("a1", "h1", "d1")).toBeNull();

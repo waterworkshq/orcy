@@ -98,6 +98,18 @@ pnpm install
 
 ---
 
+### Task has no execution token after upgrade (migration 0078)
+
+**Symptom:** `tasks.execution_token` is NULL for tasks that were already `claimed`/`in_progress` when the migration ran.
+
+**Fix:**
+
+- Pre-migration claimed tasks are deliberately not epoch-bound (no backfill — a status-only pair UPDATE is unsafe with multiple/old active sessions). This is a known legacy limitation, not data loss.
+- The existing stale-agent cleanup remains subject to its normal eligibility (agent stale past the heartbeat window with the task as its current task); token absence itself triggers no recovery, and a new successful claim gets a token.
+- No operator action is required. The field is read-only and serializes as `null` on pre-migration tasks; current lifecycle behavior is unaffected by its absence, and no recovery is guaranteed.
+
+---
+
 ## Database Issues
 
 ### "database is locked" error

@@ -9,6 +9,7 @@ import { runPollTick } from "@orcy/shared";
 import * as daemonRepo from "../repositories/daemon.js";
 import * as agentService from "../services/agentService.js";
 import * as taskService from "../services/tasks/index.js";
+import { claimTaskWithSession } from "./tasks/claimSession.js";
 import * as taskRepo from "../repositories/task.js";
 import * as habitatRepo from "../repositories/habitat.js";
 import { getSuggestionsForAgent } from "../services/taskSuggestion.js";
@@ -140,9 +141,8 @@ export function start(daemonId: string, dataDir: string = "/tmp/orcy-daemon"): v
     isAgentOwnedByDaemon: (agentId, did) => daemonRepo.isAgentOwnedByDaemon(agentId, did),
     getHabitatById: (habitatId) => habitatRepo.getHabitatById(habitatId),
     getSuggestionsForAgent,
-    claimTask: (taskId, agentId) => taskService.claimTask(taskId, agentId),
+    claimTaskWithSession: (taskId, input) => claimTaskWithSession(taskId, input),
     getTaskById: (taskId) => taskRepo.getTaskById(taskId),
-    createDaemonSession: (input) => daemonRepo.createDaemonSession(input),
   });
 
   const running: RunningDaemon = {
@@ -354,21 +354,23 @@ export function claimNextDaemonTask(input: ClaimNextDaemonTaskInput): ClaimNextD
   const { suggestions } = getSuggestionsForAgent(input.habitatId, input.agentId, 10);
 
   for (const suggestion of suggestions) {
-    const result = taskService.claimTask(suggestion.taskId, input.agentId);
+    // T1: claim + daemon session commit in ONE transaction (the session row
+    // carries the claim's execution token). A claim failure keeps the
+    // legacy result shape so the suggestion loop's skip-on-failure contract
+    // is unchanged.
+    const result = claimTaskWithSession(suggestion.taskId, {
+      daemonId: input.daemonId,
+      agentId: input.agentId,
+      taskId: suggestion.taskId,
+      habitatId: input.habitatId,
+      workdir: "pending",
+    });
     if (result.success) {
       const task = taskRepo.getTaskById(suggestion.taskId)!;
 
-      const session = daemonRepo.createDaemonSession({
-        daemonId: input.daemonId,
-        agentId: input.agentId,
-        taskId: task.id,
-        habitatId: input.habitatId,
-        workdir: "pending",
-      });
-
       return {
         claimed: true,
-        daemonSessionId: session.id,
+        daemonSessionId: result.daemonSessionId,
         task: {
           id: task.id,
           title: task.title,

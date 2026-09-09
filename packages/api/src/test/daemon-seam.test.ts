@@ -47,9 +47,8 @@ describe("daemon seam", () => {
         isAgentOwnedByDaemon: () => false,
         getHabitatById: () => null,
         getSuggestionsForAgent: () => ({ suggestions: [] }),
-        claimTask: () => ({ success: false }),
+        claimTaskWithSession: () => ({ success: false }),
         getTaskById: () => null,
-        createDaemonSession: () => ({ id: "x" }),
       });
       expectTypeOf(cs).toMatchTypeOf<IClaimStrategy>();
     });
@@ -60,9 +59,8 @@ describe("daemon seam", () => {
         isAgentOwnedByDaemon: () => false,
         getHabitatById: () => null,
         getSuggestionsForAgent: () => ({ suggestions: [] }),
-        claimTask: () => ({ success: false }),
+        claimTaskWithSession: () => ({ success: false }),
         getTaskById: () => null,
-        createDaemonSession: () => ({ id: "x" }),
       });
       expect(cs).toBeInstanceOf(InProcessClaimStrategy);
     });
@@ -73,9 +71,8 @@ describe("daemon seam", () => {
         isAgentOwnedByDaemon: () => false,
         getHabitatById: () => null,
         getSuggestionsForAgent: () => ({ suggestions: [] }),
-        claimTask: () => ({ success: false }),
+        claimTaskWithSession: () => ({ success: false }),
         getTaskById: () => null,
-        createDaemonSession: () => ({ id: "x" }),
       });
       expect(await cs.claimNext("unowned-agent", "h1", "seam-test-cs-null")).toBeNull();
     });

@@ -26,6 +26,7 @@ export interface DaemonSessionRow {
   habitatId: string;
   pid: number | null;
   cliSessionId: string | null;
+  executionToken: string | null;
   workdir: string;
   status: string;
   lastProgress: string | null;
@@ -42,6 +43,7 @@ const daemonSessionFields = {
   habitatId: daemonSessions.habitatId,
   pid: daemonSessions.pid,
   cliSessionId: daemonSessions.cliSessionId,
+  executionToken: daemonSessions.executionToken,
   workdir: daemonSessions.workdir,
   status: daemonSessions.status,
   lastProgress: daemonSessions.lastProgress,
@@ -77,6 +79,42 @@ export function createDaemonSession(input: CreateDaemonSessionInput): DaemonSess
   const session = getSessionById(id);
   if (!session) throw repositoryNotFoundError("daemonSession", id);
   return session;
+}
+
+/**
+ * Tx-aware session-join primitive: inserts a daemon session carrying the
+ * claiming Task's `executionToken` on the caller-supplied `tx`. Called from
+ * inside the claim authority's success hook so the session INSERT shares the
+ * claim's transaction — a hook throw (e.g. FK violation) rolls back the
+ * claim with it. Never calls `getDb()`.
+ */
+export function createDaemonSessionWithClient(
+  tx: ReturnType<typeof getDb>,
+  input: CreateDaemonSessionInput,
+  executionToken: string,
+): { id: string } {
+  const id = uuid();
+  const now = new Date().toISOString();
+  try {
+    tx.insert(daemonSessions)
+      .values({
+        id,
+        daemonId: input.daemonId,
+        agentId: input.agentId,
+        taskId: input.taskId,
+        habitatId: input.habitatId,
+        pid: input.pid ?? null,
+        executionToken,
+        workdir: input.workdir,
+        status: "starting",
+        startedAt: now,
+        updatedAt: now,
+      })
+      .run();
+  } catch (err) {
+    throw repositoryCreateError("daemonSession", err as Error, id);
+  }
+  return { id };
 }
 
 export function getSessionById(id: string): DaemonSessionRow | null {

@@ -744,6 +744,26 @@ Tasks use the following state machine. Two paths lead to `done`: the **gated pat
 
 ---
 
+### Execution Token (Claim-Epoch Identity)
+
+Every successful claim mints a fresh `tasks.execution_token` uuid **inside the claim authority's transaction** (`claimWithAuthority` → `commitPlainClaim` / `commitDelegatedClaim`) — the token IS the claim epoch's identity, one per ownership period. The daemon session created in the same transaction (the `onClaimCommitted` hook → `createDaemonSessionWithClient`) carries the SAME token, so task and session join atomically: a session-insert failure rolls back the claim with it, leaving task/agent/session coherent with no leaked success effects.
+
+Why not timestamps: `claimedAt`/`startedAt` can be equal across predecessor/successor pairs under clock granularity, and rework re-entry would reuse a preserved `claimedAt`. A freshly generated opaque uuid distinguishes claim epochs without relying on timestamp ordering.
+
+| Writer | Token action |
+|---|---|
+| Claim (plain / delegated / remote / batch / auto-assign — all route through the claim authority) | **mint** (fresh uuid) |
+| `claimed → in_progress` start; submit; delegation offer | **preserve** |
+| `releaseTask` (route, automation, stale sweep, agent-delete current-task) | **clear** |
+| `agentRepo.deleteAgent` bulk pending-reset | **clear** |
+| `releaseTaskByRemoteParticipant` / `releaseTaskForRemote` inline tx write | **clear** |
+| Habitat import reset | **clear** |
+| `failTask`; retry `executeRetry` / `escalateToHuman` payloads; reject transition; terminal `done`/`approved` writes | **clear** |
+
+The `onClaimCommitted` hook is api-internal, synchronous, and runs after `verifyAndReturn` proves the claim landed, still inside `client.transaction`, before commit. This composed claim runs the existing pre-interceptors before the repository transaction and performs post-claim effects only after its successful commit; the session-insertion hook is synchronous and api-internal, and it adds no new plugin or network work inside the transaction (the pre-interceptor veto keeps its existing position outside and before the repo call, ADR-0038 §3).
+
+The token is read-only bookkeeping: it serializes as an optional additive field on Task payloads (REST/SSE — an epoch identity, not a credential), is not settable through any task PATCH schema (zod `.strict()` excludes it), and is written by authoritative claim/clear paths only. Same-session reject continuity (rework re-entry) is currently unbound pending rework restoration. Execution identity is recorded and copied onto daemon sessions; automatic task-failure recovery based on that identity is not yet implemented.
+
 ### Mission Status Derivation
 
 Mission status is **auto-derived** from child task states. There is no manual status management.

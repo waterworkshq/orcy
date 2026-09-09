@@ -72,6 +72,10 @@ export const daemonSessions = sqliteTable(
       .references(() => habitats.id, { onDelete: "cascade" }),
     pid: integer("pid"),
     cliSessionId: text("cli_session_id"),
+    // Claim-epoch execution token — set to the claiming Task's token inside
+    // the same transaction that mints it (atomic session join). NULL for
+    // pre-migration sessions.
+    executionToken: text("execution_token"),
     workdir: text("workdir").notNull(),
     status: text("status", {
       enum: ["starting", "running", "completed", "failed", "released", "lost"],

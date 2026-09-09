@@ -48,6 +48,7 @@ import {
   isLegacyPartialHistory,
 } from "../db/schema/taskPublication.js";
 import { and, eq, sql } from "drizzle-orm";
+import { v4 as uuid } from "uuid";
 import type { ActorType } from "@orcy/shared";
 import type { Task } from "../models/index.js";
 import { logger } from "../lib/logger.js";
@@ -242,6 +243,18 @@ export interface ClaimAuthorityOptions {
    * "remote_orcy" remote); `human`/`remote_human` claimants are exempt.
    */
   actorType?: ActorType;
+  /**
+   * Execution-token session-join hook (api-internal, synchronous). Runs AFTER
+   * {@link verifyAndReturn} succeeds, still inside the same
+   * `client.transaction`, BEFORE commit — the only sanctioned way to create a
+   * daemon session bound to the claim epoch: the hook receives the minted
+   * token and the same `tx`, and a hook throw rolls back the ENTIRE claim
+   * (task + agent + session stay coherent; no leaked success effects). Plugin
+   * runs / notifications / interceptor emits are FORBIDDEN here — the tx must
+   * stay plugin-invisible (the pre-interceptor veto stays outside, before the
+   * repo call, per ADR-0038 §3). Passes only the tx-scoped task row.
+   */
+  onClaimCommitted?: (tx: TaskPublicationDbClient, task: Task) => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -299,7 +312,11 @@ export function claimWithAuthorityClient(
     if (gate) return gate;
     const budget = budgetGateFailure(tx, row.id, opts, "claimed_delegated");
     if (budget) return budget;
-    return commitDelegatedClaim(tx, row);
+    return runClaimCommittedHook(
+      commitDelegatedClaim(tx, row),
+      tx,
+      opts?.onClaimCommitted,
+    );
   }
 
   // ---- plain mode: the claimTask / claimTaskByRemoteParticipant contract ---
@@ -335,7 +352,7 @@ export function claimWithAuthorityClient(
   const budget = budgetGateFailure(tx, row.id, opts, "claimed");
   if (budget) return budget;
 
-  return commitPlainClaim(tx, row, claimant);
+  return runClaimCommittedHook(commitPlainClaim(tx, row, claimant), tx, opts?.onClaimCommitted);
 }
 
 /**
@@ -630,11 +647,13 @@ function commitPlainClaim(
   // `as unknown as Partial<typeof tasks.$inferInsert>` mirrors the legacy cast
   // in taskStateMachine.ts — `version: sql\`${tasks.version} + 1\`` is a SQL
   // expression, not a literal number, so the strict column type must be bypassed.
+  const executionToken = uuid(); // fresh claim-epoch identity (T1)
   const setCommon = {
     status: "claimed",
     claimedAt: now,
     updatedAt: now,
     version: sql`${tasks.version} + 1`,
+    executionToken,
   } as const;
   // Transport-agnostic column selection (ADR-0038 §3).
   let where;
@@ -667,6 +686,7 @@ function commitDelegatedClaim(
   // anchor (the claiming agent IS the delegate). Hand off: assignee ← delegate,
   // delegatedToAgentId ← null, preserve prior claimedAt.
   const delegateId = row.delegatedToAgentId!;
+  const executionToken = uuid(); // delegated hand-off starts a NEW claim epoch (T1)
   tx.update(tasks)
     .set({
       assignedAgentId: delegateId,
@@ -675,6 +695,7 @@ function commitDelegatedClaim(
       claimedAt: sql`COALESCE(${tasks.claimedAt}, ${now})`,
       updatedAt: now,
       version: sql`${tasks.version} + 1`,
+      executionToken,
     } as unknown as Partial<typeof tasks.$inferInsert>)
     .where(eq(tasks.id, row.id))
     .run();
@@ -708,6 +729,23 @@ function verifyAndReturn(
     return { success: false, category: "version_conflict", reason: "version_conflict" };
   }
   return { success: true, task: updated as unknown as Task };
+}
+
+/**
+ * T1 execution-token hook dispatch: runs AFTER {@link verifyAndReturn} proves
+ * the claim landed, still INSIDE the caller's transaction, BEFORE commit. A
+ * hook throw aborts the whole tx — claim + session join commit atomically or
+ * not at all. The hook is api-internal synchronous bookkeeping (the daemon
+ * session INSERT); it must never run plugin/notification effects (the tx is
+ * plugin-invisible by contract).
+ */
+function runClaimCommittedHook(
+  r: ClaimResult,
+  tx: TaskPublicationDbClient,
+  hook: ClaimAuthorityOptions["onClaimCommitted"],
+): ClaimResult {
+  if (r.success && hook) hook(tx, r.task);
+  return r;
 }
 
 // ---------------------------------------------------------------------------

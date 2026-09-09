@@ -4,7 +4,12 @@ import { eq, and, inArray, sql } from "drizzle-orm";
 import type { Task, Artifact } from "../models/index.js";
 import { repositoryTransactionError } from "../errors/repository.js";
 import { getTaskById } from "./taskCrud.js";
-import { claimWithAuthority, progressWithAuthority, type ClaimResult } from "./claimAuthority.js";
+import {
+  claimWithAuthority,
+  progressWithAuthority,
+  type ClaimAuthorityOptions,
+  type ClaimResult,
+} from "./claimAuthority.js";
 
 /**
  * Legacy repo claim-result shape consumed unchanged by the service wrappers
@@ -85,11 +90,21 @@ function flattenClaimResult(r: ClaimResult): LegacyClaimResult {
 export function claimTask(
   taskId: string,
   agentId: string,
+  onClaimCommitted?: ClaimAuthorityOptions["onClaimCommitted"],
 ): { success: true; task: Task } | { success: false; reason: string } {
   // Routed through the claim authority (T2): the authority owns gates +
   // checkClaimability + TOCTOU + infra mapping in one transaction. The typed
   // ClaimResult is flattened back to the legacy shape every caller depends on.
-  return flattenClaimResult(claimWithAuthority(getDb(), taskId, { kind: "local", id: agentId }));
+  // onClaimCommitted (T1): optional in-tx success hook — the daemon claim+session
+  // join. Undefined for every other caller = today's behavior exactly.
+  return flattenClaimResult(
+    claimWithAuthority(
+      getDb(),
+      taskId,
+      { kind: "local", id: agentId },
+      onClaimCommitted ? { onClaimCommitted } : undefined,
+    ),
+  );
 }
 
 /**
@@ -242,6 +257,7 @@ export function releaseTaskByRemoteParticipant(
       remoteAssignedParticipantId: null,
       status: "pending",
       claimedAt: null,
+      executionToken: null,
       updatedAt: now,
       version: sql`${tasks.version} + 1`,
     })
@@ -342,6 +358,7 @@ export function releaseTask(taskId: string, _reason: string): Task | null {
       status: "pending",
       claimedAt: null,
       startedAt: null,
+      executionToken: null,
       updatedAt: now,
       version: sql`${tasks.version} + 1`,
     })
@@ -364,6 +381,7 @@ export function failTask(taskId: string, _reason: string): Task | null {
       status: "failed",
       assignedAgentId: null,
       completedAt: now,
+      executionToken: null,
       updatedAt: now,
       version: sql`${tasks.version} + 1`,
     })
@@ -382,6 +400,7 @@ export function approveTask(taskId: string): Task | null {
     .set({
       status: "approved",
       completedAt: now,
+      executionToken: null,
       updatedAt: now,
       version: sql`${tasks.version} + 1`,
     })
@@ -410,6 +429,7 @@ export function markTaskDone(taskId: string): Task | null {
     .set({
       status: "done",
       completedAt: now,
+      executionToken: null,
       updatedAt: now,
       version: sql`${tasks.version} + 1`,
     })
@@ -429,6 +449,7 @@ export function rejectTask(taskId: string, reason: string): Task | null {
       status: "rejected",
       rejectionReason: reason,
       rejectedCount: sql`${tasks.rejectedCount} + 1`,
+      executionToken: null,
       updatedAt: now,
       version: sql`${tasks.version} + 1`,
     })

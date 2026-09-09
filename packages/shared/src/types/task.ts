@@ -61,6 +61,14 @@ export interface Task {
   cycleTimeMinutes: number | null;
   leadTimeMinutes: number | null;
   estimationAccuracy: number | null;
+  /**
+   * Claim-epoch execution token (migration 0078): a fresh uuid minted inside
+   * each successful claim transaction by the claim authority; NULL =
+   * pre-migration / released / terminal. Serialized read-only on Task payloads
+   * (REST/SSE) as an epoch identity — NOT a credential or grant. Never
+   * accepted from task PATCH input; authoritative writers only.
+   */
+  executionToken?: string | null;
 }
 
 /** An immutable audit entry recording one transition on a {@link Task}. */

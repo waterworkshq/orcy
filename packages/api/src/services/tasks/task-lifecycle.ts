@@ -72,10 +72,24 @@ export function withMissionRecalc<T>(
   }
 }
 
-/** Atomically claims the {@link Task} for the given agent when capability requirements are met; side effect: emits a `claimed` transition via {@link emitTransition} on success. */
+/**
+ * Atomically claims the {@link Task} for the given agent when capability
+ * requirements are met; side effect: emits a `claimed` transition via
+ * {@link emitTransition} on success.
+ *
+ * `onClaimCommitted` (T1, api-internal): optional in-transaction success hook —
+ * the daemon claim+session atomic join runs inside the authority's tx, BEFORE
+ * this function's post-commit effects (event emit + post-interceptors). A hook
+ * throw rolls back the claim AND skips every success effect. Undefined for every
+ * other caller = today's behavior exactly.
+ */
 export function claimTask(
   taskId: string,
   agentId: string,
+  onClaimCommitted?: (
+    tx: import("../../repositories/taskPublication.js").TaskPublicationDbClient,
+    task: Task,
+  ) => void,
 ):
   | { success: true; task: Task }
   | { success: false; reason: string; message?: string; missingCapabilities?: string[] } {
@@ -114,7 +128,7 @@ export function claimTask(
   });
   if (veto) throw new InterceptorVetoError(veto);
 
-  const result = taskRepo.claimTask(taskId, agentId);
+  const result = taskRepo.claimTask(taskId, agentId, onClaimCommitted);
 
   if (result.success) {
     const habitatId = getHabitatId(result.task);

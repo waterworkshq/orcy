@@ -10,7 +10,21 @@ export interface InProcessClaimDeps {
     agentId: string,
     limit: number,
   ): { suggestions: Array<{ taskId: string }> };
-  claimTask(taskId: string, agentId: string): { success: boolean };
+  /**
+   * T1 atomic seam: claims the task AND creates the daemon session carrying
+   * the claim's execution token in ONE transaction. Replaces the previous
+   * claimTask + createDaemonSession pair (two separate writes, non-atomic).
+   */
+  claimTaskWithSession(
+    taskId: string,
+    input: {
+      daemonId: string;
+      agentId: string;
+      taskId: string;
+      habitatId: string;
+      workdir: string;
+    },
+  ): { success: boolean; daemonSessionId?: string };
   getTaskById(taskId: string): {
     id: string;
     title: string;
@@ -20,13 +34,6 @@ export interface InProcessClaimDeps {
     requiredDomain: string | null;
     requiredCapabilities: string[] | null;
   } | null;
-  createDaemonSession(input: {
-    daemonId: string;
-    agentId: string;
-    taskId: string;
-    habitatId: string;
-    workdir: string;
-  }): { id: string };
 }
 
 /** {@link IClaimStrategy} implementation for the API's embedded daemon. Claims tasks via direct service calls instead of HTTP — the in-process counterpart to `HttpClaimStrategy`. */
@@ -46,21 +53,19 @@ export class InProcessClaimStrategy implements IClaimStrategy {
     const { suggestions } = this.deps.getSuggestionsForAgent(habitatId, agentId, 10);
 
     for (const suggestion of suggestions) {
-      const result = this.deps.claimTask(suggestion.taskId, agentId);
-      if (result.success) {
+      const result = this.deps.claimTaskWithSession(suggestion.taskId, {
+        daemonId: this.deps.daemonId,
+        agentId,
+        taskId: suggestion.taskId,
+        habitatId,
+        workdir: "pending",
+      });
+      if (result.success && result.daemonSessionId) {
         const task = this.deps.getTaskById(suggestion.taskId);
         if (!task) continue;
 
-        const session = this.deps.createDaemonSession({
-          daemonId: this.deps.daemonId,
-          agentId,
-          taskId: task.id,
-          habitatId,
-          workdir: "pending",
-        });
-
         return {
-          daemonSessionId: session.id,
+          daemonSessionId: result.daemonSessionId,
           task: {
             id: task.id,
             title: task.title,

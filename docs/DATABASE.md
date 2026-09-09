@@ -373,6 +373,7 @@ Tasks are work units inside features. Every task belongs to exactly one feature.
 | `retry_policy` | TEXT | JSON | Retry configuration |
 | `retry_count` | INTEGER | NOT NULL DEFAULT 0 | Number of retries attempted |
 | `next_retry_at` | TEXT | DEFAULT NULL | Next retry scheduled time |
+| `execution_token` | TEXT | DEFAULT NULL | Claim-epoch identity: fresh uuid minted in each successful claim transaction (claim authority); NULL = pre-migration / released / terminal. Not settable via task PATCH (migration 0078) |
 
 **Indexes:** `idx_tasks_feature(feature_id)`, `idx_tasks_feature_order(feature_id, order)`, `idx_tasks_status`, `idx_tasks_assigned_agent`, `idx_tasks_required_domain`, `idx_tasks_priority`, `idx_tasks_delegated`
 
@@ -1057,6 +1058,7 @@ Tracks spawned CLI sessions for claimed tasks.
 | `habitat_id` | text FK | Habitat scope |
 | `pid` | integer nullable | Local process ID when running on this host |
 | `cli_session_id` | text nullable | Native CLI resume/session token if supported |
+| `execution_token` | text nullable | Claim-epoch execution token; set to the claiming task's `execution_token` inside the same claim transaction (atomic session join; migration 0078) |
 | `workdir` | text | Prepared worktree path, initially `pending` until spawn |
 | `status` | text | `starting`, `running`, `completed`, `failed`, `released`, or `lost` |
 | `last_progress` | text nullable | Redacted progress/output summary |
@@ -2523,6 +2525,7 @@ entries are:
 | `0075` | `0075_habitat_lifecycle_settings.sql` | Adds `habitats.lifecycle_settings` (per-habitat lifecycle settings blob; NULL = defaults) for the task transition budget. |
 | `0076` | `0076_webhook_delivery_leases.sql` | Webhook retry restoration: adds the `lease_owner` / `lease_fence` / `lease_expires_at` ownership columns to `webhook_deliveries` and backfills `next_retry_at = created_at` for every pending row with NULL `next_retry_at`. **Operator note:** the backfill makes the entire accumulated pending backlog due at once. After upgrade the retry worker scans up to 50 rows per tick: enabled, valid, eligible rows retry (bounded by the 3-reservation budget per row); disabled, missing-subscription, malformed, or already-exhausted rows receive their terminal disposition without a send. Legacy rows keep their existing `attempts` accounting; unknown historical outcomes are not reconstructed. |
 | `0077` | `0077_notification_push_epoch.sql` | Notification V2 push restoration: creates `notification_delivery_channel_states` (per-(delivery, channel, destination) unit state machine), adds `notification_deliveries.push_epoch` with column-level DEFAULT `'restored'` and backfills every pre-existing row to `'legacy'` in the same migration (atomic cutover; the upgrade sends only new notifications), inserts one terminal `backlog_not_attempted` unit per non-terminal legacy delivery (fixed disposition; statuses/timestamps/attempts untouched), and adds the nullable `notification_delivery_attempts.destination_id` unit linkage. **Operator note:** pre-existing deliveries are never pushed after the upgrade — a legacy `pending` inbox stays readable and carries the not-attempted evidence unit; only post-upgrade notifications are pushed. |
+| `0078` | `0078_task_execution_token.sql` | Execution token (claim-epoch identity): adds nullable `tasks.execution_token` and `daemon_sessions.execution_token`. A fresh uuid is minted inside each successful claim transaction by the claim authority; the daemon session created in the same transaction carries the same token. Every ownership-ending writer (release, remote release ×2, agent delete bulk reset, import reset, fail, retry reset, escalation, reject, approve, done) clears it to NULL. Submit/start/delegation-offer preserve it. **No backfill** — pre-migration claimed tasks are not epoch-bound (legacy limitation). Token absence itself triggers no recovery: the existing stale-agent cleanup still applies only under its normal eligibility (agent stale past the heartbeat window with the task as its current task), and any later successful claim mints a token normally. |
 
 The gap `0003`–`0026` is **intentional**. Those migrations were consolidated
 into `0000_schema.sql` at the boundary commit and are deliberately NOT in the
