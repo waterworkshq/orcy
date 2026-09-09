@@ -25,6 +25,24 @@ const V18_EVENT_CATALOG: Set<string> = new Set([
   "webhook.delivery_failed",
 ]);
 
+/**
+ * The notification event catalog as a closed array — the OWNING source for
+ * `notification:<type>` webhook-subscription event entries (the namespaced
+ * opt-in that authorizes a subscription as a notification destination).
+ * Kept in lockstep with the Set above by construction (derived from it).
+ */
+export const NOTIFICATION_EVENT_CATALOG: readonly string[] = [...V18_EVENT_CATALOG].sort();
+
+/** The namespaced webhook-subscription event entry for a notification type. */
+export function notificationWebhookEventEntry(eventType: string): string {
+  return `notification:${eventType}`;
+}
+
+/** Whether `name` is a `notification:<valid catalog type>` entry (closed form). */
+export function isNotificationWebhookEventEntry(name: string): boolean {
+  return name.startsWith("notification:") && V18_EVENT_CATALOG.has(name.slice("notification:".length));
+}
+
 /** Returns whether the given event type is part of the supported notification event catalog. */
 export function isValidEventType(eventType: string): boolean {
   return V18_EVENT_CATALOG.has(eventType);

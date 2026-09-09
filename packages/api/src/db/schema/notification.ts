@@ -59,6 +59,10 @@ export const notificationDeliveries = sqliteTable(
     mutedAt: text("muted_at"),
     clearedAt: text("cleared_at"),
     clearAfter: text("clear_after"),
+    // Upgrade epoch marker (migration 0077): 'legacy' rows predate push
+    // restoration and are never sent; 'restored' is the storage default for
+    // every insert since. INSERT-only — no code path writes it on update.
+    pushEpoch: text("push_epoch").notNull().default("restored"),
     createdAt: text("created_at").notNull().default("(datetime('now'))"),
     updatedAt: text("updated_at").notNull().default("(datetime('now'))"),
   },
@@ -79,6 +83,45 @@ export const notificationDeliveries = sqliteTable(
   ],
 );
 
+/**
+ * Per-(delivery, channel, destination) delivery unit — the state machine the
+ * notification delivery worker scans. One unit per base channel, except the
+ * webhook channel which expands to one unit per authorized destination with
+ * `channel_key = 'webhook:<subscriptionId>'` (the worker splits that key back
+ * into base channel + destination id, so plugin dispatch keys on the BASE
+ * channel and never sees the namespaced key).
+ */
+export const notificationDeliveryChannelStates = sqliteTable(
+  "notification_delivery_channel_states",
+  {
+    id: text("id").primaryKey(),
+    deliveryId: text("delivery_id")
+      .notNull()
+      .references(() => notificationDeliveries.id, { onDelete: "cascade" }),
+    channelKey: text("channel_key").notNull(),
+    baseChannel: text("base_channel"),
+    destinationId: text("destination_id"),
+    state: text("state").notNull().default("available"),
+    reservationsTotal: integer("reservations_total").notNull().default(3),
+    reservationsUsed: integer("reservations_used").notNull().default(0),
+    leaseOwner: text("lease_owner"),
+    leaseFence: text("lease_fence"),
+    leaseExpiresAt: text("lease_expires_at"),
+    nextEligibleAt: text("next_eligible_at"),
+    disposition: text("disposition"),
+    createdAt: text("created_at").notNull().default("(datetime('now'))"),
+    updatedAt: text("updated_at").notNull().default("(datetime('now'))"),
+  },
+  (table) => [
+    uniqueIndex("idx_ndcs_delivery_channel").on(table.deliveryId, table.channelKey),
+    index("idx_ndcs_state_eligible").on(
+      table.state,
+      table.nextEligibleAt,
+      table.leaseExpiresAt,
+    ),
+  ],
+);
+
 export const notificationDeliveryAttempts = sqliteTable(
   "notification_delivery_attempts",
   {
@@ -87,6 +130,10 @@ export const notificationDeliveryAttempts = sqliteTable(
       .notNull()
       .references(() => notificationDeliveries.id, { onDelete: "cascade" }),
     channel: text("channel").notNull(),
+    // Set by the delivery worker when the attempt belongs to a multi-destination
+    // webhook unit — ties the worker-authored attempt row to its channel-state
+    // unit. Null for legacy rows and non-destination units.
+    destinationId: text("destination_id"),
     status: text("status").notNull().default("pending"),
     attempt: integer("attempt").notNull().default(1),
     statusCode: integer("status_code"),

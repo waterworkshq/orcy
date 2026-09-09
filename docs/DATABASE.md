@@ -1439,10 +1439,31 @@ Per-recipient trackable delivery of a notification event with lifecycle status.
 | `muted_at` | TEXT | DEFAULT NULL | When muted |
 | `cleared_at` | TEXT | DEFAULT NULL | When cleared from inbox |
 | `clear_after` | TEXT | DEFAULT NULL | Scheduled auto-clear time |
+| `push_epoch` | TEXT | NOT NULL DEFAULT 'restored' | Migration 0077 upgrade marker: rows existing before the epoch backfill carry `legacy` (never pushed); every later insert defaults to `restored` |
 | `created_at` | TEXT | NOT NULL DEFAULT (datetime('now')) | Creation timestamp |
 | `updated_at` | TEXT | NOT NULL DEFAULT (datetime('now')) | Last update timestamp |
 
 **Indexes:** `idx_notification_deliveries_recipient_active(habitat_id, recipient_type, recipient_id, status, created_at)`, `idx_notification_deliveries_event(event_id)`, `idx_notification_deliveries_clearance(habitat_id, clear_after, status)`
+
+#### `notification_delivery_channel_states`
+
+Per-(delivery, channel, destination) delivery unit — the state machine the notification delivery worker scans. Created (frozen) once at committed delivery creation; the webhook channel expands to one unit per then-authorized destination under `channel_key = 'webhook:<subscriptionId>'`.
+
+| Column | Type | Constraints | Notes |
+|---|---|---|---|
+| `id` | TEXT | PK | |
+| `delivery_id` | TEXT | NOT NULL FK → notification_deliveries(id) ON DELETE CASCADE | |
+| `channel_key` | TEXT | NOT NULL, unique per delivery | `in_app`, `slack`, `discord`, plugin channel names, `webhook:<subscriptionId>`, or the synthetic `backlog` evidence key |
+| `base_channel` | TEXT | nullable | The dispatch key (namespaced keys split back to the base channel; NULL for `backlog`) |
+| `destination_id` | TEXT | nullable | The `webhook_subscriptions` id for destination units |
+| `state` | TEXT | NOT NULL, default `available` | `available`, `claimed`, `cooldown`, `sent`, `skipped`, `exhausted`, `cancelled`, `backlog_not_attempted`, `satisfied_at_enqueue` |
+| `reservations_total` / `reservations_used` | INTEGER | NOT NULL, defaults 3 / 0 | Claim-time budget: each claim spends one atomically |
+| `lease_owner` / `lease_fence` / `lease_expires_at` | TEXT | nullable | Exclusive ownership window (60 s TTL); the fence guards every outcome write |
+| `next_eligible_at` | TEXT | nullable | Cooldown backoff due-time |
+| `disposition` | TEXT | nullable | Fixed truthful text only (never raw errors, URLs, or secrets) |
+| `created_at` / `updated_at` | TEXT | NOT NULL, no DB default | Creation / last-update timestamps, supplied by the application (migration 0077 declares them `text NOT NULL` without `DEFAULT`) |
+
+**Indexes:** `idx_ndcs_delivery_channel(delivery_id, channel_key)` (unique), `idx_ndcs_state_eligible(state, next_eligible_at, lease_expires_at)`
 
 #### `notification_delivery_attempts`
 
@@ -1453,6 +1474,7 @@ Low-level log of each physical delivery attempt on a channel, including retries.
 | `id` | TEXT | PK | Attempt identifier (UUID) |
 | `delivery_id` | TEXT | NOT NULL FK → notification_deliveries(id) ON DELETE CASCADE | Parent delivery |
 | `channel` | TEXT | NOT NULL | Channel used |
+| `destination_id` | TEXT | DEFAULT NULL | Migration 0077 unit linkage: the `webhook_subscriptions` id this attempt's unit targets (NULL for single-destination channels) |
 | `status` | TEXT | NOT NULL DEFAULT 'pending' | Attempt status |
 | `attempt` | INTEGER | NOT NULL DEFAULT 1 | 1-based attempt number |
 | `status_code` | INTEGER | DEFAULT NULL | HTTP response status code |
@@ -2500,6 +2522,7 @@ entries are:
 | `0071`–`0074` | `0071_automation_checkpoint_legacy_disposition.sql`, `0072_lineage_repair_before_state_digest.sql`, `0073_finding_evidence_habitat_composite_fk.sql`, `0074_epoch_group_release_composite_fk.sql` | Post-enforcement hardening entries (applied like `0069`–`0070`). `0071` relabels historically-proved checkpoints that 0070 coerced without a receipt (`failed:legacy_proved_no_receipt` — successor re-runs of these require an explicit operator acknowledgement). `0072` adds `finding_triage_lineage_repairs.before_state_digest` so exact repair replay verifies against the recorded digest instead of mutable current state. `0073` rebuilds `finding_triage_evidence` with a composite `(finding_triage_id, habitat_id)` foreign key backed by a parent unique index; `0074` does the same for `release_activation_epoch_groups (epoch_id, release_id)`. Both rebuilds archive any row that cannot satisfy the replacement foreign keys into an explicit `*_orphans_*` table instead of dropping it (the `0068` evidence rebuild archives the same way). |
 | `0075` | `0075_habitat_lifecycle_settings.sql` | Adds `habitats.lifecycle_settings` (per-habitat lifecycle settings blob; NULL = defaults) for the task transition budget. |
 | `0076` | `0076_webhook_delivery_leases.sql` | Webhook retry restoration: adds the `lease_owner` / `lease_fence` / `lease_expires_at` ownership columns to `webhook_deliveries` and backfills `next_retry_at = created_at` for every pending row with NULL `next_retry_at`. **Operator note:** the backfill makes the entire accumulated pending backlog due at once. After upgrade the retry worker scans up to 50 rows per tick: enabled, valid, eligible rows retry (bounded by the 3-reservation budget per row); disabled, missing-subscription, malformed, or already-exhausted rows receive their terminal disposition without a send. Legacy rows keep their existing `attempts` accounting; unknown historical outcomes are not reconstructed. |
+| `0077` | `0077_notification_push_epoch.sql` | Notification V2 push restoration: creates `notification_delivery_channel_states` (per-(delivery, channel, destination) unit state machine), adds `notification_deliveries.push_epoch` with column-level DEFAULT `'restored'` and backfills every pre-existing row to `'legacy'` in the same migration (atomic cutover; the upgrade sends only new notifications), inserts one terminal `backlog_not_attempted` unit per non-terminal legacy delivery (fixed disposition; statuses/timestamps/attempts untouched), and adds the nullable `notification_delivery_attempts.destination_id` unit linkage. **Operator note:** pre-existing deliveries are never pushed after the upgrade — a legacy `pending` inbox stays readable and carries the not-attempted evidence unit; only post-upgrade notifications are pushed. |
 
 The gap `0003`–`0026` is **intentional**. Those migrations were consolidated
 into `0000_schema.sql` at the boundary commit and are deliberately NOT in the

@@ -130,7 +130,10 @@ describe("notificationDelivery repository", () => {
     });
 
     expect(delivery.id).toBeDefined();
-    expect(delivery.status).toBe("pending");
+    // No channels: empty plan = availability receipt at creation (R2), and
+    // the returned object is the FINAL row (matches the DB exactly).
+    expect(delivery.status).toBe("delivered");
+    expect(delivery.deliveredAt).toBe(delivery.createdAt);
     expect(delivery.required).toBe(false);
     expect(delivery.recipientType).toBe("human");
 
@@ -534,13 +537,32 @@ describe("notificationDeliveryAttempt repository", () => {
       nextRetryAt: "2099-01-01T00:00:00Z",
     });
 
-    const candidates = attemptRepo.getRetryCandidates(
-      "slack",
-      "retry_scheduled",
-      "2026-06-01T00:00:00Z",
-    );
-    expect(candidates).toHaveLength(1);
-    expect(candidates[0].id).toBe(a1.id);
+    // V2 restoration: the attempt-row retry scan (getRetryCandidates) is
+    // retired from production — the channel-unit scan is the single
+    // scheduling authority and historical retry_scheduled rows select
+    // nothing. What remains at the attempt layer is resolving a crashed
+    // owner's stranded PENDING rows for one unit (lease-expiry resume).
+    const strandedPending = attemptRepo.createDeliveryAttempt({
+      deliveryId: delivery.id,
+      channel: "slack",
+      destinationId: null,
+      attempt: 2,
+      status: "pending",
+    });
+    attemptRepo.markPendingAttemptsTerminalForUnit({
+      deliveryId: delivery.id,
+      channel: "slack",
+      destinationId: null,
+      status: "failed",
+      error: "outcome unknown after lease expiry",
+      now: "2026-06-01T00:00:00Z",
+    });
+    const rows = attemptRepo.getDeliveryAttemptsByDelivery(delivery.id);
+    const byId = Object.fromEntries(rows.map((r) => [r.id, r]));
+    // The pending row resolved; the historical retry_scheduled row is
+    // preserved untouched as consumed evidence.
+    expect(byId[strandedPending.id]).toMatchObject({ status: "failed", error: "outcome unknown after lease expiry" });
+    expect(byId[a1.id]).toMatchObject({ status: "retry_scheduled" });
   });
 });
 
@@ -946,8 +968,11 @@ describe("notification compact history flow", () => {
       channels: ["in_app"],
     });
 
-    expect(delivery.status).toBe("pending");
+    // In-app-only: creation-time availability receipt (final coherent row).
+    expect(delivery.status).toBe("delivered");
+    expect(delivery.deliveredAt).toBe(delivery.createdAt);
 
+    // The legacy explicit mark is CAS-idempotent from pending — no change.
     const delivered = deliveryRepo.markDeliveryDelivered(delivery.id);
     expect(delivered.status).toBe("delivered");
 

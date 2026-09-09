@@ -701,7 +701,9 @@ describe("notificationCommandService", () => {
 
     const { deliveries } = deliveryRepo.getActiveInbox(habitat.id, "human", "user-1");
     expect(deliveries).toHaveLength(1);
-    expect(deliveries[0].status).toBe("pending");
+    // In-app-only delivery: completed at creation with the availability
+    // receipt (still inbox-visible — `delivered` is an active status).
+    expect(deliveries[0].status).toBe("delivered");
   });
 });
 

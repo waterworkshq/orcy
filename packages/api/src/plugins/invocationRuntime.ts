@@ -219,6 +219,8 @@ export interface ChannelInvocationRequest {
   triggerEventId: string;
   triggerType: string;
   delivery: NotificationDelivery;
+  /** Trusted DB-derived destination context (webhook units); absent otherwise. */
+  destination?: import("./types.js").TrustedChannelDestination | null;
   event: NotificationEvent;
 }
 
@@ -1097,7 +1099,11 @@ function populateKindPayload(ctx: PluginContext, request: ManagedInvocationReque
   switch (request.target.kind) {
     case "notificationChannel": {
       const req = request as ChannelInvocationRequest;
-      ctx.notificationPayload = { delivery: req.delivery, event: req.event };
+      ctx.notificationPayload = {
+        delivery: req.delivery,
+        event: req.event,
+        destination: req.destination ?? null,
+      };
       break;
     }
     case "postInterceptor": {

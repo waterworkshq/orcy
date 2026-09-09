@@ -1,30 +1,28 @@
-import * as attemptRepo from "../../repositories/notificationDeliveryAttempt.js";
 import * as chatIntegrationRepo from "../../repositories/chatIntegration.js";
 import { sendToSlack, formatSlackMessage } from "../slackService.js";
 import type { NotificationDelivery, NotificationEvent } from "@orcy/shared";
 import { redactError } from "./truncate.js";
+import { NOTIFICATION_DISPOSITION_NO_SLACK_INTEGRATION } from "../../repositories/notificationChannelState.js";
 
-/** Delivers a notification to the habitat's configured Slack webhook and records the delivery attempt outcome. */
+/**
+ * Sends a notification to the habitat's enabled Slack webhook. PURE SENDER:
+ * no repository writes — the delivery worker records the attempt/outcome
+ * under its fence. A missing integration is an honest SKIP with fixed
+ * disposition text, not an error.
+ */
 export async function deliverSlack(
   delivery: NotificationDelivery,
   event: NotificationEvent,
-): Promise<{ success: boolean; attemptId?: string; error?: string }> {
-  const attempt = attemptRepo.createDeliveryAttempt({
-    deliveryId: delivery.id,
-    channel: "slack",
-    attempt: 1,
-  });
-
+): Promise<{ success: boolean; skipped?: boolean; error?: string }> {
   const integrations = chatIntegrationRepo.getEnabledIntegrationsByHabitat(delivery.habitatId);
   const slackIntegration = integrations.find((i) => i.provider === "slack" && i.webhookUrl);
 
   if (!slackIntegration) {
-    attemptRepo.updateDeliveryAttempt(attempt.id, {
-      status: "skipped",
-      error: "No enabled Slack integration found for this habitat",
-      finishedAt: new Date().toISOString(),
-    });
-    return { success: false, attemptId: attempt.id, error: "No enabled Slack integration" };
+    return {
+      success: false,
+      skipped: true,
+      error: NOTIFICATION_DISPOSITION_NO_SLACK_INTEGRATION,
+    };
   }
 
   try {
@@ -36,28 +34,12 @@ export async function deliverSlack(
     });
 
     const ok = await sendToSlack(slackIntegration.webhookUrl, message);
-
-    if (ok) {
-      attemptRepo.updateDeliveryAttempt(attempt.id, {
-        status: "sent",
-        finishedAt: new Date().toISOString(),
-      });
-      return { success: true, attemptId: attempt.id };
-    }
-
-    attemptRepo.updateDeliveryAttempt(attempt.id, {
-      status: "failed",
-      error: "Slack webhook returned failure or was blocked",
-      finishedAt: new Date().toISOString(),
-    });
-    return { success: false, attemptId: attempt.id, error: "Slack delivery failed" };
+    if (ok) return { success: true };
+    return { success: false, error: "Slack webhook returned failure or was blocked" };
   } catch (err) {
-    const errorMsg = redactError(err instanceof Error ? err.message : String(err));
-    attemptRepo.updateDeliveryAttempt(attempt.id, {
-      status: "failed",
-      error: errorMsg,
-      finishedAt: new Date().toISOString(),
-    });
-    return { success: false, attemptId: attempt.id, error: errorMsg };
+    return {
+      success: false,
+      error: redactError(err instanceof Error ? err.message : String(err)),
+    };
   }
 }

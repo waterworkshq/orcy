@@ -417,16 +417,29 @@ All three must be set. If `ORCY_API_KEY` or `ORCY_AGENT_ID` is empty, the server
 - Use one of the 8 canonical event types
 - Legacy preference names are migrated automatically (`taskAssigned` → `task.assigned`, `taskReviewAssigned` → `task.review_requested`)
 
-### Webhook delivery fails with "No webhook URL configured"
+### Notification webhook deliveries are all skipped ("no authorized webhook destination at enqueue")
 
-**Problem:** A notification delivery to the "webhook" channel fails with "No webhook URL configured".
+**Problem:** A delivery's webhook units terminalize `skipped` with the disposition `no authorized webhook destination at enqueue` — nothing is sent.
 
-**Cause:** The notification delivery service has no stored webhook URL for a habitat and reads ad-hoc from `delivery.channels[].webhookUrl` or `event.payload.webhookUrl`. If neither is present, the delivery fails.
+**Cause:** The webhook channel sends only to this habitat's own webhook subscriptions whose `events` list carries an explicit `notification:<type>` opt-in for that notification type. The unit plan freezes at enqueue: a destination authorized after the delivery was created never receives it (snapshot semantics), and URLs are never read from event payloads.
 
 **Fix:**
 
-- Until habitat-level webhook subscription is wired, supply the webhook URL in the event payload (`payload.webhookUrl`)
-- For reliable delivery, prefer Slack/Discord/in-app channels
+- Add the namespaced entry first (`POST /api/v1/webhooks` or `PUT /api/v1/webhooks/:id` with `events` containing e.g. `notification:task.blocked`; the entry requires `format: "standard"` — same handlers also served under the deprecated `/api` prefix), then enqueue — authoring is REST/CLI only, no UI
+- Empty-events catch-all subscriptions receive board events only; global (no-habitat) subscriptions never receive notifications
+
+### Notification push retries
+
+**Behavior:** Notification push units (webhook destinations, Slack, Discord, plugin channels) retry automatically. Each unit gets **at most three send reservations**, consumed at claim time by the boot-owned worker (`startNotificationDeliveryWorker` in `packages/api/src/services/notificationDeliveryWorker.ts`, started by the `index.ts` boot callback). Failed attempts back off 1 s then 2 s on a 60 s scan cadence.
+
+**Semantics to expect (not bugs):**
+
+- **Finite policy** — once three reservations are spent the unit terminalizes `exhausted` ("delivery budget exhausted" for a recorded failure; "outcome unknown after lease expiry" when a crashed owner is recovered by the janitor).
+- **Possible duplicate after a crash** — a send whose owner died between the receiver seeing the payload and the outcome write may be re-sent once the 60 s lease expires. Receivers should deduplicate on the stable delivery id (`X-Kanban-Delivery` header and envelope `id`, constant across retries). Duplicates may occur; no remote delivery is guaranteed, and the budget can be exhausted without a successful send — delivery is never exactly-once.
+- **Attempt rows marked `failed` with `cancelled by recipient action` or `outcome unknown after lease expiry` do NOT mean the physical send failed.** These are reconciliation records: the send's true outcome was UNKNOWN at the moment the recipient acted (or the crashed owner's lease expired) — the remote send may already have succeeded. This is visible in delivery monitoring (`GET /api/v1/habitats/:id/notifications/admin/delivery-monitor`) and delivery history; treat those two error texts as "outcome unknown", never as a known transport failure.
+- **Disabled/removed/de-authorized destinations** skip at the dispatch boundary with fixed dispositions (`destination disabled` / `destination removed` / `destination no longer subscribed to this notification type`) — no send, no reservation spent.
+- **Sibling channels are independent** — one channel's success or failure never cancels another channel's pending work; only a recipient's acknowledge/snooze/mute/clear cancels pending units.
+- **Upgrade behavior (migration 0077)** — existing deliveries are marked `legacy` and are **never sent** (statuses, timestamps, and attempt history preserved untouched); non-terminal legacy deliveries carry a `backlog_not_attempted` unit recording that push was not attempted. Only notifications created after the upgrade are pushed.
 
 ### Delivery retries (outgoing board webhooks)
 
@@ -439,7 +452,7 @@ All three must be set. If `ORCY_API_KEY` or `ORCY_AGENT_ID` is empty, the server
 - **Disabled subscriptions** stop being retried immediately: their pending rows terminalize `failed` with `Webhook delivery abandoned: subscription is disabled.` (no send, no attempt spent). Deleted subscriptions cascade their delivery rows away.
 - **After upgrading** past the lease migration (`0076`), every pre-existing pending delivery is made due at once. The worker scans up to 50 rows per tick: enabled, valid, eligible rows retry toward each subscription's **current** URL with each attempt's frozen payload; disabled, missing-subscription, malformed, or budget-exhausted rows receive their terminal disposition without a send. A burst of retry activity right after upgrade is expected, bounded by the 3-reservation budget per row.
 
-**Still a known limitation (separate surface):** Notification V2 channel delivery (Slack/Discord/webhook/in-app) is not production-wired — the push-delivery engine and its retry consumer do not run, so no routine push attempt is guaranteed; inbox records remain readable in the meantime.
+**Resolved (notification surface):** Notification V2 push deliveries now have their own boot-owned worker with the same lease/fence + bounded-reservation discipline — see "Notification push retries" under Notifications above. Historical `retry_scheduled` attempt rows are preserved read-only but hold no scheduling authority — no production consumer has ever drained them; scheduling now lives in the channel-state units.
 
 ---
 

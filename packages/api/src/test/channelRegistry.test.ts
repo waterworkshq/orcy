@@ -121,7 +121,8 @@ describe("channelRegistry: registry miss falls through to existing switch (regre
     const result = await deliverNotification(delivery.id);
     expect(result.results[0].channel).toBe("slack");
     expect(result.results[0].success).toBe(false);
-    expect(result.results[0].error).toContain("No enabled Slack");
+    expect(result.results[0].skipped).toBe(true);
+    expect(result.results[0].error).toContain("no enabled slack integration");
   });
 });
 

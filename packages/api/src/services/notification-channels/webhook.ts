@@ -1,62 +1,76 @@
-import * as attemptRepo from "../../repositories/notificationDeliveryAttempt.js";
 import type { NotificationDelivery, NotificationEvent } from "@orcy/shared";
-import { redactError, redactResponseBody } from "./truncate.js";
-import { fetchValidated } from "../../config/integrationSecurity.js";
+import { redactError } from "./truncate.js";
+import { executeHttpRequest } from "../webhooks/webhook-delivery.js";
+import { signPayload } from "../../utils/webhookSigning.js";
+import type { TrustedChannelDestination } from "../../plugins/types.js";
 
-/** POSTs a notification payload to a custom webhook URL — validated by the canonical SSRF checker, pinned to the validated resolution, fail-closed redirects, 10-second timeout — and records the HTTP response on the delivery attempt. */
+const NOTIFICATION_NO_DESTINATION = "no authorized webhook destination";
+
+/**
+ * POSTs the signed notification envelope to an AUTHORIZED destination — the
+ * trusted DB-derived subscription row (url/secret/headers), never a URL from
+ * the runtime event payload. Full reuse of the board-webhook HTTP authority:
+ * SSRF-validated pinned-resolution fetch, fail-closed redirects, 10 s
+ * timeout, unsafe-header filtering, and the X-Kanban signature/event/delivery
+ * headers receivers already verify. The delivery id in the payload and the
+ * `X-Kanban-Delivery` header are stable across retries (remote dedup key).
+ *
+ * PURE SENDER: no repository writes — the delivery worker records the
+ * attempt/outcome under its fence.
+ */
 export async function deliverWebhook(
   delivery: NotificationDelivery,
   event: NotificationEvent,
-  webhookUrl: string,
-): Promise<{ success: boolean; attemptId?: string; error?: string; statusCode?: number }> {
-  const attempt = attemptRepo.createDeliveryAttempt({
-    deliveryId: delivery.id,
-    channel: "webhook",
-    attempt: 1,
-  });
+  destination: TrustedChannelDestination | null,
+): Promise<{ success: boolean; skipped?: boolean; error?: string; statusCode?: number }> {
+  if (!destination || !destination.url) {
+    return { success: false, skipped: true, error: NOTIFICATION_NO_DESTINATION };
+  }
 
   const payload = {
-    eventType: event.eventType,
-    habitatId: event.habitatId,
-    sourceType: event.sourceType,
-    sourceId: event.sourceId,
-    severity: event.severity,
-    title: event.title,
-    body: event.body,
-    deliveryId: delivery.id,
-    recipientType: delivery.recipientType,
-    recipientId: delivery.recipientId,
+    id: delivery.id,
+    timestamp: new Date().toISOString(),
+    event: `notification:${event.eventType}`,
+    data: {
+      notificationEventId: event.id,
+      eventType: event.eventType,
+      habitatId: event.habitatId,
+      sourceType: event.sourceType,
+      sourceId: event.sourceId,
+      severity: event.severity,
+      title: event.title,
+      body: event.body,
+      deliveryId: delivery.id,
+      recipientType: delivery.recipientType,
+      recipientId: delivery.recipientId,
+    },
   };
+  const payloadString = JSON.stringify(payload);
+  const signature = destination.secret
+    ? signPayload(payloadString, destination.secret)
+    : null;
 
   try {
-    const response = await fetchValidated(webhookUrl, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "User-Agent": "Orcy-Notification/1.0" },
-      body: JSON.stringify(payload),
-    });
-
-    const responseBody = await response.text().catch(() => "");
-    const statusCode = response.status;
-    const ok = response.ok;
-
-    attemptRepo.updateDeliveryAttempt(attempt.id, {
-      status: ok ? "sent" : "failed",
-      statusCode,
-      responseBody: redactResponseBody(responseBody),
-      finishedAt: new Date().toISOString(),
-    });
-
-    if (ok) {
-      return { success: true, attemptId: attempt.id, statusCode };
+    const result = await executeHttpRequest(
+      destination.url,
+      payloadString,
+      signature,
+      destination.headers,
+      delivery.id,
+      `notification:${event.eventType}`,
+    );
+    if (result.success) {
+      return { success: true, statusCode: result.statusCode };
     }
-    return { success: false, attemptId: attempt.id, statusCode, error: `HTTP ${statusCode}` };
+    return {
+      success: false,
+      statusCode: result.statusCode,
+      error: `HTTP ${result.statusCode}`,
+    };
   } catch (err) {
-    const errorMsg = redactError(err instanceof Error ? err.message : String(err));
-    attemptRepo.updateDeliveryAttempt(attempt.id, {
-      status: "failed",
-      error: errorMsg,
-      finishedAt: new Date().toISOString(),
-    });
-    return { success: false, attemptId: attempt.id, error: errorMsg };
+    return {
+      success: false,
+      error: redactError(err instanceof Error ? err.message : String(err)),
+    };
   }
 }

@@ -202,10 +202,26 @@ export interface TransitionRef {
   context: TransitionContext;
 }
 
+/**
+ * Trusted, DB-derived destination context for a webhook-channel unit —
+ * resolved from the authorized `webhook_subscriptions` row by the delivery
+ * worker, never from runtime event payloads. Optional: present only when the
+ * unit carries a destination (webhook channel); other channels dispatch with
+ * none.
+ */
+export interface TrustedChannelDestination {
+  id: string;
+  url: string;
+  secret: string | null;
+  headers: Record<string, string>;
+}
+
 /** Notification delivery + event handed to channel handlers. */
 export interface NotificationPayload {
   delivery: NotificationDelivery;
   event: NotificationEvent;
+  /** Trusted destination context when the channel unit is destination-scoped. */
+  destination?: TrustedChannelDestination | null;
 }
 
 /** Outcome of a channel delivery attempt. */

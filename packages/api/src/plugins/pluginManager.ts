@@ -560,12 +560,13 @@ export async function dispatchToChannelPlugin(
   channel: string,
   delivery: NotificationDelivery,
   event: NotificationEvent,
+  destination?: import("./types.js").TrustedChannelDestination | null,
 ): Promise<ChannelHandlerResult | null> {
   const entry = channelRegistry.get(channel);
   if (!entry) return null;
 
   const target = makeChannelTarget(entry);
-  const outcome = await invokeChannelThroughRuntime(target, delivery, event);
+  const outcome = await invokeChannelThroughRuntime(target, delivery, event, destination ?? null);
   return outcome.result;
 }
 
@@ -1059,6 +1060,7 @@ function invokeChannelThroughRuntime(
   target: ChannelTarget,
   delivery: NotificationDelivery,
   event: NotificationEvent,
+  destination: import("./types.js").TrustedChannelDestination | null = null,
 ): Promise<ChannelOutcome> {
   const ctxRef: { ctx: ReturnType<typeof buildPluginContext> | null } = { ctx: null };
   const runtime: InvocationRuntime = createInvocationRuntime(buildRuntimeDeps(ctxRef));
@@ -1069,6 +1071,7 @@ function invokeChannelThroughRuntime(
     triggerType: `channel:${target.contributionId}`,
     delivery,
     event,
+    destination,
   };
   // The runtime guarantees kind-correspondence: a ChannelInvocationRequest
   // always produces a ChannelOutcome. The cast encodes that structural invariant.

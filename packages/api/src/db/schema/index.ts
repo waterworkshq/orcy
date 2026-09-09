@@ -77,6 +77,7 @@ export {
   notificationEvents,
   notificationDeliveries,
   notificationDeliveryAttempts,
+  notificationDeliveryChannelStates,
   notificationSubscriptions,
   notificationDigestItems,
   notificationRetentionPolicies,

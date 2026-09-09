@@ -329,6 +329,7 @@ Outbound webhook delivery and chat message sending use URL validation:
 - Filters unsafe request headers (`authorization`, `cookie`, `proxy-*`, etc.)
 - `ORCY_SSRF_ALLOWLIST` allows specific trusted internal destinations
 - All outbound fetch surfaces — plugin webhook calls, automation `call_webhook` actions, remote webhook registration and dispatch, the notification webhook channel, chat integrations, outgoing webhooks, and Jira integrations — validate through the canonical `validateOutboundUrl` checker and pin their fetch to the validated DNS resolution, failing closed on redirects
+- The notification webhook channel's destination URL is **trusted DB-derived state only**: it comes from the habitat's admin-managed `webhook_subscriptions` row (explicit `notification:<type>` opt-in, habitat-exact — global rows never qualify), signed with that subscription's secret. No code path reads an outbound URL from a runtime event payload; a `payload.webhookUrl` value produces no egress
 
 ---
 

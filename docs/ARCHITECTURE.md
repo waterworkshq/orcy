@@ -1034,14 +1034,26 @@ Notification V2 replaces the legacy email-only `notification_preferences` with a
 |-----------|---------------|
 | `notificationCommandService.ts` | Command seam — enqueues notifications through subscription resolution |
 | `notificationSubscriptionResolver.ts` | Resolves habitat defaults + recipient overrides (required bypass, mute, cadence) |
-| `notificationDeliveryService.ts` | Dispatches deliveries to channel adapters (in-app, webhook, Slack, Discord) |
+| `notificationChannelState.ts` (repo) | The per-(delivery, channel, destination) unit state machine: freeze-at-creation, single three-shape scan, claim/fence/budget CAS, fenced outcomes, aggregate completion |
+| `notificationDeliveryWorker.ts` | Boot-owned worker (60 s tick) — the sole delivery/attempt persistence authority; invokes pure senders under fences |
+| `notificationDeliveryService.ts` | Pure dispatch seam — plugin-first on the BASE channel, then in-tree senders; zero repository writes |
 | `notificationDigestService.ts` | Groups non-immediate deliveries into digest.ready events |
 | `notificationClearanceService.ts` | Clears acknowledged/failed deliveries past retention windows |
-| `notification-channels/` | Per-channel delivery adapters with attempt recording + redaction |
+| `notification-channels/` | Per-channel PURE senders (in-app, webhook, Slack, Discord) — no attempt writes, redaction retained at the boundary |
 
 ### Data Model
 
-6 tables: `notification_events`, `notification_deliveries`, `notification_delivery_attempts`, `notification_subscriptions`, `notification_digest_items`, `notification_retention_policies`
+7 tables: `notification_events`, `notification_deliveries` (with the `push_epoch` upgrade marker), `notification_delivery_attempts` (with `destination_id` unit linkage), `notification_delivery_channel_states`, `notification_subscriptions`, `notification_digest_items`, `notification_retention_policies`
+
+### Push Delivery, Retry, and the Upgrade Epoch
+
+Every delivery freezes its **unit plan once, at committed creation** — one unit per base channel, except the webhook channel, which expands to one unit per then-authorized destination (`channel_key = 'webhook:<subscriptionId>'`; the worker splits that key so plugin dispatch keys on the base channel). A destination authorized later never receives an earlier delivery. The worker scans one eligibility predicate: `available`, `cooldown`-due, or `claimed`-with-expired-lease (the crashed-owner resume — the stranded attempt row is resolved with a fixed unknown-outcome disposition; a budget-exhausted expired claim is janitorialized to truthful exhaustion). Each claim spends one of **3 reservations atomically** under a 60 s lease fence. Outcomes (`sent` / `cooldown` with 1 s–2 s backoff / `exhausted` / `skipped` with fixed truthful dispositions) are fenced AND transactional: the unit transition, the attempt-row outcome, and the delivery-status aggregate commit as ONE bundle — a crash between the writes rolls back to the claimed pre-state (recoverable by a later pass or lease expiry; never a terminal unit stranded beside unfinished bookkeeping). An owner whose fence loses the unit CAS writes nothing at all — no attempt or aggregate fallback (reconciled history stands). Terminal states are never reselected. Crash-window duplicates may occur (a lost owner may have completed a remote send whose outcome was never recorded); receivers should deduplicate on the stable delivery id. No remote delivery is guaranteed and no exactly-once effect is claimed — the finite reservation budget may be exhausted without a successful send.
+
+The webhook channel's destinations are the habitat's own admin-managed webhook subscriptions carrying an explicit `notification:<type>` opt-in (habitat-exact rows only — global NULL-habitat subscriptions never receive notifications; the empty-events catch-all receives board events only). Sends reuse the board-webhook HTTP authority end-to-end (SSRF-pinned fetch, HMAC signing with the subscription secret, safe-header filtering, stable `X-Kanban-Delivery` id) with a signed standard envelope; no URL is ever read from event payloads.
+
+In-app is availability, not a push: the inbox row exists at enqueue and is satisfied there — never claimed, never fabricated as a push receipt. Aggregate completion is coherent all-terminal only: any `sent`/`satisfied_at_enqueue` flips `pending → delivered` via CAS (an in-app-only satisfaction records the availability receipt, `deliveredAt = createdAt`); all-terminal-none-sent flips `pending → failed` — except an EMPTY unit plan (in-app-only or no channels), which is treated as a `delivered` availability receipt: no push work is owed and the delivery became readable at creation. The CAS only ever wins from `pending` — acknowledge/snooze/mute/clear are never overwritten, and those terminal user actions cancel all pending units.
+
+The migration 0077 **epoch boundary** is the upgrade policy: `push_epoch` defaults to `'restored'` for every insert while all pre-existing rows are backfilled to `'legacy'` in the same migration — the upgrade sends **only new** notifications. Legacy rows are never sent and never relabeled (statuses, timestamps, attempt history preserved); non-terminal legacy deliveries carry one terminal `backlog_not_attempted` unit recording that push was deliberately not attempted.
 
 ### Subscription Resolution
 

@@ -1,6 +1,13 @@
 import { getDb } from "../db/index.js";
 import { notificationDeliveries } from "../db/schema/index.js";
 import { eq, and, desc, sql, inArray } from "drizzle-orm";
+import {
+  aggregateDeliveryCompletionIfAllTerminal,
+  freezeUnitPlanForDelivery,
+  cancelNonTerminalUnitsForDelivery,
+  getNotificationDeliveryRowWithClient,
+} from "./notificationChannelState.js";
+import * as stateRepo from "./notificationChannelState.js";
 import { v4 as uuid } from "uuid";
 import {
   repositoryCreateError,
@@ -27,12 +34,81 @@ export interface CreateNotificationDeliveryInput {
 export function createNotificationDelivery(
   input: CreateNotificationDeliveryInput,
 ): NotificationDelivery {
-  const db = getDb();
+  // ONE transaction (contract: freeze is atomic with the INSERT for ALL
+  // producers): delivery INSERT → frozen unit plan → creation-time aggregate
+  // all commit together or not at all. A failure mid-freeze rolls back the
+  // ENTIRE plan + delivery — no orphan row, no partial plan a later-authorized
+  // destination could join. Nested inside an outer producer transaction this
+  // becomes a savepoint, so an outer rollback discards the whole creation.
+  // The FINAL row is re-read after commit so callers never see the stale
+  // pre-aggregate object (in-app-only creations return `delivered`).
   const id = uuid();
   const now = new Date().toISOString();
+  const db = getDb();
 
+  runCreateAtomically(db, input, id, now);
+
+/**
+ * Runs the delivery creation atomically, transaction-context aware:
+ *
+ *  - No active transaction → drizzle `db.transaction` (BEGIN…COMMIT).
+ *  - An active RAW transaction (e.g. `withImmediateLifecycleTransaction`'s
+ *    `BEGIN IMMEDIATE`, which drizzle cannot see) → SAVEPOINT join: the
+ *    savepoint gives the creation its own all-or-nothing rollback scope
+ *    while committing atomically with the enclosing producer transaction.
+ *    Blindly calling `db.transaction` there would issue a nested BEGIN and
+ *    fail ("cannot start a transaction within a transaction").
+ *
+ * Active-transaction detection: a bare `BEGIN` probe fails iff a transaction
+ * is already active on the connection (SQLite allows only one); the probe
+ * transaction is rolled back immediately when it succeeds, so detection
+ * never leaves one open.
+ */
+function runCreateAtomically(
+  db: ReturnType<typeof getDb>,
+  input: CreateNotificationDeliveryInput,
+  id: string,
+  now: string,
+): void {
+  // Active-transaction detection: bare `BEGIN` fails iff a transaction is
+  // already active on the connection. When the probe BEGIN succeeds we are
+  // NOT in a transaction — roll the probe back and use the drizzle path.
+  let rawActive: boolean;
   try {
-    db.insert(notificationDeliveries)
+    db.run(sql`BEGIN`);
+    db.run(sql`ROLLBACK`);
+    rawActive = false;
+  } catch {
+    rawActive = true;
+  }
+  if (!rawActive) {
+    db.transaction((tx) => runCreateInTx(tx, input, id, now));
+    return;
+  }
+  const sp = `orcy_create_${id.replace(/-/g, "")}`;
+  db.run(sql`SAVEPOINT ${sql.raw(`"${sp}"`)}`);
+  try {
+    runCreateInTx(db, input, id, now);
+    db.run(sql`RELEASE SAVEPOINT ${sql.raw(`"${sp}"`)}`);
+  } catch (err) {
+    try {
+      db.run(sql`ROLLBACK TO SAVEPOINT ${sql.raw(`"${sp}"`)}`);
+      db.run(sql`RELEASE SAVEPOINT ${sql.raw(`"${sp}"`)}`);
+    } catch {
+      // enclosing raw tx will roll back wholesale on its own error path
+    }
+    throw err;
+  }
+}
+
+function runCreateInTx(
+  tx: ReturnType<typeof getDb>,
+  input: CreateNotificationDeliveryInput,
+  id: string,
+  now: string,
+): void {
+  try {
+    tx.insert(notificationDeliveries)
       .values({
         id,
         eventId: input.eventId,
@@ -56,9 +132,36 @@ export function createNotificationDelivery(
     throw repositoryCreateError("notificationDelivery", err as Error, id);
   }
 
-  const created = getNotificationDeliveryById(id);
+  const created = stateRepo.getNotificationDeliveryRowWithClient(id, tx);
   if (!created) throw repositoryNotFoundError("notificationDelivery", id);
-  return created;
+
+  // Unit-plan freeze: ONE frozen unit set, same transaction as the INSERT —
+  // every producer path (command service, digest service, direct repository
+  // callers) freezes identically; no destination authorized later receives
+  // this delivery.
+  freezeUnitPlanForDelivery(
+    {
+      deliveryId: id,
+      habitatId: input.habitatId,
+      eventId: input.eventId,
+      channels: input.channels ?? [],
+      now,
+    },
+    tx,
+  );
+
+  // Coherent creation-time completion for RESTORED deliveries whose frozen
+  // plan is already all-terminal (in-app-only, or no channels at all): the
+  // availability receipt (`delivered` with `deliveredAt = createdAt`) — not
+  // a push receipt. Legacy rows are excluded (epoch is INSERT-only).
+  if (created.pushEpoch === "restored") {
+    aggregateDeliveryCompletionIfAllTerminal(id, now, tx);
+  }
+}
+
+  const final = getNotificationDeliveryById(id);
+  if (!final) throw repositoryNotFoundError("notificationDelivery", id);
+  return final;
 }
 
 export function getNotificationDeliveryById(id: string): NotificationDelivery | null {
@@ -159,6 +262,14 @@ export function getDeliveryHistory(
 
 export function acknowledgeDelivery(deliveryId: string): NotificationDelivery {
   const db = getDb();
+  return db.transaction((tx) => acknowledgeDeliveryInTx(deliveryId, tx));
+}
+
+function acknowledgeDeliveryInTx(
+  deliveryId: string,
+  tx: ReturnType<typeof getDb>,
+) {
+  const db = tx;
   const now = new Date().toISOString();
 
   try {
@@ -174,6 +285,10 @@ export function acknowledgeDelivery(deliveryId: string): NotificationDelivery {
     throw repositoryUpdateError("notificationDelivery", err as Error, deliveryId);
   }
 
+  // A terminal recipient action cancels every non-terminal push unit —
+  // pending/retrying work stops; the completion CAS can no longer win.
+  cancelNonTerminalUnitsForDelivery(deliveryId, now, tx);
+
   const updated = getNotificationDeliveryById(deliveryId);
   if (!updated) throw repositoryNotFoundError("notificationDelivery", deliveryId);
   return updated;
@@ -181,6 +296,15 @@ export function acknowledgeDelivery(deliveryId: string): NotificationDelivery {
 
 export function snoozeDelivery(deliveryId: string, snoozedUntil: string): NotificationDelivery {
   const db = getDb();
+  return db.transaction((tx) => snoozeDeliveryInTx(deliveryId, tx, snoozedUntil));
+}
+
+function snoozeDeliveryInTx(
+  deliveryId: string,
+  tx: ReturnType<typeof getDb>,
+  snoozedUntil: string,
+) {
+  const db = tx;
   const now = new Date().toISOString();
 
   try {
@@ -196,6 +320,10 @@ export function snoozeDelivery(deliveryId: string, snoozedUntil: string): Notifi
     throw repositoryUpdateError("notificationDelivery", err as Error, deliveryId);
   }
 
+  // A terminal recipient action cancels every non-terminal push unit —
+  // pending/retrying work stops; the completion CAS can no longer win.
+  cancelNonTerminalUnitsForDelivery(deliveryId, now, tx);
+
   const updated = getNotificationDeliveryById(deliveryId);
   if (!updated) throw repositoryNotFoundError("notificationDelivery", deliveryId);
   return updated;
@@ -203,6 +331,14 @@ export function snoozeDelivery(deliveryId: string, snoozedUntil: string): Notifi
 
 export function muteDelivery(deliveryId: string): NotificationDelivery {
   const db = getDb();
+  return db.transaction((tx) => muteDeliveryInTx(deliveryId, tx));
+}
+
+function muteDeliveryInTx(
+  deliveryId: string,
+  tx: ReturnType<typeof getDb>,
+) {
+  const db = tx;
   const now = new Date().toISOString();
 
   try {
@@ -217,6 +353,10 @@ export function muteDelivery(deliveryId: string): NotificationDelivery {
   } catch (err) {
     throw repositoryUpdateError("notificationDelivery", err as Error, deliveryId);
   }
+
+  // A terminal recipient action cancels every non-terminal push unit —
+  // pending/retrying work stops; the completion CAS can no longer win.
+  cancelNonTerminalUnitsForDelivery(deliveryId, now, tx);
 
   const updated = getNotificationDeliveryById(deliveryId);
   if (!updated) throw repositoryNotFoundError("notificationDelivery", deliveryId);
@@ -247,6 +387,14 @@ export function markDeliveryDelivered(deliveryId: string): NotificationDelivery 
 
 export function clearDelivery(deliveryId: string): NotificationDelivery {
   const db = getDb();
+  return db.transaction((tx) => clearDeliveryInTx(deliveryId, tx));
+}
+
+function clearDeliveryInTx(
+  deliveryId: string,
+  tx: ReturnType<typeof getDb>,
+) {
+  const db = tx;
   const now = new Date().toISOString();
 
   try {
@@ -261,6 +409,10 @@ export function clearDelivery(deliveryId: string): NotificationDelivery {
   } catch (err) {
     throw repositoryUpdateError("notificationDelivery", err as Error, deliveryId);
   }
+
+  // A terminal recipient action cancels every non-terminal push unit —
+  // pending/retrying work stops; the completion CAS can no longer win.
+  cancelNonTerminalUnitsForDelivery(deliveryId, now, tx);
 
   const updated = getNotificationDeliveryById(deliveryId);
   if (!updated) throw repositoryNotFoundError("notificationDelivery", deliveryId);

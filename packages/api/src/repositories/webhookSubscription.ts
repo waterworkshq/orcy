@@ -112,6 +112,28 @@ export function listEnabledWebhookSubscriptionRecordsForHabitat(
     .all();
 }
 
+/**
+ * Habitat-EXACT enabled subscriptions (habitat_id = H AND enabled) — the
+ * notification-destination predicate. Deliberately unlike
+ * {@link listEnabledWebhookSubscriptionRecordsForHabitat}: the board lister
+ * ORs in NULL-habitat global subscriptions, which is correct for board-event
+ * fan-out but must NEVER authorize notification payloads (a global row's
+ * `notification:<type>` entry would aggregate every habitat's recipient-
+ * addressed notifications to one operator URL).
+ */
+export function listEnabledHabitatScopedWebhookSubscriptionRecords(
+  habitatId: string,
+): WebhookSubscriptionRecord[] {
+  const db = getDb();
+  return db
+    .select()
+    .from(webhookSubscriptions)
+    .where(
+      and(eq(webhookSubscriptions.habitatId, habitatId), eq(webhookSubscriptions.enabled, 1)),
+    )
+    .all() as unknown as WebhookSubscriptionRecord[];
+}
+
 export function getWebhookSubscriptionRecordById(id: string): WebhookSubscriptionRecord | null {
   const db = getDb();
   const row = db.select().from(webhookSubscriptions).where(eq(webhookSubscriptions.id, id)).get();

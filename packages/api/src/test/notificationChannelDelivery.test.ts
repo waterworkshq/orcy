@@ -76,7 +76,7 @@ describe("notification channels - in_app", () => {
   });
   afterEach(() => closeDb());
 
-  it("delivers in-app and creates attempt record", async () => {
+  it("confirms in-app availability without writing attempts or delivery status (pure sender)", async () => {
     const habitat = setupHabitat();
     const event = createTestEvent(habitat.id);
     const delivery = createTestDelivery(habitat.id, event.id, ["in_app"]);
@@ -86,13 +86,14 @@ describe("notification channels - in_app", () => {
     expect(result.results[0].channel).toBe("in_app");
     expect(result.results[0].success).toBe(true);
 
+    // Pure sender contract: the worker owns attempts; the unit is satisfied
+    // at enqueue (inbox row), so nothing is written here. R2: the creation
+    // seam (not this dispatch) already landed the availability receipt.
     const attempts = attemptRepo.getDeliveryAttemptsByDelivery(delivery.id);
-    expect(attempts).toHaveLength(1);
-    expect(attempts[0].channel).toBe("in_app");
-    expect(attempts[0].status).toBe("sent");
-
+    expect(attempts).toHaveLength(0);
     const updated = deliveryRepo.getNotificationDeliveryById(delivery.id);
     expect(updated!.status).toBe("delivered");
+    expect(updated!.deliveredAt).toBe(updated!.createdAt);
   });
 });
 
@@ -102,19 +103,24 @@ describe("notification channels - webhook", () => {
   });
   afterEach(() => closeDb());
 
-  it("rejects a webhook URL whose hostname DNS-resolves to private space", async () => {
+  it("rejects a destination URL whose hostname DNS-resolves to private space", async () => {
     dnsState.v4 = ["10.0.0.5"];
     const habitat = setupHabitat();
     const event = createTestEvent(habitat.id);
     const delivery = createTestDelivery(habitat.id, event.id, ["webhook"]);
 
-    const result = await deliverWebhook(delivery, event, "https://attacker.example.com/x");
+    const result = await deliverWebhook(delivery, event, {
+      id: "sub-ssrf",
+      url: "https://attacker.example.com/x",
+      secret: "s3cret",
+      headers: {},
+    });
     expect(result.success).toBe(false);
-    expect(result.error).toContain("URL rejected");
+    expect(result.statusCode).toBe(0);
     dnsState.v4 = ["93.184.216.34"];
   });
 
-  it("fails when no webhook URL is configured", async () => {
+  it("honestly skips when no authorized destination is provided", async () => {
     const habitat = setupHabitat();
     const event = createTestEvent(habitat.id);
     const delivery = createTestDelivery(habitat.id, event.id, ["webhook"]);
@@ -122,7 +128,11 @@ describe("notification channels - webhook", () => {
     const result = await deliverNotification(delivery.id);
     expect(result.results[0].channel).toBe("webhook");
     expect(result.results[0].success).toBe(false);
-    expect(result.results[0].error).toContain("webhook URL");
+    expect(result.results[0].skipped).toBe(true);
+    expect(result.results[0].error).toContain("no authorized webhook destination");
+    // No payload-supplied URL is ever read: the old event.payload.webhookUrl
+    // path is gone by contract.
+    expect(attemptRepo.getDeliveryAttemptsByDelivery(delivery.id)).toHaveLength(0);
   });
 });
 
@@ -140,11 +150,12 @@ describe("notification channels - slack", () => {
     const result = await deliverNotification(delivery.id);
     expect(result.results[0].channel).toBe("slack");
     expect(result.results[0].success).toBe(false);
+    expect(result.results[0].skipped).toBe(true);
+    expect(result.results[0].error).toBe("no enabled slack integration");
 
+    // Pure sender: no attempt rows below the worker.
     const attempts = attemptRepo.getDeliveryAttemptsByDelivery(delivery.id);
-    expect(attempts).toHaveLength(1);
-    expect(attempts[0].status).toBe("skipped");
-    expect(attempts[0].error).toContain("No enabled Slack");
+    expect(attempts).toHaveLength(0);
   });
 });
 
@@ -162,11 +173,11 @@ describe("notification channels - discord", () => {
     const result = await deliverNotification(delivery.id);
     expect(result.results[0].channel).toBe("discord");
     expect(result.results[0].success).toBe(false);
+    expect(result.results[0].skipped).toBe(true);
+    expect(result.results[0].error).toBe("no enabled discord integration");
 
     const attempts = attemptRepo.getDeliveryAttemptsByDelivery(delivery.id);
-    expect(attempts).toHaveLength(1);
-    expect(attempts[0].status).toBe("skipped");
-    expect(attempts[0].error).toContain("No enabled Discord");
+    expect(attempts).toHaveLength(0);
   });
 });
 
@@ -203,13 +214,11 @@ describe("notificationDeliveryService dispatcher", () => {
 
     const slackResult = result.results.find((r) => r.channel === "slack")!;
     expect(slackResult.success).toBe(false);
+    expect(slackResult.skipped).toBe(true);
 
+    // Pure dispatcher: zero attempt rows — the worker authors attempts.
     const attempts = attemptRepo.getDeliveryAttemptsByDelivery(delivery.id);
-    expect(attempts).toHaveLength(2);
-    const appAttempt = attempts.find((a) => a.channel === "in_app")!;
-    expect(appAttempt.status).toBe("sent");
-    const slackAttempt = attempts.find((a) => a.channel === "slack")!;
-    expect(slackAttempt.status).toBe("skipped");
+    expect(attempts).toHaveLength(0);
   });
 
   it("records distinct error for each failed channel", async () => {
@@ -226,33 +235,20 @@ describe("notificationDeliveryService dispatcher", () => {
   });
 });
 
-describe("attempt status transitions", () => {
+describe("attempt status transitions (worker-owned)", () => {
   beforeEach(async () => {
     await initTestDb();
   });
   afterEach(() => closeDb());
 
-  it("records skipped status with reason", async () => {
+  it("direct dispatch writes no attempt rows — outcomes live with the worker", async () => {
     const habitat = setupHabitat();
     const event = createTestEvent(habitat.id);
-    const delivery = createTestDelivery(habitat.id, event.id, ["slack"]);
+    const delivery = createTestDelivery(habitat.id, event.id, ["slack", "in_app"]);
 
     await deliverNotification(delivery.id);
 
-    const attempts = attemptRepo.getDeliveryAttemptsByDelivery(delivery.id);
-    expect(attempts[0].status).toBe("skipped");
-    expect(attempts[0].error).toContain("No enabled Slack");
-  });
-
-  it("records sent status for in-app", async () => {
-    const habitat = setupHabitat();
-    const event = createTestEvent(habitat.id);
-    const delivery = createTestDelivery(habitat.id, event.id, ["in_app"]);
-
-    await deliverNotification(delivery.id);
-
-    const attempts = attemptRepo.getDeliveryAttemptsByDelivery(delivery.id);
-    expect(attempts[0].status).toBe("sent");
+    expect(attemptRepo.getDeliveryAttemptsByDelivery(delivery.id)).toHaveLength(0);
   });
 });
 
@@ -262,7 +258,7 @@ describe("delivery status after channel dispatch", () => {
   });
   afterEach(() => closeDb());
 
-  it("marks delivery as delivered after in_app", async () => {
+  it("never flips delivery status from a direct dispatch (aggregate is worker-owned)", async () => {
     const habitat = setupHabitat();
     const event = createTestEvent(habitat.id);
     const delivery = createTestDelivery(habitat.id, event.id, ["in_app"]);
@@ -270,8 +266,10 @@ describe("delivery status after channel dispatch", () => {
     await deliverNotification(delivery.id);
 
     const updated = deliveryRepo.getNotificationDeliveryById(delivery.id);
+    // R2: in-app-only deliveries complete at creation (availability receipt);
+    // the direct dispatch itself flipped nothing.
     expect(updated!.status).toBe("delivered");
-    expect(updated!.deliveredAt).not.toBeNull();
+    expect(updated!.deliveredAt).toBe(updated!.createdAt);
   });
 
   it("does NOT mark delivery as delivered when channel fails", async () => {
@@ -409,7 +407,8 @@ describe("ADR-0039 R5: plugin channel consumer path (dispatchChannel → pluginM
     expect(result.results).toHaveLength(1);
     expect(result.results[0].channel).toBe("r5-fail");
     expect(result.results[0].success).toBe(false);
-    expect(result.results[0].error).toMatch(/stale state/);
+    // R3: plugin error text is classified at the dispatch boundary — fixed code.
+    expect(result.results[0].error).toBe("delivery_failed");
 
     // Channel does NOT trigger quarantine (fail-safe, defensive-only per Q2).
     const quarantineRows = pluginRunRepo
@@ -432,7 +431,7 @@ describe("ADR-0039 R5: plugin channel consumer path (dispatchChannel → pluginM
     expect(result.results[0].channel).toBe("r5-throw");
     expect(result.results[0].success).toBe(false);
     // Error message propagated through the runtime's failure-mapping.
-    expect(result.results[0].error).toMatch(/boom-channel/);
+    expect(result.results[0].error).toBe("delivery_failed");
 
     // Channel throw → Plugin Run row marked failed.
     const failedRun = pluginRunRepo
@@ -508,14 +507,16 @@ describe("ADR-0039 R5: plugin channel consumer path (dispatchChannel → pluginM
 
     const result = await deliverNotification(delivery.id);
     expect(result.results[0].success).toBe(true);
-    expect(result.results[0].attemptId).toBe("attempt-x");
+    // attemptId is informational-only and dropped by the pure dispatcher —
+    // the worker's pre-created attempt row is the single attempt identity.
+    expect((result.results[0] as { attemptId?: string }).attemptId).toBeUndefined();
 
-    // Delivery status stays "pending" — only in-app channel promotes to "delivered".
+    // Delivery status stays "pending" — completion aggregation is worker-owned.
     const updated = deliveryRepo.getNotificationDeliveryById(delivery.id);
     expect(updated!.status).toBe("pending");
   });
 
-  it("PLG-3: plugin channel delivery persists and updates notification_delivery_attempts record", async () => {
+  it("PLG-3 (V2 contract): plugin channel delivery writes NO attempt rows below the worker", async () => {
     await writeChannelPlugin(
       "chan-attempts",
       "r5-attempt-test",
@@ -529,14 +530,12 @@ describe("ADR-0039 R5: plugin channel consumer path (dispatchChannel → pluginM
 
     const result = await deliverNotification(delivery.id);
     expect(result.results[0].success).toBe(true);
-    expect(result.results[0].attemptId).toBeDefined();
+    expect(result.results[0].statusCode).toBe(200);
 
+    // The worker (not the plugin path) authors attempt rows — a direct
+    // dispatch leaves zero behind.
     const attempts = attemptRepo.getDeliveryAttemptsByDelivery(delivery.id);
-    expect(attempts).toHaveLength(1);
-    expect(attempts[0].channel).toBe("r5-attempt-test");
-    expect(attempts[0].status).toBe("sent");
-    expect(attempts[0].statusCode).toBe(200);
-    expect(attempts[0].finishedAt).not.toBeNull();
+    expect(attempts).toHaveLength(0);
   });
 
   it("PLG-3: failed plugin channel delivery records failed notification_delivery_attempts record with error", async () => {
@@ -553,13 +552,10 @@ describe("ADR-0039 R5: plugin channel consumer path (dispatchChannel → pluginM
 
     const result = await deliverNotification(delivery.id);
     expect(result.results[0].success).toBe(false);
+    expect(result.results[0].statusCode).toBe(502);
+    expect(result.results[0].error).toBe("delivery_failed"); // R3: classified at the boundary
 
-    const attempts = attemptRepo.getDeliveryAttemptsByDelivery(delivery.id);
-    expect(attempts).toHaveLength(1);
-    expect(attempts[0].channel).toBe("r5-fail-chan");
-    expect(attempts[0].status).toBe("failed");
-    expect(attempts[0].statusCode).toBe(502);
-    expect(attempts[0].error).toContain("remote endpoint rejected payload");
-    expect(attempts[0].finishedAt).not.toBeNull();
+    // Worker-authored attempts only: zero rows from the dispatch itself.
+    expect(attemptRepo.getDeliveryAttemptsByDelivery(delivery.id)).toHaveLength(0);
   });
 });

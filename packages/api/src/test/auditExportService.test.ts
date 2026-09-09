@@ -373,7 +373,7 @@ describe("auditExportService", () => {
       expect.objectContaining({
         "automation.rule_run.succeeded": 1,
         "notification.task.assigned": 1,
-        "notification.delivery.pending": 1,
+        "notification.delivery.delivered": 1, // R2: in-app-only creation completes at enqueue (availability receipt)
         "plugin.succeeded": 1,
       }),
     );

@@ -106,6 +106,8 @@ export interface NotificationDelivery {
   recipientType: NotificationRecipientType;
   recipientId: string;
   status: NotificationDeliveryStatus;
+  /** Upgrade epoch: 'legacy' rows predate push restoration (never sent); 'restored' for every insert since migration 0077. */
+  pushEpoch?: string;
   required: boolean;
   channels: NotificationChannel[];
   deliveredAt: string | null;
@@ -123,6 +125,8 @@ export interface NotificationDeliveryAttempt {
   id: string;
   deliveryId: string;
   channel: NotificationChannel;
+  /** Set by the delivery worker when the attempt belongs to a multi-destination webhook unit; null otherwise. */
+  destinationId?: string | null;
   status: NotificationAttemptStatus;
   attempt: number;
   statusCode: number | null;

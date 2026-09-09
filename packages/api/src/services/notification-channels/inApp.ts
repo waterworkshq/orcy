@@ -1,34 +1,15 @@
-import * as attemptRepo from "../../repositories/notificationDeliveryAttempt.js";
-import * as deliveryRepo from "../../repositories/notificationDelivery.js";
 import type { NotificationDelivery, NotificationEvent } from "@orcy/shared";
 
-/** Marks an in-app notification delivery as delivered and records the attempt outcome. */
+/**
+ * In-app is an AVAILABILITY, not a push send: the inbox row exists at enqueue
+ * and `pending` is already inbox-visible, so the unit is satisfied at enqueue
+ * and the worker never claims or dispatches it. This pure sender only
+ * confirms that availability — it performs no writes of any kind (the worker
+ * owns all delivery/attempt persistence).
+ */
 export async function deliverInApp(
-  delivery: NotificationDelivery,
+  _delivery: NotificationDelivery,
   _event: NotificationEvent,
-): Promise<{ success: boolean; attemptId?: string; error?: string }> {
-  const attempt = attemptRepo.createDeliveryAttempt({
-    deliveryId: delivery.id,
-    channel: "in_app",
-    attempt: 1,
-  });
-
-  try {
-    deliveryRepo.markDeliveryDelivered(delivery.id);
-
-    attemptRepo.updateDeliveryAttempt(attempt.id, {
-      status: "sent",
-      finishedAt: new Date().toISOString(),
-    });
-
-    return { success: true, attemptId: attempt.id };
-  } catch (err) {
-    const errorMsg = err instanceof Error ? err.message : String(err);
-    attemptRepo.updateDeliveryAttempt(attempt.id, {
-      status: "failed",
-      error: errorMsg.slice(0, 500),
-      finishedAt: new Date().toISOString(),
-    });
-    return { success: false, attemptId: attempt.id, error: errorMsg };
-  }
+): Promise<{ success: boolean }> {
+  return { success: true };
 }

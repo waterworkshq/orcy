@@ -4841,10 +4841,12 @@ Create a webhook subscription.
 | `habitatId` | UUID | yes | Habitat to subscribe to |
 | `name` | string | yes | Display name, 1-100 chars |
 | `url` | string | yes | Webhook URL (https only) |
-| `events` | string[] | yes | Event types to subscribe to |
+| `events` | string[] | yes | Event types to subscribe to. Board events, and/or `notification:<type>` entries (`notification:task.blocked`, …) that opt the subscription into notification push for that catalog type — valid entries are the supported notification event catalog; unknown namespaced names are rejected 400. Notification entries require `format: "standard"` (the notification payload is a signed standard envelope). |
 | `format` | enum | yes | `standard`, `slack`, `discord` |
 | `headers` | object | no | Custom HTTP headers |
 | `enabled` | boolean | no | default: true |
+
+> **Notification destinations (no UI — REST/CLI only):** a subscription carrying a `notification:<type>` entry becomes a notification push destination for its habitat. Snapshot semantics: it receives only notifications enqueued while listed (a destination added later does not receive already-enqueued deliveries); disabling or removing it is rechecked before each dispatch, preventing subsequent eligible sends; a request already in flight cannot be retracted. Notifications are habitat-scoped — global (no-habitat) subscriptions never receive them; empty-events catch-alls receive board events only. Receivers verify `X-Kanban-Signature` (HMAC-SHA256 of the raw body with the subscription secret), `X-Kanban-Event` (`notification:<type>`), and `X-Kanban-Delivery` (stable per delivery across retries).
 
 **Response `201`:**
 

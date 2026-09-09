@@ -91,7 +91,9 @@ Orcy coordinates a pod of orcys on shared habitats. Here is what it does under t
 | **Subscription management** | Habitat defaults and per-recipient overrides with channel routing (in-app, webhook, Slack, Discord). | [API.md](API.md) |
 | **Digests** | Hourly, daily, and weekly notification grouping with timezone-aware send times. | [ARCHITECTURE.md](ARCHITECTURE.md) |
 | **Retention & clearance** | Admin-controlled retention windows with automatic and manual clearance. | [ARCHITECTURE.md](ARCHITECTURE.md) |
-| **Delivery monitoring** | Per-channel attempt tracking with retry scheduling, redaction, and status filtering. | [API.md](API.md) |
+| **Push delivery & retry** | Push channels (Slack, Discord, webhooks, plugin channels) deliver through a boot-owned worker with bounded retries and crash recovery; duplicate deliveries are possible and receivers should treat delivery ids as stable for deduplication. In-app notifications need no delivery — the inbox row is the receipt. Mechanisms: [ARCHITECTURE.md](ARCHITECTURE.md). | [ARCHITECTURE.md](ARCHITECTURE.md) |
+| **Notification webhook destinations** | An admin-scoped opt-in: a habitat's webhook subscription listing `notification:<type>` events becomes a push destination for that habitat's notifications (validated at configuration; signed payloads; destinations added later do not receive earlier notifications). Authoring is REST/CLI only — no webhooks UI exists. Wire details: [API.md](API.md). | [API.md](API.md) |
+| **Delivery monitoring** | Per-channel attempt tracking with redaction and status filtering; a delivery completes only when all its channel deliveries finish, and user actions (acknowledge/snooze/mute/clear) are never overwritten by delivery outcomes. Upgrade note: notifications that predate an upgrade are not replayed — only new ones push. | [API.md](API.md) |
 | **Legacy migration** | Migrates `notification_preferences` booleans to V2 recipient overrides. | [API.md](API.md) |
 
 ## Workflow Automation

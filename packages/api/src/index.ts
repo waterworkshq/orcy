@@ -9,6 +9,10 @@ import {
   startRetryProcessor as startWebhookRetryProcessor,
   stopRetryProcessor as stopWebhookRetryProcessor,
 } from "./services/webhooks/webhook-delivery.js";
+import {
+  startNotificationDeliveryWorker,
+  stopNotificationDeliveryWorker,
+} from "./services/notificationDeliveryWorker.js";
 import { rebuildCache as rebuildHabitatSecretCache } from "./services/habitatSecretCache.js";
 import { seedDefaultTemplates as seedQualityTemplates } from "./services/qualityGateService.js";
 import { startAllSchedulers } from "./services/scheduler.js";
@@ -58,6 +62,10 @@ const app = await createHttpApplication({
     // budget). Interval-only start: the first pass fires one tick later, by
     // which time initDb() (awaited further down boot) has completed.
     startWebhookRetryProcessor();
+    // Notification V2 delivery worker (initial push + bounded retry, unit
+    // state machine) — same operational waypoint and the same interval-only
+    // start discipline as the webhook worker above.
+    startNotificationDeliveryWorker();
   },
 });
 
@@ -130,6 +138,8 @@ app.onClose(async () => {
   // Drain-aware stop: awaits in-flight webhook sends (bounded by the fetch
   // cap) so outcome writes cannot race process teardown.
   await stopWebhookRetryProcessor();
+  // Same drain discipline for the notification delivery worker.
+  await stopNotificationDeliveryWorker();
   const { shutdownAll } = await import("./services/daemonEngine.js");
   shutdownAll();
   const { stopExtractionScan } = await import("./services/extractionScheduler.js");
