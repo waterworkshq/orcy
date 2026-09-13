@@ -150,7 +150,7 @@ describe('assignReviewers', () => {
 
   it('skips when no eligible reviewers (no team)', () => {
     const task = createTestTask();
-    reviewRuleRepo.create(habitatId, { name: 'Rule', requiredReviews: 1 });
+    reviewRuleRepo.create(habitatId, { name: 'Rule', assignmentStrategy: 'least_loaded', requiredReviews: 1 });
 
     const result = assignReviewers(task.id, habitatId);
     expect(result.skipped).toBe(true);
@@ -160,7 +160,7 @@ describe('assignReviewers', () => {
   it('assigns a reviewer from the team', () => {
     const task = createTestTask();
     const { userIds } = setupTeamWithUsers(habitatId, ['alice']);
-    reviewRuleRepo.create(habitatId, { name: 'Rule', requiredReviews: 1 });
+    reviewRuleRepo.create(habitatId, { name: 'Rule', assignmentStrategy: 'least_loaded', requiredReviews: 1 });
 
     const result = assignReviewers(task.id, habitatId);
     expect(result.skipped).toBe(false);
@@ -176,7 +176,7 @@ describe('assignReviewers', () => {
   it('assigns multiple reviewers when requiredReviews > 1', () => {
     const task = createTestTask();
     setupTeamWithUsers(habitatId, ['alice', 'bob', 'charlie']);
-    reviewRuleRepo.create(habitatId, { name: 'Rule', requiredReviews: 2 });
+    reviewRuleRepo.create(habitatId, { name: 'Rule', assignmentStrategy: 'least_loaded', requiredReviews: 2 });
 
     const result = assignReviewers(task.id, habitatId);
     expect(result.assigned).toHaveLength(2);
@@ -188,7 +188,7 @@ describe('assignReviewers', () => {
   it('excludes specified reviewer', () => {
     const task = createTestTask();
     const { userIds } = setupTeamWithUsers(habitatId, ['alice', 'bob']);
-    reviewRuleRepo.create(habitatId, { name: 'Rule', requiredReviews: 1 });
+    reviewRuleRepo.create(habitatId, { name: 'Rule', assignmentStrategy: 'least_loaded', requiredReviews: 1 });
 
     const result = assignReviewers(task.id, habitatId, userIds[0]);
     expect(result.assigned).toHaveLength(1);
@@ -202,7 +202,7 @@ describe('approval tracking', () => {
     expect(hasAssignedReviewers(task.id)).toBe(false);
 
     setupTeamWithUsers(habitatId, ['alice']);
-    reviewRuleRepo.create(habitatId, { name: 'Rule', requiredReviews: 1 });
+    reviewRuleRepo.create(habitatId, { name: 'Rule', assignmentStrategy: 'least_loaded', requiredReviews: 1 });
     assignReviewers(task.id, habitatId);
 
     expect(hasAssignedReviewers(task.id)).toBe(true);
@@ -211,7 +211,7 @@ describe('approval tracking', () => {
   it('checks if user is assigned reviewer', () => {
     const task = createTestTask();
     const { userIds } = setupTeamWithUsers(habitatId, ['alice']);
-    reviewRuleRepo.create(habitatId, { name: 'Rule', requiredReviews: 1 });
+    reviewRuleRepo.create(habitatId, { name: 'Rule', assignmentStrategy: 'least_loaded', requiredReviews: 1 });
     assignReviewers(task.id, habitatId);
 
     expect(isAssignedReviewer(task.id, userIds[0])).toBe(true);
@@ -221,7 +221,7 @@ describe('approval tracking', () => {
   it('records approval and tracks completion', () => {
     const task = createTestTask();
     const { userIds } = setupTeamWithUsers(habitatId, ['alice']);
-    reviewRuleRepo.create(habitatId, { name: 'Rule', requiredReviews: 1 });
+    reviewRuleRepo.create(habitatId, { name: 'Rule', assignmentStrategy: 'least_loaded', requiredReviews: 1 });
     assignReviewers(task.id, habitatId);
 
     expect(hasAllRequiredApprovals(task.id)).toBe(false);
@@ -233,7 +233,7 @@ describe('approval tracking', () => {
   it('requires all reviewers to approve', () => {
     const task = createTestTask();
     const { userIds } = setupTeamWithUsers(habitatId, ['alice', 'bob']);
-    reviewRuleRepo.create(habitatId, { name: 'Rule', requiredReviews: 2 });
+    reviewRuleRepo.create(habitatId, { name: 'Rule', assignmentStrategy: 'least_loaded', requiredReviews: 2 });
     assignReviewers(task.id, habitatId);
 
     recordApproval(task.id, userIds[0]);

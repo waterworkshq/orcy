@@ -73,7 +73,7 @@ function fullClaimStartSubmit(taskId: string) {
 describe('Review Rules: submitTask integration', () => {
   it('assigns reviewers on submit when rules exist', () => {
     const { userIds } = setupTeamWithUsers(habitatId, ['Alice', 'Bob']);
-    reviewRuleRepo.create(habitatId, { name: 'All tasks', requiredReviews: 2 });
+    reviewRuleRepo.create(habitatId, { name: 'All tasks', assignmentStrategy: 'least_loaded', requiredReviews: 2 });
 
     const task = createTaskWithMission();
     const result = fullClaimStartSubmit(task.id);
@@ -93,7 +93,7 @@ describe('Review Rules: submitTask integration', () => {
   });
 
   it('submits successfully even if reviewer assignment fails', () => {
-    reviewRuleRepo.create(habitatId, { name: 'All tasks', requiredReviews: 1 });
+    reviewRuleRepo.create(habitatId, { name: 'All tasks', assignmentStrategy: 'least_loaded', requiredReviews: 1 });
 
     const task = createTaskWithMission();
     const result = fullClaimStartSubmit(task.id);
@@ -106,7 +106,7 @@ describe('Review Rules: submitTask integration', () => {
 describe('Review Rules: approveTask integration', () => {
   it('records partial approval and keeps task submitted when more reviews needed', () => {
     const { userIds } = setupTeamWithUsers(habitatId, ['Alice', 'Bob']);
-    reviewRuleRepo.create(habitatId, { name: 'All tasks', requiredReviews: 2 });
+    reviewRuleRepo.create(habitatId, { name: 'All tasks', assignmentStrategy: 'least_loaded', requiredReviews: 2 });
 
     const task = createTaskWithMission();
     fullClaimStartSubmit(task.id);
@@ -123,7 +123,7 @@ describe('Review Rules: approveTask integration', () => {
 
   it('transitions task to approved on final approval', () => {
     const { userIds } = setupTeamWithUsers(habitatId, ['Alice', 'Bob']);
-    reviewRuleRepo.create(habitatId, { name: 'All tasks', requiredReviews: 2 });
+    reviewRuleRepo.create(habitatId, { name: 'All tasks', assignmentStrategy: 'least_loaded', requiredReviews: 2 });
 
     const task = createTaskWithMission();
     fullClaimStartSubmit(task.id);
@@ -137,7 +137,7 @@ describe('Review Rules: approveTask integration', () => {
 
   it('rejects approval from non-assigned reviewer', () => {
     const { userIds } = setupTeamWithUsers(habitatId, ['Alice', 'Bob', 'Charlie']);
-    reviewRuleRepo.create(habitatId, { name: 'All tasks', requiredReviews: 1 });
+    reviewRuleRepo.create(habitatId, { name: 'All tasks', assignmentStrategy: 'least_loaded', requiredReviews: 1 });
 
     const task = createTaskWithMission();
     fullClaimStartSubmit(task.id);
@@ -159,7 +159,7 @@ describe('Review Rules: approveTask integration', () => {
 
   it('single required review transitions immediately', () => {
     const { userIds } = setupTeamWithUsers(habitatId, ['Alice']);
-    reviewRuleRepo.create(habitatId, { name: 'All tasks', requiredReviews: 1 });
+    reviewRuleRepo.create(habitatId, { name: 'All tasks', assignmentStrategy: 'least_loaded', requiredReviews: 1 });
 
     const task = createTaskWithMission();
     fullClaimStartSubmit(task.id);
@@ -174,7 +174,7 @@ describe('Review Rules: approveTask integration', () => {
 describe('Review Rules: completeTask integration', () => {
   it('blocks completion when task is submitted and has pending reviews', () => {
     const { userIds } = setupTeamWithUsers(habitatId, ['Alice', 'Bob']);
-    reviewRuleRepo.create(habitatId, { name: 'All tasks', requiredReviews: 2 });
+    reviewRuleRepo.create(habitatId, { name: 'All tasks', assignmentStrategy: 'least_loaded', requiredReviews: 2 });
 
     const task = createTaskWithMission();
     fullClaimStartSubmit(task.id);
@@ -189,7 +189,7 @@ describe('Review Rules: completeTask integration', () => {
 
   it('allows completion after all reviews are approved', () => {
     const { userIds } = setupTeamWithUsers(habitatId, ['Alice']);
-    reviewRuleRepo.create(habitatId, { name: 'All tasks', requiredReviews: 1 });
+    reviewRuleRepo.create(habitatId, { name: 'All tasks', assignmentStrategy: 'least_loaded', requiredReviews: 1 });
 
     const task = createTaskWithMission();
     fullClaimStartSubmit(task.id);
@@ -214,7 +214,7 @@ describe('Review Rules: completeTask integration', () => {
 
   it('allows completion from approved status even with review rules', () => {
     const { userIds } = setupTeamWithUsers(habitatId, ['Alice']);
-    reviewRuleRepo.create(habitatId, { name: 'All tasks', requiredReviews: 1 });
+    reviewRuleRepo.create(habitatId, { name: 'All tasks', assignmentStrategy: 'least_loaded', requiredReviews: 1 });
 
     const task = createTaskWithMission();
     fullClaimStartSubmit(task.id);

@@ -4,6 +4,7 @@ import { eq, inArray, sql } from "drizzle-orm";
 import * as reviewRuleRepo from "../repositories/reviewRule.js";
 import * as taskReviewerRepo from "../repositories/taskReviewer.js";
 import * as taskRepo from "../repositories/task.js";
+import * as agentRepo from "../repositories/agent.js";
 import type { ReviewRule, Task, ReviewRuleStrategy } from "@orcy/shared";
 import { logger } from "../lib/logger.js";
 
@@ -124,7 +125,6 @@ function selectReviewer(
     case "random": {
       return reviewers[Math.floor(Math.random() * reviewers.length)];
     }
-    case "domain_expert":
     default: {
       return reviewers[0];
     }
@@ -139,7 +139,118 @@ export interface AssignReviewersResult {
 }
 
 /**
+ * `domain_expert` selection: agent reviewers from the global live registry
+ * whose `domain` exactly matches the task's CURRENT `requiredDomain` —
+ * never a human pick, no team-pool involvement, no fullstack wildcard.
+ *
+ * Slot accounting (E): existing agent rows count toward `requiredReviews`
+ * only when their live registry agent still exact-matches the CURRENT
+ * domain and is not the current assignee (any row status). Deleted-agent,
+ * other-domain, and assignee rows stay untouched completion requirements
+ * that never fulfill a domain slot. Existing rows of any type are never
+ * re-picked (type-blind collision skip). Ordering: non-offline before
+ * offline (preference, never admission), least agent-typed pending
+ * reviews, `createdAt` DESC, `id` ASC.
+ */
+function assignDomainExpertReviewers(taskId: string, rule: ReviewRule): AssignReviewersResult {
+  // BEGIN IMMEDIATE (native drizzle transaction helper, `behavior: "immediate"`
+  // — better-sqlite3 `.immediate()` / sql.js `begin immediate` alike): the
+  // ENTIRE read(task/E/pool) + insert phase runs as one write-locked unit.
+  // Under the acknowledged multi-process deployment shape (submit racing
+  // automation `request_review`), a second assigner's BEGIN IMMEDIATE waits
+  // (busy_timeout) and then re-reads post-commit state — fresh E, fresh
+  // taken-set — instead of over-filling slots on stale counts. No caller
+  // wraps this in an outer transaction (verified at all three call sites),
+  // so top-level immediate transactions nest nowhere; repository reads and
+  // writes inside the callback share the same connection as the transaction.
+  // No awaits inside — synchronous SQLite only.
+  return getDb().transaction((_tx) => assignDomainExpertReviewersLocked(taskId, rule), {
+    behavior: "immediate",
+  });
+}
+
+function assignDomainExpertReviewersLocked(
+  taskId: string,
+  rule: ReviewRule,
+): AssignReviewersResult {
+  const task = taskRepo.getTaskById(taskId);
+  const domain = task?.requiredDomain;
+  if (!task || !domain) {
+    // No resolvable domain → the agent pool can never match → no assignment.
+    return { assigned: [], skipped: true, reason: "no_eligible_reviewers" };
+  }
+
+  // Existing rows: slot accounting (E) + the type-blind duplicate guard.
+  const existingRows = taskReviewerRepo.getByTaskId(taskId);
+  const taken = new Set(existingRows.map((row) => row.reviewerId));
+
+  let existingDomainSlots = 0;
+  for (const row of existingRows) {
+    if (row.reviewerType !== "agent") continue;
+    if (row.reviewerId === task.assignedAgentId) continue;
+    const agent = agentRepo.getAgentById(row.reviewerId);
+    if (agent && agent.domain === domain) existingDomainSlots++;
+  }
+
+  const remaining = Math.max(0, rule.requiredReviews - existingDomainSlots);
+  if (remaining === 0) {
+    return { assigned: [], skipped: true, reason: "no_reviewer_selected" };
+  }
+
+  const pool = agentRepo
+    .listAgents()
+    .filter((a) => a.domain === domain && a.id !== task.assignedAgentId)
+    .toSorted((a, b) => {
+      if ((a.status === "offline") !== (b.status === "offline")) {
+        return a.status === "offline" ? 1 : -1;
+      }
+      const pendingDiff =
+        taskReviewerRepo.getPendingCountByReviewer(a.id, "agent") -
+        taskReviewerRepo.getPendingCountByReviewer(b.id, "agent");
+      if (pendingDiff !== 0) return pendingDiff;
+      if (a.createdAt !== b.createdAt) return a.createdAt < b.createdAt ? 1 : -1;
+      return a.id < b.id ? -1 : 1;
+    });
+
+  const assigned: AssignReviewersResult["assigned"] = [];
+  for (const agent of pool) {
+    if (assigned.length >= remaining) break;
+    if (taken.has(agent.id)) continue;
+    const createdRow = taskReviewerRepo.create(taskId, "agent", agent.id);
+    taken.add(agent.id);
+    assigned.push({
+      reviewerId: agent.id,
+      reviewerName: agent.name,
+      reviewerType: createdRow.reviewerType,
+    });
+  }
+
+  if (assigned.length === 0) {
+    return {
+      assigned: [],
+      skipped: true,
+      reason: pool.length === 0 ? "no_eligible_reviewers" : "no_reviewer_selected",
+    };
+  }
+
+  logger.info(
+    {
+      taskId,
+      habitatId: rule.habitatId,
+      assignedCount: assigned.length,
+      ruleName: rule.name,
+    },
+    "Reviewers assigned",
+  );
+  return { assigned, skipped: false };
+}
+
+/**
  * Assigns reviewers to a task by applying the first matching {@link ReviewRule}'s {@link ReviewRuleStrategy} while honoring `antiSelfReview` and the supplied exclusion; side effect: creates taskReviewer rows and logs the assignment count.
+ *
+ * `domain_expert` routes to {@link assignDomainExpertReviewers} (the global
+ * live agent registry by exact domain match) before any human team-pool
+ * logic runs; every other strategy keeps the human team-pool behavior.
  */
 export function assignReviewers(
   taskId: string,
@@ -152,6 +263,10 @@ export function assignReviewers(
   }
 
   const primaryRule = matchedRules[0];
+
+  if (primaryRule.assignmentStrategy === "domain_expert") {
+    return assignDomainExpertReviewers(taskId, primaryRule);
+  }
 
   // Build exclusion list: agent (excludeReviewerId) + task creator (antiSelfReview)
   const excludeIds: string[] = excludeReviewerId ? [excludeReviewerId] : [];

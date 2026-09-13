@@ -127,7 +127,7 @@ function claimStartSubmit(taskId: string) {
 describe("Cross-feature: Sprint tasks with review gates", () => {
   it("sprint mission tasks go through full review lifecycle", () => {
     const { userIds } = setupTeamWithUsers(habitatId, ["Reviewer"]);
-    reviewRuleRepo.create(habitatId, { name: "All tasks", requiredReviews: 1 });
+    reviewRuleRepo.create(habitatId, { name: "All tasks", assignmentStrategy: "least_loaded", requiredReviews: 1 });
 
     const sprint = createSprint(
       habitatId,
@@ -154,7 +154,7 @@ describe("Cross-feature: Sprint tasks with review gates", () => {
 
   it("review-gated task in sprint blocks completion until approved", () => {
     const { userIds } = setupTeamWithUsers(habitatId, ["Alice", "Bob"]);
-    reviewRuleRepo.create(habitatId, { name: "All tasks", requiredReviews: 2 });
+    reviewRuleRepo.create(habitatId, { name: "All tasks", assignmentStrategy: "least_loaded", requiredReviews: 2 });
 
     const sprint = createSprint(
       habitatId,
@@ -181,7 +181,7 @@ describe("Cross-feature: Sprint tasks with review gates", () => {
 describe("Cross-feature: Sprint carry-over with review rules active", () => {
   it("carries over incomplete missions to backlog when sprint completes", () => {
     const { userIds } = setupTeamWithUsers(habitatId, ["Reviewer"]);
-    reviewRuleRepo.create(habitatId, { name: "All tasks", requiredReviews: 1 });
+    reviewRuleRepo.create(habitatId, { name: "All tasks", assignmentStrategy: "least_loaded", requiredReviews: 1 });
 
     const sprint = createSprint(
       habitatId,
@@ -207,7 +207,7 @@ describe("Cross-feature: Sprint carry-over with review rules active", () => {
 
   it("review rules do not interfere with sprint state transitions", () => {
     const { userIds } = setupTeamWithUsers(habitatId, ["Reviewer"]);
-    reviewRuleRepo.create(habitatId, { name: "All tasks", requiredReviews: 1 });
+    reviewRuleRepo.create(habitatId, { name: "All tasks", assignmentStrategy: "least_loaded", requiredReviews: 1 });
 
     const sprint = createSprint(
       habitatId,
@@ -237,7 +237,7 @@ describe("Cross-feature: Sprint carry-over with review rules active", () => {
 describe("Cross-feature: Multiple sprints with review rules", () => {
   it("completes sprint 1, creates sprint 2, and assigns reviewers in sprint 2", () => {
     const { userIds } = setupTeamWithUsers(habitatId, ["Alice"]);
-    reviewRuleRepo.create(habitatId, { name: "All tasks", requiredReviews: 1 });
+    reviewRuleRepo.create(habitatId, { name: "All tasks", assignmentStrategy: "least_loaded", requiredReviews: 1 });
 
     const sprint1 = createSprint(
       habitatId,

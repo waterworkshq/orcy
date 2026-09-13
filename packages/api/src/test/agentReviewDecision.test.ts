@@ -945,7 +945,7 @@ describe('Reviewer assignment plumbing — typed row identity in results', () =>
     });
     const task = taskRepo.createTask({ missionId: mission.id, title: 'T1', createdBy: 'human-42' });
 
-    reviewRuleRepo.create(habitat.id, { name: 'default', enabled: 1, requiredReviews: 1, antiSelfReview: 0 });
+    reviewRuleRepo.create(habitat.id, { name: 'default', assignmentStrategy: 'least_loaded', enabled: 1, requiredReviews: 1, antiSelfReview: 0 });
 
     const result = reviewAssignment.assignReviewers(task.id, habitat.id);
     expect(result.assigned.length).toBeGreaterThan(0);
