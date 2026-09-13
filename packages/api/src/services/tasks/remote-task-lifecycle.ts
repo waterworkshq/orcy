@@ -429,6 +429,7 @@ export function releaseTaskForRemote(
         status: "pending",
         claimedAt: null,
         executionToken: null,
+        lastFailureEventId: null,
         updatedAt: now,
         version: sql`${tasks.version} + 1`,
       })

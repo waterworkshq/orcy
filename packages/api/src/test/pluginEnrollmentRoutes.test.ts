@@ -282,9 +282,7 @@ describe("pluginEnrollmentService", () => {
     // "Cannot enroll system-scoped contributions". After folding, all 9 kinds
     // resolve via `CATALOG[c.kind].label(c)` and the scope check fires.
     it("resolves webhookFormatter by id and hits the scope error (T5 bug fix)", () => {
-      (pluginManager.getPluginManifest as any).mockReturnValue(
-        systemScopedFormatterManifest,
-      );
+      (pluginManager.getPluginManifest as any).mockReturnValue(systemScopedFormatterManifest);
 
       try {
         service.createEnrollment(
@@ -480,6 +478,10 @@ describe("pluginEnrollmentService", () => {
         error: null,
         startedAt: new Date(Date.now() - 40 * 60_000).toISOString(),
         finishedAt: null,
+        dispatchKey: null,
+        leaseToken: null,
+        leaseExpiresAt: null,
+        signalsCommittedAt: null,
         ...overrides,
       };
     }
@@ -487,7 +489,11 @@ describe("pluginEnrollmentService", () => {
     it("transitions a stale running run to lost status", () => {
       const run = makeRunRow();
       (runRepo.getById as any).mockReturnValue(run);
-      (runRepo.finishRun as any).mockReturnValue({ ...run, status: "lost", finishedAt: new Date().toISOString() });
+      (runRepo.finishRun as any).mockReturnValue({
+        ...run,
+        status: "lost",
+        finishedAt: new Date().toISOString(),
+      });
 
       const result = service.markPluginRunLost("hab-1", "run-1");
 

@@ -6885,3 +6885,54 @@ List recent extraction work items with their latest attempt metadata (status, de
 ### MCP Tool
 
 The `orcy_learning` MCP tool (`list_accepted`, `get`) wraps the agent accepted-finding reads above. It requires `habitatId` + active `taskId` and calls the same REST surface — the repository predicate is the sole authorization authority. The tool is documented in the agent skill guide (`orcy_wiki_instructions`).
+
+## Effect Receipts
+
+Durable failure-effect completion (see [ARCHITECTURE.md](ARCHITECTURE.md#failure-effect-receipts)).
+Operator surface for the receipt outbox: admin-only inspection and the
+dead-letter-only requeue. Authorization: human auth + habitat access are
+enforced at the route (preHandler); the admin-role check runs at the handler
+before anything else — the paginated list query runs only after it, and the
+per-receipt detail fetch-by-id is the minimum read needed to determine
+ownership (no receipt data is returned before the checks pass).
+Cross-habitat access is uniformly denied (indistinguishable from missing).
+
+### List effect receipts
+
+```
+GET /habitats/:hid/effect-receipts?state=pending|delivered|dead_letter&consumer=…&limit=&offset=
+```
+
+**Auth:** human + habitat access; **admin role required**.
+
+Returns `{ receipts, targets, total }` — one row per receipt (state, attempts,
+`lastErrorCode`, timestamps) plus the frozen detector targets belonging to the
+page's receipts.
+
+### Inspect one effect receipt (detail)
+
+```
+GET /habitats/:hid/effect-receipts/:receiptId
+```
+
+**Auth:** human + habitat access; **admin role required.**
+
+Returns the full operator view for one receipt: the receipt row, its frozen
+detector targets, the append-only attempt history, and the append-only admin
+action history. Cross-habitat access is uniformly denied (indistinguishable
+from missing).
+
+### Requeue a dead-lettered receipt
+
+```
+POST /habitats/:hid/effect-receipts/:receiptId/requeue
+Body: { "targetId": "<uuid>" }   // optional — per-target scope for detector receipts
+```
+
+**Auth:** human + habitat access; **admin role required**.
+
+Dead-letter-only (409 otherwise). Resets attempts to 0 and re-enters delivery.
+Per-target scope resets only that target (the parent stays untouched until its
+own requeue). Whole-receipt requeue of a detector receipt resets only its
+dead-lettered children; completed children never re-run. Audited append-only
+(`effect_receipt_admin_actions`).

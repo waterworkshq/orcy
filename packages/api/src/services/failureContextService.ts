@@ -52,7 +52,7 @@ export function actionToFailureKind(action: string): FailureKind | null {
 export function buildFailureContext(
   failedTaskId: string,
   failureKind: FailureKind,
-  opts?: { failureReason?: string; triggeredByAction?: string },
+  opts?: { failureReason?: string; triggeredByAction?: string; sourceEventId?: string },
 ): FailureContextRow | null {
   const task = taskRepo.getTaskById(failedTaskId);
   if (!task) return null;
@@ -93,6 +93,7 @@ export function buildFailureContext(
     failedByAgentId,
     bundle,
     bundleSchemaVersion: CURRENT_BUNDLE_SCHEMA_VERSION,
+    sourceEventId: opts?.sourceEventId,
   });
 }
 
@@ -197,7 +198,6 @@ function collectRetryHistory(taskId: string): RetryAttemptSnapshot[] {
 
   return rows
     .map((row, idx) => {
-      
       const action = String(row.action);
       let result: RetryAttemptSnapshot["result"] = null;
       if (action === "retry_executed") result = "pending";

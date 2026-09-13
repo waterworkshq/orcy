@@ -654,6 +654,9 @@ function commitPlainClaim(
     updatedAt: now,
     version: sql`${tasks.version} + 1`,
     executionToken,
+    // New epoch: the prior failure-provenance pointer is invalidated at mint
+    // (T2 §B.0 — cleared by the next epoch's mint, never by inference).
+    lastFailureEventId: null,
   } as const;
   // Transport-agnostic column selection (ADR-0038 §3).
   let where;
@@ -696,6 +699,7 @@ function commitDelegatedClaim(
       updatedAt: now,
       version: sql`${tasks.version} + 1`,
       executionToken,
+      lastFailureEventId: null,
     } as unknown as Partial<typeof tasks.$inferInsert>)
     .where(eq(tasks.id, row.id))
     .run();

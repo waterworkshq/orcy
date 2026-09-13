@@ -221,19 +221,30 @@ export function resolveEffectiveFailureHandlerWithClient(
  *
  * Returns exactly `decisions.length` results, positionally aligned. `skip`
  * decisions DO produce a `skip` result; the adapter zips results to decisions.
+ *
+ * `opts.immediate` (T2/C2) opens the per-gate transaction with
+ * `behavior: "immediate"` — the receipt seam's guarded variant reserves the
+ * writer lock before the in-tx re-read, closing the DEFERRED TOCTOU. The
+ * default (undefined) preserves the live `notifyTransition` path's current
+ * DEFERRED mode byte-for-byte.
  */
 export function advanceGates(
   decisions: GateEvaluationDecision[],
   trigger: GateTrigger,
+  opts?: { immediate?: boolean },
 ): AdvancementResult[] {
   const results: AdvancementResult[] = [];
   for (const decision of decisions) {
-    results.push(advanceOne(decision, trigger));
+    results.push(advanceOne(decision, trigger, opts));
   }
   return results;
 }
 
-function advanceOne(decision: GateEvaluationDecision, trigger: GateTrigger): AdvancementResult {
+function advanceOne(
+  decision: GateEvaluationDecision,
+  trigger: GateTrigger,
+  opts?: { immediate?: boolean },
+): AdvancementResult {
   const gate = decision.gate;
   const common = {
     gateId: gate.id,
@@ -254,7 +265,7 @@ function advanceOne(decision: GateEvaluationDecision, trigger: GateTrigger): Adv
 
   // decision.status === "satisfy"
   try {
-    return satisfyOne(gate, trigger, common);
+    return satisfyOne(gate, trigger, common, opts);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     return { status: "write_error", ...common, error: message };
@@ -298,64 +309,68 @@ function satisfyOne(
   gate: WorkflowGateRecord,
   trigger: GateTrigger,
   common: { gateId: string; triggerKind: GateTrigger["kind"]; triggerEventId: string },
+  opts?: { immediate?: boolean },
 ): AdvancementResult {
   const db = getDb();
-  return db.transaction((tx) => {
-    // SELECT-before-UPDATE discriminator — sql.js-safe (does not rely on
-    // `run().changes`, which is undefined under the test driver). Classifies
-    // satisfied vs already_satisfied inside the tx.
-    const current = tx
-      .select({ satisfied: taskWorkflowGates.satisfied })
-      .from(taskWorkflowGates)
-      .where(eq(taskWorkflowGates.id, gate.id))
-      .get();
+  return db.transaction(
+    (tx) => {
+      // SELECT-before-UPDATE discriminator — sql.js-safe (does not rely on
+      // `run().changes`, which is undefined under the test driver). Classifies
+      // satisfied vs already_satisfied inside the tx.
+      const current = tx
+        .select({ satisfied: taskWorkflowGates.satisfied })
+        .from(taskWorkflowGates)
+        .where(eq(taskWorkflowGates.id, gate.id))
+        .get();
 
-    if (current?.satisfied === true) {
-      return alreadySatisfiedBranch(tx, gate, trigger, common);
-    }
+      if (current?.satisfied === true) {
+        return alreadySatisfiedBranch(tx, gate, trigger, common);
+      }
 
-    // Preallocate the audit id BEFORE the tx body uses it (Fork A resolution:
-    // caller-supplied preallocation — driver-agnostic, no `lastInsertRowid`
-    // dependency).
-    // For manual: the audit event's OWN id IS the causal id (self-referential).
-    // For others: mint a distinct audit-row id; the gate stamp uses trigger.eventId.
-    const auditId = trigger.kind === "manual" ? trigger.eventId : crypto.randomUUID();
-    const now = new Date().toISOString();
-    // Manual unblock is self-referential: the audit event's own id is the causal
-    // id stamped onto `satisfiedByEventId`. The other kinds stamp the trigger's
-    // real causal event id.
-    const causalEventId = trigger.kind === "manual" ? auditId : trigger.eventId;
+      // Preallocate the audit id BEFORE the tx body uses it (Fork A resolution:
+      // caller-supplied preallocation — driver-agnostic, no `lastInsertRowid`
+      // dependency).
+      // For manual: the audit event's OWN id IS the causal id (self-referential).
+      // For others: mint a distinct audit-row id; the gate stamp uses trigger.eventId.
+      const auditId = trigger.kind === "manual" ? trigger.eventId : crypto.randomUUID();
+      const now = new Date().toISOString();
+      // Manual unblock is self-referential: the audit event's own id is the causal
+      // id stamped onto `satisfiedByEventId`. The other kinds stamp the trigger's
+      // real causal event id.
+      const causalEventId = trigger.kind === "manual" ? auditId : trigger.eventId;
 
-    // Guarded CAS satisfaction. `WHERE satisfied = false` is preserved as
-    // defense-in-depth (Finding 2) — a concurrent writer flipping the row
-    // between the SELECT and UPDATE matches zero rows here.
-    tx.update(taskWorkflowGates)
-      .set({
-        satisfied: true,
-        satisfiedAt: now,
-        satisfiedByEventId: causalEventId,
-      })
-      .where(and(eq(taskWorkflowGates.id, gate.id), eq(taskWorkflowGates.satisfied, false)))
-      .run();
+      // Guarded CAS satisfaction. `WHERE satisfied = false` is preserved as
+      // defense-in-depth (Finding 2) — a concurrent writer flipping the row
+      // between the SELECT and UPDATE matches zero rows here.
+      tx.update(taskWorkflowGates)
+        .set({
+          satisfied: true,
+          satisfiedAt: now,
+          satisfiedByEventId: causalEventId,
+        })
+        .where(and(eq(taskWorkflowGates.id, gate.id), eq(taskWorkflowGates.satisfied, false)))
+        .run();
 
-    // Tx-aware audit INSERT — a failure here propagates and rolls back the
-    // satisfaction UPDATE above (fail-closed contract, NOT the legacy swallow).
-    createEventWithClient(tx, {
-      id: auditId,
-      taskId: gate.downstreamTaskId,
-      actorType: "system",
-      actorId: "workflow-service",
-      action: satisfiedAuditAction(trigger.kind),
-      metadata: buildSatisfiedMetadata(gate, trigger, false),
-    });
+      // Tx-aware audit INSERT — a failure here propagates and rolls back the
+      // satisfaction UPDATE above (fail-closed contract, NOT the legacy swallow).
+      createEventWithClient(tx, {
+        id: auditId,
+        taskId: gate.downstreamTaskId,
+        actorType: "system",
+        actorId: "workflow-service",
+        action: satisfiedAuditAction(trigger.kind),
+        metadata: buildSatisfiedMetadata(gate, trigger, false),
+      });
 
-    // Recovery handoff for eligible `on_fail` gates only. WG-4 owns the durable
-    // table; the registered writer defaults to a no-op. A throw here rolls back
-    // the satisfaction + audit (same atomicity contract).
-    maybeWriteRecoveryHandoff(tx, gate, trigger);
+      // Recovery handoff for eligible `on_fail` gates only. WG-4 owns the durable
+      // table; the registered writer defaults to a no-op. A throw here rolls back
+      // the satisfaction + audit (same atomicity contract).
+      maybeWriteRecoveryHandoff(tx, gate, trigger);
 
-    return { status: "satisfied", ...common, satisfiedAt: now };
-  });
+      return { status: "satisfied", ...common, satisfiedAt: now };
+    },
+    opts?.immediate ? { behavior: "immediate" } : undefined,
+  );
 }
 
 /**

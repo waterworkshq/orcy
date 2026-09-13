@@ -18,6 +18,7 @@ import { getDb } from "../db/index.js";
 import { pulses, taskEvents, tasks, missions } from "../db/schema/index.js";
 import { eq, and, gte } from "drizzle-orm";
 import * as enrollmentRepo from "../repositories/pluginEnrollment.js";
+import * as effectReceiptRepo from "../repositories/effectReceipts.js";
 import * as pluginManager from "../plugins/pluginManager.js";
 import { logger } from "../lib/logger.js";
 import type { EventSourceRef } from "../plugins/types.js";
@@ -59,11 +60,20 @@ function queryMissedPulses(habitatId: string, since: string): EventSourceRef[] {
 /**
  * Queries task events since `since` in a habitat (joined through tasks → missions
  * to scope by habitat_id).
+ *
+ * T2 (S-5): the projection now carries the event ROW id — the receipt
+ * delegation check (B3) ships against the true row id, never the legacy
+ * `taskId:action` tuple. The tuple remains the `sourceId` for UNOPTED events
+ * (their legacy dispatch behavior is byte-for-byte unchanged).
  */
-function queryMissedTaskEvents(habitatId: string, since: string): EventSourceRef[] {
+function queryMissedTaskEvents(
+  habitatId: string,
+  since: string,
+): { refs: EventSourceRef[]; ownedRowIds: Set<string> } {
   const db = getDb();
   const rows = db
     .select({
+      id: taskEvents.id,
       taskId: taskEvents.taskId,
       action: taskEvents.action,
       timestamp: taskEvents.timestamp,
@@ -73,12 +83,25 @@ function queryMissedTaskEvents(habitatId: string, since: string): EventSourceRef
     .innerJoin(missions, eq(tasks.missionId, missions.id))
     .where(and(eq(missions.habitatId, habitatId), gte(taskEvents.timestamp, since)))
     .all();
-  return rows.map((r) => ({
-    kind: "taskEvent" as const,
-    sourceId: `${r.taskId}:${r.action}`,
-    habitatId,
-    occurredAt: r.timestamp,
-  }));
+  const ownedRowIds = new Set<string>();
+  const refs: EventSourceRef[] = [];
+  for (const r of rows) {
+    // B3 delegation: a receipt-owned event (detector_dispatch receipt exists,
+    // enqueued in the act-tx — owned from birth) advances the watermark as
+    // delegated: no dispatch, no target enumeration, no run row. The frozen
+    // children are the only target set.
+    if (effectReceiptRepo.isTaskEventReceiptOwned(r.id)) {
+      ownedRowIds.add(r.id);
+      continue;
+    }
+    refs.push({
+      kind: "taskEvent" as const,
+      sourceId: `${r.taskId}:${r.action}`,
+      habitatId,
+      occurredAt: r.timestamp,
+    });
+  }
+  return { refs, ownedRowIds };
 }
 
 /** Returns the appropriate missed-events query for a detector's `detects` kind. */
@@ -86,19 +109,19 @@ function queryMissedEvents(
   kind: DetectorSourceEvent,
   habitatId: string,
   since: string,
-): EventSourceRef[] {
+): { refs: EventSourceRef[]; ownedRowIds: Set<string> } {
   switch (kind) {
     case "pulseCreated":
-      return queryMissedPulses(habitatId, since);
+      return { refs: queryMissedPulses(habitatId, since), ownedRowIds: new Set() };
     case "taskEvent":
     case "taskSubmitted":
       return queryMissedTaskEvents(habitatId, since);
     case "commentCreated":
       // Comment catch-up requires querying task_comments + mission_comments with joins.
       // Deferred to a future enhancement — the live hook covers this for now.
-      return [];
+      return { refs: [], ownedRowIds: new Set() };
     default:
-      return [];
+      return { refs: [], ownedRowIds: new Set() };
   }
 }
 
@@ -130,11 +153,19 @@ export async function runScan(): Promise<void> {
         const detects = detectorEntry.contribution.detects;
         const since = enrollment.lastScannedAt ?? enrollment.enrolledAt;
 
-        const missedEvents = queryMissedEvents(detects, enrollment.habitatId, since);
+        const { refs: missedEvents, ownedRowIds } = queryMissedEvents(
+          detects,
+          enrollment.habitatId,
+          since,
+        );
+        // B3: receipt-owned events count as processed (delegated — the
+        // deliverer owns their dispatch); with zero dispatchable refs the
+        // watermark may advance past them.
         if (missedEvents.length === 0) {
           enrollmentRepo.updateLastScannedAt(enrollment.id, now);
           continue;
         }
+        void ownedRowIds;
 
         // Build the concrete DetectorTarget once for this enrollment (ADR-0039 T4).
         const target: import("../plugins/invocationRuntime.js").DetectorTarget = {

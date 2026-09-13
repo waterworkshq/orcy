@@ -63,6 +63,12 @@ vi.mock("../db/schema/index.js", () => {
     habitatHealthSnapshots: table("habitatHealthSnapshots"),
     tasks: { id: "id", missionId: "missionId", status: "status" },
     taskEvents: table("taskEvents"),
+    // T2: the failTask act-tx path (task-lifecycle → failureEffects) reads
+    // workflow gates + events tables through this module.
+    taskWorkflowGates: table("taskWorkflowGates"),
+    workflows: table("workflows"),
+    effectReceipts: table("effectReceipts"),
+    effectReceiptTargets: table("effectReceiptTargets"),
     taskDependencies: table("taskDependencies"),
     taskComments: table("taskComments"),
     taskSubtasks: table("taskSubtasks"),

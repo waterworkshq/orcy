@@ -742,3 +742,38 @@ node run-e2e.js
 # or
 cd packages/ui && npx playwright test
 ```
+
+## Effect Receipts
+
+**Symptom: an effect receipt is stuck `pending` with `attempts = 0` and no `nextRetryAt` / failure context appears.**
+This MAY be the barrier working as designed — first confirm the deliverer is
+running (boot-owned worker, 5 s cadence) and this is not simply fresh work:
+`failure_context` waits for the sibling `workflow_gates` receipt to reach a
+terminal state, and `retry_ladder` waits for BOTH siblings; barrier waits never
+burn attempts. Inspect the gates sibling WITHOUT pinning `state=pending` (a
+`state=pending` query cannot show a dead-lettered sibling) — query both states
+or omit `state`: `GET /habitats/:hid/effect-receipts?consumer=workflow_gates`.
+If it is dead-lettered, the context/retry receipts still proceed (partial-stamp
+capture semantics) on the next deliverer pass.
+
+**Symptom: a receipt or detector target is `dead_letter`.**
+Its attempt budget (8 reservations) is exhausted — `lastErrorCode` carries the
+fixed code (`consumer_threw`, `rate_limited`, `lease_expired`,
+`outcome_unrecovered`, …). Remedy the cause (re-enable the
+plugin, restore handler health), then requeue via
+`POST /habitats/:hid/effect-receipts/:receiptId/requeue` (admin; optional
+`targetId` for per-target scope). Nothing requeues automatically: dead letters
+are operator-visible by design.
+
+**Symptom: detector signals for a failure did not fire, and a `skipped` plugin run carries `plugin_removed_or_disabled`.**
+The detector was enrolled when the failure froze its target list but its plugin
+was no longer loaded at delivery — an authorized terminal skip, NOT an exhausted
+dead-letter (requeueing cannot replay it: a delivered target requeues 409, and
+the frozen event's target set is never resurrected). Inspect the run row and the
+enrollment/config; re-enroll or reload the plugin for FUTURE failure events
+(a plugin enrolled AFTER the failure is deliberately invisible to that event —
+frozen target list).
+
+**Note: `lastErrorCode` values are fixed allowlisted codes.** Raw plugin handler
+messages are never persisted or logged anywhere in the effect-receipt path
+(`plugin_runs.error` on receipt-driven rows carries the same fixed codes).

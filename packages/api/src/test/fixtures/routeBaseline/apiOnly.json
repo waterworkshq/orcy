@@ -1536,6 +1536,32 @@
     },
     {
       "method": "GET",
+      "path": "/api/habitats/:habitatId/effect-receipts",
+      "surface": "api-deprecated",
+      "guards": [
+        "humanAuth",
+        "authorizeHabitatAccess"
+      ],
+      "authKind": "human",
+      "rawBodyEligible": false,
+      "source": "core",
+      "generatedTwin": false
+    },
+    {
+      "method": "GET",
+      "path": "/api/habitats/:habitatId/effect-receipts/:receiptId",
+      "surface": "api-deprecated",
+      "guards": [
+        "humanAuth",
+        "authorizeHabitatAccess"
+      ],
+      "authKind": "human",
+      "rawBodyEligible": false,
+      "source": "core",
+      "generatedTwin": false
+    },
+    {
+      "method": "GET",
       "path": "/api/habitats/:habitatId/events",
       "surface": "api-deprecated",
       "guards": [
@@ -3814,6 +3840,32 @@
         "authorizeHabitatAccess"
       ],
       "authKind": "local_actor",
+      "rawBodyEligible": false,
+      "source": "core",
+      "generatedTwin": false
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/habitats/:habitatId/effect-receipts",
+      "surface": "api-v1",
+      "guards": [
+        "humanAuth",
+        "authorizeHabitatAccess"
+      ],
+      "authKind": "human",
+      "rawBodyEligible": false,
+      "source": "core",
+      "generatedTwin": false
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/habitats/:habitatId/effect-receipts/:receiptId",
+      "surface": "api-v1",
+      "guards": [
+        "humanAuth",
+        "authorizeHabitatAccess"
+      ],
+      "authKind": "human",
       "rawBodyEligible": false,
       "source": "core",
       "generatedTwin": false
@@ -6061,6 +6113,32 @@
     },
     {
       "method": "HEAD",
+      "path": "/api/habitats/:habitatId/effect-receipts",
+      "surface": "api-deprecated",
+      "guards": [
+        "humanAuth",
+        "authorizeHabitatAccess"
+      ],
+      "authKind": "human",
+      "rawBodyEligible": false,
+      "source": "framework",
+      "generatedTwin": true
+    },
+    {
+      "method": "HEAD",
+      "path": "/api/habitats/:habitatId/effect-receipts/:receiptId",
+      "surface": "api-deprecated",
+      "guards": [
+        "humanAuth",
+        "authorizeHabitatAccess"
+      ],
+      "authKind": "human",
+      "rawBodyEligible": false,
+      "source": "framework",
+      "generatedTwin": true
+    },
+    {
+      "method": "HEAD",
       "path": "/api/habitats/:habitatId/events",
       "surface": "api-deprecated",
       "guards": [
@@ -8339,6 +8417,32 @@
         "authorizeHabitatAccess"
       ],
       "authKind": "local_actor",
+      "rawBodyEligible": false,
+      "source": "framework",
+      "generatedTwin": true
+    },
+    {
+      "method": "HEAD",
+      "path": "/api/v1/habitats/:habitatId/effect-receipts",
+      "surface": "api-v1",
+      "guards": [
+        "humanAuth",
+        "authorizeHabitatAccess"
+      ],
+      "authKind": "human",
+      "rawBodyEligible": false,
+      "source": "framework",
+      "generatedTwin": true
+    },
+    {
+      "method": "HEAD",
+      "path": "/api/v1/habitats/:habitatId/effect-receipts/:receiptId",
+      "surface": "api-v1",
+      "guards": [
+        "humanAuth",
+        "authorizeHabitatAccess"
+      ],
+      "authKind": "human",
       "rawBodyEligible": false,
       "source": "framework",
       "generatedTwin": true
@@ -11157,6 +11261,19 @@
     },
     {
       "method": "POST",
+      "path": "/api/habitats/:habitatId/effect-receipts/:receiptId/requeue",
+      "surface": "api-deprecated",
+      "guards": [
+        "humanAuth",
+        "authorizeHabitatAccess"
+      ],
+      "authKind": "human",
+      "rawBodyEligible": false,
+      "source": "core",
+      "generatedTwin": false
+    },
+    {
+      "method": "POST",
       "path": "/api/habitats/:habitatId/extraction/findings/:findingId/accept",
       "surface": "api-deprecated",
       "guards": [
@@ -13371,6 +13488,19 @@
       "guards": [
         "humanAuth",
         "<anonymous>"
+      ],
+      "authKind": "human",
+      "rawBodyEligible": false,
+      "source": "core",
+      "generatedTwin": false
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/habitats/:habitatId/effect-receipts/:receiptId/requeue",
+      "surface": "api-v1",
+      "guards": [
+        "humanAuth",
+        "authorizeHabitatAccess"
       ],
       "authKind": "human",
       "rawBodyEligible": false,

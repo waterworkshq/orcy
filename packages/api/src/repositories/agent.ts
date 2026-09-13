@@ -136,6 +136,7 @@ export function deleteAgent(id: string): void {
           assignedAgentId: null,
           status: "pending",
           executionToken: null,
+      lastFailureEventId: null,
           updatedAt: now,
         })
         .where(

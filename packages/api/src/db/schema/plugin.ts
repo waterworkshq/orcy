@@ -1,4 +1,5 @@
 import { sqliteTable, text, integer, index, uniqueIndex } from "drizzle-orm/sqlite-core";
+import { sql } from "drizzle-orm";
 import { habitats } from "./habitat.js";
 
 /**
@@ -62,10 +63,27 @@ export const pluginRuns = sqliteTable(
     error: text("error"),
     startedAt: text("started_at").notNull(),
     finishedAt: text("finished_at"),
+    // T2 — event-keyed dispatch unit identity (B2/S-4): canonical JSON of the
+    // typed identity ["taskEvent",<eventRowId>,"signalDetector",<pluginId>,
+    // <contributionId>]. One run row per (event, target), ever. Legacy rows
+    // keep NULL and stay outside the partial unique index.
+    dispatchKey: text("dispatch_key"),
+    // T2 — lease-token attempt generations (C2). Each re-drive of the same
+    // run row mints a fresh lease token; a superseded attempt's writes all
+    // fail the fence predicate.
+    leaseToken: text("lease_token"),
+    leaseExpiresAt: text("lease_expires_at"),
+    // T2 — set-once marker written in the composer tx with the signal batch
+    // (B.3 in-tx fence). No marker regeneration: once set, the handler is
+    // never re-invoked for this unit.
+    signalsCommittedAt: text("signals_committed_at"),
   },
   (table) => [
     index("idx_plugin_runs_habitat_plugin").on(table.habitatId, table.pluginId, table.startedAt),
     index("idx_plugin_runs_habitat_status").on(table.habitatId, table.status, table.startedAt),
+    uniqueIndex("idx_plugin_runs_dispatch_key")
+      .on(table.dispatchKey)
+      .where(sql`dispatch_key IS NOT NULL`),
   ],
 );
 

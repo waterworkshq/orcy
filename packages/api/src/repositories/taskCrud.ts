@@ -45,6 +45,8 @@ export interface UpdateTaskInput {
   estimationAccuracy?: number | null;
   /** Claim-epoch identity. System writers ONLY (clears to NULL) — excluded from the route zod schema. */
   executionToken?: string | null;
+  /** Failure-provenance pointer (T2 §B.0). System writers ONLY (clears to NULL at the next epoch/terminal write) — excluded from the route zod schema. */
+  lastFailureEventId?: string | null;
 }
 
 export function createTask(input: CreateTaskInput): Task {
@@ -160,6 +162,9 @@ export function updateTask(
   // clear it to NULL on ownership-ending transitions. NOT part of the zod
   // UpdateTaskInput surface — routes can never write it.
   if (input.executionToken !== undefined) set.executionToken = input.executionToken;
+  // Failure-provenance pointer: same system-writer-only discipline as the
+  // token above (never reachable through any route zod schema).
+  if (input.lastFailureEventId !== undefined) set.lastFailureEventId = input.lastFailureEventId;
 
   db.update(tasks)
     .set({ ...set, version: sql`${tasks.version} + 1` })

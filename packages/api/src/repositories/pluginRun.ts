@@ -28,7 +28,13 @@ export type StartRunInput = Omit<PluginRunInsert, "id" | "status" | "fingerprint
  * Also consumed by the Plugin Invocation Runtime
  * (see `invocationRuntime.ts`).
  */
-export type PluginRunStatus = "running" | "succeeded" | "failed" | "rate_limited" | "skipped" | "lost";
+export type PluginRunStatus =
+  | "running"
+  | "succeeded"
+  | "failed"
+  | "rate_limited"
+  | "skipped"
+  | "lost";
 
 /** Inserts a plugin run row in `status: "running"` and returns the created record. */
 export function startRun(input: StartRunInput): PluginRunRow {
@@ -123,6 +129,123 @@ export function deleteRun(id: string): boolean {
   }
 
   return true;
+}
+
+/**
+ * T2 — inserts a detector run row for receipt-path effect delivery with the
+ * canonical event-keyed dispatch identity and the first lease-token attempt
+ * generation. Unlike {@link startRun} this is a raw insert: the deliverer
+ * pre-inserts the row and the runtime ADOPTS it (adoption seam, C2). The
+ * partial unique on `dispatch_key` is the cross-population exclusion — a
+ * racing insert for the same (event, target) throws SQLITE_CONSTRAINT_UNIQUE.
+ */
+export function insertRunForEffectDelivery(input: {
+  id: string;
+  habitatId: string;
+  pluginId: string;
+  contributionId: string;
+  triggerEventId: string | null;
+  triggerType: string;
+  dispatchKey: string;
+  leaseToken: string;
+  leaseExpiresAt: string;
+  startedAt?: string;
+}): PluginRunRow {
+  const db = getDb();
+  const startedAt = input.startedAt ?? new Date().toISOString();
+  const fingerprint = `${input.habitatId}:${input.pluginId}:${input.contributionId}:${input.triggerType}:${input.triggerEventId ?? ""}`;
+  db.insert(pluginRuns)
+    .values({
+      id: input.id,
+      habitatId: input.habitatId,
+      pluginId: input.pluginId,
+      contributionId: input.contributionId,
+      contributionKind: "signalDetector",
+      triggerEventId: input.triggerEventId,
+      triggerType: input.triggerType,
+      status: "running",
+      fingerprint,
+      dispatchKey: input.dispatchKey,
+      leaseToken: input.leaseToken,
+      leaseExpiresAt: input.leaseExpiresAt,
+      startedAt,
+    })
+    .run();
+  const created = getById(input.id);
+  if (!created) throw repositoryNotFoundError("pluginRun", input.id);
+  return created;
+}
+
+/**
+ * T2 — re-drives the SAME run row for the next attempt generation (one run
+ * row per (event, target) lifetime, C2). Fenced on the exact run id: sets
+ * `running` under a fresh lease token. The previous generation's composer tx
+ * then zero-rows on token mismatch (B6).
+ */
+export function redriveRunForEffectDelivery(input: {
+  id: string;
+  leaseToken: string;
+  leaseExpiresAt: string;
+}): boolean {
+  const db = getDb();
+  const run = db
+    .update(pluginRuns)
+    .set({
+      status: "running",
+      leaseToken: input.leaseToken,
+      leaseExpiresAt: input.leaseExpiresAt,
+      finishedAt: null,
+      error: null,
+    })
+    .where(eq(pluginRuns.id, input.id))
+    .run();
+  const row = getById(input.id);
+  return row?.status === "running" && row.leaseToken === input.leaseToken;
+}
+
+/**
+ * T2 — lease-fenced terminal transition for an adopted effect-delivery run
+ * row: only the current attempt generation (exact lease token) and only from
+ * `running` may finish. A superseded attempt's finish zero-rows.
+ */
+export function finishRunLeaseFenced(input: {
+  id: string;
+  leaseToken: string;
+  status: PluginRunStatus;
+  signalsEmitted?: number;
+  error?: string;
+  finishedAt?: string;
+}): boolean {
+  const db = getDb();
+  const set: Record<string, unknown> = {
+    status: input.status,
+    finishedAt: input.finishedAt ?? new Date().toISOString(),
+  };
+  if (input.signalsEmitted !== undefined) set.signalsEmitted = input.signalsEmitted;
+  if (input.error !== undefined) set.error = input.error;
+  const run = db
+    .update(pluginRuns)
+    .set(set)
+    .where(
+      and(
+        eq(pluginRuns.id, input.id),
+        eq(pluginRuns.leaseToken, input.leaseToken),
+        eq(pluginRuns.status, "running"),
+      ),
+    )
+    .run();
+  const row = getById(input.id);
+  return row !== null && row.status === input.status;
+}
+
+/**
+ * T2 — fetches the run row for a dispatch key (one run row per (event,
+ * target) lifetime). Returns null when no receipt-path run exists yet.
+ */
+export function getRunByDispatchKey(dispatchKey: string): PluginRunRow | null {
+  const db = getDb();
+  const row = db.select().from(pluginRuns).where(eq(pluginRuns.dispatchKey, dispatchKey)).get();
+  return row ?? null;
 }
 
 export interface ListRunsFilter {

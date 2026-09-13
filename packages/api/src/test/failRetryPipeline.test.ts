@@ -1,131 +1,96 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { makeTask } from './factories/task.js';
+import { describe, it, expect, vi, beforeEach } from "vitest";
 
-vi.mock('../services/tasks/transitionBudget.js', () => ({
-  // Budget guard seam: allow (this suite exercises failTask→retry wiring).
-  guardTransitionTop: vi.fn(() => ({ outcome: 'allow', count: 0, ceiling: 12 })),
+/**
+ * failTask → retry wiring (T2 receipt-driven rework).
+ *
+ * The restored slice moved the failed action's retry/escalation OFF the
+ * transition emitter and INTO the `retry_ladder` effect receipt: the
+ * emitter's non-required pass never triggers retry for receipt-owned events,
+ * and the deliverer composes ETA + guarded task write + follow-up event +
+ * ack in ONE transaction. These tests pin the new wiring at the unit seam
+ * the emitter split exposes.
+ */
+import { emitTransition, emitTransitionNonRequired } from "../services/tasks/transition-emitter.js";
+import * as retryService from "../services/retryService.js";
+import { makeTask } from "./factories/task.js";
+
+vi.mock("../services/tasks/transitionBudget.js", () => ({
+  guardTransitionTop: vi.fn(() => ({ outcome: "allow", count: 0, ceiling: 12 })),
 }));
 
-vi.mock('../repositories/task.js', () => ({
+vi.mock("../repositories/task.js", () => ({
   getTaskById: vi.fn(),
-  getHabitatIdForTask: vi.fn(() => 'habitat-1'),
+  getHabitatIdForTask: vi.fn(() => "habitat-1"),
   failTask: vi.fn(),
   getTasksByDependency: vi.fn(() => []),
   claimTask: vi.fn(),
 }));
 
-vi.mock('../repositories/mission.js', () => ({
-  getMissionById: vi.fn(),
-}));
-
-vi.mock('../repositories/agent.js', () => ({
-  getAgentById: vi.fn(),
-}));
-
-vi.mock('../repositories/event.js', () => ({
-  createEvent: vi.fn(),
-}));
-
-vi.mock('../sse/broadcaster.js', () => ({
-  sseBroadcaster: { publish: vi.fn() },
-}));
-
-vi.mock('../services/watcherService.js', () => ({
-  notifyWatchers: vi.fn(),
-}));
-
-vi.mock('../services/retryService.js', () => ({
+vi.mock("../repositories/mission.js", () => ({ getMissionById: vi.fn() }));
+vi.mock("../repositories/agent.js", () => ({ getAgentById: vi.fn() }));
+vi.mock("../repositories/event.js", () => ({ createEvent: vi.fn(), getEventById: vi.fn() }));
+vi.mock("../sse/broadcaster.js", () => ({ sseBroadcaster: { publish: vi.fn() } }));
+vi.mock("../services/watcherService.js", () => ({ notifyWatchers: vi.fn() }));
+vi.mock("../services/retryService.js", () => ({
   shouldRetry: vi.fn(),
   scheduleRetry: vi.fn(),
   getEffectivePolicy: vi.fn(),
   escalateToHuman: vi.fn(),
+  calculateBackoff: vi.fn(() => 60),
+}));
+vi.mock("../services/missionService.js", () => ({ recalculateMissionStatus: vi.fn() }));
+vi.mock("../plugins/pluginManager.js", () => ({
+  getDetectorEntry: vi.fn(() => null),
+  registerDetectorHooks: vi.fn(),
+  loadQuarantinesFromDb: vi.fn(),
+  resetPlugins: vi.fn(),
+}));
+vi.mock("../services/pulseService.js", () => ({
+  emitAutoSignal: vi.fn(),
+  onPulseCreated: vi.fn(() => () => {}),
+  broadcastPulse: vi.fn(),
+  createPulseBatchAtomic: vi.fn(() => []),
 }));
 
-vi.mock('../services/gitWorktreeService.js', () => ({
-  cleanupWorktree: vi.fn(),
-}));
-
-vi.mock('../plugins/pluginManager.js', () => ({
-  emitTaskClaimed: vi.fn().mockResolvedValue(undefined),
-  emitTaskSubmitted: vi.fn().mockResolvedValue(undefined),
-  emitTaskApproved: vi.fn().mockResolvedValue(undefined),
-  emitTaskRejected: vi.fn().mockResolvedValue(undefined),
-}));
-
-vi.mock('../services/missionService.js', () => ({
-  recalculateMissionStatus: vi.fn(),
-}));
-
-vi.mock('../services/timeTrackingService.js', () => ({
-  recordWork: vi.fn(),
-  calculateAndSetCompletionMetrics: vi.fn(),
-}));
-
-vi.mock('../services/qualityGateService.js', () => ({
-  ensureTaskChecklists: vi.fn(),
-  validateQualityGates: vi.fn(() => ({ passed: true, failures: [] })),
-}));
-
-vi.mock('../services/dependencyService.js', () => ({
-  validateTaskCompletion: vi.fn(() => ({ canComplete: true })),
-}));
-
-import { failTask } from '../services/tasks/task-lifecycle.js';
-import * as taskRepo from '../repositories/task.js';
-import * as retryService from '../services/retryService.js';
-
-describe('failTask → retry integration', () => {
+describe("failTask → retry wiring (receipt era)", () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
 
-  it('calls shouldRetry when task has retry policy', () => {
-    const currentTask = makeTask({ status: 'in_progress', assignedAgentId: 'agent-1' });
-    const failedTask = { ...currentTask, status: 'failed' as const };
-    vi.mocked(taskRepo.getTaskById).mockReturnValue(currentTask);
-    vi.mocked(taskRepo.failTask).mockReturnValue(failedTask);
+  it("the non-required emitter pass NEVER triggers the retry block", () => {
+    const failedTask = makeTask({ status: "failed" as never });
+    emitTransitionNonRequired("task-1", "failed", "habitat-1", {
+      existingEventId: "ev-1",
+      actorType: "agent",
+      actorId: "agent-1",
+      task: failedTask as never,
+    });
+    expect(retryService.shouldRetry).not.toHaveBeenCalled();
+    expect(retryService.scheduleRetry).not.toHaveBeenCalled();
+    expect(retryService.escalateToHuman).not.toHaveBeenCalled();
+  });
+
+  it("the FULL emitter (unopted actions, e.g. rejected) still triggers retry", () => {
+    const rejectedTask = makeTask({ status: "rejected" as never });
     vi.mocked(retryService.shouldRetry).mockReturnValue(true);
-
-    failTask('task-1', 'agent-1', 'agent', 'something broke');
-
-    expect(retryService.shouldRetry).toHaveBeenCalledWith(failedTask);
+    emitTransition("task-1", "rejected", "habitat-1", {
+      actorType: "human",
+      actorId: "rev-1",
+      task: rejectedTask as never,
+    });
+    expect(retryService.shouldRetry).toHaveBeenCalled();
+    expect(retryService.scheduleRetry).toHaveBeenCalled();
   });
 
-  it('calls scheduleRetry when shouldRetry returns true', () => {
-    const currentTask = makeTask({ status: 'in_progress', assignedAgentId: 'agent-1' });
-    const failedTask = { ...currentTask, status: 'failed' as const };
-    vi.mocked(taskRepo.getTaskById).mockReturnValue(currentTask);
-    vi.mocked(taskRepo.failTask).mockReturnValue(failedTask);
-    vi.mocked(retryService.shouldRetry).mockReturnValue(true);
-
-    failTask('task-1', 'agent-1', 'agent', 'something broke');
-
-    expect(retryService.scheduleRetry).toHaveBeenCalledWith(failedTask);
-  });
-
-  it('calls escalateToHuman when policy has escalate flag and shouldRetry is false', () => {
-    const currentTask = makeTask({ status: 'in_progress', assignedAgentId: 'agent-1' });
-    const failedTask = { ...currentTask, status: 'failed' as const };
-    vi.mocked(taskRepo.getTaskById).mockReturnValue(currentTask);
-    vi.mocked(taskRepo.failTask).mockReturnValue(failedTask);
-    vi.mocked(retryService.shouldRetry).mockReturnValue(false);
-    vi.mocked(retryService.getEffectivePolicy).mockReturnValue({ escalateToHuman: true, maxRetries: 3, backoffBase: 60, backoffMultiplier: 2, maxBackoff: 3600, retryOnStatuses: ['all'] });
-
-    failTask('task-1', 'agent-1', 'agent', 'something broke');
-
-    expect(retryService.escalateToHuman).toHaveBeenCalledWith(failedTask);
-  });
-
-  it('does not call scheduleRetry when shouldRetry returns false and no escalate', () => {
-    const currentTask = makeTask({ status: 'in_progress', assignedAgentId: 'agent-1' });
-    const failedTask = { ...currentTask, status: 'failed' as const };
-    vi.mocked(taskRepo.getTaskById).mockReturnValue(currentTask);
-    vi.mocked(taskRepo.failTask).mockReturnValue(failedTask);
+  it("the full emitter without a retry policy and without escalation arms nothing", () => {
+    const rejectedTask = makeTask({ status: "rejected" as never });
     vi.mocked(retryService.shouldRetry).mockReturnValue(false);
     vi.mocked(retryService.getEffectivePolicy).mockReturnValue(null);
-
-    failTask('task-1', 'agent-1', 'agent', 'something broke');
-
+    emitTransition("task-1", "rejected", "habitat-1", {
+      actorType: "human",
+      actorId: "rev-1",
+      task: rejectedTask as never,
+    });
     expect(retryService.scheduleRetry).not.toHaveBeenCalled();
     expect(retryService.escalateToHuman).not.toHaveBeenCalled();
   });

@@ -85,6 +85,7 @@ import { savedFilterRoutes } from "./routes/savedFilters.js";
 import { attachmentRoutes } from "./routes/attachments.js";
 import { notificationPrefRoutes } from "./routes/notificationPreferences.js";
 import { notificationRoutes } from "./routes/notifications.js";
+import { effectReceiptRoutes } from "./routes/effectReceipts.js";
 import { automationRoutes } from "./routes/automationRules.js";
 import { chatIntegrationRoutes } from "./routes/chatIntegration.js";
 import { agentMessageRoutes } from "./routes/agentMessages.js";
@@ -410,6 +411,7 @@ async function registerApiRoutes(fastify: HttpAppInstance): Promise<void> {
   await fastify.register(attachmentRoutes);
   await fastify.register(notificationPrefRoutes);
   await fastify.register(notificationRoutes);
+  await fastify.register(effectReceiptRoutes);
   await fastify.register(automationRoutes);
   await fastify.register(chatIntegrationRoutes);
   await fastify.register(agentMessageRoutes);

@@ -485,15 +485,11 @@ export function emitTransition(
     }
   }
 
-  publishSseForAction(habitatId, action, ctx, task);
-
-  if (cfg.watchers && habitatId) {
-    watcherService.notifyWatchers(taskId, habitatId, cfg.watchers);
-  }
-
-  if (task && cfg.triggerUnblock) {
-    unblockDependents(taskId);
-  }
+  // Original base ordering preserved exactly (R5): SSE → watchers → unblock
+  // → RETRY → recalc → pulses → notifyTransition. The non-required helper
+  // splits around the retry block so emitTransition keeps byte-for-byte
+  // sequence for unopted actions.
+  runSseWatchersUnblock(taskId, action, habitatId, ctx, task);
 
   if (task && cfg.triggerRetry) {
     try {
@@ -507,9 +503,79 @@ export function emitTransition(
     }
   }
 
+  runRecalcAndPulses(taskId, action, habitatId, ctx, task);
+
+  notifyTransition({
+    taskId,
+    action,
+    habitatId,
+    actorType: context.actorType ?? "agent",
+    actorId: context.actorId ?? "",
+    eventId: transitionEvent?.id,
+    oldStatus: context.oldStatus,
+    newStatus: cfg.eventToStatus ?? context.newStatus,
+    reason: context.reason,
+    metadata: context.metadata,
+    task,
+  });
+}
+
+/**
+ * The non-required subset of a transition's effects (T2 emitter split, §B.2b):
+ * SSE, watchers, dependency unblock, pulse signals, and mission recalc —
+ * nothing else. It never creates an event row (requires `existingEventId`),
+ * never fires `notifyTransition` (workflow gates / failure capture are
+ * receipt consumers on the restored path), and never triggers the retry
+ * ladder (a receipt consumer). `emitTransition` = the full mask
+ * byte-for-byte; this helper is the honest subset for paths whose required
+ * effects flow exclusively through effect receipts.
+ */
+export function emitTransitionNonRequired(
+  taskId: string,
+  action: TaskAction,
+  habitatId: string,
+  context: TransitionContext & { existingEventId: string },
+): void {
+  const ctx: TransitionContext = { ...context, taskId };
+  const task = context.task ?? taskRepo.getTaskById(taskId) ?? undefined;
+  runSseWatchersUnblock(taskId, action, habitatId, ctx, task);
+  runRecalcAndPulses(taskId, action, habitatId, ctx, task);
+}
+
+/** Non-required prefix shared by the full and split emitters: SSE, watchers, unblock. */
+function runSseWatchersUnblock(
+  taskId: string,
+  action: TaskAction,
+  habitatId: string,
+  ctx: TransitionContext,
+  task: Task | undefined,
+): void {
+  const cfg = ACTION_EFFECTS[action];
+
+  publishSseForAction(habitatId, action, ctx, task);
+
+  if (cfg.watchers && habitatId) {
+    watcherService.notifyWatchers(taskId, habitatId, cfg.watchers);
+  }
+
+  if (task && cfg.triggerUnblock) {
+    unblockDependents(taskId);
+  }
+}
+
+/** Non-required suffix shared by the full and split emitters: recalc, pulses. */
+function runRecalcAndPulses(
+  taskId: string,
+  action: TaskAction,
+  habitatId: string,
+  ctx: TransitionContext,
+  task: Task | undefined,
+): void {
+  const cfg = ACTION_EFFECTS[action];
+
   const missionId = task?.missionId ?? "";
   if (cfg.recalc === "conditional") {
-    if (task && context.oldStatus && context.newStatus && context.oldStatus !== context.newStatus) {
+    if (task && ctx.oldStatus && ctx.newStatus && ctx.oldStatus !== ctx.newStatus) {
       try {
         missionService.recalculateMissionStatus(missionId);
       } catch (err) {
@@ -537,18 +603,4 @@ export function emitTransition(
       taskId: task.id,
     });
   }
-
-  notifyTransition({
-    taskId,
-    action,
-    habitatId,
-    actorType: context.actorType ?? "agent",
-    actorId: context.actorId ?? "",
-    eventId: transitionEvent?.id,
-    oldStatus: context.oldStatus,
-    newStatus: cfg.eventToStatus ?? context.newStatus,
-    reason: context.reason,
-    metadata: context.metadata,
-    task,
-  });
 }

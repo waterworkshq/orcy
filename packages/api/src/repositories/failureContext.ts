@@ -31,6 +31,8 @@ export interface FailureContextRow {
   recoveryDepth: number;
   resolvedAt: string | null;
   resolutionKind: ResolutionKind | null;
+  /** T2 — the causal failed-event row id (per-event exactly-once capture key). */
+  sourceEventId: string | null;
 }
 
 /** Input shape for creating a failure context row with a pre-built FailureBundle. */
@@ -44,6 +46,8 @@ export interface CreateFailureContextInput {
   bundle: FailureBundle;
   bundleSchemaVersion?: number;
   recoveryDepth?: number;
+  /** T2 — stamps `source_event_id` (receipt-path exactly-once capture). */
+  sourceEventId?: string | null;
 }
 
 function rowToFailureContext(row: Record<string, unknown>): FailureContextRow {
@@ -62,6 +66,7 @@ function rowToFailureContext(row: Record<string, unknown>): FailureContextRow {
     recoveryDepth: (row.recoveryDepth as number) ?? 0,
     resolvedAt: (row.resolvedAt as string | null) ?? null,
     resolutionKind: (row.resolutionKind as ResolutionKind | null) ?? null,
+    sourceEventId: (row.sourceEventId as string | null) ?? null,
   };
 }
 
@@ -85,6 +90,7 @@ export function createFailureContext(input: CreateFailureContextInput): FailureC
         bundle: input.bundle,
         bundleSchemaVersion: input.bundleSchemaVersion ?? 1,
         recoveryDepth: input.recoveryDepth ?? 0,
+        sourceEventId: input.sourceEventId ?? null,
       })
       .run();
   } catch (err) {

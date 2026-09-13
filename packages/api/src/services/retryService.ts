@@ -98,6 +98,7 @@ export function executeRetry(task: Task): Task | null {
     retryCount: newRetryCount,
     nextRetryAt: null,
     executionToken: null,
+    lastFailureEventId: null,
   });
 
   if (!result.success) return null;
@@ -125,6 +126,7 @@ export function escalateToHuman(task: Task): Task | null {
     assignedAgentId: null,
     nextRetryAt: null,
     executionToken: null,
+    lastFailureEventId: null,
   });
 
   if (!result.success) return null;

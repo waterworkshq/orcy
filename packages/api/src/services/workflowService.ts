@@ -51,6 +51,18 @@ function gateConditionMatches(condition: AutomationCondition, trigger: Condition
   return evaluateCondition(condition, ctx).matched;
 }
 
+/**
+ * T2 — the receipt-path workflow_gates consumer evaluates conditions through
+ * the SAME checker the live `notifyTransition` seam uses (byte-for-byte
+ * condition semantics, single owner).
+ */
+export function lifecycleGateConditionMatches(
+  condition: AutomationCondition,
+  trigger: ConditionTrigger,
+): boolean {
+  return gateConditionMatches(condition, trigger);
+}
+
 /** Registers the workflowService subscriber on the transition emitter; call once at server startup from index.ts. */
 export function initWorkflowService(): void {
   if (initialized) return;
@@ -235,9 +247,7 @@ function handleRedemptionIfNeeded(opts: {
   }
 }
 
-function redeemOneContext(
-  ctx: { id: string; failedTaskId: string; habitatId: string },
-): void {
+function redeemOneContext(ctx: { id: string; failedTaskId: string; habitatId: string }): void {
   const db = getDb();
   // Satisfy every unsatisfied on_complete / on_approve gate upstream of the
   // original failed task. Eligibility stays in this adapter; the advancement
@@ -516,10 +526,11 @@ export function manualUnblockGate(gateId: string, unblockerId: string): boolean 
   // Manual unblock has no external trigger event. The preallocated id is both
   // the trigger event id and the audit row's own id (self-referential causal id).
   const auditEventId = crypto.randomUUID();
-  const [result] = advanceGates(
-    [{ status: "satisfy", gate }],
-    { kind: "manual", eventId: auditEventId, unblockerId },
-  );
+  const [result] = advanceGates([{ status: "satisfy", gate }], {
+    kind: "manual",
+    eventId: auditEventId,
+    unblockerId,
+  });
 
   if (result.status === "satisfied" || result.status === "already_satisfied") return true;
 

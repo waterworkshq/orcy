@@ -155,6 +155,10 @@ export const failureContexts = sqliteTable(
     resolutionKind: text("resolution_kind", {
       enum: ["redeemed", "unrecoverable", "superseded", "manual_intervention"],
     }),
+    // T2 — per-event exactly-once capture key (partial unique in migration
+    // 0079; legacy NULL rows stay outside the index). Distinct failure events
+    // produce distinct rows; same-event replay hits the unique.
+    sourceEventId: text("source_event_id"),
   },
   (table) => [
     index("idx_failure_contexts_task").on(table.failedTaskId),

@@ -109,6 +109,18 @@ export {
 } from "./remote-pod.js";
 export { remoteWebhookDeliveries } from "./remote-webhook.js";
 export { workflows, taskWorkflowGates, taskRecoveryHandoffs, failureContexts } from "./workflow.js";
+export {
+  effectReceipts,
+  effectReceiptTargets,
+  effectReceiptAttempts,
+  effectReceiptAdminActions,
+  type EffectReceiptRow,
+  type EffectReceiptInsert,
+  type EffectReceiptTargetRow,
+  type EffectReceiptTargetInsert,
+  type EffectReceiptAttemptRow,
+  type EffectReceiptAdminActionRow,
+} from "./effects.js";
 export { wikiPages, wikiPageVersions, wikiPageLinks, wikiCoverageMarkers } from "./wiki.js";
 export {
   findingTriage,

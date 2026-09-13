@@ -62,6 +62,7 @@ import { pathToFileURL } from "node:url";
 import { logger } from "../lib/logger.js";
 import * as enrollmentRepo from "../repositories/pluginEnrollment.js";
 import * as runRepo from "../repositories/pluginRun.js";
+import type { PluginRunRow } from "../db/schema/index.js";
 import {
   checkAndRecordDetection,
   checkSignalHourQuota,
@@ -896,6 +897,143 @@ function invokeDetectorThroughRuntime(
     },
   };
   return runtime.invokeManaged(request);
+}
+
+/**
+ * T2 — effect-delivery detector invocation (adoption seam, C2). The receipt
+ * deliverer owns the run row: it pre-inserted (or re-drove) the event-keyed
+ * `plugin_runs` row with a lease-token attempt generation; the runtime ADOPTS
+ * it (`startRun` returns the existing row — no insert) and every terminal
+ * write is lease-fenced (`finishRunLeaseFenced`).
+ *
+ * B7: the injected logger collapses every raw handler/runtime error string to
+ * a fixed code BEFORE any log call — `errMessage` never survives the seam.
+ *
+ * The caller supplies `composeOutput`: the dual-fenced composer tx that
+ * commits signals + marker + pulse intents atomically (B6). It runs as the
+ * runtime's `onResult` hook — signals commit BEFORE the run finishes
+ * succeeded (BLOCKER 1 ordering preserved).
+ */
+export interface EffectDeliveryInvocationInput {
+  pluginId: string;
+  contributionId: string;
+  adoptedRun: PluginRunRow;
+  runLeaseToken: string;
+  targetHabitatId: string;
+  composeOutput: (signals: DetectedSignalInput[]) => Promise<"composed" | "abort">;
+}
+
+export type EffectDeliveryInvocationOutcome =
+  | { kind: "composed" }
+  | { kind: "rate_limited" }
+  | { kind: "start_failed" }
+  | { kind: "recovery_deferred" }
+  | { kind: "handler_failed" };
+
+export async function invokeDetectorForEffectDelivery(
+  input: EffectDeliveryInvocationInput,
+): Promise<EffectDeliveryInvocationOutcome> {
+  const entry = getDetectorEntry(`${input.pluginId}:${input.contributionId}`);
+  if (!entry) return { kind: "recovery_deferred" };
+
+  const target = makeDetectorTarget(entry);
+  const ctxRef: { ctx: ReturnType<typeof buildPluginContext> | null } = { ctx: null };
+  const deps = buildRuntimeDeps(ctxRef);
+  // Adoption: startRun returns the pre-inserted row (never inserts);
+  // finishRun is lease-fenced to this attempt generation.
+  deps.startRun = () => input.adoptedRun;
+  deps.finishRun = (id, status, signalsEmitted, error) => {
+    const landed = runRepo.finishRunLeaseFenced({
+      id,
+      leaseToken: input.runLeaseToken,
+      status,
+      signalsEmitted,
+      // B7: the fixed code is the ONLY error representation on the adopted
+      // path — raw handler/validator messages never persist.
+      error: error !== undefined ? "consumer_threw" : undefined,
+    });
+    if (!landed) return null;
+    return runRepo.getById(id);
+  };
+  deps.deleteRun = () => false; // adopted receipt-path rows are never deleted
+  // B7 — code-only logger: no raw errMessage may be logged on this path.
+  deps.logger = {
+    error: (msg, meta) => deps_logger().error(msg, sanitizeRuntimeLogMeta(meta)),
+    warn: (msg, meta) => deps_logger().warn(msg, sanitizeRuntimeLogMeta(meta)),
+    info: (msg, meta) => deps_logger().info(msg, sanitizeRuntimeLogMeta(meta)),
+  };
+
+  const runtime: InvocationRuntime = createInvocationRuntime(deps);
+  const outcome = await runtime.invokeManaged({
+    target,
+    habitatId: input.targetHabitatId,
+    triggerEventId: input.adoptedRun.triggerEventId ?? "",
+    triggerType: input.adoptedRun.triggerType,
+    source: {
+      kind: "taskEvent",
+      sourceId: input.adoptedRun.triggerEventId ?? "",
+      habitatId: input.targetHabitatId,
+      occurredAt: input.adoptedRun.startedAt,
+    },
+    onResult: async (signals) => {
+      const result = await input.composeOutput(signals);
+      if (result === "abort") {
+        throw new Error("effect_delivery_compose_aborted");
+      }
+      return signals.length;
+    },
+  });
+
+  if (outcome.handlerLaunched && outcome.status === "succeeded") {
+    return { kind: "composed" };
+  }
+  // Fault diagnostics route THROUGH the B7 boundary: the raw outcome message
+  // is handed to the sanitized logger (fixed code only) — never persisted,
+  // never logged raw.
+  if (outcome.error !== undefined) {
+    deps.logger.error("Effect delivery detector fault", {
+      runId: input.adoptedRun.id,
+      pluginId: input.pluginId,
+      errMessage: outcome.error,
+    });
+  }
+  if (outcome.status === "rate_limited") return { kind: "rate_limited" };
+  if (outcome.status === "skipped") return { kind: "recovery_deferred" };
+  if (!outcome.handlerLaunched) return { kind: "start_failed" };
+  return { kind: "handler_failed" };
+}
+
+const runtimeCodeLogger = {
+  error: (msg: string, meta?: Record<string, unknown>) =>
+    logger.error(sanitizeRuntimeLogMeta(meta ?? {}), msg),
+  warn: (msg: string, meta?: Record<string, unknown>) =>
+    logger.warn(sanitizeRuntimeLogMeta(meta ?? {}), msg),
+  info: (msg: string, meta?: Record<string, unknown>) =>
+    logger.info(sanitizeRuntimeLogMeta(meta ?? {}), msg),
+};
+
+function deps_logger() {
+  return runtimeCodeLogger;
+}
+
+/**
+ * B7 boundary: any meta key carrying a raw message (`errMessage`, `error`)
+ * collapses to `errorCode: "consumer_threw"` and is removed — raw handler
+ * strings are never logged from the effect-delivery path.
+ */
+function sanitizeRuntimeLogMeta(
+  meta: Record<string, unknown> | undefined,
+): Record<string, unknown> {
+  const clean: Record<string, unknown> = { ...meta };
+  let collapsed = false;
+  for (const key of ["errMessage", "error"]) {
+    if (typeof clean[key] === "string") {
+      delete clean[key];
+      collapsed = true;
+    }
+  }
+  if (collapsed) clean.errorCode = "consumer_threw";
+  return clean;
 }
 
 /**

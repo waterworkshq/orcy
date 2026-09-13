@@ -14,8 +14,10 @@ import * as taskReviewerRepo from "../../repositories/taskReviewer.js";
 import { logger } from "../../lib/logger.js";
 import { InterceptorVetoError } from "../../errors.js";
 import * as reviewAssignment from "../reviewAssignmentService.js";
-import { emitTransition } from "./transition-emitter.js";
+import { emitTransition, emitTransitionNonRequired } from "./transition-emitter.js";
 import { guardTransitionTop } from "./transitionBudget.js";
+import { failTaskWithEffects } from "../effects/failureEffects.js";
+import { requestEffectDeliveryPass } from "../effects/effectDeliverer.js";
 
 /** Arguments passed to every registered {@link TaskEventHook} when a task lifecycle event fires. */
 export interface TaskEventOpts {
@@ -710,7 +712,18 @@ export function releaseTask(taskId: string, actorId: string, reason: string): Ta
   return task;
 }
 
-/** Transitions a {@link Task} to `failed` for the given actor with a reason; side effect: emits a `failed` transition and notifies the task-event hook bus. */
+/**
+ * Transitions a {@link Task} to `failed` for the given actor with a reason.
+ *
+ * T2 restored slice: the failure lands through the effect act-tx — one
+ * `BEGIN IMMEDIATE` owns the epoch-validated state write, the stamped
+ * `failed` event, the provenance pointer, and the five required-effect
+ * receipts with the frozen detector target list (receipt-owned from birth).
+ * Post-commit, ONLY the non-required effect mask runs (SSE, watchers, pulse,
+ * recalc); required effects (gates, failure context, retry ladder, detector
+ * dispatch, skill ingestion) flow exclusively through receipt consumers, and
+ * the eager drain pass is scheduled immediately.
+ */
 export function failTask(
   taskId: string,
   actorId: string,
@@ -729,31 +742,23 @@ export function failTask(
   const budget = guardTransitionTop(taskId, getHabitatId(current), actorType, "failed");
   if (budget.outcome === "refused") return null;
 
-  const task = taskRepo.failTask(taskId, reason);
-  if (!task) return null;
+  const result = failTaskWithEffects({ taskId, actorId, actorType, reason, preImage: current });
+  if (!result) return null;
 
-  const habitatId = getHabitatId(task);
+  const habitatId = getHabitatId(result.task);
 
-  emitTransition(taskId, "failed", habitatId, {
+  emitTransitionNonRequired(taskId, "failed", habitatId, {
     actorType,
     actorId,
     oldStatus: current.status,
     newStatus: "failed",
     reason,
     metadata: { reason },
-    task,
+    task: result.task,
+    existingEventId: result.eventId,
   });
 
-  if (habitatId) {
-    notifyTaskEvent({
-      taskId,
-      habitatId,
-      event: "failed",
-      actorType,
-      actorId,
-      metadata: { reason },
-    });
-  }
+  requestEffectDeliveryPass();
 
-  return task;
+  return result.task;
 }

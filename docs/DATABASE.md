@@ -374,8 +374,9 @@ Tasks are work units inside features. Every task belongs to exactly one feature.
 | `retry_count` | INTEGER | NOT NULL DEFAULT 0 | Number of retries attempted |
 | `next_retry_at` | TEXT | DEFAULT NULL | Next retry scheduled time |
 | `execution_token` | TEXT | DEFAULT NULL | Claim-epoch identity: fresh uuid minted in each successful claim transaction (claim authority); NULL = pre-migration / released / terminal. Not settable via task PATCH (migration 0078) |
+| `last_failure_event_id` | TEXT | DEFAULT NULL | Failure-provenance pointer (migration 0079): the failed event row id written atomically by the fail act-tx. Pointer-fenced retry/escalation consumers CAS on this column; set with the failure; cleared by the documented ownership/lifecycle resets (see the Failure Effect Receipts section for the full reset list and the receipt-path escalation caveat) — never by inference |
 
-**Indexes:** `idx_tasks_feature(feature_id)`, `idx_tasks_feature_order(feature_id, order)`, `idx_tasks_status`, `idx_tasks_assigned_agent`, `idx_tasks_required_domain`, `idx_tasks_priority`, `idx_tasks_delegated`
+**Indexes:** `idx_tasks_feature(feature_id)`, `idx_tasks_feature_order(feature_id, order)`, `idx_tasks_status`, `idx_tasks_assigned_agent`, `idx_tasks_required_domain`, `idx_tasks_priority`, `idx_tasks_delegated`, `idx_tasks_last_failure_event(last_failure_event_id)`
 
 > **Note:** The `tasks` table contains only task-specific fields. Columns like `labels`, `depends_on`, `blocks`, `due_at`, `sla_minutes`, `sla_deadline_at` belong to the parent `features` table. Tasks derive their position from their parent feature's column.
 
@@ -413,6 +414,8 @@ Tasks are work units inside features. Every task belongs to exactly one feature.
 | `to_status` | TEXT | DEFAULT NULL | New status |
 | `metadata` | TEXT | NOT NULL DEFAULT '{}' (JSON) | JSON blob with details |
 | `timestamp` | TEXT | NOT NULL DEFAULT (datetime('now')) | Event timestamp |
+
+| `execution_token` | TEXT | DEFAULT NULL | The claim-epoch token stamped on the failed event at creation time (migration 0079): written once by the fail act-tx, immutable; no other current writer sets it. NULL on all pre-0079 rows (non-failed events under current writers stay NULL) |
 
 **Indexes:** `idx_task_events_task_id`, `idx_task_events_timestamp(timestamp DESC)`, `idx_task_events_actor(actor_type, actor_id)`, `idx_task_events_from_column_time(from_column_id, timestamp)`, `idx_task_events_to_column_time(to_column_id, timestamp)`, `idx_task_events_transition_time(from_column_id, to_column_id, timestamp)`
 
@@ -1925,8 +1928,9 @@ Structured failure bundle captured when a task fails (`failed`, `rejected`, or `
 | `recovery_depth` | INTEGER | NOT NULL DEFAULT 0 | Denormalized from `task_workflow_gates.recovery_depth` (which is authoritative). For query convenience only. |
 | `resolved_at` | TEXT | DEFAULT NULL | When this context was resolved (redeemed, unrecoverable, etc.) |
 | `resolution_kind` | TEXT | CHECK (IN 'redeemed','unrecoverable','superseded','manual_intervention') | How the failure was resolved. `redeemed` = recovery task succeeded, downstream gates fired. |
+| `source_event_id` | TEXT | DEFAULT NULL | Per-event capture key (migration 0079): the causal failed Task Event row id. Capture is conditional (only when the frozen on-fail gate set carries the durable satisfied-stamp — a distinct failure event does not unconditionally produce a context row); the partial unique (`WHERE source_event_id IS NOT NULL`) makes capture at-most-once per event — same-event replay hits the unique. NULL on pre-0079 contexts. |
 
-**Indexes:** `idx_failure_contexts_task(failed_task_id)`, `idx_failure_contexts_workflow(workflow_id)`, `idx_failure_contexts_unresolved(resolved_at)`
+**Indexes:** `idx_failure_contexts_task(failed_task_id)`, `idx_failure_contexts_workflow(workflow_id)`, `idx_failure_contexts_unresolved(resolved_at)`, `idx_failure_contexts_source_event(source_event_id) WHERE source_event_id IS NOT NULL` (partial unique)
 
 #### `task_recovery_handoffs`
 
@@ -2062,6 +2066,102 @@ cycleTimeMinutes(completedAt, startedAt)  // Date diff in minutes
 nowExpr()                          // Current timestamp
 dateDayExpr(column)               // Truncate to day
 ```
+
+### Failure Effect Receipts
+
+Durable failure-effect completion: every `failed`
+event produced by the restored fail path lands with a receipt outbox in the SAME
+transaction — receipt-owned from birth. Five required consumers
+(`workflow_gates`, `failure_context`, `retry_ladder`, `detector_dispatch`,
+`skill_ingestion`) drain through a boot-owned deliverer with finite attempt
+budgets (8), fenced leases, fixed allowlisted error codes, and a dead-letter →
+admin-requeue lifecycle. Receipt and target state are updated during delivery
+and requeue. No time-based retention cleanup or manual receipt-delete API
+exists; the attempt/admin history is append-only while the habitat exists, and
+habitat deletion cascades all four tables (schema FKs). Scanner delegation
+depends on the ownership rows persisting while the habitat does.
+
+#### `effect_receipts`
+
+| Column | Type | Constraints | Description |
+|--------|------|-------------|-------------|
+| `id` | TEXT | PK | Receipt identifier (UUID) |
+| `subject_type` | TEXT | NOT NULL CHECK (IN 'task_event','pulse') | Subject kind; `task_event` rows key on the Task Event ROW id |
+| `subject_id` | TEXT | NOT NULL | The Task Event row id (or pulse id for failure-generated detected batches) |
+| `habitat_id` | TEXT | NOT NULL FK → habitats(id) ON DELETE CASCADE | Habitat scope |
+| `task_id` | TEXT | DEFAULT NULL | Denormalized task reference (NULL for pulse subjects) |
+| `consumer` | TEXT | NOT NULL CHECK (IN 'workflow_gates','failure_context','retry_ladder','detector_dispatch','skill_ingestion','pulse_workflow_gates','pulse_skill_ingest') | Required-effect consumer |
+| `state` | TEXT | NOT NULL DEFAULT 'pending' CHECK (IN 'pending','delivered','dead_letter') | Delivery state. No other states exist |
+| `attempts` | INTEGER | NOT NULL DEFAULT 0 | Reservation count (cap 8 — `EFFECT_RECEIPT_MAX_ATTEMPTS` constant, not env-configurable). Barrier waits burn nothing |
+| `last_error_code` | TEXT | DEFAULT NULL | Fixed allowlisted code only (`consumer_threw`, `write_error`, `evaluation_error`, `lease_expired`, `rate_limited`, `recovery_deferred`, `start_failed`, `outcome_unrecovered`, `deadline`, `plugin_removed_or_disabled`) — never a raw handler message |
+| `lease_owner` / `lease_token` / `lease_expires_at` | TEXT | DEFAULT NULL | Fenced deliverer lease (30 s); a fresh uuid per acquisition supersedes prior holders |
+| `causal_snapshot` | TEXT | JSON | Immutable snapshot written by the act-tx (task projection, retryCount/rejectionReason/retryPolicy, frozen on_fail gate ids, actor, reason) |
+| `created_at` | TEXT | NOT NULL | Creation timestamp |
+| `delivered_at` | TEXT | DEFAULT NULL | Terminal delivery timestamp |
+
+**Indexes:** `idx_effect_receipts_subject_consumer(subject_type, subject_id, consumer)` (UNIQUE), `idx_effect_receipts_state_created(state, created_at)`
+
+#### `effect_receipt_targets`
+
+Frozen per-target detector delivery units. The target set is frozen at act
+time; post-enrollment plugins are invisible to an event. Attempt budgets and
+leases live HERE — the parent `detector_dispatch` receipt is derived (never
+reserved, never leased).
+
+| Column | Type | Constraints | Description |
+|--------|------|-------------|-------------|
+| `id` | TEXT | PK | Target identifier (UUID) |
+| `receipt_id` | TEXT | NOT NULL FK → effect_receipts(id) ON DELETE CASCADE | Owning detector_dispatch receipt |
+| `habitat_id` | TEXT | NOT NULL FK → habitats(id) ON DELETE CASCADE | Habitat scope |
+| `target_key` | TEXT | NOT NULL | Canonical JSON `["signalDetector",<pluginId>,<contributionId>]` (same collision guarantee as the run-row dispatch key) |
+| `plugin_id` / `contribution_id` | TEXT | NOT NULL | Frozen detector identity |
+| `state` | TEXT | NOT NULL DEFAULT 'pending' CHECK (IN 'pending','delivered','dead_letter') | Per-target delivery state |
+| `attempts` | INTEGER | NOT NULL DEFAULT 0 | Reservation count (same cap 8) |
+| `last_error_code` | TEXT | DEFAULT NULL | Fixed code only (authorized skips carry `plugin_removed_or_disabled`) |
+| `lease_owner` / `lease_token` / `lease_expires_at` | TEXT | DEFAULT NULL | Fenced per-target lease |
+| `created_at` / `delivered_at` | TEXT | NOT NULL / DEFAULT NULL | Timestamps |
+
+**Indexes:** `idx_effect_receipt_targets_unique(receipt_id, target_key)` (UNIQUE), `idx_effect_receipt_targets_state_created(state, created_at)`
+
+#### `effect_receipt_attempts`
+
+Attempt history is append-only while retained; deleting the owning habitat cascades these rows.
+
+| Column | Type | Constraints | Description |
+|--------|------|-------------|-------------|
+| `id` | TEXT | PK | Row identifier (UUID) |
+| `receipt_id` | TEXT | NOT NULL FK → effect_receipts(id) ON DELETE CASCADE | Owning receipt |
+| `target_id` | TEXT | DEFAULT NULL | Owning target when the attempt was per-target |
+| `attempt` | INTEGER | NOT NULL | 1-based attempt number |
+| `code` | TEXT | NOT NULL | `delivered` / `superseded` / a fixed error code |
+| `actor` | TEXT | NOT NULL DEFAULT 'deliverer' | Attempt actor |
+| `occurred_at` | TEXT | NOT NULL | Timestamp |
+
+**Indexes:** `idx_effect_receipt_attempts_receipt(receipt_id, occurred_at)`
+
+#### `effect_receipt_admin_actions`
+
+Append-only admin action history (requeue). Audited with actor provenance.
+
+| Column | Type | Constraints | Description |
+|--------|------|-------------|-------------|
+| `id` | TEXT | PK | Row identifier (UUID) |
+| `receipt_id` | TEXT | NOT NULL FK → effect_receipts(id) ON DELETE CASCADE | Owning receipt |
+| `target_id` | TEXT | DEFAULT NULL | Per-target scope when applicable |
+| `action` | TEXT | NOT NULL CHECK (IN 'requeue') | Admin action |
+| `actor_type` / `actor_id` | TEXT | NOT NULL | Acting admin |
+| `occurred_at` | TEXT | NOT NULL | Timestamp |
+
+**Indexes:** `idx_effect_receipt_admin_actions_receipt(receipt_id, occurred_at)`
+
+**`plugin_runs` additions (migration 0079):** `dispatch_key` (canonical JSON
+`["taskEvent",<eventRowId>,"signalDetector",<pluginId>,<contributionId>]` —
+one run row per (event, target) lifetime, partial unique
+`idx_plugin_runs_dispatch_key WHERE dispatch_key IS NOT NULL`; legacy rows
+keep NULL keys outside the index), `lease_token` / `lease_expires_at`
+(attempt generations; a superseded attempt's writes fail the fence), and
+`signals_committed_at` (set-once marker written with the signal batch in the
+composer transaction — never regenerated).
 
 ### PostgreSQL Path
 
@@ -2526,6 +2626,8 @@ entries are:
 | `0076` | `0076_webhook_delivery_leases.sql` | Webhook retry restoration: adds the `lease_owner` / `lease_fence` / `lease_expires_at` ownership columns to `webhook_deliveries` and backfills `next_retry_at = created_at` for every pending row with NULL `next_retry_at`. **Operator note:** the backfill makes the entire accumulated pending backlog due at once. After upgrade the retry worker scans up to 50 rows per tick: enabled, valid, eligible rows retry (bounded by the 3-reservation budget per row); disabled, missing-subscription, malformed, or already-exhausted rows receive their terminal disposition without a send. Legacy rows keep their existing `attempts` accounting; unknown historical outcomes are not reconstructed. |
 | `0077` | `0077_notification_push_epoch.sql` | Notification V2 push restoration: creates `notification_delivery_channel_states` (per-(delivery, channel, destination) unit state machine), adds `notification_deliveries.push_epoch` with column-level DEFAULT `'restored'` and backfills every pre-existing row to `'legacy'` in the same migration (atomic cutover; the upgrade sends only new notifications), inserts one terminal `backlog_not_attempted` unit per non-terminal legacy delivery (fixed disposition; statuses/timestamps/attempts untouched), and adds the nullable `notification_delivery_attempts.destination_id` unit linkage. **Operator note:** pre-existing deliveries are never pushed after the upgrade — a legacy `pending` inbox stays readable and carries the not-attempted evidence unit; only post-upgrade notifications are pushed. |
 | `0078` | `0078_task_execution_token.sql` | Execution token (claim-epoch identity): adds nullable `tasks.execution_token` and `daemon_sessions.execution_token`. A fresh uuid is minted inside each successful claim transaction by the claim authority; the daemon session created in the same transaction carries the same token. Every ownership-ending writer (release, remote release ×2, agent delete bulk reset, import reset, fail, retry reset, escalation, reject, approve, done) clears it to NULL. Submit/start/delegation-offer preserve it. **No backfill** — pre-migration claimed tasks are not epoch-bound (legacy limitation). Token absence itself triggers no recovery: the existing stale-agent cleanup still applies only under its normal eligibility (agent stale past the heartbeat window with the task as its current task), and any later successful claim mints a token normally. |
+
+| `0079` | `0079_effect_receipts.sql` | Durable failure-effect receipts: creates `effect_receipts` / `effect_receipt_targets` / `effect_receipt_attempts` / `effect_receipt_admin_actions`; adds `tasks.last_failure_event_id` (failure-provenance pointer CAS'd by retry/escalation consumers), `task_events.execution_token` (immutable epoch stamp on failed events), `failure_contexts.source_event_id` (conditional per-event capture, at-most-once via partial unique), and `plugin_runs.dispatch_key` + `lease_token` / `lease_expires_at` / `signals_committed_at` (event-keyed detector dispatch units with lease-token attempt generations and the set-once composer marker; partial unique on `dispatch_key`). All new columns nullable, all uniqueness on the new columns via partial indexes — **zero legacy row rewrite**. Receipt/target state is updated during delivery and requeue; no time-based retention cleanup or manual receipt-delete API exists — attempt/admin history is append-only while the habitat exists, and habitat deletion cascades all four tables (scanner delegation's ownership EXISTS check depends on them while the habitat exists). |
 
 The gap `0003`–`0026` is **intentional**. Those migrations were consolidated
 into `0000_schema.sql` at the boundary commit and are deliberately NOT in the

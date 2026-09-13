@@ -13,6 +13,11 @@ import {
   startNotificationDeliveryWorker,
   stopNotificationDeliveryWorker,
 } from "./services/notificationDeliveryWorker.js";
+import {
+  startEffectDeliverer,
+  stopEffectDeliverer,
+  processEffectReceipts,
+} from "./services/effects/effectDeliverer.js";
 import { rebuildCache as rebuildHabitatSecretCache } from "./services/habitatSecretCache.js";
 import { seedDefaultTemplates as seedQualityTemplates } from "./services/qualityGateService.js";
 import { startAllSchedulers } from "./services/scheduler.js";
@@ -66,6 +71,10 @@ const app = await createHttpApplication({
     // state machine) — same operational waypoint and the same interval-only
     // start discipline as the webhook worker above.
     startNotificationDeliveryWorker();
+    // T2 effect-receipt deliverer (failure-effect completion): same waypoint,
+    // same interval-only start discipline. A boot reconciliation pass runs
+    // further down once initDb() has completed.
+    startEffectDeliverer();
   },
 });
 
@@ -140,6 +149,9 @@ app.onClose(async () => {
   await stopWebhookRetryProcessor();
   // Same drain discipline for the notification delivery worker.
   await stopNotificationDeliveryWorker();
+  // T2: drain the effect deliverer BEFORE the DB closes — its fenced outcome
+  // writes (acks, composer commits) must never race teardown.
+  await stopEffectDeliverer();
   const { shutdownAll } = await import("./services/daemonEngine.js");
   shutdownAll();
   const { stopExtractionScan } = await import("./services/extractionScheduler.js");
@@ -179,6 +191,14 @@ try {
   runExtractionReconciliationPass();
 } catch (err) {
   app.log.error({ err }, "Failed to reconcile extraction stale leases at boot");
+}
+
+try {
+  // T2 boot reconciliation: one deliverer pass for receipts admitted before
+  // this boot (crash between act-tx and the first scheduled pass).
+  await processEffectReceipts();
+} catch (err) {
+  app.log.error({ err }, "Failed to run effect-receipt boot reconciliation pass");
 }
 
 const { initExtractionScan } = await import("./services/extractionScheduler.js");

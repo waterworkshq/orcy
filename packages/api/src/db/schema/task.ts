@@ -86,6 +86,11 @@ export const tasks = sqliteTable(
     // successful claim transaction; NULL = pre-migration / released / terminal.
     // Never backfilled; not settable through any task PATCH schema.
     executionToken: text("execution_token"),
+    // T2 — failure-provenance pointer (§B.0): the failed event row id written
+    // by the act-tx. Pointer-fenced consumers CAS on this column; it is set
+    // with the failure and cleared only by the next epoch's mint or the next
+    // terminal write — never by inference. Additive: NULL on legacy rows.
+    lastFailureEventId: text("last_failure_event_id"),
   },
   (table) => [
     index("idx_tasks_mission").on(table.missionId),
@@ -96,6 +101,7 @@ export const tasks = sqliteTable(
     index("idx_tasks_priority").on(table.priority),
     index("idx_tasks_delegated").on(table.delegatedToAgentId),
     index("idx_tasks_remote_assigned_participant").on(table.remoteAssignedParticipantId),
+    index("idx_tasks_last_failure_event").on(table.lastFailureEventId),
   ],
 );
 
@@ -150,6 +156,9 @@ export const taskEvents = sqliteTable(
       .$type<Record<string, unknown>>()
       .notNull()
       .$defaultFn(() => ({})),
+    // T2 — the claim-epoch token stamped on the failed event at creation time
+    // (written once by the act-tx, immutable). Additive: NULL on legacy rows.
+    executionToken: text("execution_token"),
     timestamp: text("timestamp").notNull().default("(datetime('now'))"),
   },
   (table) => [
