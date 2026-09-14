@@ -109,15 +109,34 @@ async function main(): Promise<void> {
     } catch {
       // ignore — already closed
     }
-    if (send) send(message);
+    // process.send is NOT guaranteed synchronous (platform-dependent IPC
+    // flush) — never exit on a fire-and-forget send. The exit rides the
+    // delivery callback: desired code on success, 1 on send error. The
+    // boolean return value is BACKPRESSURE (message still queued), never a
+    // failure signal — only the callback's err is. A synchronous throw
+    // (channel closed) means nothing was queued: exit 1 from the catch.
+    const desired = message.type === "RESULT" ? 0 : 1;
+    if (send) {
+      try {
+        send(message, (err) => process.exit(err ? 1 : desired));
+      } catch {
+        process.exit(1);
+      }
+    } else {
+      process.exit(desired);
+    }
   }
 }
 
 main().catch((err) => {
-  if (send) send({ type: "ERROR", message: `worker top-level: ${String(err)}` });
-  try {
-    process.exit(1);
-  } catch {
-    // ignore
+  const exit = (): void => process.exit(1);
+  if (send) {
+    try {
+      send({ type: "ERROR", message: `worker top-level: ${String(err)}` }, exit);
+    } catch {
+      exit();
+    }
+  } else {
+    exit();
   }
 });

@@ -100,6 +100,27 @@ function cleanupDb(dbPath: string): void {
   }
 }
 
+/** Bounded exit wait: SIGKILLs + rejects on timeout; instant-resolve for already-exited children. */
+function waitForChildExit(child: ChildProcess, timeoutMs: number): Promise<void> {
+  if (child.exitCode !== null || child.signalCode !== null) return Promise.resolve();
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      child.kill("SIGKILL");
+      reject(
+        new Error(`t9b01 worker did not exit within ${timeoutMs}ms — hang suspected; child killed`),
+      );
+    }, timeoutMs);
+    child.once("exit", () => {
+      clearTimeout(timer);
+      resolve();
+    });
+    child.once("error", () => {
+      clearTimeout(timer);
+      resolve();
+    });
+  });
+}
+
 describe("createRecoveryWorkerId — real cross-process fencing (T9B-01)", () => {
   let dbPath: string;
 
@@ -174,17 +195,34 @@ describe("createRecoveryWorkerId — real cross-process fencing (T9B-01)", () =>
     child.stderr?.on("data", (chunk: Buffer) => {
       console.warn(`[T9B-01 worker-A stderr]:`, chunk.toString());
     });
+    // Bounded message wait: a wedged or silent worker can never park the
+    // test on the vitest cap — the timer SIGKILLs and fails cleanly.
     const workerMessage = await new Promise<WorkerMessage>((resolve) => {
+      const timer = setTimeout(() => {
+        child.kill("SIGKILL");
+        resolve({
+          type: "ERROR",
+          message: "t9b01 worker message wait timed out (10s) — child killed",
+        });
+      }, 10_000);
       const onMessage = (msg: WorkerMessage): void => {
         if (msg?.type === "RESULT" || msg?.type === "ERROR") {
+          clearTimeout(timer);
           child.off("message", onMessage);
           resolve(msg);
         }
       };
       child.on("message", onMessage);
+      child.on("error", (err) => {
+        // Fork/spawn errors can fire asynchronously (resource failure) — fail
+        // cleanly; the outer finally still kills/reaps the child slot.
+        clearTimeout(timer);
+        resolve({ type: "ERROR", message: `worker process error: ${err.message}` });
+      });
       child.on("exit", (code, signal) => {
         // If the child exited without sending a message, resolve with an
         // error so the test fails cleanly instead of hanging.
+        clearTimeout(timer);
         resolve({
           type: "ERROR",
           message: `worker exited (code=${code}, signal=${signal}) without sending a message`,
@@ -192,74 +230,93 @@ describe("createRecoveryWorkerId — real cross-process fencing (T9B-01)", () =>
       });
     });
 
-    // ----- PARENT ASSERTS: worker A's id is process-distinct ----------
-    expect(workerMessage.type).toBe("RESULT");
-    if (workerMessage.type !== "RESULT") throw new Error(`worker error: ${workerMessage.message}`);
-    expect(workerMessage.reclaimOutcome).toBe("reclaimed");
-    expect(workerMessage.leaseOwnerOnRow).toBe(workerMessage.id);
-
-    // The worker's pid is DIFFERENT from the parent's pid (true cross-
-    // process — not two calls in one process).
-    expect(workerMessage.pid).toBeDefined();
-    expect(workerMessage.pid).not.toBe(process.pid);
-
-    // The worker's id CONTAINS its pid (the load-bearing T9B-01 claim:
-    // the id is process-distinct via the pid prefix). The parent's OWN id
-    // would contain the parent's pid (different).
-    expect(workerMessage.id).toContain(String(workerMessage.pid));
-    const parentId = createRecoveryWorkerId();
-    expect(parentId).toContain(String(process.pid));
-    expect(parentId).not.toBe(workerMessage.id); // uuid suffix guarantees uniqueness too.
-    expect(parentId).not.toContain(String(workerMessage.pid)); // distinct pid prefixes.
-
-    // ----- PARENT (B) RECLAIMS under its OWN id -----------------------
-    // Open a fresh better-sqlite3 connection (mirrors the worker's).
-    const sqlite = new Database(dbPath);
-    sqlite.pragma("journal_mode = WAL");
-    sqlite.pragma("foreign_keys = ON");
-    sqlite.pragma("busy_timeout = 5000");
     try {
-      const bdb = drizzle(sqlite, { schema });
+      // ----- PARENT ASSERTS: worker A's id is process-distinct ----------
+      expect(workerMessage.type).toBe("RESULT");
+      if (workerMessage.type !== "RESULT")
+        throw new Error(`worker error: ${workerMessage.message}`);
+      expect(workerMessage.reclaimOutcome).toBe("reclaimed");
+      expect(workerMessage.leaseOwnerOnRow).toBe(workerMessage.id);
 
-      // The worker set `leaseExpiresAt = "2020-01-01..."` (past) → the
-      // parent's reclaim (using wall-clock `now`) succeeds immediately.
-      const reclaimB = reacquireExpiredOccurrenceLeaseWithClient(bdb, occurrenceId, {
-        leaseOwner: parentId,
-        leaseExpiresAt: "2099-01-01T00:00:00.000Z", // far-future (B's active lease).
-      });
-      expect(reclaimB.outcome).toBe("reclaimed");
-      if (reclaimB.outcome !== "reclaimed") throw new Error("unreachable");
-      expect(reclaimB.occurrence.leaseOwner).toBe(parentId);
+      // The worker's pid is DIFFERENT from the parent's pid (true cross-
+      // process — not two calls in one process).
+      expect(workerMessage.pid).toBeDefined();
+      expect(workerMessage.pid).not.toBe(process.pid);
 
-      // ----- A's STALE TERMINALIZATION → not_owner ---------------------
-      // The worker A's id is no longer the row's owner. The fenced CAS
-      // (`leaseOwner = expected`) refuses the terminalization → `not_owner`.
-      // The new owner's lease is preserved UNCHANGED.
-      const staleTerminal = markOccurrenceRejectedWithClient(bdb, occurrenceId, {
-        leaseOwner: workerMessage.id!, // A's stale id.
-        result: { reason: "stale_worker_attempt" },
-      });
-      expect(staleTerminal.outcome).toBe("not_owner");
-      if (staleTerminal.outcome !== "not_owner") throw new Error("unreachable");
-      // The row is UNCHANGED — still `publishing` under B's lease.
-      expect(staleTerminal.occurrence.state).toBe("publishing");
-      expect(staleTerminal.occurrence.leaseOwner).toBe(parentId);
+      // The worker's id CONTAINS its pid (the load-bearing T9B-01 claim:
+      // the id is process-distinct via the pid prefix). The parent's OWN id
+      // would contain the parent's pid (different).
+      expect(workerMessage.id).toContain(String(workerMessage.pid));
+      const parentId = createRecoveryWorkerId();
+      expect(parentId).toContain(String(process.pid));
+      expect(parentId).not.toBe(workerMessage.id); // uuid suffix guarantees uniqueness too.
+      expect(parentId).not.toContain(String(workerMessage.pid)); // distinct pid prefixes.
 
-      // ----- B's terminalization succeeds (it's the current owner) -----
-      const bTerminal = markOccurrenceRejectedWithClient(bdb, occurrenceId, {
-        leaseOwner: parentId,
-        result: { reason: "current_owner_succeeds" },
-      });
-      expect(bTerminal.outcome).toBe("transitioned");
-      if (bTerminal.outcome !== "transitioned") throw new Error("unreachable");
-      expect(bTerminal.occurrence.state).toBe("rejected");
-      expect(bTerminal.occurrence.leaseOwner).toBeNull();
-    } finally {
+      // TERMINAL PROOF (not message-based): the worker must have exited
+      // cleanly on its own — bounded wait, true exit code asserted. This is
+      // the regression guard for the orphaned-worker leak (tsx+esbuild pair
+      // outliving the suite).
+      await waitForChildExit(child, 10_000);
+      expect(child.exitCode).toBe(0);
+
+      // ----- PARENT (B) RECLAIMS under its OWN id -----------------------
+      // Open a fresh better-sqlite3 connection (mirrors the worker's).
+      const sqlite = new Database(dbPath);
+      sqlite.pragma("journal_mode = WAL");
+      sqlite.pragma("foreign_keys = ON");
+      sqlite.pragma("busy_timeout = 5000");
       try {
-        sqlite.close();
-      } catch {
-        // ignore
+        const bdb = drizzle(sqlite, { schema });
+
+        // The worker set `leaseExpiresAt = "2020-01-01..."` (past) → the
+        // parent's reclaim (using wall-clock `now`) succeeds immediately.
+        const reclaimB = reacquireExpiredOccurrenceLeaseWithClient(bdb, occurrenceId, {
+          leaseOwner: parentId,
+          leaseExpiresAt: "2099-01-01T00:00:00.000Z", // far-future (B's active lease).
+        });
+        expect(reclaimB.outcome).toBe("reclaimed");
+        if (reclaimB.outcome !== "reclaimed") throw new Error("unreachable");
+        expect(reclaimB.occurrence.leaseOwner).toBe(parentId);
+
+        // ----- A's STALE TERMINALIZATION → not_owner ---------------------
+        // The worker A's id is no longer the row's owner. The fenced CAS
+        // (`leaseOwner = expected`) refuses the terminalization → `not_owner`.
+        // The new owner's lease is preserved UNCHANGED.
+        const staleTerminal = markOccurrenceRejectedWithClient(bdb, occurrenceId, {
+          leaseOwner: workerMessage.id!, // A's stale id.
+          result: { reason: "stale_worker_attempt" },
+        });
+        expect(staleTerminal.outcome).toBe("not_owner");
+        if (staleTerminal.outcome !== "not_owner") throw new Error("unreachable");
+        // The row is UNCHANGED — still `publishing` under B's lease.
+        expect(staleTerminal.occurrence.state).toBe("publishing");
+        expect(staleTerminal.occurrence.leaseOwner).toBe(parentId);
+
+        // ----- B's terminalization succeeds (it's the current owner) -----
+        const bTerminal = markOccurrenceRejectedWithClient(bdb, occurrenceId, {
+          leaseOwner: parentId,
+          result: { reason: "current_owner_succeeds" },
+        });
+        expect(bTerminal.outcome).toBe("transitioned");
+        if (bTerminal.outcome !== "transitioned") throw new Error("unreachable");
+        expect(bTerminal.occurrence.state).toBe("rejected");
+        expect(bTerminal.occurrence.leaseOwner).toBeNull();
+      } finally {
+        try {
+          sqlite.close();
+        } catch {
+          // ignore
+        }
       }
+    } finally {
+      // Kill/reap on EVERY outcome (assertion failure, worker error, wedge):
+      // the worker must never outlive the test that forked it.
+      if (child.exitCode === null && child.signalCode === null) child.kill("SIGKILL");
+      await waitForChildExit(child, 5000).catch(() => {
+        // Teardown must stay finite and never mask the original failure;
+        // SIGKILL was requested and a bounded reap was attempted. Terminal
+        // status is ASSERTED on the happy path above.
+      });
     }
   }, 30_000);
 });
