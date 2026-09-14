@@ -26,6 +26,8 @@ export {
   getSessionsByDaemonId,
   getActiveSessionsByDaemonId,
   getActiveSessionByTaskId,
+  getSessionByTaskAndToken,
   updateSessionStatus,
+  updateSessionStatusWithClient,
   updateSessionProgress,
 } from "./daemonSession.js";

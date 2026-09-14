@@ -165,22 +165,95 @@ export function getActiveSessionByTaskId(taskId: string): DaemonSessionRow | nul
   return rows.length > 0 ? rows[0] : null;
 }
 
+/**
+ * Exact (taskId, executionToken) session lookup (daemon-worker contract A3):
+ * unique by T1 construction (the session INSERT shares the claim tx that
+ * mints the token), served by `idx_daemon_sessions_task`. The recovery
+ * sweep's task-side leg resolves sessions ONLY this way — never by recency
+ * or latest-row heuristics; legacy NULL-token sessions are naturally
+ * excluded (`execution_token = ` never matches NULL).
+ */
+export function getSessionByTaskAndToken(
+  taskId: string,
+  executionToken: string,
+): DaemonSessionRow | null {
+  const db = getDb();
+  const rows = db
+    .select(daemonSessionFields)
+    .from(daemonSessions)
+    .where(
+      and(eq(daemonSessions.taskId, taskId), eq(daemonSessions.executionToken, executionToken)),
+    )
+    .all();
+  return rows.length > 0 ? rows[0] : null;
+}
+
+/** Statuses a session row may leave; everything past this fence is terminal. */
+const ACTIVE_SESSION_STATUSES = sql`${daemonSessions.status} IN ('starting', 'running')`;
+
+function buildStatusUpdate(
+  id: string,
+  status: SessionStatus,
+  lastProgress?: string,
+): Partial<typeof daemonSessions.$inferInsert> {
+  const now = new Date().toISOString();
+  const updates: Partial<typeof daemonSessions.$inferInsert> = { status, updatedAt: now };
+  if (lastProgress !== undefined) updates.lastProgress = lastProgress;
+  if (["completed", "failed", "released", "lost"].includes(status)) updates.endedAt = now;
+  return updates;
+}
+
+/**
+ * Monotonic status write (daemon-worker contract): every status UPDATE is
+ * fenced with `AND status IN ('starting','running')` — the observed write is
+ * the first accepted one and no later write can resurrect or flip a terminal
+ * row (a stale standalone PATCH cannot turn `lost` back into `running`, and
+ * two terminal PATCHes race to observed-first). `starting→running` remains a
+ * normal in-fence transition; progress/pid/workdir writes never touch status.
+ */
 export function updateSessionStatus(
   id: string,
   status: SessionStatus,
   lastProgress?: string,
 ): DaemonSessionRow | null {
   const db = getDb();
-  const now = new Date().toISOString();
-  const updates: Partial<typeof daemonSessions.$inferInsert> = { status, updatedAt: now };
-  if (lastProgress !== undefined) updates.lastProgress = lastProgress;
-  if (["completed", "failed", "released", "lost"].includes(status)) updates.endedAt = now;
   try {
-    db.update(daemonSessions).set(updates).where(eq(daemonSessions.id, id)).run();
+    db.update(daemonSessions)
+      .set(buildStatusUpdate(id, status, lastProgress))
+      .where(and(eq(daemonSessions.id, id), ACTIVE_SESSION_STATUSES))
+      .run();
   } catch (err) {
     throw repositoryUpdateError("daemonSession", err as Error, id);
   }
   return getSessionById(id);
+}
+
+/**
+ * Tx-aware twin of {@link updateSessionStatus} — the same monotonic fence,
+ * applied on the caller-supplied `tx` (the ghost sweep's terminalization
+ * transaction re-reads the owner's heartbeat fresh and writes `lost` under
+ * one `BEGIN IMMEDIATE`). Never calls `getDb()`.
+ */
+export function updateSessionStatusWithClient(
+  tx: ReturnType<typeof getDb>,
+  id: string,
+  status: SessionStatus,
+  lastProgress?: string,
+): DaemonSessionRow | null {
+  try {
+    tx.update(daemonSessions)
+      .set(buildStatusUpdate(id, status, lastProgress))
+      .where(and(eq(daemonSessions.id, id), ACTIVE_SESSION_STATUSES))
+      .run();
+  } catch (err) {
+    throw repositoryUpdateError("daemonSession", err as Error, id);
+  }
+  const rows = tx
+    .select(daemonSessionFields)
+    .from(daemonSessions)
+    .where(eq(daemonSessions.id, id))
+    .all();
+  return rows.length > 0 ? rows[0] : null;
 }
 
 export function updateSessionProgress(

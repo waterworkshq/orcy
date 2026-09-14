@@ -27,6 +27,11 @@ import { runRecoveryReconciliationPass } from "./services/workflow/recoveryCoord
 import { runExtractionReconciliationPass } from "./services/extractionRecovery.js";
 import { initWikiScheduler } from "./services/wikiSchedulerService.js";
 import { initDb } from "./db/index.js";
+import {
+  sweepDaemonSessionOutcomes,
+  startDaemonSessionSweep,
+  stopDaemonSessionSweep,
+} from "./services/daemonSessionRecovery.js";
 
 import { createHttpApplication } from "./httpApp.js";
 import { setJwtSecret } from "./middleware/jwt-verification.js";
@@ -152,8 +157,29 @@ app.onClose(async () => {
   // T2: drain the effect deliverer BEFORE the DB closes — its fenced outcome
   // writes (acks, composer commits) must never race teardown.
   await stopEffectDeliverer();
+  // Daemon-worker contract: stop the sweep interval, then a BOUNDED drain of
+  // the embedded engines' shutdown (each stop's session releases + terminal
+  // writes are synchronous better-sqlite3; the race is loop completion, not
+  // per-write durability) — the prior fire-and-forget raced process.exit.
+  // Recovery drives stay void-launched by design; the boot sweep backstops.
+  stopDaemonSessionSweep();
   const { shutdownAll } = await import("./services/daemonEngine.js");
-  shutdownAll();
+  // Bounded drain: race the (usually immediate) engine shutdown against a
+  // short timer — and CLEAR the timer as soon as the race settles so a
+  // successful drain leaves no pending timer holding the event loop.
+  {
+    let drainTimer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      await Promise.race([
+        shutdownAll(),
+        new Promise<void>((resolve) => {
+          drainTimer = setTimeout(resolve, 5_000);
+        }),
+      ]);
+    } finally {
+      clearTimeout(drainTimer);
+    }
+  }
   const { stopExtractionScan } = await import("./services/extractionScheduler.js");
   stopExtractionScan();
 });
@@ -200,6 +226,18 @@ try {
 } catch (err) {
   app.log.error({ err }, "Failed to run effect-receipt boot reconciliation pass");
 }
+
+try {
+  // Daemon-worker contract boot pass: ghost sweep + task-side recovery for
+  // sessions orphaned by a crash (post-initDb ONLY — never at the pre-DB
+  // onLocalPrefixesRegistered hook), beside the T2 boot reconciliation. The
+  // 60 s interval owns subsequent passes; boot crash-recovery of release
+  // effects rides the deliverer pass above + this sweep's drives.
+  sweepDaemonSessionOutcomes();
+} catch (err) {
+  app.log.error({ err }, "Failed to run daemon session recovery boot sweep");
+}
+startDaemonSessionSweep();
 
 const { initExtractionScan } = await import("./services/extractionScheduler.js");
 initExtractionScan();

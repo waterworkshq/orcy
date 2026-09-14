@@ -16,6 +16,7 @@ import type {
 } from "../models/schemas.js";
 import { badRequest, notFound, forbidden } from "../errors.js";
 import * as daemonEngine from "../services/daemonEngine.js";
+import { driveDaemonSessionOutcome } from "../services/daemonSessionRecovery.js";
 
 export async function daemonRoutes(fastify: FastifyInstance): Promise<void> {
   // Heterogeneous module: routes declare policy individually; this applier
@@ -119,7 +120,7 @@ export async function daemonRoutes(fastify: FastifyInstance): Promise<void> {
     { config: { authPolicy: "daemon" } },
     async (
       request: FastifyRequest<{ Params: { id: string }; Body: DaemonSessionUpdateInput }>,
-      _reply: FastifyReply,
+      reply: FastifyReply,
     ) => {
       const parsed = daemonSessionUpdateSchema.safeParse(request.body);
       if (!parsed.success) {
@@ -143,6 +144,19 @@ export async function daemonRoutes(fastify: FastifyInstance): Promise<void> {
         updated =
           daemonRepo.updateSessionStatus(session.id, updates.status, updates.lastProgress) ??
           updated;
+        // Convergence seam (daemon-worker contract): post-terminal-write the
+        // recovery drive runs synchronously — the standalone transport's
+        // awaited PATCH therefore covers its task-side effects (fail/release
+        // bundles + receipts) before the daemon process exits its stop path.
+        // Fixed-code catch only; a failure is swept and retried.
+        try {
+          driveDaemonSessionOutcome(session.id);
+        } catch {
+          reply.log.error(
+            { sessionId: session.id, errorCode: "daemon_recovery_db_write_failed" },
+            "Daemon session drive failed after terminal PATCH; sweep retries",
+          );
+        }
       }
 
       if (

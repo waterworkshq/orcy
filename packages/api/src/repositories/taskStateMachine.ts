@@ -280,6 +280,7 @@ export function releaseTaskByRemoteParticipant(
       claimedAt: null,
       executionToken: null,
       lastFailureEventId: null,
+      lastReleaseEventId: null,
       updatedAt: now,
       version: sql`${tasks.version} + 1`,
     })
@@ -426,6 +427,7 @@ export function releaseTask(
           startedAt: null,
           executionToken: null,
           lastFailureEventId: null,
+          lastReleaseEventId: null,
           updatedAt: now,
           version: sql`${tasks.version} + 1`,
         })
@@ -464,6 +466,7 @@ export function failTask(taskId: string, _reason: string): Task | null {
       completedAt: now,
       executionToken: null,
       lastFailureEventId: null,
+      lastReleaseEventId: null,
       updatedAt: now,
       version: sql`${tasks.version} + 1`,
     })
@@ -484,6 +487,7 @@ export function approveTask(taskId: string): Task | null {
       completedAt: now,
       executionToken: null,
       lastFailureEventId: null,
+      lastReleaseEventId: null,
       updatedAt: now,
       version: sql`${tasks.version} + 1`,
     })
@@ -514,6 +518,7 @@ export function markTaskDone(taskId: string): Task | null {
       completedAt: now,
       executionToken: null,
       lastFailureEventId: null,
+      lastReleaseEventId: null,
       updatedAt: now,
       version: sql`${tasks.version} + 1`,
     })
@@ -535,6 +540,7 @@ export function rejectTask(taskId: string, reason: string): Task | null {
       rejectedCount: sql`${tasks.rejectedCount} + 1`,
       executionToken: null,
       lastFailureEventId: null,
+      lastReleaseEventId: null,
       updatedAt: now,
       version: sql`${tasks.version} + 1`,
     })

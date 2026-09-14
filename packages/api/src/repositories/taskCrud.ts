@@ -47,6 +47,8 @@ export interface UpdateTaskInput {
   executionToken?: string | null;
   /** Failure-provenance pointer (T2 §B.0). System writers ONLY (clears to NULL at the next epoch/terminal write) — excluded from the route zod schema. */
   lastFailureEventId?: string | null;
+  /** Release-provenance pointer (migration 0080). System writers ONLY (clears to NULL whenever the task leaves the unclaimed pending shape) — excluded from the route zod schema. */
+  lastReleaseEventId?: string | null;
 }
 
 export function createTask(input: CreateTaskInput): Task {
@@ -165,6 +167,7 @@ export function updateTask(
   // Failure-provenance pointer: same system-writer-only discipline as the
   // token above (never reachable through any route zod schema).
   if (input.lastFailureEventId !== undefined) set.lastFailureEventId = input.lastFailureEventId;
+  if (input.lastReleaseEventId !== undefined) set.lastReleaseEventId = input.lastReleaseEventId;
 
   db.update(tasks)
     .set({ ...set, version: sql`${tasks.version} + 1` })

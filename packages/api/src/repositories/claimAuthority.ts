@@ -692,6 +692,11 @@ function commitPlainClaim(
     // New epoch: the prior failure-provenance pointer is invalidated at mint
     // (T2 §B.0 — cleared by the next epoch's mint, never by inference).
     lastFailureEventId: null,
+    // ...and so is the release-provenance pointer (migration 0080): a minted
+    // token blocks the release fence's `pending ∧ token-NULL` shape outright,
+    // but clearing keeps every later plain release from re-arming stale
+    // release receipts.
+    lastReleaseEventId: null,
   } as const;
   // Transport-agnostic column selection (ADR-0038 §3).
   let where;
@@ -735,6 +740,7 @@ function commitDelegatedClaim(
       version: sql`${tasks.version} + 1`,
       executionToken,
       lastFailureEventId: null,
+      lastReleaseEventId: null,
     } as unknown as Partial<typeof tasks.$inferInsert>)
     .where(eq(tasks.id, row.id))
     .run();

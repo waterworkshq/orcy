@@ -91,6 +91,14 @@ export const tasks = sqliteTable(
     // with the failure and cleared only by the next epoch's mint or the next
     // terminal write — never by inference. Additive: NULL on legacy rows.
     lastFailureEventId: text("last_failure_event_id"),
+    // Daemon-worker contract — release-provenance pointer (migration 0080):
+    // the `released` event row id written by releaseTaskWithEffects. The
+    // receipt-path gates consumer fences the release's spawn/gate mutation on
+    // `pending ∧ token-NULL ∧ = :eventId`; every writer that moves the task
+    // back to that unclaimed shape clears it (same discipline as the failure
+    // pointer). Independent provenance stream — never reuses the failure
+    // pointer. Additive: NULL on legacy rows.
+    lastReleaseEventId: text("last_release_event_id"),
   },
   (table) => [
     index("idx_tasks_mission").on(table.missionId),
@@ -102,6 +110,7 @@ export const tasks = sqliteTable(
     index("idx_tasks_delegated").on(table.delegatedToAgentId),
     index("idx_tasks_remote_assigned_participant").on(table.remoteAssignedParticipantId),
     index("idx_tasks_last_failure_event").on(table.lastFailureEventId),
+    index("idx_tasks_last_release_event").on(table.lastReleaseEventId),
   ],
 );
 

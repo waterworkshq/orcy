@@ -270,19 +270,36 @@ async function deliverWorkflowGates(
   const snapshot = (receipt.causalSnapshot ?? {}) as Record<string, unknown>;
   const taskId = snapshot.taskId as string;
   const eventId = receipt.subjectId;
+  // Lifecycle action this receipt carries — the fail act-tx's snapshots omit
+  // it (failure is the default); the release act-tx stamps `action:"released"`.
+  const action = (snapshot.action as string | undefined) ?? "failed";
   const db = getDb();
   let anyAdvanced = false;
   try {
     const outcome = db.transaction(
       (tx) => {
-        // In-tx pointer fence (C6): if a newer epoch's failure owns the
-        // pointer, this event's gates are history — ack superseded.
+        // In-tx pointer fence (C6 + daemon-worker contract): the fence is
+        // action-specific. A `failed` event owns the failure pointer; a
+        // `released` event owns the unclaimed window —
+        // `pending ∧ token-NULL ∧ last_release_event_id = :eventId` — so a
+        // successor claim (token minted), a retry reset (pointer cleared), or
+        // any terminal write blocks its spawn/gate mutation → superseded.
         const row = tx
-          .select({ lastFailureEventId: tasks.lastFailureEventId })
+          .select({
+            status: tasks.status,
+            token: tasks.executionToken,
+            ptrFailure: tasks.lastFailureEventId,
+            ptrRelease: tasks.lastReleaseEventId,
+          })
           .from(tasks)
           .where(eq(tasks.id, taskId))
           .get();
-        if (!row || row.lastFailureEventId !== eventId) {
+        if (!row) return "superseded" as const;
+        if (action === "released") {
+          if (row.status !== "pending" || row.token !== null || row.ptrRelease !== eventId) {
+            return "superseded" as const;
+          }
+        } else if (row.ptrFailure !== eventId) {
           return "superseded" as const;
         }
 
@@ -291,12 +308,12 @@ async function deliverWorkflowGates(
 
         const triggerOpts = {
           taskId,
-          action: "failed",
+          action,
           habitatId: receipt.habitatId,
           actorType: snapshot.actorType as string,
           actorId: snapshot.actorId as string,
           oldStatus: snapshot.statusAtFailure as string,
-          newStatus: "failed",
+          newStatus: action === "released" ? "pending" : "failed",
           metadata: { reason: snapshot.reason },
         };
         const decisions = workflowGateEvaluator.evaluateLifecycleTrigger(
@@ -309,7 +326,7 @@ async function deliverWorkflowGates(
           {
             kind: "lifecycle",
             eventId,
-            action: "failed",
+            action,
             actorType: triggerOpts.actorType,
             actorId: triggerOpts.actorId,
           },
@@ -329,15 +346,16 @@ async function deliverWorkflowGates(
     // advanced a gate (a handoff may have committed with the satisfaction).
     // Outside the guarded tx; failures here never un-satisfy a gate.
     if (anyAdvanced) {
-    try {
-      const { runRecoveryReconciliationPass } = await import("../workflow/recoveryCoordinator.js");
-      runRecoveryReconciliationPass();
-    } catch {
-      logger.error(
-        { errorCode: `${ERROR_CODE_PREFIX}_reconcile_failed` },
-        "Post-advancement recovery reconciliation failed",
-      );
-    }
+      try {
+        const { runRecoveryReconciliationPass } =
+          await import("../workflow/recoveryCoordinator.js");
+        runRecoveryReconciliationPass();
+      } catch {
+        logger.error(
+          { errorCode: `${ERROR_CODE_PREFIX}_reconcile_failed` },
+          "Post-advancement recovery reconciliation failed",
+        );
+      }
     }
   }
 }
@@ -350,10 +368,17 @@ function deliverFailureContext(receipt: EffectReceiptRow): "delivered" | EffectE
   const snapshot = (receipt.causalSnapshot ?? {}) as Record<string, unknown>;
   const eventId = receipt.subjectId;
   const gateIds = (snapshot.frozenOnFailGateIds as string[] | undefined) ?? [];
+  // Action-derived capture kind (daemon-worker contract): `released` receipts
+  // capture under the existing `heartbeat_lost` class — the capture machinery
+  // already admits the release class (actionToFailureKind).
+  const action = (snapshot.action as string | undefined) ?? "failed";
+  const failureKind = failureContextService.actionToFailureKind(action);
+  if (failureKind === null) return "delivered"; // unmapped action: honest no-op
 
   // C1: capture iff ≥1 frozen on_fail gate carries the durable, event-bound
   // outcome `satisfied_by_event_id = :eventId`. Direct frozen-id query — never
-  // an active-workflow view (detach-proof).
+  // an active-workflow view (detach-proof). This predicate is the HISTORICAL
+  // record: it survives unconditional supersession of the release fence.
   if (gateIds.length > 0) {
     const stamped = getDb()
       .select({ id: taskWorkflowGates.id })
@@ -367,7 +392,7 @@ function deliverFailureContext(receipt: EffectReceiptRow): "delivered" | EffectE
       .get();
     if (stamped) {
       try {
-        failureContextService.buildFailureContext(snapshot.taskId as string, "lifecycle_failed", {
+        failureContextService.buildFailureContext(snapshot.taskId as string, failureKind, {
           failureReason: (snapshot.reason as string) ?? "",
           sourceEventId: eventId,
         });
@@ -458,7 +483,17 @@ function deliverRetryLadder(
             actorType: "system",
             actorId: "retry-service",
             action: "retry_scheduled",
-            metadata: { nextRetryAt: eta, retryCount: pseudoTask.retryCount, backoffSeconds },
+            // Posture (ii): the follow-up stamps the server-written classified
+            // cause (auth-derived actorType + the act's reason) so system vs
+            // agent cycles stay observably separable — zero schema, spend
+            // caps unchanged (blame-indifferent by design).
+            metadata: {
+              nextRetryAt: eta,
+              retryCount: pseudoTask.retryCount,
+              backoffSeconds,
+              cause: (snapshot.reason as string) ?? null,
+              causeActorType: (snapshot.actorType as string) ?? null,
+            },
           });
           // R-1: the ACK + attempt-history row join the SAME commit as the
           // guarded task write and the follow-up event — the final fence
@@ -498,6 +533,8 @@ function deliverRetryLadder(
               retryCount: pseudoTask.retryCount,
               maxRetries: policy.maxRetries,
               rejectionReason: pseudoTask.rejectionReason,
+              cause: (snapshot.reason as string) ?? null,
+              causeActorType: (snapshot.actorType as string) ?? null,
             },
           });
           const acked = receiptRepo.ackReceiptDelivered(receipt.id, fence, now, tx);
@@ -575,13 +612,22 @@ function findHabitatId(taskId: string): string {
 
 function deliverSkillIngestion(receipt: EffectReceiptRow): "delivered" | EffectErrorCode {
   const snapshot = (receipt.causalSnapshot ?? {}) as Record<string, unknown>;
+  // No-blame attribution guard (daemon-worker contract, rev 4): the
+  // classification is the auth-derived `snapshot.actorType` — never the
+  // reason text (an agent posting /fail with reason `daemon_session_*`
+  // stays agent-attributed; only the in-process recovery drive is `system`,
+  // and that boundary is unreachable from any wire body). System-origin
+  // failures keep the task-bound blocker signal but carry NO agent binding.
+  const systemOrigin = snapshot.actorType !== "agent";
   habitatSkillService.ingestFromTaskEvent({
     habitatId: receipt.habitatId,
     eventType: "failed",
     taskTitle: (snapshot.taskTitle as string) ?? "",
     reason: (snapshot.reason as string) ?? undefined,
     taskId: snapshot.taskId as string,
-    associatedAgentId: (snapshot.assignedAgentIdAtFailure as string) ?? undefined,
+    associatedAgentId: systemOrigin
+      ? undefined
+      : ((snapshot.assignedAgentIdAtFailure as string) ?? undefined),
   });
   return "delivered";
 }

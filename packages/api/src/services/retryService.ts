@@ -99,6 +99,7 @@ export function executeRetry(task: Task): Task | null {
     nextRetryAt: null,
     executionToken: null,
     lastFailureEventId: null,
+    lastReleaseEventId: null,
   });
 
   if (!result.success) return null;
@@ -127,6 +128,7 @@ export function escalateToHuman(task: Task): Task | null {
     nextRetryAt: null,
     executionToken: null,
     lastFailureEventId: null,
+    lastReleaseEventId: null,
   });
 
   if (!result.success) return null;

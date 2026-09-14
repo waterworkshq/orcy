@@ -561,8 +561,8 @@ describe("SessionManager", () => {
     });
   });
 
-  describe("shutdown resume behavior", () => {
-    it("fails sessions when CLI does not support resume", async () => {
+  describe("shutdown release behavior (P2 — daemon-worker contract)", () => {
+    it("releases sessions for ALL adapters on shutdown, with no fail path", async () => {
       validateWorktreeConfigMock.mockReturnValue(null);
       createWorkdirMock.mockReturnValue({
         path: "/tmp/workdir",
@@ -575,13 +575,18 @@ describe("SessionManager", () => {
 
       await manager.shutdownAll();
 
+      // P2: the supportsResume split is dead code (all five adapters return
+      // false) — shutdown releases in-flight sessions for EVERY adapter; the
+      // terminal `released` write carries the existing recovery effects
+      // server-side (on_fail gates, FailureContext, spawn) with no retry burn.
       expect(updateSessionMock).toHaveBeenCalledWith(
         expect.anything(),
-        expect.objectContaining({
-          status: "failed",
-          lastProgress: expect.stringContaining("does not support session resume"),
-        }),
+        expect.objectContaining({ status: "released" }),
       );
+      const statuses = updateSessionMock.mock.calls
+        .map((call) => (call[1] as { status?: string }).status)
+        .filter((s): s is string => typeof s === "string");
+      expect(statuses).not.toContain("failed");
     });
   });
 });

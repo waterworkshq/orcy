@@ -481,6 +481,18 @@ All three must be set. If `ORCY_API_KEY` or `ORCY_AGENT_ID` is empty, the server
 - Register a fresh UI daemon after every API restart (credentials are returned once and held in memory only)
 - Or use the standalone CLI daemon, which persists credentials to disk
 
+### Daemon session stuck `running` / task stuck `claimed` or `in_progress` after a daemon crash
+
+**Problem:** A daemon host shows no contact (crash, kill -9, or network loss — the sweep observes heartbeat absence, never proof of host death). Its sessions stay `running` and their tasks stay claimed, consuming the daemon's `maxConcurrent` and per-agent capacity.
+
+**Cause/Behavior:** Server-side recovery owns this. A 60 s sweep + boot pass terminalizes `starting`/`running` sessions whose DAEMON heartbeat (`daemon_instances.last_heartbeat_at` — never `agents` heartbeats) is ≥ 10 minutes stale, then drives the task outcome. Detection is nominal: a sweep pass roughly every 60 s after the threshold, observed while the API is healthy, the heartbeat is eligible, and the embedded engine is not running — backlog or errors can delay it further (fail with effects for `in_progress`, release with effects for claimed/completed-unsubmitted). Pre-migration sessions without an execution token are terminalized, but their tasks fall to the 30-minute agent-stale fallback, which applies only when the assigned agent is itself heartbeat-stale with this task as its current task — an orphaned task can be missed by it. Graceful operator stop (`orcy daemon stop`, UI stop) tries to release in-flight sessions immediately through the same recovery chain with no retry-budget burn; a client-side PATCH error or a shutdown deadline can leave the attempt undelivered, in which case the sweep and boot pass own the remainder. Embedded API shutdown is bounded, not guaranteed loss-free: close awaits session shutdown under a 5 s cap — anything not settled by the deadline is left for the next boot pass/sweep to recover (no in-flight completion is promised after the deadline).
+
+**Check:**
+
+1. The daemon row's `last_heartbeat_at` — a daemon heartbeating again inside the window is spared (an in-tx freshness recheck closes the revival race); NULL is treated as stale, unparseable/future-dated values skip the reap with a fixed-code log (`daemon_recovery_heartbeat_*`).
+2. Effect delivery — recovery outcomes land through the durable receipt outbox; a crash between the release/fail act-tx and delivery is resumed or scheduled by the boot reconciliation and interval passes within the consumers' bounded attempt budgets; dead-letter is possible and completion is not promised. Verify `effect_receipts.state` and the `released`/`failed` event rather than assuming from the event row alone.
+3. Budget refusals — a transition-budget-refused recovery performs no task/effect-bundle writes and retries write-free on later sweeps; the only possible write is the guard's own emit-once first-breach escalation (an `escalated` task-event row authored by the system actor `transition-budget` — the actor id of the event row, not metadata; later refusals see that row and stay write-free).
+
 ---
 
 ## Workflow Orchestration

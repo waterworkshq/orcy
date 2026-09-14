@@ -1021,6 +1021,7 @@ function resetTaskExecutionState(tx: TaskPublicationDbClient, targetHabitatId: s
       startedAt: null,
       executionToken: null,
       lastFailureEventId: null,
+      lastReleaseEventId: null,
       submittedAt: null,
       completedAt: null,
       rejectedCount: 0,

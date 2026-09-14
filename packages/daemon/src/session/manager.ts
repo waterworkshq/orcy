@@ -209,14 +209,14 @@ export class SessionManager implements ISessionManager {
       return s.status === "starting" || s.status === "running";
     });
 
+    // P2 (daemon-worker contract): release for ALL adapters — the
+    // supportsResume split was dead code (all five adapters return false).
+    // The release carries the EXISTING recovery effects durably through the
+    // terminal `released` write's convergence seam (server-side drive:
+    // on_fail gates, FailureContext, spawn) with NO retry-budget burn, and
+    // restart recovery is unaffected (it reads active rows only).
     for (const id of activeIds) {
-      const session = this.sessions.get(id)!;
-      const adapter = getAdapter(session.agentType);
-      if (adapter.supportsResume(null)) {
-        await this.releaseSession(id);
-      } else {
-        await this.failSession(id, "Daemon shutdown: CLI does not support session resume");
-      }
+      await this.releaseSession(id);
     }
   }
 

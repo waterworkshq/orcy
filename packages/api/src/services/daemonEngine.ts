@@ -21,7 +21,13 @@ import {
   releaseSessionManager,
   detectClisOnHost,
 } from "../daemon-wiring.js";
+import { cleanupDaemonSessionsOnStart, setEngineLivenessProbe } from "./daemonSessionRecovery.js";
 import { badRequest, forbidden } from "../errors.js";
+
+// The recovery sweep's embedded liveness source (one-way registration — the
+// recovery module must never import this module; the default probe is the
+// standalone heartbeat-only semantics).
+setEngineLivenessProbe(isRunning);
 
 interface RunningDaemon {
   daemonId: string;
@@ -118,6 +124,14 @@ export function start(daemonId: string, dataDir: string = "/tmp/orcy-daemon"): v
   if (!daemon) {
     throw new Error(`Daemon ${daemonId} not found`);
   }
+
+  // Verified-restart straggler cleanup (daemon-worker contract): the engine
+  // starting locally proves the prior process dead — terminalize THIS
+  // daemon's still-active session rows BEFORE serving the first claim (the
+  // only start-time kill; heartbeat rules do not apply to a verified
+  // restart). Runs ahead of every side effect below so sessions created by
+  // the newly started engine are never marked.
+  cleanupDaemonSessionsOnStart(daemonId);
 
   const daemonAgents = daemonRepo.getDaemonAgentsByDaemonId(daemonId);
   const credentials = new Map((inMemoryAgentCredentials.get(daemonId) ?? []).map((a) => [a.id, a]));
@@ -221,12 +235,16 @@ export function isRunning(daemonId: string): boolean {
 }
 
 /**
- * Stops every running in-process daemon concurrently (fire-and-forget), intended as a process-exit hook to release all held sessions.
+ * Stops every running in-process daemon CONCURRENTLY and returns a promise
+ * that settles when all stop sequences have an outcome (each stop's session
+ * releases + terminal writes are synchronous better-sqlite3, so the bound is
+ * loop completion). The process-exit hook awaits this under a short race so
+ * terminal writes never race `process.exit` (the daemon-worker contract's
+ * embedded bounded drain).
  */
-export function shutdownAll(): void {
-  for (const [daemonId] of runningDaemons) {
-    stop(daemonId).catch(() => {});
-  }
+export function shutdownAll(): Promise<void> {
+  const stops = [...runningDaemons.keys()].map((daemonId) => stop(daemonId).catch(() => {}));
+  return Promise.allSettled(stops).then(() => {});
 }
 
 /** Input for HTTP-based daemon registration: daemon identity, concurrency limit, target habitats, and the CLIs detected on the remote host. */

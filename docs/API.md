@@ -2940,6 +2940,8 @@ Daemon routes support autonomous AI CLI execution. There are two route groups:
 
 `claim-next` returns a `daemonSessionId` alongside task/worktree data. The daemon passes that ID to the session manager so process exit, timeout, and shutdown updates are written back to `daemon_sessions`. The claimed `task` object also carries `executionToken` — the claim-epoch token minted by this very claim (never re-fetched). The daemon embeds it in the spawned CLI's prompt (never in `.mcp.json` or any workdir file): the task arrives pre-claimed, and the CLI presents the token as `executionToken` on `start`/`submit`/`fail`/`release`.
 
+`PATCH /daemon/sessions/:id` status writes are **monotonic**: the first terminal status (`completed`/`failed`/`released`/`lost`) is the accepted one — a later status write against a terminal row (including a stale `running`) matches zero rows and leaves the row untouched. A terminal status write also triggers the server-side recovery drive synchronously inside the request: a `failed`/`lost` session fails an `in_progress` task (full effect bundle) or releases a claimed-never-started task; a `completed` (unsubmitted) or `released` session releases the task with its recovery effects (`on_fail` gates, failure context) — always attributed to the `system` actor `daemon-recovery`, never the assigned agent. Clients may repeat a terminal PATCH idempotently; the response always returns the session's current row. Task-side transition requires a matching session epoch and a permitted task state and budget; a successful session PATCH does not itself certify recovery completion.
+
 ---
 
 ## Agent Messages
