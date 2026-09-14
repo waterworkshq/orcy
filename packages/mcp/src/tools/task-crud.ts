@@ -1,112 +1,115 @@
-import type { Tool } from '@modelcontextprotocol/sdk/types.js';
-import type { KanbanApiClient } from '../api.js';
-import { enrichTaskWithAgentName } from './enrichment.js';
-import { PRIORITY_LEVELS, TASK_UPDATE_STATUSES } from './constants.js';
+import type { Tool } from "@modelcontextprotocol/sdk/types.js";
+import type { KanbanApiClient } from "../api.js";
+import { enrichTaskWithAgentName } from "./enrichment.js";
+import { PRIORITY_LEVELS, TASK_UPDATE_STATUSES } from "./constants.js";
 
 /**
  * @requires TaskClient
  */
 export const BOARD_UPDATE_TASK_TOOL: Tool = {
-  name: 'board_update_task',
+  name: "board_update_task",
   description:
-    'Update a task\'s METADATA fields only (title, description, priority, requiredDomain, ' +
-    'requiredCapabilities, estimatedMinutes, result, artifacts, retryPolicy, version). ' +
-    'Lifecycle status transitions are NOT available here — use dedicated lifecycle tools instead: ' +
-    'board_claim_task (claim), board_submit_task (submit for review), board_complete_task (mark done), ' +
-    'board_retry_task (retry), or board_fail_task (fail). ' +
-    'SUBTASKS: Provide subtaskId to update/delete a specific subtask. ' +
-    'set subtaskCompleted=true/false to toggle completion, subtaskTitle to rename, ' +
-    'subtaskAssigneeId to reassign, subtaskOrder to reorder. ' +
-    'deleteSubtask=true to delete a subtask. ' +
-    'Supports optimistic locking — include version from your last read to prevent lost updates.',
+    "Update a task's METADATA fields only (title, description, priority, requiredDomain, " +
+    "requiredCapabilities, estimatedMinutes, result, artifacts, retryPolicy, version). " +
+    "Lifecycle status transitions are NOT available here — use dedicated lifecycle tools instead: " +
+    "board_claim_task (claim), board_submit_task (submit for review), board_complete_task (mark done), " +
+    "board_retry_task (retry), or board_fail_task (fail). " +
+    "SUBTASKS: Provide subtaskId to update/delete a specific subtask. " +
+    "set subtaskCompleted=true/false to toggle completion, subtaskTitle to rename, " +
+    "subtaskAssigneeId to reassign, subtaskOrder to reorder. " +
+    "deleteSubtask=true to delete a subtask. " +
+    "Supports optimistic locking — include version from your last read to prevent lost updates.",
   inputSchema: {
-    type: 'object',
+    type: "object",
     properties: {
       taskId: {
-        type: 'string',
-        description: 'The UUID of the task to update',
+        type: "string",
+        description: "The UUID of the task to update",
       },
       title: {
-        type: 'string',
-        description: 'Updated task title (clear, actionable imperative)',
+        type: "string",
+        description: "Updated task title (clear, actionable imperative)",
         minLength: 1,
         maxLength: 200,
       },
       description: {
-        type: 'string',
-        description: 'Updated detailed description',
+        type: "string",
+        description: "Updated detailed description",
         maxLength: 5000,
       },
       priority: {
-        type: 'string',
+        type: "string",
         enum: [...PRIORITY_LEVELS],
-        description: 'Updated priority',
+        description: "Updated priority",
       },
       requiredDomain: {
-        type: 'string',
-        description: 'Required agent domain (e.g., frontend, backend, devops)',
+        type: "string",
+        description: "Required agent domain (e.g., frontend, backend, devops)",
       },
       requiredCapabilities: {
-        type: 'array',
-        items: { type: 'string' },
+        type: "array",
+        items: { type: "string" },
         description: 'Required agent capabilities (e.g., ["typescript", "react"])',
       },
       version: {
-        type: 'number',
-        description: 'Expected version for optimistic locking. If the task has been modified since you last read it, the update will fail.',
+        type: "number",
+        description:
+          "Expected version for optimistic locking. If the task has been modified since you last read it, the update will fail.",
       },
       estimatedMinutes: {
-        type: 'number',
-        description: 'Optional estimated time to complete the task in minutes',
+        type: "number",
+        description: "Optional estimated time to complete the task in minutes",
       },
       status: {
-        type: 'string',
+        type: "string",
         enum: [...TASK_UPDATE_STATUSES],
-        description: 'Transition task status. Use "in_progress" after claiming. "submitted" to submit work for review. "approved" to approve a submitted task. "done" to mark an approved task as done. "failed" when the task cannot be completed.',
+        description:
+          'Transition task status. Use "in_progress" after claiming. "submitted" to submit work for review. "approved" to approve a submitted task. "done" to mark an approved task as done. "failed" when the task cannot be completed.',
       },
       failureReason: {
-        type: 'string',
-        description: 'Required when status="failed". Describes why the task could not be completed.',
+        type: "string",
+        description:
+          'Required when status="failed". Describes why the task could not be completed.',
       },
       result: {
-        type: 'string',
+        type: "string",
         description: 'Summary of what was accomplished. Used with status="submitted".',
       },
       reviewNote: {
-        type: 'string',
+        type: "string",
         description: 'Review note when status="done".',
       },
       subtaskId: {
-        type: 'string',
-        description: 'Operate on a specific subtask (required for subtask updates)',
+        type: "string",
+        description: "Operate on a specific subtask (required for subtask updates)",
       },
       subtaskTitle: {
-        type: 'string',
-        description: 'Rename a subtask',
+        type: "string",
+        description: "Rename a subtask",
       },
       subtaskCompleted: {
-        type: 'boolean',
-        description: 'Mark a subtask as completed (true) or reopen it (false)',
+        type: "boolean",
+        description: "Mark a subtask as completed (true) or reopen it (false)",
       },
       subtaskOrder: {
-        type: 'number',
-        description: 'Change a subtask\'s sort order',
+        type: "number",
+        description: "Change a subtask's sort order",
       },
       subtaskAssigneeId: {
-        type: 'string',
-        description: 'Reassign a subtask to a different agent (provide agent UUID)',
+        type: "string",
+        description: "Reassign a subtask to a different agent (provide agent UUID)",
       },
       deleteSubtask: {
-        type: 'boolean',
-        description: 'Set true to permanently delete a subtask (requires subtaskId)',
+        type: "boolean",
+        description: "Set true to permanently delete a subtask (requires subtaskId)",
       },
       executionToken: {
-        type: 'string',
+        type: "string",
         description:
-          'executionToken from your claim response (task.executionToken). Required for status transitions (in_progress/submitted/failed) on tokened tasks; omitted or wrong token returns 409 EPOCH_MISMATCH.',
+          "executionToken from your claim response (task.executionToken). Required for status transitions (in_progress/submitted/failed) on tokened tasks; omitted or wrong token returns 409 EPOCH_MISMATCH.",
       },
     },
-    required: ['taskId'],
+    required: ["taskId"],
   },
 };
 
@@ -119,12 +122,12 @@ export async function habitatUpdateTask(
     taskId: string;
     title?: string;
     description?: string;
-    priority?: 'low' | 'medium' | 'high' | 'critical';
+    priority?: "low" | "medium" | "high" | "critical";
     requiredDomain?: string | null;
     requiredCapabilities?: string[];
     version?: number;
     estimatedMinutes?: number;
-    status?: 'in_progress' | 'submitted' | 'approved' | 'done' | 'failed';
+    status?: "in_progress" | "submitted" | "approved" | "done" | "failed";
     failureReason?: string;
     result?: string;
     reviewNote?: string;
@@ -135,20 +138,25 @@ export async function habitatUpdateTask(
     subtaskAssigneeId?: string;
     deleteSubtask?: boolean;
     executionToken?: string | null;
-  }
+  },
 ) {
-  const STATUS_HANDLERS: Record<string, () => Promise<{ success: true; task?: any } | { success: true }>> = {
+  const STATUS_HANDLERS: Record<
+    string,
+    () => Promise<{ success: true; task?: any } | { success: true }>
+  > = {
     in_progress: async () => {
       const result = await client.startTask(args.taskId, args.executionToken ?? null);
       const enrichedTask = await enrichTaskWithAgentName(client, result.task);
       return { success: true, task: enrichedTask };
     },
     submitted: async () => {
-      await client.submitTask(args.taskId, args.result ?? '', [], args.executionToken ?? null);
+      await client.submitTask(args.taskId, args.result ?? "", [], args.executionToken ?? null);
       return { success: true };
     },
     approved: async () => {
-      const result = await client.updateTaskStatus(args.taskId, 'approved');
+      // Canonical review decision (POST /approve) — never a status-direct
+      // PATCH (the update schema is strict and carries no `status`).
+      const result = await client.approveTask(args.taskId);
       const enrichedTask = await enrichTaskWithAgentName(client, result.task);
       return { success: true, task: enrichedTask };
     },
@@ -157,7 +165,11 @@ export async function habitatUpdateTask(
       return { success: true };
     },
     failed: async () => {
-      const result = await client.failTask(args.taskId, args.failureReason ?? 'Task failed', args.executionToken ?? null);
+      const result = await client.failTask(
+        args.taskId,
+        args.failureReason ?? "Task failed",
+        args.executionToken ?? null,
+      );
       const enrichedTask = await enrichTaskWithAgentName(client, result.task);
       return { success: true, task: enrichedTask };
     },
@@ -180,7 +192,14 @@ export async function habitatUpdateTask(
     }
   }
 
-  const hasTaskLevelFields = args.title !== undefined || args.description !== undefined || args.priority !== undefined || args.requiredDomain !== undefined || (args.requiredCapabilities !== undefined && args.requiredCapabilities.length > 0) || args.estimatedMinutes !== undefined || args.version !== undefined;
+  const hasTaskLevelFields =
+    args.title !== undefined ||
+    args.description !== undefined ||
+    args.priority !== undefined ||
+    args.requiredDomain !== undefined ||
+    (args.requiredCapabilities !== undefined && args.requiredCapabilities.length > 0) ||
+    args.estimatedMinutes !== undefined ||
+    args.version !== undefined;
 
   if (!hasTaskLevelFields && args.subtaskId) {
     return { success: true };
@@ -203,29 +222,26 @@ export async function habitatUpdateTask(
  * @requires TaskClient
  */
 export const BOARD_DELETE_TASK_TOOL: Tool = {
-  name: 'board_delete_task',
+  name: "board_delete_task",
   description:
-    'Delete a task from a feature. Only tasks with no dependents (no other tasks depend on this one) can be deleted. ' +
-    'This action is permanent and cannot be undone. Use with caution.',
+    "Delete a task from a feature. Only tasks with no dependents (no other tasks depend on this one) can be deleted. " +
+    "This action is permanent and cannot be undone. Use with caution.",
   inputSchema: {
-    type: 'object',
+    type: "object",
     properties: {
       taskId: {
-        type: 'string',
-        description: 'The UUID of the task to delete',
+        type: "string",
+        description: "The UUID of the task to delete",
       },
     },
-    required: ['taskId'],
+    required: ["taskId"],
   },
 };
 
 /**
  * @requires TaskClient
  */
-export async function habitatDeleteTask(
-  client: KanbanApiClient,
-  args: { taskId: string }
-) {
+export async function habitatDeleteTask(client: KanbanApiClient, args: { taskId: string }) {
   await client.deleteTask(args.taskId);
   return { success: true, taskId: args.taskId, message: `Task ${args.taskId} deleted` };
 }

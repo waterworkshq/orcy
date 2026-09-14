@@ -66,6 +66,8 @@ describe("orcy_habitat_task — ListTools descriptor (firewall)", () => {
         "start",
         "submit",
         "complete",
+        "approve",
+        "reject",
         "release",
         "retry",
         "get-context",
@@ -178,7 +180,7 @@ describe("orcy_habitat_task — ListTools descriptor (firewall)", () => {
   it("locks the full ListTools descriptor (live-captured)", () => {
     expect(TASK_DISPATCH_TOOL).toMatchInlineSnapshot(`
       {
-        "description": "Task operations: lifecycle (claim, start, submit, complete, release, retry, fail), CRUD (list-in-mission, create-in-mission, update, delete), detail (get-context, get-events, get-comments, add-comment, query (get-time-report, get-blocked-status, get-approval-status)), effort (log-effort, list-effort, get-effort-report, correct-effort-entry), code evidence (link-code, list-code-evidence, correct-code-evidence-link, mark-not-applicable, clear-not-applicable, report-gap, resolve-gap), audit evidence bundle (get-audit-bundle), batch (batch-assign, batch-set-priority, batch-delete)",
+        "description": "Task operations: lifecycle (claim, start, submit, complete, approve, reject, release, retry, fail), CRUD (list-in-mission, create-in-mission, update, delete), detail (get-context, get-events, get-comments, add-comment, query (get-time-report, get-blocked-status, get-approval-status)), effort (log-effort, list-effort, get-effort-report, correct-effort-entry), code evidence (link-code, list-code-evidence, correct-code-evidence-link, mark-not-applicable, clear-not-applicable, report-gap, resolve-gap), audit evidence bundle (get-audit-bundle), batch (batch-assign, batch-set-priority, batch-delete)",
         "inputSchema": {
           "properties": {
             "action": {
@@ -192,6 +194,8 @@ describe("orcy_habitat_task — ListTools descriptor (firewall)", () => {
                 "start",
                 "submit",
                 "complete",
+                "approve",
+                "reject",
                 "release",
                 "retry",
                 "get-context",
@@ -452,7 +456,7 @@ describe("orcy_habitat_task — ListTools descriptor (firewall)", () => {
               "type": "string",
             },
             "reason": {
-              "description": "Why the task is being released (action=release)",
+              "description": "Why the task is being released (action=release) or rejected back for rework (action=reject)",
               "type": "string",
             },
             "replacementLinkId": {
@@ -548,7 +552,7 @@ describe("orcy_habitat_task — CallTool results (firewall)", () => {
       {
         "content": [
           {
-            "text": "Unknown action: totally-bogus-action. Valid actions: list-in-mission, create-in-mission, update, delete, claim, start, submit, complete, release, retry, fail, get-context, get-events, get-comments, add-comment, get-time-report, get-blocked-status, get-approval-status, add-dependency, remove-dependency, get-quality-checklist, update-quality-checklist-item, validate-quality-gates, list-subtasks, create-subtask, delete-subtask, link-code, list-code-evidence, correct-code-evidence-link, mark-not-applicable, clear-not-applicable, report-gap, resolve-gap, log-effort, list-effort, get-effort-report, correct-effort-entry, get-audit-bundle, batch-assign, batch-set-priority, batch-delete",
+            "text": "Unknown action: totally-bogus-action. Valid actions: list-in-mission, create-in-mission, update, delete, claim, start, submit, complete, approve, reject, release, retry, fail, get-context, get-events, get-comments, add-comment, get-time-report, get-blocked-status, get-approval-status, add-dependency, remove-dependency, get-quality-checklist, update-quality-checklist-item, validate-quality-gates, list-subtasks, create-subtask, delete-subtask, link-code, list-code-evidence, correct-code-evidence-link, mark-not-applicable, clear-not-applicable, report-gap, resolve-gap, log-effort, list-effort, get-effort-report, correct-effort-entry, get-audit-bundle, batch-assign, batch-set-priority, batch-delete",
             "type": "text",
           },
         ],

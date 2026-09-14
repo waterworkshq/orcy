@@ -29,7 +29,7 @@ All MCP tools use a **dispatch pattern** — each consolidated tool accepts an `
 |---|---|---|
 | `orcy_habitat` | `list`, `find`, `get-settings`, `summary`, `metrics`, `get-health`, `get-health-history`, `predictions`, `bottlenecks`, `agent-quality`, `get-rules`, `update-rules`, `evaluate-rules` | Habitat discovery, settings, summaries, health, analytics, and prioritization rules |
 | `orcy_habitat_mission` | `list`, `create`, `delete`, `archive`, `unarchive`, `get-context`, `get-comments`, `add-comment`, `link-code`, `list-code-evidence`, `correct-code-evidence-link`, `mark-not-applicable`, `clear-not-applicable`, `report-gap`, `resolve-gap`, `get-audit-bundle` | Mission lifecycle, comments, code evidence, and scoped audit evidence bundles |
-| `orcy_habitat_task` | `list-in-mission`, `create-in-mission`, `update`, `delete`, `claim`, `submit`, `complete`, `release`, `retry`, `get-context`, `get-events`, `get-comments`, `add-comment`, `get-time-report`, `get-blocked-status`, `get-approval-status`, `add-dependency`, `remove-dependency`, `get-quality-checklist`, `update-quality-checklist-item`, `validate-quality-gates`, `list-subtasks`, `create-subtask`, `delete-subtask`, `log-effort`, `list-effort`, `get-effort-report`, `correct-effort-entry`, `link-code`, `list-code-evidence`, `correct-code-evidence-link`, `mark-not-applicable`, `clear-not-applicable`, `report-gap`, `resolve-gap`, `get-audit-bundle` | Task lifecycle, comments, quality, subtasks, dependency, effort, evidence, and scoped audit tools |
+| `orcy_habitat_task` | `list-in-mission`, `create-in-mission`, `update`, `delete`, `claim`, `start`, `submit`, `complete`, `approve`, `reject`, `release`, `retry`, `fail`, `get-context`, `get-events`, `get-comments`, `add-comment`, `get-time-report`, `get-blocked-status`, `get-approval-status`, `add-dependency`, `remove-dependency`, `get-quality-checklist`, `update-quality-checklist-item`, `validate-quality-gates`, `list-subtasks`, `create-subtask`, `delete-subtask`, `log-effort`, `list-effort`, `get-effort-report`, `correct-effort-entry`, `link-code`, `list-code-evidence`, `correct-code-evidence-link`, `mark-not-applicable`, `clear-not-applicable`, `report-gap`, `resolve-gap`, `get-audit-bundle` | Task lifecycle, comments, quality, subtasks, dependency, effort, evidence, and scoped audit tools |
 | `orcy_habitat_agent` | `register`, `list`, `heartbeat`, `get-stats` | `board_register_agent`, `board_list_agents`, `board_heartbeat`, `board_get_my_stats` |
 | `orcy_sprint` | `list`, `get`, `get_active`, `get_metrics`, `get_burndown`, `get_carry_over`, `create`, `update`, `delete`, `start`, `complete`, `cancel`, `add_mission`, `remove_mission` | Sprint planning, lifecycle, mission membership, and sprint analytics |
 | `orcy_review` | `list_rules`, `create_rule`, `update_rule`, `delete_rule`, `list_reviewers`, `add_reviewer`, `remove_reviewer` | Review rules and reviewer rows. `add_reviewer` is human-only management; `reviewerType` accepts `human` or `agent` (agent ids validated against the agent registry, typed anti-self). Review DECISIONS are separate: `POST /tasks/:id/approve`/`reject` admit a human or an agent holding a pending agent-typed row — identity always from the authenticated caller |
@@ -783,7 +783,7 @@ Update task fields (title, description, priority, requiredDomain, requiredCapabi
 |--------|-----------|---------------|
 | `in_progress` | `POST /tasks/:id/start` — start working | n/a |
 | `submitted` | `POST /tasks/:id/submit` — submit for review | n/a |
-| `approved` | Not supported via update (PATCH accepts no `status` — schema-rejected). Approve via the review decision `POST /tasks/:id/approve` — a human or an assigned agent reviewer under existing review authorization; no MCP tool reaches it yet (known limitation) | ❌ skipped |
+| `approved` | `POST /tasks/:id/approve` — canonical review approval under existing review authorization (admitted human or pending assigned agent reviewer row) | ❌ skipped |
 | `done` | `POST /tasks/:id/complete` — full gated completion | ✅ checked |
 | `failed` | `POST /tasks/:id/fail` — mark as failed | n/a |
 
@@ -852,6 +852,35 @@ Input:
 - Dependencies resolved
 - Time tracking metrics calculated
 - Artifacts merged
+
+#### Approve Task (Review Decision)
+
+Reviewer approves a submitted task under existing review authorization (`POST /tasks/:id/approve`). Admits a human reviewer or an agent holding a pending agent-typed reviewer row on the task (reviewer identity derived from authenticated principal; no executionToken required; normal authentication and reviewer authorization still apply; does not check quality gates). A pending reviewer row alone never approves: the row-holding agent equal to the current assignee is refused (typed anti-self), and the task's review-state checks still apply.
+
+```
+orcy_habitat_task({ action: "approve", taskId: "uuid-of-task" })
+
+Input:
+{
+  "action": "approve",
+  "taskId": "uuid-of-task"
+}
+```
+
+#### Reject Task (Review Decision)
+
+Reviewer rejects a submitted task back for rework under existing review authorization (`POST /tasks/:id/reject`). Same admission contract as approve; `reason` is required (1–1000 chars).
+
+```
+orcy_habitat_task({ action: "reject", taskId: "uuid-of-task", reason: "Tests are missing for new endpoints" })
+
+Input:
+{
+  "action": "reject",
+  "taskId": "uuid-of-task",
+  "reason": "Tests are missing for new endpoints"
+}
+```
 
 #### Release Task
 

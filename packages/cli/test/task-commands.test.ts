@@ -155,3 +155,39 @@ describe("orcy task fail — execution token payload", () => {
     expect(body).toEqual({ reason: "stuck", executionToken: "" });
   });
 });
+
+describe("orcy task approve — review decision command", () => {
+  it("calls POST /api/tasks/:id/approve with empty-object body; no reviewerId in body", () => {
+    createProgram().parse(["node", "orcy", "task", "approve", "task-1"]);
+    expect(mockPost).toHaveBeenCalledTimes(1);
+    const [path, body] = mockPost.mock.calls[0];
+    expect(path).toBe("/api/tasks/task-1/approve");
+    expect(body).toEqual({});
+  });
+});
+
+describe("orcy task reject — review decision command", () => {
+  it("requires --reason flag; rejects invocation without it", () => {
+    expect(() => {
+      createProgram().parse(["node", "orcy", "task", "reject", "task-1"]);
+    }).toThrow();
+    expect(mockPost).not.toHaveBeenCalled();
+  });
+
+  it("calls POST /api/tasks/:id/reject with reason in body; no reviewerId spoofing", () => {
+    createProgram().parse([
+      "node",
+      "orcy",
+      "task",
+      "reject",
+      "task-1",
+      "--reason",
+      "Tests are failing",
+    ]);
+    expect(mockPost).toHaveBeenCalledTimes(1);
+    const [path, body] = mockPost.mock.calls[0];
+    expect(path).toBe("/api/tasks/task-1/reject");
+    expect(body).toEqual({ reason: "Tests are failing" });
+    expect("reviewerId" in body).toBe(false);
+  });
+});

@@ -140,7 +140,7 @@ describe("epoch guard — task-crud alias (board_update_task) threads the token"
 
   it("status=approved / done review branches do NOT touch the token (out of agent scope)", async () => {
     const client = createMockClient();
-    client.updateTaskStatus.mockResolvedValue({ task: { id: "t1" } });
+    client.approveTask.mockResolvedValue({ task: { id: "t1" } });
     client.completeTask.mockResolvedValue({ success: true });
     client.getAgentById = client.getAgentById ?? (() => Promise.resolve(null));
     await habitatUpdateTask(client as never, { taskId: "t1", status: "approved" });

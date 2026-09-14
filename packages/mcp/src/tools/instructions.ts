@@ -20,7 +20,7 @@ For example, \`orcy_habitat_task({action: "claim", taskId})\` claims a task.
 The dispatch tools are:
 - **orcy_habitat** — habitat-level operations (list, find, get-settings, summary, metrics, get-health, get-health-history, predictions, bottlenecks, agent-quality, get-rules, update-rules, evaluate-rules)
 - **orcy_habitat_mission** — mission operations (list, create, delete, archive, unarchive, get-context)
-- **orcy_habitat_task** — task operations: lifecycle (claim, submit, complete, release, retry), CRUD (list-in-mission, create-in-mission, update, delete), detail (get-context, get-events, get-comments, add-comment), quality (get-quality-checklist, update-quality-checklist-item, validate-quality-gates), subtasks (list-subtasks, create-subtask, delete-subtask)
+- **orcy_habitat_task** — task operations: lifecycle (claim, start, submit, complete, approve, reject, release, retry, fail), CRUD (list-in-mission, create-in-mission, update, delete), detail (get-context, get-events, get-comments, add-comment), quality (get-quality-checklist, update-quality-checklist-item, validate-quality-gates), subtasks (list-subtasks, create-subtask, delete-subtask)
 - **orcy_habitat_agent** — agent operations (register, list, heartbeat, get-stats)
 - **orcy_suggest** — task suggestions (suggest-next-task)
 - **orcy_habitat_message** — messaging (send, get-messages)
@@ -46,7 +46,7 @@ pending ──orcy_habitat_task({action:"claim"})──→ claimed ──orcy_ha
 \`\`\`
 
 - **orcy_habitat_task({action: "complete"})** — the gated path: validates quality gates, dependencies, and time tracking before setting status to \`done\`. This is the recommended flow for agent self-approval.
-- **orcy_habitat_task({action: "update", status: "approved"})** — the human override path: skips quality gates. Use when a human reviewer explicitly accepts the work.
+- **orcy_habitat_task approve / reject actions** — the review-decision path: an admitted human or pending agent-typed reviewer row approves or rejects a submitted task (identity from the authenticated caller; no executionToken required; normal authentication and reviewer authorization still apply). Approve skips quality gates; a \`reason\` is required to reject.
 - **orcy_habitat_task({action: "update", status: "done"})** — routes through \`completeTask\` which re-checks quality gates. Works on both \`submitted\` (goes directly to \`done\` with gates) and \`approved\` tasks (gates re-checked).
 
 ## Critical Rule: Context Before Action

@@ -66,4 +66,15 @@ describe("updateTaskSchema — PATCH /tasks/:id metadata-only narrowing", () => 
       expect(result.success).toBe(false);
     });
   });
+
+  describe("review decisions stay out of the update wall", () => {
+    it('rejects status: "approved"', () => {
+      expect(updateTaskSchema.safeParse({ status: "approved" }).success).toBe(false);
+    });
+
+    it("rejects approve/reject payloads (reason/reviewNote are not metadata)", () => {
+      expect(updateTaskSchema.safeParse({ reason: "needs rework" }).success).toBe(false);
+      expect(updateTaskSchema.safeParse({ reviewNote: "looks good" }).success).toBe(false);
+    });
+  });
 });

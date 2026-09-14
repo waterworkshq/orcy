@@ -5,6 +5,8 @@ import {
   habitatStartTask,
   habitatSubmitTask,
   habitatCompleteTask,
+  habitatApproveTask,
+  habitatRejectTask,
   habitatReleaseTask,
   habitatRetryTask,
   habitatFailTask,
@@ -96,7 +98,10 @@ const f = {
   reviewNote: field.string({
     description: "Review note describing what was verified (action=complete)",
   }),
-  reason: field.string({ description: "Why the task is being released (action=release)" }),
+  reason: field.string({
+    description:
+      "Why the task is being released (action=release) or rejected back for rework (action=reject)",
+  }),
   artifacts: field.array(
     {
       type: "object",
@@ -239,7 +244,7 @@ const f = {
 const TASK = defineActions({
   name: "orcy_habitat_task",
   description:
-    "Task operations: lifecycle (claim, start, submit, complete, release, retry, fail), CRUD (list-in-mission, create-in-mission, update, delete), detail (get-context, get-events, get-comments, add-comment, query (get-time-report, get-blocked-status, get-approval-status)), effort (log-effort, list-effort, get-effort-report, correct-effort-entry), code evidence (link-code, list-code-evidence, correct-code-evidence-link, mark-not-applicable, clear-not-applicable, report-gap, resolve-gap), audit evidence bundle (get-audit-bundle), batch (batch-assign, batch-set-priority, batch-delete)",
+    "Task operations: lifecycle (claim, start, submit, complete, approve, reject, release, retry, fail), CRUD (list-in-mission, create-in-mission, update, delete), detail (get-context, get-events, get-comments, add-comment, query (get-time-report, get-blocked-status, get-approval-status)), effort (log-effort, list-effort, get-effort-report, correct-effort-entry), code evidence (link-code, list-code-evidence, correct-code-evidence-link, mark-not-applicable, clear-not-applicable, report-gap, resolve-gap), audit evidence bundle (get-audit-bundle), batch (batch-assign, batch-set-priority, batch-delete)",
   fields: f,
   actions: {
     "list-in-mission": { args: {}, execute: missionListTasks },
@@ -250,6 +255,12 @@ const TASK = defineActions({
     start: { args: {}, execute: habitatStartTask },
     submit: { args: { taskId: f.taskId, result: f.result }, execute: habitatSubmitTask },
     complete: { args: {}, execute: habitatCompleteTask },
+    // Review decisions (token-free): admission is a human reviewer or a
+    // pending agent-typed reviewer row — server-enforced, identity from the
+    // authenticated caller. Inserted before `fail` so its `enumLast` keeps
+    // the firewall-locked enum ordering.
+    approve: { args: { taskId: f.taskId }, execute: habitatApproveTask },
+    reject: { args: { taskId: f.taskId, reason: f.reason }, execute: habitatRejectTask },
     release: { args: {}, execute: habitatReleaseTask },
     retry: { args: {}, execute: habitatRetryTask },
     fail: { args: {}, execute: habitatFailTask, enumLast: true },

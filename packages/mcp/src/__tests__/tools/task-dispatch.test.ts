@@ -24,7 +24,7 @@ describe("TASK_DISPATCH_TOOL", () => {
     const actionProp = TASK_DISPATCH_TOOL.inputSchema.properties.action as {
       enum?: string[];
     };
-    expect(actionProp.enum).toHaveLength(41);
+    expect(actionProp.enum).toHaveLength(43);
     expect(new Set(actionProp.enum)).toEqual(new Set(Object.keys(TASK_ACTIONS)));
   });
 
@@ -49,6 +49,14 @@ describe("TASK_ACTIONS", () => {
 
     it("routes complete to habitatCompleteTask", () => {
       expect(TASK_ACTIONS["complete"]).toBe(taskLifecycle.habitatCompleteTask);
+    });
+
+    it("routes approve to habitatApproveTask", () => {
+      expect(TASK_ACTIONS["approve"]).toBe(taskLifecycle.habitatApproveTask);
+    });
+
+    it("routes reject to habitatRejectTask", () => {
+      expect(TASK_ACTIONS["reject"]).toBe(taskLifecycle.habitatRejectTask);
     });
 
     it("routes release to habitatReleaseTask", () => {
@@ -231,8 +239,8 @@ describe("TASK_ACTIONS", () => {
     });
   });
 
-  it("has exactly 41 actions", () => {
-    expect(Object.keys(TASK_ACTIONS)).toHaveLength(41);
+  it("has exactly 43 actions", () => {
+    expect(Object.keys(TASK_ACTIONS)).toHaveLength(43);
   });
 
   it("every action maps to a function", () => {
@@ -247,6 +255,6 @@ describe("TASK_ACTIONS", () => {
       "new-action": () => {},
     };
     expect(extendedActions["new-action"]).toBeDefined();
-    expect(Object.keys(extendedActions)).toHaveLength(42);
+    expect(Object.keys(extendedActions)).toHaveLength(44);
   });
 });

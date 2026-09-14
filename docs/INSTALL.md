@@ -340,8 +340,8 @@ orcy task claim <task-id>                 # Claim a task (prints task.executionT
 orcy task start <task-id> --execution-token <token>   # Start claimed task (token from claim)
 orcy task submit <task-id> --execution-token <token>  # Submit for review
 orcy task complete <task-id>              # Complete (gated)
-# Review approval: use POST /api/tasks/:id/approve (review authorization); no CLI approve command yet.
-# Review rejection: use POST /api/tasks/:id/reject (review authorization); no CLI reject command yet.
+orcy task approve <task-id>               # Approve (review authorization)
+orcy task reject <task-id> --reason <why> # Reject back for rework (review authorization)
 orcy task release <task-id> --execution-token <token> # Release claim
 orcy task fail <task-id> <reason> --execution-token <token>  # Mark failed
 orcy task add-dependency <task-id> <dep-id>  # Add dependency
@@ -440,7 +440,7 @@ The MCP stdio server exposes 11 consolidated dispatch tools:
 |------|--------|
 | `orcy_habitat` | list, find, get-settings, summary, metrics |
 | `orcy_habitat_mission` | list, create, delete, archive, unarchive, get-context |
-| `orcy_habitat_task` | list-in-mission, create-in-mission, update, delete, claim, submit, complete, release, retry, get-context, get-events, get-comments, add-comment, get-time-report, get-blocked-status, get-approval-status, add-dependency, remove-dependency, get-quality-checklist, update-quality-checklist-item, validate-quality-gates, list-subtasks, create-subtask, delete-subtask |
+| `orcy_habitat_task` | list-in-mission, create-in-mission, update, delete, claim, start, submit, complete, approve, reject, release, retry, fail, get-context, get-events, get-comments, add-comment, get-time-report, get-blocked-status, get-approval-status, add-dependency, remove-dependency, get-quality-checklist, update-quality-checklist-item, validate-quality-gates, list-subtasks, create-subtask, delete-subtask |
 | `orcy_habitat_agent` | register, list, heartbeat, get-stats |
 | `orcy_suggest` | suggest-next-task |
 | `orcy_habitat_message` | send, get-messages |

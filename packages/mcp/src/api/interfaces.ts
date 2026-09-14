@@ -367,6 +367,18 @@ export interface TaskClient {
     reviewNote?: string,
     artifacts?: Task["artifacts"],
   ): Promise<CompleteTaskResponse>;
+  /**
+   * Review decision (token-free): admits a human or an agent holding a
+   * pending agent-typed reviewer row. Reviewer identity derives from the
+   * authenticated principal — a body `reviewerId` is ignored; an agent
+   * equal to the current assignee is refused server-side (typed anti-self).
+   */
+  approveTask(taskId: string): Promise<{ task: Task }>;
+  /**
+   * Review decision (token-free): same admission contract as
+   * {@link TaskClient.approveTask}; `reason` is required (1–1000 chars).
+   */
+  rejectTask(taskId: string, reason: string): Promise<{ task: Task }>;
   getTaskContext(taskId: string): Promise<TaskContext>;
   releaseTask(
     taskId: string,

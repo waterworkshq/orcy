@@ -868,7 +868,11 @@ export class KanbanApiClient
     });
   }
 
-  async failTask(taskId: string, reason: string, executionToken?: string | null): Promise<{ task: Task }> {
+  async failTask(
+    taskId: string,
+    reason: string,
+    executionToken?: string | null,
+  ): Promise<{ task: Task }> {
     taskId = normalizeTaskId(taskId);
     return this.request<{ task: Task }>("POST", `/api/tasks/${taskId}/fail`, {
       reason,
@@ -900,6 +904,23 @@ export class KanbanApiClient
       reviewNote,
       artifacts: artifacts ?? [],
     });
+  }
+
+  /** Review decision (token-free): reviewer identity derives from the
+   * authenticated principal; admitted humans or pending agent-typed
+   * reviewer-row holders only (server-enforced). */
+  async approveTask(taskId: string): Promise<{ task: Task }> {
+    taskId = normalizeTaskId(taskId);
+    // Empty-object body: the approve schema is a (non-strict) object, so a
+    // missing/null body is a 400 validation error, not an empty decision.
+    return this.request<{ task: Task }>("POST", `/api/tasks/${taskId}/approve`, {});
+  }
+
+  /** Review decision (token-free): same admission contract as approveTask;
+   * `reason` is required (1–1000 chars, server-validated). */
+  async rejectTask(taskId: string, reason: string): Promise<{ task: Task }> {
+    taskId = normalizeTaskId(taskId);
+    return this.request<{ task: Task }>("POST", `/api/tasks/${taskId}/reject`, { reason });
   }
 
   async getTaskContext(taskId: string): Promise<TaskContext> {

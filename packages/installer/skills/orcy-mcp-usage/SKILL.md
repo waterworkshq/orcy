@@ -18,7 +18,7 @@ If you also have the CLI installed, **prefer MCP for intra-session tool use** �
 |------|---------|--------|
 | `orcy_habitat` | `list`, `find`, `get-settings`, `summary`, `metrics` | Habitat-level operations |
 | `orcy_habitat_mission` | `list`, `create`, `delete`, `archive`, `unarchive`, `get-context` | Mission CRUD and lifecycle |
-| `orcy_habitat_task` | `list-in-mission`, `create-in-mission`, `update`, `delete`, `claim`, `submit`, `complete`, `release`, `retry`, `get-context`, `get-events`, `get-comments`, `add-comment`, `get-time-report`, `get-blocked-status`, `get-approval-status`, `add-dependency`, `remove-dependency`, `get-quality-checklist`, `update-quality-checklist-item`, `validate-quality-gates`, `list-subtasks`, `create-subtask`, `delete-subtask` | Full task lifecycle, history, quality, dependencies, subtasks |
+| `orcy_habitat_task` | `list-in-mission`, `create-in-mission`, `update`, `delete`, `claim`, `submit`, `complete`, `approve`, `reject`, `release`, `retry`, `get-context`, `get-events`, `get-comments`, `add-comment`, `get-time-report`, `get-blocked-status`, `get-approval-status`, `add-dependency`, `remove-dependency`, `get-quality-checklist`, `update-quality-checklist-item`, `validate-quality-gates`, `list-subtasks`, `create-subtask`, `delete-subtask` | Full task lifecycle, history, quality, dependencies, subtasks |
 | `orcy_habitat_agent` | `register`, `list`, `heartbeat`, `get-stats` | Agent registration and presence |
 | `orcy_suggest` | `suggest-next-task` | AI-ranked task recommendations |
 | `orcy_habitat_message` | `send`, `get-messages` | Cross-agent communication |
@@ -314,7 +314,7 @@ Modify task fields. When `status` is provided, routes to the lifecycle endpoint:
 |--------|----------|---------------|
 | `in_progress` | POST /tasks/:id/start | n/a |
 | `submitted` | POST /tasks/:id/submit | n/a |
-| `approved` | Not supported via update (PATCH accepts no `status` — schema-rejected). Approve via the review decision `POST /tasks/:id/approve` — a human or an assigned agent reviewer under existing review authorization; no MCP tool reaches it yet (known limitation) | ❌ skipped |
+| `approved` | `POST /tasks/:id/approve` — canonical review approval under existing review authorization (admitted human or pending assigned agent reviewer row) | ❌ skipped |
 | `done` | POST /tasks/:id/complete | Enforced |
 | `failed` | POST /tasks/:id/fail | n/a |
 
@@ -368,6 +368,26 @@ Output: { "success": true, "task": { "status": "done" }, "message": "Task comple
 ```
 
 **Quality gates enforced:** All checklist items complete, dependencies resolved, time tracking calculated, artifacts merged.
+
+### Approve Task (Review Decision)
+
+Reviewer approves a submitted task under existing review authorization (`POST /tasks/:id/approve`). Admits a human reviewer or an agent holding a pending agent-typed reviewer row (reviewer identity from authenticated principal; no executionToken required; normal authentication and reviewer authorization still apply; no quality gates). A pending row alone never approves: assignee self-review is refused and task-state checks still apply.
+
+```
+orcy_habitat_task({ action: "approve", taskId: "uuid" })
+Output: { "success": true, "task": { "id": "uuid", "status": "approved" } }
+```
+
+The returned task row is echoed verbatim: with several required reviewers, the task may stay `submitted` until the last approval lands.
+
+### Reject Task (Review Decision)
+
+Reviewer rejects a submitted task back for rework under existing review authorization (`POST /tasks/:id/reject`). Same admission contract as approve; `reason` is required (1–1000 chars).
+
+```
+orcy_habitat_task({ action: "reject", taskId: "uuid", reason: "Tests are missing for new endpoints" })
+Output: { "success": true, "task": { "id": "uuid", "status": "rejected" } }
+```
 
 ### Release Task
 

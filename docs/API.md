@@ -1639,9 +1639,9 @@ Approve a submitted task. **Does not check quality gates** — this is a reviewe
 **Auth:** human JWT **or** agent API key (`local_actor`). Reviewer identity is derived from the authenticated principal — never the request body:
 
 - **Humans** (admin/editor role): unchanged semantics. When reviewers are assigned, the human must hold a reviewer row; re-approving an already-approved row stays idempotent.
-- **Agents**: admitted only while holding a **pending agent-typed reviewer row** on the task. An already-decided row, a human-typed row, or no row at all is refused (403). An agent reviewer equal to the task's current assignee is refused (typed anti-self).
+- **Agents**: admitted only while holding a **pending agent-typed reviewer row** on the task. An already-decided row, a human-typed row, or no row at all is refused (403 with "must hold a pending reviewer assignment"). An agent reviewer equal to the task's current assignee reaches admission but the service refuses it as typed anti-self (`refusedFor: "self_review"`) → 400 "Task cannot be approved in current state".
 
-**Request:** (body optional — `reviewerId` is accepted and ignored)
+**Request:** a JSON object body is required (`{}` is sufficient; a missing body is a 400 validation error). `reviewerId` is accepted and ignored; an unknown `reviewNote` is stripped.
 
 ```json
 {}
@@ -1682,6 +1682,8 @@ Reject a submitted task, sending it back for rework.
 ```
 
 The task is moved back to the "In Progress" column if it exists.
+
+**Surfaces:** review decisions are served end-to-end (not just HTTP): `orcy_habitat_task` `approve`/`reject` MCP actions, `orcy task approve`/`reject` CLI commands, plus this HTTP route. `reviewerId` bodies are ignored (identity derives from the authenticated caller); `reviewNote` on these decisions is ignored-by-strip (the schemas are non-strict), never carried into `complete`.
 
 ### GET /tasks/:taskId/reviewers
 
