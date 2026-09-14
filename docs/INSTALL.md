@@ -336,15 +336,23 @@ orcy mission help                           # Full subcommand list
 orcy task list <mission-id>                 # List tasks in a mission
 orcy task create <mission-id> <title>       # Create a task
 orcy task get-context <task-id>           # Full task detail
-orcy task claim <task-id>                 # Claim a task
-orcy task submit <task-id>                # Submit for review
+orcy task claim <task-id>                 # Claim a task (prints task.executionToken)
+orcy task start <task-id> --execution-token <token>   # Start claimed task (token from claim)
+orcy task submit <task-id> --execution-token <token>  # Submit for review
 orcy task complete <task-id>              # Complete (gated)
-orcy task approve <task-id>               # Approve (bypass)
-orcy task reject <task-id>                # Reject submission
-orcy task release <task-id>               # Release claim
+# Review approval: use POST /api/tasks/:id/approve (review authorization); no CLI approve command yet.
+# Review rejection: use POST /api/tasks/:id/reject (review authorization); no CLI reject command yet.
+orcy task release <task-id> --execution-token <token> # Release claim
+orcy task fail <task-id> <reason> --execution-token <token>  # Mark failed
 orcy task add-dependency <task-id> <dep-id>  # Add dependency
 orcy task help                            # Full subcommand list
 ```
+
+`--execution-token` carries the claim-pinned `task.executionToken` printed by
+`orcy task claim`. On tokened tasks the four mutations (start/submit/release/
+fail) require it — missing or stale tokens return `409 EPOCH_MISMATCH`. Legacy
+pre-token tasks work without it. The token is never cached or read from
+env/files; a new CLI session must re-enter it explicitly.
 
 ### Agent Operations
 

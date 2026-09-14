@@ -3,6 +3,7 @@ import { tasks } from "../db/schema/index.js";
 import { eq, and, inArray, sql } from "drizzle-orm";
 import type { Task, Artifact } from "../models/index.js";
 import { repositoryTransactionError } from "../errors/repository.js";
+import { ExecutionEpochMismatchError } from "../errors.js";
 import { getTaskById } from "./taskCrud.js";
 import {
   claimWithAuthority,
@@ -10,6 +11,30 @@ import {
   type ClaimAuthorityOptions,
   type ClaimResult,
 } from "./claimAuthority.js";
+
+/**
+ * Epoch-mutation guard predicate fragment (agent wire): the legacy-allowing
+ * disjunction. Bound with the CLIENT's expected token (possibly null —
+ * typed-null ≡ omitted). SQL `= NULL` is never true, so a non-NULL stored row
+ * with a null client token rejects; a stored-NULL row always passes.
+ */
+function epochGuardSql(expected: string | null) {
+  return sql`(${tasks.executionToken} IS NULL OR ${tasks.executionToken} = ${expected})`;
+}
+
+/**
+ * In-tx typed refusal half of the epoch guard: throws
+ * {@link ExecutionEpochMismatchError} when the guard is ACTIVE
+ * (`expected !== undefined`, i.e. an agent-wire caller) and the stored token
+ * is non-NULL and differs from the client's expectation. Callers must be
+ * inside the same transaction as the guarded write — never a pre-check
+ * beside it.
+ */
+function epochGuardAssert(storedToken: string | null, expected: string | null | undefined): void {
+  if (expected !== undefined && storedToken !== null && storedToken !== expected) {
+    throw new ExecutionEpochMismatchError();
+  }
+}
 
 /**
  * Legacy repo claim-result shape consumed unchanged by the service wrappers
@@ -207,11 +232,7 @@ export function submitWithAuthorityClient(
     )
     .run();
 
-  const updated = tx
-    .select()
-    .from(tasks)
-    .where(eq(tasks.id, taskId))
-    .get() as TaskRow | undefined;
+  const updated = tx.select().from(tasks).where(eq(tasks.id, taskId)).get() as TaskRow | undefined;
   return (updated as unknown as Task) ?? null;
 }
 
@@ -300,7 +321,11 @@ export function claimDelegatedTask(
   return flattenClaimResult(result);
 }
 
-export function startTask(taskId: string, agentId: string): Task | null {
+export function startTask(
+  taskId: string,
+  agentId: string,
+  expectedExecutionToken?: string | null,
+): Task | null {
   // Routed through the progression authority (T2 remediation M3): the
   // claimed → in_progress transition runs identity/status re-read + gates +
   // conditional UPDATE + post-write verify in ONE transaction, closing the
@@ -308,7 +333,16 @@ export function startTask(taskId: string, agentId: string): Task | null {
   // Public Task | null shape and null-on-missing/wrong-agent/wrong-status
   // semantics are preserved (manifest §4). Gates are open for every legacy
   // task; a future post-cutover reservation for another identity blocks → null.
-  return progressWithAuthority(getDb(), taskId, { kind: "local", id: agentId });
+  //
+  // Epoch-mutation guard: `expectedExecutionToken` threads the agent wire's
+  // client token into the authority tx (disjunction in the re-read AND the
+  // UPDATE WHERE). `undefined` (system callers) = predicate absent.
+  return progressWithAuthority(
+    getDb(),
+    taskId,
+    { kind: "local", id: agentId },
+    expectedExecutionToken !== undefined ? { expectedExecutionToken } : undefined,
+  );
 }
 
 export function submitTask(
@@ -316,58 +350,103 @@ export function submitTask(
   agentId: string,
   result: string,
   artifacts: Artifact[],
+  expectedExecutionToken?: string | null,
 ): Task | null {
   const db = getDb();
   const now = new Date().toISOString();
 
-  const task = getTaskById(taskId);
-  if (!task) return null;
-  if (task.status !== "in_progress" || task.assignedAgentId !== agentId) return null;
+  // The guarded submit runs re-read + epoch assert + conditional UPDATE in
+  // ONE IMMEDIATE transaction (the epoch-mutation guard lives INSIDE the
+  // authoritative write, never a pre-check beside it). `undefined` token =
+  // system caller: today's predicate exactly, no epoch clause.
+  return db.transaction(
+    (tx) => {
+      type TaskRow = typeof tasks.$inferSelect;
+      const row = tx.select().from(tasks).where(eq(tasks.id, taskId)).get() as TaskRow | undefined;
+      if (!row) return null;
+      if (row.status !== "in_progress" || row.assignedAgentId !== agentId) return null;
+      epochGuardAssert(row.executionToken, expectedExecutionToken);
 
-  db.update(tasks)
-    .set({
-      status: "submitted",
-      submittedAt: now,
-      result,
-      artifacts,
-      updatedAt: now,
-      version: sql`${tasks.version} + 1`,
-    })
-    .where(
-      and(
-        eq(tasks.id, taskId),
-        eq(tasks.assignedAgentId, agentId),
-        eq(tasks.status, "in_progress"),
-      ),
-    )
-    .run();
+      tx.update(tasks)
+        .set({
+          status: "submitted",
+          submittedAt: now,
+          result,
+          artifacts,
+          updatedAt: now,
+          version: sql`${tasks.version} + 1`,
+        })
+        .where(
+          and(
+            eq(tasks.id, taskId),
+            eq(tasks.assignedAgentId, agentId),
+            eq(tasks.status, "in_progress"),
+            ...(expectedExecutionToken !== undefined
+              ? [epochGuardSql(expectedExecutionToken)]
+              : []),
+          ),
+        )
+        .run();
 
-  return getTaskById(taskId);
+      const updated = tx.select().from(tasks).where(eq(tasks.id, taskId)).get() as
+        | TaskRow
+        | undefined;
+      if (!updated || updated.status !== "submitted") return null;
+      return updated as unknown as Task;
+    },
+    { behavior: "immediate" },
+  );
 }
 
-export function releaseTask(taskId: string, _reason: string): Task | null {
+export function releaseTask(
+  taskId: string,
+  _reason: string,
+  expectedExecutionToken?: string | null,
+): Task | null {
   const db = getDb();
   const now = new Date().toISOString();
 
-  const task = getTaskById(taskId);
-  if (!task) return null;
-  if (task.status !== "claimed" && task.status !== "in_progress") return null;
+  // Same discipline as submitTask: the epoch guard (when the agent wire
+  // activates it) joins the re-read assert AND the UPDATE WHERE inside one
+  // IMMEDIATE transaction. System callers (stale sweep, automation executor,
+  // plugin runtime) pass no token — predicate absent, behavior unchanged.
+  return db.transaction(
+    (tx) => {
+      type TaskRow = typeof tasks.$inferSelect;
+      const row = tx.select().from(tasks).where(eq(tasks.id, taskId)).get() as TaskRow | undefined;
+      if (!row) return null;
+      if (row.status !== "claimed" && row.status !== "in_progress") return null;
+      epochGuardAssert(row.executionToken, expectedExecutionToken);
 
-  db.update(tasks)
-    .set({
-      assignedAgentId: null,
-      status: "pending",
-      claimedAt: null,
-      startedAt: null,
-      executionToken: null,
-      lastFailureEventId: null,
-      updatedAt: now,
-      version: sql`${tasks.version} + 1`,
-    })
-    .where(eq(tasks.id, taskId))
-    .run();
+      tx.update(tasks)
+        .set({
+          assignedAgentId: null,
+          status: "pending",
+          claimedAt: null,
+          startedAt: null,
+          executionToken: null,
+          lastFailureEventId: null,
+          updatedAt: now,
+          version: sql`${tasks.version} + 1`,
+        })
+        .where(
+          and(
+            eq(tasks.id, taskId),
+            ...(expectedExecutionToken !== undefined
+              ? [epochGuardSql(expectedExecutionToken)]
+              : []),
+          ),
+        )
+        .run();
 
-  return getTaskById(taskId);
+      const updated = tx.select().from(tasks).where(eq(tasks.id, taskId)).get() as
+        | TaskRow
+        | undefined;
+      if (!updated) return null;
+      return updated as unknown as Task;
+    },
+    { behavior: "immediate" },
+  );
 }
 
 export function failTask(taskId: string, _reason: string): Task | null {

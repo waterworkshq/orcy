@@ -53,6 +53,7 @@ import type { ActorType } from "@orcy/shared";
 import type { Task } from "../models/index.js";
 import { logger } from "../lib/logger.js";
 import { isSqliteError } from "../errors/sqlite.js";
+import { ExecutionEpochMismatchError } from "../errors.js";
 import { checkClaimability } from "./taskQueries.js";
 import { creationObservationStateForTaskWithClient } from "./taskPublication.js";
 import type { TaskPublicationDbClient } from "./taskPublication.js";
@@ -312,11 +313,7 @@ export function claimWithAuthorityClient(
     if (gate) return gate;
     const budget = budgetGateFailure(tx, row.id, opts, "claimed_delegated");
     if (budget) return budget;
-    return runClaimCommittedHook(
-      commitDelegatedClaim(tx, row),
-      tx,
-      opts?.onClaimCommitted,
-    );
+    return runClaimCommittedHook(commitDelegatedClaim(tx, row), tx, opts?.onClaimCommitted);
   }
 
   // ---- plain mode: the claimTask / claimTaskByRemoteParticipant contract ---
@@ -545,14 +542,33 @@ export function checkProgressionGates(
  * `db` defaults to `getDb()`. Returns the progressed `Task`, or `null` on any
  * domain refusal (missing / wrong-agent / wrong-status / gate-block / the
  * UPDATE no-op'd under a surfaced reservation). Infra exceptions propagate.
+ *
+ * `opts.expectedExecutionToken` (epoch-mutation guard): when present, the
+ * legacy-allowing epoch disjunction joins BOTH the in-tx re-read check and
+ * the UPDATE WHERE — a tokened row without a matching client token throws
+ * {@link ExecutionEpochMismatchError} (typed 409), while a stored-NULL row
+ * always allows. `undefined` (system callers) leaves the predicate absent —
+ * the guard is structural, never a wire flag.
  */
 export function progressWithAuthority(
   db: TaskPublicationDbClient | undefined,
   taskId: string,
   claimant: Claimant,
+  opts?: ProgressionAuthorityOptions,
 ): Task | null {
   const client = db ?? getDb();
-  return client.transaction((tx) => progressWithAuthorityClient(tx, taskId, claimant));
+  return client.transaction((tx) => progressWithAuthorityClient(tx, taskId, claimant, opts), {
+    behavior: "immediate",
+  });
+}
+
+/** Epoch-guard options for the progression authority. */
+export interface ProgressionAuthorityOptions {
+  /**
+   * The client's expected execution epoch (may be null — typed-null ≡
+   * omitted). Active (predicate joined) iff `!== undefined`.
+   */
+  expectedExecutionToken?: string | null;
 }
 
 /**
@@ -566,6 +582,7 @@ function progressWithAuthorityClient(
   tx: TaskPublicationDbClient,
   taskId: string,
   claimant: Claimant,
+  opts?: ProgressionAuthorityOptions,
 ): Task | null {
   type TaskRow = typeof tasks.$inferSelect;
 
@@ -580,6 +597,19 @@ function progressWithAuthorityClient(
   // PRESERVE startTask / startTaskByRemoteParticipant: null on wrong-agent or
   // wrong-status (anything other than "claimed" by this identity).
   if (!identityMatches || row.status !== "claimed") return null;
+
+  // 1.5 epoch-mutation guard (agent wire): the legacy-allowing disjunction —
+  //     stored-NULL always allows; a tokened row demands the client's token.
+  //     The typed throw rides INSIDE this tx (never a pre-check beside the
+  //     write); the UPDATE WHERE repeats the predicate as the atomic backstop.
+  const epochGuard = opts?.expectedExecutionToken;
+  if (
+    epochGuard !== undefined &&
+    row.executionToken !== null &&
+    row.executionToken !== epochGuard
+  ) {
+    throw new ExecutionEpochMismatchError();
+  }
 
   // 2. progression gates on tx (observation + reservation). Open for legacy.
   if (!evaluateProgressionGates(tx, row, claimant).ok) return null;
@@ -621,6 +651,11 @@ function progressWithAuthorityClient(
         eq(tasks.id, taskId),
         eq(identityColumn, claimant.id),
         eq(tasks.status, "claimed"),
+        // Epoch-mutation guard disjunction (atomic backstop of step 1.5):
+        // stored-NULL allows; a tokened row demands the client's token.
+        ...(epochGuard !== undefined
+          ? [sql`(${tasks.executionToken} IS NULL OR ${tasks.executionToken} = ${epochGuard})`]
+          : []),
         sql`NOT EXISTS (SELECT 1 FROM task_creation_assignment_reservations WHERE task_id = ${taskId} AND state = 'active' AND ${blockingPredicate})`,
       ),
     )

@@ -461,7 +461,7 @@ describe("board_start_task", () => {
     const raw = await TASK_DISPATCH_HANDLER(client, { action: "start", taskId: "task-1" });
     const result = JSON.parse(raw.content[0].text);
 
-    expect(client.startTask).toHaveBeenCalledWith("task-1");
+    expect(client.startTask).toHaveBeenCalledWith("task-1", null);
     expect(result).toEqual({
       success: true,
       task: { ...mockTask, assignedAgentName: "Test Agent" },
@@ -483,7 +483,7 @@ describe("board_start_task", () => {
     const raw = await TASK_DISPATCH_HANDLER(client, { action: "start", taskId: "task-1" });
     const result = JSON.parse(raw.content[0].text);
 
-    expect(client.startTask).toHaveBeenCalledWith("task-1");
+    expect(client.startTask).toHaveBeenCalledWith("task-1", null);
     expect(result).toEqual({
       success: true,
       task: { ...mockTask, assignedAgentName: null },
@@ -512,7 +512,7 @@ describe("board_submit_task", () => {
     expect(result).toEqual(mockResponse);
     expect(client.submitTask).toHaveBeenCalledWith("task-1", "Fixed the bug", [
       { type: "pr", url: "https://github.com/pr/1", description: "Fix PR" },
-    ]);
+    ], null);
   });
 });
 
@@ -572,7 +572,7 @@ describe("board_release_task", () => {
     const result = JSON.parse(raw.content[0].text);
 
     expect(result).toEqual(mockResponse);
-    expect(client.releaseTask).toHaveBeenCalledWith("task-1", "blocked_by_dependency");
+    expect(client.releaseTask).toHaveBeenCalledWith("task-1", "blocked_by_dependency", null);
   });
 });
 

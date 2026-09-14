@@ -110,7 +110,7 @@ describe("spawner", () => {
       const child = makeMockChild();
       spawnMock.mockReturnValue(child);
 
-      spawnCli("claude-code", "t", "title", "/w", "a", "k", "u", "/b", {
+      spawnCli("claude-code", "t", "title", "/w", "a", "k", "u", "/b", "token", {
         onStdout: (d) => capturedStdout.push(d),
         onStderr: () => {},
         onExit: () => {},
@@ -124,7 +124,7 @@ describe("spawner", () => {
       const child = makeMockChild();
       spawnMock.mockReturnValue(child);
 
-      spawnCli("claude-code", "t", "title", "/w", "a", "k", "u", "/b", {
+      spawnCli("claude-code", "t", "title", "/w", "a", "k", "u", "/b", "token", {
         onStdout: () => {},
         onStderr: (d) => capturedStderr.push(d),
         onExit: () => {},
@@ -138,7 +138,7 @@ describe("spawner", () => {
       const child = makeMockChild();
       spawnMock.mockReturnValue(child);
 
-      spawnCli("claude-code", "t", "title", "/w", "a", "k", "u", "/b", {
+      spawnCli("claude-code", "t", "title", "/w", "a", "k", "u", "/b", "token", {
         onStdout: () => {},
         onStderr: () => {},
         onExit: (code, signal) => exitEvents.push({ code, signal }),
@@ -152,7 +152,7 @@ describe("spawner", () => {
       const child = makeMockChild();
       spawnMock.mockReturnValue(child);
 
-      spawnCli("claude-code", "t", "title", "/w", "a", "k", "u", "/b", {
+      spawnCli("claude-code", "t", "title", "/w", "a", "k", "u", "/b", "token", {
         onStdout: () => {},
         onStderr: () => {},
         onExit: (code, signal) => exitEvents.push({ code, signal }),
@@ -168,7 +168,7 @@ describe("spawner", () => {
       spawnMock.mockReturnValue(child);
 
       expect(() =>
-        spawnCli("claude-code", "t", "title", "/w", "a", "k", "u", "/b", {
+        spawnCli("claude-code", "t", "title", "/w", "a", "k", "u", "/b", "token", {
           onStdout: () => {},
           onStderr: () => {},
           onExit: () => {},

@@ -82,7 +82,13 @@ export interface WorkdirGcOptions {
 export interface AdapterConfig {
   type: CliType;
   bin: string;
-  buildArgs(taskId: string, taskTitle: string, workdir: string): string[];
+  /**
+   * Builds the CLI's argv. `executionToken` is the claim-pinned epoch token
+   * (epoch-mutation guard): the prompt instructs the CLI to present it on
+   * start/submit/fail/release. Immutable for the process lifetime — never
+   * written to any file (.mcp.json/workdir channel forbidden).
+   */
+  buildArgs(taskId: string, taskTitle: string, workdir: string, executionToken: string): string[];
   buildEnv(agentApiKey: string, agentId: string, apiUrl: string): Record<string, string>;
   parseOutput(chunk: string): string | null;
   supportsResume(version: string | null): boolean;

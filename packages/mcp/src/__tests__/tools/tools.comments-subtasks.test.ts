@@ -251,7 +251,7 @@ describe('task dispatch update — status transitions', () => {
     const raw = await TASK_DISPATCH_HANDLER(client, { action: 'update', taskId: 'task-1', status: 'in_progress' });
     const result = JSON.parse(raw.content[0].text);
 
-    expect(client.startTask).toHaveBeenCalledWith('task-1');
+    expect(client.startTask).toHaveBeenCalledWith('task-1', null);
     expect(result).toEqual({ success: true, task: { ...mockTask, assignedAgentName: null } });
   });
 
@@ -264,7 +264,7 @@ describe('task dispatch update — status transitions', () => {
     const raw = await TASK_DISPATCH_HANDLER(client, { action: 'update', taskId: 'task-1', status: 'failed', failureReason: 'Could not complete' });
     const result = JSON.parse(raw.content[0].text);
 
-    expect(client.failTask).toHaveBeenCalledWith('task-1', 'Could not complete');
+    expect(client.failTask).toHaveBeenCalledWith('task-1', 'Could not complete', null);
     expect(result).toEqual({ success: true, task: { ...mockTask, assignedAgentName: null } });
   });
 
@@ -280,7 +280,7 @@ describe('task dispatch update — status transitions', () => {
     const raw = await TASK_DISPATCH_HANDLER(client, { action: 'update', taskId: 'task-1', status: 'submitted', result: 'Fixed the bug' });
     const result = JSON.parse(raw.content[0].text);
 
-    expect(client.submitTask).toHaveBeenCalledWith('task-1', 'Fixed the bug', []);
+    expect(client.submitTask).toHaveBeenCalledWith('task-1', 'Fixed the bug', [], null);
     expect(result).toEqual({ success: true });
   });
 
@@ -294,7 +294,7 @@ describe('task dispatch update — status transitions', () => {
 
     await TASK_DISPATCH_HANDLER(client, { action: 'update', taskId: 'task-1', status: 'submitted' });
 
-    expect(client.submitTask).toHaveBeenCalledWith('task-1', '', []);
+    expect(client.submitTask).toHaveBeenCalledWith('task-1', '', [], null);
   });
 
   it('calls updateTaskStatus when status is approved', async () => {

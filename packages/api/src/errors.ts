@@ -137,3 +137,31 @@ export class InterceptorVetoError extends Error {
     this.name = "InterceptorVetoError";
   }
 }
+
+/**
+ * Fixed message for the epoch-mutation 409 (one code, one shape, all four
+ * agent lifecycle routes): names the field and its source exactly — the claim
+ * response's `task.executionToken`.
+ */
+export const EPOCH_MISMATCH_MESSAGE =
+  "task was claimed in a different execution epoch; present `executionToken` from your claim response (`task.executionToken`)";
+
+/**
+ * Typed refusal thrown INSIDE the authoritative write/transaction when the
+ * agent-presented execution token does not match the stored claim epoch
+ * (stored non-NULL ∧ missing/mismatch). Carries the 409 wire contract
+ * directly — the shared error handler serializes it as
+ * `{ error, code: "EPOCH_MISMATCH" }` via {@link conflictWithCode}.
+ *
+ * The guard is the legacy-allowing disjunction: a stored-NULL row NEVER
+ * throws this (sole legacy boundary); only a tokened row with a wrong or
+ * absent client token does. System-actor call sites never route through the
+ * guarded predicate (they pass no expected token — structural bypass, never
+ * a wire-controllable flag).
+ */
+export class ExecutionEpochMismatchError extends AppError {
+  constructor() {
+    super(409, "EPOCH_MISMATCH", EPOCH_MISMATCH_MESSAGE);
+    this.name = "ExecutionEpochMismatchError";
+  }
+}

@@ -269,12 +269,20 @@ Atomically locks the task to your agent. Only one agent can claim at a time.
 ```
 orcy_habitat_task({ action: "claim", taskId: "uuid" })
 
-Success: { "success": true, "task": { "id": "...", "status": "claimed", "assignedAgentId": "agent-uuid" } }
+Success: { "success": true, "task": { "id": "...", "status": "claimed", "assignedAgentId": "agent-uuid", "executionToken": "<epoch-token>" } }
 Failure (already claimed): { "success": false, "reason": "already_claimed" }
 Failure (capability): { "success": false, "reason": "capability_mismatch", "missingCapabilities": ["postgresql"] }
 Failure (domain): { "success": false, "reason": "domain_mismatch" }
 Failure (dependencies): { "success": false, "reason": "dependencies_unmet" }
 ```
+
+**Execution token (epoch fence).** The claim response includes `task.executionToken`. You MUST capture it and present it as `executionToken` on the four task mutations — `start`, `submit`, `release`, `fail` — and on `update` calls that set `status` to `in_progress`/`submitted`/`failed`. If the task was released and re-claimed (a new epoch), your old token is rejected:
+
+```unknown
+{ "error": "task was claimed in a different execution epoch; present `executionToken` from your claim response (`task.executionToken`)", "code": "EPOCH_MISMATCH" }  // HTTP 409
+```
+
+On receiving `EPOCH_MISMATCH`, stop mutating the task and diagnose before acting: a missing/null token on your CURRENT claim is rejected identically — supply the ORIGINAL `task.executionToken` you captured at claim time, never re-GET the task for a fresh token. If your token is known stale (a new epoch was minted) or the original is unrecoverable, do not abandon a still-valid claim on the error code alone — stop mutations and recover ownership explicitly (verify current ownership via `get-context`) before moving to different work. The `claim` action never takes a token (claiming mints one). Legacy pre-token tasks accept mutations without one.
 
 ### Get Task Context
 
@@ -306,12 +314,14 @@ Modify task fields. When `status` is provided, routes to the lifecycle endpoint:
 |--------|----------|---------------|
 | `in_progress` | POST /tasks/:id/start | n/a |
 | `submitted` | POST /tasks/:id/submit | n/a |
-| `approved` | PATCH /tasks/:id (human override) | Skipped |
+| `approved` | Not supported via update (PATCH accepts no `status` — schema-rejected). Approve via the review decision `POST /tasks/:id/approve` — a human or an assigned agent reviewer under existing review authorization; no MCP tool reaches it yet (known limitation) | ❌ skipped |
 | `done` | POST /tasks/:id/complete | Enforced |
 | `failed` | POST /tasks/:id/fail | n/a |
 
+Status transitions to `in_progress`/`submitted`/`failed` additionally pass your `executionToken` (see Claim Task).
+
 ```
-orcy_habitat_task({ action: "update", taskId: "uuid", status: "in_progress", title: "Updated title", priority: "high" })
+orcy_habitat_task({ action: "update", taskId: "uuid", status: "in_progress", executionToken: "<epoch-token from your claim>", title: "Updated title", priority: "high" })
 
 Input:
 {
@@ -333,6 +343,7 @@ orcy_habitat_task({
   action: "submit",
   taskId: "uuid",
   result: "Implemented the login redirect fix. Changes in auth.ts and router.ts.",
+  executionToken: "<epoch-token from your claim>",
   artifacts: [
     { type: "pr", url: "https://github.com/org/repo/pull/42", description: "Fix login redirect" }
   ]

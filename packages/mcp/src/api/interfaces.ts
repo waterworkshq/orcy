@@ -344,17 +344,23 @@ export interface TaskClient {
     | ClaimTaskResponse
     | { success: false; reason: string; message: string; missingCapabilities?: string[] }
   >;
-  startTask(taskId: string): Promise<{ task: Task }>;
+  /**
+   * Epoch-mutation guard: `executionToken` is the claim-pinned epoch token
+   * from the caller's claim response (`task.executionToken`). Typed-null ≡
+   * omitted; on a tokened task both reject with 409 EPOCH_MISMATCH.
+   */
+  startTask(taskId: string, executionToken?: string | null): Promise<{ task: Task }>;
   updateTaskStatus(
     taskId: string,
     status: TaskStatus,
     options?: { result?: string; artifacts?: Task["artifacts"] },
   ): Promise<{ task: Task }>;
-  failTask(taskId: string, reason: string): Promise<{ task: Task }>;
+  failTask(taskId: string, reason: string, executionToken?: string | null): Promise<{ task: Task }>;
   submitTask(
     taskId: string,
     result: string,
     artifacts?: Task["artifacts"],
+    executionToken?: string | null,
   ): Promise<SubmitTaskResponse>;
   completeTask(
     taskId: string,
@@ -362,7 +368,11 @@ export interface TaskClient {
     artifacts?: Task["artifacts"],
   ): Promise<CompleteTaskResponse>;
   getTaskContext(taskId: string): Promise<TaskContext>;
-  releaseTask(taskId: string, reason: string): Promise<ReleaseTaskResponse>;
+  releaseTask(
+    taskId: string,
+    reason: string,
+    executionToken?: string | null,
+  ): Promise<ReleaseTaskResponse>;
   retryTask(taskId: string): Promise<{ task: Task }>;
   getTask(taskId: string): Promise<{ task: Task }>;
   getTaskEvents(

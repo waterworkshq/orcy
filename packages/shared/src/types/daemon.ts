@@ -40,6 +40,14 @@ export interface ClaimResult {
     priority: string;
     requiredDomain: string | null;
     requiredCapabilities: string[] | null;
+    /**
+     * Claim-pinned execution epoch token (epoch-mutation guard): captured at
+     * THIS claim's commit (the stored claim/session — never a task re-GET)
+     * and threaded into the adapter prompt so the spawned CLI presents it on
+     * start/submit/fail/release. Always minted post-T1; null only for
+     * pre-migration legacy claims.
+     */
+    executionToken: string | null;
   };
   worktreeSettings: {
     repoPath: string;

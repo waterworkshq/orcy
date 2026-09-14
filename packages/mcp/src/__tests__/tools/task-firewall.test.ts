@@ -110,6 +110,7 @@ describe("orcy_habitat_task — ListTools descriptor (firewall)", () => {
         "taskId",
         "missionId",
         "habitatId",
+        "executionToken",
         "title",
         "description",
         "priority",
@@ -326,6 +327,10 @@ describe("orcy_habitat_task — ListTools descriptor (firewall)", () => {
             },
             "evidenceUrl": {
               "description": "URL to evidence (action=update-quality-checklist-item)",
+              "type": "string",
+            },
+            "executionToken": {
+              "description": "executionToken from your claim response task.executionToken (action=start, action=submit, action=release, action=fail, and status transitions via action=update). Required on tokened tasks; omitted or wrong token returns 409 EPOCH_MISMATCH. The claim action never uses it.",
               "type": "string",
             },
             "externalUrls": {

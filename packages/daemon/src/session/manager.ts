@@ -140,6 +140,7 @@ export class SessionManager implements ISessionManager {
         agentApiKey,
         this.apiUrl,
         agentBinPath,
+        claim.task.executionToken ?? "",
         {
           onStdout: (data) => this.handleOutput(sessionId, data),
           onStderr: (data) => this.handleOutput(sessionId, data),

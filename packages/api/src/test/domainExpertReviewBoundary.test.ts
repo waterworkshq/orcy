@@ -133,10 +133,17 @@ describe("domain_expert end-to-end at the real API boundary (zero-human team hab
       });
       expect(claim.statusCode).toBe(200);
 
+      // epoch-mutation guard: the claim response's token is presented on
+      // start/submit (and would be on fail/release).
+      const executionToken = (claim.json() as { task: { executionToken?: string | null } })
+        .task.executionToken!;
+      expect(executionToken).toBeTruthy();
+
       const start = await app.inject({
         method: "POST",
         url: `/api/tasks/${taskId}/start`,
         headers: { "X-Agent-API-Key": workerKey },
+        payload: { executionToken },
       });
       expect(start.statusCode).toBe(200);
 
@@ -144,7 +151,7 @@ describe("domain_expert end-to-end at the real API boundary (zero-human team hab
         method: "POST",
         url: `/api/tasks/${taskId}/submit`,
         headers: { "X-Agent-API-Key": workerKey },
-        payload: { result: "domain work done", artifacts: [] },
+        payload: { result: "domain work done", artifacts: [], executionToken },
       });
       expect(submit.statusCode).toBe(200);
 

@@ -9,10 +9,13 @@ function register(adapter: AdapterConfig): void {
 register({
   type: "claude-code",
   bin: "claude",
-  buildArgs(taskId: string, taskTitle: string, _workdir: string): string[] {
+  buildArgs(taskId: string, taskTitle: string, _workdir: string, executionToken: string): string[] {
     return [
       "--print",
-      `Work on task "${taskTitle}" (ID: ${taskId}). Read AGENTS.md first if present. Follow the task lifecycle: claim, implement, submit.`,
+      `Work on task "${taskTitle}" (ID: ${taskId}). Read AGENTS.md first if present. ` +
+      `This task is ALREADY CLAIMED for you — do NOT claim it again. ` +
+      `Execution token (executionToken, present on start/submit/fail/release): ${executionToken}. ` +
+      `Follow the task lifecycle: start, implement, submit.`,
     ];
   },
   buildEnv(agentApiKey: string, agentId: string, apiUrl: string): Record<string, string> {
@@ -35,10 +38,13 @@ register({
 register({
   type: "codex",
   bin: "codex",
-  buildArgs(taskId: string, taskTitle: string, _workdir: string): string[] {
+  buildArgs(taskId: string, taskTitle: string, _workdir: string, executionToken: string): string[] {
     return [
       "--quiet",
-      `Work on task "${taskTitle}" (ID: ${taskId}). Read AGENTS.md first if present. Follow the task lifecycle: claim, implement, submit.`,
+      `Work on task "${taskTitle}" (ID: ${taskId}). Read AGENTS.md first if present. ` +
+      `This task is ALREADY CLAIMED for you — do NOT claim it again. ` +
+      `Execution token (executionToken, present on start/submit/fail/release): ${executionToken}. ` +
+      `Follow the task lifecycle: start, implement, submit.`,
     ];
   },
   buildEnv(agentApiKey: string, agentId: string, apiUrl: string): Record<string, string> {
@@ -61,10 +67,13 @@ register({
 register({
   type: "opencode",
   bin: "opencode",
-  buildArgs(taskId: string, taskTitle: string, _workdir: string): string[] {
+  buildArgs(taskId: string, taskTitle: string, _workdir: string, executionToken: string): string[] {
     return [
       "--task",
-      `${taskTitle} (ID: ${taskId}). Read AGENTS.md first if present. Follow the task lifecycle: claim, implement, submit.`,
+      `Work on task "${taskTitle}" (ID: ${taskId}). Read AGENTS.md first if present. ` +
+    `This task is ALREADY CLAIMED for you — do NOT claim it again. ` +
+    `Execution token (executionToken, present on start/submit/fail/release): ${executionToken}. ` +
+    `Follow the task lifecycle: start, implement, submit.`,
     ];
   },
   buildEnv(agentApiKey: string, agentId: string, apiUrl: string): Record<string, string> {
@@ -87,10 +96,13 @@ register({
 register({
   type: "cursor",
   bin: "cursor-agent",
-  buildArgs(taskId: string, taskTitle: string, _workdir: string): string[] {
+  buildArgs(taskId: string, taskTitle: string, _workdir: string, executionToken: string): string[] {
     return [
       "--prompt",
-      `Work on task "${taskTitle}" (ID: ${taskId}). Read AGENTS.md first if present. Follow the task lifecycle: claim, implement, submit.`,
+      `Work on task "${taskTitle}" (ID: ${taskId}). Read AGENTS.md first if present. ` +
+      `This task is ALREADY CLAIMED for you — do NOT claim it again. ` +
+      `Execution token (executionToken, present on start/submit/fail/release): ${executionToken}. ` +
+      `Follow the task lifecycle: start, implement, submit.`,
     ];
   },
   buildEnv(agentApiKey: string, agentId: string, apiUrl: string): Record<string, string> {
@@ -113,10 +125,13 @@ register({
 register({
   type: "gemini",
   bin: "gemini",
-  buildArgs(taskId: string, taskTitle: string, _workdir: string): string[] {
+  buildArgs(taskId: string, taskTitle: string, _workdir: string, executionToken: string): string[] {
     return [
       "--prompt",
-      `Work on task "${taskTitle}" (ID: ${taskId}). Read AGENTS.md first if present. Follow the task lifecycle: claim, implement, submit.`,
+      `Work on task "${taskTitle}" (ID: ${taskId}). Read AGENTS.md first if present. ` +
+      `This task is ALREADY CLAIMED for you — do NOT claim it again. ` +
+      `Execution token (executionToken, present on start/submit/fail/release): ${executionToken}. ` +
+      `Follow the task lifecycle: start, implement, submit.`,
     ];
   },
   buildEnv(agentApiKey: string, agentId: string, apiUrl: string): Record<string, string> {

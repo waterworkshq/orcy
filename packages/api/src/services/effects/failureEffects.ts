@@ -35,6 +35,7 @@ import {
 import * as pluginEnrollmentRepo from "../../repositories/pluginEnrollment.js";
 import * as pluginManager from "../../plugins/pluginManager.js";
 import type { Task } from "../../models/index.js";
+import { ExecutionEpochMismatchError } from "../../errors.js";
 
 /** The five required consumers enqueued per failed event (F2 census). */
 export const REQUIRED_EFFECT_CONSUMERS = [
@@ -112,8 +113,23 @@ export function failTaskWithEffects(input: {
   reason: string;
   /** Pre-tx pre-image captured by the caller AFTER its guards ran. */
   preImage: Task;
+  /**
+   * Epoch-mutation guard (agent wire): the CLIENT's expected execution epoch.
+   * When present, the epoch comparison is the legacy-allowing disjunction —
+   * a legacy-NULL row allows even if the client sent a token, and a tokened
+   * row demands equality (missing/null/mismatch → typed
+   * {@link ExecutionEpochMismatchError} refusal, zero failure-bundle writes).
+   * When `undefined` (system/worker path), the STRONGER internal
+   * intended-epoch semantics apply unchanged: the act-tx validates the epoch
+   * whose pre-image was validated pre-tx (row token === pre-image token).
+   *
+   * In BOTH paths the stamped `failed` event and the causal snapshot carry
+   * the ACTUAL winning row's token (never the client's value — a client
+   * token is never stamped over a legacy NULL).
+   */
+  expectedExecutionToken?: string | null;
 }): FailWithEffectsResult | null {
-  const { taskId, actorId, actorType, reason, preImage } = input;
+  const { taskId, actorId, actorType, reason, preImage, expectedExecutionToken } = input;
   const db = getDb();
   const now = new Date().toISOString();
   const eventId = uuid();
@@ -132,17 +148,31 @@ export function failTaskWithEffects(input: {
         | { status: string; executionToken: string | null; assignedAgentId: string | null }
         | undefined;
       if (!row) return null;
-      const tokenMatches = (row.executionToken ?? null) === (preImage.executionToken ?? null);
+      // Agent wire: the legacy-allowing disjunction (typed refusal on a
+      // tokened row without the client's matching token). Worker/system:
+      // the pre-image-bound intended-epoch comparison, unchanged.
+      const tokenOk =
+        expectedExecutionToken !== undefined
+          ? row.executionToken === null || row.executionToken === expectedExecutionToken
+          : (row.executionToken ?? null) === (preImage.executionToken ?? null);
       const assignmentOk = actorType === "system" || row.assignedAgentId === actorId;
-      if (row.status !== "in_progress" || !tokenMatches || !assignmentOk) {
+      if (row.status !== "in_progress" || !assignmentOk) {
         // Refusal: rollback (nothing written yet), zero failure-bundle writes,
         // task untouched under its current epoch.
         return null;
       }
+      if (!tokenOk) {
+        if (expectedExecutionToken !== undefined) {
+          throw new ExecutionEpochMismatchError();
+        }
+        // Worker path keeps its null-refusal contract (intended-epoch loss).
+        return null;
+      }
 
       // ── 2. Service-width CAS fail write + §B.0 pointer ────────────────────
-      const run = tx
-        .update(tasks)
+      // The epoch disjunction joins the write predicate itself when the agent
+      // wire activated the guard (atomic backstop of the B1 re-read).
+      tx.update(tasks)
         .set({
           status: "failed",
           assignedAgentId: null,
@@ -152,18 +182,35 @@ export function failTaskWithEffects(input: {
           updatedAt: now,
           version: sql`${tasks.version} + 1`,
         })
-        .where(and(eq(tasks.id, taskId), eq(tasks.status, "in_progress")))
+        .where(
+          and(
+            eq(tasks.id, taskId),
+            eq(tasks.status, "in_progress"),
+            ...(expectedExecutionToken !== undefined
+              ? [
+                  sql`(${tasks.executionToken} IS NULL OR ${tasks.executionToken} = ${expectedExecutionToken})`,
+                ]
+              : []),
+          ),
+        )
         .run();
       // Cross-backend CAS verification (sql.js run() returns `true`, not
       // {changes}): the re-read status is the authority. The epoch re-read
       // above already serialized this writer inside the IMMEDIATE tx, so a
       // mismatch here is a defense-in-depth abort — throw to roll back.
-      const verify = tx.select({ status: tasks.status }).from(tasks).where(eq(tasks.id, taskId)).get();
+      const verify = tx
+        .select({ status: tasks.status })
+        .from(tasks)
+        .where(eq(tasks.id, taskId))
+        .get();
       if (!verify || verify.status !== "failed") {
         throw new Error("fail_actx_cas_lost");
       }
 
       // ── 3. The stamped `failed` event row (immutable, epoch token) ────────
+      // The stamp carries the ACTUAL winning row's token (`row`, the in-tx
+      // authoritative read) — never the client's presented value, which must
+      // not be stamped over a legacy NULL (spurious manufactured mismatch).
       createEventWithClient(tx, {
         id: eventId,
         taskId,
@@ -175,7 +222,7 @@ export function failTaskWithEffects(input: {
         metadata: { reason },
       });
       tx.update(taskEvents)
-        .set({ executionToken: preImage.executionToken ?? null })
+        .set({ executionToken: row.executionToken ?? null })
         .where(eq(taskEvents.id, eventId))
         .run();
 
@@ -194,7 +241,7 @@ export function failTaskWithEffects(input: {
         rejectionReason: preImage.rejectionReason ?? null,
         retryPolicy: preImage.retryPolicy ?? null,
         assignedAgentIdAtFailure: preImage.assignedAgentId ?? null,
-        executionToken: preImage.executionToken ?? null,
+        executionToken: row.executionToken ?? null,
         frozenOnFailGateIds: gateIds,
         failedAt: now,
       };

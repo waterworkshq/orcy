@@ -161,7 +161,7 @@ Missions automatically move between columns based on derived status:
 
 - Call `orcy_habitat_agent({ action: "heartbeat" })` every 5 minutes while working
 - Tasks idle for more than 30 minutes are automatically released
-- If you cannot complete a task, call `orcy_habitat_task({ action: "release", taskId, reason })` with a reason
+- If you cannot complete a task, call `orcy_habitat_task({ action: "release", taskId, reason, executionToken })` with a reason and your claim token
 
 ---
 
@@ -178,9 +178,9 @@ Use `orcy_habitat_task({ action: "complete" })` to self-approve with full qualit
 4. orcy_suggest({ action: "suggest-next-task", habitatId })  → Find the best task
 5. orcy_habitat_task({ action: "claim", taskId })       → Claim it (pending → claimed)
 6. orcy_habitat_task({ action: "get-context", taskId }) → Full task details
-7. orcy_habitat_task({ action: "update", taskId, status: "in_progress" }) → Start working
+7. orcy_habitat_task({ action: "update", taskId, status: "in_progress", executionToken }) → Start working (present the claim epoch token)
 8. [ Work on the task ]
-9. orcy_habitat_task({ action: "submit", taskId, result, artifacts }) → Submit (preserves artifact links)
+9. orcy_habitat_task({ action: "submit", taskId, result, executionToken, artifacts }) → Submit (preserves artifact links)
 10. orcy_habitat_task({ action: "complete", taskId, reviewNote, artifacts })
     → Validates quality gates ✅, dependencies, time tracking
     → Transitions submitted → done
@@ -199,9 +199,9 @@ Submit for pod review. An assigned reviewer approves (no quality gates) or rejec
 4. orcy_suggest({ action: "suggest-next-task", habitatId })  → Find the best task
 5. orcy_habitat_task({ action: "claim", taskId })       → Claim it (pending → claimed)
 6. orcy_habitat_task({ action: "get-context", taskId }) → Full task details
-7. orcy_habitat_task({ action: "update", taskId, status: "in_progress" }) → Start working
+7. orcy_habitat_task({ action: "update", taskId, status: "in_progress", executionToken }) → Start working (present the claim epoch token)
 8. [ Work on the task ]
-9. orcy_habitat_task({ action: "submit", taskId, result, artifacts }) → Submit (preserves artifact links)
+9. orcy_habitat_task({ action: "submit", taskId, result, executionToken, artifacts }) → Submit (preserves artifact links)
 10. orcy_habitat_agent({ action: "heartbeat" })  # Stay alive while waiting for pod review
 11. Wait for the reviewer verdict — a human, or an agent holding a pending agent-typed reviewer row, may approve or reject (reviewer identity derives from the authenticated caller; a body `reviewerId` is ignored; an agent equal to the task's current assignee is refused; offline agents are not revoked — status never gates admission)
 11a. If approved → orcy_habitat_task({ action: "complete", taskId, reviewNote, artifacts }) → done (gates re-checked)
@@ -729,12 +729,22 @@ orcy_habitat_task({ action: "claim", taskId: "uuid-of-task" })
 Input: { "action": "claim", "taskId": "uuid-of-task" }
 
 Output (success):
-{ "success": true, "task": { "id": "...", "status": "claimed", "assignedAgentId": "agent-uuid" } }
+{ "success": true, "task": { "id": "...", "status": "claimed", "assignedAgentId": "agent-uuid", "executionToken": "<epoch-token>" } }
 
 Output (failure):
 { "success": false, "reason": "already_claimed" }
 { "success": false, "reason": "capability_mismatch", "missingCapabilities": ["postgresql"] }
 ```
+
+#### Execution Token (epoch fence on task mutations)
+
+Your claim response includes `task.executionToken`. Capture it and present it as `executionToken` on the four task mutations — `start` / `update` with `status:"in_progress"`, `submit`, `release`, `fail` (and `update` with `status:"submitted"`/`"failed"`). If the task was released and re-claimed, your old token is refused:
+
+```unknown
+HTTP 409 { "error": "task was claimed in a different execution epoch; present `executionToken` from your claim response (`task.executionToken`)", "code": "EPOCH_MISMATCH" }
+```
+
+On `EPOCH_MISMATCH`, stop mutating the task and diagnose before acting: a missing/null token on your CURRENT claim is rejected identically — supply the ORIGINAL `task.executionToken` you captured at claim time, never re-GET the task for a fresh token. If your token is known stale (the task was released and re-claimed under a new epoch) or the original is unrecoverable, do not abandon a still-valid claim on the error code alone — stop mutations and recover ownership explicitly (verify current ownership via `get-context`; release through your claim only if it is still yours) before moving to different work. The `claim` action never takes a token; claiming mints one. Legacy pre-token tasks accept mutations without one.
 
 #### Get Task Context
 
@@ -773,7 +783,7 @@ Update task fields (title, description, priority, requiredDomain, requiredCapabi
 |--------|-----------|---------------|
 | `in_progress` | `POST /tasks/:id/start` — start working | n/a |
 | `submitted` | `POST /tasks/:id/submit` — submit for review | n/a |
-| `approved` | `PATCH /tasks/:id` — set status directly (pod member override) | ❌ skipped |
+| `approved` | Not supported via update (PATCH accepts no `status` — schema-rejected). Approve via the review decision `POST /tasks/:id/approve` — a human or an assigned agent reviewer under existing review authorization; no MCP tool reaches it yet (known limitation) | ❌ skipped |
 | `done` | `POST /tasks/:id/complete` — full gated completion | ✅ checked |
 | `failed` | `POST /tasks/:id/fail` — mark as failed | n/a |
 

@@ -225,7 +225,7 @@ describe("SessionManager", () => {
 
       let capturedOnExit: (code: number | null, signal: NodeJS.Signals | null) => void = () => {};
       spawnMock.mockImplementation((...args: unknown[]) => {
-        const callbacks = (args as any[])[8] as { onExit: typeof capturedOnExit };
+        const callbacks = (args as any[])[9] as { onExit: typeof capturedOnExit };
         capturedOnExit = callbacks.onExit;
         return { pid: 111, child: makeMockChild(111) };
       });
@@ -256,7 +256,7 @@ describe("SessionManager", () => {
 
       let capturedOnExit: (code: number | null, signal: NodeJS.Signals | null) => void = () => {};
       spawnMock.mockImplementation((...args: unknown[]) => {
-        const callbacks = (args as any[])[8] as { onExit: typeof capturedOnExit };
+        const callbacks = (args as any[])[9] as { onExit: typeof capturedOnExit };
         capturedOnExit = callbacks.onExit;
         return { pid: 111, child: makeMockChild(111) };
       });
@@ -290,7 +290,7 @@ describe("SessionManager", () => {
 
       let capturedOnExit: (code: number | null, signal: NodeJS.Signals | null) => void = () => {};
       spawnMock.mockImplementation((...args: unknown[]) => {
-        const callbacks = (args as any[])[8] as { onExit: typeof capturedOnExit };
+        const callbacks = (args as any[])[9] as { onExit: typeof capturedOnExit };
         capturedOnExit = callbacks.onExit;
         return { pid: 111, child: makeMockChild(111) };
       });
@@ -323,7 +323,7 @@ describe("SessionManager", () => {
 
       let capturedOnError: (error: Error) => void = () => {};
       spawnMock.mockImplementation((...args: unknown[]) => {
-        const callbacks = (args as any[])[8] as { onError: typeof capturedOnError };
+        const callbacks = (args as any[])[9] as { onError: typeof capturedOnError };
         capturedOnError = callbacks.onError;
         return { pid: 111, child: makeMockChild(111) };
       });
@@ -358,7 +358,7 @@ describe("SessionManager", () => {
 
       let capturedOnExit: (code: number | null, signal: NodeJS.Signals | null) => void = () => {};
       spawnMock.mockImplementation((...args: unknown[]) => {
-        const callbacks = (args as any[])[8] as { onExit: typeof capturedOnExit };
+        const callbacks = (args as any[])[9] as { onExit: typeof capturedOnExit };
         capturedOnExit = callbacks.onExit;
         return { pid: 111, child: makeMockChild(111) };
       });
@@ -385,7 +385,7 @@ describe("SessionManager", () => {
 
       let capturedOnExit: (code: number | null, signal: NodeJS.Signals | null) => void = () => {};
       spawnMock.mockImplementation((...args: unknown[]) => {
-        const callbacks = (args as any[])[8] as { onExit: typeof capturedOnExit };
+        const callbacks = (args as any[])[9] as { onExit: typeof capturedOnExit };
         capturedOnExit = callbacks.onExit;
         return { pid: 111, child: makeMockChild(111) };
       });
@@ -445,7 +445,7 @@ describe("SessionManager", () => {
 
       let capturedOnExit: (code: number | null, signal: NodeJS.Signals | null) => void = () => {};
       spawnMock.mockImplementation((...args: unknown[]) => {
-        const callbacks = (args as any[])[8] as { onExit: typeof capturedOnExit };
+        const callbacks = (args as any[])[9] as { onExit: typeof capturedOnExit };
         capturedOnExit = callbacks.onExit;
         return { pid: 222, child: makeMockChild(222) };
       });
@@ -491,7 +491,7 @@ describe("SessionManager", () => {
       let capturedOnStdout: (data: string) => void = () => {};
       let capturedOnExit: (code: number | null, signal: NodeJS.Signals | null) => void = () => {};
       spawnMock.mockImplementation((...args: unknown[]) => {
-        const callbacks = (args as any[])[8] as {
+        const callbacks = (args as any[])[9] as {
           onStdout: typeof capturedOnStdout;
           onExit: typeof capturedOnExit;
         };

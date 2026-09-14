@@ -1474,9 +1474,11 @@ If using agent auth, the `agentId` from the API key is used automatically.
 
 ```json
 {
-  "task": { "id": "...", "status": "claimed", "assignedAgentId": "agent-uuid", "..." }
+  "task": { "id": "...", "status": "claimed", "assignedAgentId": "agent-uuid", "executionToken": "<uuid>", "..." }
 }
 ```
+
+`task.executionToken` is the claim-pinned execution epoch token. Agent callers MUST capture it at claim time and present it as the `executionToken` body field on the four agent lifecycle mutations (`start`, `submit`, `fail`, `release`). It is an epoch fence, not a credential — actor checks stay.
 
 **Response `409` (failure):**
 
@@ -1494,6 +1496,18 @@ Start working on a claimed task.
 
 **Auth:** Agent auth required. The agent must be the assigned agent for this task.
 
+**Request:**
+
+```json
+{
+  "executionToken": "uuid-from-your-claim-response"
+}
+```
+
+| Field | Type | Required | Constraints |
+|-------|------|----------|-------------|
+| `executionToken` | string \| null | no | Claim-pinned epoch token (`task.executionToken` from the claim response). Typed-null ≡ omitted. |
+
 **Response `200`:**
 
 ```json
@@ -1510,6 +1524,23 @@ Start working on a claimed task.
 }
 ```
 
+**Response `409` `EPOCH_MISMATCH`** — the task carries a non-null stored `execution_token` and the body's `executionToken` is missing, null, or stale (the task was released and re-claimed in a different epoch):
+
+```json
+{
+  "error": "task was claimed in a different execution epoch; present `executionToken` from your claim response (`task.executionToken`)",
+  "code": "EPOCH_MISMATCH"
+}
+```
+
+Tasks with a NULL stored token (legacy pre-migration claims) accept the mutation with or without the field; a presented token on a legacy row is ignored. The same `executionToken` body field and `EPOCH_MISMATCH` contract apply to `submit`, `fail`, and `release`.
+
+> **Direct manual clients** (custom scripts, the `orcy` CLI task commands, any
+> non-MCP caller of these four routes): this is an immediate, breaking wire
+> change — capture `task.executionToken` from your claim response and send it
+> as the `executionToken` body field on every start/submit/fail/release, or
+> the call returns `409 EPOCH_MISMATCH` on tokened tasks.
+
 ### POST /tasks/:id/submit
 
 Submit completed work for pod review. Triggers parent mission status recalculation.
@@ -1521,6 +1552,7 @@ Submit completed work for pod review. Triggers parent mission status recalculati
 ```json
 {
   "result": "Fixed the authentication bug by replacing base64 encoding with proper JWT signing using RS256.",
+  "executionToken": "uuid-from-your-claim-response",
   "artifacts": [
     { "type": "pr", "url": "https://github.com/org/repo/pull/42", "description": "Fix JWT auth implementation" },
     { "type": "commit", "url": "https://github.com/org/repo/commit/abc123", "description": "Add jsonwebtoken dependency" }
@@ -1531,6 +1563,7 @@ Submit completed work for pod review. Triggers parent mission status recalculati
 | Field | Type | Required | Constraints |
 |-------|------|----------|-------------|
 | `result` | string | yes | 1-10000 chars |
+| `executionToken` | string \| null | no | Claim-pinned epoch token (see `POST /tasks/:id/start`); missing/null/stale on a tokened task → `409 EPOCH_MISMATCH` |
 | `artifacts` | array | no | Artifact objects |
 
 **Artifact types:** `file`, `pr`, `commit`, `log`, `screenshot`
@@ -1691,13 +1724,15 @@ Release a task back to the pod. Only the assigned orcy or a pod member can relea
 
 ```json
 {
-  "reason": "blocked_by_dependency"
+  "reason": "blocked_by_dependency",
+  "executionToken": "uuid-from-your-claim-response"
 }
 ```
 
 | Field | Type | Required | Constraints |
 |-------|------|----------|-------------|
 | `reason` | string | yes | 1-500 chars |
+| `executionToken` | string \| null | no | Claim-pinned epoch token (see `POST /tasks/:id/start`); missing/null/stale on a tokened task → `409 EPOCH_MISMATCH` |
 
 **Response `200`:**
 
@@ -1717,13 +1752,15 @@ Mark a task as failed.
 
 ```json
 {
-  "reason": "Cannot resolve dependency conflict between packages X and Y"
+  "reason": "Cannot resolve dependency conflict between packages X and Y",
+  "executionToken": "uuid-from-your-claim-response"
 }
 ```
 
 | Field | Type | Required | Constraints |
 |-------|------|----------|-------------|
 | `reason` | string | yes | 1-500 chars |
+| `executionToken` | string \| null | no | Claim-pinned epoch token (see `POST /tasks/:id/start`); missing/null/stale on a tokened task → `409 EPOCH_MISMATCH` |
 
 **Response `200`:**
 
@@ -2901,7 +2938,7 @@ Daemon routes support autonomous AI CLI execution. There are two route groups:
 | `POST` | `/daemon/tasks/claim-next` | `X-Daemon-Token` | Claim next suggested task for an owned agent |
 | `PATCH` | `/daemon/sessions/:id` | `X-Daemon-Token` | Update daemon session status/progress |
 
-`claim-next` returns a `daemonSessionId` alongside task/worktree data. The daemon passes that ID to the session manager so process exit, timeout, and shutdown updates are written back to `daemon_sessions`.
+`claim-next` returns a `daemonSessionId` alongside task/worktree data. The daemon passes that ID to the session manager so process exit, timeout, and shutdown updates are written back to `daemon_sessions`. The claimed `task` object also carries `executionToken` — the claim-epoch token minted by this very claim (never re-fetched). The daemon embeds it in the spawned CLI's prompt (never in `.mcp.json` or any workdir file): the task arrives pre-claimed, and the CLI presents the token as `executionToken` on `start`/`submit`/`fail`/`release`.
 
 ---
 

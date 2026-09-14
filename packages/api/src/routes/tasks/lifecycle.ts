@@ -12,6 +12,7 @@ import {
   failTaskSchema,
   submitTaskSchema,
   completeTaskSchema,
+  startTaskSchema,
 } from "../../models/schemas.js";
 import { authorizeTaskAction, getPrincipalFromRequest } from "../../middleware/taskAuth.js";
 import * as reviewAssignment from "../../services/reviewAssignmentService.js";
@@ -111,7 +112,10 @@ export async function taskLifecycleRoutes(fastify: FastifyInstance): Promise<voi
     .withTypeProvider<ZodTypeProvider>()
     .post(
       "/tasks/:id/start",
-      { schema: { params: taskParamsSchema }, config: { authPolicy: "agent" } },
+      {
+        schema: { params: taskParamsSchema, body: startTaskSchema },
+        config: { authPolicy: "agent" },
+      },
       async (request, _reply) => {
         const task = taskService.getTask(request.params.id);
         if (!task) {
@@ -125,7 +129,15 @@ export async function taskLifecycleRoutes(fastify: FastifyInstance): Promise<voi
           throw forbidden(auth.reason ?? "Forbidden");
         }
 
-        const result = taskService.startTask(request.params.id, agentId);
+        // Epoch-mutation guard: the agent wire always activates the guard —
+        // omitted/null/no-body token maps to null (typed identically); the
+        // disjunction inside the authority tx decides allow vs 409.
+        const parsed = request.body;
+        const result = taskService.startTask(
+          request.params.id,
+          agentId,
+          parsed?.executionToken ?? null,
+        );
         if (!result) {
           throw conflict("Cannot start task in current state");
         }
@@ -241,7 +253,12 @@ export async function taskLifecycleRoutes(fastify: FastifyInstance): Promise<voi
 
         const actorId = request.agent!.id;
         const parsed = request.body;
-        const released = taskService.releaseTask(request.params.id, actorId, parsed.reason ?? "");
+        const released = taskService.releaseTask(
+          request.params.id,
+          actorId,
+          parsed.reason ?? "",
+          parsed.executionToken ?? null,
+        );
 
         if (!released) {
           throw conflict("Cannot release task in current state");
@@ -274,6 +291,7 @@ export async function taskLifecycleRoutes(fastify: FastifyInstance): Promise<voi
           agentId,
           "agent",
           parsed.reason ?? "",
+          parsed.executionToken ?? null,
         );
 
         if (!failed) {
@@ -309,6 +327,7 @@ export async function taskLifecycleRoutes(fastify: FastifyInstance): Promise<voi
             agentId,
             parsed.result ?? "",
             parsed.artifacts ?? [],
+            parsed.executionToken ?? null,
           );
 
           if (!submitted.task) {

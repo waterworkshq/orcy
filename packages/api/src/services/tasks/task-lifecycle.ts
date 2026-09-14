@@ -159,7 +159,11 @@ export function claimTask(
 }
 
 /** Transitions a claimed {@link Task} to `in_progress` for its assigned agent; side effect: ensures quality checklists and emits a `started` transition. */
-export function startTask(taskId: string, agentId: string): Task | null {
+export function startTask(
+  taskId: string,
+  agentId: string,
+  expectedExecutionToken?: string | null,
+): Task | null {
   const current = taskRepo.getTaskById(taskId);
   if (!current) return null;
 
@@ -167,7 +171,9 @@ export function startTask(taskId: string, agentId: string): Task | null {
 
   if (!validateTransition(current.status, "in_progress")) return null;
 
-  const task = taskRepo.startTask(taskId, agentId);
+  // Epoch-mutation guard: the agent wire's expected token rides the
+  // authority tx (undefined = system caller, predicate absent).
+  const task = taskRepo.startTask(taskId, agentId, expectedExecutionToken);
   if (!task) return null;
 
   try {
@@ -195,6 +201,7 @@ export function submitTask(
   agentId: string,
   result: string,
   artifacts: Artifact[],
+  expectedExecutionToken?: string | null,
 ): {
   task: Task | null;
   error?: string;
@@ -244,7 +251,7 @@ export function submitTask(
     };
   }
 
-  const task = taskRepo.submitTask(taskId, agentId, result, artifacts);
+  const task = taskRepo.submitTask(taskId, agentId, result, artifacts, expectedExecutionToken);
   if (!task) return { task: null };
 
   const habitatId = getHabitatId(task);
@@ -679,7 +686,12 @@ export function rejectTask(
 }
 
 /** Releases a claimed or in-progress {@link Task} back to `pending` for the given actor; side effect: emits a `released` transition with the supplied reason. */
-export function releaseTask(taskId: string, actorId: string, reason: string): Task | null {
+export function releaseTask(
+  taskId: string,
+  actorId: string,
+  reason: string,
+  expectedExecutionToken?: string | null,
+): Task | null {
   const current = taskRepo.getTaskById(taskId);
   if (!current) return null;
 
@@ -694,7 +706,7 @@ export function releaseTask(taskId: string, actorId: string, reason: string): Ta
   const budget = guardTransitionTop(taskId, getHabitatId(current), releaseActorType, "released");
   if (budget.outcome === "refused") return null;
 
-  const task = taskRepo.releaseTask(taskId, reason);
+  const task = taskRepo.releaseTask(taskId, reason, expectedExecutionToken);
   if (!task) return null;
 
   const habitatId = getHabitatId(task);
@@ -729,6 +741,7 @@ export function failTask(
   actorId: string,
   actorType: "agent" | "system",
   reason: string,
+  expectedExecutionToken?: string | null,
 ): Task | null {
   const current = taskRepo.getTaskById(taskId);
   if (!current) return null;
@@ -742,7 +755,14 @@ export function failTask(
   const budget = guardTransitionTop(taskId, getHabitatId(current), actorType, "failed");
   if (budget.outcome === "refused") return null;
 
-  const result = failTaskWithEffects({ taskId, actorId, actorType, reason, preImage: current });
+  const result = failTaskWithEffects({
+    taskId,
+    actorId,
+    actorType,
+    reason,
+    preImage: current,
+    expectedExecutionToken,
+  });
   if (!result) return null;
 
   const habitatId = getHabitatId(result.task);

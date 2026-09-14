@@ -14,6 +14,9 @@ export interface InProcessClaimDeps {
    * T1 atomic seam: claims the task AND creates the daemon session carrying
    * the claim's execution token in ONE transaction. Replaces the previous
    * claimTask + createDaemonSession pair (two separate writes, non-atomic).
+   * The returned task carries the minted execution token (epoch-mutation
+   * guard propagation — the strategy's own claim composition, never a
+   * re-GET).
    */
   claimTaskWithSession(
     taskId: string,
@@ -24,7 +27,20 @@ export interface InProcessClaimDeps {
       habitatId: string;
       workdir: string;
     },
-  ): { success: boolean; daemonSessionId?: string };
+  ): {
+    success: boolean;
+    daemonSessionId?: string;
+    task?: {
+      id: string;
+      title: string;
+      description: string | null;
+      missionId: string;
+      priority: string;
+      requiredDomain: string | null;
+      requiredCapabilities: string[] | null;
+      executionToken?: string | null;
+    };
+  };
   getTaskById(taskId: string): {
     id: string;
     title: string;
@@ -33,6 +49,7 @@ export interface InProcessClaimDeps {
     priority: string;
     requiredDomain: string | null;
     requiredCapabilities: string[] | null;
+    executionToken?: string | null;
   } | null;
 }
 
@@ -61,7 +78,9 @@ export class InProcessClaimStrategy implements IClaimStrategy {
         workdir: "pending",
       });
       if (result.success && result.daemonSessionId) {
-        const task = this.deps.getTaskById(suggestion.taskId);
+        // Propagate the OWN claim composition: the task row this transaction
+        // claimed (token minted in-tx). No post-commit re-GET.
+        const task = result.task ?? this.deps.getTaskById(suggestion.taskId);
         if (!task) continue;
 
         return {
@@ -75,6 +94,7 @@ export class InProcessClaimStrategy implements IClaimStrategy {
             priority: task.priority,
             requiredDomain: task.requiredDomain,
             requiredCapabilities: task.requiredCapabilities,
+            executionToken: task.executionToken ?? null,
           },
           worktreeSettings: habitat.gitWorktreeSettings as ClaimResult["worktreeSettings"],
         };

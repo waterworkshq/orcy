@@ -50,7 +50,7 @@ export const BOARD_START_TASK_TOOL: Tool = {
   name: 'board_start_task',
   description:
     'Start work on a claimed task, transitioning it from "claimed" to "in_progress". ' +
-    'Call immediately after board_claim_task to begin work. ' +
+    'Call immediately after board_claim_task to begin work. Present the executionToken from your claim response. ' +
     'The task must already be claimed by the calling agent.',
   inputSchema: {
     type: 'object',
@@ -58,6 +58,11 @@ export const BOARD_START_TASK_TOOL: Tool = {
       taskId: {
         type: 'string',
         description: 'The UUID of the claimed task to start',
+      },
+      executionToken: {
+        type: 'string',
+        description:
+          'executionToken from your claim response (task.executionToken). Required on tokened tasks for start/submit/fail/release; omitted or wrong token returns 409 EPOCH_MISMATCH.',
       },
     },
     required: ['taskId'],
@@ -69,9 +74,9 @@ export const BOARD_START_TASK_TOOL: Tool = {
  */
 export async function habitatStartTask(
   client: KanbanApiClient,
-  args: { taskId: string }
+  args: { taskId: string; executionToken?: string | null }
 ) {
-  const result = await client.startTask(args.taskId);
+  const result = await client.startTask(args.taskId, args.executionToken ?? null);
   const enrichedTask = await enrichTaskWithAgentName(client, result.task);
   return { success: true, task: enrichedTask };
 }
@@ -83,7 +88,7 @@ export const BOARD_SUBMIT_TASK_TOOL: Tool = {
   name: 'board_submit_task',
   description:
     'Submit completed work for human review. This is the correct endpoint for finished work. ' +
-    'Always include: (1) Clear result summary describing what was done, (2) Artifact links (PR, commits, files) if applicable. ' +
+    'Always include: (1) Clear result summary describing what was done, (2) Artifact links (PR, commits, files) if applicable, (3) executionToken from your claim response. ' +
     'After submission, an assigned reviewer will either approve or reject it — a human reviewer or an agent holding a pending agent-typed reviewer row. ' +
     'Check board_heartbeat to monitor status while waiting for review.',
   inputSchema: {
@@ -102,6 +107,11 @@ export const BOARD_SUBMIT_TASK_TOOL: Tool = {
         items: ARTIFACT_SCHEMA_FRAGMENT,
         description: 'Links to PRs, commits, files, screenshots, or logs',
       },
+      executionToken: {
+        type: 'string',
+        description:
+          'executionToken from your claim response (task.executionToken). Required on tokened tasks for start/submit/fail/release; omitted or wrong token returns 409 EPOCH_MISMATCH.',
+      },
     },
     required: ['taskId', 'result'],
   },
@@ -112,9 +122,9 @@ export const BOARD_SUBMIT_TASK_TOOL: Tool = {
  */
 export async function habitatSubmitTask(
   client: KanbanApiClient,
-  args: { taskId: string; result: string; artifacts?: { type: string; url: string; description: string }[] }
+  args: { taskId: string; result: string; artifacts?: { type: string; url: string; description: string }[]; executionToken?: string | null }
 ) {
-  return client.submitTask(args.taskId, args.result, args.artifacts as Task['artifacts']);
+  return client.submitTask(args.taskId, args.result, args.artifacts as Task['artifacts'], args.executionToken ?? null);
 }
 
 /**
@@ -166,7 +176,7 @@ export const BOARD_RELEASE_TASK_TOOL: Tool = {
   name: 'board_release_task',
   description:
     'Release a claimed task back to the pending pool. ' +
-    'Use when you cannot complete the task and need to return it to the queue. ' +
+    'Use when you cannot complete the task and need to return it to the queue. Present the executionToken from your claim response. ' +
     'Always provide a clear reason: blocked_by_dependency, requires_domain_expertise, external_blocker, etc. ' +
     'After releasing, call board_list_features to find alternative work.',
   inputSchema: {
@@ -180,6 +190,11 @@ export const BOARD_RELEASE_TASK_TOOL: Tool = {
         type: 'string',
         description: 'Why the task is being released',
       },
+      executionToken: {
+        type: 'string',
+        description:
+          'executionToken from your claim response (task.executionToken). Required on tokened tasks for start/submit/fail/release; omitted or wrong token returns 409 EPOCH_MISMATCH.',
+      },
     },
     required: ['taskId', 'reason'],
   },
@@ -190,9 +205,9 @@ export const BOARD_RELEASE_TASK_TOOL: Tool = {
  */
 export async function habitatReleaseTask(
   client: KanbanApiClient,
-  args: { taskId: string; reason: string }
+  args: { taskId: string; reason: string; executionToken?: string | null }
 ) {
-  return client.releaseTask(args.taskId, args.reason);
+  return client.releaseTask(args.taskId, args.reason, args.executionToken ?? null);
 }
 
 /**
@@ -234,7 +249,7 @@ export const BOARD_FAIL_TASK_TOOL: Tool = {
   description:
     'Mark a task as failed with a required reason. ' +
     'Use when the task cannot be completed (blocked by external issue, missing prerequisites, ' +
-    'out of scope, etc.). Provide a clear failureReason describing what went wrong.',
+    'out of scope, etc.). Provide a clear failureReason describing what went wrong, and the executionToken from your claim response.',
   inputSchema: {
     type: 'object',
     properties: {
@@ -246,6 +261,11 @@ export const BOARD_FAIL_TASK_TOOL: Tool = {
         type: 'string',
         description: 'Why the task could not be completed (required)',
       },
+      executionToken: {
+        type: 'string',
+        description:
+          'executionToken from your claim response (task.executionToken). Required on tokened tasks for start/submit/fail/release; omitted or wrong token returns 409 EPOCH_MISMATCH.',
+      },
     },
     required: ['taskId', 'failureReason'],
   },
@@ -256,9 +276,9 @@ export const BOARD_FAIL_TASK_TOOL: Tool = {
  */
 export async function habitatFailTask(
   client: KanbanApiClient,
-  args: { taskId: string; failureReason: string }
+  args: { taskId: string; failureReason: string; executionToken?: string | null }
 ) {
-  const result = await client.failTask(args.taskId, args.failureReason);
+  const result = await client.failTask(args.taskId, args.failureReason, args.executionToken ?? null);
   const enrichedTask = await enrichTaskWithAgentName(client, result.task);
   return { success: true, task: enrichedTask };
 }

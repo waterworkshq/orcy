@@ -165,7 +165,9 @@ export function start(daemonId: string, dataDir: string = "/tmp/orcy-daemon"): v
   daemonRepo.updateDaemonHeartbeat(daemonId);
 
   sessionManager.startTimeoutCheck();
-  tick(running).catch((err) => logger.warn({ err, daemonId: running.daemonId }, "Daemon poll tick failed"));
+  tick(running).catch((err) =>
+    logger.warn({ err, daemonId: running.daemonId }, "Daemon poll tick failed"),
+  );
   running.pollTimer = setInterval(() => tick(running), 30000);
   running.heartbeatTimer = setInterval(() => daemonRepo.updateDaemonHeartbeat(daemonId), 30000);
 
@@ -324,6 +326,13 @@ export type ClaimNextDaemonTaskResult =
         priority: string;
         requiredDomain: string | null;
         requiredCapabilities: string[];
+        /**
+         * Claim-pinned execution epoch token, sourced from the STORED claim
+         * composition (`claimTaskWithSession`'s claimed task row — the same
+         * tx that minted it), never a mutation-time task re-GET. The spawned
+         * CLI presents it on start/submit/fail/release.
+         */
+        executionToken: string;
       };
       worktreeSettings: unknown;
     }
@@ -366,7 +375,10 @@ export function claimNextDaemonTask(input: ClaimNextDaemonTaskInput): ClaimNextD
       workdir: "pending",
     });
     if (result.success) {
-      const task = taskRepo.getTaskById(suggestion.taskId)!;
+      // Token + projection sourced from the STORED claim composition — the
+      // task row this very transaction claimed (result.task carries the
+      // minted token), never a post-commit re-GET.
+      const task = result.task;
 
       return {
         claimed: true,
@@ -380,6 +392,7 @@ export function claimNextDaemonTask(input: ClaimNextDaemonTaskInput): ClaimNextD
           priority: task.priority,
           requiredDomain: task.requiredDomain,
           requiredCapabilities: task.requiredCapabilities,
+          executionToken: task.executionToken ?? "",
         },
         worktreeSettings: habitat.gitWorktreeSettings,
       };

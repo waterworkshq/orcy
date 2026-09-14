@@ -848,9 +848,11 @@ export class KanbanApiClient
     }
   }
 
-  async startTask(taskId: string): Promise<{ task: Task }> {
+  async startTask(taskId: string, executionToken?: string | null): Promise<{ task: Task }> {
     taskId = normalizeTaskId(taskId);
-    return this.request<{ task: Task }>("POST", `/api/tasks/${taskId}/start`);
+    return this.request<{ task: Task }>("POST", `/api/tasks/${taskId}/start`, {
+      executionToken: executionToken ?? null,
+    });
   }
 
   async updateTaskStatus(
@@ -866,10 +868,11 @@ export class KanbanApiClient
     });
   }
 
-  async failTask(taskId: string, reason: string): Promise<{ task: Task }> {
+  async failTask(taskId: string, reason: string, executionToken?: string | null): Promise<{ task: Task }> {
     taskId = normalizeTaskId(taskId);
     return this.request<{ task: Task }>("POST", `/api/tasks/${taskId}/fail`, {
       reason,
+      executionToken: executionToken ?? null,
     });
   }
 
@@ -877,11 +880,13 @@ export class KanbanApiClient
     taskId: string,
     result: string,
     artifacts?: Task["artifacts"],
+    executionToken?: string | null,
   ): Promise<SubmitTaskResponse> {
     taskId = normalizeTaskId(taskId);
     return this.request<SubmitTaskResponse>("POST", `/api/tasks/${taskId}/submit`, {
       result,
       artifacts: artifacts ?? [],
+      executionToken: executionToken ?? null,
     });
   }
 
@@ -902,10 +907,15 @@ export class KanbanApiClient
     return this.request<TaskContext>("GET", `/api/tasks/${taskId}`);
   }
 
-  async releaseTask(taskId: string, reason: string): Promise<ReleaseTaskResponse> {
+  async releaseTask(
+    taskId: string,
+    reason: string,
+    executionToken?: string | null,
+  ): Promise<ReleaseTaskResponse> {
     taskId = normalizeTaskId(taskId);
     return this.request<ReleaseTaskResponse>("POST", `/api/tasks/${taskId}/release`, {
       reason,
+      executionToken: executionToken ?? null,
     });
   }
 

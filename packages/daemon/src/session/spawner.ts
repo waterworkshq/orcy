@@ -26,10 +26,11 @@ export function spawnCli(
   agentApiKey: string,
   apiUrl: string,
   binPath: string,
+  executionToken: string,
   callbacks: SpawnCallbacks,
 ): SpawnedProcess {
   const adapter = getAdapter(type);
-  const args = adapter.buildArgs(taskId, taskTitle, workdir);
+  const args = adapter.buildArgs(taskId, taskTitle, workdir, executionToken);
   const env = {
     ...process.env,
     ...adapter.buildEnv(agentApiKey, agentId, apiUrl),

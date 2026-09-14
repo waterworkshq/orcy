@@ -100,6 +100,11 @@ export const BOARD_UPDATE_TASK_TOOL: Tool = {
         type: 'boolean',
         description: 'Set true to permanently delete a subtask (requires subtaskId)',
       },
+      executionToken: {
+        type: 'string',
+        description:
+          'executionToken from your claim response (task.executionToken). Required for status transitions (in_progress/submitted/failed) on tokened tasks; omitted or wrong token returns 409 EPOCH_MISMATCH.',
+      },
     },
     required: ['taskId'],
   },
@@ -129,16 +134,17 @@ export async function habitatUpdateTask(
     subtaskOrder?: number;
     subtaskAssigneeId?: string;
     deleteSubtask?: boolean;
+    executionToken?: string | null;
   }
 ) {
   const STATUS_HANDLERS: Record<string, () => Promise<{ success: true; task?: any } | { success: true }>> = {
     in_progress: async () => {
-      const result = await client.startTask(args.taskId);
+      const result = await client.startTask(args.taskId, args.executionToken ?? null);
       const enrichedTask = await enrichTaskWithAgentName(client, result.task);
       return { success: true, task: enrichedTask };
     },
     submitted: async () => {
-      await client.submitTask(args.taskId, args.result ?? '', []);
+      await client.submitTask(args.taskId, args.result ?? '', [], args.executionToken ?? null);
       return { success: true };
     },
     approved: async () => {
@@ -151,7 +157,7 @@ export async function habitatUpdateTask(
       return { success: true };
     },
     failed: async () => {
-      const result = await client.failTask(args.taskId, args.failureReason ?? 'Task failed');
+      const result = await client.failTask(args.taskId, args.failureReason ?? 'Task failed', args.executionToken ?? null);
       const enrichedTask = await enrichTaskWithAgentName(client, result.task);
       return { success: true, task: enrichedTask };
     },

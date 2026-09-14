@@ -101,10 +101,17 @@ export function registerTaskCommands(program: any) {
     .command("start")
     .description("Start working on a claimed task")
     .argument("<taskId>", "Task UUID")
+    .option(
+      "--execution-token <token>",
+      "Execution token from your claim output (task.executionToken); required on tokened tasks",
+    )
     .action(
-      withErrorHandling(async (taskId: string) => {
+      withErrorHandling(async (taskId: string, options: { executionToken?: string }) => {
         const normId = normalizeTaskId(taskId);
-        const result = await api.post<any>(`/api/tasks/${normId}/start`);
+        // No token given → NO body at all (the route's historical no-body
+        // shape); token given verbatim as the sole field.
+        const body = options.executionToken !== undefined ? { executionToken: options.executionToken } : undefined;
+        const result = await api.post<any>(`/api/tasks/${normId}/start`, body);
         console.log(JSON.stringify(result, null, 2));
       }),
     );
@@ -117,6 +124,10 @@ export function registerTaskCommands(program: any) {
     .option("--artifact-type <type>", "Artifact type (pr, commit, file, screenshot, log)")
     .option("--artifact-url <url>", "Artifact URL")
     .option("--artifact-desc <desc>", "Artifact description")
+    .option(
+      "--execution-token <token>",
+      "Execution token from your claim output (task.executionToken); required on tokened tasks",
+    )
     .action(
       withErrorHandling(async (taskId: string, options: any) => {
         const normId = normalizeTaskId(taskId);
@@ -128,10 +139,12 @@ export function registerTaskCommands(program: any) {
             description: options.artifactDesc ?? "",
           });
         }
-        const result = await api.post<any>(`/api/tasks/${normId}/submit`, {
+        const body: Record<string, any> = {
           result: options.result ?? "",
           artifacts,
-        });
+        };
+        if (options.executionToken !== undefined) body.executionToken = options.executionToken;
+        const result = await api.post<any>(`/api/tasks/${normId}/submit`, body);
         console.log(JSON.stringify(result, null, 2));
       }),
     );
@@ -168,12 +181,16 @@ export function registerTaskCommands(program: any) {
     .description("Release a claimed task back to the pool")
     .argument("<taskId>", "Task UUID")
     .option("--reason <reason>", "Why the task is being released")
+    .option(
+      "--execution-token <token>",
+      "Execution token from your claim output (task.executionToken); required on tokened tasks",
+    )
     .action(
-      withErrorHandling(async (taskId: string, options: { reason?: string }) => {
+      withErrorHandling(async (taskId: string, options: { reason?: string; executionToken?: string }) => {
         const normId = normalizeTaskId(taskId);
-        const result = await api.post<any>(`/api/tasks/${normId}/release`, {
-          reason: options.reason ?? "",
-        });
+        const body: Record<string, any> = { reason: options.reason ?? "" };
+        if (options.executionToken !== undefined) body.executionToken = options.executionToken;
+        const result = await api.post<any>(`/api/tasks/${normId}/release`, body);
         console.log(JSON.stringify(result, null, 2));
       }),
     );
@@ -195,10 +212,16 @@ export function registerTaskCommands(program: any) {
     .description("Mark a task as failed")
     .argument("<taskId>", "Task UUID")
     .argument("<reason>", "Why the task failed")
+    .option(
+      "--execution-token <token>",
+      "Execution token from your claim output (task.executionToken); required on tokened tasks",
+    )
     .action(
-      withErrorHandling(async (taskId: string, reason: string) => {
+      withErrorHandling(async (taskId: string, reason: string, options: { executionToken?: string }) => {
         const normId = normalizeTaskId(taskId);
-        const result = await api.post<any>(`/api/tasks/${normId}/fail`, { reason });
+        const body: Record<string, any> = { reason };
+        if (options.executionToken !== undefined) body.executionToken = options.executionToken;
+        const result = await api.post<any>(`/api/tasks/${normId}/fail`, body);
         console.log(JSON.stringify(result, null, 2));
       }),
     );

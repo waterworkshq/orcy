@@ -65,6 +65,10 @@ const f = {
     description:
       "Habitat UUID (action=list-in-mission, action=batch-assign, action=batch-set-priority, action=batch-delete)",
   }),
+  executionToken: field.string({
+    description:
+      "executionToken from your claim response task.executionToken (action=start, action=submit, action=release, action=fail, and status transitions via action=update). Required on tokened tasks; omitted or wrong token returns 409 EPOCH_MISMATCH. The claim action never uses it.",
+  }),
   title: field.string({ description: "Task title (action=create-in-mission, action=update)" }),
   description: field.string({
     description: "Task description (action=create-in-mission, action=update)",

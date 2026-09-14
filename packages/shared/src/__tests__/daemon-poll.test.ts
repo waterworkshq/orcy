@@ -38,6 +38,9 @@ function makeClaim(habitatId = "h1"): ClaimResult {
       priority: "p",
       requiredDomain: null,
       requiredCapabilities: null,
+      // Epoch-mutation guard: ClaimResult.task carries the claim-epoch token
+      // (null = pre-migration legacy claim in this fixture).
+      executionToken: null,
     },
     worktreeSettings: null,
   };

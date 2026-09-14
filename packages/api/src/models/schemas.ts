@@ -484,15 +484,39 @@ export const rejectTaskSchema = z.object({
 
 export const releaseTaskSchema = z.object({
   reason: z.string().min(1).max(500),
+  /**
+   * Epoch-mutation guard: the claim-pinned execution token from the caller's
+   * claim response (`task.executionToken`). Typed-null ≡ omitted: on a
+   * tokened task both reject with 409 EPOCH_MISMATCH; on a legacy-NULL row
+   * both allow (presented value ignored).
+   */
+  executionToken: z.string().min(1).nullable().optional(),
 });
+
+/**
+ * Body for `POST /tasks/:id/start` — previously schema-less. Carries only the
+ * epoch-mutation guard's {@link releaseTaskSchema.executionToken} semantics.
+ * `.nullable()` keeps the route's historically-legal NO-BODY call shape
+ * working (the zod provider coerces a missing body to `null`): tokened rows
+ * then 409 EPOCH_MISMATCH, legacy NULL rows allow — identical to a `{}` body.
+ */
+export const startTaskSchema = z
+  .object({
+    executionToken: z.string().min(1).nullable().optional(),
+  })
+  .nullable();
 
 export const failTaskSchema = z.object({
   reason: z.string().min(1).max(500),
+  /** See {@link releaseTaskSchema.executionToken}. */
+  executionToken: z.string().min(1).nullable().optional(),
 });
 
 export const submitTaskSchema = z.object({
   result: z.string().min(1).max(10000),
   artifacts: z.array(artifactSchema).optional().default([]),
+  /** See {@link releaseTaskSchema.executionToken}. */
+  executionToken: z.string().min(1).nullable().optional(),
 });
 
 export const completeTaskSchema = z.object({

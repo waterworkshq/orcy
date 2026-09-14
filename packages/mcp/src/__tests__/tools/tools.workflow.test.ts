@@ -131,7 +131,7 @@ describe('Full MCP workflow - create feature → create task → claim → start
     });
     const result = JSON.parse(raw.content[0].text);
 
-    expect(client.failTask).toHaveBeenCalledWith('task-1', 'Could not complete');
+    expect(client.failTask).toHaveBeenCalledWith('task-1', 'Could not complete', null);
     expect(result.task.status).toBe('failed');
     expect(result.task.assignedAgentId).toBeNull();
   });

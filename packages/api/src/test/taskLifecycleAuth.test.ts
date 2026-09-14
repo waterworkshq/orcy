@@ -374,7 +374,11 @@ describe('Task Lifecycle Authorization', () => {
 
       const { request, reply } = mockReqRes({
         params: { id: taskId },
-        body: { result: 'Completed work' },
+        body: {
+          result: 'Completed work',
+          // epoch-mutation guard: present the claim-pinned token
+          executionToken: taskRepo.getTaskById(taskId)!.executionToken,
+        },
         agent: { id: agent1Id, name: 'agent-a', domain: 'fullstack', capabilities: [] },
       });
 
@@ -561,7 +565,11 @@ describe('Task Lifecycle Authorization', () => {
 
       const { request, reply } = mockReqRes({
         params: { id: taskId },
-        body: { reason: 'done' },
+        body: {
+          reason: 'done',
+          // epoch-mutation guard: present the claim-pinned token
+          executionToken: taskRepo.getTaskById(taskId)!.executionToken,
+        },
         agent: { id: agent1Id, name: 'agent-a', domain: 'fullstack', capabilities: [] },
       });
 
@@ -575,7 +583,11 @@ describe('Task Lifecycle Authorization', () => {
 
       const { request, reply } = mockReqRes({
         params: { id: taskId },
-        body: { reason: 'stuck' },
+        body: {
+          reason: 'stuck',
+          // epoch-mutation guard: present the claim-pinned token
+          executionToken: taskRepo.getTaskById(taskId)!.executionToken,
+        },
         agent: { id: agent1Id, name: 'agent-a', domain: 'fullstack', capabilities: [] },
       });
 
