@@ -211,8 +211,20 @@ export function resolveEffectiveFailureHandlerWithClient(
 }
 
 /**
+ * Advancement seam options. `client` threads a caller-owned open
+ * transaction client (the receipt unit's `BEGIN IMMEDIATE` tx) through
+ * `advanceOne` → `satisfyOne`, which then runs the per-gate body as a
+ * SAVEPOINT on that client instead of opening a second top-level
+ * transaction through the global handle — sql.js cannot nest a literal
+ * `BEGIN`, so the receipt composition must reuse the caller's client.
+ * `immediate` applies only to the client-less live path (a savepoint has
+ * no BEGIN mode).
+ */
+export type AdvanceGateOpts = { immediate?: boolean; client?: EventDbClient };
+
+/**
  * Advances a batch of pre-evaluated gates under one closed contract. One
- * per-gate `db.transaction` owns the guarded CAS satisfaction UPDATE, the
+ * per-gate transaction owns the guarded CAS satisfaction UPDATE, the
  * tx-aware audit INSERT ({@link createEventWithClient}), and — for eligible
  * `on_fail` gates only — the recovery handoff write. An INSERT/UPDATE/handoff
  * throw rolls back ALL three writes inside that gate's tx; the gate stays
@@ -226,12 +238,15 @@ export function resolveEffectiveFailureHandlerWithClient(
  * `behavior: "immediate"` — the receipt seam's guarded variant reserves the
  * writer lock before the in-tx re-read, closing the DEFERRED TOCTOU. The
  * default (undefined) preserves the live `notifyTransition` path's current
- * DEFERRED mode byte-for-byte.
+ * DEFERRED mode byte-for-byte. When `opts.client` is supplied (the receipt
+ * unit composes on its own open tx), the same per-gate atomicity runs as a
+ * savepoint on that client — no second top-level BEGIN is issued, so both
+ * drivers compose identically.
  */
 export function advanceGates(
   decisions: GateEvaluationDecision[],
   trigger: GateTrigger,
-  opts?: { immediate?: boolean },
+  opts?: AdvanceGateOpts,
 ): AdvancementResult[] {
   const results: AdvancementResult[] = [];
   for (const decision of decisions) {
@@ -243,7 +258,7 @@ export function advanceGates(
 function advanceOne(
   decision: GateEvaluationDecision,
   trigger: GateTrigger,
-  opts?: { immediate?: boolean },
+  opts?: AdvanceGateOpts,
 ): AdvancementResult {
   const gate = decision.gate;
   const common = {
@@ -309,10 +324,15 @@ function satisfyOne(
   gate: WorkflowGateRecord,
   trigger: GateTrigger,
   common: { gateId: string; triggerKind: GateTrigger["kind"]; triggerEventId: string },
-  opts?: { immediate?: boolean },
+  opts?: AdvanceGateOpts,
 ): AdvancementResult {
-  const db = getDb();
-  return db.transaction(
+  // Client composition: when the caller owns an open unit tx (the receipt
+  // seam), run the per-gate body on THAT client — its `.transaction` is a
+  // driver savepoint (no nested top-level BEGIN; sql.js cannot nest one).
+  // Client-less callers keep today's own per-gate transaction on the global
+  // handle, `opts.immediate` included, byte-for-byte.
+  const client = opts?.client ?? getDb();
+  return client.transaction(
     (tx) => {
       // SELECT-before-UPDATE discriminator — sql.js-safe (does not rely on
       // `run().changes`, which is undefined under the test driver). Classifies
@@ -369,7 +389,9 @@ function satisfyOne(
 
       return { status: "satisfied", ...common, satisfiedAt: now };
     },
-    opts?.immediate ? { behavior: "immediate" } : undefined,
+    // A supplied client runs the savepoint path (config is meaningless
+    // there); the client-less path keeps the live DEFERRED/immediate modes.
+    opts?.client ? undefined : opts?.immediate ? { behavior: "immediate" } : undefined,
   );
 }
 

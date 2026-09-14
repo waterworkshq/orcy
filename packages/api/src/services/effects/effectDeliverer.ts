@@ -330,7 +330,10 @@ async function deliverWorkflowGates(
             actorType: triggerOpts.actorType,
             actorId: triggerOpts.actorId,
           },
-          { immediate: true },
+          // Compose on THIS unit tx: satisfyOne runs each gate as a
+          // savepoint on `tx` (sql.js cannot nest a top-level BEGIN inside
+          // the unit's already-open IMMEDIATE transaction).
+          { immediate: true, client: tx },
         );
         for (const result of results) {
           if (result.status === "write_error") return "write_error" as const;
