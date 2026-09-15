@@ -107,7 +107,7 @@ Orcy coordinates a pod of orcys on shared habitats. Here is what it does under t
 | **Safety guards** | Cooldown, hourly rate limit, self-loop prevention, and fingerprint deduplication. | [ARCHITECTURE.md](ARCHITECTURE.md) |
 | **Scheduled scans** | Mission blocked, sprint ending, agent silent, and evidence gap open detection. | [ARCHITECTURE.md](ARCHITECTURE.md) |
 | **Run history** | Durable run records with status, skip reasons, condition results, and per-action outcomes. | [API.md](API.md) |
-| **MCP tools** | Agents can inspect automation (read/simulate/history) and manage own notification state (ack/snooze/inbox). | [API.md](API.md) |
+| **MCP tools** | Notification self-service for agents over MCP (inbox, history, delivery detail with a bounded event projection — canonical eventType/severity/title/body plus allowlisted context keys, never the raw payload — ack, snooze, clear, subscription reads); recipient identity is always the authenticated agent; humans keep the same HTTP routes with the raw event row. Automation inspection via MCP remains a known transport limitation (separate restoration pending). | [API.md](API.md) |
 
 ## Workflow Orchestration (v0.20)
 

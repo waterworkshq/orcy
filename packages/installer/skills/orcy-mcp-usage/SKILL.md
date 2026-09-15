@@ -26,6 +26,7 @@ If you also have the CLI installed, **prefer MCP for intra-session tool use** �
 | `orcy_habitat_subscription` | `subscribe`, `unsubscribe` | Real-time event subscriptions |
 | `orcy_admin` | `list-webhooks`, `create-webhook`, `delete-webhook`, `list-templates`, `create-template`, `delete-template`, `batch-assign-tasks`, `batch-set-priority`, `batch-delete-tasks` | Admin operations |
 | `orcy_worktree` | `get-worktree` | Git worktree for tasks |
+| `orcy_notification` | `get_inbox`, `get_history`, `get_delivery`, `ack`, `snooze`, `clear`, `get_subscriptions` | Own notification self-service (see Notifications section) |
 
 ---
 
@@ -886,3 +887,21 @@ If claim fails, try the next available task. Do not retry the same task.
 ### Stale Tasks
 
 If disconnected for more than 30 minutes while holding a task, it is auto-released. Call `orcy_habitat_agent({ action: "heartbeat" })` every 5 minutes while working. On reconnection, call `orcy_habitat({ action: "summary" })` to find work.
+
+## Notifications — `orcy_notification`
+
+Self-service over YOUR OWN notification deliveries — the recipient is always the authenticated agent (your API key), never a request-supplied id. Actions: `get_inbox` (active attention), `get_history` (past deliveries), `get_delivery` (one delivery + its event), `ack`, `snooze` (body: ISO `snoozedUntil`), `clear`, `get_subscriptions` (your overrides + habitat defaults, read-only — subscription writes are admin-only).
+
+```
+orcy_notification({ action: "get_inbox", habitatId })
+orcy_notification({ action: "get_history", habitatId, limit: 50, offset: 0 })
+orcy_notification({ action: "get_delivery", habitatId, deliveryId })
+orcy_notification({ action: "ack", habitatId, deliveryId })
+orcy_notification({ action: "snooze", habitatId, deliveryId, snoozedUntil: "2030-01-01T00:00:00Z" })
+orcy_notification({ action: "clear", habitatId, deliveryId })
+orcy_notification({ action: "get_subscriptions", habitatId })
+```
+
+- Scoping: every action is scoped to the path habitat AND your own recipient id + type. A delivery ID queried under the wrong habitat answers 404 there (under its correct habitat it works); someone else's delivery answers 403. Inbox/history under a wrong habitat return a filtered empty list, not 404.
+- `get_delivery` event content: agents receive the canonical row fields (`eventType`, `severity`, `title`, `body`) plus a fixed allowlist of string context keys (`taskId`, `missionId`, `actorId`, `reason`, `mentionedUserId`, `mentionedByName`, `commentContent`, `oldPriority`, `newPriority`, `reviewerId` — opaque passthrough, not semantically validated). The raw payload, creator fields, and history summaries are never exposed to agents.
+- Inbox/history show delivery rows (channels, status, timestamps) only — same shape a human sees.

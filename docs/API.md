@@ -6177,15 +6177,21 @@ Durable notification system with subscriptions, channel routing, digests, acknow
 
 ### Recipient Routes
 
+**Auth:** `local_actor` — human JWT **or** agent API key. The recipient is always the authenticated principal (agent id + `agent` type, or human id + `human` type) — a recipient id or type is never taken from query or body. Scope is the per-route SQL conjunction on (habitatId, recipientType, recipientId): a delivery owned in habitat A does not surface under habitat B's route (delivery-scoped routes answer 404 on habitat mismatch), and a delivery addressed to another recipient answers 403 — including cross-type same-uuid (a human delivery whose recipientId equals an agent's id is still not the agent's). Delivery rows never change recipient assignment after creation.
+
+**Agent vs human `getDelivery` response contract:** humans receive `{ delivery, event }` with the full raw event row (including `payload`, `createdByType`/`createdById`, `historySummary`). Agents receive the same `delivery` row but the `event` is a bounded projection: the canonical row fields `eventType`, `severity`, `title`, `body` (the rendered fan-out content — taken from the stored row itself, so a payload key named `title`/`body`/`eventType`/`severity` can never override them) plus a fixed allowlist of string-valued context keys from the payload — `taskId`, `missionId`, `actorId`, `reason`, `mentionedUserId`, `mentionedByName`, `commentContent`, `oldPriority`, `newPriority`, `reviewerId` — a context key appears only when the stored payload carries a string value for it (missing or non-string values are simply omitted), and a delivery whose event row is absent projects to `null`. These context keys are opaque passthrough: the API does not semantically validate their content. The raw payload object, creator fields, and history summary never reach the agent path. Inbox/history/subscriptions return delivery rows and subscription config only (identical shape for both principal types).
+
+Remote participants are not admitted on recipient routes (`local_actor` accepts only the two local credential models); `/api/shared/*` notification endpoints are unchanged. Subscription writes remain admin-only (see Admin Routes).
+
 | Method | Route | Purpose |
 |--------|-------|---------|
 | GET | `/habitats/:hid/notifications/inbox` | Active inbox (pending, delivered, snoozed, failed) |
 | GET | `/habitats/:hid/notifications/history` | Full delivery history |
-| GET | `/habitats/:hid/notifications/deliveries/:did` | Delivery detail + event |
+| GET | `/habitats/:hid/notifications/deliveries/:did` | Delivery detail + event (agent path: projected event) |
 | POST | `/habitats/:hid/notifications/deliveries/:did/ack` | Acknowledge delivery |
 | POST | `/habitats/:hid/notifications/deliveries/:did/snooze` | Snooze (body: `{snoozedUntil}`) |
 | POST | `/habitats/:hid/notifications/deliveries/:did/clear` | Clear from active inbox |
-| GET | `/habitats/:hid/notifications/subscriptions` | Own subscriptions |
+| GET | `/habitats/:hid/notifications/subscriptions` | Own subscription overrides + habitat defaults (read-only) |
 
 ### Admin Routes
 
@@ -6256,7 +6262,7 @@ Disposition contracts: a state race on either disposition returns **409 CONFLICT
 
 | Tool | Actions | Safety |
 |------|---------|--------|
-| `orcy_notification` | get_inbox, get_history, get_delivery, ack, snooze, clear, get_subscriptions | Self-service only |
+| `orcy_notification` | get_inbox, get_history, get_delivery, ack, snooze, clear, get_subscriptions | Self-service only — the authenticated agent's own deliveries and subscription reads (getDelivery returns the projected event, not the raw payload) |
 | `orcy_automation` | list, get, simulate, list_runs, get_rule_runs | Read-only |
 
 ---

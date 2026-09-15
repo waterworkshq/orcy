@@ -1877,10 +1877,10 @@
       "path": "/api/habitats/:habitatId/notifications/deliveries/:deliveryId",
       "surface": "api-deprecated",
       "guards": [
-        "humanAuth",
+        "agentOrHumanAuth",
         "authorizeHabitatAccess"
       ],
-      "authKind": "human",
+      "authKind": "local_actor",
       "rawBodyEligible": false,
       "source": "core",
       "generatedTwin": false
@@ -1890,10 +1890,10 @@
       "path": "/api/habitats/:habitatId/notifications/history",
       "surface": "api-deprecated",
       "guards": [
-        "humanAuth",
+        "agentOrHumanAuth",
         "authorizeHabitatAccess"
       ],
-      "authKind": "human",
+      "authKind": "local_actor",
       "rawBodyEligible": false,
       "source": "core",
       "generatedTwin": false
@@ -1903,10 +1903,10 @@
       "path": "/api/habitats/:habitatId/notifications/inbox",
       "surface": "api-deprecated",
       "guards": [
-        "humanAuth",
+        "agentOrHumanAuth",
         "authorizeHabitatAccess"
       ],
-      "authKind": "human",
+      "authKind": "local_actor",
       "rawBodyEligible": false,
       "source": "core",
       "generatedTwin": false
@@ -1916,10 +1916,10 @@
       "path": "/api/habitats/:habitatId/notifications/subscriptions",
       "surface": "api-deprecated",
       "guards": [
-        "humanAuth",
+        "agentOrHumanAuth",
         "authorizeHabitatAccess"
       ],
-      "authKind": "human",
+      "authKind": "local_actor",
       "rawBodyEligible": false,
       "source": "core",
       "generatedTwin": false
@@ -4199,10 +4199,10 @@
       "path": "/api/v1/habitats/:habitatId/notifications/deliveries/:deliveryId",
       "surface": "api-v1",
       "guards": [
-        "humanAuth",
+        "agentOrHumanAuth",
         "authorizeHabitatAccess"
       ],
-      "authKind": "human",
+      "authKind": "local_actor",
       "rawBodyEligible": false,
       "source": "core",
       "generatedTwin": false
@@ -4212,10 +4212,10 @@
       "path": "/api/v1/habitats/:habitatId/notifications/history",
       "surface": "api-v1",
       "guards": [
-        "humanAuth",
+        "agentOrHumanAuth",
         "authorizeHabitatAccess"
       ],
-      "authKind": "human",
+      "authKind": "local_actor",
       "rawBodyEligible": false,
       "source": "core",
       "generatedTwin": false
@@ -4225,10 +4225,10 @@
       "path": "/api/v1/habitats/:habitatId/notifications/inbox",
       "surface": "api-v1",
       "guards": [
-        "humanAuth",
+        "agentOrHumanAuth",
         "authorizeHabitatAccess"
       ],
-      "authKind": "human",
+      "authKind": "local_actor",
       "rawBodyEligible": false,
       "source": "core",
       "generatedTwin": false
@@ -4238,10 +4238,10 @@
       "path": "/api/v1/habitats/:habitatId/notifications/subscriptions",
       "surface": "api-v1",
       "guards": [
-        "humanAuth",
+        "agentOrHumanAuth",
         "authorizeHabitatAccess"
       ],
-      "authKind": "human",
+      "authKind": "local_actor",
       "rawBodyEligible": false,
       "source": "core",
       "generatedTwin": false
@@ -6526,10 +6526,10 @@
       "path": "/api/habitats/:habitatId/notifications/deliveries/:deliveryId",
       "surface": "api-deprecated",
       "guards": [
-        "humanAuth",
+        "agentOrHumanAuth",
         "authorizeHabitatAccess"
       ],
-      "authKind": "human",
+      "authKind": "local_actor",
       "rawBodyEligible": false,
       "source": "framework",
       "generatedTwin": true
@@ -6539,10 +6539,10 @@
       "path": "/api/habitats/:habitatId/notifications/history",
       "surface": "api-deprecated",
       "guards": [
-        "humanAuth",
+        "agentOrHumanAuth",
         "authorizeHabitatAccess"
       ],
-      "authKind": "human",
+      "authKind": "local_actor",
       "rawBodyEligible": false,
       "source": "framework",
       "generatedTwin": true
@@ -6552,10 +6552,10 @@
       "path": "/api/habitats/:habitatId/notifications/inbox",
       "surface": "api-deprecated",
       "guards": [
-        "humanAuth",
+        "agentOrHumanAuth",
         "authorizeHabitatAccess"
       ],
-      "authKind": "human",
+      "authKind": "local_actor",
       "rawBodyEligible": false,
       "source": "framework",
       "generatedTwin": true
@@ -6565,10 +6565,10 @@
       "path": "/api/habitats/:habitatId/notifications/subscriptions",
       "surface": "api-deprecated",
       "guards": [
-        "humanAuth",
+        "agentOrHumanAuth",
         "authorizeHabitatAccess"
       ],
-      "authKind": "human",
+      "authKind": "local_actor",
       "rawBodyEligible": false,
       "source": "framework",
       "generatedTwin": true
@@ -8848,10 +8848,10 @@
       "path": "/api/v1/habitats/:habitatId/notifications/deliveries/:deliveryId",
       "surface": "api-v1",
       "guards": [
-        "humanAuth",
+        "agentOrHumanAuth",
         "authorizeHabitatAccess"
       ],
-      "authKind": "human",
+      "authKind": "local_actor",
       "rawBodyEligible": false,
       "source": "framework",
       "generatedTwin": true
@@ -8861,10 +8861,10 @@
       "path": "/api/v1/habitats/:habitatId/notifications/history",
       "surface": "api-v1",
       "guards": [
-        "humanAuth",
+        "agentOrHumanAuth",
         "authorizeHabitatAccess"
       ],
-      "authKind": "human",
+      "authKind": "local_actor",
       "rawBodyEligible": false,
       "source": "framework",
       "generatedTwin": true
@@ -8874,10 +8874,10 @@
       "path": "/api/v1/habitats/:habitatId/notifications/inbox",
       "surface": "api-v1",
       "guards": [
-        "humanAuth",
+        "agentOrHumanAuth",
         "authorizeHabitatAccess"
       ],
-      "authKind": "human",
+      "authKind": "local_actor",
       "rawBodyEligible": false,
       "source": "framework",
       "generatedTwin": true
@@ -8887,10 +8887,10 @@
       "path": "/api/v1/habitats/:habitatId/notifications/subscriptions",
       "surface": "api-v1",
       "guards": [
-        "humanAuth",
+        "agentOrHumanAuth",
         "authorizeHabitatAccess"
       ],
-      "authKind": "human",
+      "authKind": "local_actor",
       "rawBodyEligible": false,
       "source": "framework",
       "generatedTwin": true
@@ -11762,10 +11762,10 @@
       "path": "/api/habitats/:habitatId/notifications/deliveries/:deliveryId/ack",
       "surface": "api-deprecated",
       "guards": [
-        "humanAuth",
+        "agentOrHumanAuth",
         "authorizeHabitatAccess"
       ],
-      "authKind": "human",
+      "authKind": "local_actor",
       "rawBodyEligible": false,
       "source": "core",
       "generatedTwin": false
@@ -11775,10 +11775,10 @@
       "path": "/api/habitats/:habitatId/notifications/deliveries/:deliveryId/clear",
       "surface": "api-deprecated",
       "guards": [
-        "humanAuth",
+        "agentOrHumanAuth",
         "authorizeHabitatAccess"
       ],
-      "authKind": "human",
+      "authKind": "local_actor",
       "rawBodyEligible": false,
       "source": "core",
       "generatedTwin": false
@@ -11788,10 +11788,10 @@
       "path": "/api/habitats/:habitatId/notifications/deliveries/:deliveryId/snooze",
       "surface": "api-deprecated",
       "guards": [
-        "humanAuth",
+        "agentOrHumanAuth",
         "authorizeHabitatAccess"
       ],
-      "authKind": "human",
+      "authKind": "local_actor",
       "rawBodyEligible": false,
       "source": "core",
       "generatedTwin": false
@@ -13997,10 +13997,10 @@
       "path": "/api/v1/habitats/:habitatId/notifications/deliveries/:deliveryId/ack",
       "surface": "api-v1",
       "guards": [
-        "humanAuth",
+        "agentOrHumanAuth",
         "authorizeHabitatAccess"
       ],
-      "authKind": "human",
+      "authKind": "local_actor",
       "rawBodyEligible": false,
       "source": "core",
       "generatedTwin": false
@@ -14010,10 +14010,10 @@
       "path": "/api/v1/habitats/:habitatId/notifications/deliveries/:deliveryId/clear",
       "surface": "api-v1",
       "guards": [
-        "humanAuth",
+        "agentOrHumanAuth",
         "authorizeHabitatAccess"
       ],
-      "authKind": "human",
+      "authKind": "local_actor",
       "rawBodyEligible": false,
       "source": "core",
       "generatedTwin": false
@@ -14023,10 +14023,10 @@
       "path": "/api/v1/habitats/:habitatId/notifications/deliveries/:deliveryId/snooze",
       "surface": "api-v1",
       "guards": [
-        "humanAuth",
+        "agentOrHumanAuth",
         "authorizeHabitatAccess"
       ],
-      "authKind": "human",
+      "authKind": "local_actor",
       "rawBodyEligible": false,
       "source": "core",
       "generatedTwin": false

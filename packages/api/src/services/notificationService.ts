@@ -6,6 +6,11 @@ import * as habitatRepo from "../repositories/habitat.js";
 import * as watcherRepo from "../repositories/watcher.js";
 import * as userRepo from "../repositories/user.js";
 import * as emailService from "./emailService.js";
+import type {
+  NotificationEvent,
+  NotificationEventType as StoredNotificationEventType,
+  NotificationSeverity,
+} from "@orcy/shared";
 
 /** Discriminator for notification events emitted by the task and comment lifecycle. */
 export type NotificationEventType =
@@ -34,6 +39,59 @@ export type NotificationEventData = {
 };
 
 type EventType = NotificationEventType;
+
+/** Field allowlist of {@link NotificationEventData} — the only event payload keys ever exposed to agents reading a delivery back. */
+const EVENT_DATA_KEYS = [
+  "taskId",
+  "missionId",
+  "actorId",
+  "reason",
+  "mentionedUserId",
+  "mentionedByName",
+  "commentContent",
+  "oldPriority",
+  "newPriority",
+  "reviewerId",
+] as const;
+
+/**
+ * The agent-visible projection of a stored notification event: the canonical
+ * row fields (eventType/severity/title/body — the rendered fan-out content)
+ * plus the bounded realtime `NotificationEventData` payload keys, string
+ * values only. The row fields are constructed from the stored row itself, so
+ * a poisoned payload key (`title`, `eventType`, …) can never override them.
+ * Never exposes the raw payload, `createdBy*`, or `historySummary`.
+ *
+ * Payload keys are opaque string passthrough — no semantic validation of
+ * their content is claimed.
+ */
+export type ProjectedNotificationEvent = NotificationEventData & {
+  eventType: StoredNotificationEventType;
+  severity: NotificationSeverity;
+  title: string;
+  body: string;
+};
+
+/** Projects a stored notification event row onto the agent-visible {@link ProjectedNotificationEvent} shape. */
+export function projectNotificationEventData(
+  event: NotificationEvent | null | undefined,
+): ProjectedNotificationEvent | null {
+  if (!event) return null;
+  const projected: ProjectedNotificationEvent = {
+    eventType: event.eventType,
+    severity: event.severity,
+    title: event.title,
+    body: event.body,
+  };
+  const payload = event.payload;
+  if (payload) {
+    for (const key of EVENT_DATA_KEYS) {
+      const value = payload[key];
+      if (typeof value === "string") projected[key] = value;
+    }
+  }
+  return projected;
+}
 
 function getPreferenceValue(prefs: NotificationPreferences, field: string): boolean | undefined {
   switch (field) {

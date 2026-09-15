@@ -1,4 +1,4 @@
-import type { FastifyInstance } from "fastify";
+import type { FastifyInstance, FastifyRequest } from "fastify";
 import { z } from "zod";
 import * as deliveryRepo from "../repositories/notificationDelivery.js";
 import * as eventRepo from "../repositories/notificationEvent.js";
@@ -10,6 +10,7 @@ import {
   isLegacyMigrationComplete,
 } from "../services/notificationMigrationService.js";
 import { adminClearDeliveries } from "../services/notificationClearanceService.js";
+import { projectNotificationEventData } from "../services/notificationService.js";
 import { requireHabitatAccess } from "../middleware/team.js";
 import { notFound, badRequest, forbidden } from "../errors.js";
 import type { NotificationChannel } from "@orcy/shared";
@@ -62,19 +63,40 @@ export async function notificationRoutes(fastify: FastifyInstance): Promise<void
   applyDeclaredAuthPolicies(fastify);
 
   // ============= Recipient Routes =============
+  // Recipient-bound self-service: the principal (local agent or human) is the
+  // recipient — identity derives ONLY from the authenticated caller, never
+  // from query or body. Scope is the per-route SQL conjunction on
+  // (habitatId, recipientType, recipientId); the habitat middleware admits
+  // any authenticated agent, so the repo predicates are the cross-habitat
+  // authority (an owned delivery in habitat A does not surface under
+  // habitat B's route — habitat-mismatch answers 404, wrong recipient 403).
+
+  /**
+   * The authenticated recipient principal. `request.agent` wins when the
+   * caller presented an agent API key (policy `local_actor`); otherwise the
+   * human JWT user. Recipient identity is never taken from the request data.
+   */
+  function requestPrincipal(request: FastifyRequest): { id: string; type: "human" | "agent" } {
+    return request.agent
+      ? { id: request.agent.id, type: "agent" }
+      : { id: request.user!.id, type: "human" };
+  }
 
   fastify.get<{
     Params: { habitatId: string };
-    Querystring: { limit?: string; offset?: string; recipientType?: string };
+    Querystring: { limit?: string; offset?: string };
   }>(
     "/habitats/:habitatId/notifications/inbox",
-    { preHandler: [requireHabitatAccess], config: { authPolicy: "human" } },
+    { preHandler: [requireHabitatAccess], config: { authPolicy: "local_actor" } },
     async (request, _reply) => {
       const { habitatId } = request.params;
-      const userId = request.user!.id;
+      const principal = requestPrincipal(request);
       const limit = request.query.limit ? Number(request.query.limit) : 50;
       const offset = request.query.offset ? Number(request.query.offset) : 0;
-      const result = deliveryRepo.getActiveInbox(habitatId, "human", userId, { limit, offset });
+      const result = deliveryRepo.getActiveInbox(habitatId, principal.type, principal.id, {
+        limit,
+        offset,
+      });
       return result;
     },
   );
@@ -84,13 +106,13 @@ export async function notificationRoutes(fastify: FastifyInstance): Promise<void
     Querystring: { limit?: string; offset?: string };
   }>(
     "/habitats/:habitatId/notifications/history",
-    { preHandler: [requireHabitatAccess], config: { authPolicy: "human" } },
+    { preHandler: [requireHabitatAccess], config: { authPolicy: "local_actor" } },
     async (request, _reply) => {
       const { habitatId } = request.params;
-      const userId = request.user!.id;
+      const principal = requestPrincipal(request);
       const limit = request.query.limit ? Number(request.query.limit) : 50;
       const offset = request.query.offset ? Number(request.query.offset) : 0;
-      const result = deliveryRepo.getDeliveryHistory(habitatId, "human", userId, {
+      const result = deliveryRepo.getDeliveryHistory(habitatId, principal.type, principal.id, {
         limit,
         offset,
       });
@@ -100,33 +122,40 @@ export async function notificationRoutes(fastify: FastifyInstance): Promise<void
 
   fastify.get<{ Params: { habitatId: string; deliveryId: string } }>(
     "/habitats/:habitatId/notifications/deliveries/:deliveryId",
-    { preHandler: [requireHabitatAccess], config: { authPolicy: "human" } },
+    { preHandler: [requireHabitatAccess], config: { authPolicy: "local_actor" } },
     async (request, _reply) => {
       const { habitatId, deliveryId } = request.params;
-      const userId = request.user!.id;
+      const principal = requestPrincipal(request);
       const delivery = deliveryRepo.getNotificationDeliveryById(deliveryId);
       if (!delivery || delivery.habitatId !== habitatId) {
         throw notFound("Delivery not found");
       }
-      if (delivery.recipientId !== userId) {
+      if (delivery.recipientId !== principal.id || delivery.recipientType !== principal.type) {
         throw forbidden("You can only access your own deliveries");
       }
       const event = eventRepo.getNotificationEventById(delivery.eventId);
+      // Agents read the bounded projection — canonical row fields
+      // (eventType/severity/title/body) plus the allowlisted realtime
+      // NotificationEventData payload keys; never the raw payload,
+      // createdBy*, or historySummary. Humans keep the full raw event row.
+      if (request.agent) {
+        return { delivery, event: projectNotificationEventData(event) };
+      }
       return { delivery, event };
     },
   );
 
   fastify.post<{ Params: { habitatId: string; deliveryId: string } }>(
     "/habitats/:habitatId/notifications/deliveries/:deliveryId/ack",
-    { preHandler: [requireHabitatAccess], config: { authPolicy: "human" } },
+    { preHandler: [requireHabitatAccess], config: { authPolicy: "local_actor" } },
     async (request, _reply) => {
       const { habitatId, deliveryId } = request.params;
-      const userId = request.user!.id;
+      const principal = requestPrincipal(request);
       const delivery = deliveryRepo.getNotificationDeliveryById(deliveryId);
       if (!delivery || delivery.habitatId !== habitatId) {
         throw notFound("Delivery not found");
       }
-      if (delivery.recipientId !== userId) {
+      if (delivery.recipientId !== principal.id || delivery.recipientType !== principal.type) {
         throw forbidden("You can only acknowledge your own deliveries");
       }
       return deliveryRepo.acknowledgeDelivery(deliveryId);
@@ -135,10 +164,10 @@ export async function notificationRoutes(fastify: FastifyInstance): Promise<void
 
   fastify.post<{ Params: { habitatId: string; deliveryId: string } }>(
     "/habitats/:habitatId/notifications/deliveries/:deliveryId/snooze",
-    { preHandler: [requireHabitatAccess], config: { authPolicy: "human" } },
+    { preHandler: [requireHabitatAccess], config: { authPolicy: "local_actor" } },
     async (request, _reply) => {
       const { habitatId, deliveryId } = request.params;
-      const userId = request.user!.id;
+      const principal = requestPrincipal(request);
       const parsed = snoozeSchema.safeParse(request.body);
       if (!parsed.success) {
         throw badRequest("Validation failed", parsed.error.flatten());
@@ -147,7 +176,7 @@ export async function notificationRoutes(fastify: FastifyInstance): Promise<void
       if (!delivery || delivery.habitatId !== habitatId) {
         throw notFound("Delivery not found");
       }
-      if (delivery.recipientId !== userId) {
+      if (delivery.recipientId !== principal.id || delivery.recipientType !== principal.type) {
         throw forbidden("You can only snooze your own deliveries");
       }
       return deliveryRepo.snoozeDelivery(deliveryId, parsed.data.snoozedUntil);
@@ -156,15 +185,15 @@ export async function notificationRoutes(fastify: FastifyInstance): Promise<void
 
   fastify.post<{ Params: { habitatId: string; deliveryId: string } }>(
     "/habitats/:habitatId/notifications/deliveries/:deliveryId/clear",
-    { preHandler: [requireHabitatAccess], config: { authPolicy: "human" } },
+    { preHandler: [requireHabitatAccess], config: { authPolicy: "local_actor" } },
     async (request, _reply) => {
       const { habitatId, deliveryId } = request.params;
-      const userId = request.user!.id;
+      const principal = requestPrincipal(request);
       const delivery = deliveryRepo.getNotificationDeliveryById(deliveryId);
       if (!delivery || delivery.habitatId !== habitatId) {
         throw notFound("Delivery not found");
       }
-      if (delivery.recipientId !== userId) {
+      if (delivery.recipientId !== principal.id || delivery.recipientType !== principal.type) {
         throw forbidden("You can only clear your own deliveries");
       }
       return deliveryRepo.clearDelivery(deliveryId);
@@ -174,12 +203,12 @@ export async function notificationRoutes(fastify: FastifyInstance): Promise<void
   // Own subscription state
   fastify.get<{ Params: { habitatId: string } }>(
     "/habitats/:habitatId/notifications/subscriptions",
-    { preHandler: [requireHabitatAccess], config: { authPolicy: "human" } },
+    { preHandler: [requireHabitatAccess], config: { authPolicy: "local_actor" } },
     async (request, _reply) => {
       const { habitatId } = request.params;
-      const userId = request.user!.id;
+      const principal = requestPrincipal(request);
       return {
-        overrides: subscriptionRepo.getRecipientOverrides(habitatId, "human", userId),
+        overrides: subscriptionRepo.getRecipientOverrides(habitatId, principal.type, principal.id),
         defaults: subscriptionRepo.getHabitatDefaults(habitatId),
       };
     },
