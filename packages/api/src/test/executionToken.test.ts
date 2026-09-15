@@ -18,6 +18,7 @@
  *   8  NULL-token task + NULL-token session never equal (SQL semantics)
  *   9  batch-assign + auto-assign mint
  *   10 census: every ownership-ending writer clears; injected fake writer red
+ *      (REC-10 amendment: rejectTask PRESERVES the token — pinned separately)
  *   11 every clear path yields NULL token
  *   12 delegation offer preserves; delegated claim mints
  *
@@ -33,7 +34,12 @@ vi.mock("../services/taskSuggestion.js", () => ({
 }));
 import { eq, and, inArray, sql as dsql } from "drizzle-orm";
 import { closeDb, getDb, initTestDb } from "../db/index.js";
-import { tasks, daemonSessions, daemonInstances, agents as agentsTable } from "../db/schema/index.js";
+import {
+  tasks,
+  daemonSessions,
+  daemonInstances,
+  agents as agentsTable,
+} from "../db/schema/index.js";
 import * as habitatRepo from "../repositories/habitat.js";
 import * as columnRepo from "../repositories/column.js";
 import * as missionRepo from "../repositories/mission.js";
@@ -46,10 +52,18 @@ import * as participantRepo from "../repositories/remoteParticipant.js";
 import * as grantRepo from "../repositories/remoteGrant.js";
 import * as credentialService from "../services/remoteCredentialService.js";
 import type { RemoteParticipantContext } from "../middleware/remoteAuth.js";
-import { claimTaskForRemote, releaseTaskForRemote } from "../services/tasks/remote-task-lifecycle.js";
+import {
+  claimTaskForRemote,
+  releaseTaskForRemote,
+} from "../services/tasks/remote-task-lifecycle.js";
 import type { RemoteActionScope } from "@orcy/shared";
 const ALL_SCOPES: RemoteActionScope[] = [
-  "read", "comment", "claim", "submit", "release", "heartbeat",
+  "read",
+  "comment",
+  "claim",
+  "submit",
+  "release",
+  "heartbeat",
 ];
 import {
   claimWithAuthority,
@@ -77,7 +91,12 @@ beforeEach(async () => {
   expect(fk.foreign_keys).toBe(1);
   const habitat = habitatRepo.createHabitat({ name: "Execution Token Habitat" });
   habitatId = habitat.id;
-  const column = columnRepo.createColumn({ habitatId, name: "Todo", order: 0, requiresClaim: false });
+  const column = columnRepo.createColumn({
+    habitatId,
+    name: "Todo",
+    order: 0,
+    requiresClaim: false,
+  });
   columnId = column.id;
 });
 
@@ -183,7 +202,11 @@ describe("T1 acceptance 1 — claim mints task + session token atomically", () =
     const delegate = seedAgent("delegate");
     const task = seedTask("delegated");
     taskRepo.updateTask(task.id, { delegatedToAgentId: delegate.id });
-    taskRepo.updateTask(task.id, { assignedAgentId: owner.id, status: "claimed", claimedAt: new Date().toISOString() });
+    taskRepo.updateTask(task.id, {
+      assignedAgentId: owner.id,
+      status: "claimed",
+      claimedAt: new Date().toISOString(),
+    });
     const r = taskStateMachine.claimDelegatedTask(task.id, delegate.id);
     expect(r.success).toBe(true);
     expect(taskToken(task.id)).not.toBeNull();
@@ -249,15 +272,19 @@ describe("T1 acceptance 2 — start preserves the token", () => {
 // 3. Rework refusal (HEAD behavior): rejected → in_progress refuses, no mint
 // ---------------------------------------------------------------------------
 
-describe("T1 acceptance 3 — rejected → in_progress is refused (no rework mint)", () => {
-  it("progression authority refuses a non-claimed status; token unchanged", () => {
+describe("T1 acceptance 3 — inadmissible status → in_progress is refused (no mint)", () => {
+  // REC-10 re-anchor: `rejected → in_progress` is now the OWNER'S REWORK
+  // transition (see reworkContinuation.test.ts — mint Y, exact-X session
+  // leg). The refusal this acceptance pins is the remaining inadmissible
+  // shape: a `submitted` row (only approve/reject may leave it).
+  it("progression authority refuses a submitted status; token unchanged", () => {
     const agent = seedAgent();
-    const task = seedTask("rework");
-    taskRepo.updateTask(task.id, { status: "rejected" });
+    const task = seedTask("no-mint-submitted");
+    taskRepo.updateTask(task.id, { status: "submitted" });
     taskRepo.updateTask(task.id, { assignedAgentId: agent.id });
     const claimant: Claimant = { kind: "local", id: agent.id };
     const out = progressWithAuthority(getDb(), task.id, claimant);
-    expect(out).toBeNull(); // refusal is HEAD behavior
+    expect(out).toBeNull(); // refusal
     expect(taskToken(task.id)).toBeNull(); // no writer minted on refusal
   });
 });
@@ -406,12 +433,11 @@ describe("T1 acceptance 8 — NULL tokens never equal (SQL semantics)", () => {
     const t1 = seedTask("legacy-a");
     const t2 = seedTask("legacy-b");
     // Pre-migration shape: both NULL.
-    const r = getDb()
-      .get(
-        dsql`SELECT count(*) AS eqCount FROM tasks a, tasks b
+    const r = getDb().get(
+      dsql`SELECT count(*) AS eqCount FROM tasks a, tasks b
              WHERE a.id = ${t1.id} AND b.id = ${t2.id}
                AND (a.execution_token = b.execution_token)`,
-      ) as { eqCount: number };
+    ) as { eqCount: number };
     // NULL = NULL is NULL → not TRUE → zero rows match.
     expect(r.eqCount).toBe(0);
   });
@@ -519,12 +545,14 @@ describe("T1 acceptance 11 — every clear path yields NULL token", () => {
     expect(taskToken(task.id)).toBeNull();
   });
 
-  it("rejectTask clears", async () => {
+  it("rejectTask PRESERVES the token (REC-10 Design A: the rejected-continuation token)", async () => {
     const task = seedTask("clear-reject");
     const agent = await claimStarted(task.id);
     taskStateMachine.submitTask(task.id, agent.id, "result", []);
+    const before = taskToken(task.id);
+    expect(before).not.toBeNull();
     expect(taskStateMachine.rejectTask(task.id, "no good")).not.toBeNull();
-    expect(taskToken(task.id)).toBeNull();
+    expect(taskToken(task.id)).toBe(before); // preserved for the owner's rework start
   });
 
   it("approveTask clears (terminal)", async () => {
@@ -643,11 +671,10 @@ describe("Veto — enrolled taskClaimed pre-interceptor through the daemon seams
     // Veto ran BEFORE any write: task untouched, no token, no session.
     expect(taskToken(task.id)).toBeNull();
     expect(sessionToken(task.id)).toHaveLength(0);
-    const row = getDb()
-      .select()
-      .from(tasks)
-      .where(eq(tasks.id, task.id))
-      .get() as { status: string; assignedAgentId: string | null };
+    const row = getDb().select().from(tasks).where(eq(tasks.id, task.id)).get() as {
+      status: string;
+      assignedAgentId: string | null;
+    };
     expect(row.status).toBe("pending");
     expect(row.assignedAgentId).toBeNull();
     // No claimed event for the denied claim.
@@ -789,11 +816,10 @@ describe("R1 — daemon seam preserves the service claim contract", () => {
     });
     expect(out.claimed).toBe(false);
     // Row-level proof: still pending, unassigned, NO token.
-    const row = getDb()
-      .select()
-      .from(tasks)
-      .where(eq(tasks.id, task.id))
-      .get() as { status: string; assignedAgentId: string | null };
+    const row = getDb().select().from(tasks).where(eq(tasks.id, task.id)).get() as {
+      status: string;
+      assignedAgentId: string | null;
+    };
     expect(row.status).toBe("pending");
     expect(row.assignedAgentId).toBeNull();
     expect(taskToken(task.id)).toBeNull();
@@ -885,7 +911,6 @@ describe("T1 acceptance 10 — writer census (payload/call-site grep snapshot)",
     ["repositories/taskStateMachine.ts", "releaseTaskByRemoteParticipant"],
     ["repositories/taskStateMachine.ts", "releaseTask"],
     ["repositories/taskStateMachine.ts", "failTask"],
-    ["repositories/taskStateMachine.ts", "rejectTask"],
     ["repositories/taskStateMachine.ts", "approveTask"],
     ["repositories/taskStateMachine.ts", "markTaskDone"],
     ["repositories/agent.ts", "deleteAgent"],
@@ -909,13 +934,35 @@ describe("T1 acceptance 10 — writer census (payload/call-site grep snapshot)",
       }
       // slice from the function (or comment) to the next blank-line-terminated
       // function boundary ~500 chars ahead (covers the UPDATE body)
-      const body = text.slice(start === -1 ? text.indexOf(fn) : start, (start === -1 ? text.indexOf(fn) : start) + 2400);
+      const body = text.slice(
+        start === -1 ? text.indexOf(fn) : start,
+        (start === -1 ? text.indexOf(fn) : start) + 2400,
+      );
       expect(body.includes("executionToken: null"), `${rel}:${fn}`).toBe(true);
     }
     // The import reset inline write (comment-anchored):
     const imp = read("services/importManifest/importPublication.ts");
     const at = imp.indexOf("Reset execution state");
     expect(imp.slice(at, at + 700).includes("executionToken: null")).toBe(true);
+  });
+
+  it("REC-10: rejectTask PRESERVES the token (grep-pinned continuation contract) while still clearing BOTH provenance pointers", async () => {
+    const fs = await import("node:fs");
+    const path = await import("node:path");
+    const text = fs.readFileSync(
+      path.join(import.meta.dirname, "..", "repositories/taskStateMachine.ts"),
+      "utf8",
+    );
+    const start = text.indexOf("function rejectTask");
+    expect(start).toBeGreaterThanOrEqual(0);
+    const body = text.slice(start, start + 2400);
+    // PRESERVE: the rejected-continuation token must NOT be cleared on reject.
+    expect(body.includes("executionToken: null"), "rejectTask must not clear the token").toBe(
+      false,
+    );
+    // The provenance pointers are still cleared (release fence is pending-scoped).
+    expect(body.includes("lastFailureEventId: null")).toBe(true);
+    expect(body.includes("lastReleaseEventId: null")).toBe(true);
   });
 
   it("an UNLISTED ownership-ending writer (repo scan) is detected — injected fake writer turns the guard red", async () => {

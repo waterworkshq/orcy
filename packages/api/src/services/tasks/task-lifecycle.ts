@@ -158,7 +158,7 @@ export function claimTask(
   return result;
 }
 
-/** Transitions a claimed {@link Task} to `in_progress` for its assigned agent; side effect: ensures quality checklists and emits a `started` transition. */
+/** Transitions a claimed — or rejected (owner rework continuation) — {@link Task} to `in_progress` for its assigned agent; side effect: ensures quality checklists and emits a `started` transition. */
 export function startTask(
   taskId: string,
   agentId: string,

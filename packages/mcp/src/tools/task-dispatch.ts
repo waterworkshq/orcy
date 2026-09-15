@@ -69,7 +69,7 @@ const f = {
   }),
   executionToken: field.string({
     description:
-      "executionToken from your claim response task.executionToken (action=start, action=submit, action=release, action=fail, and status transitions via action=update). Required on tokened tasks; omitted or wrong token returns 409 EPOCH_MISMATCH. The claim action never uses it.",
+      "executionToken from your claim response, or from your successful rework start response after rejection (task.executionToken); never a fresh task GET (action=start, action=submit, action=release, action=fail, and status transitions via action=update). Required on tokened tasks; omitted or wrong token returns 409 EPOCH_MISMATCH. The claim action never uses it.",
   }),
   title: field.string({ description: "Task title (action=create-in-mission, action=update)" }),
   description: field.string({

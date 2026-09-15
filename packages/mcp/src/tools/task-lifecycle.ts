@@ -46,20 +46,21 @@ export async function habitatClaimTask(client: KanbanApiClient, args: { taskId: 
 export const BOARD_START_TASK_TOOL: Tool = {
   name: "board_start_task",
   description:
-    'Start work on a claimed task, transitioning it from "claimed" to "in_progress". ' +
-    "Call immediately after board_claim_task to begin work. Present the executionToken from your claim response. " +
-    "The task must already be claimed by the calling agent.",
+    'Start work on a task you own, transitioning it from "claimed" (or "rejected", for rework) to "in_progress". ' +
+    "Call immediately after board_claim_task to begin work. Present the executionToken from your claim response, or from your successful rework start response after rejection. " +
+    "On a REJECTED task, present your preserved claim token: the start mints a FRESH rework token Y in this call's response — capture Y from THIS response (never a task GET, never the old token) and use Y for submit/fail/release. " +
+    "The task must be assigned to the calling agent.",
   inputSchema: {
     type: "object",
     properties: {
       taskId: {
         type: "string",
-        description: "The UUID of the claimed task to start",
+        description: "The UUID of the claimed (or rejected-for-rework) task to start",
       },
       executionToken: {
         type: "string",
         description:
-          "executionToken from your claim response (task.executionToken). Required on tokened tasks for start/submit/fail/release; omitted or wrong token returns 409 EPOCH_MISMATCH.",
+          "executionToken from your claim response, or from your successful rework start response after rejection (task.executionToken); never a fresh task GET. Required on tokened tasks for start/submit/fail/release; omitted or wrong token returns 409 EPOCH_MISMATCH.",
       },
     },
     required: ["taskId"],
@@ -85,7 +86,7 @@ export const BOARD_SUBMIT_TASK_TOOL: Tool = {
   name: "board_submit_task",
   description:
     "Submit completed work for human review. This is the correct endpoint for finished work. " +
-    "Always include: (1) Clear result summary describing what was done, (2) Artifact links (PR, commits, files) if applicable, (3) executionToken from your claim response. " +
+    "Always include: (1) Clear result summary describing what was done, (2) Artifact links (PR, commits, files) if applicable, (3) executionToken from your claim response, or from your successful rework start response after rejection. " +
     "After submission, an assigned reviewer will either approve or reject it — a human reviewer or an agent holding a pending agent-typed reviewer row. " +
     "Check board_heartbeat to monitor status while waiting for review.",
   inputSchema: {
@@ -107,7 +108,7 @@ export const BOARD_SUBMIT_TASK_TOOL: Tool = {
       executionToken: {
         type: "string",
         description:
-          "executionToken from your claim response (task.executionToken). Required on tokened tasks for start/submit/fail/release; omitted or wrong token returns 409 EPOCH_MISMATCH.",
+          "executionToken from your claim response, or from your successful rework start response after rejection (task.executionToken); never a fresh task GET. Required on tokened tasks for start/submit/fail/release; omitted or wrong token returns 409 EPOCH_MISMATCH.",
       },
     },
     required: ["taskId", "result"],
@@ -215,7 +216,7 @@ export const BOARD_RELEASE_TASK_TOOL: Tool = {
   name: "board_release_task",
   description:
     "Release a claimed task back to the pending pool. " +
-    "Use when you cannot complete the task and need to return it to the queue. Present the executionToken from your claim response. " +
+    "Use when you cannot complete the task and need to return it to the queue. Present the executionToken from your claim response, or from your successful rework start response after rejection. " +
     "Always provide a clear reason: blocked_by_dependency, requires_domain_expertise, external_blocker, etc. " +
     "After releasing, call board_list_features to find alternative work.",
   inputSchema: {
@@ -232,7 +233,7 @@ export const BOARD_RELEASE_TASK_TOOL: Tool = {
       executionToken: {
         type: "string",
         description:
-          "executionToken from your claim response (task.executionToken). Required on tokened tasks for start/submit/fail/release; omitted or wrong token returns 409 EPOCH_MISMATCH.",
+          "executionToken from your claim response, or from your successful rework start response after rejection (task.executionToken); never a fresh task GET. Required on tokened tasks for start/submit/fail/release; omitted or wrong token returns 409 EPOCH_MISMATCH.",
       },
     },
     required: ["taskId", "reason"],
@@ -285,7 +286,7 @@ export const BOARD_FAIL_TASK_TOOL: Tool = {
   description:
     "Mark a task as failed with a required reason. " +
     "Use when the task cannot be completed (blocked by external issue, missing prerequisites, " +
-    "out of scope, etc.). Provide a clear failureReason describing what went wrong, and the executionToken from your claim response.",
+    "out of scope, etc.). Provide a clear failureReason describing what went wrong, and the executionToken from your claim response, or from your successful rework start response after rejection.",
   inputSchema: {
     type: "object",
     properties: {
@@ -300,7 +301,7 @@ export const BOARD_FAIL_TASK_TOOL: Tool = {
       executionToken: {
         type: "string",
         description:
-          "executionToken from your claim response (task.executionToken). Required on tokened tasks for start/submit/fail/release; omitted or wrong token returns 409 EPOCH_MISMATCH.",
+          "executionToken from your claim response, or from your successful rework start response after rejection (task.executionToken); never a fresh task GET. Required on tokened tasks for start/submit/fail/release; omitted or wrong token returns 409 EPOCH_MISMATCH.",
       },
     },
     required: ["taskId", "failureReason"],

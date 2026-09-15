@@ -106,7 +106,7 @@ export const BOARD_UPDATE_TASK_TOOL: Tool = {
       executionToken: {
         type: "string",
         description:
-          "executionToken from your claim response (task.executionToken). Required for status transitions (in_progress/submitted/failed) on tokened tasks; omitted or wrong token returns 409 EPOCH_MISMATCH.",
+          "executionToken from your claim response, or from your successful rework start response after rejection (task.executionToken); never a fresh task GET. Required for status transitions (in_progress/submitted/failed) on tokened tasks; omitted or wrong token returns 409 EPOCH_MISMATCH.",
       },
     },
     required: ["taskId"],

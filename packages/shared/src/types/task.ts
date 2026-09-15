@@ -63,8 +63,11 @@ export interface Task {
   estimationAccuracy: number | null;
   /**
    * Claim-epoch execution token (migration 0078): a fresh uuid minted inside
-   * each successful claim transaction by the claim authority; NULL =
-   * pre-migration / released / terminal. Serialized read-only on Task payloads
+   * each successful claim transaction by the claim authority. NULL classes:
+   * pre-migration legacy rows, released/failed/terminal ownership ends.
+   * PRESERVED on reject as the rejected-continuation token — the still-
+   * assigned owner presents it on the rework start, which mints the next
+   * epoch's token in its response. Serialized read-only on Task payloads
    * (REST/SSE) as an epoch identity — NOT a credential or grant. Never
    * accepted from task PATCH input; authoritative writers only.
    */

@@ -41,7 +41,11 @@ import { releaseTaskWithEffects } from "./effects/releaseEffects.js";
 import { emitTransitionNonRequired } from "./tasks/transition-emitter.js";
 import { guardTransitionTop } from "./tasks/transitionBudget.js";
 import { requestEffectDeliveryPass } from "./effects/effectDeliverer.js";
-import { updateSessionStatusWithClient } from "../repositories/daemonSession.js";
+import {
+  updateSessionStatusWithClient,
+  getActiveSessionsByTaskAndTokenWithClient,
+  rebindSessionExecutionTokenWithClient,
+} from "../repositories/daemonSession.js";
 import { logger } from "../lib/logger.js";
 import type { Task } from "../models/index.js";
 
@@ -304,6 +308,78 @@ function readHeartbeat(daemonId: string): string | null {
     .where(eq(daemonInstances.id, daemonId))
     .get();
   return row?.lastHeartbeatAt ?? null;
+}
+
+/** Tx-aware twin of {@link readHeartbeat} — reads on the caller's tx. */
+function readHeartbeatWithClient(tx: ReturnType<typeof getDb>, daemonId: string): string | null {
+  const row = tx
+    .select({ lastHeartbeatAt: daemonInstances.lastHeartbeatAt })
+    .from(daemonInstances)
+    .where(eq(daemonInstances.id, daemonId))
+    .get();
+  return row?.lastHeartbeatAt ?? null;
+}
+
+/**
+ * REC-10 rework continuation — the session leg of the rework start's act-tx.
+ * Runs on the caller-supplied `tx` (the progression authority's transaction)
+ * for the exact-X continuation session(s):
+ *
+ *   - owner known ALIVE (embedded engine running, or heartbeat fresh under
+ *     the in-tx numeric recheck — the same transport-unified rule as the
+ *     ghost sweep) → REBIND onto Y: the session's future death is the
+ *     current worker's legitimate signal. Fresh-beat is necessary, not
+ *     sufficient — a dead-but-fresh-heartbeat process still rebinds; this is
+ *     intentional current-session continuation, not liveness proof.
+ *   - owner known STALE (no engine ∧ heartbeat ≥ 10 min) → TERMININALIZE
+ *     `lost` here, BEFORE the rebind, under the existing monotonic
+ *     first-accepted guard. The terminal row keeps X — its death drives
+ *     under X against the rework task's Y, an epoch-mismatch no-op by
+ *     construction (never Y-laundered). Unparseable/future heartbeats are
+ *     spared (rebind) — conservative, matching the sweep's skip rule.
+ *
+ * Returns the ids terminalized here (the caller triggers the normal
+ * post-commit recovery drive — never inside this tx). Never calls `getDb()`.
+ *
+ * The one-session-per-claim invariant is NOT DB-enforced: each candidate row
+ * is dispositioned INDIVIDUALLY — the rebind fences the exact row id +
+ * taskId + active + expected X (one row by PK), and terminalize fences id +
+ * active — so a defensively-tolerated duplicate-X row gets its own
+ * disposition and is never mutated by its sibling's.
+ */
+export function reworkContinuationSessionsWithClient(
+  tx: ReturnType<typeof getDb>,
+  taskId: string,
+  fromToken: string,
+  toToken: string,
+): string[] {
+  const sessions = getActiveSessionsByTaskAndTokenWithClient(tx, taskId, fromToken);
+  const terminalized: string[] = [];
+  for (const session of sessions) {
+    if (engineLivenessProbe(session.daemonId)) {
+      rebindSessionExecutionTokenWithClient(tx, session.id, taskId, fromToken, toToken);
+      continue;
+    }
+    const inTx = classifyHeartbeatStaleness(
+      readHeartbeatWithClient(tx, session.daemonId),
+      Date.now(),
+    );
+    if ("skip" in inTx || !inTx.stale) {
+      // Alive or bad data — spared, rebind (continuation by invariant).
+      rebindSessionExecutionTokenWithClient(tx, session.id, taskId, fromToken, toToken);
+      continue;
+    }
+    const updated = updateSessionStatusWithClient(
+      tx,
+      session.id,
+      "lost",
+      "Recovered: daemon heartbeat lost (rework continuation)",
+    );
+    if (updated && TERMINAL_SESSION_STATUSES.has(updated.status)) terminalized.push(session.id);
+    // A monotonic-guard no-op means another writer terminalized first — the
+    // row is terminal and keeps X: out of rebind scope by the active fence.
+  }
+  return terminalized;
 }
 
 /**

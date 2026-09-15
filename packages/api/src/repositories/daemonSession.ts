@@ -256,6 +256,64 @@ export function updateSessionStatusWithClient(
   return rows.length > 0 ? rows[0] : null;
 }
 
+/**
+ * Tx-aware exact-X active-session select (REC-10 rework continuation):
+ * resolves the continuation session(s) by `(task_id, execution_token)` AND
+ * the active-status fence — historic-E0 sessions are excluded by token, and
+ * legacy NULL-token sessions are naturally excluded (`= X` never matches
+ * NULL). Runs on the caller-supplied `tx`; never calls `getDb()`.
+ */
+export function getActiveSessionsByTaskAndTokenWithClient(
+  tx: ReturnType<typeof getDb>,
+  taskId: string,
+  executionToken: string,
+): DaemonSessionRow[] {
+  return tx
+    .select(daemonSessionFields)
+    .from(daemonSessions)
+    .where(
+      and(
+        eq(daemonSessions.taskId, taskId),
+        ACTIVE_SESSION_STATUSES,
+        eq(daemonSessions.executionToken, executionToken),
+      ),
+    )
+    .all() as DaemonSessionRow[];
+}
+
+/**
+ * Tx-aware exact-X rebind (REC-10 rework continuation): moves ONE active
+ * continuation session — selected by its exact row id — from the
+ * rejected-continuation token X onto the rework epoch Y, in the same act-tx
+ * as the task mint. The WHERE re-asserts the row id (PK — one row by
+ * construction) AND taskId AND the active-status fence AND the exact X: the
+ * one-session-per-claim invariant is NOT DB-enforced, so the rebind fences
+ * the individually-inspected candidate row rather than sweeping every
+ * (task_id, X) sibling — a defensively-handled duplicate-X row is never
+ * mutated by another candidate's disposition. A row that changed between the
+ * candidate select and this write (e.g. went terminal inside this tx) no-ops
+ * and keeps X. Never calls `getDb()`.
+ */
+export function rebindSessionExecutionTokenWithClient(
+  tx: ReturnType<typeof getDb>,
+  sessionId: string,
+  taskId: string,
+  fromToken: string,
+  toToken: string,
+): void {
+  tx.update(daemonSessions)
+    .set({ executionToken: toToken, updatedAt: new Date().toISOString() })
+    .where(
+      and(
+        eq(daemonSessions.id, sessionId),
+        eq(daemonSessions.taskId, taskId),
+        ACTIVE_SESSION_STATUSES,
+        eq(daemonSessions.executionToken, fromToken),
+      ),
+    )
+    .run();
+}
+
 export function updateSessionProgress(
   id: string,
   fields: Record<string, unknown>,

@@ -1492,9 +1492,14 @@ Failure reasons: `already_claimed`, `not_found`, `domain_mismatch`, `dependencie
 
 ### POST /tasks/:id/start
 
-Start working on a claimed task.
+Start working on a claimed task — or RESTART a rejected task for rework (the owner-continuation path).
 
 **Auth:** Agent auth required. The agent must be the assigned agent for this task.
+
+**Admissible statuses:** `claimed` and `rejected` (rejected start = rework continuation; the task stays assigned to the owner through reject — no re-claim, no daemon claim path for rejected tasks).
+
+- `claimed → in_progress`: preserves `task.executionToken` byte-identically.
+- `rejected → in_progress`: the reject preserved the claim token X as the *rejected-continuation token*; present X here and this start atomically mints the rework token **Y**, returned in the response's `task.executionToken`. The exact-X daemon session (if any) rebinds to Y in the same transaction; an X owner's session classified stale by the existing heartbeat policy is terminalized `lost` instead (keeps X — its later recovery drive no-ops against the rework epoch by design). **Capture Y from YOUR start response** — never from a task GET (the GET refresh is forbidden by pinning discipline), never the original claim token. A process still presenting X after the mint gets `409 EPOCH_MISMATCH` — that fencing is desired.
 
 **Request:**
 
@@ -1533,7 +1538,9 @@ Start working on a claimed task.
 }
 ```
 
-Tasks with a NULL stored token (legacy pre-migration claims) accept the mutation with or without the field; a presented token on a legacy row is ignored. The same `executionToken` body field and `EPOCH_MISMATCH` contract apply to `submit`, `fail`, and `release`.
+Tasks with a NULL stored token (legacy rows — pre-migration claims, and rows rejected before this change, which cleared the token on reject) accept the mutation with or without the field; a presented token on a legacy row is ignored; a legacy rejected start mints Y with no daemon-session inference. The same `executionToken` body field and `EPOCH_MISMATCH` contract apply to `submit`, `fail`, and `release`.
+
+Reviewer rows survive a reject untouched: assigned rows stay `pending` (already-`approved` rows stay approved and count idempotently) — there is no automatic reset; pending reviewers still decide round 2; authorized human managers can still change reviewer assignments (existing management authority).
 
 > **Direct manual clients** (custom scripts, the `orcy` CLI task commands, any
 > non-MCP caller of these four routes): this is an immediate, breaking wire

@@ -103,7 +103,7 @@ export function registerTaskCommands(program: any) {
     .argument("<taskId>", "Task UUID")
     .option(
       "--execution-token <token>",
-      "Execution token from your claim output (task.executionToken); required on tokened tasks",
+      "Execution token from your claim output, or your rework start output after rejection (task.executionToken); required on tokened tasks",
     )
     .action(
       withErrorHandling(async (taskId: string, options: { executionToken?: string }) => {
@@ -129,7 +129,7 @@ export function registerTaskCommands(program: any) {
     .option("--artifact-desc <desc>", "Artifact description")
     .option(
       "--execution-token <token>",
-      "Execution token from your claim output (task.executionToken); required on tokened tasks",
+      "Execution token from your claim output, or your rework start output after rejection (task.executionToken); required on tokened tasks",
     )
     .action(
       withErrorHandling(async (taskId: string, options: any) => {
@@ -215,7 +215,7 @@ export function registerTaskCommands(program: any) {
     .option("--reason <reason>", "Why the task is being released")
     .option(
       "--execution-token <token>",
-      "Execution token from your claim output (task.executionToken); required on tokened tasks",
+      "Execution token from your claim output, or your rework start output after rejection (task.executionToken); required on tokened tasks",
     )
     .action(
       withErrorHandling(
@@ -248,7 +248,7 @@ export function registerTaskCommands(program: any) {
     .argument("<reason>", "Why the task failed")
     .option(
       "--execution-token <token>",
-      "Execution token from your claim output (task.executionToken); required on tokened tasks",
+      "Execution token from your claim output, or your rework start output after rejection (task.executionToken); required on tokened tasks",
     )
     .action(
       withErrorHandling(

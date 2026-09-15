@@ -47,9 +47,9 @@ import {
   TASK_CREATION_INTEGRITY_VERSION,
   isLegacyPartialHistory,
 } from "../db/schema/taskPublication.js";
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
-import type { ActorType } from "@orcy/shared";
+import type { ActorType, TaskStatus } from "@orcy/shared";
 import type { Task } from "../models/index.js";
 import { logger } from "../lib/logger.js";
 import { isSqliteError } from "../errors/sqlite.js";
@@ -58,6 +58,10 @@ import { checkClaimability } from "./taskQueries.js";
 import { creationObservationStateForTaskWithClient } from "./taskPublication.js";
 import type { TaskPublicationDbClient } from "./taskPublication.js";
 import { guardTransition, habitatIdForTaskWithClient } from "../services/tasks/transitionBudget.js";
+import {
+  driveDaemonSessionOutcome,
+  reworkContinuationSessionsWithClient,
+} from "../services/daemonSessionRecovery.js";
 
 // ---------------------------------------------------------------------------
 // Coarse failure categories (the plan's layer)
@@ -498,7 +502,8 @@ function evaluateProgressionGates(
 
 /**
  * Checks the observation and reservation publication gates for a task
- * progression (claimed → in_progress). Pure read on `db`; never mutates and
+ * progression (claimed/rejected → in_progress — the rejected arm is the
+ * local owner's rework continuation, REC-10). Pure read on `db`; never mutates and
  * never throws. A missing row returns `{ ok: true }` (permissive) — the
  * caller's own missing-task handling takes precedence.
  *
@@ -519,7 +524,8 @@ export function checkProgressionGates(
 }
 
 // ---------------------------------------------------------------------------
-// Progression authority (T2 remediation M3) — transactional claimed→in_progress.
+// Progression authority (T2 remediation M3; REC-10 widening) — transactional
+// claimed/rejected → in_progress (rejected: local owner rework only).
 //
 // `startTask` / `startTaskByRemoteParticipant` delegate here. Runs, in ONE
 // transaction: identity/status re-read on `tx` → progression gates on `tx` →
@@ -538,7 +544,7 @@ export function checkProgressionGates(
 // ---------------------------------------------------------------------------
 
 /**
- * Transactional entry point for the claimed → in_progress progression.
+ * Transactional entry point for the claimed/rejected → in_progress progression.
  * `db` defaults to `getDb()`. Returns the progressed `Task`, or `null` on any
  * domain refusal (missing / wrong-agent / wrong-status / gate-block / the
  * UPDATE no-op'd under a surfaced reservation). Infra exceptions propagate.
@@ -549,6 +555,16 @@ export function checkProgressionGates(
  * {@link ExecutionEpochMismatchError} (typed 409), while a stored-NULL row
  * always allows. `undefined` (system callers) leaves the predicate absent —
  * the guard is structural, never a wire flag.
+ *
+ * REC-10 rework widening (LOCAL claimants only): a `rejected` row is
+ * admissible beside `claimed` — the still-assigned owner's continuation
+ * start. `claimed → in_progress` preserves the token byte-identically;
+ * `rejected → in_progress` mints the rework epoch Y in the same atomic write
+ * and runs the session leg (`reworkContinuationSessionsWithClient`) in the
+ * same act-tx; any in-tx terminalized X session gets the normal post-commit
+ * recovery drive (X pre-image vs the task's new Y is an epoch-mismatch no-op
+ * by construction — never driven inside the tx). The remote mirror is NOT
+ * widened: remote claimants stay claimed-gated.
  */
 export function progressWithAuthority(
   db: TaskPublicationDbClient | undefined,
@@ -557,9 +573,24 @@ export function progressWithAuthority(
   opts?: ProgressionAuthorityOptions,
 ): Task | null {
   const client = db ?? getDb();
-  return client.transaction((tx) => progressWithAuthorityClient(tx, taskId, claimant, opts), {
-    behavior: "immediate",
-  });
+  const terminalizedSessions: string[] = [];
+  const result = client.transaction(
+    (tx) => progressWithAuthorityClient(tx, taskId, claimant, opts, terminalizedSessions),
+    { behavior: "immediate" },
+  );
+  // Post-commit: the terminal-write → drive seam, OUTSIDE the tx (the drive
+  // composes its own act-txs; nesting it here would be a nested-BEGIN fault).
+  for (const sessionId of terminalizedSessions) {
+    try {
+      driveDaemonSessionOutcome(sessionId);
+    } catch {
+      logger.error(
+        { sessionId, taskId, errorCode: "daemon_recovery_db_write_failed" },
+        "Rework-continuation terminalization drive failed; next sweep retries",
+      );
+    }
+  }
+  return result;
 }
 
 /** Epoch-guard options for the progression authority. */
@@ -583,6 +614,7 @@ function progressWithAuthorityClient(
   taskId: string,
   claimant: Claimant,
   opts?: ProgressionAuthorityOptions,
+  terminalizedSessionsOut?: string[],
 ): Task | null {
   type TaskRow = typeof tasks.$inferSelect;
 
@@ -595,8 +627,11 @@ function progressWithAuthorityClient(
       ? row.assignedAgentId === claimant.id
       : row.remoteAssignedParticipantId === claimant.id;
   // PRESERVE startTask / startTaskByRemoteParticipant: null on wrong-agent or
-  // wrong-status (anything other than "claimed" by this identity).
-  if (!identityMatches || row.status !== "claimed") return null;
+  // wrong-status. REC-10 widening: a LOCAL claimant may also progress a
+  // `rejected` row (owner rework continuation); remote stays claimed-gated.
+  const admissibleStatuses: TaskStatus[] =
+    claimant.kind === "local" ? ["claimed", "rejected"] : ["claimed"];
+  if (!identityMatches || !admissibleStatuses.includes(row.status)) return null;
 
   // 1.5 epoch-mutation guard (agent wire): the legacy-allowing disjunction —
   //     stored-NULL always allows; a tokened row demands the client's token.
@@ -645,12 +680,16 @@ function progressWithAuthorityClient(
       startedAt: now,
       updatedAt: now,
       version: sql`${tasks.version} + 1`,
+      // REC-10: a `rejected` row mints the rework epoch Y in this same
+      // atomic write; a `claimed` row preserves its token byte-identically
+      // (no executionToken key at all — the column stays untouched).
+      ...(row.status === "rejected" ? { executionToken: uuid() } : {}),
     } as unknown as Partial<typeof tasks.$inferInsert>)
     .where(
       and(
         eq(tasks.id, taskId),
         eq(identityColumn, claimant.id),
-        eq(tasks.status, "claimed"),
+        inArray(tasks.status, admissibleStatuses),
         // Epoch-mutation guard disjunction (atomic backstop of step 1.5):
         // stored-NULL allows; a tokened row demands the client's token.
         ...(epochGuard !== undefined
@@ -662,10 +701,32 @@ function progressWithAuthorityClient(
     .run();
 
   // 4. post-write verify on tx — the UPDATE no-ops if a blocking reservation
-  //    surfaced inside this tx (NOT EXISTS subquery); a no-op leaves
-  //    status === "claimed" → null. Also guards the serialized-write case.
+  // surfaced inside this tx (NOT EXISTS subquery); a no-op leaves
+  // status === "claimed" → null. Also guards the serialized-write case.
   const updated = tx.select().from(tasks).where(eq(tasks.id, taskId)).get() as TaskRow | undefined;
   if (!updated || updated.status !== "in_progress") return null;
+
+  // 5. REC-10 rework session leg — same act-tx as the mint: terminalize
+  //    known-stale X owners (monotonic `lost`, keeps X) and rebind the exact-X
+  //    continuation session onto Y. Only for the local rejected-branch with a
+  //    non-NULL continuation token (legacy NULL rows mint Y with NO session
+  //    inference — no NULL==NULL rebind). A helper throw rolls back the
+  //    entire start (task + session stay coherent — the T1 hook precedent).
+  if (
+    row.status === "rejected" &&
+    row.executionToken !== null &&
+    updated.executionToken !== null &&
+    terminalizedSessionsOut
+  ) {
+    const terminalized = reworkContinuationSessionsWithClient(
+      tx,
+      taskId,
+      row.executionToken,
+      updated.executionToken!,
+    );
+    terminalizedSessionsOut.push(...terminalized);
+  }
+
   return updated as unknown as Task;
 }
 

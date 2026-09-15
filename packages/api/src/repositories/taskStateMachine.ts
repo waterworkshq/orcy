@@ -327,8 +327,9 @@ export function startTask(
   agentId: string,
   expectedExecutionToken?: string | null,
 ): Task | null {
-  // Routed through the progression authority (T2 remediation M3): the
-  // claimed → in_progress transition runs identity/status re-read + gates +
+  // Routed through the progression authority (T2 remediation M3; REC-10
+  // widening): the claimed/rejected → in_progress transition (rejected = the
+  // owner's rework continuation) runs identity/status re-read + gates +
   // conditional UPDATE + post-write verify in ONE transaction, closing the
   // TOCTOU race the pre-remediation gate-check-then-separate-UPDATE left open.
   // Public Task | null shape and null-on-missing/wrong-agent/wrong-status
@@ -538,7 +539,10 @@ export function rejectTask(taskId: string, reason: string): Task | null {
       status: "rejected",
       rejectionReason: reason,
       rejectedCount: sql`${tasks.rejectedCount} + 1`,
-      executionToken: null,
+      // REC-10 (Design A): the token is PRESERVED as the rejected-continuation
+      // token — the still-assigned owner's proof for the rework start (which
+      // mints the next epoch). The provenance pointers below still clear (the
+      // release fence is pending-scoped; the mint re-arms nothing).
       lastFailureEventId: null,
       lastReleaseEventId: null,
       updatedAt: now,
