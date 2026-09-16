@@ -1232,9 +1232,9 @@
       "path": "/api/automation-rules/:ruleId",
       "surface": "api-deprecated",
       "guards": [
-        "humanAuth"
+        "agentOrHumanAuth"
       ],
-      "authKind": "human",
+      "authKind": "local_actor",
       "rawBodyEligible": false,
       "source": "core",
       "generatedTwin": false
@@ -1244,9 +1244,9 @@
       "path": "/api/automation-rules/:ruleId/runs",
       "surface": "api-deprecated",
       "guards": [
-        "humanAuth"
+        "agentOrHumanAuth"
       ],
-      "authKind": "human",
+      "authKind": "local_actor",
       "rawBodyEligible": false,
       "source": "core",
       "generatedTwin": false
@@ -1448,10 +1448,10 @@
       "path": "/api/habitats/:habitatId/automation-rules",
       "surface": "api-deprecated",
       "guards": [
-        "humanAuth",
+        "agentOrHumanAuth",
         "authorizeHabitatAccess"
       ],
-      "authKind": "human",
+      "authKind": "local_actor",
       "rawBodyEligible": false,
       "source": "core",
       "generatedTwin": false
@@ -1461,10 +1461,10 @@
       "path": "/api/habitats/:habitatId/automation-runs",
       "surface": "api-deprecated",
       "guards": [
-        "humanAuth",
+        "agentOrHumanAuth",
         "authorizeHabitatAccess"
       ],
-      "authKind": "human",
+      "authKind": "local_actor",
       "rawBodyEligible": false,
       "source": "core",
       "generatedTwin": false
@@ -3542,9 +3542,9 @@
       "path": "/api/v1/automation-rules/:ruleId",
       "surface": "api-v1",
       "guards": [
-        "humanAuth"
+        "agentOrHumanAuth"
       ],
-      "authKind": "human",
+      "authKind": "local_actor",
       "rawBodyEligible": false,
       "source": "core",
       "generatedTwin": false
@@ -3554,9 +3554,9 @@
       "path": "/api/v1/automation-rules/:ruleId/runs",
       "surface": "api-v1",
       "guards": [
-        "humanAuth"
+        "agentOrHumanAuth"
       ],
-      "authKind": "human",
+      "authKind": "local_actor",
       "rawBodyEligible": false,
       "source": "core",
       "generatedTwin": false
@@ -3758,10 +3758,10 @@
       "path": "/api/v1/habitats/:habitatId/automation-rules",
       "surface": "api-v1",
       "guards": [
-        "humanAuth",
+        "agentOrHumanAuth",
         "authorizeHabitatAccess"
       ],
-      "authKind": "human",
+      "authKind": "local_actor",
       "rawBodyEligible": false,
       "source": "core",
       "generatedTwin": false
@@ -3771,10 +3771,10 @@
       "path": "/api/v1/habitats/:habitatId/automation-runs",
       "surface": "api-v1",
       "guards": [
-        "humanAuth",
+        "agentOrHumanAuth",
         "authorizeHabitatAccess"
       ],
-      "authKind": "human",
+      "authKind": "local_actor",
       "rawBodyEligible": false,
       "source": "core",
       "generatedTwin": false
@@ -5857,9 +5857,9 @@
       "path": "/api/automation-rules/:ruleId",
       "surface": "api-deprecated",
       "guards": [
-        "humanAuth"
+        "agentOrHumanAuth"
       ],
-      "authKind": "human",
+      "authKind": "local_actor",
       "rawBodyEligible": false,
       "source": "framework",
       "generatedTwin": true
@@ -5869,9 +5869,9 @@
       "path": "/api/automation-rules/:ruleId/runs",
       "surface": "api-deprecated",
       "guards": [
-        "humanAuth"
+        "agentOrHumanAuth"
       ],
-      "authKind": "human",
+      "authKind": "local_actor",
       "rawBodyEligible": false,
       "source": "framework",
       "generatedTwin": true
@@ -6073,10 +6073,10 @@
       "path": "/api/habitats/:habitatId/automation-rules",
       "surface": "api-deprecated",
       "guards": [
-        "humanAuth",
+        "agentOrHumanAuth",
         "authorizeHabitatAccess"
       ],
-      "authKind": "human",
+      "authKind": "local_actor",
       "rawBodyEligible": false,
       "source": "framework",
       "generatedTwin": true
@@ -6086,10 +6086,10 @@
       "path": "/api/habitats/:habitatId/automation-runs",
       "surface": "api-deprecated",
       "guards": [
-        "humanAuth",
+        "agentOrHumanAuth",
         "authorizeHabitatAccess"
       ],
-      "authKind": "human",
+      "authKind": "local_actor",
       "rawBodyEligible": false,
       "source": "framework",
       "generatedTwin": true
@@ -8167,9 +8167,9 @@
       "path": "/api/v1/automation-rules/:ruleId",
       "surface": "api-v1",
       "guards": [
-        "humanAuth"
+        "agentOrHumanAuth"
       ],
-      "authKind": "human",
+      "authKind": "local_actor",
       "rawBodyEligible": false,
       "source": "framework",
       "generatedTwin": true
@@ -8179,9 +8179,9 @@
       "path": "/api/v1/automation-rules/:ruleId/runs",
       "surface": "api-v1",
       "guards": [
-        "humanAuth"
+        "agentOrHumanAuth"
       ],
-      "authKind": "human",
+      "authKind": "local_actor",
       "rawBodyEligible": false,
       "source": "framework",
       "generatedTwin": true
@@ -8383,10 +8383,10 @@
       "path": "/api/v1/habitats/:habitatId/automation-rules",
       "surface": "api-v1",
       "guards": [
-        "humanAuth",
+        "agentOrHumanAuth",
         "authorizeHabitatAccess"
       ],
-      "authKind": "human",
+      "authKind": "local_actor",
       "rawBodyEligible": false,
       "source": "framework",
       "generatedTwin": true
@@ -8396,10 +8396,10 @@
       "path": "/api/v1/habitats/:habitatId/automation-runs",
       "surface": "api-v1",
       "guards": [
-        "humanAuth",
+        "agentOrHumanAuth",
         "authorizeHabitatAccess"
       ],
-      "authKind": "human",
+      "authKind": "local_actor",
       "rawBodyEligible": false,
       "source": "framework",
       "generatedTwin": true
@@ -11160,9 +11160,9 @@
       "path": "/api/automation-rules/:ruleId/simulate",
       "surface": "api-deprecated",
       "guards": [
-        "humanAuth"
+        "agentOrHumanAuth"
       ],
-      "authKind": "human",
+      "authKind": "local_actor",
       "rawBodyEligible": false,
       "source": "core",
       "generatedTwin": false
@@ -13395,9 +13395,9 @@
       "path": "/api/v1/automation-rules/:ruleId/simulate",
       "surface": "api-v1",
       "guards": [
-        "humanAuth"
+        "agentOrHumanAuth"
       ],
-      "authKind": "human",
+      "authKind": "local_actor",
       "rawBodyEligible": false,
       "source": "core",
       "generatedTwin": false

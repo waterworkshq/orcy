@@ -27,6 +27,7 @@ If you also have the CLI installed, **prefer MCP for intra-session tool use** �
 | `orcy_admin` | `list-webhooks`, `create-webhook`, `delete-webhook`, `list-templates`, `create-template`, `delete-template`, `batch-assign-tasks`, `batch-set-priority`, `batch-delete-tasks` | Admin operations |
 | `orcy_worktree` | `get-worktree` | Git worktree for tasks |
 | `orcy_notification` | `get_inbox`, `get_history`, `get_delivery`, `ack`, `snooze`, `clear`, `get_subscriptions` | Own notification self-service (see Notifications section) |
+| `orcy_automation` | `list`, `get`, `simulate`, `list_runs`, `get_rule_runs` | Automation inspection for habitats where you hold active work (see Automation section) |
 
 ---
 
@@ -905,3 +906,20 @@ orcy_notification({ action: "get_subscriptions", habitatId })
 - Scoping: every action is scoped to the path habitat AND your own recipient id + type. A delivery ID queried under the wrong habitat answers 404 there (under its correct habitat it works); someone else's delivery answers 403. Inbox/history under a wrong habitat return a filtered empty list, not 404.
 - `get_delivery` event content: agents receive the canonical row fields (`eventType`, `severity`, `title`, `body`) plus a fixed allowlist of string context keys (`taskId`, `missionId`, `actorId`, `reason`, `mentionedUserId`, `mentionedByName`, `commentContent`, `oldPriority`, `newPriority`, `reviewerId` — opaque passthrough, not semantically validated). The raw payload, creator fields, and history summaries are never exposed to agents.
 - Inbox/history show delivery rows (channels, status, timestamps) only — same shape a human sees.
+
+## Automation — `orcy_automation`
+
+Read-only automation inspection, available in habitats where YOU hold active work (a task you have in `claimed` / `in_progress` / `submitted` status there — approved/rejected/done/failed history does not qualify; a rejected task counts again once its rework start returns it to `in_progress`). Actions: `list` (rules in a habitat), `get` (one rule), `simulate` (dry-run a rule's condition), `list_runs` (habitat run history), `get_rule_runs` (one rule's runs).
+
+```
+orcy_automation({ action: "list", habitatId })
+orcy_automation({ action: "get", ruleId })
+orcy_automation({ action: "simulate", ruleId, targetType: "task", targetId })
+orcy_automation({ action: "list_runs", habitatId, limit: 50, offset: 0 })
+orcy_automation({ action: "get_rule_runs", ruleId, limit: 50, offset: 0 })
+```
+
+- Scoping: without active work in the habitat, `list`/`list_runs` answer 403 and the rule-id actions answer 404 (uniform with unknown or foreign rule ids — you cannot probe rule existence). Denial windows: before your first claim in a habitat and while you hold no assigned task there in `claimed` / `in_progress` / `submitted`.
+- Rules arrive as projections: trigger/cooldown/priority/enabled plus a `{type, summary}` condition view and `{type, description}` static action labels. Configuration webhook URL/header fields, signal content, and plugin params are never exposed; authored `name` / `description` free text passes through unchanged.
+- `simulate`: pass `targetType`/`targetId` (a task/mission/sprint/pulse/habitat of the same habitat; `agent` targets are rejected). You may not pass `overrideCondition` or `payload` — both are rejected with fixed 400 codes. Plugin-typed conditions anywhere in the rule's tree answer `validation.code = "unsupported_plugin_condition"` without evaluation. The response carries `{ruleId, ruleName, wouldExecute, skipReason?, validation, actionPreviews, conditionResult}` only.
+- Runs arrive as `{id, ruleId, status?, startedAt, finishedAt}` plus `skipReason` when it is one of the canonical union values; non-canonical legacy statuses and skip reasons are omitted. No error details, action results, or metadata.

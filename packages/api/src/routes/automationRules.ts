@@ -5,6 +5,12 @@ import * as runRepo from "../repositories/automationRuleRun.js";
 import * as deliveryRepo from "../repositories/automationRuleDelivery.js";
 import * as inboxService from "../services/automationInboxService.js";
 import * as simulationService from "../services/automationSimulationService.js";
+import {
+  projectRuleForAgent,
+  projectRunForAgent,
+  simulateRuleForAgent,
+  deriveTriggerType,
+} from "../services/automationAgentInspectionService.js";
 import { buildTriggerContext } from "../services/automationContextBuilder.js";
 import {
   automationConditionSchema,
@@ -18,7 +24,7 @@ import { attemptRuleRun } from "../services/automationAttemptLifecycle.js";
 import { agentHasHabitatWork, checkHabitatOwnership } from "../services/automationEventService.js";
 import { requireHabitatAccess } from "../middleware/team.js";
 import { checkHabitatAccess } from "../middleware/realtimeAuth.js";
-import { notFound, badRequest, conflict } from "../errors.js";
+import { notFound, badRequest, conflict, forbidden } from "../errors.js";
 import type { AutomationTargetType } from "@orcy/shared";
 import { applyDeclaredAuthPolicies } from "../authPolicy.js";
 
@@ -63,19 +69,60 @@ const manualRunSchema = z
   })
   .strict();
 
-function deriveTriggerType(trigger: unknown, defaultIfEvent: string): string {
-  const t = trigger as { type?: string; scanType?: string; eventType?: string };
-  return t.type === "scan" ? (t.scanType ?? "unknown") : (t.eventType ?? defaultIfEvent);
-}
-
 export async function automationRoutes(fastify: FastifyInstance): Promise<void> {
   applyDeclaredAuthPolicies(fastify);
+
+  /**
+   * REC-07 family 2 — active-work gate for agent principals on the 5
+   * inspection routes. `agentHasHabitatWork` is the settled user decision:
+   * an agent may inspect automation only in habitats where it holds a task
+   * in an ACTIVE status (claimed/in_progress/submitted — the shared
+   * ACTIVE_TASK_STATUSES constant). Terminal history (approved/done/…)
+   * does not qualify. Humans are unaffected (their access stays team
+   * membership via requireHabitatAccess / checkHabitatAccess).
+   */
+  function assertAgentWorkGate(agentId: string, habitatId: string): void {
+    if (!agentHasHabitatWork(agentId, habitatId)) {
+      throw forbidden(
+        "Agents may inspect automation only in habitats where they hold active work",
+        "NO_ACTIVE_HABITAT_WORK",
+      );
+    }
+  }
+
+  /**
+   * Uniform rule-id authorization: a missing rule, a rule outside the
+   * caller's reach, and (for agents) a habitat without active work are ALL
+   * 404 — a no-work agent cannot oracle rule existence cross-habitat.
+   * Humans additionally get the disclosed tightening: these three reads
+   * previously had NO habitat check at all; they now enforce
+   * checkHabitatAccess against the rule's derived habitat (the :244 run
+   * route precedent).
+   */
+  async function authorizeRuleAccess(
+    request: Parameters<typeof checkHabitatAccess>[0],
+    rule: { habitatId: string },
+  ): Promise<void> {
+    if (request.agent) {
+      if (!agentHasHabitatWork(request.agent.id, rule.habitatId)) {
+        throw notFound("Rule not found");
+      }
+      return;
+    }
+    await checkHabitatAccess(request, rule.habitatId);
+  }
 
   // List rules for habitat
   fastify.get<{ Params: { habitatId: string } }>(
     "/habitats/:habitatId/automation-rules",
-    { preHandler: [requireHabitatAccess], config: { authPolicy: "human" } },
+    { preHandler: [requireHabitatAccess], config: { authPolicy: "local_actor" } },
     async (request, _reply) => {
+      if (request.agent) {
+        assertAgentWorkGate(request.agent.id, request.params.habitatId);
+        return ruleRepo
+          .listAutomationRulesByHabitat(request.params.habitatId)
+          .map(projectRuleForAgent);
+      }
       return ruleRepo.listAutomationRulesByHabitat(request.params.habitatId);
     },
   );
@@ -108,10 +155,12 @@ export async function automationRoutes(fastify: FastifyInstance): Promise<void> 
   // Get single rule
   fastify.get<{ Params: { ruleId: string } }>(
     "/automation-rules/:ruleId",
-    { config: { authPolicy: "human" } },
+    { config: { authPolicy: "local_actor" } },
     async (request, _reply) => {
       const rule = ruleRepo.getAutomationRuleById(request.params.ruleId);
       if (!rule) throw notFound("Rule not found");
+      await authorizeRuleAccess(request, rule);
+      if (request.agent) return projectRuleForAgent(rule);
       return rule;
     },
   );
@@ -185,12 +234,26 @@ export async function automationRoutes(fastify: FastifyInstance): Promise<void> 
   );
 
   // Simulate
+  // Agent principals get the restricted REC-07 family 2 contract (see
+  // automationAgentInspectionService): fixed-code input rejections,
+  // ownership-scoped targets BEFORE any context build, stored-condition
+  // classification (invalid / plugin nodes are never evaluated), static
+  // action previews, and a bounded response with no context/reason echo.
+  // Humans keep the existing simulation path byte-unchanged, plus the
+  // disclosed habitat-access tightening (authorizeRuleAccess).
   fastify.post<{ Params: { ruleId: string } }>(
     "/automation-rules/:ruleId/simulate",
-    { config: { authPolicy: "human" } },
+    { config: { authPolicy: "local_actor" } },
     async (request, _reply) => {
       const rule = ruleRepo.getAutomationRuleById(request.params.ruleId);
       if (!rule) throw notFound("Rule not found");
+      await authorizeRuleAccess(request, rule);
+      if (request.agent) {
+        return simulateRuleForAgent({
+          rule,
+          body: (request.body ?? {}) as Record<string, unknown>,
+        });
+      }
       const parsed = simulateSchema.safeParse(request.body);
       if (!parsed.success) {
         throw badRequest("Validation failed", parsed.error.flatten());
@@ -320,26 +383,38 @@ export async function automationRoutes(fastify: FastifyInstance): Promise<void> 
   // Rule runs history
   fastify.get<{ Params: { ruleId: string }; Querystring: { limit?: string; offset?: string } }>(
     "/automation-rules/:ruleId/runs",
-    { config: { authPolicy: "human" } },
+    { config: { authPolicy: "local_actor" } },
     async (request, _reply) => {
       const { ruleId } = request.params;
       const limit = request.query.limit ? Number(request.query.limit) : 50;
       const offset = request.query.offset ? Number(request.query.offset) : 0;
       const rule = ruleRepo.getAutomationRuleById(ruleId);
       if (!rule) throw notFound("Rule not found");
-      return runRepo.listRunsByRule(ruleId, { limit, offset });
+      await authorizeRuleAccess(request, rule);
+      const result = runRepo.listRunsByRule(ruleId, { limit, offset });
+      if (request.agent) {
+        return { runs: result.runs.map(projectRunForAgent), total: result.total };
+      }
+      return result;
     },
   );
 
   // All runs for habitat
   fastify.get<{ Params: { habitatId: string }; Querystring: { limit?: string; offset?: string } }>(
     "/habitats/:habitatId/automation-runs",
-    { preHandler: [requireHabitatAccess], config: { authPolicy: "human" } },
+    { preHandler: [requireHabitatAccess], config: { authPolicy: "local_actor" } },
     async (request, _reply) => {
       const { habitatId } = request.params;
       const limit = request.query.limit ? Number(request.query.limit) : 50;
       const offset = request.query.offset ? Number(request.query.offset) : 0;
-      return runRepo.listRunsByHabitat(habitatId, { limit, offset });
+      if (request.agent) {
+        assertAgentWorkGate(request.agent.id, habitatId);
+      }
+      const result = runRepo.listRunsByHabitat(habitatId, { limit, offset });
+      if (request.agent) {
+        return { runs: result.runs.map(projectRunForAgent), total: result.total };
+      }
+      return result;
     },
   );
 

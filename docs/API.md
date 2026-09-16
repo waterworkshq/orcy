@@ -6213,26 +6213,34 @@ Remote participants are not admitted on recipient routes (`local_actor` accepts 
 
 Workflow automation engine — event-driven and scheduled rules with conditions, actions, simulation, and run history.
 
+**Auth on the read/simulate surface:** the 5 inspection routes (`GET /habitats/:hid/automation-rules`, `GET /automation-rules/:rid`, `POST /automation-rules/:rid/simulate`, `GET /automation-rules/:rid/runs`, `GET /habitats/:hid/automation-runs`) accept `local_actor` — human JWT **or** agent API key. Human authorization is the existing human habitat-access policy, now enforced on rule-id reads as well (the rule-id routes derive the rule's habitat and enforce habitat access — a disclosed tightening: these reads previously had no habitat check). Agent authorization is ACTIVE WORK: the agent must hold a task in an `claimed` / `in_progress` / `submitted` status inside that habitat (`agentHasHabitatWork`). Any status outside that set (`pending`, `approved`, `done`, `failed`, `rejected`) does not qualify — access is denied before the first claim in a habitat and while no assigned task remains in `claimed` / `in_progress` / `submitted` there (a `rejected` task is rework-eligible: it counts again once its rework start returns it to `in_progress`).
+
+**Agent vs human response contracts:**
+- **Rules (list/get):** humans receive the raw rule rows. Agents receive a structural allowlist — `{id, habitatId, name, description, enabled, priority, trigger?, cooldownSeconds, maxRunsPerHour}` plus `condition: {type, summary}` (fixed operand-free per-type summary) and `actions: [{type, description}]` (fixed static per-action-type labels). The `trigger` field is a NEWLY CONSTRUCTED discriminated object — `{type: "event", eventType}` or `{type: "scan", scanType}` — emitted only when the stored trigger's discriminator and enum member validate against the shared runtime allowlists; a malformed or unknown stored trigger omits the field entirely. Webhook URLs, headers, body templates, signal content, plugin action ids/params, every condition operand value, and any extra keys riding on a validly-typed trigger object are structurally excluded — they never reach the agent payload. The exclusion is structural on configuration fields, not a content scan: authored `name` / `description` free text is returned unchanged (it may legitimately contain URLs — it is the rule author's own text).
+- **Runs (both run routes):** humans receive raw run rows (including `actionResults`, `conditionResult`, `metadata`). Agents receive `{id, ruleId, startedAt, finishedAt}` plus `status` only when the stored value is one of the `AutomationRunStatus` values and `skipReason` only when it is one of the canonical `AutomationSkipReason` union values (`disabled`, `condition_false`, `cooldown`, `loop_guard`, `rate_limited`, `causal_cycle`, `causal_depth_limit`, `missing_target`) — non-canonical stored statuses, free-text skip reasons, and all error/action/metadata content are omitted entirely.
+- **Simulate (agent path):** `overrideCondition` → 400 `override_condition_forbidden`; agent-supplied `payload` → 400 `payload_forbidden` (never silently ignored); `targetType: "agent"` → 400 `unsupported_target_type`; any other target is scoped through `checkHabitatOwnership` against the rule's habitat BEFORE any context build — missing or foreign targets return 404 with no row data. `triggerEventId` is accepted and never dereferenced or echoed. Malformed bodies (non-object JSON) and half target pairs (a `targetType` without a `targetId`, or non-string fields) are safe by construction: they degrade to a no-target evaluation — no entity row is loaded, no ownership is bypassed — and the response stays within the bounded shape below. The response is `{ruleId, ruleName, wouldExecute, skipReason?, validation, actionPreviews, conditionResult: {matched, conditionType}}` — no `context`, no `reason`, no payload echo; previews are the same static labels. Stored conditions are schema-validated first: an invalid tree answers `validation: {valid: false, code: "invalid_condition"}`; a `plugin` node anywhere in the tree (nested through `and`/`or`/`not`) answers `{valid: false, code: "unsupported_plugin_condition"}` with NO evaluation and NO plugin-handler invocation; invalid action config answers `code: "invalid_action_config"`. `skipReason` is reported only as a real union value (`condition_false` on an evaluated non-match) — classification codes live in `validation.code`, never coerced into a fake skip reason. The agent simulate path writes nothing (no run/delivery/inbox rows). Human simulate keeps today's full response unchanged.
+- **Denial statuses:** habitat-scoped list routes answer 403 for an agent without active work; the three rule-id routes answer 404 uniformly for a missing rule, a rule outside the caller's reach, and a no-work agent (no existence oracle).
+
 ### Rule Routes
 
 | Method | Route | Purpose |
 |--------|-------|---------|
-| GET | `/habitats/:hid/automation-rules` | List rules (by priority asc) |
+| GET | `/habitats/:hid/automation-rules` | List rules (by priority asc) — agent path: projected rows |
 | POST | `/habitats/:hid/automation-rules` | Create rule |
-| GET | `/automation-rules/:rid` | Get rule |
+| GET | `/automation-rules/:rid` | Get rule — agent path: projected; habitat access enforced for all principals |
 | PUT | `/automation-rules/:rid` | Update rule |
 | DELETE | `/automation-rules/:rid` | Delete rule + runs |
 | POST | `/automation-rules/:rid/enable` | Enable rule |
 | POST | `/automation-rules/:rid/disable` | Disable rule |
-| POST | `/automation-rules/:rid/simulate` | Simulate (no side effects) |
+| POST | `/automation-rules/:rid/simulate` | Simulate (agent path: the restricted contract above — constrained read-only simulation; human simulation retains existing behavior, including registered plugin-condition evaluation) |
 | POST | `/automation-rules/:rid/run` | Manual run |
 
 ### Run History
 
 | Method | Route | Purpose |
 |--------|-------|---------|
-| GET | `/automation-rules/:rid/runs` | Runs for rule |
-| GET | `/habitats/:hid/automation-runs` | All habitat runs |
+| GET | `/automation-rules/:rid/runs` | Runs for rule — agent path: allowlisted run view |
+| GET | `/habitats/:hid/automation-runs` | All habitat runs — agent path: allowlisted run view |
 
 ### Inbox & Delivery Disposition (v0.40)
 
@@ -6263,7 +6271,7 @@ Disposition contracts: a state race on either disposition returns **409 CONFLICT
 | Tool | Actions | Safety |
 |------|---------|--------|
 | `orcy_notification` | get_inbox, get_history, get_delivery, ack, snooze, clear, get_subscriptions | Self-service only — the authenticated agent's own deliveries and subscription reads (getDelivery returns the projected event, not the raw payload) |
-| `orcy_automation` | list, get, simulate, list_runs, get_rule_runs | Read-only |
+| `orcy_automation` | list, get, simulate, list_runs, get_rule_runs | Read-only — for agent principals, scoped to habitats with active work and served the bounded projections described above (configuration webhook URL/header fields, plugin parameter fields, run errors and condition operands are excluded; authored rule names/descriptions remain visible) |
 
 ---
 
