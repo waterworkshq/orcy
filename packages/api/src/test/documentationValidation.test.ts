@@ -270,8 +270,12 @@ describe('Documentation validation', () => {
     });
 
     it('claim endpoint documents agent auth requirement', () => {
-      const claimSection = doc.substring(doc.indexOf('POST /tasks/:id/claim'));
-      expect(claimSection.substring(0, 500)).toMatch(/Agent auth required/i);
+      const heading = /^### POST \/tasks\/:id\/claim\s*$/m.exec(doc);
+      expect(heading, 'claim endpoint heading present in API.md').not.toBeNull();
+      const from = heading!.index + heading![0].length;
+      const next = /^### /m.exec(doc.slice(from));
+      const claimSection = doc.slice(from, next ? from + next.index : undefined);
+      expect(claimSection).toMatch(/Agent auth required/i);
     });
 
     it('approve/reject endpoints document principal-derived reviewer auth (human JWT or agent key)', () => {

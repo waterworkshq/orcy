@@ -1409,7 +1409,7 @@ Delete a task. Triggers parent mission status recalculation.
 
 Perform batch operations on multiple tasks within missions. Tasks no longer have columns — column management is at the mission level.
 
-**Auth:** JWT required (human)
+**Auth:** Local actor (agent API key or human JWT). Boundary by operation: `assign` rejects agent callers with `403` and the exact message "Batch assignment is admin-only. Use POST /tasks/:id/claim to claim a task." (agents must use claim, so claim eligibility checks apply); humans reach `assign` with any JWT — **no habitat-membership or admin-role check exists on this route** (known limitation: any authenticated human can batch on any habitat, including team habitats they are not a member of). `priority` and `delete` accept both agent keys and human JWTs — the asymmetry is intentional per the assign guard itself.
 
 **Request:**
 
@@ -1698,7 +1698,7 @@ List the reviewer rows assigned to a task (agent API key or human JWT). **Known 
 
 ### POST /tasks/:taskId/reviewers
 
-Assign a reviewer to a task. **Auth:** human JWT only (reviewer management stays human-governed).
+Assign a reviewer to a task. **Auth:** human JWT only (reviewer management stays human-governed) — agent API keys receive `401`; there is no admin-role distinction (any authenticated human on personal habitats, any team member on team habitats).
 
 **Request:**
 
@@ -1721,7 +1721,7 @@ Validation (both explicit creation paths share this contract): the id must resol
 
 ### DELETE /tasks/:taskId/reviewers/:reviewerId
 
-Remove a task's reviewer row (human JWT only). `(taskId, reviewerId)` is unique, so the untyped wire argument resolves exactly one row; the request shape is unchanged.
+Remove a task's reviewer row (human JWT only — agent API keys receive `401`; team membership required on team habitats, no admin-role distinction). `(taskId, reviewerId)` is unique, so the untyped wire argument resolves exactly one row; the request shape is unchanged.
 
 ### POST /tasks/:id/release
 
@@ -2030,6 +2030,8 @@ Get sprint-scoped burndown data.
 Get a sprint carry-over report for incomplete or moved work.
 
 **Auth:** Agent or Human
+
+> **Administrative boundary — sprint and review-rule routes.** Sprint and review-rule READS are local-actor for agent keys with one habitat-shape carve-out: the habitat-scoped reads (`GET /habitats/:habitatId/sprints`, `GET /habitats/:habitatId/sprints/active`, `GET /habitats/:habitatId/review-rules`) and `GET /tasks/:taskId/reviewers` admit any agent on any habitat shape (habitat-scoped sprint/review-rule reads have no agent-facing habitat guard), while the four id-keyed sprint reads (`GET /sprints/:id`, `/metrics`, `/burndown`, `/carry-over`) additionally require a non-team (personal) habitat for agents — on team habitats agents receive **403** ("Agents cannot access team habitats"); for human JWTs: personal habitats admit any authenticated human, while on team habitats a nonmember receives **403** on the habitat-scoped sprint/review-rule reads and on the id-keyed sprint reads — `GET /tasks/:taskId/reviewers` alone carries no habitat guard for humans, and the batch-assign route keeps its known no-membership-check limitation. Every sprint lifecycle mutation (`POST /habitats/:habitatId/sprints`, `PATCH`/`DELETE /sprints/:id`, `POST /sprints/:id/start|complete|cancel|missions`, `DELETE /sprints/:id/missions/:missionId`) and every review-rule mutation (`POST /habitats/:habitatId/review-rules`, `PATCH`/`DELETE /review-rules/:id`) is human-authenticated (JWT) only: agent API keys receive **401** (not 403 — the auth policy rejects non-JWT callers before the handler), with no admin-role distinction — any authenticated human on personal habitats, any team member on team habitats.
 
 **Response `200`:** includes completed, carried-over, and incomplete counts plus task-level inferred reasons such as blocked dependencies, missing estimates, overdue work, repeated rejection history, or effort overrun.
 

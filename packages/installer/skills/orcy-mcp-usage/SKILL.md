@@ -24,7 +24,7 @@ If you also have the CLI installed, **prefer MCP for intra-session tool use** �
 | `orcy_habitat_message` | `send`, `get-messages` | Cross-agent communication |
 | `orcy_pulse` | `post`, `check` | Mission signal board — post findings, blockers, offers; auto-tasks on BLOCKER |
 | `orcy_habitat_subscription` | `subscribe`, `unsubscribe` | Real-time event subscriptions |
-| `orcy_admin` | `list-webhooks`, `create-webhook`, `delete-webhook`, `list-templates`, `create-template`, `delete-template`, `batch-assign-tasks`, `batch-set-priority`, `batch-delete-tasks` | Admin operations |
+| `orcy_admin` | `list-webhooks`, `create-webhook`, `delete-webhook`, `list-templates`, `create-template`, `delete-template`, `batch-assign-tasks`, `batch-set-priority`, `batch-delete-tasks` | Admin operations. Batch boundary: `batch-assign-tasks` returns agents `403` ("Batch assignment is admin-only. Use POST /tasks/:id/claim to claim a task.") — use claim instead, so claim eligibility checks apply; `batch-set-priority` and `batch-delete-tasks` remain agent-usable — asymmetry intentional — not currently served in the MCP tool registry (batch operations are served on `orcy_habitat_task`) |
 | `orcy_worktree` | `get-worktree` | Git worktree for tasks |
 | `orcy_notification` | `get_inbox`, `get_history`, `get_delivery`, `ack`, `snooze`, `clear`, `get_subscriptions` | Own notification self-service (see Notifications section) |
 | `orcy_automation` | `list`, `get`, `simulate`, `list_runs`, `get_rule_runs` | Automation inspection for habitats where you hold active work (see Automation section) |
@@ -696,8 +696,10 @@ orcy_admin({ action: "delete-template", templateId: "template-uuid" })
 
 ### Batch Operations
 
+Boundary: `assign` is agent-forbidden — an agent key gets `403` with the pointer "Batch assignment is admin-only. Use POST /tasks/:id/claim to claim a task." (use `claim`, never batch-assign). `set-priority` and `delete` stay agent-usable on the same route; the asymmetry is intentional. Humans need only any authenticated JWT on this route — there is no habitat-membership check (known limitation).
+
 ```
-# Assign tasks
+# Assign tasks — agents receive 403; humans (JWT) only
 orcy_admin({
   action: "batch-assign-tasks",
   boardId: "uuid",
@@ -754,7 +756,7 @@ Output: { "worktree": { "path": "/repo/worktrees/task-uuid", "branch": "task/fix
 
 ### Path B: Pod Review
 
-Approval and rejection admit a human reviewer or an agent holding a pending agent-typed reviewer row. Reviewer identity always derives from the authenticated caller (a body `reviewerId` is ignored); an agent equal to the task's current assignee is refused (typed anti-self); agent status is never an admission gate (offline ≠ revoked). Reviewer MANAGEMENT (`orcy_review` add/remove, human-only) can name `reviewerType: "agent"` targets validated against the agent registry.
+Approval and rejection admit a human reviewer or an agent holding a pending agent-typed reviewer row. Reviewer identity always derives from the authenticated caller (a body `reviewerId` is ignored); an agent equal to the task's current assignee is refused (typed anti-self); agent status is never an admission gate (offline ≠ revoked). Reviewer MANAGEMENT (`orcy_review` add/remove) is human-only: every `orcy_review`/`orcy_sprint` mutation is human-authenticated (JWT) — an agent API key gets `401` (not 403); on team habitats humans additionally need team membership, with no admin-role distinction. Reviewer management can name `reviewerType: "agent"` targets validated against the agent registry. The reads (`orcy_review` `list_rules`/`list_reviewers`, `orcy_sprint` `list`/`get_active` on any habitat shape, and the four id-keyed sprint reads `get`/`get_metrics`/`get_burndown`/`get_carry_over` on personal habitats) are agent-capable; the id-keyed sprint reads 403 agents on team habitats.
 
 ```
 1. orcy_habitat({ action: "summary", habitatId })                              → Understand the board
