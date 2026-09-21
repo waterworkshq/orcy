@@ -15,11 +15,41 @@ export interface ChatIntegration {
   provider: "slack" | "discord";
   webhookUrl: string;
   channelId: string | null;
+  providerWorkspaceId: string | null;
   botToken: string | null;
   enabled: number;
   events: string[];
   createdAt: string;
   updatedAt: string;
+}
+
+/**
+ * Decision-path resolver: exact tuple (provider, signed workspace, non-null
+ * channel) over ENABLED rows. Zero matches or an ambiguous duplicate tuple
+ * both resolve to null — the caller refuses; there is never a first-match
+ * and never an env fallback. NULL-workspace rows are structurally
+ * excluded (push-only).
+ */
+export function findDecisionIntegration(
+  provider: "slack" | "discord",
+  providerWorkspaceId: string,
+  channelId: string,
+): ChatIntegration | null {
+  const db = getDb();
+  const rows = db
+    .select()
+    .from(chatIntegrations)
+    .where(
+      and(
+        eq(chatIntegrations.provider, provider),
+        eq(chatIntegrations.providerWorkspaceId, providerWorkspaceId),
+        eq(chatIntegrations.channelId, channelId),
+        eq(chatIntegrations.enabled, 1),
+      ),
+    )
+    .all() as ChatIntegration[];
+  if (rows.length !== 1) return null;
+  return rows[0];
 }
 
 export function getIntegrationsByHabitat(habitatId: string): ChatIntegration[] {
@@ -61,6 +91,7 @@ export function createIntegration(input: {
   provider: "slack" | "discord";
   webhookUrl: string;
   channelId?: string;
+  providerWorkspaceId?: string | null;
   botToken?: string;
   events?: string[];
 }): ChatIntegration {
@@ -76,6 +107,7 @@ export function createIntegration(input: {
         provider: input.provider,
         webhookUrl: input.webhookUrl,
         channelId: input.channelId ?? null,
+        providerWorkspaceId: input.providerWorkspaceId ?? null,
         botToken: input.botToken ?? null,
         enabled: 1,
         events: input.events ?? [
@@ -104,6 +136,7 @@ export function updateIntegration(
   updates: {
     webhookUrl?: string;
     channelId?: string;
+    providerWorkspaceId?: string | null;
     botToken?: string;
     enabled?: boolean;
     events?: string[];
@@ -118,6 +151,8 @@ export function updateIntegration(
 
   if (updates.webhookUrl !== undefined) setValues.webhookUrl = updates.webhookUrl;
   if (updates.channelId !== undefined) setValues.channelId = updates.channelId;
+  if (updates.providerWorkspaceId !== undefined)
+    setValues.providerWorkspaceId = updates.providerWorkspaceId;
   if (updates.botToken !== undefined) setValues.botToken = updates.botToken;
   if (updates.enabled !== undefined) setValues.enabled = updates.enabled ? 1 : 0;
   if (updates.events !== undefined) setValues.events = updates.events;

@@ -4091,6 +4091,7 @@ Create a chat integration.
 | `provider` | enum | yes | `slack`, `discord` |
 | `webhookUrl` | string | yes | Webhook URL for notifications |
 | `channelId` | string | no | Provider-specific channel ID |
+| `providerWorkspaceId` | string \| null | no | Trusted workspace anchor (Slack `team_id` / Discord `guild_id`). Required (with a non-null `channelId`) before review decisions can resolve; `null` rows are push-only |
 | `botToken` | string | no | Bot token for interactive features |
 | `events` | string[] | no | Event types to send (default: all) |
 
@@ -4121,6 +4122,8 @@ Update a chat integration.
 ```json
 {
   "webhookUrl": "https://hooks.slack.com/services/yyy",
+  "channelId": "C0123456789",
+  "providerWorkspaceId": "T0123456789",
   "events": ["task.submitted"]
 }
 ```
@@ -4132,6 +4135,66 @@ Update a chat integration.
   "chatIntegration": { "id": "...", "webhookUrl": "...", "..." }
 }
 ```
+
+### GET /habitats/:habitatId/chat-integrations/:integrationId/speaker-mappings
+
+List speaker mappings for a chat integration. A mapping attributes one provider speaker (workspace-scoped) to a **local Orcy user** so that person's signed chat review decisions act under their own identity. No secrets are stored or returned.
+
+**Auth:** JWT required (human, admin only; the integration must belong to the habitat — otherwise `403`)
+
+**Response `200`:**
+
+```json
+{
+  "speakerMappings": [
+    {
+      "id": "mapping-uuid",
+      "habitatId": "habitat-uuid",
+      "integrationId": "integration-uuid",
+      "provider": "slack",
+      "providerWorkspaceId": "T0123456789",
+      "providerSpeakerId": "U0123456789",
+      "localUserId": "user-uuid",
+      "createdBy": "admin-uuid",
+      "createdAt": "2026-04-01T00:00:00.000Z"
+    }
+  ]
+}
+```
+
+### POST /habitats/:habitatId/chat-integrations/:integrationId/speaker-mappings
+
+Create a speaker mapping. The mapping's habitat is derived from the integration (never the request). Operator-entered speaker IDs are trusted (no external provider lookup — unmatched speakers simply never resolve at decision time). The mapped user must be a current, habitat-eligible human reviewer (exists, `admin`/`editor` role, team membership where applicable — re-checked at decision time, never a snapshot).
+
+**Auth:** JWT required (human, admin only; cross-habitat `403`)
+
+**Request:**
+
+```json
+{
+  "providerWorkspaceId": "T0123456789",
+  "providerSpeakerId": "U0123456789",
+  "localUserId": "user-uuid"
+}
+```
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `providerWorkspaceId` | string | yes | Must match the integration's configured workspace |
+| `providerSpeakerId` | string | yes | Workspace-scoped provider speaker ID |
+| `localUserId` | string | yes | Existing local user (must hold `admin`/`editor` and habitat eligibility) |
+
+**Response `200`:** the created mapping (same shape as list items).
+
+**Errors:** `400` invalid mapped user / workspace mismatch / integration without a configured workspace; `409` duplicate speaker mapping.
+
+### DELETE /habitats/:habitatId/chat-integrations/:integrationId/speaker-mappings/:mappingId
+
+Remove a speaker mapping. Decisions whose authorization begins after removal are refused. A request already past authorization may complete, matching existing HTTP check-then-act behavior.
+
+**Auth:** JWT required (human, admin only)
+
+**Response `200`:** `{ "success": true }`
 
 ### DELETE /chat-integrations/:id
 
@@ -4158,9 +4221,9 @@ Send a test message to verify the integration.
 
 ### POST /chat/slack/command
 
-Handle Slack slash commands.
+Handle Slack slash commands. Verified ingress: when `SLACK_SIGNING_SECRET` is configured, the exact raw bytes must carry a valid Slack v0 signature; review decisions additionally require a genuinely verified signature in every posture (unsigned/invalid `approve`/`reject` → 401), while local dev without a configured secret keeps the read-command allowance; the signature authenticates the origin, not workspace permission.
 
-**No authentication required.**
+**No local JWT/API key; provider-signature verified ingress — review decisions require a verified signature in every posture (401 unsigned); reads follow the local-dev/remote posture**
 
 **Request:** `application/x-www-form-urlencoded`
 
@@ -4181,9 +4244,9 @@ user_id=U0123456789
 
 ### POST /chat/discord/interaction
 
-Handle Discord interactions.
+Handle Discord interactions. Verified ingress: when `DISCORD_PUBLIC_KEY` is configured, Ed25519 over the exact raw bytes is required; review decisions additionally require a genuinely verified signature in every posture (unsigned/invalid `approve`/`reject` → 401), while local dev without a configured key keeps the read-command allowance; the signature authenticates the origin, not guild permission.
 
-**No authentication required.**
+**No local JWT/API key; provider-signature verified ingress — review decisions require a verified signature in every posture (401 unsigned); reads follow the local-dev/remote posture**
 
 **Request:**
 
@@ -4210,6 +4273,19 @@ Handle Discord interactions.
   }
 }
 ```
+
+#### Review decisions from chat (`approve` / `reject`)
+
+Review decisions require a **genuinely verified request signature in every posture**: the installed verifier guard must report `verified: true` for this provider (`slack_signing` / `discord_ed25519`). In local dev with secrets absent the ingress guard fails open for READ commands only — an unsigned (or invalid-signature) `approve`/`reject` is refused with **401** before any resolution, decision, event, or retry write, even when the body names a real integration and mapped speaker. Configured-but-invalid signatures are rejected 401 by the verifier guard as usual.
+
+Read commands (`list`/`tasks`, `info`, `help`) resolve against the default habitat (`ORCY_DEFAULT_HABITAT_ID`). Review decisions **never** use that env var:
+
+1. **Resolution** — the signed `team_id`/`guild_id` + `channel_id` from the raw body must match exactly one **enabled** integration configured with that provider workspace + channel (`(provider, providerWorkspaceId, channelId)` tuple). Zero or multiple matches → refusal. Integrations without a configured workspace are push-only and never resolve. Discord messages without a `guild_id` (DMs) are refused.
+2. **Principal** — an explicit speaker mapping must attribute the signed speaker to a local user who *currently* holds `admin`/`editor` and habitat eligibility; unmapped speakers, removed mappings, revoked roles, or missing users are refused with zero writes.
+3. **Decision** — the mapped local human passes the same `authorizeTaskAction` admission as the HTTP route and the canonical lifecycle service: reviewer-assignment semantics, anti-self rules, finality gates, and lifecycle-interceptor vetoes all apply. A veto or state refusal surfaces as truthful failure text in the chat reply (never a false success). Human actors are meter-exempt (ADR-0051).
+4. **Provenance** — the persisted `task_events` row records the mapped local human as the actor and sanitized chat identifiers (`metadata.chat`: integration id, provider, workspace id, speaker id). No tokens or raw payloads are stored.
+
+A successful multi-reviewer approval that does not finalize the task replies that the **approval was recorded** and the task is still in review; only a transition to approved replies approved. Block actions and other interactive payloads are never decision paths and never mutate task state.
 
 ---
 

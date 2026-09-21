@@ -10,7 +10,7 @@ Orcy uses a **dual posture** model (ADR-001):
 
 | Posture | Condition | Behavior |
 |---------|-----------|----------|
-| **local-dev** | `HOST=127.0.0.1` or `localhost` and `NODE_ENV !== 'production'` | Relaxed defaults: open agent registration, unsigned chat commands allowed, weak JWT secret tolerated |
+| **local-dev** | `HOST=127.0.0.1` or `localhost` and `NODE_ENV !== 'production'` | Relaxed defaults: open agent registration, unsigned chat READ commands allowed (review decisions require a verified signature in every posture), weak JWT secret tolerated |
 | **remote** | `NODE_ENV=production` or `HOST` bound to non-localhost | Fail-closed: missing `JWT_SECRET` or `ORCY_REGISTRATION_TOKEN` crashes on startup, inbound integrations require valid signatures, outbound SSRF blocked |
 
 Posture is classified by `classifyPosture()` in `packages/api/src/config/security.ts`. The `assertSecurityConfigOrExit()` function is called at startup and terminates the process if remote posture has missing or weak secrets.
@@ -317,8 +317,18 @@ GitHub, GitLab, CI/CD, and code review webhooks use **fail-closed** verification
 
 Slack slash commands verify `v0=${timestamp}:${rawBody}` signatures. Discord interactions verify Ed25519 signatures.
 
-- **local-dev:** Unsigned commands allowed when secrets are not configured
+- **local-dev:** Unsigned READ commands allowed when secrets are not configured (review decisions require a verified signature in every posture)
 - **remote posture:** Commands rejected with **401** when secrets/public keys are missing
+
+#### Review decisions (`approve`/`reject`) — identity model
+
+A verified signature authenticates the request's **origin**, never workspace permission and never a human principal. Decision ingress is fail-closed in **every posture**: the handler independently requires the installed guard's proof (`verifier` matching the provider AND `verified === true`) — the local-dev missing-secret allowance applies to read commands only, so an unsigned forged body can never reach a mapped human's review authority (401, zero writes). A review decision additionally requires:
+
+1. The signed workspace id (`team_id`/`guild_id`) + channel id to match exactly one **enabled** integration configured with that workspace (`chat_integrations.provider_workspace_id`) and channel — ambiguity refuses; NULL-workspace integrations are push-only; guildless Discord messages refuse; the `ORCY_DEFAULT_HABITAT_ID` env is never consulted for decisions.
+2. An explicit admin-managed speaker mapping (`chat_speaker_mappings`) attributing the signed speaker to a **local user** who currently holds `admin`/`editor` and habitat eligibility — provider speaker ids are not local identity, there is no shared integration principal, and an unmapped speaker is refused with zero writes.
+3. The mapped human passes the same `authorizeTaskAction` admission as the HTTP route; the persisted `task_events` row names the mapped human as the actor with sanitized chat provenance in metadata (no tokens, no raw payloads).
+
+Block actions and other interactive payloads are never decision paths and never mutate task state. Failure surfaces as truthful refusal text in the chat reply — a lifecycle-interceptor veto, a state refusal, or an internal error never produces a false success.
 
 ### Outbound Webhooks and SSRF Protection
 

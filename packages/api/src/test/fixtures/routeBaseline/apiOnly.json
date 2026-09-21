@@ -160,6 +160,19 @@
     },
     {
       "method": "DELETE",
+      "path": "/api/habitats/:habitatId/chat-integrations/:integrationId/speaker-mappings/:mappingId",
+      "surface": "api-deprecated",
+      "guards": [
+        "humanAuth",
+        "<anonymous>"
+      ],
+      "authKind": "human",
+      "rawBodyEligible": false,
+      "source": "core",
+      "generatedTwin": false
+    },
+    {
+      "method": "DELETE",
       "path": "/api/habitats/:habitatId/insights/:insightId",
       "surface": "api-deprecated",
       "guards": [
@@ -647,6 +660,19 @@
     {
       "method": "DELETE",
       "path": "/api/v1/habitats/:habitatId",
+      "surface": "api-v1",
+      "guards": [
+        "humanAuth",
+        "<anonymous>"
+      ],
+      "authKind": "human",
+      "rawBodyEligible": false,
+      "source": "core",
+      "generatedTwin": false
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/habitats/:habitatId/chat-integrations/:integrationId/speaker-mappings/:mappingId",
       "surface": "api-v1",
       "guards": [
         "humanAuth",
@@ -1511,6 +1537,19 @@
     {
       "method": "GET",
       "path": "/api/habitats/:habitatId/chat-integrations",
+      "surface": "api-deprecated",
+      "guards": [
+        "humanAuth",
+        "<anonymous>"
+      ],
+      "authKind": "human",
+      "rawBodyEligible": false,
+      "source": "core",
+      "generatedTwin": false
+    },
+    {
+      "method": "GET",
+      "path": "/api/habitats/:habitatId/chat-integrations/:integrationId/speaker-mappings",
       "surface": "api-deprecated",
       "guards": [
         "humanAuth",
@@ -3821,6 +3860,19 @@
     {
       "method": "GET",
       "path": "/api/v1/habitats/:habitatId/chat-integrations",
+      "surface": "api-v1",
+      "guards": [
+        "humanAuth",
+        "<anonymous>"
+      ],
+      "authKind": "human",
+      "rawBodyEligible": false,
+      "source": "core",
+      "generatedTwin": false
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/habitats/:habitatId/chat-integrations/:integrationId/speaker-mappings",
       "surface": "api-v1",
       "guards": [
         "humanAuth",
@@ -6100,6 +6152,19 @@
     },
     {
       "method": "HEAD",
+      "path": "/api/habitats/:habitatId/chat-integrations/:integrationId/speaker-mappings",
+      "surface": "api-deprecated",
+      "guards": [
+        "humanAuth",
+        "<anonymous>"
+      ],
+      "authKind": "human",
+      "rawBodyEligible": false,
+      "source": "framework",
+      "generatedTwin": true
+    },
+    {
+      "method": "HEAD",
       "path": "/api/habitats/:habitatId/cumulative-flow",
       "surface": "api-deprecated",
       "guards": [
@@ -8398,6 +8463,19 @@
     {
       "method": "HEAD",
       "path": "/api/v1/habitats/:habitatId/chat-integrations",
+      "surface": "api-v1",
+      "guards": [
+        "humanAuth",
+        "<anonymous>"
+      ],
+      "authKind": "human",
+      "rawBodyEligible": false,
+      "source": "framework",
+      "generatedTwin": true
+    },
+    {
+      "method": "HEAD",
+      "path": "/api/v1/habitats/:habitatId/chat-integrations/:integrationId/speaker-mappings",
       "surface": "api-v1",
       "guards": [
         "humanAuth",
@@ -11236,6 +11314,19 @@
     },
     {
       "method": "POST",
+      "path": "/api/habitats/:habitatId/chat-integrations/:integrationId/speaker-mappings",
+      "surface": "api-deprecated",
+      "guards": [
+        "humanAuth",
+        "<anonymous>"
+      ],
+      "authKind": "human",
+      "rawBodyEligible": false,
+      "source": "core",
+      "generatedTwin": false
+    },
+    {
+      "method": "POST",
       "path": "/api/habitats/:habitatId/columns",
       "surface": "api-deprecated",
       "guards": [
@@ -13459,6 +13550,19 @@
     {
       "method": "POST",
       "path": "/api/v1/habitats/:habitatId/chat-integrations",
+      "surface": "api-v1",
+      "guards": [
+        "humanAuth",
+        "<anonymous>"
+      ],
+      "authKind": "human",
+      "rawBodyEligible": false,
+      "source": "core",
+      "generatedTwin": false
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/habitats/:habitatId/chat-integrations/:integrationId/speaker-mappings",
       "surface": "api-v1",
       "guards": [
         "humanAuth",

@@ -19,6 +19,27 @@ import { guardTransitionTop } from "./transitionBudget.js";
 import { failTaskWithEffects } from "../effects/failureEffects.js";
 import { requestEffectDeliveryPass } from "../effects/effectDeliverer.js";
 
+/**
+ * Secret-free chat provenance for review decisions made through a verified
+ * chat ingress by a mapped local human. Merged into the transition metadata
+ * (and thus the persisted `task_events` row) under the `chat` key; optional
+ * and backward compatible — HTTP callers pass nothing and are unchanged.
+ */
+export interface ChatReviewProvenance {
+  chatIntegrationId: string;
+  provider: "slack" | "discord";
+  providerWorkspaceId: string;
+  providerSpeakerId: string;
+}
+
+function withChatProvenance(
+  metadata: Record<string, unknown> | undefined,
+  provenance?: ChatReviewProvenance,
+): Record<string, unknown> | undefined {
+  if (!provenance) return metadata;
+  return { ...metadata, chat: provenance };
+}
+
 /** Arguments passed to every registered {@link TaskEventHook} when a task lifecycle event fires. */
 export interface TaskEventOpts {
   taskId: string;
@@ -430,6 +451,7 @@ export function approveTask(
   taskId: string,
   reviewerId: string,
   reviewerType: "human" | "agent" = "human",
+  chatProvenance?: ChatReviewProvenance,
 ): Task | null {
   const current = taskRepo.getTaskById(taskId);
   if (!current) return null;
@@ -534,6 +556,7 @@ export function approveTask(
     reviewerId,
     oldStatus: current.status,
     newStatus: "approved",
+    metadata: withChatProvenance(undefined, chatProvenance),
     task,
   });
 
@@ -544,6 +567,7 @@ export function approveTask(
     reviewerId,
     oldStatus: current.status,
     newStatus: "approved",
+    metadata: withChatProvenance(undefined, chatProvenance),
     task,
   });
 
@@ -566,6 +590,7 @@ export function rejectTask(
   reviewerId: string,
   reason: string,
   reviewerType: "human" | "agent" = "human",
+  chatProvenance?: ChatReviewProvenance,
 ): Task | null {
   const current = taskRepo.getTaskById(taskId);
   if (!current) return null;
@@ -594,7 +619,7 @@ export function rejectTask(
       oldStatus: current.status,
       newStatus: "rejected",
       reason,
-      metadata: { reason },
+      metadata: withChatProvenance({ reason }, chatProvenance),
       task: current,
     });
     if (veto) throw new InterceptorVetoError(veto);
@@ -655,7 +680,7 @@ export function rejectTask(
     oldStatus: current.status,
     newStatus: "rejected",
     reason,
-    metadata: { reason },
+    metadata: withChatProvenance({ reason }, chatProvenance),
     task,
   });
 
@@ -667,7 +692,7 @@ export function rejectTask(
     oldStatus: current.status,
     newStatus: "rejected",
     reason,
-    metadata: { reason },
+    metadata: withChatProvenance({ reason }, chatProvenance),
     task,
   });
 

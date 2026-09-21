@@ -1,7 +1,6 @@
 import { getEnabledIntegrationsByHabitat } from "../repositories/chatIntegration.js";
 import { getTaskById, getTasksByHabitatId, getHabitatIdForTask } from "../repositories/task.js";
 import { getAgentById } from "../repositories/agent.js";
-import { approveTask, rejectTask } from "../repositories/task.js";
 import {
   formatSlackMessage,
   formatSlackTaskList,
@@ -80,12 +79,11 @@ export async function processEvent(
   }
 }
 
-/** Runs a slash-command action (`list`, `info`, `approve`, `reject`, `help`) against tasks in the habitat and returns formatted payloads for both Slack and Discord. */
+/** Runs a read-only slash-command action (`list`, `info`, `help`) against tasks in the habitat and returns formatted payloads for both Slack and Discord. Review decisions (`approve`/`reject`) are NOT handled here: they route through the mapped-local-human decision path (`chatReviewDecision.ts`) — the former repository-layer bypass (state write with no event, no retry ladder, no reviewer semantics) is closed. */
 export async function executeCommand(
   habitatId: string,
   action: string,
   args: string[],
-  _userId?: string,
 ): Promise<{ response: object; provider: "slack" | "discord" }> {
   switch (action) {
     case "list":
@@ -140,93 +138,6 @@ export async function executeCommand(
       };
     }
 
-    case "approve": {
-      const taskId = args[0];
-      if (!taskId) {
-        return {
-          response: {
-            slack: formatSlackResponse("Usage: /orcy approve <task-id>", false),
-            discord: formatDiscordResponse("Usage: /orcy approve <task-id>", false),
-          },
-          provider: "slack",
-        };
-      }
-      const task = findTask(habitatId, taskId);
-      if (!task) {
-        return {
-          response: {
-            slack: formatSlackResponse(`Task not found: ${taskId}`, false),
-            discord: formatDiscordResponse(`Task not found: ${taskId}`, false),
-          },
-          provider: "slack",
-        };
-      }
-      const result = approveTask(task.id);
-      if (!result) {
-        return {
-          response: {
-            slack: formatSlackResponse(`Task "${task.title}" is not in submitted status`, false),
-            discord: formatDiscordResponse(
-              `Task "${task.title}" is not in submitted status`,
-              false,
-            ),
-          },
-          provider: "slack",
-        };
-      }
-      return {
-        response: {
-          slack: formatSlackResponse(`Task "${task.title}" approved`, true),
-          discord: formatDiscordResponse(`Task "${task.title}" approved`, true),
-        },
-        provider: "slack",
-      };
-    }
-
-    case "reject": {
-      const taskId = args[0];
-      const reason = args.slice(1).join(" ") || "Rejected via chat command";
-      if (!taskId) {
-        return {
-          response: {
-            slack: formatSlackResponse("Usage: /orcy reject <task-id> [reason]", false),
-            discord: formatDiscordResponse("Usage: /orcy reject <task-id> [reason]", false),
-          },
-          provider: "slack",
-        };
-      }
-      const task = findTask(habitatId, taskId);
-      if (!task) {
-        return {
-          response: {
-            slack: formatSlackResponse(`Task not found: ${taskId}`, false),
-            discord: formatDiscordResponse(`Task not found: ${taskId}`, false),
-          },
-          provider: "slack",
-        };
-      }
-      const result = rejectTask(task.id, reason);
-      if (!result) {
-        return {
-          response: {
-            slack: formatSlackResponse(`Task "${task.title}" is not in submitted status`, false),
-            discord: formatDiscordResponse(
-              `Task "${task.title}" is not in submitted status`,
-              false,
-            ),
-          },
-          provider: "slack",
-        };
-      }
-      return {
-        response: {
-          slack: formatSlackResponse(`Task "${task.title}" rejected: ${reason}`, true),
-          discord: formatDiscordResponse(`Task "${task.title}" rejected: ${reason}`, true),
-        },
-        provider: "slack",
-      };
-    }
-
     case "help": {
       return {
         response: { slack: formatSlackHelp(), discord: formatDiscordHelp() },
@@ -251,7 +162,7 @@ export async function executeCommand(
   }
 }
 
-function findTask(habitatId: string, taskIdOrShort: string): ReturnType<typeof getTaskById> {
+export function findTask(habitatId: string, taskIdOrShort: string): ReturnType<typeof getTaskById> {
   const task = getTaskById(taskIdOrShort);
   if (task) {
     const taskHabitatId = getHabitatIdForTask(task.id);

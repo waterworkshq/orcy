@@ -65,7 +65,9 @@ export const habitats = sqliteTable(
     triageSettings: text("triage_settings", { mode: "json" }).$type<TriageSettings | null>(),
     releaseSettings: text("release_settings", { mode: "json" }).$type<ReleaseSettings | null>(),
     roadmapSettings: text("roadmap_settings", { mode: "json" }).$type<RoadmapSettings | null>(),
-    lifecycleSettings: text("lifecycle_settings", { mode: "json" }).$type<LifecycleSettings | null>(),
+    lifecycleSettings: text("lifecycle_settings", {
+      mode: "json",
+    }).$type<LifecycleSettings | null>(),
     teamId: text("team_id").references(() => teams.id, { onDelete: "set null" }),
     carryOverPolicy: text("carry_over_policy").notNull().default("backlog"),
   },
@@ -350,6 +352,10 @@ export const chatIntegrations = sqliteTable(
     provider: text("provider", { enum: ["slack", "discord"] }).notNull(),
     webhookUrl: text("webhook_url").notNull(),
     channelId: text("channel_id"),
+    // Operator-entered trusted workspace anchor (Slack team_id / Discord
+    // guild_id). NULL rows are push-only: review decisions require this
+    // plus a non-null channel and resolve on the exact tuple.
+    providerWorkspaceId: text("provider_workspace_id"),
     botToken: text("bot_token"),
     enabled: integer("enabled").notNull().default(1),
     events: text("events", { mode: "json" })
@@ -370,6 +376,38 @@ export const chatIntegrations = sqliteTable(
     index("idx_chat_integrations_habitat").on(table.habitatId),
     index("idx_chat_integrations_provider").on(table.provider),
     index("idx_chat_integrations_enabled").on(table.enabled),
+  ],
+);
+
+export const chatSpeakerMappings = sqliteTable(
+  "chat_speaker_mappings",
+  {
+    id: text("id").primaryKey(),
+    habitatId: text("habitat_id")
+      .notNull()
+      .references(() => habitats.id, { onDelete: "cascade" }),
+    integrationId: text("integration_id")
+      .notNull()
+      .references(() => chatIntegrations.id, { onDelete: "cascade" }),
+    provider: text("provider", { enum: ["slack", "discord"] }).notNull(),
+    providerWorkspaceId: text("provider_workspace_id").notNull(),
+    providerSpeakerId: text("provider_speaker_id").notNull(),
+    // Attribution of the provider speaker to a real local human — never an
+    // impersonation claim and never a shared integration principal.
+    localUserId: text("local_user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "restrict" }),
+    createdBy: text("created_by").notNull(),
+    createdAt: text("created_at").notNull().default("(datetime('now'))"),
+  },
+  (table) => [
+    uniqueIndex("idx_chat_speaker_mappings_identity").on(
+      table.integrationId,
+      table.providerWorkspaceId,
+      table.providerSpeakerId,
+    ),
+    index("idx_chat_speaker_mappings_habitat").on(table.habitatId),
+    index("idx_chat_speaker_mappings_integration").on(table.integrationId),
   ],
 );
 

@@ -400,6 +400,13 @@
       "when": 1789021200001,
       "tag": "0080_task_release_pointer",
       "breakpoints": true
+    },
+    {
+      "idx": 57,
+      "version": "6",
+      "when": 1789021200002,
+      "tag": "0081_chat_speaker_mappings",
+      "breakpoints": true
     }
   ]
 }

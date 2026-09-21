@@ -261,6 +261,16 @@ Click "Reject" and provide specific, actionable feedback:
 
 The task returns to the orcy with your `rejectionReason`. The orcy will address the feedback and resubmit.
 
+### Approving / Rejecting from Slack or Discord
+
+You can run review decisions from chat with `/orcy approve <task-id>` and `/orcy reject <task-id> [reason]` — as **yourself**, not as a shared bot identity. One-time setup by a habitat admin:
+
+1. **Configure the integration's workspace** — the chat integration needs its `providerWorkspaceId` (Slack team id / Discord guild id) and `channelId` set. An integration without a workspace stays push-only and can never make review decisions.
+2. **Map each speaker** — via the admin mapping API (`POST /api/habitats/:habitatId/chat-integrations/:integrationId/speaker-mappings`, see API.md Chat Integrations), create one mapping per person: their provider speaker id (Slack `user_id` / Discord user id) → their local Orcy user. The mapped user must hold the admin or editor role. You type the ids; Orcy does not call Slack/Discord to look them up.
+3. **Done** — that person's signed `approve`/`reject` commands act under their own identity, with the same permissions, reviewer-assignment rules, and audit trail as the web UI. Multi-reviewer tasks show *"approval recorded — still in review"* until the last reviewer approves.
+
+Anyone not mapped (or whose role was later revoked) gets a refusal message and nothing is changed. Review decisions require the server's Slack signing secret (or Discord public key) to be configured and a valid request signature — in every mode; unsigned commands can only ever read. Read commands (`list`, `info`, `help`) keep working for channel users via the default habitat, under the same local-dev/remote ingress posture as other chat commands (not a guarantee that everyone can reach the API). Removing a mapping stops that person's chat review authority for future decisions that have not passed authorization; a request already in flight in the same HTTP window can still complete (check-then-act, no stronger claim).
+
 ## Task Lifecycle
 
 ```

@@ -583,6 +583,7 @@ Within-feature sibling task dependencies only. Cross-feature dependencies use `f
 | `provider` | TEXT | NOT NULL CHECK (IN 'slack','discord') | Chat provider |
 | `webhook_url` | TEXT | NOT NULL | Webhook URL |
 | `channel_id` | TEXT | DEFAULT NULL | Provider channel ID |
+| `provider_workspace_id` | TEXT | DEFAULT NULL | Trusted workspace anchor (Slack `team_id` / Discord `guild_id`); `NULL` rows are push-only and never resolve review decisions (migration 0081) |
 | `bot_token` | TEXT | DEFAULT NULL | Bot authentication token |
 | `enabled` | INTEGER | NOT NULL DEFAULT 1 | Active or paused |
 | `events` | TEXT | NOT NULL DEFAULT '[]' (JSON) | Event types to send |
@@ -590,6 +591,24 @@ Within-feature sibling task dependencies only. Cross-feature dependencies use `f
 | `updated_at` | TEXT | NOT NULL DEFAULT (datetime('now')) | Last update timestamp |
 
 **Indexes:** `idx_chat_integrations_habitat`, `idx_chat_integrations_provider`, `idx_chat_integrations_enabled`
+
+#### `chat_speaker_mappings` (migration 0081)
+
+Explicit attribution of one provider speaker (workspace-scoped) to a local user for chat review decisions. The habitat is derived from the integration row at write time; deleting the integration cascades its mappings, and deleting a mapped user is **RESTRICTED** on the production driver (attribution never silently orphans — an operator removes the mappings first).
+
+| Column | Type | Constraints | Description |
+|--------|------|-------------|-------------|
+| `id` | TEXT | PK | Mapping identifier (UUID) |
+| `habitat_id` | TEXT | NOT NULL FK → habitats(id) ON DELETE CASCADE | Derived from the integration row (never the request) |
+| `integration_id` | TEXT | NOT NULL FK → chat_integrations(id) ON DELETE CASCADE | Owning chat integration |
+| `provider` | TEXT | NOT NULL CHECK (IN 'slack','discord') | Chat provider |
+| `provider_workspace_id` | TEXT | NOT NULL | Slack team id / Discord guild id |
+| `provider_speaker_id` | TEXT | NOT NULL | Workspace-scoped provider user id |
+| `local_user_id` | TEXT | NOT NULL FK → users(id) ON DELETE RESTRICT | The real local human the speaker maps to |
+| `created_by` | TEXT | NOT NULL | Admin who created the mapping |
+| `created_at` | TEXT | NOT NULL DEFAULT (datetime('now')) | Creation timestamp |
+
+**Indexes:** `idx_chat_speaker_mappings_identity` UNIQUE (integration_id, provider_workspace_id, provider_speaker_id), `idx_chat_speaker_mappings_habitat`, `idx_chat_speaker_mappings_integration`
 
 #### `webhook_subscriptions`
 
@@ -2630,6 +2649,7 @@ entries are:
 
 | `0079` | `0079_effect_receipts.sql` | Durable failure-effect receipts: creates `effect_receipts` / `effect_receipt_targets` / `effect_receipt_attempts` / `effect_receipt_admin_actions`; adds `tasks.last_failure_event_id` (failure-provenance pointer CAS'd by retry/escalation consumers), `task_events.execution_token` (immutable epoch stamp on failed events), `failure_contexts.source_event_id` (conditional per-event capture, at-most-once via partial unique), and `plugin_runs.dispatch_key` + `lease_token` / `lease_expires_at` / `signals_committed_at` (event-keyed detector dispatch units with lease-token attempt generations and the set-once composer marker; partial unique on `dispatch_key`). All new columns nullable, all uniqueness on the new columns via partial indexes — **zero legacy row rewrite**. Receipt/target state is updated during delivery and requeue; no time-based retention cleanup or manual receipt-delete API exists — attempt/admin history is append-only while the habitat exists, and habitat deletion cascades all four tables (scanner delegation's ownership EXISTS check depends on them while the habitat exists). |
 | `0080` | `0080_task_release_pointer.sql` | Release-provenance pointer: adds nullable `tasks.last_release_event_id` + `idx_tasks_last_release_event`. Written by the release act-tx (`releaseTaskWithEffects`); fenced by the receipt-path gates consumer for release spawn/gate mutation and cleared by the ownership/lifecycle reset paths (claim mints, releases, terminal writes, retry/escalation resets, agent-delete bulk reset, import execution-state reset). Additive only, no legacy row rewrite; independent stream from `last_failure_event_id` (0079). |
+| `0081` | `0081_chat_speaker_mappings.sql` | Chat review decisions through the canonical lifecycle: adds nullable `chat_integrations.provider_workspace_id` (existing NULL rows stay push-only) and the `chat_speaker_mappings` table — explicit workspace-scoped provider-speaker → local-user attribution with UNIQUE(integration, workspace, speaker), habitat FK CASCADE, integration FK CASCADE, local-user FK RESTRICT. Hand SQL + Drizzle parity (`chatSpeakerMappings` in `db/schema/habitat.ts`); FK delete semantics pinned on the production better-sqlite3 driver by `chatSpeakerMappingFk.test.ts`. |
 
 The gap `0003`–`0026` is **intentional**. Those migrations were consolidated
 into `0000_schema.sql` at the boundary commit and are deliberately NOT in the

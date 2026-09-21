@@ -8,6 +8,7 @@ export {
   missionTemplates,
   savedFilters,
   chatIntegrations,
+  chatSpeakerMappings,
   missionComments,
   missionCommentMentions,
   auditExportSchedules,

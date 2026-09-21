@@ -61,9 +61,9 @@ Remote posture requires `JWT_SECRET` (strong, not a known weak value) and `ORCY_
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `SLACK_SIGNING_SECRET` | — | Slack signing secret for verifying slash command requests |
-| `DISCORD_PUBLIC_KEY` | — | Discord public key for verifying interaction requests |
-| `ORCY_DEFAULT_HABITAT_ID` | — | Default habitat UUID for Slack/Discord slash commands |
+| `SLACK_SIGNING_SECRET` | — | Slack signing secret for verifying slash command requests (v0 HMAC over the exact raw bytes). Verifiers are global: a signature authenticates the request's origin, not workspace permission — workspace/channel authority comes from integration config + speaker mappings |
+| `DISCORD_PUBLIC_KEY` | — | Discord public key for verifying interaction requests (Ed25519 over the exact raw bytes); same origin-vs-permission semantics as Slack |
+| `ORCY_DEFAULT_HABITAT_ID` | — | Default habitat UUID for Slack/Discord **read** commands (`list`, `info`, `help`). Review decisions (`approve`/`reject`) never use it: they resolve the signed workspace + channel against the chat integration's configured workspace, and refuse when it does not match exactly one enabled integration. Decisions additionally require a genuinely verified signature in EVERY posture — the local-dev missing-secret allowance covers read commands only; unsigned or invalid-signature decisions are refused 401 with zero writes |
 
 ### External Tracker Integrations
 
