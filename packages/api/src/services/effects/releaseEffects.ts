@@ -28,7 +28,7 @@
  * failover to another seam.
  */
 import { getDb } from "../../db/index.js";
-import { tasks, taskEvents, taskWorkflowGates, workflows } from "../../db/schema/index.js";
+import { tasks, taskEvents, taskWorkflowGates, workflows, agents } from "../../db/schema/index.js";
 import { eq, and, sql } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 import * as taskRepo from "../../repositories/task.js";
@@ -45,12 +45,34 @@ export interface ReleaseWithEffectsResult {
 }
 
 /**
+ * Optional server-only release guard (the stale sweep's authority fences,
+ * evaluated INSIDE the act-tx alongside the epoch fence — D2/D3):
+ *   - `expectedAssigneeAgentId` — the task row's `assignedAgentId` must
+ *     equal this agent exactly (a corrupted/foreign pointer never releases
+ *     another agent's task), and the agent row must still exist;
+ *   - `staleHeartbeatBefore` — the agent's `lastHeartbeat`, re-read fresh
+ *     in-tx, must still parse and be older than this ISO threshold. A
+ *     revived (fresh) or unparseable heartbeat refuses with zero writes —
+ *     same-epoch revival is invisible to the token fence, this closes it.
+ * The sweep additionally requires `agents.currentTaskId === taskId` in-tx —
+ * the epoch fence cannot see pointer movement within one epoch.
+ * The recovery drive passes nothing (sole-caller contract byte-preserved).
+ */
+export interface ReleaseStaleGuard {
+  expectedAssigneeAgentId: string;
+  staleHeartbeatBefore: string;
+}
+
+/**
  * The act-tx. Returns the released task + the stamped event id, or `null` on
  * any refusal (zero release-bundle writes).
  */
 export function releaseTaskWithEffects(input: {
   taskId: string;
-  /** Durable system provenance — the recovery drive is the sole caller. */
+  /**
+   * Durable system provenance — the recovery drive and the stale sweep are
+   * the two callers (both system actors).
+   */
   actorId: string;
   reason: string;
   /**
@@ -61,8 +83,10 @@ export function releaseTaskWithEffects(input: {
    * before reaching here in practice).
    */
   preImage: Task;
+  /** Optional server-only guard — see {@link ReleaseStaleGuard}. */
+  guard?: ReleaseStaleGuard;
 }): ReleaseWithEffectsResult | null {
-  const { taskId, actorId, reason, preImage } = input;
+  const { taskId, actorId, reason, preImage, guard } = input;
   const db = getDb();
   const now = new Date().toISOString();
   const eventId = uuid();
@@ -82,6 +106,25 @@ export function releaseTaskWithEffects(input: {
       if (!row) return null;
       if (row.status !== "claimed" && row.status !== "in_progress") return null;
       if ((row.executionToken ?? null) !== (preImage.executionToken ?? null)) return null;
+
+      // ── 1b. Server-only stale-sweep guard (D2/D3) — final authority ──────
+      // Evaluated inside the act-tx on FRESH reads: owner equality, the
+      // agent's pointer still naming this task, and the heartbeat still
+      // stale. Malformed heartbeat fails FRESH (refuse) — never compared as
+      // a string, never silently treated stale.
+      if (guard) {
+        if (row.assignedAgentId !== guard.expectedAssigneeAgentId) return null;
+        const agentRow = tx
+          .select({ currentTaskId: agents.currentTaskId, lastHeartbeat: agents.lastHeartbeat })
+          .from(agents)
+          .where(eq(agents.id, guard.expectedAssigneeAgentId))
+          .get() as { currentTaskId: string | null; lastHeartbeat: string | null } | undefined;
+        if (!agentRow) return null;
+        if (agentRow.currentTaskId !== taskId) return null; // pointer moved
+        const beat = Date.parse(agentRow.lastHeartbeat ?? "");
+        if (Number.isNaN(beat)) return null; // unparseable → fail fresh
+        if (beat >= Date.parse(guard.staleHeartbeatBefore)) return null; // revived
+      }
 
       // ── 2. CAS release write + the release-provenance pointer ────────────
       tx.update(tasks)

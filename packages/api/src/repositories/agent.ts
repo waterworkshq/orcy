@@ -1,6 +1,6 @@
 import { getDb } from "../db/index.js";
 import { agents, tasks } from "../db/schema/index.js";
-import { eq, and, not, lt, sql, inArray } from "drizzle-orm";
+import { eq, and, not, lt, ne, sql, inArray, or, isNotNull } from "drizzle-orm";
 
 import type { Agent, AgentType, AgentDomain, AgentStatus } from "../models/index.js";
 import { v4 as uuid } from "uuid";
@@ -203,6 +203,135 @@ export function setAgentOffline(agentId: string): void {
       })
       .where(eq(agents.id, agentId))
       .run();
+  } catch (err) {
+    throw repositoryUpdateError("agent", err as Error, agentId);
+  }
+}
+
+/**
+ * `datetime()`-normalized staleness predicate — malformed/absent timestamps
+ * normalize to NULL and are excluded (never lex-compared garbage). Shared by
+ * the sweep's candidacy query and its CAS writes.
+ */
+const stillStaleHeartbeatSql = (thresholdIso: string) => sql`
+  datetime(${agents.lastHeartbeat}) IS NOT NULL
+  AND datetime(${agents.lastHeartbeat}) < datetime(${thresholdIso})
+`;
+
+/**
+ * Stale-sweep candidacy (REC-06, broader than {@link getStaleAgents}): stale
+ * heartbeat AND (not already offline OR a retained `currentTaskId`). An
+ * already-offline agent with a retained pointer — the budget-refusal
+ * retention shape — re-enters candidacy so a later ceiling raise can retry;
+ * an eternally-offline taskless agent is never rescanned.
+ */
+export function getStaleSweepCandidates(thresholdMinutes: number = 30): AgentPublic[] {
+  const db = getDb();
+  const threshold = new Date(Date.now() - thresholdMinutes * 60 * 1000).toISOString();
+  return db
+    .select(agentPublicFields)
+    .from(agents)
+    .where(
+      and(
+        stillStaleHeartbeatSql(threshold),
+        or(not(eq(agents.status, "offline")), isNotNull(agents.currentTaskId)),
+      ),
+    )
+    .all();
+}
+
+/**
+ * Sweep-only offline transition (the general {@link setAgentOffline} stays
+ * untouched for every other caller): sets `offline` WITHOUT clearing
+ * `currentTaskId`, CAS-fenced on the stale heartbeat so a revived agent is
+ * never flipped offline by a stale observation. Returns EXACT landed truth
+ * via `UPDATE ... RETURNING` (both drivers — the receipt-ack pattern):
+ * `true` iff THIS statement flipped a not-already-offline row, so a
+ * concurrent writer's outcome is never certified as ours and an
+ * already-offline row matches nothing (no duplicate flip / SSE).
+ */
+export function markAgentOfflineKeepingTask(agentId: string, thresholdIso: string): boolean {
+  const db = getDb();
+  try {
+    const flipped = db
+      .update(agents)
+      .set({ status: "offline" })
+      .where(
+        and(
+          eq(agents.id, agentId),
+          ne(agents.status, "offline"),
+          stillStaleHeartbeatSql(thresholdIso),
+        ),
+      )
+      .returning({ id: agents.id })
+      .all();
+    return Array.isArray(flipped) && flipped.length > 0;
+  } catch (err) {
+    throw repositoryUpdateError("agent", err as Error, agentId);
+  }
+}
+
+/**
+ * Conditional pointer cleanup, ATOMIC under one `BEGIN IMMEDIATE` (the same
+ * write authority as the claim path): re-reads the agent fences AND the
+ * task's current ownership INSIDE the tx, then clears only when no live
+ * claim exists. The predicate per review F1 —
+ *   agent id ∧ observed `currentTaskId` ∧ still-stale heartbeat ∧ NOT
+ *   (task claimed/in_progress ∧ assigned to THIS agent).
+ * A task re-claimed by the agent in the commit→cleanup gap (E2 minted; the
+ * claim authority writes nothing to `agents`) RETAINS the pointer — the
+ * next tick's full guard path (in-tx heartbeat/pointer/owner + epoch fence)
+ * decides the release per the sweep's contract. The lock serializes the
+ * race: a claim committed first is visible in-tx; a claim arriving later
+ * blocks until after our clear commits. Every cleanup shape — missing task,
+ * terminal, foreign, pending-unowned residue — carries no live claim, so
+ * all still clear. Returns whether the pointer is now clear.
+ */
+export function clearAgentTaskPointerIfStale(
+  agentId: string,
+  taskId: string,
+  thresholdIso: string,
+): boolean {
+  const db = getDb();
+  try {
+    return db.transaction(
+      (tx) => {
+        const agentRow = tx
+          .select({ currentTaskId: agents.currentTaskId, lastHeartbeat: agents.lastHeartbeat })
+          .from(agents)
+          .where(eq(agents.id, agentId))
+          .get() as { currentTaskId: string | null; lastHeartbeat: string | null } | undefined;
+        if (!agentRow || agentRow.currentTaskId !== taskId) return false; // moved/absent
+        const beat = Date.parse(agentRow.lastHeartbeat ?? "");
+        if (Number.isNaN(beat) || beat >= Date.parse(thresholdIso)) return false; // revived/bad
+
+        // F1: a live claim owned by THIS agent forbids the clear.
+        const liveClaim = tx
+          .select({ id: tasks.id })
+          .from(tasks)
+          .where(
+            and(
+              eq(tasks.id, taskId),
+              eq(tasks.assignedAgentId, agentId),
+              sql`${tasks.status} IN ('claimed', 'in_progress')`,
+            ),
+          )
+          .get();
+        if (liveClaim) return false;
+
+        tx.update(agents)
+          .set({ currentTaskId: null })
+          .where(and(eq(agents.id, agentId), eq(agents.currentTaskId, taskId)))
+          .run();
+        const after = tx
+          .select({ ptr: agents.currentTaskId })
+          .from(agents)
+          .where(eq(agents.id, agentId))
+          .get();
+        return after?.ptr == null;
+      },
+      { behavior: "immediate" },
+    );
   } catch (err) {
     throw repositoryUpdateError("agent", err as Error, agentId);
   }

@@ -10,6 +10,9 @@ vi.mock("../repositories/agent.js", () => ({
   getAgentByApiKey: vi.fn(),
   getStaleAgents: vi.fn(),
   setAgentOffline: vi.fn(),
+  getStaleSweepCandidates: vi.fn(),
+  markAgentOfflineKeepingTask: vi.fn(),
+  clearAgentTaskPointerIfStale: vi.fn(),
 }));
 vi.mock("../repositories/task.js", () => ({
   getTaskById: vi.fn(),
@@ -20,6 +23,12 @@ vi.mock("../repositories/task.js", () => ({
 vi.mock("./timeTrackingService.js", () => ({ recordWork: vi.fn() }));
 vi.mock("../sse/broadcaster.js", () => ({ sseBroadcaster: { publish: vi.fn() } }));
 vi.mock("../lib/logger.js", () => ({ logger: { warn: vi.fn(), error: vi.fn() } }));
+vi.mock("../services/effects/releaseEffects.js", () => ({ releaseTaskWithEffects: vi.fn() }));
+vi.mock("../services/tasks/transition-emitter.js", () => ({ emitTransitionNonRequired: vi.fn() }));
+vi.mock("../services/tasks/transitionBudget.js", () => ({
+  guardTransitionTop: vi.fn(() => ({ outcome: "allow", count: 0, ceiling: 21 })),
+}));
+vi.mock("../services/effects/effectDeliverer.js", () => ({ requestEffectDeliveryPass: vi.fn() }));
 
 import {
   createAgent,
@@ -36,6 +45,9 @@ import {
 import * as agentRepo from "../repositories/agent.js";
 import * as taskRepo from "../repositories/task.js";
 import { sseBroadcaster } from "../sse/broadcaster.js";
+import { releaseTaskWithEffects } from "../services/effects/releaseEffects.js";
+import { emitTransitionNonRequired } from "../services/tasks/transition-emitter.js";
+import { requestEffectDeliveryPass } from "../services/effects/effectDeliverer.js";
 
 describe("agentService", () => {
   beforeEach(() => {
@@ -142,13 +154,71 @@ describe("agentService", () => {
     expect(r.currentTask!.id).toBe("t1");
   });
 
-  it("releaseStaleTasks processes stale agents", () => {
-    vi.mocked(agentRepo.getStaleAgents).mockReturnValue([{ id: "a1", currentTaskId: "t1" } as any]);
-    vi.mocked(taskRepo.releaseTask).mockReturnValue({ id: "t1" } as any);
+  it("releaseStaleTasks processes stale agents through the canonical seam", async () => {
+    vi.mocked(agentRepo.getStaleSweepCandidates).mockReturnValue([
+      {
+        id: "a1",
+        status: "working",
+        currentTaskId: "t1",
+        lastHeartbeat: new Date(Date.now() - 31 * 60_000).toISOString(),
+      } as any,
+    ]);
+    vi.mocked(agentRepo.markAgentOfflineKeepingTask).mockReturnValue(true);
+    vi.mocked(taskRepo.getTaskById).mockReturnValue({
+      id: "t1",
+      status: "in_progress",
+      assignedAgentId: "a1",
+    } as any);
     vi.mocked(taskRepo.getHabitatIdForTask).mockReturnValue("h1");
+    vi.mocked(releaseTaskWithEffects).mockReturnValue({
+      task: { id: "t1", status: "pending" },
+      eventId: "e1",
+    } as any);
+
     releaseStaleTasks(30);
-    expect(agentRepo.setAgentOffline).toHaveBeenCalledWith("a1");
-    expect(taskRepo.releaseTask).toHaveBeenCalledWith("t1", "stale_timeout");
-    expect(sseBroadcaster.publish).toHaveBeenCalled();
+
+    expect(agentRepo.markAgentOfflineKeepingTask).toHaveBeenCalledWith("a1", expect.any(String));
+    expect(sseBroadcaster.publish).toHaveBeenCalledWith(
+      "global",
+      expect.objectContaining({ type: "agent.status_changed" }),
+    );
+    expect(releaseTaskWithEffects).toHaveBeenCalledWith(
+      expect.objectContaining({
+        taskId: "t1",
+        actorId: "stale-sweep",
+        reason: "stale_timeout",
+        guard: { expectedAssigneeAgentId: "a1", staleHeartbeatBefore: expect.any(String) },
+      }),
+    );
+    expect(emitTransitionNonRequired).toHaveBeenCalledWith(
+      "t1",
+      "released",
+      "h1",
+      expect.objectContaining({ existingEventId: "e1" }),
+    );
+    expect(requestEffectDeliveryPass).toHaveBeenCalled();
+    expect(agentRepo.clearAgentTaskPointerIfStale).toHaveBeenCalledWith(
+      "a1",
+      "t1",
+      expect.any(String),
+    );
+    expect(taskRepo.releaseTask).not.toHaveBeenCalled(); // legacy repo path gone
+  });
+
+  it("releaseStaleTasks skips a candidate when the offline CAS misses (revived)", () => {
+    vi.mocked(agentRepo.getStaleSweepCandidates).mockReturnValue([
+      {
+        id: "a1",
+        status: "working",
+        currentTaskId: "t1",
+        lastHeartbeat: new Date(Date.now() - 31 * 60_000).toISOString(),
+      } as any,
+    ]);
+    vi.mocked(agentRepo.markAgentOfflineKeepingTask).mockReturnValue(false);
+
+    releaseStaleTasks(30);
+
+    expect(sseBroadcaster.publish).not.toHaveBeenCalled();
+    expect(taskRepo.releaseTask).not.toHaveBeenCalled();
   });
 });

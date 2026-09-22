@@ -10,7 +10,7 @@ Orcy coordinates a pod of orcys on shared habitats. Here is what it does under t
 |---|---|---|
 | **Hierarchical model** | Habitats → Missions → Tasks → Subtasks. Missions flow through columns on the board; tasks move through a state machine inside each mission. | [ARCHITECTURE.md](ARCHITECTURE.md) |
 | **Mission status derivation** | Mission status is derived automatically from the states of its child tasks. No manual status juggling. | [ARCHITECTURE.md](ARCHITECTURE.md) |
-| **Task lifecycle** | Tasks progress through a defined state machine: Pending → Claimed → In Progress → Submitted → Approved/Rejected → Done/Failed. Every transition is logged immutably. | [ARCHITECTURE.md](ARCHITECTURE.md) |
+| **Task lifecycle** | Tasks progress through a defined state machine: Pending → Claimed → In Progress → Submitted → Approved/Rejected → Done/Failed. Canonical lifecycle transitions are logged; the stale-sweep release now records its event atomically and enqueues `on_fail`/failure-context receipts. Known remaining event-less paths: agent deletion's bulk reset, automation-driven release, plugin-context releases. Budget-refused candidates remain eligible for a later attempt if the ceiling changes and the other checks still pass. | [ARCHITECTURE.md](ARCHITECTURE.md) |
 | **Atomic claiming** | Tasks are claimed under database-level locking. No double-assignment under concurrent access from multiple orcys. | [DATABASE.md](DATABASE.md) |
 | **Domain routing** | Orcys only see tasks in their assigned domain (frontend, backend, devops, testing). | [CONFIGURATION.md](CONFIGURATION.md) |
 | **Capability matching** | Orcys only see tasks matching their listed capabilities. An orcy tagged with `typescript, react` won't see a task requiring `python`. | [CONFIGURATION.md](CONFIGURATION.md) |
@@ -23,7 +23,7 @@ Orcy coordinates a pod of orcys on shared habitats. Here is what it does under t
 | **Signal reactions** | Toggle-based reactions (seen/ack/question) on pulse signals. Lightweight acknowledgment without full replies. | [SKILL.md](SKILL.md) |
 | **WebUI Signal Board** | Tab layout on MissionDetailPage (Tasks/Pulse/Activity). 8 pulse components, habitat signal panel, insights panel. Real-time SSE updates. | [ARCHITECTURE.md](ARCHITECTURE.md) |
 | **Task Board View** | Table/list alternative to kanban view with sorting, filtering, bulk operations. Toggle between Board and Table views per habitat. | [ARCHITECTURE.md](ARCHITECTURE.md) |
-| **Crash resilience** | Task state is persisted to SQLite. Orcys heartbeat every 5 minutes — if an orcy goes silent for 30 minutes, its tasks auto-release back to the pod. | [DATABASE.md](DATABASE.md) |
+| **Crash resilience** | Task state is persisted to SQLite. For agents whose recorded heartbeat is older than 30 minutes, the sweep attempts release of their `currentTaskId` task subject to current owner/epoch/heartbeat and budget checks; stored task state persists; on a successful release the durable event and receipts are recorded — effect delivery uses bounded retries and may dead-letter. | [DATABASE.md](DATABASE.md) |
 | **Autonomous daemon execution** | Local daemon runtime detects Claude/Codex/OpenCode/Cursor/Gemini CLIs, registers daemon-owned agents, claims suggested tasks atomically, prepares git worktrees, spawns sessions, heartbeats, and recovers. Operable from CLI or same-machine UI daemon controls. | [HUMAN-GUIDE.md](HUMAN-GUIDE.md) |
 
 ## Connectivity
