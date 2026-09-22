@@ -34,10 +34,12 @@ export async function codeReviewWebhookRoutes(fastify: FastifyInstance): Promise
           pull_request: (b) =>
             githubService.handlePullRequestEvent(
               b as Parameters<typeof githubService.handlePullRequestEvent>[0],
+              { rawBody, signature },
             ),
           pull_request_review: (b) =>
             githubService.handlePullRequestReviewEvent(
               b as Parameters<typeof githubService.handlePullRequestReviewEvent>[0],
+              { rawBody, signature },
             ),
           release: (b) => {
             const habitatId = findHabitatIdByGithubSignature(rawBody, signature ?? "");
@@ -60,10 +62,16 @@ export async function codeReviewWebhookRoutes(fastify: FastifyInstance): Promise
 
   fastify.post(
     "/webhooks/gitlab",
-    { config: { authPolicy: { policy: "verified_ingress", verifier: "gitlab_code_review_token" } } },
+    {
+      config: { authPolicy: { policy: "verified_ingress", verifier: "gitlab_code_review_token" } },
+    },
     async (request: FastifyRequest, reply: FastifyReply) => {
       const body = request.body as Record<string, unknown>;
       const objectKind = body.object_kind as string | undefined;
+      // The PR-path handlers verify the raw token themselves (exact
+      // signature→habitat binding); the route guard's posture matrix runs in
+      // the preHandler.
+      const token = request.headers["x-gitlab-token"] as string | undefined;
 
       const result = dispatchGitLabWebhook(
         { body, objectKind },
@@ -71,9 +79,13 @@ export async function codeReviewWebhookRoutes(fastify: FastifyInstance): Promise
           merge_request: (b) =>
             gitlabService.handleMergeRequestEvent(
               b as Parameters<typeof gitlabService.handleMergeRequestEvent>[0],
+              { token },
             ),
           note: (b) =>
-            gitlabService.handleNoteEvent(b as Parameters<typeof gitlabService.handleNoteEvent>[0]),
+            gitlabService.handleNoteEvent(
+              b as Parameters<typeof gitlabService.handleNoteEvent>[0],
+              { token },
+            ),
         },
       );
 

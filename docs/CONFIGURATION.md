@@ -74,6 +74,26 @@ Remote posture requires `JWT_SECRET` (strong, not a known weak value) and `ORCY_
 | `ORCY_JIRA_OAUTH_CLIENT_ID` | — | Atlassian OAuth app client ID for advanced Jira OAuth self-hosting. Not needed for recommended Jira API-token setup. |
 | `ORCY_JIRA_OAUTH_CLIENT_SECRET` | — | Atlassian OAuth app client secret for advanced Jira OAuth self-hosting. Never commit this value. |
 
+### Provider Code-Review Webhooks (PR/MR binding)
+
+Provider PR/MR webhooks (`POST /webhooks/github`, `POST /webhooks/gitlab`) are configured per habitat in `habitats.code_review_settings`, not via environment variables:
+
+- **Secrets** — `githubSecret` (HMAC) and `gitlabSecret` (token), set through the dedicated webhook-secrets endpoint. A request's credential must verify against **exactly one** habitat; the same secret on two habitats is an ambiguous binding and is refused (`ambiguous_signature_habitat`).
+- **Trusted repository allowlist** — `githubRepositories: [{ id, fullName? }]` and `gitlabProjects: [{ id, pathWithNamespace? }]` on `codeReviewSettings`, writable via `PATCH /habitats/:id`. `id` is the immutable provider identity (GitHub `repository.id` / GitLab `project.id`), accepted as a canonical decimal string or a safe-integer number and canonicalized to a string; display names never match. The two arrays are disjoint by provider.
+- **`autoApproveOnMerge`** — per-habitat opt-in (default `false`); a merged PR/MR whose linked task is `submitted` is approved as a trusted system principal.
+
+**Upgrade note (fail-closed):** an empty or absent allowlist refuses the entire PR/MR path — `repo_not_allowed` / `project_not_allowed` with zero writes. After upgrading, existing PR-linking webhooks stop writing until an operator adds the repository/project ids above. Release and CI/CD webhook paths are separate and unaffected.
+
+Operator quick setup:
+
+1. Find the GitHub repository id: `repository.id` in any pull_request webhook payload (or the REST API `GET /repos/{owner}/{repo}` → `id`). Find the GitLab project id: `project.id` in any merge_request payload (or `GET /projects/{encoded-path}` → `id`).
+2. `PATCH /habitats/:id` with `codeReviewSettings: { taskPattern, autoApproveOnMerge, githubRepositories: [{ id, fullName }], gitlabProjects: [{ id, pathWithNamespace }] }`.
+3. Redeliver a recent PR/MR event from the provider dashboard and inspect the handler status against the provider's current PR/MR state — a re-delivered open/update/reopen normally yields `linked`; GitHub `closed` yields `closed`, a GitHub MERGE also yields `closed` (the GitHub handler reports the PR's closed status — `merged` is read from the payload flag for the approval decision, not echoed as a handler status), and a GitLab merge carries `object_attributes.action = "merge"` with `state = "merged"` and yields `merged` (all statuses and their meanings are documented in `docs/API.md`).
+
+**Authority limitation:** the settings PATCH (including the allowlist) is writable by any authenticated human JWT — the same authority that already governs `taskPattern` and `autoApproveOnMerge`. There is no admin-only role or habitat-access restriction on this surface, and the webhook-secret configuration does not provide settings isolation. Do not rely on it for administrative segregation.
+
+**Settings timing:** authorization is evaluated at each request's decision points — secret→habitat resolution, repository allowlist, and task pattern at handler entry; `autoApproveOnMerge` again at the merge-decision point. Changing or disabling a setting mid-request does not retroactively cancel an in-flight request that already passed its checks; the next webhook delivery is rechecked from scratch. The approval transaction revalidates task status only, not settings — there is no atomic settings-revocation guarantee.
+
 Recommended setup paths:
 
 | Provider | Recommended setup | User-provided values |

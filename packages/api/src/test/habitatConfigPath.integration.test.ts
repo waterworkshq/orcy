@@ -32,7 +32,7 @@ import Fastify, { type FastifyInstance } from "fastify";
 import { validatorCompiler, serializerCompiler } from "fastify-type-provider-zod";
 import jwt from "jsonwebtoken";
 import { initTestDb, closeDb, getDb } from "../db/index.js";
-import { columns as columnsSchema } from "../db/schema/index.js";
+import { columns as columnsSchema, habitats as habitatsTable } from "../db/schema/index.js";
 import { habitatRoutes } from "../routes/habitats.js";
 import { perAgentRateLimit } from "../middleware/rateLimit.js";
 import { sseBroadcaster } from "../sse/broadcaster.js";
@@ -151,6 +151,8 @@ describe("config-path integration (T4)", () => {
       expect(patchRes.statusCode).toBe(200);
       const patchBody = JSON.parse(patchRes.body);
       expect(patchBody.habitat.codeReviewSettings).toEqual({
+        githubRepositories: [],
+        gitlabProjects: [],
         hasGithubSecret: false,
         hasGitlabSecret: false,
         taskPattern: "([A-Z]{2,10}-\\d+)",
@@ -213,6 +215,8 @@ describe("config-path integration (T4)", () => {
       expect(getRes.statusCode).toBe(200);
       const body = JSON.parse(getRes.body);
       expect(body.habitat.codeReviewSettings).toEqual({
+        githubRepositories: [],
+        gitlabProjects: [],
         hasGithubSecret: false,
         hasGitlabSecret: false,
         taskPattern: "(ABC-\\d+)",
@@ -302,6 +306,8 @@ describe("config-path integration (T4)", () => {
       });
       const body = JSON.parse(getRes.body);
       expect(body.habitat.codeReviewSettings).toEqual({
+        githubRepositories: [],
+        gitlabProjects: [],
         hasGithubSecret: true,
         hasGitlabSecret: false,
         taskPattern: "(PRESERVED-\\d+)",
@@ -379,6 +385,46 @@ describe("feature-review end-to-end PR webhook trace", () => {
   let handlePullRequestEvent: typeof import("../services/githubWebhook.js").handlePullRequestEvent;
   let publishSpy: ReturnType<typeof vi.spyOn>;
 
+  const WEBHOOK_SECRET = "feature-review-webhook-secret";
+  const TRUSTED_REPO_ID = 246810;
+
+  /** Configures secrets/pattern/allowlist straight into the habitat row and rebuilds the secret cache. */
+  function configureReviewSettings(
+    habitatId: string,
+    settings: {
+      taskPattern: string;
+      autoApproveOnMerge: boolean;
+      githubRepositories?: Array<{ id: string; fullName?: string }>;
+    },
+  ): void {
+    const db = getDb();
+    db.update(habitatsTable)
+      .set({
+        codeReviewSettings: {
+          autoApproveOnMerge: settings.autoApproveOnMerge,
+          githubSecret: WEBHOOK_SECRET,
+          gitlabSecret: null,
+          taskPattern: settings.taskPattern,
+          githubRepositories: settings.githubRepositories ?? [
+            { id: String(TRUSTED_REPO_ID), fullName: "example/repo" },
+          ],
+          gitlabProjects: [],
+        },
+      })
+      .where(eq(habitatsTable.id, habitatId))
+      .run();
+    boardSecretCache.rebuildCache();
+  }
+
+  /** Real GitHub HMAC ingress over the exact JSON bytes. */
+  function signedIngress(body: unknown) {
+    const rawBody = JSON.stringify(body);
+    return {
+      rawBody,
+      signature: `sha256=${createHmac("sha256", WEBHOOK_SECRET).update(rawBody).digest("hex")}`,
+    };
+  }
+
   beforeEach(async () => {
     await initTestDb();
     if (app) await app.close();
@@ -426,19 +472,13 @@ describe("feature-review end-to-end PR webhook trace", () => {
     const task = taskRepo.getTasksByMissionId(mission.id)[0];
     if (!task) throw new Error("task creation failed");
 
-    // Configure task pattern via the API to capture the task id from the
-    // PR branch (`mission/<uuid>`). Using a capture group is required —
-    // findTaskIdByPattern returns group 1 (or the whole match if no group).
-    await app.inject({
-      method: "PATCH",
-      url: `/api/habitats/${habitatId}`,
-      headers: { authorization: `Bearer ${token}` },
-      payload: {
-        codeReviewSettings: {
-          taskPattern: `mission/([0-9a-f-]{36})`,
-          autoApproveOnMerge: false,
-        },
-      },
+    // Configure task pattern + trusted repo + secret directly (the settings
+    // API path is covered above; this test drives the webhook contract).
+    // Using a capture group is required — findTaskIdByPattern returns group 1
+    // (or the whole match if no group).
+    configureReviewSettings(habitatId, {
+      taskPattern: `mission/([0-9a-f-]{36})`,
+      autoApproveOnMerge: false,
     });
 
     // Synthesize a PR webhook that names the task via its prefix in the title.
@@ -451,12 +491,12 @@ describe("feature-review end-to-end PR webhook trace", () => {
         state: "open",
         merged: false,
         head: { ref: `mission/${task.id}` },
-        base: { repo: { full_name: "example/repo" } },
+        base: { repo: { id: TRUSTED_REPO_ID, full_name: "example/repo" } },
       },
     };
 
     publishSpy.mockClear();
-    const result = handlePullRequestEvent(prBody as any);
+    const result = handlePullRequestEvent(prBody, signedIngress(prBody));
     expect(result.status).toBe("linked");
     expect(result.taskId).toBe(task.id);
 
@@ -494,16 +534,9 @@ describe("feature-review end-to-end PR webhook trace", () => {
     taskRepo.updateTask(task.id, { status: "submitted" });
 
     // Configure with autoApproveOnMerge = true and a matching pattern.
-    await app.inject({
-      method: "PATCH",
-      url: `/api/habitats/${habitatId}`,
-      headers: { authorization: `Bearer ${token}` },
-      payload: {
-        codeReviewSettings: {
-          taskPattern: `mission/([0-9a-f-]{36})`,
-          autoApproveOnMerge: true,
-        },
-      },
+    configureReviewSettings(habitatId, {
+      taskPattern: `mission/([0-9a-f-]{36})`,
+      autoApproveOnMerge: true,
     });
 
     // Drive an opened then closed+merged sequence.
@@ -516,10 +549,10 @@ describe("feature-review end-to-end PR webhook trace", () => {
         state: "open",
         merged: false,
         head: { ref: `mission/${task.id}` },
-        base: { repo: { full_name: "example/repo" } },
+        base: { repo: { id: TRUSTED_REPO_ID, full_name: "example/repo" } },
       },
     };
-    const openedResult = handlePullRequestEvent(opened as any);
+    const openedResult = handlePullRequestEvent(opened, signedIngress(opened));
     expect(openedResult.status).toBe("linked");
 
     publishSpy.mockClear();
@@ -533,10 +566,10 @@ describe("feature-review end-to-end PR webhook trace", () => {
         state: "closed",
         merged: true,
         head: { ref: `mission/${task.id}` },
-        base: { repo: { full_name: "example/repo" } },
+        base: { repo: { id: TRUSTED_REPO_ID, full_name: "example/repo" } },
       },
     };
-    const closedResult = handlePullRequestEvent(closedMerged as any);
+    const closedResult = handlePullRequestEvent(closedMerged, signedIngress(closedMerged));
     expect(closedResult.status).toBe("closed");
 
     // The PR record has been transitioned to merged.
@@ -554,8 +587,12 @@ describe("feature-review end-to-end PR webhook trace", () => {
     expect(approvedCall).toBeDefined();
   });
 
-  it("returns no_matching_task when no habitat's taskPattern matches", async () => {
-    await createHabitat(app, token, "Feature Review NoMatch");
+  it("returns no_matching_task when the resolved habitat's taskPattern does not match", async () => {
+    const habitatId = await createHabitat(app, token, "Feature Review NoMatch");
+    configureReviewSettings(habitatId, {
+      taskPattern: `mission/([0-9a-f-]{36})`,
+      autoApproveOnMerge: false,
+    });
     publishSpy.mockClear();
     const prBody = {
       action: "opened",
@@ -566,10 +603,10 @@ describe("feature-review end-to-end PR webhook trace", () => {
         state: "open",
         merged: false,
         head: { ref: "feature/no-match" },
-        base: { repo: { full_name: "example/repo" } },
+        base: { repo: { id: TRUSTED_REPO_ID, full_name: "example/repo" } },
       },
     };
-    const result = handlePullRequestEvent(prBody as any);
+    const result = handlePullRequestEvent(prBody, signedIngress(prBody));
     expect(result.status).toBe("no_matching_task");
     expect(publishSpy).not.toHaveBeenCalled();
   });

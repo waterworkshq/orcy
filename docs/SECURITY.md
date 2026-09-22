@@ -313,6 +313,19 @@ GitHub, GitLab, CI/CD, and code review webhooks use **fail-closed** verification
 - If any secret is configured for the board and none matches the request, the request is rejected with **401**
 - Missing repository/project metadata no longer bypasses verification
 
+#### Provider PR/MR webhooks — ingress binding and repository allowlist
+
+The PR/MR handler family (`pull_request`, `pull_request_review`, `merge_request`, `note`) enforces a binding contract **before any write** (no PR records, evidence links, SSE, or cross-habitat task scans):
+
+- **Exact-one habitat resolution.** The credential must verify against exactly ONE habitat's code-review secret. Zero matches refuse (`no_matching_habitat`) — this closes the unsigned local-dev allowance for the PR path, matching the release-path precedent (unsigned PR events are no longer processed even in local posture). More than one match — the same secret configured on two habitats — refuses (`ambiguous_signature_habitat`); an ambiguous binding is a refusal, never a first-match. Task resolution is scoped to the resolved habitat only.
+- **Trusted repository allowlist.** The event's immutable identity (GitHub `repository.id` / GitLab `project.id`) must appear in the resolved habitat's `codeReviewSettings.githubRepositories` / `gitlabProjects` before task extraction. A signer app that can emit many repositories never grants repository authority by signature alone. Missing, malformed, or unsafe-precision ids (values that would lose precision when coerced) refuse with zero writes.
+- **Fail-closed default.** An empty or absent allowlist refuses the entire PR/MR path. Upgrading therefore stops PR linking and merge-approval until an operator configures ids — an intentional tightening; release and CI/CD paths are separate seams and unchanged.
+- **Settings timing (check-then-act, disclosed — no atomic revocation claim).** The credential→habitat check, the repository-allowlist check, and the task-pattern read run at handler entry from a settings snapshot; `autoApproveOnMerge` is read again at the merge-decision point. The approval transaction revalidates the task's status (`submitted`) but performs **no settings recheck**. Rotating a secret, removing an allowlist entry, or disabling `autoApproveOnMerge` therefore does not cancel an already-authorized in-flight request that has passed its decision points; the next delivery rechecks everything from scratch (duplicate deliveries re-run the entry checks). This is the canonical check-then-act window, stated as such — no atomic settings-revocation guarantee is claimed or implemented.
+- **Merge approval is a system principal.** `autoApproveOnMerge` (default off) approves the linked `submitted` task atomically with its audit event; effects fire post-commit, best-effort, with the same crash window as the human approve path. PR-review events update `reviewStatus` only and never approve. GitHub PR HMACs carry no timestamp: replay safety is the strict single-status CAS plus idempotent writes, not signature freshness.
+- **No reviewer decision rows, no pre-veto (explicit).** A merge approval creates NO reviewer decision rows (it is not a reviewer decision — the task's reviewer-row requirement is not consulted or satisfied by it), and it runs NO pre-commit interceptor veto (a plugin cannot veto a merge approval). Post-commit effects — SSE, watchers, dependency unblock, mission recalc, task-event hooks, and plugin POST-interceptors — run best-effort in-process, are not durable, and no effort or metric guarantee is claimed for them.
+
+**Known limitation (unchanged authority):** the allowlist is writable via `PATCH /habitats/:id` by **any authenticated human JWT** — there is no admin-only role or habitat-access restriction on the settings surface, and configuring a webhook secret does not isolate settings authority. This is the same authority that already governed `taskPattern`/`autoApproveOnMerge`; no new permission is introduced, and no admin-isolation property should be assumed.
+
 ### Chat Commands
 
 Slack slash commands verify `v0=${timestamp}:${rawBody}` signatures. Discord interactions verify Ed25519 signatures.
@@ -448,6 +461,7 @@ The API uses `@fastify/helmet` for security headers. `Content-Security-Policy` i
 | File uploads not virus-scanned | Medium | Add malware scanning in production |
 | No agent board-scoping (agents access all boards) | Medium | Add board allowlist if multi-user |
 | Attachment filename not RFC 5987 encoded | Low | Use safe ASCII fallback with `filename*=`
+| Habitat settings (incl. PR/MR repository allowlist and `autoApproveOnMerge`) writable by any authenticated human JWT — no adminOnly, no habitat-access guard | Medium | Tighten to an admin/habitat-scoped authority before multi-user exposure |
 
 ---
 

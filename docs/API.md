@@ -5168,26 +5168,27 @@ Get pipeline events for a task.
 
 Receive pull request / merge request events from code review systems.
 
+PR/MR processing is bound to exactly one habitat at ingress: the request's credential (GitHub `x-hub-signature-256` HMAC over the raw body, GitLab `x-gitlab-token`) must verify against exactly ONE habitat's `codeReviewSettings` secret. Zero verifying habitats (unsigned, unknown, or the previously-allowed unsigned local-dev posture) and more than one (the same secret configured on two habitats) are both refusals with zero local writes. The resolved habitat is the only habitat consulted for task resolution, and the event's immutable repository identity — GitHub `repository.id` / GitLab `project.id` — must appear in that habitat's trusted repository allowlist (`codeReviewSettings.githubRepositories` / `gitlabProjects`) before any write. An empty or absent allowlist refuses everything (fail-closed): after upgrade, PR/MR linking and merge-approval stop until an operator configures the allowlist. Release and CI/CD webhook paths are separate and unchanged.
+
 ### POST /webhooks/github
 
-Receive GitHub pull request events.
+Receive GitHub pull request, pull-request-review, and release events.
 
-**No authentication required.**
+**Authentication:** HMAC signature (`x-hub-signature-256`). The exact-one-habitat binding and repository allowlist apply to the `pull_request` and `pull_request_review` events (see the ingress-binding paragraph above); `release` events keep their separate prior contract (release-secret signature resolution — unchanged by this batch).
 
-**Request:**
+**Request (pull_request event):**
 
 ```json
 {
-  "action": "opened",
+  "action": "closed",
+  "number": 42,
   "pull_request": {
-    "id": 123456789,
-    "number": 42,
     "title": "Add authentication",
-    "state": "open",
+    "state": "closed",
+    "merged": true,
     "html_url": "https://github.com/org/repo/pull/42",
-    "user": {
-      "login": "developer"
-    }
+    "head": { "ref": "mission/<task-uuid>" },
+    "base": { "repo": { "id": 987654321, "full_name": "org/repo" } }
   },
   "repository": {
     "full_name": "org/repo"
@@ -5195,48 +5196,63 @@ Receive GitHub pull request events.
 }
 ```
 
-**Response `200`:**
+**Response `200`** — the handler's status is provider-visible:
 
-```json
-{
-  "received": true
-}
-```
+| `status` | Meaning |
+| --- | --- |
+| `linked` / `closed` / `ignored` | Normal processing (PR linked, closed, or action ignored) |
+| `no_matching_habitat` | No habitat's secret verified the signature (or none was presented) |
+| `ambiguous_signature_habitat` | More than one habitat's secret verified — refused, not first-matched |
+| `invalid_repository_id` | Payload `repository.id` missing, malformed, or unsafe-precision |
+| `repo_not_allowed` | Repository id is not in the resolved habitat's `githubRepositories` allowlist (including the empty/legacy default) |
+| `no_matching_task` | No task in the resolved habitat matches the task pattern |
+
+**Merge approval:** when the resolved habitat's `codeReviewSettings.autoApproveOnMerge` is `true` and the linked task is `submitted`, a merged PR approves the task as a trusted system principal (`github-webhook`) — one atomic transaction covers the approval write and its `approved` audit event; gates, dependency unblocks, mission recalculation, watchers, task-event hooks, and plugin post-interceptors fire post-commit (best-effort, same crash window as the human approve path). Duplicate MERGE APPROVALS are no-ops (zero new approval events, version bumps, or approval effects); the idempotent PR-link updates and `task.updated` notifications on open/update/reopen deliveries still occur. PR-REVIEW events only update the PR's `reviewStatus`; they never approve. Authorization checks (signature→habitat, allowlist, `autoApproveOnMerge`) are evaluated at the request's decision points — entry for secret/allowlist/pattern, the merge-decision point for the opt-in — and the approval transaction revalidates task status only: mid-request settings changes do not cancel an in-flight authorized request, and future deliveries recheck from scratch (no atomic settings-revocation guarantee).
 
 ### POST /webhooks/gitlab
 
-Receive GitLab merge request events.
+Receive GitLab merge request and note events.
 
-**No authentication required.**
+**Authentication:** `x-gitlab-token` matched (timing-safe) against exactly one habitat's code-review token; same ingress-binding and allowlist contract as GitHub, keyed on `project.id` and `gitlabProjects` (refusal statuses: `no_matching_habitat`, `ambiguous_signature_habitat`, `invalid_project_id`, `project_not_allowed`, `no_matching_task`).
 
-**Request:**
+**Request (merge_request event)** — real GitLab deliveries carry the action in `object_attributes.action`; there is no top-level `action` field:
 
 ```json
 {
   "object_kind": "merge_request",
   "object_attributes": {
-    "id": 123456789,
+    "action": "merge",
     "iid": 42,
     "title": "Add authentication",
-    "state": "opened",
-    "url": "https://gitlab.com/org/repo/-/merge_requests/42"
+    "state": "merged",
+    "url": "https://gitlab.com/org/repo/-/merge_requests/42",
+    "source_branch": "mission/<task-uuid>"
   },
   "project": {
+    "id": 555000111,
     "path_with_namespace": "org/repo"
-  },
-  "user": {
-    "username": "developer"
   }
 }
 ```
 
-**Response `200`:**
+**Response `200`:** handler status. Processing statuses: `linked` (open/update/reopen), `merged` (merge action), `closed` (close action), `ignored` (other actions) — NOTE GitLab differs from GitHub here: a GitHub merge reports `closed` (the handler echoes the PR's closed status), while a GitLab merge reports `merged`; refusal statuses use the same table as GitHub with `project_not_allowed` / `invalid_project_id` for the project allowlist. Merge approval semantics are identical to GitHub's, with `gitlab-webhook` as the system principal.
+
+### Settings — trusted repository allowlist
+
+The allowlist is configured through the existing habitat settings surface (`PATCH /habitats/:id`, body key `codeReviewSettings` — the wrapper object is required; bare fields are not accepted):
 
 ```json
 {
-  "received": true
+  "codeReviewSettings": {
+    "taskPattern": "mission/([0-9a-f-]{36})",
+    "autoApproveOnMerge": true,
+    "githubRepositories": [{ "id": 987654321, "fullName": "org/repo" }],
+    "gitlabProjects": [{ "id": "555000111", "pathWithNamespace": "org/gl" }]
+  }
 }
 ```
+
+`id` is the immutable provider identity (GitHub reads it from the event's `pull_request.base.repo.id`; the top-level `repository` object carries display metadata only — GitLab from `project.id`) — accepted as a canonical decimal string or a safe-integer number (`Number.isSafeInteger`, max 9007199254740991; fractional, negative, zero, and unsafe-precision values including 2^53 itself are rejected with `400`), canonicalized to a string, and used as the only matching key. `fullName` / `pathWithNamespace` are display metadata and never match. The two arrays are disjoint by type: a GitHub id is never authorized by `gitlabProjects` and vice versa. The write authority is today's habitat-settings surface — any authenticated human JWT, with no admin role or habitat-access restriction (a known limitation, unchanged by this feature).
 
 ### GET /tasks/:id/pull-requests
 

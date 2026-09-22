@@ -63,7 +63,13 @@ export function onTaskEvent(hook: TaskEventHook): () => void {
   };
 }
 
-function notifyTaskEvent(opts: TaskEventOpts): void {
+/**
+ * Fires the task-event hook bus for a lifecycle event. Exported for the
+ * merge-as-approval webhook path (REC-06), which reaches a canonical
+ * `approved` transition outside the HTTP routes and must fire the same
+ * 4-action hook set (`NOTIFY_TASK_EVENT_ACTIONS`) as the service path.
+ */
+export function notifyTaskEvent(opts: TaskEventOpts): void {
   for (const hook of taskEventHooks) {
     try {
       hook(opts);

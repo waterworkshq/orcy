@@ -271,6 +271,18 @@ You can run review decisions from chat with `/orcy approve <task-id>` and `/orcy
 
 Anyone not mapped (or whose role was later revoked) gets a refusal message and nothing is changed. Review decisions require the server's Slack signing secret (or Discord public key) to be configured and a valid request signature — in every mode; unsigned commands can only ever read. Read commands (`list`, `info`, `help`) keep working for channel users via the default habitat, under the same local-dev/remote ingress posture as other chat commands (not a guarantee that everyone can reach the API). Removing a mapping stops that person's chat review authority for future decisions that have not passed authorization; a request already in flight in the same HTTP window can still complete (check-then-act, no stronger claim).
 
+### Auto-Approving Merges from GitHub / GitLab (optional, trusted integration)
+
+With `autoApproveOnMerge` enabled on a habitat, a **merged** PR/MR whose branch or title names a `submitted` task approves that task automatically — recorded as a trusted system action (`github-webhook` / `gitlab-webhook`), with the same named downstream effects as your manual Approve — SSE notification, watcher and dependency-unblock effects, mission recalculation, and best-effort post-commit plugin observers (no reviewer decision rows, no pre-commit veto; not durable, no broader effort/metric guarantee is implied). PR review comments never approve anything; they only update the PR's review status.
+
+One-time setup per habitat:
+
+1. **Configure the webhook secret** on the habitat (GitHub app/webhook secret or GitLab token). Each secret must belong to exactly one habitat — a secret shared by two habitats makes PR/MR processing refuse until the duplicate is removed.
+2. **Allowlist the repositories** — this is mandatory. Add the GitHub `repository.id` (a number, e.g. from the REST API `GET /repos/{owner}/{repo}` or any PR webhook payload's `repository.id`) to `codeReviewSettings.githubRepositories`, and the GitLab `project.id` (e.g. from `GET /api/v4/projects/{url-encoded-path}`) to `gitlabProjects`, via `PATCH /api/habitats/:id`. Full field reference: [API.md](API.md) → "Settings — trusted repository allowlist"; env-free setup walkthrough in [CONFIGURATION.md](CONFIGURATION.md) → "Provider Code-Review Webhooks".
+3. **Turn on `autoApproveOnMerge`** in the same settings payload (default off).
+
+**Upgrade note:** after upgrading Orcy, PR/MR webhooks stop linking and approving until step 2 is done — an empty allowlist refuses everything by design (fail-closed). Release and CI/CD webhooks are not affected. Anyone who can edit habitat settings (any logged-in human, see the known limitation in SECURITY.md) can change the allowlist.
+
 ## Task Lifecycle
 
 ```

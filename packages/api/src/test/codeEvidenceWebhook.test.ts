@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import { createHmac } from "crypto";
 
 const { mockEnsurePR, mockEnsurePipeline } = vi.hoisted(() => ({
   mockEnsurePR: vi.fn(),
@@ -101,21 +102,33 @@ const PIPELINE_RECORD = {
 };
 
 function setupHabitatWithPattern(pattern?: string) {
-  mockListHabitats.mockReturnValue([{ id: HABITAT_ID }]);
+  const codeReviewSettings = {
+    autoApproveOnMerge: false,
+    githubSecret: "secret",
+    gitlabSecret: "gl-secret",
+    taskPattern: pattern || "([0-9a-f-]{36})",
+    githubRepositories: [{ id: "987654", fullName: "org/repo" }],
+    gitlabProjects: [{ id: "555", pathWithNamespace: "org/repo" }],
+  };
+  mockListHabitats.mockReturnValue([{ id: HABITAT_ID, codeReviewSettings }]);
   mockGetHabitatById.mockReturnValue({
     id: HABITAT_ID,
-    codeReviewSettings: {
-      autoApproveOnMerge: false,
-      githubSecret: "secret",
-      gitlabSecret: null,
-      taskPattern: pattern || "([0-9a-f-]{36})",
-    },
+    codeReviewSettings,
     ciCdSettings: {
       githubSecret: "secret",
       taskPattern: pattern || "([0-9a-f-]{36})",
       gitlabSecret: null,
     },
   });
+}
+
+/** Real GitHub HMAC over the exact JSON bytes, signed with the mocked habitat secret. */
+function githubIngress(body: unknown) {
+  const rawBody = JSON.stringify(body);
+  return {
+    rawBody,
+    signature: `sha256=${createHmac("sha256", "secret").update(rawBody).digest("hex")}`,
+  };
 }
 
 function setupTaskFound() {
@@ -147,13 +160,18 @@ describe("GitHub Webhook - Evidence Linking", () => {
         state: overrides?.state ?? "open",
         merged: overrides?.merged ?? false,
         head: { ref: `mission/${TASK_ID}` },
-        base: { repo: { full_name: "org/repo" } },
+        base: { repo: { id: 987654, full_name: "org/repo" } },
       },
     };
   }
 
+  function callPR(action: string, overrides?: { merged?: boolean; state?: string }) {
+    const body = makePRBody(action, overrides);
+    return handlePullRequestEvent(body, githubIngress(body));
+  }
+
   it("calls ensureEvidenceLinkForPullRequest on PR opened", () => {
-    const result = handlePullRequestEvent(makePRBody("opened"));
+    const result = callPR("opened");
 
     expect(result.status).toBe("linked");
     expect(mockEnsurePR).toHaveBeenCalledOnce();
@@ -161,7 +179,7 @@ describe("GitHub Webhook - Evidence Linking", () => {
   });
 
   it("calls ensureEvidenceLinkForPullRequest on PR synchronize", () => {
-    const result = handlePullRequestEvent(makePRBody("synchronize"));
+    const result = callPR("synchronize");
 
     expect(result.status).toBe("linked");
     expect(mockEnsurePR).toHaveBeenCalledOnce();
@@ -169,7 +187,7 @@ describe("GitHub Webhook - Evidence Linking", () => {
   });
 
   it("calls ensureEvidenceLinkForPullRequest on PR reopened", () => {
-    const result = handlePullRequestEvent(makePRBody("reopened"));
+    const result = callPR("reopened");
 
     expect(result.status).toBe("linked");
     expect(mockEnsurePR).toHaveBeenCalledOnce();
@@ -178,7 +196,7 @@ describe("GitHub Webhook - Evidence Linking", () => {
   it("calls ensureEvidenceLinkForPullRequest on PR merged (closed + merged)", () => {
     mockFindByProviderAndNumber.mockReturnValue(PR_RECORD);
 
-    const result = handlePullRequestEvent(makePRBody("closed", { merged: true, state: "closed" }));
+    const result = callPR("closed", { merged: true, state: "closed" });
 
     expect(result.status).toBe("closed");
     expect(mockEnsurePR).toHaveBeenCalledOnce();
@@ -188,7 +206,7 @@ describe("GitHub Webhook - Evidence Linking", () => {
   it("calls ensureEvidenceLinkForPullRequest on PR closed without merge", () => {
     mockFindByProviderAndNumber.mockReturnValue(PR_RECORD);
 
-    const result = handlePullRequestEvent(makePRBody("closed", { merged: false, state: "closed" }));
+    const result = callPR("closed", { merged: false, state: "closed" });
 
     expect(result.status).toBe("closed");
     expect(mockEnsurePR).toHaveBeenCalledOnce();
@@ -197,7 +215,7 @@ describe("GitHub Webhook - Evidence Linking", () => {
   it("does not call ensureEvidenceLinkForPullRequest when no matching task", () => {
     mockFindTaskIdByPattern.mockReturnValue(null);
 
-    const result = handlePullRequestEvent(makePRBody("opened"));
+    const result = callPR("opened");
 
     expect(result.status).toBe("no_matching_task");
     expect(mockEnsurePR).not.toHaveBeenCalled();
@@ -206,18 +224,18 @@ describe("GitHub Webhook - Evidence Linking", () => {
   it("does not call ensureEvidenceLinkForPullRequest when task lookup returns null", () => {
     mockGetTaskById.mockReturnValue(null);
 
-    const result = handlePullRequestEvent(makePRBody("opened"));
+    const result = callPR("opened");
 
     expect(result.status).toBe("no_matching_task");
     expect(mockEnsurePR).not.toHaveBeenCalled();
   });
 
-  it("does not call ensureEvidenceLinkForPullRequest when no habitatId", () => {
+  it("task with no resolvable habitat is not linkable (habitat-scoped lookup)", () => {
     mockGetHabitatIdForTask.mockReturnValue(null);
 
-    const result = handlePullRequestEvent(makePRBody("opened"));
+    const result = callPR("opened");
 
-    expect(result.status).toBe("linked");
+    expect(result.status).toBe("no_matching_task");
     expect(mockEnsurePR).not.toHaveBeenCalled();
   });
 
@@ -226,7 +244,7 @@ describe("GitHub Webhook - Evidence Linking", () => {
       throw new Error("evidence service down");
     });
 
-    const result = handlePullRequestEvent(makePRBody("opened"));
+    const result = callPR("opened");
 
     expect(result.status).toBe("linked");
     expect(mockPublish).toHaveBeenCalled();
@@ -238,14 +256,14 @@ describe("GitHub Webhook - Evidence Linking", () => {
       throw new Error("evidence service down");
     });
 
-    const result = handlePullRequestEvent(makePRBody("closed", { merged: true, state: "closed" }));
+    const result = callPR("closed", { merged: true, state: "closed" });
 
     expect(result.status).toBe("closed");
     expect(mockPublish).toHaveBeenCalled();
   });
 
   it("does not call ensureEvidenceLinkForPullRequest for unrecognized action", () => {
-    const result = handlePullRequestEvent(makePRBody("labeled"));
+    const result = callPR("labeled");
 
     expect(result.status).toBe("ignored");
     expect(mockEnsurePR).not.toHaveBeenCalled();
@@ -255,7 +273,7 @@ describe("GitHub Webhook - Evidence Linking", () => {
     const existingRecord = { ...PR_RECORD, prTitle: "Old title" };
     mockFindByProviderAndNumber.mockReturnValue(existingRecord);
 
-    const result = handlePullRequestEvent(makePRBody("opened"));
+    const result = callPR("opened");
 
     expect(result.status).toBe("linked");
     expect(mockUpdatePullRequest).toHaveBeenCalledWith(
@@ -291,11 +309,12 @@ describe("GitLab Webhook - Evidence Linking", () => {
     handleMergeRequestEvent = mod.handleMergeRequestEvent;
   });
 
+  /** Docs-conformant MR fixture: action lives in object_attributes, no top-level action. */
   function makeMRBody(action: string, state?: string) {
     return {
       object_kind: "merge_request" as const,
-      action,
       object_attributes: {
+        action,
         iid: 7,
         title: `[${TASK_ID}] Fix something`,
         url: "https://gitlab.com/org/repo/-/merge_requests/7",
@@ -304,12 +323,16 @@ describe("GitLab Webhook - Evidence Linking", () => {
         source_branch: `mission/${TASK_ID}`,
         target_project_id: 1,
       },
-      project: { path_with_namespace: "org/repo" },
+      project: { id: 555, path_with_namespace: "org/repo" },
     };
   }
 
+  function callMR(action: string, state?: string) {
+    return handleMergeRequestEvent(makeMRBody(action, state), { token: "gl-secret" });
+  }
+
   it("calls ensureEvidenceLinkForPullRequest on MR open", () => {
-    const result = handleMergeRequestEvent(makeMRBody("open"));
+    const result = callMR("open");
 
     expect(result.status).toBe("linked");
     expect(mockEnsurePR).toHaveBeenCalledOnce();
@@ -317,14 +340,14 @@ describe("GitLab Webhook - Evidence Linking", () => {
   });
 
   it("calls ensureEvidenceLinkForPullRequest on MR update", () => {
-    const result = handleMergeRequestEvent(makeMRBody("update"));
+    const result = callMR("update");
 
     expect(result.status).toBe("linked");
     expect(mockEnsurePR).toHaveBeenCalledOnce();
   });
 
   it("calls ensureEvidenceLinkForPullRequest on MR reopen", () => {
-    const result = handleMergeRequestEvent(makeMRBody("reopen"));
+    const result = callMR("reopen");
 
     expect(result.status).toBe("linked");
     expect(mockEnsurePR).toHaveBeenCalledOnce();
@@ -333,7 +356,7 @@ describe("GitLab Webhook - Evidence Linking", () => {
   it("calls ensureEvidenceLinkForPullRequest on MR merge", () => {
     mockFindByProviderAndNumber.mockReturnValue(MR_RECORD);
 
-    const result = handleMergeRequestEvent(makeMRBody("merge", "merged"));
+    const result = callMR("merge", "merged");
 
     expect(result.status).toBe("merged");
     expect(mockEnsurePR).toHaveBeenCalledOnce();
@@ -341,7 +364,7 @@ describe("GitLab Webhook - Evidence Linking", () => {
   });
 
   it("does not call ensureEvidenceLinkForPullRequest on MR close without existing record", () => {
-    const result = handleMergeRequestEvent(makeMRBody("close", "closed"));
+    const result = callMR("close", "closed");
 
     expect(result.status).toBe("closed");
     expect(mockEnsurePR).not.toHaveBeenCalled();
@@ -350,18 +373,18 @@ describe("GitLab Webhook - Evidence Linking", () => {
   it("does not call ensureEvidenceLinkForPullRequest when no matching task", () => {
     mockFindTaskIdByPattern.mockReturnValue(null);
 
-    const result = handleMergeRequestEvent(makeMRBody("open"));
+    const result = callMR("open");
 
     expect(result.status).toBe("no_matching_task");
     expect(mockEnsurePR).not.toHaveBeenCalled();
   });
 
-  it("does not call ensureEvidenceLinkForPullRequest when no habitatId", () => {
+  it("task with no resolvable habitat is not linkable (habitat-scoped lookup)", () => {
     mockGetHabitatIdForTask.mockReturnValue(null);
 
-    const result = handleMergeRequestEvent(makeMRBody("open"));
+    const result = callMR("open");
 
-    expect(result.status).toBe("linked");
+    expect(result.status).toBe("no_matching_task");
     expect(mockEnsurePR).not.toHaveBeenCalled();
   });
 
@@ -370,7 +393,7 @@ describe("GitLab Webhook - Evidence Linking", () => {
       throw new Error("evidence service down");
     });
 
-    const result = handleMergeRequestEvent(makeMRBody("open"));
+    const result = callMR("open");
 
     expect(result.status).toBe("linked");
     expect(mockPublish).toHaveBeenCalled();
@@ -382,14 +405,14 @@ describe("GitLab Webhook - Evidence Linking", () => {
       throw new Error("evidence service down");
     });
 
-    const result = handleMergeRequestEvent(makeMRBody("merge", "merged"));
+    const result = callMR("merge", "merged");
 
     expect(result.status).toBe("merged");
     expect(mockPublish).toHaveBeenCalled();
   });
 
   it("does not call ensureEvidenceLinkForPullRequest for unrecognized action", () => {
-    const result = handleMergeRequestEvent(makeMRBody("approval"));
+    const result = callMR("approval");
 
     expect(result.status).toBe("ignored");
     expect(mockEnsurePR).not.toHaveBeenCalled();
@@ -399,7 +422,7 @@ describe("GitLab Webhook - Evidence Linking", () => {
     const existingRecord = { ...MR_RECORD, prTitle: "Old title" };
     mockFindByProviderAndNumber.mockReturnValue(existingRecord);
 
-    const result = handleMergeRequestEvent(makeMRBody("open"));
+    const result = callMR("open");
 
     expect(result.status).toBe("linked");
     expect(mockUpdatePullRequest).toHaveBeenCalledWith(
@@ -413,7 +436,7 @@ describe("GitLab Webhook - Evidence Linking", () => {
   it("calls ensureEvidenceLinkForPullRequest on merge with existing record", () => {
     mockFindByProviderAndNumber.mockReturnValue(MR_RECORD);
 
-    const result = handleMergeRequestEvent(makeMRBody("merge", "merged"));
+    const result = callMR("merge", "merged");
 
     expect(result.status).toBe("merged");
     expect(mockEnsurePR).toHaveBeenCalledOnce();

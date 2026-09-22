@@ -1,5 +1,5 @@
 import * as habitatRepo from "../repositories/habitat.js";
-import { verifyGitHubHmac } from "../config/integrationSecurity.js";
+import { verifyGitHubHmac, verifyGitLabToken } from "../config/integrationSecurity.js";
 
 const secretToHabitatId = new Map<string, string>();
 const githubSecretToHabitatId = new Map<string, string>();
@@ -70,4 +70,53 @@ export function hasGithubSecretsConfigured(): boolean {
 /** Returns whether any habitat has a GitLab or GitHub webhook secret configured. */
 export function hasAnySecretsConfigured(): boolean {
   return secretToHabitatId.size > 0 || githubSecretToHabitatId.size > 0;
+}
+
+/**
+ * PR/MR-path-only exact resolver (provider review-webhook binding, REC-06 C1):
+ * collects ALL habitats whose `codeReviewSettings.githubSecret` HMAC-verifies
+ * the presented raw body + signature.
+ *
+ * Deliberately NOT built on `githubSecretToHabitatId` — that map is keyed by
+ * secret, so two habitats configured with the SAME secret collapse to one
+ * entry (last rebuild wins) and the ambiguity would be invisible. Iterating
+ * habitats directly makes zero/one/many verifications observable:
+ * exactly one → proceed; zero or many → the PR path refuses (an ambiguous
+ * binding is a refusal, not a first-match roulette). The shared first-match
+ * seam (`findHabitatIdByGithubSignature`, used by the release path and the
+ * verified-ingress posture check) and the CI/CD store are untouched — this
+ * resolver is consumed by the PR/MR webhook handlers only.
+ */
+export function resolveCodeReviewHabitatIdsByGithubSignature(
+  rawBody: string,
+  signature: string | undefined,
+): string[] {
+  if (!signature) return [];
+  const matches = new Set<string>();
+  for (const habitat of habitatRepo.listHabitats()) {
+    const secret = habitat.codeReviewSettings?.githubSecret;
+    if (secret && verifyGitHubHmac(rawBody, signature, secret)) {
+      matches.add(habitat.id);
+    }
+  }
+  return [...matches];
+}
+
+/**
+ * PR/MR-path-only exact resolver (GitLab twin of
+ * {@link resolveCodeReviewHabitatIdsByGithubSignature}): collects ALL habitats
+ * whose `codeReviewSettings.gitlabSecret` matches the presented token
+ * (timing-safe compare). Zero or many matches are refusal states; only the
+ * MR/note webhook handlers consume this.
+ */
+export function resolveCodeReviewHabitatIdsByGitlabToken(token: string | undefined): string[] {
+  if (!token) return [];
+  const matches = new Set<string>();
+  for (const habitat of habitatRepo.listHabitats()) {
+    const secret = habitat.codeReviewSettings?.gitlabSecret;
+    if (secret && verifyGitLabToken(token, secret)) {
+      matches.add(habitat.id);
+    }
+  }
+  return [...matches];
 }

@@ -77,6 +77,8 @@ export {
   lifecycleSettingsSchema,
   codeReviewSettingsSchema,
   ciCdSettingsSchema,
+  githubRepositoryRefSchema,
+  gitlabProjectRefSchema,
 } from "./settings.js";
 export type {
   AnomalySettings,
@@ -90,6 +92,8 @@ export type {
   LifecycleSettings,
   RoadmapScoringAlgorithm,
   GitWorktreeSettings,
+  GitHubRepositoryRef,
+  GitLabProjectRef,
   CodeReviewSettings,
   CiCdSettings,
   PublicCodeReviewSettings,
@@ -391,11 +395,7 @@ export {
   FINDING_TRIAGE_EVIDENCE_ROLES,
   LINEAGE_REPAIR_MODES,
 } from "./triage.js";
-export type {
-  ActivationCause,
-  FindingTriageEvidenceRole,
-  LineageRepairMode,
-} from "./triage.js";
+export type { ActivationCause, FindingTriageEvidenceRole, LineageRepairMode } from "./triage.js";
 
 export type { ReleaseType, DetectorSource, ReleaseShippedPayload } from "./release.js";
 export { RELEASE_TYPES, DETECTOR_SOURCES } from "./release.js";

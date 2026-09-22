@@ -47,12 +47,42 @@ export interface GitWorktreeSettings {
   autoCleanup: boolean;
 }
 
+/**
+ * Trusted GitHub repository identity for the PR-webhook repository allowlist
+ * (REC-06/C2). `id` is the immutable GitHub `repository.id` carried as a
+ * canonical decimal string — it is the ONLY matching key; `fullName` is
+ * display metadata and never participates in matching.
+ */
+export interface GitHubRepositoryRef {
+  id: string;
+  fullName?: string;
+}
+
+/**
+ * Trusted GitLab project identity for the MR-webhook repository allowlist
+ * (REC-06/C2). `id` is the immutable GitLab `project.id` carried as a
+ * canonical decimal string; `pathWithNamespace` is display metadata only.
+ */
+export interface GitLabProjectRef {
+  id: string;
+  pathWithNamespace?: string;
+}
+
 /** Configuration for the external code-review webhook integration. */
 export interface CodeReviewSettings {
   autoApproveOnMerge: boolean;
   githubSecret?: string | null;
   gitlabSecret?: string | null;
   taskPattern: string;
+  /**
+   * Trusted GitHub repositories whose PR webhooks this habitat accepts
+   * (fail-closed: a missing/empty allowlist refuses the PR path). Optional
+   * only so legacy JSON rows that predate the field keep type-checking; the
+   * matching seam treats `undefined` as `[]`.
+   */
+  githubRepositories?: GitHubRepositoryRef[];
+  /** Trusted GitLab projects (same fail-closed contract as {@link githubRepositories}). */
+  gitlabProjects?: GitLabProjectRef[];
 }
 
 /** Public (masked) view of {@link CodeReviewSettings} where HMAC secrets are replaced by presence booleans. This is what API responses and SSE events carry — the raw secret never leaves the server. */
@@ -61,6 +91,8 @@ export interface PublicCodeReviewSettings {
   hasGitlabSecret: boolean;
   taskPattern: string;
   autoApproveOnMerge: boolean;
+  githubRepositories: GitHubRepositoryRef[];
+  gitlabProjects: GitLabProjectRef[];
 }
 
 /** Configuration for the CI/CD webhook integration. */
@@ -143,6 +175,39 @@ export const releaseSettingsSchema = z.object({
 });
 
 /**
+ * Provider repository/project identity as accepted on the settings surface.
+ * Two carriers, both canonicalized to a decimal string: a JSON string of
+ * digits (any length — strings never lose precision), or a JSON number that
+ * MUST be a positive safe integer (range-checked BEFORE any coercion, so a
+ * fractional or >2^53 payload number is rejected, not silently rounded).
+ */
+const providerRepoIdSchema = z
+  .union([
+    z.string().regex(/^\d+$/, "provider repository id must be canonical decimal digits"),
+    z
+      .number()
+      .int()
+      .positive()
+      .refine(
+        (n) => Number.isSafeInteger(n),
+        "provider repository id exceeds the safe integer range",
+      ),
+  ])
+  .transform((v) => String(v));
+
+/** Zod schema for one trusted GitHub repository allowlist entry. */
+export const githubRepositoryRefSchema = z.object({
+  id: providerRepoIdSchema,
+  fullName: z.string().optional(),
+});
+
+/** Zod schema for one trusted GitLab project allowlist entry. */
+export const gitlabProjectRefSchema = z.object({
+  id: providerRepoIdSchema,
+  pathWithNamespace: z.string().optional(),
+});
+
+/**
  * Zod schema for validating `codeReviewSettings` patches via PATCH /habitats/:id.
  *
  * INTENTIONALLY a NON-SECRET subset of `CodeReviewSettings`. `githubSecret` and
@@ -150,10 +215,18 @@ export const releaseSettingsSchema = z.object({
  * cannot leak them; secrets are configured via a dedicated endpoint (added in
  * a later ticket). The wider `CodeReviewSettings` TS type continues to carry
  * the secret fields for internal/read paths that already authorize access.
+ *
+ * `githubRepositories` / `gitlabProjects` are disjoint typed arrays of trusted
+ * provider identities (immutable ids only; display names never match). Their
+ * absence from a patch preserves current values via the settings deep-merge;
+ * their absence from STORED legacy rows reads as `[]` at the matching seam
+ * (fail-closed).
  */
 export const codeReviewSettingsSchema = z.object({
   taskPattern: z.string(),
   autoApproveOnMerge: z.boolean().optional(),
+  githubRepositories: z.array(githubRepositoryRefSchema).optional(),
+  gitlabProjects: z.array(gitlabProjectRefSchema).optional(),
 });
 
 /**

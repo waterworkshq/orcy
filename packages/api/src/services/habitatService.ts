@@ -72,6 +72,8 @@ export function maskSecretSettings(habitat: Habitat): PublicHabitat {
           hasGitlabSecret: !!normalized.codeReviewSettings.gitlabSecret,
           taskPattern: normalized.codeReviewSettings.taskPattern,
           autoApproveOnMerge: normalized.codeReviewSettings.autoApproveOnMerge,
+          githubRepositories: normalized.codeReviewSettings.githubRepositories ?? [],
+          gitlabProjects: normalized.codeReviewSettings.gitlabProjects ?? [],
         }
       : null,
     ciCdSettings: normalized.ciCdSettings
@@ -179,7 +181,15 @@ const SETTINGS_BLOB_DEFAULTS: Partial<
   roadmapSettings: () => ({ ...DEFAULT_ROADMAP_SETTINGS }),
   lifecycleSettings: () => ({ taskTransitionCeiling: null }),
   autoAssignSettings: () => getDefaultAutoAssignSettings() as unknown as Record<string, unknown>,
-  codeReviewSettings: () => ({ autoApproveOnMerge: false }),
+  // codeReviewSettings: `taskPattern` is guaranteed by the PATCH schema; the
+  // allowlist arrays are materialized here so `normalizeSettingsBlobs` heals
+  // legacy rows to a DETERMINISTIC empty allowlist (fail-closed refusal),
+  // never an undefined-path read.
+  codeReviewSettings: () => ({
+    autoApproveOnMerge: false,
+    githubRepositories: [],
+    gitlabProjects: [],
+  }),
 };
 
 /** Recursively merges a partial settings PATCH over a base: plain-object fields merge per-key, everything else (scalars, arrays, null) replaces. */
