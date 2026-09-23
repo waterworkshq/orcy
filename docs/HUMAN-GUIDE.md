@@ -35,6 +35,17 @@ When reviewers are assigned, their approvals are required for completion; review
 6. **Configure MCP** — Add the Orcy MCP server to your project's `.mcp.json`
 7. **Monitor and review** — Watch real-time updates, approve or reject submissions with feedback
 
+## Removing an Agent (deletion rules)
+
+Deleting an agent (the admin remove in the UI's agent panel, an admin HTTP `DELETE /api/agents/:id`, or an agent uninstalling itself) has an **atomic server-side agent/task teardown** (one transaction, all or nothing). Filesystem uninstall, where applicable, is a separate best-effort step:
+
+- **Review in flight blocks deletion.** If the agent still has a task in `submitted` or `rejected` state, the delete is refused with a typed `409 deletion_blocked_review_in_flight` listing the blocked tasks. Resolve the assigned `submitted`/`rejected` work into an unblocked state before retrying; rejection alone does not unblock deletion. A `submitted` task needs its authorized review (an appropriate reviewer completes it to `approved`, or another unblocking outcome); a `rejected` task stays with the assigned agent, who must finish the rework, resubmit, and pass review — this delete endpoint has no force option and does not silently unassign submitted/rejected tasks.
+- **Work in progress is released, not lost.** Every `claimed`/`in_progress` task goes back to the pool through the canonical release path — a `released` audit event (actor = who deleted the agent) plus recovery receipts.
+- **History is kept.** Completed/failed work keeps its status and full event history; the agent reference is cleared and the execution token is normalized, with an `updated` audit event recording the changes and who deleted the agent and when.
+- **Delegation offers to the agent are cancelled** with an audit event; the offering agent's own work is untouched.
+- **Self-uninstall can be budget-refused.** An agent deleting itself at its transition-budget ceiling gets a typed `409 deletion_blocked_budget` — the agent stays registered and an **administrator** must delete it (admins are unmetered).
+- Reviewer assignments made to the deleted agent are a known limitation: pending agent-reviewer rows are never auto-removed (auto-removal would silently weaken review gates); remove them manually if desired.
+
 ## Creating Effective Missions for Orcys
 
 ### Task Title

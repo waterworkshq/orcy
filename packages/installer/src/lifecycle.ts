@@ -381,7 +381,32 @@ function reverseEntry(ctx: InstallContext, entry: ManifestEntry): void {
   }
 }
 
-export async function uninstallAll(ctx: InstallContext, opts?: UninstallOptions): Promise<void> {
+/**
+ * Structured uninstall outcome (F3): what the remote agent-deactivation step
+ * actually did, plus whether any removal failed. The CLI maps a typed
+ * deletion blocker (admin cleanup required) or a truthful failure to a
+ * NONZERO exit code.
+ */
+export interface UninstallOutcome {
+  /** True when some manifest/sweep entry could not be removed (manifest kept for retry). */
+  hadFailure: boolean;
+  /**
+   * The remote agent self-deactivation result:
+   *   `not_attempted` — no manifest / no registered agent / no consent;
+   *   `deactivated`   — API confirmed;
+   *   `blocked`       — typed 409 refusal (see {@link blockedCode}); admin cleanup required;
+   *   `unreachable`   — network error (existing policy: warn + manual instructions);
+   *   `non_ok`        — any other non-ok response (existing policy: warn).
+   */
+  agentDeletion: "not_attempted" | "deactivated" | "blocked" | "unreachable" | "non_ok";
+  /** The typed blocker code when `agentDeletion === "blocked"`. */
+  blockedCode?: string;
+}
+
+export async function uninstallAll(
+  ctx: InstallContext,
+  opts?: UninstallOptions,
+): Promise<UninstallOutcome> {
   // G9 step 1: warn on stale install journal (proceed against the manifest regardless).
   if (journalExists()) {
     console.warn(
@@ -393,7 +418,7 @@ export async function uninstallAll(ctx: InstallContext, opts?: UninstallOptions)
   const manifest = readManifest();
   if (!manifest) {
     console.log("No install manifest found.");
-    return;
+    return { hadFailure: false, agentDeletion: "not_attempted" };
   }
 
   console.log("==> Uninstalling orcy...");
@@ -463,6 +488,8 @@ export async function uninstallAll(ctx: InstallContext, opts?: UninstallOptions)
   }
 
   // G5: consent-gated remote DELETE.
+  let agentDeletion: UninstallOutcome["agentDeletion"] = "not_attempted";
+  let blockedCode: string | undefined;
   if (creds) {
     const consent = willPurge || interactive;
     if (consent) {
@@ -473,15 +500,54 @@ export async function uninstallAll(ctx: InstallContext, opts?: UninstallOptions)
         });
         if (resp.ok) {
           console.log(`    Agent ${creds.agentId} deactivated.`);
+          agentDeletion = "deactivated";
         } else {
-          console.warn(
-            `    API deactivation returned ${resp.status}. Manual cleanup may be needed.`,
-          );
+          // Typed deletion blockers (REC-06 atomic agent deletion): the API
+          // REFUSED the deletion — the agent is still registered and its
+          // tasks/reviews are intact. Purging the only credential here would
+          // strand a live agent unrecoverably, so the uninstall STOPS with
+          // every data file preserved and says so truthfully. This is a
+          // separate policy from the unreachable-API case below.
+          const body = (await resp.json().catch(() => null)) as {
+            code?: string;
+            error?: string;
+          } | null;
+          if (
+            resp.status === 409 &&
+            (body?.code === "deletion_blocked_review_in_flight" ||
+              body?.code === "deletion_blocked_budget" ||
+              // Internal teardown invariant: the deletion ROLLED BACK and the
+              // agent is STILL REGISTERED — same data-loss handling (preserve
+              // + report for operator/admin investigation), not user-triggerable.
+              body?.code === "AGENT_TEARDOWN_REFERENCES_REMAIN")
+          ) {
+            willPurge = false; // never destroy the recoverable credential
+            hadFailure = true; // manifest preserved for a retry uninstall
+            agentDeletion = "blocked";
+            blockedCode = body.code;
+            console.error(
+              `    Agent ${creds.agentId} was NOT deleted (API blocker: ${body.code}).`,
+            );
+            if (body.error) console.error(`    ${body.error}`);
+            console.error(
+              "    An administrator must resolve the blocked tasks and delete the agent",
+            );
+            console.error(`    (admin route: DELETE ${ctx.apiUrl}/api/agents/${creds.agentId}).`);
+            console.error(
+              "    Preserved .env, orcy.db, and credentials.json — uninstall blocked, nothing was purged.",
+            );
+          } else {
+            console.warn(
+              `    API deactivation returned ${resp.status}. Manual cleanup may be needed.`,
+            );
+            agentDeletion = "non_ok";
+          }
         }
       } catch (e) {
         console.warn(
           `    Could not deactivate agent (API unreachable): ${e instanceof Error ? e.message : e}`,
         );
+        agentDeletion = "unreachable";
         console.warn(
           `    Manual: DELETE ${ctx.apiUrl}/api/agents/${creds.agentId}/self (header: x-agent-api-key)`,
         );
@@ -518,6 +584,7 @@ export async function uninstallAll(ctx: InstallContext, opts?: UninstallOptions)
   }
 
   console.log("    Uninstall complete.");
+  return { hadFailure, agentDeletion, blockedCode };
 }
 
 /**

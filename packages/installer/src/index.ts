@@ -42,22 +42,38 @@ program
     await updateInstall(ctx);
   });
 
+/**
+ * The `uninstall` command's action body (exported for command-boundary
+ * tests). Runs the FULL cleanup, then maps the structured outcome to a
+ * truthful exit code: a typed agent-deletion blocker (admin cleanup
+ * required) or any removal failure exits 1; a normal uninstall — including
+ * the existing unreachable-API policy — exits 0. Uses `process.exitCode`
+ * (the `verify` command's pattern), never `process.exit`, so cleanup always
+ * completes.
+ */
+export async function runUninstallCommand(opts: { yes?: boolean; purge?: boolean }): Promise<void> {
+  const ctx = getContext();
+  if (!opts.yes) {
+    const { confirm } = await import("@clack/prompts");
+    const confirmed = await confirm({ message: "Remove all orcy components?" });
+    if (!confirmed) {
+      console.log("Aborted");
+      return;
+    }
+  }
+  const outcome = await uninstallAll(ctx, { purge: opts.purge ?? false, yes: opts.yes ?? false });
+  if (outcome.agentDeletion === "blocked" || outcome.hadFailure) {
+    process.exitCode = 1;
+  }
+}
+
 program
   .command("uninstall")
   .description("Remove all installed components")
   .option("-y, --yes", "Skip confirmation prompt")
   .option("--purge", "Also remove settings and data (.env, orcy.db, credentials)")
   .action(async (opts) => {
-    const ctx = getContext();
-    if (!opts.yes) {
-      const { confirm } = await import("@clack/prompts");
-      const confirmed = await confirm({ message: "Remove all orcy components?" });
-      if (!confirmed) {
-        console.log("Aborted");
-        return;
-      }
-    }
-    await uninstallAll(ctx, { purge: opts.purge ?? false, yes: opts.yes ?? false });
+    await runUninstallCommand({ yes: opts.yes, purge: opts.purge });
   });
 
 program

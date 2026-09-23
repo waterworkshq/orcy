@@ -502,14 +502,18 @@ describe("T1 acceptance 11 — every clear path yields NULL token", () => {
     expect(taskToken(task.id)).toBeNull();
   });
 
-  it("deleteAgent bulk reset clears ALL claimed/in_progress tasks", async () => {
+  it("deleteAgent releases ALL claimed/in_progress tasks through the atomic bundles (tokens cleared)", async () => {
+    // REC-06: the repo-level raw bulk reset is gone; holdings are released
+    // by the service composition's release bundles (canonical events +
+    // receipts). Human actor = unmetered.
     const agent = seedAgent("bulk-delete");
     const t1 = seedTask("bulk-1");
     const t2 = seedTask("bulk-2");
     taskStateMachine.claimTask(t1.id, agent.id);
     taskStateMachine.claimTask(t2.id, agent.id);
     expect(taskToken(t1.id)).not.toBeNull();
-    agentRepo.deleteAgent(agent.id);
+    const { deleteAgent } = await import("../services/agentService.js");
+    deleteAgent(agent.id, { actorType: "human", actorId: "admin-1" });
     expect(taskToken(t1.id)).toBeNull();
     expect(taskToken(t2.id)).toBeNull();
   });
@@ -913,7 +917,11 @@ describe("T1 acceptance 10 — writer census (payload/call-site grep snapshot)",
     ["repositories/taskStateMachine.ts", "failTask"],
     ["repositories/taskStateMachine.ts", "approveTask"],
     ["repositories/taskStateMachine.ts", "markTaskDone"],
-    ["repositories/agent.ts", "deleteAgent"],
+    // REC-06 atomic agent deletion: the repo teardown no longer writes tasks
+    // (assert + delete only); the ownership-ending writes for that flow are
+    // the release bundle (WithClient CAS write) and the service's terminal
+    // unassign — the latter is covered by the R4 repo-wide scan below.
+    ["services/effects/releaseEffects.ts", "releaseTaskWithEffectsWithClient"],
     ["services/importManifest/importPublication.ts", "Reset execution state"],
     ["services/tasks/remote-task-lifecycle.ts", "releaseTaskForRemote"],
     ["services/retryService.ts", "executeRetry"],

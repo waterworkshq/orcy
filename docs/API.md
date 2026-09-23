@@ -2820,9 +2820,68 @@ Update agent properties.
 
 ### DELETE /agents/:id
 
-Delete an agent.
+Delete an agent — atomic and all-or-nothing (one writer transaction; a failure
+or refusal leaves the agent and every task row byte-identical). Post-commit
+effects are best-effort (durable receipts, bounded retries — not a transaction
+rollback and not atomically delivered by the 204).
 
-**Response `204`:** No content.
+**Auth:** Human auth + admin only.
+
+**What it does, in order:** refuses if any `submitted`/`rejected` task is
+still assigned (review-in-flight must survive); releases every
+`claimed`/`in_progress` holding through the canonical release path (a
+`released` audit event stamped with the acting human + one `workflow_gates`
+and one `failure_context` effect receipt each); unassigns
+every other still-assigned row (`done`/`approved`/`failed`/legacy
+pending-assigned), preserving task status and history while clearing the
+agent reference and normalizing the execution token, under an `updated`
+audit event carrying `{ agentDeleted, deletedAgentId, executionTokenBefore }`
+(`executionTokenBefore` records the actual pre-write token value — `null` on
+terminal rows that never carried one; the write itself normalizes any legacy
+residue to NULL, never a status change); cancels inbound
+delegation offers (`updated` event with `{ delegationCancelled: true, dueTo:
+"agent_deletion" }`, owner assignments untouched); then verifies zero
+remaining task references and deletes the agent row (sessions/aux rows
+cascade; task and review history is preserved — agent-reviewer rows are a
+known retained limitation and are never auto-removed).
+
+The transition actor is the authenticated human (`request.user.id`) —
+unmetered by the human budget exemption.
+
+**Response `204`:** No content (a nonexistent id is also a 204 no-op).
+
+**Response `409` (deletion refused — nothing was deleted):**
+
+```json
+{
+  "error": "Agent not deleted: 1 task(s) in submitted/rejected state are still assigned; resolve the reviews first.",
+  "code": "deletion_blocked_review_in_flight",
+  "details": { "blockedTasks": [ { "id": "task-uuid", "title": "...", "status": "submitted" } ] }
+}
+```
+
+| Code | Meaning |
+|------|---------|
+| `deletion_blocked_review_in_flight` | An assigned task is `submitted` or `rejected` — resolve the review first. |
+| `deletion_blocked_budget` | Self-delete only: the per-task transition budget is exhausted; an admin (unmetered) must perform the cleanup. |
+| `AGENT_TEARDOWN_REFERENCES_REMAIN` | Internal invariant only: the deletion rolled back with the agent still registered — report it to the operator / have an admin investigate; a normal user is not expected to trigger it. |
+
+### DELETE /agents/:id/self
+
+Agent self-deletion (uninstall compensation). Same atomic semantics as above;
+the transition actor is the agent's own id — the releases are **metered**, so
+a budget-exhausted holding refuses the whole deletion with
+`409 deletion_blocked_budget` — task and agent state are unchanged, though
+the emit-once breach escalation may still post a post-settle escalation
+event with SSE/notification as disclosure; the internal `AGENT_TEARDOWN_REFERENCES_REMAIN`
+refusal (rolled-back deletion) maps to the same blocked-uninstall handling.
+Auth: agent auth, `:id` must equal the caller's own
+id (403 otherwise). There is no nonexistent-id case on this route — the
+caller is always the authenticated agent itself (an unknown or revoked key is
+`401`). **Response `204`:** No content. Installer note: on any of the three typed
+409 codes the uninstaller preserves
+`credentials.json`/`.env`/`orcy.db` — the agent remains registered and its key
+must stay recoverable; an administrator deletes it via `DELETE /agents/:id`.
 
 ### POST /agents/:id/heartbeat
 

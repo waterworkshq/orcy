@@ -119,13 +119,12 @@ describe("agentService", () => {
     );
   });
 
-  it("deleteAgent releases task and deletes", () => {
-    vi.mocked(agentRepo.getAgentById).mockReturnValue({ id: "a1", currentTaskId: "t1" } as any);
-    vi.mocked(taskRepo.releaseTask).mockReturnValue({ id: "t1" } as any);
-    deleteAgent("a1");
-    expect(taskRepo.releaseTask).toHaveBeenCalledWith("t1", "system");
-    expect(agentRepo.deleteAgent).toHaveBeenCalledWith("a1");
-  });
+  // deleteAgent is no longer mock-testable here: the REC-06 atomic
+  // composition opens a real outer BEGIN IMMEDIATE (getDb) and composes
+  // release bundles / unassign audits / the teardown assert in one tx.
+  // Its full contract — typed 409 blockers, all-holdings release, actor
+  // propagation, budget matrix, all-or-nothing rollback, 204 no-op — is
+  // covered end-to-end by src/test/agentDeletionAtomic.test.ts.
 
   it("heartbeat returns status info", () => {
     vi.mocked(agentRepo.heartbeat).mockReturnValue({ id: "a1", status: "working" } as any);

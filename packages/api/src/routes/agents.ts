@@ -81,20 +81,33 @@ export async function agentRoutes(fastify: FastifyInstance): Promise<void> {
     },
   );
 
-  /** DELETE /agents/:id - Delete an agent. Auth: humanAuth + adminOnly. Returns 204 */
+  /**
+   * DELETE /agents/:id - Delete an agent (atomic, REC-06). Auth: humanAuth +
+   * adminOnly. The transition actor is the REAL authenticated human
+   * (`request.user.id`, from request auth — never a body flag): unmetered by
+   * the human exemption; blocks assigned submitted/rejected tasks with typed
+   * 409 `deletion_blocked_review_in_flight`. Returns 204 (nonexistent id is
+   * a 204 no-op, preserved) or 409.
+   */
   fastify.delete<{ Params: { id: string } }>(
     "/agents/:id",
     { preHandler: [adminOnly], config: { authPolicy: "human" } },
     async (request: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) => {
-      agentService.deleteAgent(request.params.id);
+      agentService.deleteAgent(request.params.id, {
+        actorType: "human",
+        actorId: request.user!.id,
+      });
       reply.code(204).send();
     },
   );
 
   /**
    * DELETE /agents/:id/self - Agent self-deletion (uninstall compensation).
-   * Auth: agentAuth. Agent can only delete itself (`:id` must equal its own id).
-   * Releases held tasks, then removes the record. Returns 204.
+   * Auth: agentAuth. Agent can only delete itself (`:id` must equal its own
+   * id). The transition actor is the agent's own id (metered — a budget
+   * refusal REFUSES the deletion with typed 409 `deletion_blocked_budget`;
+   * an admin cleanup is then required). Returns 204 (nonexistent id is a 204
+   * no-op, preserved) or 409.
    */
   fastify.delete<{ Params: { id: string } }>(
     "/agents/:id/self",
@@ -106,7 +119,10 @@ export async function agentRoutes(fastify: FastifyInstance): Promise<void> {
       if (request.params.id !== request.agent.id) {
         throw forbidden("Agent can only delete itself");
       }
-      agentService.deleteAgent(request.params.id);
+      agentService.deleteAgent(request.params.id, {
+        actorType: "agent",
+        actorId: request.agent.id,
+      });
       reply.code(204).send();
     },
   );

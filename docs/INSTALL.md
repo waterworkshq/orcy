@@ -120,6 +120,35 @@ Development mode may seed `admin` / `admin123`; production installs do not rely 
 | `orcy-install list` | Show what's installed and where |
 | `orcy-install service install` | Install systemd/launchd auto-start unit |
 
+### Uninstall safety: blocked agent deletion preserves user data
+
+`uninstall --purge` deactivates the registered agent via the self-delete API
+before removing `.env`, `orcy.db`, and `credentials.json`. If the API
+**refuses** the deletion with one of three fixed typed codes —
+`deletion_blocked_review_in_flight` (the agent still has work under review),
+`deletion_blocked_budget` (the agent's own transition budget is exhausted),
+or `AGENT_TEARDOWN_REFERENCES_REMAIN` (an internal teardown invariant: the
+deletion rolled back with the agent still registered — report it; an admin
+investigates) — the uninstaller **stops the
+purge and preserves all three files plus the install manifest**: the agent is
+still registered, and the preserved credential is what is needed to retry
+self-deletion or diagnose the still-registered agent. These guarantees cover
+the server teardown and the listed purge files; earlier uninstall steps may
+already have removed managed artifacts. They are not a rollback of the whole
+uninstall. The console names the blocker and the remedy:
+an administrator resolves the blocked tasks and deletes the agent with the
+admin route (`DELETE /api/agents/<id>` — admins are unmetered), after which a
+retry can finish the remaining local cleanup (per its own exit outcome —
+file removals may still fail and keep the manifest for another retry). **Exit status:** a blocked uninstall
+exits `1` (as does any uninstall whose file removals failed — the manifest
+is kept for retry); a normal uninstall — including the unreachable-API case,
+which keeps the pre-existing warn + manual-cleanup policy — exits `0`.
+
+Known limitation, deliberate: only the three fixed typed codes above stop
+the purge. An unknown or non-JSON `409` body keeps the legacy behavior (warn
+and continue per the purge decision) — the refusal-preservation contract
+does not cover untyped refusals.
+
 ---
 
 ## Developer Setup (from source)

@@ -11,6 +11,7 @@ import {
   repositoryUpdateError,
   repositoryTransactionError,
 } from "../errors/repository.js";
+import { AgentTeardownReferencesRemainError, isAppError } from "../errors.js";
 
 export interface CreateAgentInput {
   name: string;
@@ -125,29 +126,59 @@ export function updateAgent(id: string, input: UpdateAgentInput): AgentPublic | 
   return getAgentById(id);
 }
 
+/**
+ * PRE-DELETE assertion + the agent-row DELETE, on the CALLER's open writer
+ * transaction (the atomic agent-deletion composition owns the tx). The
+ * `tasks.assignedAgentId` / `tasks.delegatedToAgentId` FKs are NO-ACTION, so
+ * the agent row can only die with ZERO remaining task references: this makes
+ * that precondition an explicit, checked contract instead of a raw FK 500.
+ * Runs BEFORE the DELETE statement while the row still lives, under the
+ * caller's writer lock, so no claim or delegation can interleave between
+ * the assert and the delete — a missed reference aborts the whole caller
+ * transaction (the agent and every task row roll back together).
+ *
+ * The daemon-era raw straggler reset (bulk claimed→pending rewrite) is
+ * deliberately GONE: releases are the release bundle's job
+ * (`releaseTaskWithEffectsWithClient` inside the same outer tx); this
+ * function only verifies the composition actually cleared every reference.
+ */
+export function deleteAgentWithClient(tx: ReturnType<typeof getDb>, id: string): void {
+  const assigned = tx
+    .select({ count: sql<number>`count(*)` })
+    .from(tasks)
+    .where(eq(tasks.assignedAgentId, id))
+    .get() as { count: number | string } | undefined;
+  const delegated = tx
+    .select({ count: sql<number>`count(*)` })
+    .from(tasks)
+    .where(eq(tasks.delegatedToAgentId, id))
+    .get() as { count: number | string } | undefined;
+  const assignedRefs = Number(assigned?.count ?? 0);
+  const delegatedRefs = Number(delegated?.count ?? 0);
+  if (assignedRefs > 0 || delegatedRefs > 0) {
+    // Typed domain refusal — the composition's own invariant guard, thrown
+    // ahead of the raw FK violation so callers see the structured contract.
+    throw new AgentTeardownReferencesRemainError({ assignedRefs, delegatedRefs });
+  }
+  tx.delete(agents).where(eq(agents.id, id)).run();
+}
+
+/**
+ * Deletes an {@link Agent} that holds NO task references, in one
+ * `BEGIN IMMEDIATE` transaction (assert + delete). Callers deleting an agent
+ * that may hold tasks MUST go through `agentService.deleteAgent` — the
+ * atomic composition that releases holdings, unassigns terminal rows,
+ * clears inbound delegation offers, and only then reaches this teardown.
+ */
 export function deleteAgent(id: string): void {
   const db = getDb();
-  const now = new Date().toISOString();
 
   try {
-    db.transaction((tx) => {
-      tx.update(tasks)
-        .set({
-          assignedAgentId: null,
-          status: "pending",
-          executionToken: null,
-          lastFailureEventId: null,
-          lastReleaseEventId: null,
-          updatedAt: now,
-        })
-        .where(
-          and(eq(tasks.assignedAgentId, id), inArray(tasks.status, ["claimed", "in_progress"])),
-        )
-        .run();
-
-      tx.delete(agents).where(eq(agents.id, id)).run();
-    });
+    db.transaction((tx) => deleteAgentWithClient(tx, id), { behavior: "immediate" });
   } catch (err) {
+    // Typed domain refusals rethrow unwrapped — never masked by a generic
+    // repository error.
+    if (isAppError(err)) throw err;
     throw repositoryTransactionError("agent", err as Error, id);
   }
 }

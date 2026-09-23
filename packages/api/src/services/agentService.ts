@@ -3,10 +3,20 @@ import * as taskRepo from "../repositories/task.js";
 import { getHabitatIdForTask } from "../repositories/task.js";
 import * as timeTrackingService from "./timeTrackingService.js";
 import { sseBroadcaster } from "../sse/broadcaster.js";
-import { releaseTaskWithEffects } from "./effects/releaseEffects.js";
+import {
+  releaseTaskWithEffects,
+  releaseTaskWithEffectsWithClient,
+} from "./effects/releaseEffects.js";
 import { emitTransitionNonRequired } from "./tasks/transition-emitter.js";
-import { guardTransitionTop } from "./tasks/transitionBudget.js";
+import { guardTransition, guardTransitionTop } from "./tasks/transitionBudget.js";
+import type { BudgetActorType } from "./tasks/transitionBudget.js";
+import { habitatIdForTaskWithClient } from "./tasks/transitionBudget.js";
 import { requestEffectDeliveryPass } from "./effects/effectDeliverer.js";
+import { getDb } from "../db/index.js";
+import { tasks, agents } from "../db/schema/index.js";
+import { eq, sql } from "drizzle-orm";
+import { createEventWithClient } from "../repositories/events/event-crud.js";
+import { AgentDeletionBlockedError, conflict } from "../errors.js";
 import type { Agent, AgentStatus, Task } from "../models/index.js";
 import { logger } from "../lib/logger.js";
 
@@ -87,18 +97,263 @@ export function updateAgent(
 }
 
 /**
- * Deletes an {@link Agent} and, if the agent currently holds one, releases its
- * {@link Task} with reason `system`.
+ * The real operator principal of an agent deletion, threaded end-to-end:
+ * the admin route passes the authenticated human (`request.user.id`), the
+ * self route passes the agent's own id, and hypothetical non-operator
+ * callers get the bare system actor. Never a body-supplied flag — the
+ * mapping is request-auth-derived only. No credentials are ever recorded.
  */
-export function deleteAgent(agentId: string): void {
-  const agent = agentRepo.getAgentById(agentId);
-  if (!agent) return;
+export interface AgentDeletionActor {
+  actorType: BudgetActorType;
+  actorId: string;
+}
 
-  if (agent.currentTaskId) {
-    taskRepo.releaseTask(agent.currentTaskId, "system");
+/** Post-commit postlude payload for one committed release bundle. */
+interface ReleasePostlude {
+  taskId: string;
+  habitatId: string;
+  oldStatus: string;
+  task: Task;
+  eventId: string;
+}
+
+/**
+ * Deletes an {@link Agent} ATOMICALLY (REC-06 — all-or-nothing, settled user
+ * policy). ONE outer `BEGIN IMMEDIATE` writer transaction composes, in order:
+ *
+ *   1. existence read (missing agent → 204-style no-op return, preserved);
+ *   2. eligibility: any assigned `submitted|rejected` holding BLOCKS the
+ *      deletion (typed 409 `deletion_blocked_review_in_flight`) BEFORE the
+ *      budget preflight and before ANY write — review-in-flight must survive;
+ *   3. budget preflight per `claimed|in_progress` holding —
+ *      `guardTransition` on the in-tx client with the REAL actor: the admin
+ *      human is unmetered by the standing exemption; a self-delete refusal
+ *      REFUSES the whole deletion (typed 409 `deletion_blocked_budget`;
+ *      the guard's emit-once breach escalation is disclosure-only and fires
+ *      post-settle via queueMicrotask — it is not a task/agent state write);
+ *   4. release bundles: EVERY `claimed|in_progress` holding goes through
+ *      `releaseTaskWithEffectsWithClient` on the SAME tx — the `released`
+ *      event (stamped with the real actor) plus the
+ *      `{workflow_gates, failure_context}` receipts land in-tx; a bundle
+ *      refusal aborts the whole deletion (epoch/state moved — rollback);
+ *   5. terminal/legacy unassign: every OTHER row still carrying
+ *      `assignedAgentId` (done/approved/failed/legacy pending-assigned
+ *      residue) keeps its status and history, gains an `updated` audit
+ *      event (actor + `deletedAgentId` metadata) BEFORE the FK clear, then
+ *      clears the reference — `updated` is unmetered (METERED_ACTIONS
+ *      census), so no budget question arises here;
+ *   6. inbound delegation offers (`delegatedToAgentId` = the doomed id) are
+ *      cleared with an `updated` audit event (`delegationCancelled`
+ *      metadata, existing canonical action — no new event enum); owners'
+ *      assignments and current tasks are untouched;
+ *   7. PRE-DELETE assert + agent-row delete (`agentRepo.deleteAgentWithClient`)
+ *      — zero remaining references verified under the writer lock before the
+ *      DELETE; cascades sessions/aux rows via FK, PRESERVES task/review
+ *      history (agent-reviewer plaintext rows are a known retained
+ *      limitation — auto-removal would silently weaken review gates).
+ *
+ * Every refusal path (eligibility, budget, mid-composition throw) leaves
+ * task/mapping/agent rows byte-identical — the outer tx rolls back; no
+ * partial release exists by construction. AFTER commit, each release bundle
+ * gets the shared postlude ONLY outside the tx: the non-required emitter
+ * mask plus the receipt-worker nudge (`requestEffectDeliveryPass`) — the
+ * required effects already flowed in-tx through the event row + receipts.
+ */
+export function deleteAgent(
+  agentId: string,
+  actor: AgentDeletionActor = { actorType: "system", actorId: "agent-deletion" },
+): void {
+  const db = getDb();
+  const now = new Date().toISOString();
+  type TaskRow = typeof tasks.$inferSelect;
+
+  const postludes = db.transaction(
+    (tx) => {
+      const agentRow = tx
+        .select({ id: agents.id })
+        .from(agents)
+        .where(eq(agents.id, agentId))
+        .get();
+      if (!agentRow) return [] as ReleasePostlude[]; // 204 no-op contract preserved
+
+      // Authoritative in-tx holdings census (single writer lock — no claim
+      // or delegation can interleave with this read).
+      const holdings = tx.select().from(tasks).where(eq(tasks.assignedAgentId, agentId)).all() as
+        | TaskRow[]
+        | undefined;
+      const assigned = holdings ?? [];
+
+      // ── 2. Eligibility: review-in-flight blocks BEFORE anything else ────
+      const blocked = assigned.filter((t) => t.status === "submitted" || t.status === "rejected");
+      if (blocked.length > 0) {
+        throw new AgentDeletionBlockedError(
+          "deletion_blocked_review_in_flight",
+          `Agent not deleted: ${blocked.length} task(s) in submitted/rejected state are still assigned; resolve the reviews first.`,
+          {
+            blockedTasks: blocked.map((t) => ({ id: t.id, title: t.title, status: t.status })),
+          },
+        );
+      }
+
+      const claimable = assigned.filter(
+        (t) => t.status === "claimed" || t.status === "in_progress",
+      );
+
+      // ── 3. Budget preflight per holding (in-tx authoritative count) ─────
+      for (const t of claimable) {
+        const habitatId = habitatIdForTaskWithClient(tx, t.id);
+        if (!habitatId) continue; // the bundle below refuses on missing habitat
+        const outcome = guardTransition(tx, t.id, habitatId, actor.actorType, "released");
+        if (outcome.outcome === "refused") {
+          throw new AgentDeletionBlockedError(
+            "deletion_blocked_budget",
+            "Agent not deleted: the transition budget is exhausted for a held task; an administrator must perform the cleanup.",
+            {
+              blockedTasks: [
+                {
+                  id: t.id,
+                  title: t.title,
+                  status: t.status,
+                  count: outcome.count,
+                  ceiling: outcome.ceiling,
+                },
+              ],
+            },
+          );
+        }
+      }
+
+      // ── 4. Release bundles — every claimable holding, same tx ───────────
+      const bundles: ReleasePostlude[] = [];
+      for (const t of claimable) {
+        const habitatId = habitatIdForTaskWithClient(tx, t.id);
+        if (!habitatId) {
+          throw conflict("Agent deletion aborted: a held task has no resolvable habitat.", {
+            taskId: t.id,
+          });
+        }
+        const result = releaseTaskWithEffectsWithClient(tx, {
+          taskId: t.id,
+          actorType: actor.actorType,
+          actorId: actor.actorId,
+          reason: "agent_deletion",
+          preImage: t as unknown as Task,
+        });
+        if (!result) {
+          throw conflict("Agent deletion aborted: a held task changed state mid-deletion; retry.", {
+            taskId: t.id,
+          });
+        }
+        bundles.push({
+          taskId: t.id,
+          habitatId,
+          oldStatus: t.status,
+          task: result.task,
+          eventId: result.eventId,
+        });
+      }
+
+      // ── 5. Terminal/legacy unassign in place (status NEVER changes) ─────
+      const terminal = assigned.filter((t) => t.status !== "claimed" && t.status !== "in_progress");
+      for (const t of terminal) {
+        createEventWithClient(tx, {
+          taskId: t.id,
+          actorType: actor.actorType,
+          actorId: actor.actorId,
+          action: "updated",
+          fromStatus: t.status as never,
+          toStatus: t.status as never,
+          metadata: {
+            agentDeleted: true,
+            deletedAgentId: agentId,
+            operator: { actorType: actor.actorType, actorId: actor.actorId },
+            // Actual before-value evidence for the token normalization the
+            // unassign write performs (after is always NULL); terminal rows
+            // normally already carry NULL — no bogus status transition.
+            executionTokenBefore: t.executionToken ?? null,
+          },
+        });
+        tx.update(tasks)
+          .set({
+            assignedAgentId: null,
+            executionToken: null, // ownership ref ends → token goes with it (R4 invariant; terminal rows are normally already NULL)
+            updatedAt: now,
+            version: sql`${tasks.version} + 1`,
+          })
+          .where(eq(tasks.id, t.id))
+          .run();
+      }
+
+      // ── 6. Inbound delegation offers: clear + audit, owner unharmed ─────
+      const offers = tx.select().from(tasks).where(eq(tasks.delegatedToAgentId, agentId)).all() as
+        | TaskRow[]
+        | undefined;
+      for (const t of offers ?? []) {
+        createEventWithClient(tx, {
+          taskId: t.id,
+          actorType: actor.actorType,
+          actorId: actor.actorId,
+          action: "updated",
+          fromStatus: t.status as never,
+          toStatus: t.status as never,
+          metadata: {
+            delegationCancelled: true,
+            dueTo: "agent_deletion",
+            deletedAgentId: agentId,
+            operator: { actorType: actor.actorType, actorId: actor.actorId },
+          },
+        });
+        tx.update(tasks)
+          .set({
+            delegatedToAgentId: null,
+            updatedAt: now,
+            version: sql`${tasks.version} + 1`,
+          })
+          .where(eq(tasks.id, t.id))
+          .run();
+      }
+
+      // ── 7. PRE-DELETE assert + the agent-row delete (same tx) ───────────
+      agentRepo.deleteAgentWithClient(tx, agentId);
+
+      return bundles;
+    },
+    { behavior: "immediate" },
+  );
+
+  // Post-commit ONLY: the shared release postlude (non-required emitter mask
+  // + the receipt-worker nudge) — never inside the tx. Each bundle's postlude
+  // is ISOLATED (F2): the deletion already committed, so an observer failure
+  // here must never manufacture a false HTTP failure — it is recorded with a
+  // fixed code + the task/event ids and the remaining postludes + nudges
+  // still run (receipts are durable; the boot deliverer backstops them).
+  for (const p of postludes) {
+    try {
+      emitTransitionNonRequired(p.taskId, "released", p.habitatId, {
+        actorType: actor.actorType,
+        actorId: actor.actorId,
+        oldStatus: p.oldStatus as never,
+        newStatus: "pending" as never,
+        reason: "agent_deletion",
+        metadata: { reason: "agent_deletion" },
+        task: p.task,
+        existingEventId: p.eventId,
+      });
+    } catch (err) {
+      logger.error(
+        { err, taskId: p.taskId, eventId: p.eventId, errorCode: "agent_deletion_postlude_failed" },
+        "Agent-deletion release postlude failed after commit; committed state stands",
+      );
+    }
+    try {
+      requestEffectDeliveryPass();
+    } catch (err) {
+      logger.error(
+        { err, taskId: p.taskId, errorCode: "agent_deletion_delivery_nudge_failed" },
+        "Agent-deletion receipt-worker nudge failed after commit; boot deliverer backstops",
+      );
+    }
   }
-
-  agentRepo.deleteAgent(agentId);
 }
 
 /**

@@ -31,9 +31,9 @@ import { getDb } from "../../db/index.js";
 import { tasks, taskEvents, taskWorkflowGates, workflows, agents } from "../../db/schema/index.js";
 import { eq, and, sql } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
-import * as taskRepo from "../../repositories/task.js";
 import { createEventWithClient } from "../../repositories/events/event-crud.js";
 import { insertReceipt, type EffectDbClient } from "../../repositories/effectReceipts.js";
+import { habitatIdForTaskWithClient } from "../tasks/transitionBudget.js";
 import type { Task } from "../../models/index.js";
 
 /** The two required consumers enqueued per `released` event (closed census). */
@@ -86,129 +86,160 @@ export function releaseTaskWithEffects(input: {
   /** Optional server-only guard — see {@link ReleaseStaleGuard}. */
   guard?: ReleaseStaleGuard;
 }): ReleaseWithEffectsResult | null {
+  return getDb().transaction((tx) => releaseTaskWithEffectsWithClient(tx, input), {
+    behavior: "immediate",
+  });
+}
+
+/** Input for the client-parameterized composition form of the release bundle. */
+export interface ReleaseWithEffectsWithClientInput {
+  taskId: string;
+  /**
+   * The REAL transition principal. Defaults to `"system"` (the standalone
+   * act-tx callers — recovery drive, stale sweep — stay byte-identical);
+   * the atomic agent-deletion composition threads the actual operator
+   * (admin human / self agent) so events, receipts, and the meter all see
+   * the true actor.
+   */
+  actorType?: "human" | "agent" | "system" | "remote_human" | "remote_orcy" | "remote_pod";
+  /** Durable provenance — the principal's id (never a credential). */
+  actorId: string;
+  reason: string;
+  /** Pre-image whose `executionToken` is the INTENDED epoch (see above). */
+  preImage: Task;
+  /** Optional server-only guard — see {@link ReleaseStaleGuard}. */
+  guard?: ReleaseStaleGuard;
+}
+
+/**
+ * The caller-tx composition form of the release bundle (`submitWithAuthorityClient`
+ * precedent): the SAME act — epoch revalidation, CAS release write, stamped
+ * `released` event, the two required receipts — executed on the CALLER's open
+ * transaction instead of opening its own `BEGIN IMMEDIATE` (nested BEGIN is
+ * forbidden on both the sql.js and better-sqlite3 drivers). The caller owns
+ * atomicity: any refusal returns `null` with zero writes; any throw (the CAS
+ * verification) propagates and rolls back the CALLER's transaction.
+ */
+export function releaseTaskWithEffectsWithClient(
+  tx: EffectDbClient,
+  input: ReleaseWithEffectsWithClientInput,
+): ReleaseWithEffectsResult | null {
   const { taskId, actorId, reason, preImage, guard } = input;
-  const db = getDb();
+  const actorType = input.actorType ?? "system";
   const now = new Date().toISOString();
   const eventId = uuid();
   const receiptBase = uuid();
 
-  return db.transaction(
-    (tx) => {
-      // Freeze habitat at the AUTHORITATIVE in-tx read — a missing habitat is
-      // a REFUSAL (zero bundle writes), mirroring the fail act-tx.
-      const habitatId = taskRepo.getHabitatIdForTask(taskId);
-      if (!habitatId) return null;
+  // Freeze habitat at the AUTHORITATIVE in-tx read — a missing habitat is
+  // a REFUSAL (zero bundle writes), mirroring the fail act-tx.
+  const habitatId = habitatIdForTaskWithClient(tx, taskId);
+  if (!habitatId) return null;
 
-      // ── 1. Epoch revalidation (B1 discipline, intended-epoch) ────────────
-      const row = tx.select().from(tasks).where(eq(tasks.id, taskId)).get() as
-        | { status: string; executionToken: string | null; assignedAgentId: string | null }
-        | undefined;
-      if (!row) return null;
-      if (row.status !== "claimed" && row.status !== "in_progress") return null;
-      if ((row.executionToken ?? null) !== (preImage.executionToken ?? null)) return null;
+  // ── 1. Epoch revalidation (B1 discipline, intended-epoch) ────────────
+  const row = tx.select().from(tasks).where(eq(tasks.id, taskId)).get() as
+    | { status: string; executionToken: string | null; assignedAgentId: string | null }
+    | undefined;
+  if (!row) return null;
+  if (row.status !== "claimed" && row.status !== "in_progress") return null;
+  if ((row.executionToken ?? null) !== (preImage.executionToken ?? null)) return null;
 
-      // ── 1b. Server-only stale-sweep guard (D2/D3) — final authority ──────
-      // Evaluated inside the act-tx on FRESH reads: owner equality, the
-      // agent's pointer still naming this task, and the heartbeat still
-      // stale. Malformed heartbeat fails FRESH (refuse) — never compared as
-      // a string, never silently treated stale.
-      if (guard) {
-        if (row.assignedAgentId !== guard.expectedAssigneeAgentId) return null;
-        const agentRow = tx
-          .select({ currentTaskId: agents.currentTaskId, lastHeartbeat: agents.lastHeartbeat })
-          .from(agents)
-          .where(eq(agents.id, guard.expectedAssigneeAgentId))
-          .get() as { currentTaskId: string | null; lastHeartbeat: string | null } | undefined;
-        if (!agentRow) return null;
-        if (agentRow.currentTaskId !== taskId) return null; // pointer moved
-        const beat = Date.parse(agentRow.lastHeartbeat ?? "");
-        if (Number.isNaN(beat)) return null; // unparseable → fail fresh
-        if (beat >= Date.parse(guard.staleHeartbeatBefore)) return null; // revived
-      }
+  // ── 1b. Server-only stale-sweep guard (D2/D3) — final authority ──────
+  // Evaluated inside the act-tx on FRESH reads: owner equality, the
+  // agent's pointer still naming this task, and the heartbeat still
+  // stale. Malformed heartbeat fails FRESH (refuse) — never compared as
+  // a string, never silently treated stale.
+  if (guard) {
+    if (row.assignedAgentId !== guard.expectedAssigneeAgentId) return null;
+    const agentRow = tx
+      .select({ currentTaskId: agents.currentTaskId, lastHeartbeat: agents.lastHeartbeat })
+      .from(agents)
+      .where(eq(agents.id, guard.expectedAssigneeAgentId))
+      .get() as { currentTaskId: string | null; lastHeartbeat: string | null } | undefined;
+    if (!agentRow) return null;
+    if (agentRow.currentTaskId !== taskId) return null; // pointer moved
+    const beat = Date.parse(agentRow.lastHeartbeat ?? "");
+    if (Number.isNaN(beat)) return null; // unparseable → fail fresh
+    if (beat >= Date.parse(guard.staleHeartbeatBefore)) return null; // revived
+  }
 
-      // ── 2. CAS release write + the release-provenance pointer ────────────
-      tx.update(tasks)
-        .set({
-          assignedAgentId: null,
-          status: "pending",
-          claimedAt: null,
-          startedAt: null,
-          executionToken: null,
-          lastReleaseEventId: eventId,
-          updatedAt: now,
-          version: sql`${tasks.version} + 1`,
-        })
-        .where(and(eq(tasks.id, taskId), sql`${tasks.status} IN ('claimed', 'in_progress')`))
-        .run();
-      // Cross-backend CAS verification: the re-read status is the authority
-      // (sql.js run() carries no changes); a mismatch aborts by throwing.
-      const verify = tx
-        .select({ status: tasks.status, ptr: tasks.lastReleaseEventId })
-        .from(tasks)
-        .where(eq(tasks.id, taskId))
-        .get();
-      if (!verify || verify.status !== "pending" || verify.ptr !== eventId) {
-        throw new Error("release_actx_cas_lost");
-      }
+  // ── 2. CAS release write + the release-provenance pointer ────────────
+  tx.update(tasks)
+    .set({
+      assignedAgentId: null,
+      status: "pending",
+      claimedAt: null,
+      startedAt: null,
+      executionToken: null,
+      lastReleaseEventId: eventId,
+      updatedAt: now,
+      version: sql`${tasks.version} + 1`,
+    })
+    .where(and(eq(tasks.id, taskId), sql`${tasks.status} IN ('claimed', 'in_progress')`))
+    .run();
+  // Cross-backend CAS verification: the re-read status is the authority
+  // (sql.js run() carries no changes); a mismatch aborts by throwing.
+  const verify = tx
+    .select({ status: tasks.status, ptr: tasks.lastReleaseEventId })
+    .from(tasks)
+    .where(eq(tasks.id, taskId))
+    .get();
+  if (!verify || verify.status !== "pending" || verify.ptr !== eventId) {
+    throw new Error("release_actx_cas_lost");
+  }
 
-      // ── 3. The stamped `released` event row (in-tx, epoch token) ─────────
-      createEventWithClient(tx, {
-        id: eventId,
-        taskId,
-        actorType: "system",
-        actorId,
-        action: "released",
-        fromStatus: row.status as never,
-        toStatus: "pending" as never,
-        metadata: { reason },
-      });
-      tx.update(taskEvents)
-        .set({ executionToken: row.executionToken ?? null })
-        .where(eq(taskEvents.id, eventId))
-        .run();
+  // ── 3. The stamped `released` event row (in-tx, epoch token) ─────────
+  createEventWithClient(tx, {
+    id: eventId,
+    taskId,
+    actorType,
+    actorId,
+    action: "released",
+    fromStatus: row.status as never,
+    toStatus: "pending" as never,
+    metadata: { reason },
+  });
+  tx.update(taskEvents)
+    .set({ executionToken: row.executionToken ?? null })
+    .where(eq(taskEvents.id, eventId))
+    .run();
 
-      // ── 4. Receipts — exactly the two required consumers ─────────────────
-      const snapshot: Record<string, unknown> = {
-        taskId,
-        action: "released",
-        habitatId,
-        missionId: preImage.missionId,
-        taskTitle: preImage.title,
-        actorType: "system",
-        actorId,
-        reason,
-        statusAtFailure: preImage.status,
-        retryCount: preImage.retryCount ?? 0,
-        rejectionReason: preImage.rejectionReason ?? null,
-        retryPolicy: preImage.retryPolicy ?? null,
-        assignedAgentIdAtFailure: preImage.assignedAgentId ?? null,
-        executionToken: row.executionToken ?? null,
-        frozenOnFailGateIds: freezeOnFailGateIds(tx, taskId),
-        releasedAt: now,
-      };
-      for (let i = 0; i < RELEASED_EFFECT_CONSUMERS.length; i++) {
-        insertReceipt({
-          id: `${receiptBase}-${i}`,
-          subjectType: "task_event",
-          subjectId: eventId,
-          habitatId,
-          taskId,
-          consumer: RELEASED_EFFECT_CONSUMERS[i],
-          state: "pending",
-          causalSnapshot: snapshot,
-          createdAt: now,
-          tx,
-        });
-      }
+  // ── 4. Receipts — exactly the two required consumers ─────────────────
+  const snapshot: Record<string, unknown> = {
+    taskId,
+    action: "released",
+    habitatId,
+    missionId: preImage.missionId,
+    taskTitle: preImage.title,
+    actorType,
+    actorId,
+    reason,
+    statusAtFailure: preImage.status,
+    retryCount: preImage.retryCount ?? 0,
+    rejectionReason: preImage.rejectionReason ?? null,
+    retryPolicy: preImage.retryPolicy ?? null,
+    assignedAgentIdAtFailure: preImage.assignedAgentId ?? null,
+    executionToken: row.executionToken ?? null,
+    frozenOnFailGateIds: freezeOnFailGateIds(tx, taskId),
+    releasedAt: now,
+  };
+  for (let i = 0; i < RELEASED_EFFECT_CONSUMERS.length; i++) {
+    insertReceipt({
+      id: `${receiptBase}-${i}`,
+      subjectType: "task_event",
+      subjectId: eventId,
+      habitatId,
+      taskId,
+      consumer: RELEASED_EFFECT_CONSUMERS[i],
+      state: "pending",
+      causalSnapshot: snapshot,
+      createdAt: now,
+      tx,
+    });
+  }
 
-      const released = tx.select().from(tasks).where(eq(tasks.id, taskId)).get() as
-        | Task
-        | undefined;
-      if (!released) return null;
-      return { task: released, eventId };
-    },
-    { behavior: "immediate" },
-  );
+  const released = tx.select().from(tasks).where(eq(tasks.id, taskId)).get() as Task | undefined;
+  if (!released) return null;
+  return { task: released, eventId };
 }
 
 /**

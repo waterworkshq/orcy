@@ -299,13 +299,20 @@ describe("release-pointer census (acceptance 15, grep-verifiable)", () => {
     expect(setters).toEqual([]);
   });
 
-  it("the repo-level deleteAgent bulk pending-reset (the ACTUAL inline site) clears the pointer in its own tx", () => {
-    // agentService.deleteAgent routes single current-task releases through
-    // repo releaseTask (covered above); THIS is the separate inline
-    // bulk-reset writer inside agentRepo.deleteAgent's transaction.
+  it("the repo-level deleteAgent teardown (the ACTUAL inline site) ASSERTS zero task refs instead of a raw reset", () => {
+    // REC-06 atomic agent deletion: the daemon-era bulk claimed→pending
+    // reset is GONE (releases belong to the release bundles inside the
+    // service's outer tx). The teardown is now a PRE-DELETE assertion —
+    // zero assigned/delegated references under the caller's writer lock,
+    // refused with the TYPED domain error — followed by the agent-row delete.
     const text = src("repositories/agent.ts");
-    const body = text.split("export function deleteAgent")[1]!.split("export function")[0]!;
-    expect(body).toContain("lastReleaseEventId: null");
+    const body = text
+      .split("export function deleteAgentWithClient")[1]!
+      .split("export function")[0]!;
+    expect(body).toContain("AgentTeardownReferencesRemainError");
+    expect(body).toContain("assignedRefs");
+    expect(body).toContain("delegatedRefs");
+    expect(body).not.toContain('status: "pending"'); // no raw straggler reset
     // ...and the census's setter-scan must include this file too.
     const matches = text.match(/lastReleaseEventId: [^n][^u][^l][^l]/g) ?? [];
     expect(matches).toHaveLength(0);

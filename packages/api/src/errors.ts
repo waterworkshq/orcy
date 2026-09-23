@@ -139,6 +139,47 @@ export class InterceptorVetoError extends Error {
 }
 
 /**
+ * Typed 409 blocker codes for agent deletion (REC-06 atomic teardown). The
+ * installer's uninstall path keys on these exact codes to stop credential
+ * purging — see `packages/installer/src/lifecycle.ts`.
+ */
+export type AgentDeletionBlockedCode =
+  | "deletion_blocked_review_in_flight"
+  | "deletion_blocked_budget";
+
+/**
+ * Typed refusal thrown INSIDE the atomic agent-deletion transaction. The
+ * deletion was refused and NOTHING was mutated (the outer tx rolls back);
+ * the error carries the truthful post-state plus a structured
+ * `details.blockedTasks` list (ids/titles/statuses — never credentials).
+ */
+export class AgentDeletionBlockedError extends AppError {
+  constructor(code: AgentDeletionBlockedCode, message: string, details?: unknown) {
+    super(409, code, message, details);
+    this.name = "AgentDeletionBlockedError";
+  }
+}
+
+/**
+ * Typed domain error thrown by the agent-teardown PRE-DELETE assertion
+ * (`agentRepo.deleteAgentWithClient`) when task references to the agent
+ * remain inside the caller's writer transaction — the composition's own
+ * invariant guard, distinct from (and ahead of) the raw FK violation. The
+ * caller's outer transaction rolls back with it: nothing is deleted.
+ */
+export class AgentTeardownReferencesRemainError extends AppError {
+  constructor(details?: unknown) {
+    super(
+      409,
+      "AGENT_TEARDOWN_REFERENCES_REMAIN",
+      "Agent deletion aborted: task references remain after the teardown composition; nothing was deleted.",
+      details,
+    );
+    this.name = "AgentTeardownReferencesRemainError";
+  }
+}
+
+/**
  * Fixed message for the epoch-mutation 409 (one code, one shape, all four
  * agent lifecycle routes): names the field and its source exactly — the claim
  * response's `task.executionToken`.
