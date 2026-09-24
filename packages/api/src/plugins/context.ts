@@ -18,16 +18,23 @@ import type {
   NotificationEventType,
 } from "@orcy/shared";
 import { detectedMetadataSchema } from "@orcy/shared";
-import type { TaskPriority } from "@orcy/shared";
+import type { TaskPriority, PluginReleaseSelector } from "@orcy/shared";
 import type { PluginContext, PluginLogger, PluginAudit, AuditPayload } from "./types.js";
 import * as pulseRepo from "../repositories/pulse.js";
 import * as pulseService from "../services/pulseService.js";
 import * as taskRepo from "../repositories/task.js";
-import * as taskStateMachine from "../repositories/taskStateMachine.js";
 import * as missionRepo from "../repositories/mission.js";
 import * as commentRepo from "../repositories/comment.js";
 import * as habitatRepo from "../repositories/habitat.js";
 import * as chatIntegrationRepo from "../repositories/chatIntegration.js";
+import {
+  recordTaskObservation,
+  selectReleasePair,
+  claimTaskForPlugin,
+  releaseTaskForPlugin,
+  updatePriorityForPlugin,
+  type TaskObservationSet,
+} from "../services/pluginTaskOperations.js";
 import { enqueueNotificationForRecipients } from "../services/notificationCommandService.js";
 import { isValidEventType } from "../services/notificationSubscriptionResolver.js";
 import {
@@ -63,6 +70,12 @@ export function buildPluginContext(opts: {
   const logger = buildPluginLogger(pluginId, contributionId, runId);
   const audit = buildPluginAudit(pluginId, runId);
 
+  // Per-invocation READ-OR-CLAimed observation set: every distinct
+  // {executionToken, assignedAgentId} pair this run observed via successful
+  // habitat-checked getTask reads or its own assignTask claims. Scalar copies
+  // only — mutating a returned Task can never forge a pin.
+  const taskObservations: TaskObservationSet = new Map();
+
   const ctx: PluginContext = {
     pluginId,
     contributionId,
@@ -75,9 +88,16 @@ export function buildPluginContext(opts: {
   if (has("pulseReader")) ctx.pulseReader = buildPulseReader(habitatId);
   if (has("pulseWriter")) ctx.pulseWriter = buildPulseWriter(pluginId, runId, habitatId);
   if (has("commentReader")) ctx.commentReader = buildCommentReader(habitatId);
-  if (has("taskReader")) ctx.taskReader = buildTaskReader(habitatId);
+  if (has("taskReader")) ctx.taskReader = buildTaskReader(habitatId, taskObservations);
   if (has("taskWriter"))
-    ctx.taskWriter = buildTaskWriter(pluginId, runId, habitatId, sharedWriteCounter);
+    ctx.taskWriter = buildTaskWriter(
+      pluginId,
+      contributionId,
+      runId,
+      habitatId,
+      sharedWriteCounter,
+      taskObservations,
+    );
   if (has("notificationSender"))
     ctx.notificationSender = buildNotificationSender(
       pluginId,
@@ -226,14 +246,25 @@ function toScopedComment(c: {
   };
 }
 
-/** Scopes task queries to the contribution's bound habitat — getTask returns null if the task belongs to a different habitat. */
-function buildTaskReader(habitatId: string | null): TaskReader {
+/**
+ * Scopes task queries to the contribution's bound habitat — getTask returns null if the task belongs to a different habitat.
+ * A SUCCESSFUL getTask records the task's current `{executionToken, assignedAgentId}` pair
+ * into the run-private observation set (scalar copies) — the READ-OR-CLAimed
+ * release precondition. Missing/cross-habitat reads capture nothing;
+ * `listTasksByHabitat` never captures.
+ */
+function buildTaskReader(habitatId: string | null, observations: TaskObservationSet): TaskReader {
   return {
     getTask: (taskId) => {
       const task = taskRepo.getTaskById(taskId);
       if (!task) return Promise.resolve(null);
       const mission = missionRepo.getMissionById(task.missionId);
-      return Promise.resolve(mission?.habitatId === habitatId ? task : null);
+      if (mission?.habitatId !== habitatId) return Promise.resolve(null);
+      recordTaskObservation(observations, taskId, {
+        executionToken: task.executionToken ?? null,
+        assignedAgentId: task.assignedAgentId ?? null,
+      });
+      return Promise.resolve(task);
     },
     listTasksByHabitat: (queryHabitatId, filter) => {
       if (queryHabitatId !== habitatId) return Promise.resolve([]);
@@ -250,9 +281,11 @@ function buildTaskReader(habitatId: string | null): TaskReader {
  */
 function buildTaskWriter(
   pluginId: string,
+  contributionId: string,
   runId: string,
   habitatId: string | null,
   writeCounter: { count: number; cap: number },
+  observations: TaskObservationSet,
 ): TaskWriter {
   function checkCap(): void {
     if (writeCounter.count >= writeCounter.cap) {
@@ -318,23 +351,77 @@ function buildTaskWriter(
       if (!habitatId) throw new Error("assignTask requires a habitat-scoped plugin context");
       checkCap();
       verifyHabitat(taskId);
-      const result = taskStateMachine.claimTask(taskId, agentId);
+      const { result } = claimTaskForPlugin({
+        pluginId,
+        contributionId,
+        runId,
+        taskId,
+        agentId,
+      });
       if (!result.success) {
         throw new Error(`assignTask failed: ${result.reason}`);
       }
+      // Own-claim observation: the minted epoch joins the uniform set —
+      // no priority, no overwrite of any earlier observed pair.
+      recordTaskObservation(observations, taskId, {
+        executionToken: result.task.executionToken ?? null,
+        assignedAgentId: agentId,
+      });
       rootLogger.info(
         { pluginId, runId, taskId, agentId, action: "task.assign" },
         "plugin.taskWriter: assignTask",
       );
     },
 
-    releaseTask: async (taskId: string) => {
+    releaseTask: async (taskId: string, opts?: PluginReleaseSelector) => {
       if (!habitatId) throw new Error("releaseTask requires a habitat-scoped plugin context");
       checkCap();
       verifyHabitat(taskId);
-      const released = taskStateMachine.releaseTask(taskId, `plugin:${pluginId}`);
-      if (!released) {
-        throw new Error(`releaseTask failed — task may not be in correct state`);
+      if (opts !== undefined && (typeof opts !== "object" || opts === null)) {
+        throw new Error(
+          "releaseTask refused — invalid selector: the optional second argument must be { expectedToken?: string | null }",
+        );
+      }
+      const selection = selectReleasePair(observations.get(taskId) ?? [], opts);
+      if (selection.kind === "invalid_selector") {
+        throw new Error(
+          "releaseTask refused — invalid selector: expectedToken must be a non-empty string or null",
+        );
+      }
+      if (selection.kind === "not_observed") {
+        throw new Error(
+          `releaseTask refused — task ${taskId} was not observed or claimed by this run; ` +
+            `read it with taskReader.getTask or claim it via assignTask first`,
+        );
+      }
+      if (selection.kind === "unassigned_observation") {
+        throw new Error(
+          `releaseTask refused — the observed assignment for task ${taskId} has no assignee ` +
+            `(an unassigned observation is recorded but never releasable)`,
+        );
+      }
+      if (selection.kind === "ambiguous") {
+        throw new Error(
+          `releaseTask refused — ambiguous observation: this run observed multiple assignment ` +
+            `epochs for task ${taskId}; retry with releaseTask(taskId, { expectedToken }) naming exactly one observed epoch`,
+        );
+      }
+      if (selection.kind === "token_not_observed") {
+        throw new Error(
+          `releaseTask refused — expectedToken does not match any assignment epoch observed ` +
+            `by this run for task ${taskId}`,
+        );
+      }
+      const outcome = releaseTaskForPlugin({
+        pluginId,
+        contributionId,
+        runId,
+        habitatId,
+        taskId,
+        pair: selection.pair,
+      });
+      if (!outcome.ok) {
+        throw new Error(`releaseTask failed: ${outcome.message}`);
       }
       rootLogger.info(
         { pluginId, runId, taskId, action: "task.release" },
@@ -346,9 +433,16 @@ function buildTaskWriter(
       if (!habitatId) throw new Error("updatePriority requires a habitat-scoped plugin context");
       checkCap();
       verifyHabitat(taskId);
-      const updated = taskRepo.updateTask(taskId, { priority });
-      if (!updated) {
-        throw new Error(`updatePriority failed — task ${taskId} not found or update rejected`);
+      const outcome = updatePriorityForPlugin({
+        pluginId,
+        contributionId,
+        runId,
+        habitatId,
+        taskId,
+        priority,
+      });
+      if (!outcome.ok) {
+        throw new Error(outcome.message);
       }
       rootLogger.info(
         { pluginId, runId, taskId, priority, action: "task.updatePriority" },

@@ -52,6 +52,18 @@ export interface ReleaseProvenance {
   actionIndex?: number | null;
 }
 
+/**
+ * Bounded typed provenance for plugin-run releases (the plugin task-operations
+ * restoration): the real invocation identity of the managed plugin run, kept
+ * distinct from the automation rule lineage above so existing automation
+ * caller shapes stay byte-identical.
+ */
+export interface PluginReleaseProvenance {
+  pluginId: string;
+  runId: string;
+  contributionId: string;
+}
+
 export interface ReleaseWithEffectsResult {
   task: Task;
   eventId: string;
@@ -99,7 +111,7 @@ export function releaseTaskWithEffects(input: {
   /** Optional server-only guard — see {@link ReleaseStaleGuard}. */
   guard?: ReleaseStaleGuard;
   /** Optional bounded rule provenance (see {@link ReleaseProvenance}). */
-  provenance?: ReleaseProvenance;
+  provenance?: ReleaseProvenance | PluginReleaseProvenance;
 }): ReleaseWithEffectsResult | null {
   return getDb().transaction((tx) => releaseTaskWithEffectsWithClient(tx, input), {
     behavior: "immediate",
@@ -124,8 +136,8 @@ export interface ReleaseWithEffectsWithClientInput {
   preImage: Task;
   /** Optional server-only guard — see {@link ReleaseStaleGuard}. */
   guard?: ReleaseStaleGuard;
-  /** Optional bounded rule provenance (see {@link ReleaseProvenance}). */
-  provenance?: ReleaseProvenance;
+  /** Optional bounded provenance (automation rule lineage or plugin-run identity). */
+  provenance?: ReleaseProvenance | PluginReleaseProvenance;
 }
 
 /**

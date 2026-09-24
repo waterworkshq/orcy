@@ -429,6 +429,7 @@ export type {
   ChatIntegrationView,
   ChatIntegrationReader,
   PluginTaskCreateInput,
+  PluginReleaseSelector,
   TaskWriter,
   PluginNotificationInput,
   NotificationSender,

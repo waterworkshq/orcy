@@ -263,7 +263,13 @@ export const CAPABILITY_MATRIX: Readonly<Record<ContributionKind, CapabilityPoli
     allowed: [],
   },
   automationAction: {
-    allowed: ["taskWriter", "notificationSender", "webhookCaller"],
+    // `taskReader` is the READ-OR-CLAimed observation source (root-authorized
+    // bounded grant): an action may declare it to observe assignments it may
+    // then release through `taskWriter.releaseTask` — same invocation, same
+    // epoch only. Still explicit: requires-declared, load-validated, enrolled,
+    // and the reader stays bound to the enrolled habitat (it sees every task
+    // row in that habitat, not per-assignment restricted).
+    allowed: ["taskWriter", "notificationSender", "webhookCaller", "taskReader"],
   },
   integrationProvider: {
     allowed: [],

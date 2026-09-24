@@ -273,6 +273,25 @@ export interface PluginTaskCreateInput {
 }
 
 /**
+ * Explicit-epoch selector for `TaskWriter.releaseTask` (the READ-OR-CLAIMED
+ * contract): a plugin run may release only an assignment it observed earlier
+ * in the SAME invocation (a successful `taskReader.getTask` read) or one it
+ * claimed itself via `assignTask` — same assignment epoch only.
+ */
+export interface PluginReleaseSelector {
+  /**
+   * Names the observed assignment epoch to release. A string must equal the
+   * `executionToken` of exactly ONE pair this run observed (the same token
+   * under multiple observed assignees is ambiguous and fails closed);
+   * `null` selects a NULL-token observation (legacy pre-token rows) and is
+   * distinct from omitting the property, which selects by uniqueness — the
+   * one-arg form proceeds only when the run observed exactly one assigned
+   * pair. A token this run never observed refuses outright.
+   */
+  expectedToken?: string | null;
+}
+
+/**
  * Write surface for task mutations, scoped to the contribution's habitat (ADR-0020).
  * Every write is habitat-scoped, audit-logged, provenance-stamped, and rate-capped.
  * No contribution kind can require `taskWriter` until the automation action extraction
@@ -280,8 +299,11 @@ export interface PluginTaskCreateInput {
  */
 export interface TaskWriter {
   createTask(input: PluginTaskCreateInput): Promise<Task>;
+  /** Claims `taskId` for `agentId` through the claim authority; state + token + `claimed` event commit atomically. Resolves `void`; read the minted epoch back via `taskReader.getTask`. */
   assignTask(taskId: string, agentId: string): Promise<void>;
-  releaseTask(taskId: string): Promise<void>;
+  /** Releases only an assignment this run observed (`taskReader.getTask`) or claimed (`assignTask`) in the same invocation, same epoch only; refuses typed otherwise. */
+  releaseTask(taskId: string, opts?: PluginReleaseSelector): Promise<void>;
+  /** Updates the task priority; the priority write and its `updated` event commit atomically. */
   updatePriority(taskId: string, priority: TaskPriority): Promise<void>;
 }
 

@@ -116,19 +116,26 @@ export function claimTask(
   taskId: string,
   agentId: string,
   onClaimCommitted?: ClaimAuthorityOptions["onClaimCommitted"],
+  /**
+   * Additive authority opts for system-actor claimers (the plugin task-op
+   * path): threads `actorType` through to the transition-budget guard while
+   * THIS seam keeps owning the legacy result flattening — a single flatten
+   * implementation, no duplicate mapping. Existing callers are unaffected
+   * (the parameter is optional and defaults to today's behavior exactly).
+   */
+  opts?: Omit<ClaimAuthorityOptions, "onClaimCommitted">,
 ): { success: true; task: Task } | { success: false; reason: string } {
   // Routed through the claim authority (T2): the authority owns gates +
   // checkClaimability + TOCTOU + infra mapping in one transaction. The typed
   // ClaimResult is flattened back to the legacy shape every caller depends on.
   // onClaimCommitted (T1): optional in-tx success hook — the daemon claim+session
   // join. Undefined for every other caller = today's behavior exactly.
+  const authorityOpts: ClaimAuthorityOptions | undefined = {
+    ...opts,
+    ...(onClaimCommitted ? { onClaimCommitted } : {}),
+  };
   return flattenClaimResult(
-    claimWithAuthority(
-      getDb(),
-      taskId,
-      { kind: "local", id: agentId },
-      onClaimCommitted ? { onClaimCommitted } : undefined,
-    ),
+    claimWithAuthority(getDb(), taskId, { kind: "local", id: agentId }, authorityOpts),
   );
 }
 
