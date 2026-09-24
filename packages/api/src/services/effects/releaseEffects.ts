@@ -39,6 +39,19 @@ import type { Task } from "../../models/index.js";
 /** The two required consumers enqueued per `released` event (closed census). */
 export const RELEASED_EFFECT_CONSUMERS = ["workflow_gates", "failure_context"] as const;
 
+/**
+ * Bounded typed provenance for automation-driven releases (REC-06 F2): the
+ * rule lineage persisted on the actual `released` event and its receipts.
+ * Omitted entirely by the existing seam callers (stale sweep, recovery
+ * drive, agent deletion) — their events keep the exact legacy shape.
+ */
+export interface ReleaseProvenance {
+  ruleId: string;
+  runId?: string | null;
+  deliveryId?: string | null;
+  actionIndex?: number | null;
+}
+
 export interface ReleaseWithEffectsResult {
   task: Task;
   eventId: string;
@@ -85,6 +98,8 @@ export function releaseTaskWithEffects(input: {
   preImage: Task;
   /** Optional server-only guard — see {@link ReleaseStaleGuard}. */
   guard?: ReleaseStaleGuard;
+  /** Optional bounded rule provenance (see {@link ReleaseProvenance}). */
+  provenance?: ReleaseProvenance;
 }): ReleaseWithEffectsResult | null {
   return getDb().transaction((tx) => releaseTaskWithEffectsWithClient(tx, input), {
     behavior: "immediate",
@@ -109,6 +124,8 @@ export interface ReleaseWithEffectsWithClientInput {
   preImage: Task;
   /** Optional server-only guard — see {@link ReleaseStaleGuard}. */
   guard?: ReleaseStaleGuard;
+  /** Optional bounded rule provenance (see {@link ReleaseProvenance}). */
+  provenance?: ReleaseProvenance;
 }
 
 /**
@@ -124,7 +141,7 @@ export function releaseTaskWithEffectsWithClient(
   tx: EffectDbClient,
   input: ReleaseWithEffectsWithClientInput,
 ): ReleaseWithEffectsResult | null {
-  const { taskId, actorId, reason, preImage, guard } = input;
+  const { taskId, actorId, reason, preImage, guard, provenance } = input;
   const actorType = input.actorType ?? "system";
   const now = new Date().toISOString();
   const eventId = uuid();
@@ -196,7 +213,7 @@ export function releaseTaskWithEffectsWithClient(
     action: "released",
     fromStatus: row.status as never,
     toStatus: "pending" as never,
-    metadata: { reason },
+    metadata: provenance ? { reason, provenance } : { reason },
   });
   tx.update(taskEvents)
     .set({ executionToken: row.executionToken ?? null })
@@ -220,6 +237,7 @@ export function releaseTaskWithEffectsWithClient(
     assignedAgentIdAtFailure: preImage.assignedAgentId ?? null,
     executionToken: row.executionToken ?? null,
     frozenOnFailGateIds: freezeOnFailGateIds(tx, taskId),
+    ...(provenance ? { provenance } : {}),
     releasedAt: now,
   };
   for (let i = 0; i < RELEASED_EFFECT_CONSUMERS.length; i++) {

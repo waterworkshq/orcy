@@ -18,6 +18,7 @@ import { claimTask } from "./tasks/task-lifecycle.js";
 import { assignReviewers } from "./reviewAssignmentService.js";
 import { logger } from "../lib/logger.js";
 import { executeCreateTaskViaPublication } from "./automationTaskPublication.js";
+import { executeReleaseAssignmentLive } from "./automationReleaseAssignment.js";
 import { fetchValidated } from "../config/integrationSecurity.js";
 
 const BANNED_HEADERS = new Set(["authorization", "cookie", "x-api-key", "x-token", "x-secret"]);
@@ -338,45 +339,16 @@ function executeAssign(
 function executeReleaseAssignment(
   action: AutomationAction & { type: "release_assignment" },
   index: number,
-  _rule: AutomationRule,
-  _run: AutomationRuleRun,
+  rule: AutomationRule,
+  run: AutomationRuleRun,
   ctx: AutomationEvaluationContext,
 ): AutomationActionResult {
-  if (!ctx.task) {
-    return {
-      actionType: "release_assignment",
-      actionIndex: index,
-      status: "failed",
-      error: "No task context available for release",
-    };
-  }
-
-  if (!ctx.task.assignedAgentId) {
-    return {
-      actionType: "release_assignment",
-      actionIndex: index,
-      status: "failed",
-      error: "Task is not currently assigned",
-    };
-  }
-
-  // Use direct repository release since automation acts as system, not the agent
-  const released = taskRepo.releaseTask(ctx.task.id, "Automation rule action");
-  if (!released) {
-    return {
-      actionType: "release_assignment",
-      actionIndex: index,
-      status: "failed",
-      error: "releaseTask failed — task may not be in correct state",
-    };
-  }
-
-  return {
-    actionType: "release_assignment",
-    actionIndex: index,
-    status: "succeeded",
-    result: { taskId: ctx.task.id },
-  };
+  // REC-06: the plain repo release (no event, no meter, no effects, no epoch
+  // fence) is gone. The live path releases through the canonical act-tx
+  // fenced on the EVALUATED `ctx.task` epoch; the frozen-revision delivery
+  // path in `automationAttemptLifecycle` uses the atomic pin+bundle variant
+  // from the same module instead of this live form.
+  return executeReleaseAssignmentLive(action, index, rule, run, ctx);
 }
 
 function executeRequestReview(

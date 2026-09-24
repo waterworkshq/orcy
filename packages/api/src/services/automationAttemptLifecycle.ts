@@ -57,6 +57,10 @@ import {
   shouldExecuteActions,
   calculateRunStatus,
 } from "./automationExecutor.js";
+import {
+  executeFrozenReleaseAssignment,
+  runReleasePostludeBestEffort,
+} from "./automationReleaseAssignment.js";
 import { logger } from "../lib/logger.js";
 import { isSqliteError } from "../errors/sqlite.js";
 import { getDb } from "../db/index.js";
@@ -983,6 +987,117 @@ async function attemptFrozenRuleDelivery(
         result: prior.receipt ?? undefined,
       });
       succeededCount++;
+      continue;
+    }
+
+    // REC-06: `release_assignment` executes through the adjudicated pin +
+    // atomic bundle (O-B′ + O-C) — the evaluated intent is pinned into the
+    // checkpoint's idempotencyKey BEFORE execution, and the release bundle
+    // (canonical release + fenced proof citing the stamped event id)
+    // commits in ONE transaction. The plain execute-then-record shape below
+    // would leave the fired-but-unrecorded crash window this closes.
+    if (action.type === "release_assignment") {
+      let releaseOutcome;
+      try {
+        releaseOutcome = executeFrozenReleaseAssignment({
+          action,
+          index: i,
+          rule,
+          run: run ?? syntheticRunForExecution(input, rule),
+          ctx: evalCtx,
+          delivery: { id: frozen.delivery.id, fence: frozen.delivery.fence },
+          actionKey,
+          now: nowIso,
+        });
+      } catch (err) {
+        // F3: a genuine bundle error surfaces ONLY after the service rolled
+        // its transaction back — map it to a truthful failed action +
+        // lease-fenced failed checkpoint (the ordinary failure path), never
+        // an escaped throw over a leased delivery and never a failure
+        // written over a PROVED checkpoint.
+        const errorMsg = err instanceof Error ? err.message : String(err);
+        const row = deliveryRepo
+          .listCheckpointsForDelivery(frozen.delivery.id)
+          .find((c) => c.actionIndex === i && c.actionKey === actionKey);
+        if (row?.state === "proved") {
+          // The bundle actually committed under a racing writer: the proof
+          // is durable truth — skip like a carried-forward proved action.
+          actionResults.push({
+            actionType: action.type,
+            actionIndex: i,
+            status: "skipped",
+            result: row.receipt ?? undefined,
+          });
+          succeededCount++;
+          continue;
+        }
+        const errorCheckpointId =
+          row?.id ??
+          deliveryRepo.ensureCheckpointRow({
+            deliveryId: frozen.delivery.id,
+            actionIndex: i,
+            actionKey,
+            actionType: action.type,
+            now: nowIso,
+          }).id;
+        const errorRecorded = deliveryRepo.recordCheckpointOutcome({
+          checkpointId: errorCheckpointId,
+          deliveryId: frozen.delivery.id,
+          fence: frozen.delivery.fence,
+          state: "failed",
+          receipt: null,
+          terminalDisposition: "failed",
+          now: nowIso,
+        });
+        if (!errorRecorded) {
+          return { kind: "fenced_out" };
+        }
+        actionResults.push({
+          actionType: action.type,
+          actionIndex: i,
+          status: "failed",
+          error: errorMsg,
+        });
+        failedCount++;
+        continue;
+      }
+      if (releaseOutcome.kind === "fenced_out") {
+        return { kind: "fenced_out" };
+      }
+      if (releaseOutcome.kind === "committed") {
+        actionResults.push(releaseOutcome.result);
+        succeededCount++;
+        // Post-commit best-effort postlude — never part of the truthful
+        // committed result (receipts are durable; boot deliverer backstops).
+        runReleasePostludeBestEffort(releaseOutcome.postlude);
+        continue;
+      }
+      // recordable: a typed failure with zero fired writes — recorded
+      // through the ordinary fenced checkpoint write, then aggregated.
+      const failedResult = releaseOutcome.result;
+      const failedCheckpointId =
+        releaseOutcome.checkpointId ??
+        deliveryRepo.ensureCheckpointRow({
+          deliveryId: frozen.delivery.id,
+          actionIndex: i,
+          actionKey,
+          actionType: action.type,
+          now: nowIso,
+        }).id;
+      const failedRecorded = deliveryRepo.recordCheckpointOutcome({
+        checkpointId: failedCheckpointId,
+        deliveryId: frozen.delivery.id,
+        fence: frozen.delivery.fence,
+        state: "failed",
+        receipt: null,
+        terminalDisposition: "failed",
+        now: nowIso,
+      });
+      if (!failedRecorded) {
+        return { kind: "fenced_out" };
+      }
+      actionResults.push(failedResult);
+      failedCount++;
       continue;
     }
 

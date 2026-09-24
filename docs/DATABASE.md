@@ -2360,6 +2360,10 @@ Nullable TEXT column added by migration `0047_finding_triage_target_release_type
 
 Per-habitat release activation settings added via migration `0049_release_settings.sql`. Stores `{ autoPromote, releaseWorkflowName, requireVersionTag }` (type `ReleaseSettings`). Defaults: `autoPromote: true`, `releaseWorkflowName: "release"`, `requireVersionTag: true`; a NULL column resolves to defaults. Managed via `PATCH /habitats/:id` (`releaseSettings` field). `autoPromote` is the per-habitat arm of the two-layer kill switch — both it and the global `ORCY_RELEASE_AUTO_PROMOTE` env var must be true for the promotion loop to run; detection, recording, the retrospective pulse, and the `release.shipped` event fire regardless (ADR-0031). See [CONFIGURATION.md](CONFIGURATION.md).
 
+#### `automation_delivery_action_checkpoints.idempotency_key` (column, no migration)
+
+The column has existed since migration `0066` (before this restoration it was always inserted NULL and never updated). It now stores the pinned evaluated release intent for `release_assignment` action checkpoints: a versioned JSON document with the fields `v` (schema version, currently `1`), `taskId`, `assignedAgentId`, and `executionToken` (the evaluated task's token — `null` for a legacy NULL-token task), e.g. `{"v":1,"taskId":"<task-uuid>","assignedAgentId":"<agent-uuid>","executionToken":null}`, written from the EVALUATED `ctx.task` at first-checkpoint creation, BEFORE execution. Semantics: the first attempt's pin is immutable intent history — successor attempts of the same delivery reuse it, never refresh it (the release act-tx fences on the PINNED epoch); a legacy/crash-window pending row with a NULL pin is pinned by its next attempt from THAT attempt's evaluated context under a lease-fenced conditional first-writer-wins UPDATE; proved rows carry forward across successor generations with the pin verbatim; a malformed pin fails closed. No schema change was needed — the storage meaning of the existing nullable column changed.
+
 ---
 
 ### Learning Loop Ledger (implementation complete; release pending)

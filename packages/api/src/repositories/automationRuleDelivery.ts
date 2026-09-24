@@ -621,6 +621,17 @@ export function computeActionKey(action: Record<string, unknown>): string {
   return `v1:${canonicalJson(action)}`;
 }
 
+const UNIQUE_VIOLATION_RE = /UNIQUE constraint failed|SQLITE_CONSTRAINT_UNIQUE/i;
+
+/** Unique-key violation across both drivers (message text and typed code). */
+function isUniqueConstraintViolation(err: unknown): boolean {
+  if (err instanceof Error && UNIQUE_VIOLATION_RE.test(err.message)) return true;
+  const cause = (err as { cause?: unknown } | null)?.cause;
+  if (cause instanceof Error && UNIQUE_VIOLATION_RE.test(cause.message)) return true;
+  const code = (err as { code?: string } | null)?.code ?? (cause as { code?: string } | null)?.code;
+  return code === "SQLITE_CONSTRAINT_UNIQUE";
+}
+
 export function ensureCheckpointRow(input: {
   deliveryId: string;
   actionIndex: number;
@@ -696,7 +707,30 @@ export function recordCheckpointOutcome(input: {
   terminalDisposition?: string | null;
   now: string;
 }): boolean {
-  const db = getDb();
+  return recordCheckpointOutcomeWithClient(input, getDb());
+}
+
+/**
+ * Client-parametric twin of {@link recordCheckpointOutcome} (the
+ * `*WithClient` precedent): runs on the CALLER's open transaction so a
+ * checkpoint proof composes atomically with the action's durable writes.
+ * Zero affected rows returns `false` — inside a caller transaction that
+ * MUST roll the whole bundle back (an unproved fired action is never a
+ * success).
+ */
+export function recordCheckpointOutcomeWithClient(
+  input: {
+    checkpointId: string;
+    deliveryId: string;
+    fence: string;
+    state: "proved" | "failed";
+    receipt?: Record<string, unknown> | null;
+    terminalDisposition?: string | null;
+    now: string;
+  },
+  client: AutomationDbClient,
+): boolean {
+  const db = client;
   if (input.state === "proved" && input.receipt == null) return false;
   const result = db.run(sql`
     UPDATE automation_delivery_action_checkpoints
@@ -733,6 +767,144 @@ export function recordCheckpointOutcome(input: {
     .where(eq(automationRuleDeliveries.id, input.deliveryId))
     .get();
   return fenceRow != null && fenceRow.fence === input.fence;
+}
+
+/**
+ * O-B′ release-intent pinning (automation `release_assignment` checkpoints):
+ * create-or-read the `(deliveryId, actionIndex)` checkpoint, pinning the
+ * EVALUATED release intent into `idempotency_key`.
+ *
+ *  - row creation: a lease-fenced `INSERT … SELECT … WHERE EXISTS` — a
+ *    stale worker (superseded fence) writes NOTHING, not even a new row
+ *    (an old generation can never pin). A concurrent same-fence insert
+ *    race resolves to the WINNING row (unique-key collision → the winner
+ *    is returned, never an error, never a stranded lease);
+ *  - an existing NULL-pin unproved row (the legacy/crash-window shape):
+ *    a conditional first-writer-wins UPDATE fenced on the CURRENT lease —
+ *    the WINNING pin (possibly another worker's) is what the caller reads;
+ *  - an existing non-NULL pin is returned verbatim — successors reuse the
+ *    pinned intent, never refresh it;
+ *  - `fencedOut: true` means this worker's fence no longer owns the
+ *    delivery and NOTHING was written (`checkpoint` is null when no row
+ *    exists).
+ *
+ * The pin payload is an opaque string owned by the service layer (the
+ * validated `{"v":1,taskId,assignedAgentId,executionToken}` contract); this
+ * repository only provides the fenced first-writer-wins storage.
+ */
+export function ensureReleaseCheckpointWithPin(input: {
+  deliveryId: string;
+  actionIndex: number;
+  actionKey: string;
+  actionType: string;
+  fence: string;
+  pin: string;
+  now: string;
+}): { checkpoint: AutomationActionCheckpointRow | null; fencedOut: boolean } {
+  const db = getDb();
+  const existing = db
+    .select()
+    .from(automationDeliveryActionCheckpoints)
+    .where(
+      and(
+        eq(automationDeliveryActionCheckpoints.deliveryId, input.deliveryId),
+        eq(automationDeliveryActionCheckpoints.actionIndex, input.actionIndex),
+      ),
+    )
+    .get();
+  if (!existing) {
+    const id = uuid();
+    // Lease-fenced insert: zero rows land when this worker's fence no
+    // longer owns the delivery. A cross-process unique-key collision (same
+    // fence, racing writers) surfaces as a constraint error we resolve by
+    // returning the winner below.
+    try {
+      db.run(sql`
+        INSERT INTO automation_delivery_action_checkpoints
+          (id, delivery_id, action_index, action_key, action_type, idempotency_key,
+           state, receipt, terminal_disposition, predecessor_checkpoint_id,
+           created_at, updated_at, proved_at)
+        SELECT ${id}, ${input.deliveryId}, ${input.actionIndex}, ${input.actionKey},
+               ${input.actionType}, ${input.pin},
+               'pending', NULL, NULL, NULL,
+               ${input.now}, ${input.now}, NULL
+        WHERE EXISTS (
+          SELECT 1 FROM automation_rule_deliveries
+          WHERE id = ${input.deliveryId} AND lease_fence = ${input.fence}
+        )
+      `);
+    } catch (err) {
+      if (!isUniqueConstraintViolation(err)) throw err;
+      // Concurrent same-fence winner: fall through to the by-key read.
+    }
+    const byId = db
+      .select()
+      .from(automationDeliveryActionCheckpoints)
+      .where(eq(automationDeliveryActionCheckpoints.id, id))
+      .get();
+    if (byId) {
+      return { checkpoint: byId as unknown as AutomationActionCheckpointRow, fencedOut: false };
+    }
+    const byKey = db
+      .select()
+      .from(automationDeliveryActionCheckpoints)
+      .where(
+        and(
+          eq(automationDeliveryActionCheckpoints.deliveryId, input.deliveryId),
+          eq(automationDeliveryActionCheckpoints.actionIndex, input.actionIndex),
+        ),
+      )
+      .get();
+    if (byKey) {
+      // The concurrent insert race's winner — valid under the lease.
+      return { checkpoint: byKey as unknown as AutomationActionCheckpointRow, fencedOut: false };
+    }
+    // Nothing inserted and no winner exists: the fence (or the delivery
+    // itself) was gone at insert time — zero rows written by this worker.
+    return { checkpoint: null, fencedOut: true };
+  }
+
+  const row = existing as unknown as AutomationActionCheckpointRow;
+  if (row.idempotencyKey != null) {
+    // Pinned by an earlier attempt of this generation (or carried forward
+    // proved): reuse verbatim — the pin is immutable intent history.
+    return { checkpoint: row, fencedOut: false };
+  }
+
+  // Legacy/crash-window NULL-pin unproved row: conditional first-writer-wins
+  // under the CURRENT lease fence. Proved rows are never re-pinned (they are
+  // skipped upstream and carry immutable receipts).
+  const conditional = db.run(sql`
+    UPDATE automation_delivery_action_checkpoints
+    SET idempotency_key = ${input.pin},
+        updated_at = ${input.now}
+    WHERE id = ${row.id}
+      AND idempotency_key IS NULL
+      AND state IN ('pending', 'failed')
+      AND EXISTS (
+        SELECT 1 FROM automation_rule_deliveries
+        WHERE id = ${input.deliveryId} AND lease_fence = ${input.fence}
+      )
+  `);
+  const changes = (conditional as { changes?: number } | undefined)?.changes;
+  const reread = db
+    .select()
+    .from(automationDeliveryActionCheckpoints)
+    .where(eq(automationDeliveryActionCheckpoints.id, row.id))
+    .get() as unknown as AutomationActionCheckpointRow;
+  if (typeof changes === "number" ? changes === 1 : reread?.idempotencyKey != null) {
+    return { checkpoint: reread, fencedOut: false };
+  }
+  // Zero rows: either the row is proved (immutable — return as-is) or the
+  // fence no longer owns the delivery (this worker writes nothing). The
+  // delivery's current fence decides.
+  const fenceRow = db
+    .select({ fence: automationRuleDeliveries.leaseFence })
+    .from(automationRuleDeliveries)
+    .where(eq(automationRuleDeliveries.id, input.deliveryId))
+    .get();
+  const fencedOut = fenceRow == null || fenceRow.fence !== input.fence;
+  return { checkpoint: reread ?? row, fencedOut };
 }
 
 /**
