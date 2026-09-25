@@ -2213,6 +2213,18 @@
     },
     {
       "method": "GET",
+      "path": "/api/habitats/:habitatId/triage/orphans/:missionId/investigation",
+      "surface": "api-deprecated",
+      "guards": [
+        "agentOrHumanAuth"
+      ],
+      "authKind": "local_actor",
+      "rawBodyEligible": false,
+      "source": "core",
+      "generatedTwin": false
+    },
+    {
+      "method": "GET",
       "path": "/api/habitats/:habitatId/wiki/cadence",
       "surface": "api-deprecated",
       "guards": [
@@ -4525,6 +4537,18 @@
     {
       "method": "GET",
       "path": "/api/v1/habitats/:habitatId/templates",
+      "surface": "api-v1",
+      "guards": [
+        "agentOrHumanAuth"
+      ],
+      "authKind": "local_actor",
+      "rawBodyEligible": false,
+      "source": "core",
+      "generatedTwin": false
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/habitats/:habitatId/triage/orphans/:missionId/investigation",
       "surface": "api-v1",
       "guards": [
         "agentOrHumanAuth"
@@ -6816,6 +6840,18 @@
     },
     {
       "method": "HEAD",
+      "path": "/api/habitats/:habitatId/triage/orphans/:missionId/investigation",
+      "surface": "api-deprecated",
+      "guards": [
+        "agentOrHumanAuth"
+      ],
+      "authKind": "local_actor",
+      "rawBodyEligible": false,
+      "source": "framework",
+      "generatedTwin": true
+    },
+    {
+      "method": "HEAD",
       "path": "/api/habitats/:habitatId/wiki/cadence",
       "surface": "api-deprecated",
       "guards": [
@@ -9128,6 +9164,18 @@
     {
       "method": "HEAD",
       "path": "/api/v1/habitats/:habitatId/templates",
+      "surface": "api-v1",
+      "guards": [
+        "agentOrHumanAuth"
+      ],
+      "authKind": "local_actor",
+      "rawBodyEligible": false,
+      "source": "framework",
+      "generatedTwin": true
+    },
+    {
+      "method": "HEAD",
+      "path": "/api/v1/habitats/:habitatId/triage/orphans/:missionId/investigation",
       "surface": "api-v1",
       "guards": [
         "agentOrHumanAuth"
@@ -11902,6 +11950,18 @@
     },
     {
       "method": "POST",
+      "path": "/api/habitats/:habitatId/triage/orphans/:missionId/map",
+      "surface": "api-deprecated",
+      "guards": [
+        "agentOrHumanAuth"
+      ],
+      "authKind": "local_actor",
+      "rawBodyEligible": false,
+      "source": "core",
+      "generatedTwin": false
+    },
+    {
+      "method": "POST",
       "path": "/api/habitats/:habitatId/wiki/authoring-context",
       "surface": "api-deprecated",
       "guards": [
@@ -14144,6 +14204,18 @@
         "humanAuth"
       ],
       "authKind": "human",
+      "rawBodyEligible": false,
+      "source": "core",
+      "generatedTwin": false
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/habitats/:habitatId/triage/orphans/:missionId/map",
+      "surface": "api-v1",
+      "guards": [
+        "agentOrHumanAuth"
+      ],
+      "authKind": "local_actor",
       "rawBodyEligible": false,
       "source": "core",
       "generatedTwin": false

@@ -1,15 +1,18 @@
 import type { KanbanApiClient } from "../api.js";
 
 /**
- * Triage investigation handlers (v0.23 "Triage"). All actions are READ-ONLY and
- * habitat-scoped: `habitatId` is required on every call. The `investigate`
- * action returns cluster context for an agent that has claimed (or is about to
- * claim) a triage investigation task; it does NOT create new missions — the
- * scan already did that. `top_issues` surfaces unresolved clusters ranked by
- * signal volume, and `resolution_lookup` retrieves historical resolutions for a
- * cluster so agents can apply prior fixes before starting work in a domain.
+ * Triage surface handlers (v0.23 "Triage", six-action restoration). Actions
+ * are habitat-scoped (`habitatId` required on every call) but NOT all
+ * read-only: `insert_deferred_mission` routes a finding through ONE atomic
+ * lifecycle command (creating + linking the gated corrective mission), and
+ * `map_orphan_mission` positions an orphan mission in the roadmap DAG
+ * through the bounded agent-owned triage route. The read actions —
+ * `investigate`, `top_issues`, `resolution_lookup` — never mutate; writes
+ * are authority-checked server-side against the calling agent's live claim
+ * on the relevant investigation task.
  *
- * Backed by the Phase 5 REST surface under `/api/triage/*`.
+ * Backed by the REST surface under `/api/triage/*` and the bounded orphan
+ * map route under `/api/habitats/:id/triage/orphans/:missionId/map`.
  */
 
 function requireHabitatId(args: { habitatId?: string }): string {
@@ -56,21 +59,105 @@ export async function triageInvestigate(
   // `map_orphan_mission`.
   if (clusterKey.startsWith("orphan-mission:")) {
     const orphanMissionId = clusterKey.slice("orphan-mission:".length);
-    const roadmap = await client.getRoadmapContext(habitatId);
+    // Cold-review M1: the branch verifies BOTH the roadmap shape AND the
+    // current OPEN orphan investigation junction for the exact
+    // (habitat, mission) pair before reporting an orphan as ready to map.
+    // Zero dependency edges alone prove NOTHING about investigation state —
+    // a merely-disconnected Mission with no open investigation is reported
+    // as NOT investigable, with the actionable mapping instruction withheld.
+    // (The map write re-verifies everything server-side under its writer
+    // reservation; this read never grants anything.)
+    const [roadmap, investigation] = await Promise.all([
+      client.getRoadmapContext(habitatId),
+      client.getTriageOrphanInvestigation(habitatId, orphanMissionId),
+    ]);
+    const roadmapMissions = roadmap.missions ?? [];
+    const roadmapEdges = roadmap.dependencies ?? [];
+    const orphan = roadmapMissions.find((m) => m.id === orphanMissionId);
+    const investigationOpen = investigation?.open === true;
+    // Fixup2 MEDIUM: the SAME mappable-status predicate the scan and the map
+    // write enforce (served by the scoped investigation read) gates the
+    // mapping advice — a done/failed target gets NO "verified unmapped" claim
+    // and NO mapping instruction even while its junction is open (the write
+    // would rightly refuse it).
+    const targetEligible = investigation?.targetEligible === true;
+    const roadmapContext = {
+      nextInLine: roadmap.nextInLine,
+      missions: roadmapMissions,
+      dependencies: roadmapEdges,
+      recentReleases: roadmap.recentReleases,
+    };
+    if (!orphan) {
+      return {
+        clusterKey,
+        habitatId,
+        orphanMissionId,
+        orphanFound: false,
+        investigationOpen,
+        targetEligible,
+        roadmap: roadmapContext,
+        investigationNote:
+          `Mission ${orphanMissionId} is not present in habitat ${habitatId}'s roadmap ` +
+          `(not found or archived). No orphan investigation context is available for it here.`,
+      };
+    }
+    const incidentEdges = roadmapEdges.filter(
+      (e) => e.missionId === orphanMissionId || e.dependsOnId === orphanMissionId,
+    );
+    if (incidentEdges.length > 0) {
+      return {
+        clusterKey,
+        habitatId,
+        orphanMissionId,
+        orphanFound: true,
+        alreadyMapped: true,
+        investigationOpen,
+        targetEligible,
+        incidentEdges,
+        roadmap: roadmapContext,
+        investigationNote:
+          `Mission ${orphanMissionId} (${orphan.title}) is already positioned — it carries ` +
+          `${incidentEdges.length} dependency edge(s). No mapping is needed; action=map_orphan_mission ` +
+          `would be refused (not an unmapped orphan).`,
+      };
+    }
+    if (!investigationOpen || !targetEligible) {
+      const reason = !investigationOpen
+        ? "NO open orphan investigation exists for it in this habitat (never admitted, already resolved, or a different habitat's target)"
+        : "its current status is NOT mappable (completed/failed/archived targets are left alone)";
+      return {
+        clusterKey,
+        habitatId,
+        orphanMissionId,
+        orphanFound: true,
+        alreadyMapped: false,
+        investigationOpen,
+        targetEligible,
+        roadmap: roadmapContext,
+        investigationNote:
+          `Mission ${orphanMissionId} (${orphan.title}) is disconnected from the roadmap DAG, but ${reason}. ` +
+          `It is not authorized for map_orphan_mission here. ${
+            !investigationOpen
+              ? "Positioning it requires a human (generic mission edit) or a new investigation cycle."
+              : "Positioning a completed/failed mission is not offered; reopen or re-scope it through normal mission lifecycle work first if it still needs placement."
+          }`,
+      };
+    }
     return {
       clusterKey,
       habitatId,
       orphanMissionId,
-      roadmap: {
-        nextInLine: roadmap.nextInLine,
-        missions: roadmap.missions,
-        dependencies: roadmap.dependencies,
-        recentReleases: roadmap.recentReleases,
-      },
+      orphanFound: true,
+      alreadyMapped: false,
+      investigationOpen: true,
+      targetEligible: true,
+      roadmap: roadmapContext,
       investigationNote:
-        `Orphan mission ${orphanMissionId} is unmapped in the roadmap DAG (no dependency edges). ` +
-        `Review the roadmap, decide where this mission fits, and position it via ` +
-        `action=map_orphan_mission with the appropriate dependsOn (and a release-gate if release-coupling fits).`,
+        `Orphan mission ${orphanMissionId} (${orphan.title}) has an OPEN investigation in this habitat ` +
+        `and is verified unmapped in the roadmap DAG (zero incident dependency edges). Review the ` +
+        `roadmap, decide where this mission fits, and position it via action=map_orphan_mission with ` +
+        `the appropriate dependsOn (and a release-gate if release-coupling fits). Mapping is ` +
+        `authorized only for the agent currently claiming this orphan's active investigation task.`,
     };
   }
 
@@ -112,10 +199,14 @@ export async function triageInvestigate(
   }
 
   const hasActiveMission = clusterSummary?.status === "under_investigation";
-  // Canonical read: correctiveMissionId (the physical column's canonical name,
-  // ADR-0048). The deprecated triageMissionId alias is not consumed here.
+  // ADR-0048 investigation identity: the cluster's investigation Mission is
+  // `admittedByTriageMissionId` — the bounded investigation container — NOT
+  // the corrective Mission (`correctiveMissionId`, separate provenance) and
+  // never the deprecated `triageMissionId` alias. Derived from the actual
+  // persisted field on an eligible finding; null when no finding carries an
+  // admitted investigation.
   const clusterMissionId =
-    openFindings.find((f) => f.correctiveMissionId)?.correctiveMissionId ?? null;
+    openFindings.find((f) => f.admittedByTriageMissionId)?.admittedByTriageMissionId ?? null;
 
   return {
     clusterKey,
@@ -134,7 +225,12 @@ export async function triageInvestigate(
       findingKind: f.findingKind,
       status: f.status,
       bucket: f.bucket,
-      correctiveMissionId: f.correctiveMissionId ?? f.triageMissionId ?? null,
+      // Canonical fields only (ADR-0048): corrective work identity and the
+      // admitted investigation provenance. The deprecated triageMissionId
+      // alias is not projected.
+      correctiveMissionId: f.correctiveMissionId ?? null,
+      admittedByTriageMissionId: f.admittedByTriageMissionId ?? null,
+      admittedByInvestigationTaskId: f.admittedByInvestigationTaskId ?? null,
       corroboratingPulseIds: f.corroboratingPulseIds,
       createdAt: f.createdAt,
     })),
@@ -261,7 +357,11 @@ export async function triageInsertDeferredMission(
   }
 
   // Explicit wire→backend mapping — never rest-spread `args` (wire-name drift
-  // trap; see habitatCorrectTaskEvidenceLink precedent).
+  // trap; see habitatCorrectTaskEvidenceLink precedent). The required MCP
+  // `habitatId` rides as `expectedHabitatId`: the lifecycle kernel compares
+  // it against the persisted Finding's ACTUAL habitat inside the writer
+  // reservation BEFORE any write, so a mismatched habitat refuses with zero
+  // writes instead of silently writing another habitat's finding.
   const { finding } = await client.routeTriageFinding(findingId, {
     bucket: releaseGateType === "patch" ? "defer_to_patch" : "defer_to_release",
     missionTitle,
@@ -269,8 +369,10 @@ export async function triageInsertDeferredMission(
     dependencies: args.dependsOn,
     releaseGateType,
     releaseGateVersion,
+    expectedHabitatId: habitatId,
   });
 
+  const actualHabitatId = (finding as { habitatId?: unknown }).habitatId;
   const depsList = (args.dependsOn ?? []).length;
   const placementNote =
     `Routed finding ${findingId} to ${releaseGateType === "patch" ? "defer_to_patch" : "defer_to_release"}` +
@@ -279,7 +381,9 @@ export async function triageInsertDeferredMission(
     `) carrying ${depsList} dependency edge(s); the mission, its placement, and the finding link committed atomically.`;
 
   return {
-    habitatId,
+    // The persisted Finding's ACTUAL habitat (authoritative scope), not the
+    // caller's expectation.
+    habitatId: typeof actualHabitatId === "string" ? actualHabitatId : habitatId,
     finding,
     correctiveMissionId: (finding as { correctiveMissionId?: unknown }).correctiveMissionId ?? null,
     placementNote,
@@ -289,14 +393,18 @@ export async function triageInsertDeferredMission(
 /**
  * @requires TriageClient
  *
- * Positions an EXISTING orphan mission in the roadmap DAG (RM-7). Sets the
- * mission's `dependsOn` (and optionally a release-gate) via PATCH, recording the
- * placement. The daemon triage agent calls this after investigating the roadmap
- * context for a `orphan-mission:{id}` cluster. Positioning is the agent's
- * judgment; this action only writes the chosen edges.
+ * Positions an EXISTING orphan mission in the roadmap DAG (RM-7) through the
+ * bounded agent-owned triage route — ONE command request; the server
+ * verifies (inside its writer reservation) the target mission's actual
+ * habitat, that it is an unmapped orphan (zero incident dependency edges),
+ * that an OPEN orphan investigation junction exists for
+ * `(habitatId, orphan-mission:{missionId})`, and that the CALLING agent
+ * currently claims that investigation's single active task. Positioning is
+ * the agent's judgment; this action only writes the chosen edges (and an
+ * optional release gate). Any authority mismatch refuses with no write.
  *
- * Returns the updated mission and a placementNote the daemon echoes into its
- * investigation output pulse.
+ * Returns the updated mission, the verified identities, and a placementNote
+ * the daemon echoes into its investigation output pulse.
  */
 export async function triageMapOrphanMission(
   client: KanbanApiClient,
@@ -306,6 +414,7 @@ export async function triageMapOrphanMission(
     dependsOn?: string[];
     releaseGateType?: "patch" | "minor" | "major";
     releaseGateVersion?: string;
+    expectedVersion?: number;
   },
 ) {
   const habitatId = requireHabitatId(args);
@@ -313,22 +422,37 @@ export async function triageMapOrphanMission(
   if (!missionId || typeof missionId !== "string") {
     throw new Error("missionId is required");
   }
+  if (
+    args.dependsOn === undefined ||
+    !Array.isArray(args.dependsOn) ||
+    args.dependsOn.length === 0 ||
+    !args.dependsOn.every((d) => typeof d === "string" && d.length > 0)
+  ) {
+    throw new Error("dependsOn is required (at least one mission id to position after)");
+  }
 
-  const { mission } = await client.updateMission(missionId, {
+  const result = await client.mapTriageOrphanMission(habitatId, missionId, {
     dependsOn: args.dependsOn,
-    releaseGateType: args.releaseGateType,
-    releaseGateVersion: args.releaseGateVersion,
+    releaseGateType: args.releaseGateType ?? null,
+    releaseGateVersion: args.releaseGateVersion ?? null,
+    ...(args.expectedVersion !== undefined ? { expectedVersion: args.expectedVersion } : {}),
   });
 
-  const depsList = (args.dependsOn ?? []).length;
+  const depsList = args.dependsOn.length;
   const placementNote =
-    `Positioned orphan mission ${mission.id} with ${depsList} dependency edge(s)` +
+    `Positioned orphan mission ${result.mission.id} with ${depsList} dependency edge(s)` +
     (args.releaseGateType
       ? ` + ${args.releaseGateType} gate${args.releaseGateVersion ? `@${args.releaseGateVersion}` : ""}`
       : "") +
-    ".";
-  void habitatId;
-  return { mission, placementNote };
+    ` (verified habitat ${result.habitatId}; authorized by investigation task ${result.investigationTaskId}).`;
+  return {
+    habitatId: result.habitatId,
+    mission: result.mission,
+    clusterKey: result.clusterKey,
+    investigationMissionId: result.investigationMissionId,
+    investigationTaskId: result.investigationTaskId,
+    placementNote,
+  };
 }
 
 /**

@@ -22,6 +22,12 @@ function createMockClient(overrides?: Partial<KanbanApiClient>): KanbanApiClient
       nextInLine: [],
       recentReleases: [],
     }),
+    // Cold-review M1: the orphan branch also reads the junction state.
+    getTriageOrphanInvestigation: async () => ({
+      open: true,
+      targetEligible: true,
+      investigationMissionId: "m-inv-1",
+    }),
     ...overrides,
   } as unknown as KanbanApiClient;
 }
@@ -88,6 +94,8 @@ describe("orcy_triage dispatch", () => {
             bucket: null,
             targetRelease: null,
             correctiveMissionId: "m-1",
+            admittedByTriageMissionId: "m-inv-1",
+            admittedByInvestigationTaskId: "t-inv-1",
             createdAt: "2026-07-01T00:00:00.000Z",
             metadata: {
               affectedTaskIds: ["t-1"],
@@ -119,9 +127,14 @@ describe("orcy_triage dispatch", () => {
     expect(result.signalCount).toBe(5);
     expect(result.status).toBe("under_investigation");
     expect(result.openFindings).toHaveLength(1);
-    // Canonical corrective-Mission read (ADR-0048).
+    // Canonical corrective-Mission projection (ADR-0048); the deprecated
+    // triageMissionId alias is never projected.
     expect(result.openFindings?.[0]?.correctiveMissionId).toBe("m-1");
-    expect(result.clusterMissionId).toBe("m-1");
+    expect(result.openFindings?.[0]?.admittedByTriageMissionId).toBe("m-inv-1");
+    expect(result.openFindings?.[0]?.admittedByInvestigationTaskId).toBe("t-inv-1");
+    // clusterMissionId is the INVESTIGATION Mission (admittedByTriageMissionId,
+    // ADR-0048 identity) — not the corrective Mission and not the deprecated alias.
+    expect(result.clusterMissionId).toBe("m-inv-1");
     expect(result.affectedTaskIds).toContain("t-1");
     expect(result.agentIds).toContain("a-1");
     expect(result.historicalResolutions).toHaveLength(1);
@@ -268,7 +281,7 @@ describe("orcy_triage dispatch", () => {
     expect(summaryArg).toBeFalsy();
   });
 
-  it("RM-7: investigate branches on orphan-mission:{id} and returns orphan + roadmap context", async () => {
+  it("RM-7: investigate branches on orphan-mission:{id} and returns VERIFIED orphan + roadmap context", async () => {
     const client = createMockClient({
       getRoadmapContext: async () => ({
         missions: [
@@ -280,6 +293,15 @@ describe("orcy_triage dispatch", () => {
             releaseGateVersion: null,
             priority: "medium",
             displayOrder: 0,
+          },
+          {
+            id: "m-orphan-1",
+            title: "Orphan",
+            status: "not_started",
+            releaseGateType: null,
+            releaseGateVersion: null,
+            priority: "medium",
+            displayOrder: 1,
           },
         ],
         dependencies: [],
@@ -294,18 +316,184 @@ describe("orcy_triage dispatch", () => {
     });
 
     expect(result.orphanMissionId).toBe("m-orphan-1");
+    expect(result.orphanFound).toBe(true);
+    expect(result.alreadyMapped).toBe(false);
+    expect(result.investigationOpen).toBe(true);
     expect(result.roadmap.nextInLine).toEqual(["m-x"]);
+    expect(result.investigationNote).toContain("verified unmapped");
     expect(result.investigationNote).toContain("map_orphan_mission");
     // The signal-cluster fields are absent for the orphan branch.
     expect(result.openFindings).toBeUndefined();
   });
 
-  it("RM-7: map_orphan_mission PATCHes the existing mission's deps and returns a placement note", async () => {
-    let patched: { missionId?: string; dependsOn?: string[] } = {};
+  it("RM-7: orphan-mission investigate reports ALREADY-MAPPED orphans honestly (verified from edges, not echoed)", async () => {
     const client = createMockClient({
-      updateMission: async (missionId: string, input: { dependsOn?: string[] }) => {
-        patched = { missionId, dependsOn: input.dependsOn };
-        return { mission: { id: missionId } } as never;
+      getRoadmapContext: async () => ({
+        missions: [
+          {
+            id: "m-x",
+            title: "X",
+            status: "not_started",
+            releaseGateType: null,
+            releaseGateVersion: null,
+            priority: "medium",
+            displayOrder: 0,
+          },
+          {
+            id: "m-orphan-1",
+            title: "Orphan",
+            status: "not_started",
+            releaseGateType: null,
+            releaseGateVersion: null,
+            priority: "medium",
+            displayOrder: 1,
+          },
+        ],
+        dependencies: [{ missionId: "m-orphan-1", dependsOnId: "m-x" }],
+        nextInLine: ["m-x"],
+        recentReleases: [],
+      }),
+    });
+
+    const result = await triageInvestigate(client, {
+      habitatId: "hab-1",
+      clusterKey: "orphan-mission:m-orphan-1",
+    });
+
+    expect(result.alreadyMapped).toBe(true);
+    expect(result.investigationNote).toContain("already positioned");
+  });
+
+  it("RM-7: orphan-mission investigate reports an unknown mission instead of claiming it is unmapped", async () => {
+    const client = createMockClient({
+      getRoadmapContext: async () => ({
+        missions: [],
+        dependencies: [],
+        nextInLine: [],
+        recentReleases: [],
+      }),
+    });
+
+    const result = await triageInvestigate(client, {
+      habitatId: "hab-1",
+      clusterKey: "orphan-mission:m-nope",
+    });
+
+    expect(result.orphanFound).toBe(false);
+    expect(result.investigationNote).toContain("not present");
+  });
+
+  it("M1: disconnected mission with NO open junction is NOT investigable — map advice withheld", async () => {
+    const client = createMockClient({
+      getRoadmapContext: async () => ({
+        missions: [
+          {
+            id: "m-orphan-1",
+            title: "Orphan",
+            status: "not_started",
+            releaseGateType: null,
+            releaseGateVersion: null,
+            priority: "medium",
+            displayOrder: 1,
+          },
+        ],
+        dependencies: [],
+        nextInLine: [],
+        recentReleases: [],
+      }),
+      getTriageOrphanInvestigation: async () => ({ open: false }),
+    });
+
+    const result = await triageInvestigate(client, {
+      habitatId: "hab-1",
+      clusterKey: "orphan-mission:m-orphan-1",
+    });
+
+    expect(result.orphanFound).toBe(true);
+    expect(result.alreadyMapped).toBe(false);
+    expect(result.investigationOpen).toBe(false);
+    expect(result.investigationNote).toContain("not authorized for");
+    expect(result.investigationNote).not.toContain("verified unmapped");
+    expect(result.investigationNote).not.toContain("position it via");
+  });
+
+  it("fixup2 MEDIUM: junction OPEN but target done/failed (targetEligible=false) gets NO mapping advice", async () => {
+    const client = createMockClient({
+      getRoadmapContext: async () => ({
+        missions: [
+          { id: "m-orphan-1", title: "Completed Orphan", status: "done", releaseGateType: null, releaseGateVersion: null, priority: "medium", displayOrder: 1 },
+        ],
+        dependencies: [],
+        nextInLine: [],
+        recentReleases: [],
+      }),
+      getTriageOrphanInvestigation: async () => ({
+        open: true,
+        targetEligible: false,
+        investigationMissionId: "m-inv-1",
+      }),
+    });
+
+    const result = await triageInvestigate(client, {
+      habitatId: "hab-1",
+      clusterKey: "orphan-mission:m-orphan-1",
+    });
+
+    expect(result.orphanFound).toBe(true);
+    expect(result.alreadyMapped).toBe(false);
+    expect(result.investigationOpen).toBe(true);
+    expect(result.targetEligible).toBe(false);
+    expect(result.investigationNote).toContain("not authorized for");
+    expect(result.investigationNote).not.toContain("verified unmapped");
+    expect(result.investigationNote).not.toContain("position it via");
+  });
+
+  it("M1: already-mapped orphan reports honestly regardless of junction state", async () => {
+    const client = createMockClient({
+      getRoadmapContext: async () => ({
+        missions: [
+          {
+            id: "m-orphan-1",
+            title: "Orphan",
+            status: "not_started",
+            releaseGateType: null,
+            releaseGateVersion: null,
+            priority: "medium",
+            displayOrder: 1,
+          },
+        ],
+        dependencies: [{ missionId: "m-orphan-1", dependsOnId: "m-x" }],
+        nextInLine: [],
+        recentReleases: [],
+      }),
+      getTriageOrphanInvestigation: async () => ({ open: false }),
+    });
+
+    const result = await triageInvestigate(client, {
+      habitatId: "hab-1",
+      clusterKey: "orphan-mission:m-orphan-1",
+    });
+
+    expect(result.alreadyMapped).toBe(true);
+    expect(result.investigationNote).toContain("already positioned");
+  });
+
+  it("RM-7: map_orphan_mission calls the bounded agent-owned triage route and returns verified identities", async () => {
+    let mapped: { habitatId?: string; missionId?: string; body?: Record<string, unknown> } = {};
+    const client = createMockClient({
+      mapTriageOrphanMission: async (
+        habitatId: string,
+        missionId: string,
+        body: Record<string, unknown>,
+      ) => {
+        mapped = { habitatId, missionId, body };
+        return {
+          mission: { id: missionId, dependsOn: body.dependsOn },
+          habitatId,
+          clusterKey: `orphan-mission:${missionId}`,
+          investigationMissionId: "m-inv-9",
+          investigationTaskId: "t-inv-9",
+        } as never;
       },
     });
 
@@ -313,12 +501,42 @@ describe("orcy_triage dispatch", () => {
       habitatId: "hab-1",
       missionId: "m-orphan-1",
       dependsOn: ["m-x"],
+      releaseGateType: "minor",
+      releaseGateVersion: "v0.41",
     });
 
-    expect(patched.missionId).toBe("m-orphan-1");
-    expect(patched.dependsOn).toEqual(["m-x"]);
+    expect(mapped.habitatId).toBe("hab-1");
+    expect(mapped.missionId).toBe("m-orphan-1");
+    expect(mapped.body).toEqual({
+      dependsOn: ["m-x"],
+      releaseGateType: "minor",
+      releaseGateVersion: "v0.41",
+    });
+    expect(result.habitatId).toBe("hab-1");
+    expect(result.investigationMissionId).toBe("m-inv-9");
+    expect(result.investigationTaskId).toBe("t-inv-9");
+    expect(result.clusterKey).toBe("orphan-mission:m-orphan-1");
     expect(result.placementNote).toContain("1 dependency edge");
+    expect(result.placementNote).toContain("t-inv-9");
     expect(result.mission.id).toBe("m-orphan-1");
+  });
+
+  it("RM-7: map_orphan_mission requires at least one dependsOn edge (handler backstop)", async () => {
+    const client = createMockClient({
+      mapTriageOrphanMission: async () => {
+        throw new Error("must not be called");
+      },
+    });
+    await expect(
+      triageMapOrphanMission(client, {
+        habitatId: "hab-1",
+        missionId: "m-orphan-1",
+        dependsOn: [],
+      }),
+    ).rejects.toThrow("dependsOn is required");
+    await expect(
+      triageMapOrphanMission(client, { habitatId: "hab-1", missionId: "m-orphan-1" }),
+    ).rejects.toThrow("dependsOn is required");
   });
 });
 
@@ -371,14 +589,16 @@ describe("orcy_triage insert_deferred_mission — single-command deferral cutove
     expect(result.correctiveMissionId).toBe("m-new");
   });
 
-  it("maps WIRE names to BACKEND names explicitly (dependsOn → dependencies; patch gate → defer_to_patch)", async () => {
+  it("maps WIRE names to BACKEND names explicitly (dependsOn → dependencies; habitatId → expectedHabitatId)", async () => {
     const { client, routePayloads } = createRouteClient();
 
     await triageInsertDeferredMission(client, WIRE_ARGS);
 
     const payload = routePayloads[0];
     // Backend Zod schema names — a rest-spread of `args` would ship `dependsOn`
-    // and 400 on the missing `dependencies` field.
+    // and 400 on the missing `dependencies` field. The required MCP habitatId
+    // rides as the expected-habitat precondition (verified in the writer
+    // reservation server-side).
     expect(payload).toEqual({
       bucket: "defer_to_patch",
       missionTitle: "Corrective: flaky tests",
@@ -386,7 +606,29 @@ describe("orcy_triage insert_deferred_mission — single-command deferral cutove
       dependencies: ["m-inflight"],
       releaseGateType: "patch",
       releaseGateVersion: "v0.40.0",
+      expectedHabitatId: "hab-1",
     });
+  });
+
+  it("returns the finding's ACTUAL persisted habitat, never the caller's expectation", async () => {
+    const client = createMockClient({
+      routeTriageFinding: async (id: string) => ({
+        finding: {
+          id,
+          habitatId: "hab-actual",
+          status: "triaged",
+          bucket: "defer_to_patch",
+          correctiveMissionId: "m-new",
+        },
+      }),
+    } as unknown as Partial<KanbanApiClient>);
+
+    const result = await triageInsertDeferredMission(client, {
+      ...WIRE_ARGS,
+      habitatId: "hab-wrong",
+    });
+
+    expect(result.habitatId).toBe("hab-actual");
   });
 
   it("minor/major gates route to defer_to_release", async () => {

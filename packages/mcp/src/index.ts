@@ -25,6 +25,7 @@ import {
   WIKI_DISPATCH_HANDLER,
   WORKFLOW_FAILURE_CONTEXT_HANDLER,
   WORKFLOW_CONTEXT_HANDLER,
+  TRIAGE_DISPATCH_HANDLER,
 } from "./tools/index.js";
 import { KanbanApiClient } from "./api.js";
 import { setNotificationSender, cleanupAll as cleanupSubscriptions } from "./subscriptions.js";
@@ -103,6 +104,7 @@ const TOOL_HANDLERS: Record<string, ToolHandler> = {
   orcy_wiki: WIKI_DISPATCH_HANDLER,
   orcy_get_failure_context: WORKFLOW_FAILURE_CONTEXT_HANDLER,
   orcy_get_workflow_context: WORKFLOW_CONTEXT_HANDLER,
+  orcy_triage: TRIAGE_DISPATCH_HANDLER,
 };
 
 // ---------------------------------------------------------------------------

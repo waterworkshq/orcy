@@ -2623,6 +2623,14 @@ export class KanbanApiClient
       dependencies?: string[];
       releaseGateType?: "patch" | "minor" | "major";
       releaseGateVersion?: string;
+      /**
+       * The Habitat the caller believes the finding lives in. Verified
+       * against the persisted finding's ACTUAL habitat inside the lifecycle
+       * kernel's writer reservation BEFORE any write — a mismatch refuses
+       * with zero writes (INVALID_INPUT). The result's habitat is always
+       * the persisted one.
+       */
+      expectedHabitatId?: string;
     },
   ): Promise<{ finding: Record<string, unknown> }> {
     return this.request<{ finding: Record<string, unknown> }>(
@@ -2630,6 +2638,54 @@ export class KanbanApiClient
       `/api/triage/findings/${id}/route`,
       route,
     );
+  }
+
+  /**
+   * Narrowly scoped junction read for the orphan-mission investigation
+   * branch: reports whether an OPEN orphan investigation currently exists
+   * for the exact (habitat, mission) pair, whether the target Mission is
+   * currently ELIGIBLE for mapping under the same status predicate the scan
+   * and the map write use (done/failed targets are not mappable), plus the
+   * investigation Mission id when open. The map WRITE remains the sole
+   * authority; this read is advisory context only.
+   */
+  async getTriageOrphanInvestigation(
+    habitatId: string,
+    missionId: string,
+  ): Promise<{ open: boolean; targetEligible: boolean; investigationMissionId?: string }> {
+    return this.request<{
+      open: boolean;
+      targetEligible: boolean;
+      investigationMissionId?: string;
+    }>("GET", `/api/habitats/${habitatId}/triage/orphans/${missionId}/investigation`);
+  }
+
+  /**
+   * Positions an EXISTING orphan mission in the roadmap DAG through the
+   * bounded agent-owned triage route (RM-7 restoration): ONE
+   * `POST /api/habitats/:habitatId/triage/orphans/:missionId/map`. The
+   * server verifies — inside its writer reservation — that the mission
+   * belongs to this habitat, is an unmapped orphan, has an OPEN orphan
+   * investigation, and that the calling agent currently claims that
+   * investigation's single active task. Any mismatch refuses with no write.
+   */
+  async mapTriageOrphanMission(
+    habitatId: string,
+    missionId: string,
+    body: {
+      dependsOn: string[];
+      releaseGateType?: "patch" | "minor" | "major" | null;
+      releaseGateVersion?: string | null;
+      expectedVersion?: number;
+    },
+  ): Promise<{
+    mission: Mission;
+    habitatId: string;
+    clusterKey: string;
+    investigationMissionId: string;
+    investigationTaskId: string;
+  }> {
+    return this.request("POST", `/api/habitats/${habitatId}/triage/orphans/${missionId}/map`, body);
   }
 
   /** Looks up historical triage resolutions recorded against a cluster key (v0.23 Triage). */

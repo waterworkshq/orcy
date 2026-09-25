@@ -158,22 +158,27 @@ export type ConflictReason =
 /**
  * Outcome of a lifecycle command.
  *
+ * Generic over the conflict-reason union so sibling command modules that
+ * reuse {@link withImmediateLifecycleTransaction} (e.g. the triage
+ * orphan-map command) can carry their own typed reasons; the default keeps
+ * every existing caller unchanged.
+ *
  * - `applied` — the command executed and committed new state.
  * - `replayed` — the command is idempotent; existing committed state returned.
  * - `conflict` — the command cannot proceed; NO writes occurred.
  * - `busy` — writer reservation exhausted; caller should retry after the delay.
  */
-export type LifecycleOutcome<T> =
+export type LifecycleOutcome<T, R extends string = ConflictReason> =
   | { outcome: "applied"; value: T }
   | { outcome: "replayed"; value: T }
-  | { outcome: "conflict"; reason: ConflictReason; current?: unknown }
+  | { outcome: "conflict"; reason: R; current?: unknown }
   | { outcome: "busy"; retryAfterMs: number };
 
 /** Internal result type returned by the inner command function. */
-type CommandResult<T> =
+type CommandResult<T, R extends string = ConflictReason> =
   | { outcome: "applied"; value: T }
   | { outcome: "replayed"; value: T }
-  | { outcome: "conflict"; reason: ConflictReason; current?: unknown };
+  | { outcome: "conflict"; reason: R; current?: unknown };
 
 // ---------------------------------------------------------------------------
 // Route payload types
@@ -215,6 +220,15 @@ export interface RouteFindingInput {
   findingId: string;
   actor: LifecycleActor;
   route: RoutePayload;
+  /**
+   * Optional expected-Habitat precondition (RM orphan-map parity fix). When
+   * supplied, it is compared against the persisted Finding's Habitat INSIDE
+   * the writer reservation BEFORE any write — a mismatch refuses with zero
+   * writes (`invalid_input`). A mere preflight GET would be TOCTOU-prone;
+   * this is the transactional form. Existing callers that omit it are
+   * unchanged (canonical scope stays the persisted Finding's Habitat).
+   */
+  expectedHabitatId?: string;
 }
 
 /** Input accepted by {@link resolveFinding}. */
@@ -353,10 +367,10 @@ function backoffDelay(attempt: number): number {
  *
  * Never nest this wrapper inside Drizzle's default deferred transaction.
  */
-export function withImmediateLifecycleTransaction<T>(
-  fn: (client: LifecycleDbClient) => CommandResult<T>,
+export function withImmediateLifecycleTransaction<T, R extends string = ConflictReason>(
+  fn: (client: LifecycleDbClient) => CommandResult<T, R>,
   db?: LifecycleDbClient,
-): LifecycleOutcome<T> {
+): LifecycleOutcome<T, R> {
   const client = db ?? getDb();
 
   // Phase 1: acquire the writer reservation
@@ -458,11 +472,7 @@ function mapActorType(type: TriageActorType): ActorType {
  * the in-tx predicate path inside the lifecycle kernel; keeps the kernel
  * self-contained for denial codes without re-exporting internals.
  */
-function deny(
-  reason: "not_authorized",
-  code: string,
-  message: string,
-): AuthorityCheck {
+function deny(reason: "not_authorized", code: string, message: string): AuthorityCheck {
   return { kind: "deny", reason, code, message };
 }
 
@@ -501,7 +511,11 @@ function runInTransactionAuthorityCheck(args: {
   // pod + contributor standing + exact claim + ONE same-grant predicate).
   if (args.actor.type === "remote_human" || args.actor.type === "remote_orcy") {
     if (!args.authorityContext.remote) {
-      return deny("not_authorized", "REMOTE_CONTEXT_MISSING", "remote actor missing participant context");
+      return deny(
+        "not_authorized",
+        "REMOTE_CONTEXT_MISSING",
+        "remote actor missing participant context",
+      );
     }
     const remoteActor: RemoteAuthorityActor = {
       type: args.actor.type,
@@ -528,7 +542,13 @@ function runInTransactionAuthorityCheck(args: {
   const localAccess = habitatAccessCheckerWithClient(args.client);
   const result = checkRouteAuthority({
     finding: shape,
-    actor: { type: args.actor.type === "human" || args.actor.type === "agent" || args.actor.type === "system" ? args.actor.type : "system", id: args.actor.id },
+    actor: {
+      type:
+        args.actor.type === "human" || args.actor.type === "agent" || args.actor.type === "system"
+          ? args.actor.type
+          : "system",
+      id: args.actor.id,
+    },
     access: localAccess,
     client: args.client,
   });
@@ -629,6 +649,20 @@ export function routeFinding(
     const finding = getByIdWithClient(client, input.findingId);
     if (!finding) {
       return { outcome: "conflict" as const, reason: "not_found" as ConflictReason };
+    }
+
+    // 1.5 Expected-Habitat precondition (optional). Verified against the
+    // persisted Finding's ACTUAL Habitat under the writer reservation, before
+    // any write — a caller-observed Habitat that no longer matches refuses
+    // with zero writes. The canonical routing scope is always the persisted
+    // Finding's Habitat, never the caller's expectation.
+    if (input.expectedHabitatId !== undefined && input.expectedHabitatId !== finding.habitatId) {
+      return {
+        outcome: "conflict" as const,
+        reason: "invalid_input" as ConflictReason,
+        current:
+          "HABITAT_MISMATCH: expectedHabitatId does not match the finding's persisted habitat; no write occurred",
+      };
     }
 
     // 2. Terminal closure

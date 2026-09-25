@@ -27,6 +27,7 @@ If you also have the CLI installed, **prefer MCP for intra-session tool use** �
 | `orcy_worktree` | `get-worktree` | Git worktree for tasks |
 | `orcy_notification` | `get_inbox`, `get_history`, `get_delivery`, `ack`, `snooze`, `clear`, `get_subscriptions` | Own notification self-service (see Notifications section) |
 | `orcy_automation` | `list`, `get`, `simulate`, `list_runs`, `get_rule_runs` | Automation inspection for habitats where you hold active work (see Automation section) |
+| `orcy_triage` | `investigate`, `top_issues`, `resolution_lookup`, `insert_deferred_mission`, `map_orphan_mission`, `set_focus_mission` | Triage investigation surface (see Triage section) |
 
 ---
 
@@ -853,3 +854,27 @@ orcy_automation({ action: "get_rule_runs", ruleId, limit: 50, offset: 0 })
 - Rules arrive as projections: trigger/cooldown/priority/enabled plus a `{type, summary}` condition view and `{type, description}` static action labels. Configuration webhook URL/header fields, signal content, and plugin params are never exposed; authored `name` / `description` free text passes through unchanged.
 - `simulate`: pass `targetType`/`targetId` (a task/mission/sprint/pulse/habitat of the same habitat; `agent` targets are rejected). You may not pass `overrideCondition` or `payload` — both are rejected with fixed 400 codes. Plugin-typed conditions anywhere in the rule's tree answer `validation.code = "unsupported_plugin_condition"` without evaluation. The response carries `{ruleId, ruleName, wouldExecute, skipReason?, validation, actionPreviews, conditionResult}` only.
 - Runs arrive as `{id, ruleId, status?, startedAt, finishedAt}` plus `skipReason` when it is one of the canonical union values; non-canonical legacy statuses and skip reasons are omitted. No error details, action results, or metadata.
+
+## Triage — `orcy_triage`
+
+Triage investigation surface. Reads (`top_issues`, `resolution_lookup`, `investigate`) work in your unteamed habitats; `insert_deferred_mission` and `map_orphan_mission` require the current investigation claim; `set_focus_mission` uses the existing unteamed-habitat access policy without a claim requirement.
+
+```
+orcy_triage({ action: "top_issues", habitatId, limit: 10 })
+orcy_triage({ action: "investigate", habitatId, clusterKey })            # clusterKey may be "orphan-mission:<missionId>"
+orcy_triage({ action: "resolution_lookup", habitatId, clusterKey })
+orcy_triage({ action: "insert_deferred_mission", habitatId, findingId,
+              missionTitle, missionDescription,
+              releaseGateType: "patch",                      # REQUIRED; allowed: patch, minor, major
+              releaseGateVersion: "v0.25.0",                 # REQUIRED
+              dependsOn: ["<missionId>"] })                   # optional positioning edges
+orcy_triage({ action: "map_orphan_mission", habitatId, missionId,
+              dependsOn: ["<missionId>"],                     # REQUIRED (>= 1)
+              releaseGateType: "minor", releaseGateVersion: "v0.41",  # optional
+              expectedVersion: 3 })                           # optional CAS
+orcy_triage({ action: "set_focus_mission", habitatId, missionId })      # missionId: null clears
+```
+
+- `insert_deferred_mission` sends ONE atomic lifecycle route: the gated corrective mission, its dependency placement, and the finding link commit together. `releaseGateType` and `releaseGateVersion` are REQUIRED (patch → `defer_to_patch`; minor/major → `defer_to_release`). Authorized only when you currently claim the finding's admitted investigation task.
+- `map_orphan_mission` positions an unmapped orphan mission through a dedicated bounded route — never the generic mission PATCH. Authorized only when you currently claim that orphan's GENUINE published investigate task (proved by the publication ledger — a claimed replacement task never authorizes); the server re-verifies orphan state, open investigation, and your claim in one transaction.
+- `investigate` returns `clusterMissionId` = the investigation mission id (`admittedByTriageMissionId`), plus `openFindings[]` carrying `correctiveMissionId` (the corrective work, a different mission) and the admitted investigation provenance. An `orphan-mission:{id}` investigation additionally verifies the open investigation junction: a disconnected mission with NO open orphan investigation is reported not investigable (no mapping instruction).

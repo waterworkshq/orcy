@@ -193,15 +193,32 @@ export function getDependencyGraph(missionId: string): DependencyGraph {
 }
 
 export function wouldCreateTaskCycle(fromId: string, toId: string): boolean {
-  return wouldCreateCycle(fromId, toId, "task");
+  return wouldCreateCycle(fromId, toId, "task", getDb());
 }
 
 export function wouldCreateMissionCycle(fromId: string, toId: string): boolean {
-  return wouldCreateCycle(fromId, toId, "mission");
+  return wouldCreateCycle(fromId, toId, "mission", getDb());
 }
 
-function wouldCreateCycle(fromId: string, toId: string, type: "task" | "mission"): boolean {
-  const db = getDb();
+/**
+ * Supplied-client variant of {@link wouldCreateMissionCycle}. The caller owns
+ * the open `BEGIN IMMEDIATE` reservation (e.g. the triage orphan-map command);
+ * walking the graph on the same client observes in-transaction state.
+ */
+export function wouldCreateMissionCycleWithClient(
+  client: Pick<ReturnType<typeof getDb>, "select">,
+  fromId: string,
+  toId: string,
+): boolean {
+  return wouldCreateCycle(fromId, toId, "mission", client);
+}
+
+function wouldCreateCycle(
+  fromId: string,
+  toId: string,
+  type: "task" | "mission",
+  db: Pick<ReturnType<typeof getDb>, "select">,
+): boolean {
   const visited = new Set<string>();
   const stack = [toId];
 

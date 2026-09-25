@@ -4,6 +4,9 @@ import { eq, and, inArray } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 import { repositoryCreateError, repositoryUpdateError } from "../errors/repository.js";
 
+/** Minimal client shape the supplied-client reads need (open transactions included). */
+export type TriageClusterMissionDbClient = Pick<ReturnType<typeof getDb>, "select">;
+
 /** Status of a cluster-mission junction record. */
 export type TriageClusterMissionStatus = "open" | "resolved";
 
@@ -93,6 +96,30 @@ export function findActiveByClusterKey(
 ): TriageClusterMission | null {
   const db = getDb();
   const row = db
+    .select()
+    .from(triageClusterMissions)
+    .where(
+      and(
+        eq(triageClusterMissions.habitatId, habitatId),
+        eq(triageClusterMissions.clusterKey, clusterKey),
+        eq(triageClusterMissions.status, "open"),
+      ),
+    )
+    .get();
+  return row ? rowToTriageClusterMission(row) : null;
+}
+
+/**
+ * Supplied-client variant of {@link findActiveByClusterKey}. The caller owns
+ * the open `BEGIN IMMEDIATE` reservation (e.g. the triage orphan-map command);
+ * reading on the same client observes in-transaction state.
+ */
+export function findActiveByClusterKeyWithClient(
+  client: TriageClusterMissionDbClient,
+  habitatId: string,
+  clusterKey: string,
+): TriageClusterMission | null {
+  const row = client
     .select()
     .from(triageClusterMissions)
     .where(

@@ -43,7 +43,7 @@ All MCP tools use a **dispatch pattern** — each consolidated tool accepts an `
 | `orcy_notification` | `get_inbox`, `get_history`, `get_delivery`, `ack`, `snooze`, `clear`, `get_subscriptions` | Self-service notification inbox, history, delivery detail, acknowledgment, snooze, clear, and subscription reads — MCP self-service for agents (agent API key); the recipient is always the authenticated caller, never a request-supplied id; the equivalent HTTP recipient routes also serve humans (human JWT — raw event unchanged); agent `get_delivery` returns the canonical event fields (eventType/severity/title/body) plus a fixed allowlist of string context keys — never the raw payload |
 | `orcy_get_workflow_context` | _(single action — pass `taskId`)_ | Read your position in a workflow chain: upstream gates, downstream waiting tasks, gate states |
 | `orcy_get_failure_context` | _(single action — pass `taskId`)_ | Read the FailureContext for a task (used by recovery agents to understand what went wrong) |
-| `orcy_triage` | `investigate`, `top_issues`, `resolution_lookup`, `insert_deferred_mission` | Triage investigation surface — investigate signal clusters, check top issues, look up historical resolutions, and route a finding (one atomic lifecycle route request creating the gated corrective mission in the roadmap DAG) |
+| `orcy_triage` | `investigate`, `top_issues`, `resolution_lookup`, `insert_deferred_mission`, `map_orphan_mission`, `set_focus_mission` | Triage surface — investigate signal clusters (returns the ADR-0048 investigation mission id), check top issues, look up historical resolutions, route a finding to a deferred bucket (one atomic lifecycle command creating the gated corrective mission), position an orphan mission in the roadmap DAG (bounded agent-owned route, authorized only for the current claimant of the orphan's active investigation task), and set/clear the habitat focus mission |
 
 ---
 
@@ -1830,9 +1830,11 @@ Pulse is a passive shared memory of structured signals for missions and habitats
 | Promote to insight | `orcy_pulse({ action: "promote", pulseId, habitatId, relevanceTags: ["auth", "security"] })` |
 | React to signal | `orcy_pulse({ action: "react", pulseId, reaction: "ack" })` — reactions: seen, ack, question |
 | Check top triage issues | `orcy_triage({ action: "top_issues", habitatId, limit: 10 })` — before starting work in a domain |
-| Investigate a cluster | `orcy_triage({ action: "investigate", habitatId, clusterKey })` — read cluster context during a triage investigation task |
+| Investigate a cluster | `orcy_triage({ action: "investigate", habitatId, clusterKey })` — read cluster context during a triage investigation task (`clusterMissionId` is the investigation mission id) |
 | Look up past resolution | `orcy_triage({ action: "resolution_lookup", habitatId, clusterKey })` — has this pattern been solved before? |
-| Insert deferred mission | `orcy_triage({ action: "insert_deferred_mission", habitatId, ... })` — create a gated mission positioned in the roadmap DAG from a deferred finding |
+| Insert deferred mission | `orcy_triage({ action: "insert_deferred_mission", habitatId, findingId, missionTitle, missionDescription, releaseGateType, releaseGateVersion })` — optional `dependsOn` positioning edges may be supplied as an array; route a finding to `defer_to_patch`/`defer_to_release`; requires `releaseGateType` + `releaseGateVersion`; authorized only for the current claimant of the finding's admitted investigation task |
+| Map an orphan mission | `orcy_triage({ action: "map_orphan_mission", habitatId, missionId, dependsOn: ["<missionId>"] })` — optional fields: `releaseGateType` (patch/minor/major) + `releaseGateVersion` (a version string) — position an unmapped orphan mission in the DAG; requires ≥1 `dependsOn`; authorized only for the current claimant of the orphan's active investigation task |
+| Set/clear focus mission | `orcy_triage({ action: "set_focus_mission", habitatId, missionId })` — set the roadmap focus goal; `missionId: null` clears (auto-derive) |
 
 ### Signal Types
 

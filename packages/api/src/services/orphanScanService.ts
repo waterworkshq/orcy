@@ -18,8 +18,18 @@ import { inArray, or } from "drizzle-orm";
 /** Scan type this service emits. */
 const SCAN_TYPE: AutomationScanType = "orphan_mission_unmapped";
 
-/** Mission statuses that count as in-flight (worth mapping). `done`/`failed` are left alone. */
-const ACTIVE_STATUSES = new Set(["not_started", "in_progress", "review"]);
+/**
+ * Mission statuses that count as in-flight (worth mapping). `done`/`failed`
+ * are left alone. Exported as the canonical orphan-eligibility predicate —
+ * the bounded orphan-map command (`orphanMissionMap.ts`) reuses THIS set
+ * inside its writer reservation so the write path and the scan can never
+ * disagree on which statuses are mappable.
+ */
+export const ORPHAN_ELIGIBLE_MISSION_STATUSES: ReadonlySet<string> = new Set([
+  "not_started",
+  "in_progress",
+  "review",
+]);
 
 /**
  * Periodic orphan-mission scan (RM-7). Finds missions disconnected from the roadmap
@@ -42,7 +52,7 @@ export async function runOrphanMissionUnmappedScan(habitatId: string): Promise<S
     // Habitats with >1000 Missions must not silently miss orphans).
     const habitatMissions = missionRepo
       .getMissionsByHabitatId(habitatId)
-      .missions.filter((m) => !m.isArchived && ACTIVE_STATUSES.has(m.status));
+      .missions.filter((m) => !m.isArchived && ORPHAN_ELIGIBLE_MISSION_STATUSES.has(m.status));
     if (habitatMissions.length === 0) return [];
 
     const ids = habitatMissions.map((m) => m.id);
@@ -109,7 +119,9 @@ export async function runOrphanMissionUnmappedScan(habitatId: string): Promise<S
           });
           tallyDisposition(rule, disposition, counts);
         } catch (err) {
-          counts.errors.push(`Rule ${rule.id}: ${err instanceof Error ? err.message : String(err)}`);
+          counts.errors.push(
+            `Rule ${rule.id}: ${err instanceof Error ? err.message : String(err)}`,
+          );
         }
       }
     }

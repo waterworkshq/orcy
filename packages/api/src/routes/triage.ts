@@ -21,6 +21,7 @@ import {
   activateCorrectiveMission as activateCorrectiveMissionLifecycle,
   type LifecycleOutcome,
 } from "../services/findingTriageLifecycle.js";
+import { mapOrphanMission, type OrphanMapOutcome } from "../services/orphanMissionMap.js";
 import {
   checkRouteAuthority,
   checkManualCommandAuthority,
@@ -29,7 +30,9 @@ import {
   type AuthorityFindingShape,
 } from "../services/triageLifecycleAuthority.js";
 import { getHabitatById } from "../repositories/habitat.js";
+import * as missionRepo from "../repositories/mission.js";
 import { isTeamMemberByHabitatId } from "../repositories/teamMember.js";
+import { ORPHAN_ELIGIBLE_MISSION_STATUSES } from "../services/orphanScanService.js";
 import {
   AppError,
   notFound,
@@ -296,6 +299,12 @@ const releaseTriggerBodySchema = z.object({
 // ---------------------------------------------------------------------------
 // Local intent route payloads (restored lifecycle T4)
 // ---------------------------------------------------------------------------
+//
+// `expectedHabitatId` (optional, every shape): the Habitat the caller
+// believes the Finding lives in. The lifecycle kernel compares it against
+// the persisted Finding's ACTUAL Habitat inside the writer reservation
+// BEFORE any write — a mismatch refuses with zero writes. Callers that omit
+// it are unchanged (canonical scope = persisted Finding Habitat).
 
 const fixNowRouteSchema = z
   .object({
@@ -303,6 +312,7 @@ const fixNowRouteSchema = z
     missionTitle: z.string().min(1).max(500),
     missionDescription: z.string().min(1).max(20000),
     dependencies: z.array(z.string().max(200)).max(50).optional(),
+    expectedHabitatId: z.string().min(1).optional(),
   })
   .strict();
 
@@ -314,18 +324,21 @@ const deferRouteSchema = z
     dependencies: z.array(z.string().max(200)).max(50).optional(),
     releaseGateType: z.enum(["patch", "minor", "major"]),
     releaseGateVersion: z.string().min(1).max(64),
+    expectedHabitatId: z.string().min(1).optional(),
   })
   .strict();
 
 const noWorkRouteSchema = z
   .object({
     bucket: z.literal("document_as_known_limitation"),
+    expectedHabitatId: z.string().min(1).optional(),
   })
   .strict();
 
 const investigationRouteSchema = z
   .object({
     bucket: z.literal("needs_investigation"),
+    expectedHabitatId: z.string().min(1).optional(),
   })
   .strict();
 
@@ -353,6 +366,21 @@ const wontfixFindingBodySchema = z
 const activateFindingBodySchema = z
   .object({
     expectedMissionVersion: z.number().int().nonnegative().optional(),
+  })
+  .strict();
+
+/**
+ * Body for the bounded agent-owned orphan-map route (RM-7 restoration).
+ * `dependsOn` carries at least one positioning edge; the gate fields are
+ * optional (either dimension may be set — a type-only gate is legal);
+ * `expectedVersion` CASes the Mission version.
+ */
+const mapOrphanBodySchema = z
+  .object({
+    dependsOn: z.array(z.string().min(1).max(200)).min(1).max(50),
+    releaseGateType: z.enum(["patch", "minor", "major"]).nullish(),
+    releaseGateVersion: z.string().min(1).max(64).nullish(),
+    expectedVersion: z.number().int().nonnegative().optional(),
   })
   .strict();
 
@@ -443,6 +471,10 @@ export async function triageRoutes(fastify: FastifyInstance): Promise<void> {
         findingId: finding.id,
         actor: { ...actor, authority: {} },
         route: parsed.data,
+        // Optional expected-Habitat precondition: compared against the
+        // persisted Finding's ACTUAL Habitat inside the writer reservation
+        // BEFORE any write (mismatch → zero writes, INVALID_INPUT).
+        expectedHabitatId: parsed.data.expectedHabitatId,
       });
       const updated = mapLifecycleOutcome(outcome, reply, {
         actorId: actor.id,
@@ -740,4 +772,216 @@ export async function triageRoutes(fastify: FastifyInstance): Promise<void> {
     });
     return result;
   });
+
+  /**
+   * GET /habitats/:habitatId/triage/orphans/:missionId/investigation —
+   * narrowly scoped junction read backing the MCP `investigate`
+   * orphan-mission branch (cold review M1 + fixup2 MEDIUM): reports whether
+   * an OPEN orphan investigation currently exists for the EXACT
+   * (habitat, mission) pair AND whether the target Mission is currently
+   * eligible for mapping under the SAME status predicate the scan and the
+   * map write use — so the read never advises mapping a completed/failed
+   * orphan or an uninvestigated one. Habitat-scoped only — the response
+   * carries no foreign data beyond the open investigation Mission id. The
+   * map WRITE remains the sole authority; this read never grants anything.
+   */
+  fastify.get<{ Params: { habitatId: string; missionId: string } }>(
+    "/habitats/:habitatId/triage/orphans/:missionId/investigation",
+    { config: { authPolicy: "local_actor" } },
+    async (request) => {
+      verifyHabitatAccess(request, request.params.habitatId);
+      const junction = triageClusterMissionsRepo.findActiveByClusterKey(
+        request.params.habitatId,
+        `orphan-mission:${request.params.missionId}`,
+      );
+      const mission = missionRepo.getMissionById(request.params.missionId);
+      const targetEligible =
+        !!mission &&
+        !mission.isArchived &&
+        ORPHAN_ELIGIBLE_MISSION_STATUSES.has(mission.status) &&
+        mission.habitatId === request.params.habitatId;
+      return {
+        open: junction !== null,
+        targetEligible,
+        ...(junction ? { investigationMissionId: junction.missionId } : {}),
+      };
+    },
+  );
+
+  /**
+   * POST /habitats/:habitatId/triage/orphans/:missionId/map — bounded
+   * agent-owned orphan positioning (RM-7 restoration).
+   *
+   * The dedicated replacement for routing `map_orphan_mission` through the
+   * generic `PATCH /missions/:id`: local AGENT only (humans keep the
+   * unchanged generic Mission edit), unteamed Habitat (mirrors the triage
+   * route policy — agents are denied on team Habitats), and EVERY authority
+   * check (orphan status, open junction, exact investigation Task claim)
+   * runs inside the command's writer reservation — see
+   * `services/orphanMissionMap.ts`. The transport never accepts a
+   * caller-supplied role, claimant, or investigation identity.
+   */
+  fastify.post<{
+    Params: { habitatId: string; missionId: string };
+    Body: {
+      dependsOn: string[];
+      releaseGateType?: "patch" | "minor" | "major" | null;
+      releaseGateVersion?: string | null;
+      expectedVersion?: number;
+    };
+  }>(
+    "/habitats/:habitatId/triage/orphans/:missionId/map",
+    { config: { authPolicy: "local_actor" } },
+    async (request, reply) => {
+      const parsed = mapOrphanBodySchema.safeParse(request.body);
+      if (!parsed.success) {
+        throw badRequest("Validation failed", parsed.error.flatten());
+      }
+
+      // Agent-only: the authority model is the agent's live claim on the
+      // orphan's investigation Task. Humans retain the existing generic
+      // Mission PATCH (`PATCH /api/missions/:missionId`), unchanged.
+      if (!request.agent) {
+        throw forbidden(
+          "The triage orphan-map route is agent-only; humans edit missions via PATCH /api/missions/:missionId",
+          "TRIAGE_ORPHAN_MAP_AGENT_ONLY",
+        );
+      }
+
+      // Unteamed-Habitat policy for agents (mirrors every other triage route).
+      verifyHabitatAccess(request, request.params.habitatId);
+
+      const outcome = mapOrphanMission({
+        habitatId: request.params.habitatId,
+        missionId: request.params.missionId,
+        agentId: request.agent.id,
+        dependsOn: parsed.data.dependsOn,
+        releaseGateType: parsed.data.releaseGateType ?? undefined,
+        releaseGateVersion: parsed.data.releaseGateVersion ?? undefined,
+        expectedVersion: parsed.data.expectedVersion,
+      });
+      return mapOrphanMapOutcome(outcome, reply);
+    },
+  );
+}
+
+/** Maps an {@link OrphanMapOutcome} to the HTTP response (transport seam only). */
+function mapOrphanMapOutcome(
+  outcome: OrphanMapOutcome,
+  reply: FastifyReply,
+):
+  | {
+      mission: unknown;
+      habitatId: string;
+      clusterKey: string;
+      investigationMissionId: string;
+      investigationTaskId: string;
+    }
+  | never {
+  if (outcome.outcome === "applied") {
+    return {
+      mission: outcome.value.mission,
+      habitatId: outcome.value.habitatId,
+      clusterKey: outcome.value.clusterKey,
+      investigationMissionId: outcome.value.investigationMissionId,
+      investigationTaskId: outcome.value.investigationTaskId,
+    };
+  }
+
+  if (outcome.outcome === "busy") {
+    const retryAfterSeconds = Math.max(1, Math.ceil(outcome.retryAfterMs / 1000));
+    reply.header("Retry-After", String(retryAfterSeconds));
+    throw new AppError(
+      503,
+      "LIFECYCLE_BUSY",
+      `Lifecycle writer reservation exhausted; retry after ${retryAfterSeconds}s`,
+    );
+  }
+
+  // `replayed` is unreachable for this command (a mapped Mission is no longer
+  // an orphan); treat any occurrence as a typed conflict rather than trusting it.
+  if (outcome.outcome !== "conflict") {
+    throw conflictWithCode("TRIAGE_CONFLICT", "Orphan-map command conflict");
+  }
+
+  const { reason, current } = outcome;
+  switch (reason) {
+    case "not_found":
+      // Anti-probing collapse: missing, wrong-Habitat, and archived are one 404.
+      throw notFound("Mission not found");
+    case "no_open_investigation":
+      throw conflictWithCode(
+        "NO_OPEN_ORPHAN_INVESTIGATION",
+        "No open orphan investigation exists for this mission in this habitat; mapping is not authorized.",
+      );
+    case "not_orphan":
+      throw conflictWithCode(
+        "MISSION_NOT_ORPHAN",
+        "Mission already has dependency edges (or projected dependsOn/blocks) and cannot be re-mapped.",
+      );
+    case "not_current_claimant":
+      throw forbidden(
+        "Local agent is not the current claimant of the orphan's active investigation task",
+        "TRIAGE_NOT_AUTHORIZED",
+      );
+    case "no_provable_investigation_task":
+      throw conflictWithCode(
+        "TRIAGE_INVESTIGATION_TASK_UNPROVABLE",
+        "The published investigate task's identity cannot be proven from persisted publication evidence (legacy investigation, or the recorded task was deleted/replaced). Automatic mapping is refused. A human must handle this mission through the existing Mission editing UI/API; that manual edit does not close or repair the orphan investigation junction.",
+      );
+    case "invalid_dependency": {
+      const index =
+        current && typeof current === "object" && "index" in current
+          ? (current as { index: number }).index
+          : null;
+      throw conflictWithCode(
+        "INVALID_DEPENDENCY",
+        typeof index === "number"
+          ? `Dependency at position ${index} is not a valid same-Habitat Mission (or would create a cycle).`
+          : "One or more dependencies are not valid same-Habitat Missions (or would create a cycle).",
+      );
+    }
+    case "gate_clear_blocked":
+      throw new AppError(
+        409,
+        "MISSION_GATE_CLEAR_BLOCKED",
+        "Cannot clear the release gate while linked findings are non-terminal.",
+        {
+          findingTriageIds:
+            current && typeof current === "object" && "findingIds" in current
+              ? (current as { findingIds: string[] }).findingIds
+              : undefined,
+        },
+      );
+    case "gate_change_blocked":
+      throw new AppError(
+        409,
+        "MISSION_GATE_CHANGE_BLOCKED",
+        "Cannot add or replace a release gate while linked findings are in progress.",
+        {
+          findingTriageIds:
+            current && typeof current === "object" && "findingIds" in current
+              ? (current as { findingIds: string[] }).findingIds
+              : undefined,
+        },
+      );
+    case "stale_mission_version": {
+      const currentVersion =
+        current && typeof current === "object" && "currentVersion" in current
+          ? String((current as { currentVersion: number }).currentVersion)
+          : "unknown";
+      reply.header("X-Current-Version", currentVersion);
+      throw conflictWithCode(
+        "MISSION_VERSION_MISMATCH",
+        `Mission version mismatch (current ${currentVersion}); reload and retry.`,
+      );
+    }
+    case "invalid_input":
+      throw badRequestWithCode(
+        "INVALID_INPUT",
+        typeof current === "string" ? current : "Invalid orphan-map command input",
+      );
+    default:
+      throw conflictWithCode("TRIAGE_CONFLICT", "Orphan-map command conflict");
+  }
 }
