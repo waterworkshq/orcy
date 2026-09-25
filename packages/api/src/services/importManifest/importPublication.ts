@@ -126,6 +126,8 @@ import {
   type AttemptTerminalResult,
 } from "../../repositories/taskPublication.js";
 import { reserveAttemptWithClient } from "../../repositories/taskCreationAttempts.js";
+import { createEventWithClient } from "../../repositories/events/event-crud.js";
+import type { ActorType } from "../../models/index.js";
 import {
   getImportAttemptWithClient,
   markImportAttemptPublishingWithClient,
@@ -996,8 +998,38 @@ function applyHabitatSettingsDisposition(
  * Runs inside the orchestrator's publication tx (caller-owned client). A
  * throw propagates as a retryable infrastructure error (rolls back the
  * whole aggregate).
+ *
+ * REC-06 final contract — per-task audit marker: EACH reset task also emits
+ * ONE canonical `updated` task event via {@link createEventWithClient} in
+ * the SAME tx, so the reset (a real, version-bumping state change — terminal
+ * states included) no longer happens with zero trail rows. The marker is
+ * EVENT-ROW ONLY: no emitter postlude, no SSE/watchers/recalc hooks, no
+ * receipts, no recovery effects, no meter (`updated` is unmetered; the human
+ * actor is exempt regardless). Actor = the REAL human whose request executed
+ * this publication (`prepared.authority.caller` — on the ordinary path the
+ * same principal that reserved the import attempt; on the public expired-
+ * lease recovery path a DIFFERENT legitimate human may re-drive the reserved
+ * manifest, in which case the markers truthfully record the actual resetting
+ * actor while the import-attempt row keeps its original reserver — the two
+ * provenance roots are distinct by design and neither is rewritten). Metadata is bounded and
+ * server-owned (`{importDisposition, importAttemptId, mode, preStatus}`);
+ * event/task ids are minted server-side and nothing is accepted from the
+ * upload. `preStatus` comes from the WINNING in-tx preimage — the row this
+ * tx actually resets, read inside the BEGIN IMMEDIATE publication tx, never
+ * a preflight-time pre-read. Any marker INSERT failure rolls back together
+ * with the reset (the tx owns the atomicity). `preserve`/`replace`
+ * dispositions never enter this path — they emit zero reset markers.
  */
-function resetTaskExecutionState(tx: TaskPublicationDbClient, targetHabitatId: string): void {
+function resetTaskExecutionState(
+  tx: TaskPublicationDbClient,
+  targetHabitatId: string,
+  resetAudit: {
+    actorType: ActorType;
+    actorId: string;
+    importAttemptId: string;
+    mode: "new" | "replacement";
+  },
+): void {
   // Resolve the habitat's mission IDs, then UPDATE tasks where missionId IN
   // (those ids). The `tasks` table has no habitatId column — chain via
   // missions.
@@ -1008,6 +1040,15 @@ function resetTaskExecutionState(tx: TaskPublicationDbClient, targetHabitatId: s
     .all()
     .map((r) => r.id);
   if (missionIds.length === 0) return;
+
+  // The winning in-tx preimage: read each affected task's CURRENT status on
+  // the publication tx's client (under the BEGIN IMMEDIATE RESERVED lock, so
+  // this read is authoritative for the whole tx).
+  const preimage = tx
+    .select({ id: tasksTable.id, status: tasksTable.status })
+    .from(tasksTable)
+    .where(inArray(tasksTable.missionId, missionIds))
+    .all();
 
   const now = new Date().toISOString();
   tx.update(tasksTable)
@@ -1043,6 +1084,26 @@ function resetTaskExecutionState(tx: TaskPublicationDbClient, targetHabitatId: s
     })
     .where(inArray(tasksTable.missionId, missionIds))
     .run();
+
+  // ONE `updated` marker per actually-reset task (event row only — see the
+  // docstring). Describes the reset itself, in the present, with real
+  // provenance — no fabricated past history.
+  for (const row of preimage) {
+    createEventWithClient(tx, {
+      taskId: row.id,
+      actorType: resetAudit.actorType,
+      actorId: resetAudit.actorId,
+      action: "updated",
+      fromStatus: row.status,
+      toStatus: "pending",
+      metadata: {
+        importDisposition: "tasks:reset",
+        importAttemptId: resetAudit.importAttemptId,
+        mode: resetAudit.mode,
+        preStatus: row.status,
+      },
+    });
+  }
 }
 
 /**
@@ -1766,7 +1827,14 @@ export function publishImportAggregateWithClient(
         // remain (same ids) but their execution state resets to pending +
         // default. This is the documented `reset` semantic for tasks
         // (clear execution state, don't replace the structural shape).
-        resetTaskExecutionState(tx, targetHabitatId);
+        // REC-06: the real import caller principal + the import attempt id
+        // thread through to the per-task reset markers.
+        resetTaskExecutionState(tx, targetHabitatId, {
+          actorType: mapActorType(prepared.authority.caller.type),
+          actorId: prepared.authority.caller.id ?? "",
+          importAttemptId,
+          mode: prepared.manifest.mode,
+        });
       } else if (shouldRunKernelLoop) {
         for (let i = 0; i < tasks.length; i++) {
           const { proposal, guard } = governedProposals[i];

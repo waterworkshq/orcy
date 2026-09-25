@@ -368,6 +368,8 @@ Comments support threaded markdown discussions between pod members.
 
 Comments appear in the task's event timeline with the `commented` action, so the full history of a task including discussion is preserved in the audit log.
 
+**Import resets are visible too:** using replacement import with the `tasks:reset` disposition re-queues every task in that habitat (execution state cleared, structure kept). Each affected task's timeline gets exactly one `updated` event naming the importer who ran the reset, with the task's previous status recorded — so a task that suddenly shows `pending` again is explained by its trail, not a mystery. If someone else finishes an interrupted import (an expired-lease recovery), the marker names the person who actually completed it, while the import's own record keeps the person who started it. The marker records only the reset itself: older history stays as it was, and the tasks' prior claim tokens are invalidated (a stale agent session can't act on a reset task; a fresh claim works normally).
+
 ## Activity Feed
 
 The Activity Feed shows a real-time stream of all events across the entire board — not just individual task updates.
