@@ -20,14 +20,16 @@ export const AGENT_DISPATCH_TOOL: Tool = createDispatchTool({
       enum: [...AGENT_TYPES],
       description: "The type of AI agent (action=register)",
     },
-    domain: { type: "string", description: "Primary domain (action=register)" },
+    domain: {
+      type: "string",
+      description: "Primary domain (action=register); filter by agent domain (action=list)",
+    },
     capabilities: { type: "string", description: "Comma-separated capabilities (action=register)" },
     status: {
       type: "string",
       enum: [...AGENT_STATUSES],
       description: "Filter by agent status (action=list)",
     },
-    domainFilter: { type: "string", description: "Filter by agent domain (action=list)" },
     taskId: {
       type: "string",
       description: "The UUID of the task for heartbeat tracking (action=heartbeat)",
