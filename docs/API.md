@@ -1080,7 +1080,7 @@ List all tasks within a mission.
 }
 ```
 
-### POST /missions/:id/tasks
+### POST /missions/:missionId/task-publications
 
 Create a task within a mission. Triggers mission status recalculation.
 
@@ -2652,7 +2652,7 @@ Add a comment to a task.
 }
 ```
 
-### PATCH /comments/:id
+### PATCH /tasks/:taskId/comments/:commentId
 
 Update a comment (author only).
 
@@ -2674,7 +2674,7 @@ Update a comment (author only).
 }
 ```
 
-### DELETE /comments/:id
+### DELETE /tasks/:taskId/comments/:commentId
 
 Delete a comment (author or admin only).
 
@@ -3595,7 +3595,7 @@ When toggled off (`active: false`), the reaction was removed and the `reaction` 
 
 Templates provide pre-defined mission structures for consistent mission creation. Each template can include a `tasksTemplate` array defining child tasks that are automatically created when the template is used.
 
-### GET /templates
+### GET /habitats/:habitatId/templates
 
 List all templates. Returns global templates (habitatId=null) and habitat-specific templates.
 
@@ -3629,7 +3629,7 @@ List all templates. Returns global templates (habitatId=null) and habitat-specif
 }
 ```
 
-### POST /templates
+### POST /habitats/:habitatId/templates
 
 Create a new template.
 
@@ -5048,7 +5048,7 @@ Create a webhook subscription.
 
 > **Important:** Save the `secret` immediately — it cannot be retrieved later. It's used for HMAC-SHA256 request signing.
 
-### PATCH /webhooks/:id
+### PUT /webhooks/:id
 
 Update a webhook subscription.
 
@@ -5110,7 +5110,7 @@ Get delivery log for a webhook.
 }
 ```
 
-### POST /webhooks/test/:id
+### POST /webhooks/:id/test
 
 Send a test event to verify webhook configuration.
 
