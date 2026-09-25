@@ -2,7 +2,6 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { ADMIN_ACTIONS } from "../../tools/admin-dispatch.js";
 import { AGENT_ACTIONS } from "../../tools/agent-dispatch.js";
 import { AUTOMATION_ACTIONS } from "../../tools/automation-dispatch.js";
 import { HABITAT_ACTIONS } from "../../tools/habitat-dispatch.js";
@@ -43,7 +42,6 @@ const DISPATCH_TOOLS = [
   ["orcy_habitat_mission", Object.keys(MISSION_ACTIONS)],
   ["orcy_habitat_task", Object.keys(TASK_ACTIONS)],
   ["orcy_habitat_agent", Object.keys(AGENT_ACTIONS)],
-  ["orcy_admin", Object.keys(ADMIN_ACTIONS)],
   ["orcy_automation", Object.keys(AUTOMATION_ACTIONS)],
   ["orcy_habitat_skill", Object.keys(HABITAT_SKILL_ACTIONS)],
   ["orcy_learning", Object.keys(LEARNING_ACTIONS)],
@@ -68,9 +66,12 @@ const DOC_FILES = [
 ] as const;
 
 // Existence = advertised tools (ALL_TOOLS) ∪ registry-driven dispatch tools.
-// orcy_admin is deliberately NOT advertised in ALL_TOOLS (batch actions live
-// under orcy_habitat_task — pinned in tools.task.test.ts) but its handler is
-// registered and its actions documented, so mentioning it is not drift.
+// orcy_admin is deliberately excluded: its descriptor/handler module exists
+// (admin-dispatch.ts) but it is NOT registered in the served stdio server —
+// absent from ALL_TOOLS (tools/index.ts) and TOOL_HANDLERS (mcp/src/index.ts)
+// — so documenting its actions as callable MCP guidance would be drift. Batch
+// task operations are served under orcy_habitat_task. This union is the
+// SERVED surface only, not a claim of full catalog closure.
 const LIVE_TOOL_NAMES = new Set([
   ...ALL_TOOLS.map((t) => t.name),
   ...DISPATCH_TOOLS.map(([name]) => name),

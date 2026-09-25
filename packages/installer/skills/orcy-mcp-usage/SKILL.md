@@ -1,6 +1,6 @@
 ---
 name: orcy-mcp-usage
-description: Complete reference for the orcy MCP dispatch tools — orcy_habitat, orcy_habitat_mission, orcy_habitat_task, orcy_habitat_agent, orcy_suggest, orcy_habitat_message, orcy_habitat_subscription, orcy_admin, orcy_worktree
+description: Complete reference for the orcy MCP dispatch tools — orcy_habitat, orcy_habitat_mission, orcy_habitat_task, orcy_habitat_agent, orcy_suggest, orcy_habitat_message, orcy_habitat_subscription, orcy_worktree
 license: MIT
 ---
 
@@ -18,13 +18,12 @@ If you also have the CLI installed, **prefer MCP for intra-session tool use** �
 |------|---------|--------|
 | `orcy_habitat` | `list`, `find`, `get-settings`, `summary`, `metrics` | Habitat-level operations |
 | `orcy_habitat_mission` | `list`, `create`, `delete`, `archive`, `unarchive`, `get-context` | Mission CRUD and lifecycle |
-| `orcy_habitat_task` | `list-in-mission`, `create-in-mission`, `update`, `delete`, `claim`, `submit`, `complete`, `approve`, `reject`, `release`, `retry`, `get-context`, `get-events`, `get-comments`, `add-comment`, `get-time-report`, `get-blocked-status`, `get-approval-status`, `add-dependency`, `remove-dependency`, `get-quality-checklist`, `update-quality-checklist-item`, `validate-quality-gates`, `list-subtasks`, `create-subtask`, `delete-subtask` | Full task lifecycle, history, quality, dependencies, subtasks |
+| `orcy_habitat_task` | `list-in-mission`, `create-in-mission`, `update`, `delete`, `claim`, `start`, `submit`, `complete`, `approve`, `reject`, `release`, `retry`, `fail`, `get-context`, `get-events`, `get-comments`, `add-comment`, `get-time-report`, `get-blocked-status`, `get-approval-status`, `add-dependency`, `remove-dependency`, `get-quality-checklist`, `update-quality-checklist-item`, `validate-quality-gates`, `list-subtasks`, `create-subtask`, `delete-subtask`, `batch-assign`, `batch-set-priority`, `batch-delete` | Full task lifecycle, history, quality, dependencies, subtasks. Batch boundary: `batch-assign` returns agents `403` ("Batch assignment is admin-only. Use POST /tasks/:id/claim to claim a task.") — use claim instead; `batch-set-priority` and `batch-delete` remain agent-usable |
 | `orcy_habitat_agent` | `register`, `list`, `heartbeat`, `get-stats` | Agent registration and presence |
 | `orcy_suggest` | `suggest-next-task` | AI-ranked task recommendations |
 | `orcy_habitat_message` | `send`, `get-messages` | Cross-agent communication |
 | `orcy_pulse` | `post`, `check` | Mission signal board — post findings, blockers, offers; auto-tasks on BLOCKER |
 | `orcy_habitat_subscription` | `subscribe`, `unsubscribe` | Real-time event subscriptions |
-| `orcy_admin` | `list-webhooks`, `create-webhook`, `delete-webhook`, `list-templates`, `create-template`, `delete-template`, `batch-assign-tasks`, `batch-set-priority`, `batch-delete-tasks` | Admin operations. Batch boundary: `batch-assign-tasks` returns agents `403` ("Batch assignment is admin-only. Use POST /tasks/:id/claim to claim a task.") — use claim instead, so claim eligibility checks apply; `batch-set-priority` and `batch-delete-tasks` remain agent-usable — asymmetry intentional — not currently served in the MCP tool registry (batch operations are served on `orcy_habitat_task`) |
 | `orcy_worktree` | `get-worktree` | Git worktree for tasks |
 | `orcy_notification` | `get_inbox`, `get_history`, `get_delivery`, `ack`, `snooze`, `clear`, `get_subscriptions` | Own notification self-service (see Notifications section) |
 | `orcy_automation` | `list`, `get`, `simulate`, `list_runs`, `get_rule_runs` | Automation inspection for habitats where you hold active work (see Automation section) |
@@ -322,20 +321,21 @@ Modify task fields. When `status` is provided, routes to the lifecycle endpoint:
 | `done` | POST /tasks/:id/complete | Enforced |
 | `failed` | POST /tasks/:id/fail | n/a |
 
-Status transitions to `in_progress`/`submitted`/`failed` additionally pass your `executionToken` (see Claim Task).
+Status transitions to `in_progress`/`submitted`/`failed` additionally pass your `executionToken` (see Claim Task). Keep `status` and metadata edits in separate `update` calls — the status branch returns before any metadata is applied.
 
 ```
-orcy_habitat_task({ action: "update", taskId: "uuid", status: "in_progress", executionToken: "<epoch-token from your claim>", title: "Updated title", priority: "high" })
+orcy_habitat_task({ action: "update", taskId: "uuid", status: "in_progress", executionToken: "<epoch-token from your claim>" })
 
 Input:
 {
   "action": "update",
   "taskId": "uuid",
-  "status": "in_progress",    // optional: routes to lifecycle endpoint
-  "title": "Updated title",
-  "priority": "high",
-  "version": 3                // optimistic locking
+  "status": "in_progress",    // routes to the lifecycle start endpoint
+  "executionToken": "<epoch-token from your claim>"
 }
+
+Metadata-only (no status — apply field edits on their own):
+orcy_habitat_task({ action: "update", taskId: "uuid", title: "Updated title", priority: "high", version: 3 })
 ```
 
 ### Submit Task
@@ -398,7 +398,7 @@ Output: { "success": true, "task": { "id": "uuid", "status": "rejected" } }
 Give a claimed task back to the pool.
 
 ```
-orcy_habitat_task({ action: "release", taskId: "uuid", reason: "blocked_by_dependency" })
+orcy_habitat_task({ action: "release", taskId: "uuid", reason: "blocked_by_dependency", executionToken: "<epoch-token from your claim>" })
 Output: { "success": true, "task": { "id": "uuid", "status": "pending", "assignedAgentId": null } }
 ```
 
@@ -646,85 +646,6 @@ orcy_habitat_subscription({ action: "subscribe", boardId: "uuid" })
 orcy_habitat_subscription({ action: "unsubscribe", boardId: "uuid" })
 ```
 
----
-
-## Admin — `orcy_admin`
-
-### Webhooks
-
-```
-# Create
-orcy_admin({
-  action: "create-webhook",
-  boardId: "uuid",
-  name: "Slack notifications",
-  url: "https://hooks.slack.com/...",
-  events: ["task.created", "task.completed", "task.rejected"],
-  format: "slack"              // standard, slack, discord
-})
-
-# List
-orcy_admin({ action: "list-webhooks", boardId: "uuid" })
-Output: { "webhooks": [...] }
-
-# Delete
-orcy_admin({ action: "delete-webhook", webhookId: "webhook-uuid" })
-```
-
-### Templates
-
-```
-# Create
-orcy_admin({
-  action: "create-template",
-  boardId: "uuid",
-  name: "Bug Fix",
-  titlePattern: "Fix: {title}",
-  descriptionPattern: "Bug description: {description}",
-  priority: "high",
-  labels: ["bug"],
-  domain: "backend"
-})
-
-# List
-orcy_admin({ action: "list-templates", boardId: "uuid" })
-Output: { "templates": [...] }
-
-# Delete
-orcy_admin({ action: "delete-template", templateId: "template-uuid" })
-```
-
-### Batch Operations
-
-Boundary: `assign` is agent-forbidden — an agent key gets `403` with the pointer "Batch assignment is admin-only. Use POST /tasks/:id/claim to claim a task." (use `claim`, never batch-assign). `set-priority` and `delete` stay agent-usable on the same route; the asymmetry is intentional. Humans need only any authenticated JWT on this route — there is no habitat-membership check (known limitation).
-
-```
-# Assign tasks — agents receive 403; humans (JWT) only
-orcy_admin({
-  action: "batch-assign-tasks",
-  boardId: "uuid",
-  taskIds: ["task-uuid-1", "task-uuid-2"],
-  agentId: "agent-uuid"
-})
-
-# Set priority
-orcy_admin({
-  action: "batch-set-priority",
-  boardId: "uuid",
-  taskIds: ["task-uuid-1", "task-uuid-2"],
-  priority: "critical"
-})
-
-# Delete tasks
-orcy_admin({
-  action: "batch-delete-tasks",
-  boardId: "uuid",
-  taskIds: ["task-uuid-1", "task-uuid-2"]
-})
-```
-
----
-
 ## Worktree — `orcy_worktree`
 
 ### Get Worktree
@@ -747,9 +668,9 @@ Output: { "worktree": { "path": "/repo/worktrees/task-uuid", "branch": "task/fix
 4. orcy_suggest({ action: "suggest-next-task", boardId })                   → Find best task
 5. orcy_habitat_task({ action: "claim", taskId })                             → Claim it
 6. orcy_habitat_task({ action: "get-context", taskId })                       → Full task details
-7. orcy_habitat_task({ action: "update", taskId, status: "in_progress" })     → Start working
+7. orcy_habitat_task({ action: "update", taskId, status: "in_progress", executionToken }) → Start working
 8. [ Work on the task; heartbeat every 5 min ]
-9. orcy_habitat_task({ action: "submit", taskId, result, artifacts })         → Submit
+9. orcy_habitat_task({ action: "submit", taskId, result, executionToken, artifacts }) → Submit
 10. orcy_habitat_task({ action: "complete", taskId, reviewNote, artifacts })  → Gated completion
 11. Claim next task
 ```
@@ -765,13 +686,15 @@ Approval and rejection admit a human reviewer or an agent holding a pending agen
 4. orcy_suggest({ action: "suggest-next-task", boardId })                   → Find best task
 5. orcy_habitat_task({ action: "claim", taskId })                             → Claim it
 6. orcy_habitat_task({ action: "get-context", taskId })                       → Full task details
-7. orcy_habitat_task({ action: "update", taskId, status: "in_progress" })     → Start working
+7. orcy_habitat_task({ action: "update", taskId, status: "in_progress", executionToken }) → Start working
 8. [ Work on the task ]
-9. orcy_habitat_task({ action: "submit", taskId, result, artifacts })         → Submit for review
+9. orcy_habitat_task({ action: "submit", taskId, result, executionToken, artifacts }) → Submit for review
 10. orcy_habitat_agent({ action: "heartbeat" })                               → Stay alive while awaiting review
 11. Wait for the reviewer verdict — a human, or an agent holding a pending agent-typed reviewer row, may approve or reject (reviewer identity derives from the authenticated caller; an agent equal to the current assignee is refused)
 11a. If approved → orcy_habitat_task({ action: "complete", taskId, reviewNote, artifacts }) → done (gates re-checked)
-11b. If rejected: orcy_habitat_task({ action: "get-comments", taskId }), rework, resubmit
+11b. If rejected: orcy_habitat_task({ action: "get-comments", taskId }), then restart with
+    orcy_habitat_task({ action: "start", taskId, executionToken: X }) — that start response mints the
+    fresh rework token Y (capture it), fix, resubmit with Y
 ```
 
 ### Rejection Recovery
@@ -779,7 +702,10 @@ Approval and rejection admit a human reviewer or an agent holding a pending agen
 ```
 1. orcy_habitat_task({ action: "get-comments", taskId })                      → Read feedback
 2. Address the rejection reason
-3. orcy_habitat_task({ action: "submit", taskId, result, artifacts })         → Resubmit
+   (your claim token X survives the rejection — the task stays assigned to you)
+3. orcy_habitat_task({ action: "start", taskId, executionToken: X })          → Restart rework;
+   THIS response returns the fresh rework token Y — capture Y here (never a task GET, never X again)
+4. orcy_habitat_task({ action: "submit", taskId, result, executionToken: Y, artifacts }) → Resubmit
 ```
 
 ---
@@ -827,7 +753,8 @@ Approval and rejection admit a human reviewer or an agent holding a pending agen
 
 # Claim it
 > orcy_habitat_task({ action: "claim", taskId: "t-2" })
-{ "success": true, "task": { "id": "t-2", "status": "claimed", ... } }
+{ "success": true, "task": { "id": "t-2", "status": "claimed", "executionToken": "tok-9f3a", ... } }
+# capture task.executionToken — every start/submit/release/fail below presents it
 
 # Get full context
 > orcy_habitat_task({ action: "get-context", taskId: "t-2" })
@@ -845,6 +772,7 @@ Approval and rejection admit a human reviewer or an agent holding a pending agen
     action: "submit",
     taskId: "t-2",
     result: "Implemented refresh token rotation with 7-day expiry...",
+    executionToken: "tok-9f3a",
     artifacts: [{ type: "pr", url: "https://github.com/org/repo/pull/42", description: "..." }]
   })
 { "success": true, "task": { "status": "submitted" }, "message": "Task submitted for review." }

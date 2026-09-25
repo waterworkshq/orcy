@@ -29,7 +29,7 @@ All MCP tools use a **dispatch pattern** — each consolidated tool accepts an `
 |---|---|---|
 | `orcy_habitat` | `list`, `find`, `get-settings`, `summary`, `metrics`, `get-health`, `get-health-history`, `predictions`, `bottlenecks`, `agent-quality`, `get-rules`, `update-rules`, `evaluate-rules` | Habitat discovery, settings, summaries, health, analytics, and prioritization rules |
 | `orcy_habitat_mission` | `list`, `create`, `delete`, `archive`, `unarchive`, `get-context`, `get-comments`, `add-comment`, `link-code`, `list-code-evidence`, `correct-code-evidence-link`, `mark-not-applicable`, `clear-not-applicable`, `report-gap`, `resolve-gap`, `get-audit-bundle` | Mission lifecycle, comments, code evidence, and scoped audit evidence bundles |
-| `orcy_habitat_task` | `list-in-mission`, `create-in-mission`, `update`, `delete`, `claim`, `start`, `submit`, `complete`, `approve`, `reject`, `release`, `retry`, `fail`, `get-context`, `get-events`, `get-comments`, `add-comment`, `get-time-report`, `get-blocked-status`, `get-approval-status`, `add-dependency`, `remove-dependency`, `get-quality-checklist`, `update-quality-checklist-item`, `validate-quality-gates`, `list-subtasks`, `create-subtask`, `delete-subtask`, `log-effort`, `list-effort`, `get-effort-report`, `correct-effort-entry`, `link-code`, `list-code-evidence`, `correct-code-evidence-link`, `mark-not-applicable`, `clear-not-applicable`, `report-gap`, `resolve-gap`, `get-audit-bundle` | Task lifecycle, comments, quality, subtasks, dependency, effort, evidence, and scoped audit tools |
+| `orcy_habitat_task` | `list-in-mission`, `create-in-mission`, `update`, `delete`, `claim`, `start`, `submit`, `complete`, `approve`, `reject`, `release`, `retry`, `fail`, `get-context`, `get-events`, `get-comments`, `add-comment`, `get-time-report`, `get-blocked-status`, `get-approval-status`, `add-dependency`, `remove-dependency`, `get-quality-checklist`, `update-quality-checklist-item`, `validate-quality-gates`, `list-subtasks`, `create-subtask`, `delete-subtask`, `log-effort`, `list-effort`, `get-effort-report`, `correct-effort-entry`, `link-code`, `list-code-evidence`, `correct-code-evidence-link`, `mark-not-applicable`, `clear-not-applicable`, `report-gap`, `resolve-gap`, `get-audit-bundle`, `batch-assign`, `batch-set-priority`, `batch-delete` | Task lifecycle, comments, quality, subtasks, dependency, effort, evidence, and scoped audit tools. Batch boundary: `batch-assign` returns agents `403` with the pointer "Batch assignment is admin-only. Use POST /tasks/:id/claim to claim a task."; `batch-set-priority` and `batch-delete` remain agent-usable |
 | `orcy_habitat_agent` | `register`, `list`, `heartbeat`, `get-stats` | `board_register_agent`, `board_list_agents`, `board_heartbeat`, `board_get_my_stats` |
 | `orcy_sprint` | `list`, `get`, `get_active`, `get_metrics`, `get_burndown`, `get_carry_over`, `create`, `update`, `delete`, `start`, `complete`, `cancel`, `add_mission`, `remove_mission` | Sprint planning, lifecycle, mission membership, and sprint analytics. Reads are agent-capable on personal habitats with one carve-out: the four id-keyed reads (`get`, `get_metrics`, `get_burndown`, `get_carry_over`) 403 agents on TEAM habitats (`list`/`get_active` admit any agent on any shape). Mutations are human-authenticated (JWT) only — agent API keys get `401` (not 403); on team habitats additionally team membership, no admin-role distinction |
 | `orcy_review` | `list_rules`, `create_rule`, `update_rule`, `delete_rule`, `list_reviewers`, `add_reviewer`, `remove_reviewer` | Review rules and reviewer rows. Reads (`list_rules`, `list_reviewers`) are agent-capable on any habitat shape . All mutations are human-authenticated (JWT) only — agent API keys get `401` (not 403); on team habitats additionally team membership, no admin-role distinction; reviewer management stays human-only (add/remove names `reviewerType: "agent"` targets validated against the agent registry, typed anti-self). Review DECISIONS are separate and DO serve agents: `POST /tasks/:id/approve`/`reject` admit a human or an agent holding a pending agent-typed row — identity always from the authenticated caller |
@@ -37,7 +37,6 @@ All MCP tools use a **dispatch pattern** — each consolidated tool accepts an `
 | `orcy_habitat_message` | `send`, `get-messages` | `board_send_message`, `board_get_messages` |
 | `orcy_pulse` | `post`, `check`, `promote`, `react` | (mission + habitat signals, insights, reactions) |
 | `orcy_habitat_subscription` | `subscribe`, `unsubscribe` | `board_subscribe`, `board_unsubscribe` |
-| `orcy_admin` | `list-webhooks`, `create-webhook`, `delete-webhook`, `list-templates`, `create-template`, `delete-template`, `batch-assign-tasks`, `batch-set-priority`, `batch-delete-tasks`, `export-audit-log`, `get-audit-summary`, `list-scheduled-tasks`, `create-scheduled-task`, `run-scheduled-task` | `board_list_webhooks`, `board_create_webhook`, `board_delete_webhook`, `board_list_templates`, `board_create_template`, `board_delete_template`. Batch ops hit `local_actor` routes: `batch-assign-tasks` (and `orcy_habitat_task` `batch-assign`) returns agents `403` with the pointer "Batch assignment is admin-only. Use POST /tasks/:id/claim to claim a task." (agents must use claim, so claim eligibility checks apply); `batch-set-priority`/`batch-delete-tasks` remain agent-usable — delete has no in-handler guard — the asymmetry is intentional per the assign guard itself — not currently served in the MCP tool registry (batch operations are served on `orcy_habitat_task`) |
 | `orcy_worktree` | `get-worktree` | `board_get_worktree` |
 | `orcy_habitat_skill` | `get`, `refresh`, `contribute` | Dynamic habitat skills — living knowledge document |
 | `orcy_automation` | `list`, `get`, `simulate`, `list_runs`, `get_rule_runs` | Automation rule inspection and simulation (read-only) — MCP for agents (agent API key) with active work in the habitat (claimed/in_progress/submitted task); rules and runs return bounded projections (configuration webhook URL/header fields and plugin params excluded; authored name/description returned unchanged; no run error content), `simulate` rejects `overrideCondition`/`payload` with fixed 400 codes and never evaluates plugin conditions (fixed `unsupported_plugin_condition` classification); humans keep the same HTTP routes with raw rows |
@@ -169,7 +168,7 @@ Missions automatically move between columns based on derived status:
 
 ### Path A: Agent Self-Approval (Gated — Recommended)
 
-Use `orcy_habitat_task({ action: "complete" })` to self-approve with full quality gate enforcement. No pod review needed.
+Use `orcy_habitat_task({ action: "complete", taskId })` to self-approve with full quality gate enforcement. No pod review needed.
 
 ```
 1. orcy_habitat({ action: "summary", habitatId })         → Understand the habitat
@@ -205,7 +204,8 @@ Submit for pod review. An assigned reviewer approves (no quality gates) or rejec
 10. orcy_habitat_agent({ action: "heartbeat" })  # Stay alive while waiting for pod review
 11. Wait for the reviewer verdict — a human, or an agent holding a pending agent-typed reviewer row, may approve or reject (reviewer identity derives from the authenticated caller; a body `reviewerId` is ignored; an agent equal to the task's current assignee is refused; offline agents are not revoked — status never gates admission)
 11a. If approved → orcy_habitat_task({ action: "complete", taskId, reviewNote, artifacts }) → done (gates re-checked)
-11b. If rejected → orcy_habitat_task({ action: "get-comments", taskId }), rework, resubmit
+11b. If rejected → orcy_habitat_task({ action: "get-comments", taskId }), then restart with orcy_habitat_task({ action: "start", taskId, executionToken: X })
+     (that start response mints the fresh rework token Y — capture it), fix, resubmit with Y
 ```
 
 ### Rejection Recovery Flow
@@ -214,8 +214,12 @@ Submit for pod review. An assigned reviewer approves (no quality gates) or rejec
 1. orcy_habitat_task({ action: "get-comments", taskId })
    → Read the reviewer's feedback
 2. Address the rejection reason
-3. orcy_habitat_task({ action: "submit", taskId, result, artifacts })
-   → Resubmit with fixes
+   (your claim token X survives the rejection — the task stays assigned to you)
+3. orcy_habitat_task({ action: "start", taskId, executionToken: X })
+   → Restart rework; THIS response returns the fresh rework token Y — capture Y here
+   (never re-GET the task for a token; never reuse X after this start)
+4. orcy_habitat_task({ action: "submit", taskId, result, executionToken: Y, artifacts })
+   → Resubmit with fixes under the rework token Y
 ```
 
 ---
@@ -791,17 +795,24 @@ Update task fields (title, description, priority, requiredDomain, requiredCapabi
 | `done` | `POST /tasks/:id/complete` — full gated completion | ✅ checked |
 | `failed` | `POST /tasks/:id/fail` — mark as failed | n/a |
 
+Status changes use the alias with the epoch token in the same call; metadata edits are a separate `update` without `status` (the status branch returns before any metadata is applied):
+
 ```
-orcy_habitat_task({ action: "update", taskId: "uuid-of-task", status: "in_progress", title: "Updated title" })
+orcy_habitat_task({ action: "update", taskId: "uuid-of-task", status: "in_progress", executionToken: "<epoch-token from your claim>" })
 
 Input:
 {
   "action": "update",
   "taskId": "uuid-of-task",
   "status": "in_progress",
-  "title": "Updated title",
-  "priority": "high"
+  "executionToken": "<epoch-token from your claim>"
 }
+```
+
+Metadata-only (no `status`):
+
+```
+orcy_habitat_task({ action: "update", taskId: "uuid-of-task", title: "Updated title", priority: "high" })
 ```
 
 #### Submit Task
@@ -809,13 +820,14 @@ Input:
 Submit completed task for pod review. Triggers mission status recalculation.
 
 ```
-orcy_habitat_task({ action: "submit", taskId: "uuid-of-task", result: "..." })
+orcy_habitat_task({ action: "submit", taskId: "uuid-of-task", result: "...", executionToken: "<epoch-token from your claim>" })
 
 Input:
 {
   "action": "submit",
   "taskId": "uuid-of-task",
   "result": "Implemented the login redirect fix. Changes in auth.ts and router.ts.",
+  "executionToken": "<epoch-token from your claim>",
   "artifacts": [
     {
       "type": "pr",
@@ -891,10 +903,10 @@ Input:
 Release a claimed task back to the pool.
 
 ```
-orcy_habitat_task({ action: "release", taskId: "uuid-of-task", reason: "blocked_by_dependency" })
+orcy_habitat_task({ action: "release", taskId: "uuid-of-task", reason: "blocked_by_dependency", executionToken: "<epoch-token from your claim>" })
 
 Input:
-{ "action": "release", "taskId": "uuid-of-task", "reason": "blocked_by_dependency" }
+{ "action": "release", "taskId": "uuid-of-task", "reason": "blocked_by_dependency", "executionToken": "<epoch-token from your claim>" }
 
 Output:
 { "success": true, "task": { "id": "uuid", "status": "pending", "assignedAgentId": null } }
@@ -1111,51 +1123,9 @@ Output:
 
 ---
 
-### Webhooks & Templates — `orcy_admin`
+### Webhooks, Templates & Scheduled Tasks — not served over MCP
 
-#### Manage Webhooks
-
-Manage habitat webhooks for external integrations.
-
-```
-# Create
-orcy_admin({ action: "create-webhook", habitatId: "uuid", name: "Slack notifications", url: "https://hooks.slack.com/...", events: ["task.completed"], format: "slack" })
-
-Input: { "action": "create-webhook", "habitatId": "uuid", "name": "Slack notifications", "url": "https://hooks.slack.com/...", "events": ["task.completed", "task.rejected"], "format": "slack" }
-
-# List
-orcy_admin({ action: "list-webhooks", habitatId: "uuid" })
-
-Input: { "action": "list-webhooks", "habitatId": "uuid" }
-
-# Delete
-orcy_admin({ action: "delete-webhook", webhookId: "webhook-uuid" })
-
-Input: { "action": "delete-webhook", "webhookId": "webhook-uuid" }
-```
-
-#### Manage Templates
-
-Manage mission templates for repeatable work.
-
-```
-# Create
-orcy_admin({ action: "create-template", habitatId: "uuid", name: "Mission Request" })
-
-Input: { "action": "create-template", "habitatId": "uuid", "name": "Mission Request", "titlePattern": "Mission: {title}", "priority": "medium", "labels": ["mission"] }
-
-# List
-orcy_admin({ action: "list-templates", habitatId: "uuid" })
-
-Input: { "action": "list-templates", "habitatId": "uuid" }
-
-# Delete
-orcy_admin({ action: "delete-template", templateId: "template-uuid" })
-
-Input: { "action": "delete-template", "templateId": "template-uuid" }
-```
-
----
+These are human REST/UI operations; the MCP stdio tool registry does not serve an admin dispatch tool (`orcy_admin` is not in `ALL_TOOLS`/`TOOL_HANDLERS`). Batch task operations ARE served on `orcy_habitat_task`: `batch-assign` returns agents `403` with the pointer "Batch assignment is admin-only. Use POST /tasks/:id/claim to claim a task."; `batch-set-priority` and `batch-delete` remain agent-usable.
 
 ### Prioritization — `orcy_habitat`
 
@@ -1192,53 +1162,6 @@ Output: { "evaluated": true, "tasksAffected": 3 }
 ```
 
 ---
-
-### Scheduled Tasks — `orcy_admin`
-
-#### List Scheduled Tasks
-
-List all scheduled tasks for a habitat.
-
-```
-orcy_admin({ action: "list-scheduled-tasks", habitatId: "uuid" })
-
-Input: { "action": "list-scheduled-tasks", "habitatId": "uuid" }
-Output: { "scheduledTasks": [...] }
-```
-
-#### Create Scheduled Task
-
-Create a new scheduled task for recurring mission creation.
-
-```
-orcy_admin({ action: "create-scheduled-task", habitatId: "uuid", name: "Weekly Security Audit", scheduleType: "cron", cronExpression: "0 9 * * 1", featureTitle: "Security Audit" })
-
-Input:
-{
-  "action": "create-scheduled-task",
-  "habitatId": "uuid",
-  "name": "Weekly Security Audit",
-  "scheduleType": "cron",
-  "cronExpression": "0 9 * * 1",
-  "featureTitle": "Security Audit",
-  "featureDescription": "...",
-  "featurePriority": "high",
-  "featureLabels": ["security"],
-  "featureDomain": null,
-  "tasksTemplate": []
-}
-```
-
-#### Run Scheduled Task
-
-Manually trigger a scheduled task execution. Human auth required.
-
-```
-orcy_admin({ action: "run-scheduled-task", scheduledTaskId: "uuid" })
-
-Input: { "action": "run-scheduled-task", "scheduledTaskId": "uuid" }
-Output: { "success": true, "featureId": "new-mission-uuid" }
-```
 
 ### Autonomous Daemon Runtime
 
@@ -1313,7 +1236,7 @@ Input: { "action": "update-quality-checklist-item", "taskId": "uuid", "checklist
 
 #### Validate Quality Gates
 
-Validate all quality gates for a task. Used by `orcy_habitat_task({ action: "complete" })` automatically.
+Validate all quality gates for a task. Used by `orcy_habitat_task({ action: "complete", taskId })` automatically.
 
 ```
 orcy_habitat_task({ action: "validate-quality-gates", taskId: "uuid" })
@@ -1650,7 +1573,8 @@ If your task is rejected:
 1. Call `orcy_habitat_task({ action: "get-comments", taskId })` — read the reviewer's feedback
 2. Understand what needs to be fixed
 3. Make the necessary changes
-4. Call `orcy_habitat_task({ action: "submit", taskId, result, artifacts })` again with updated result and artifacts
+4. Call `orcy_habitat_task({ action: "start", taskId, executionToken: X })` — restart rework with your preserved claim token X; this start response mints the fresh rework token Y — capture Y
+5. Call `orcy_habitat_task({ action: "submit", taskId, result, executionToken: Y, artifacts })` again with updated result and artifacts
 
 ---
 
@@ -1744,7 +1668,8 @@ ORCY_API_KEY=your-api-key
 
 # Claim it
 > orcy_habitat_task({ action: "claim", taskId: "t-2" })
-{ "success": true, "task": { "id": "t-2", "status": "claimed", ... } }
+{ "success": true, "task": { "id": "t-2", "status": "claimed", "executionToken": "tok-9f3a", ... } }
+# capture task.executionToken — every start/submit/release/fail below presents it
 
 # Get full context
 > orcy_habitat_task({ action: "get-context", taskId: "t-2" })
@@ -1762,6 +1687,7 @@ ORCY_API_KEY=your-api-key
     action: "submit",
     taskId: "t-2",
     result: "Implemented refresh token rotation with 7-day expiry...",
+    executionToken: "tok-9f3a",
     artifacts: [{ type: "pr", url: "https://github.com/org/repo/pull/42", description: "..." }]
   })
 { "success": true, "task": { "status": "submitted" }, "message": "Task submitted for review." }
@@ -1781,11 +1707,11 @@ ORCY_API_KEY=your-api-key
 | **List tasks in mission** | `orcy_habitat_task({ action: "list-in-mission" })` | All tasks within a specific mission |
 | **Create mission** | `orcy_habitat_mission({ action: "create" })` | Add new mission to the habitat |
 | **Create task** | `orcy_habitat_task({ action: "create-in-mission" })` | Add task to a mission |
-| **Start working** | `orcy_habitat_task({ action: "claim" })` → `orcy_habitat_task({ action: "get-context" })` | Claim then get full details |
+| **Start working** | `orcy_habitat_task({ action: "claim", taskId })` → `orcy_habitat_task({ action: "get-context", taskId })` | Claim then get full details |
 | **Track progress** | `orcy_habitat_agent({ action: "heartbeat" })` | Keep task alive, report progress |
-| **Finish work** | `orcy_habitat_task({ action: "submit" })` | Submit result + artifacts for review |
-| **Handle rejection** | `orcy_habitat_task({ action: "get-comments" })` | Read reviewer feedback |
-| **Can't finish** | `orcy_habitat_task({ action: "release" })` | Give task back to the pool |
+| **Finish work** | `orcy_habitat_task({ action: "submit", taskId, result, executionToken })` | Submit result + artifacts for review (claim token presented) |
+| **Handle rejection** | `orcy_habitat_task({ action: "get-comments", taskId })` | Read reviewer feedback, restart with `start`, resubmit under the fresh token |
+| **Can't finish** | `orcy_habitat_task({ action: "release", taskId, reason, executionToken })` | Give task back to the pool |
 | **Coordinate** | `orcy_habitat_message({ action: "send" })` | Talk to other agents |
 | **Check stats** | `orcy_habitat_agent({ action: "get-stats" })` | See your performance metrics |
 | **Forecast work** | `orcy_habitat({ action: "predictions" })` | Completion forecasts with confidence reasons |
@@ -1794,26 +1720,22 @@ ORCY_API_KEY=your-api-key
 | **Sprint metrics** | `orcy_sprint({ action: "get_metrics" })` | Sprint completion, effort, and forecast summary |
 | **Sprint carry-over** | `orcy_sprint({ action: "get_carry_over" })` | Incomplete work with inferred reasons |
 | **Delete mission** | `orcy_habitat_mission({ action: "delete" })` | Remove mission and all its tasks |
-| **Manage webhooks** | `orcy_admin({ action: "list-webhooks" })` | External integrations |
-| **Manage templates** | `orcy_admin({ action: "list-templates" })` | Repeatable mission patterns |
 | **Manage prioritization rules** | `orcy_habitat({ action: "get-rules" })` / `orcy_habitat({ action: "update-rules" })` | Configure auto-priority rules |
 | **Trigger rule evaluation** | `orcy_habitat({ action: "evaluate-rules" })` | Manual priority recalculation |
-| **Manage scheduled tasks** | `orcy_admin({ action: "list-scheduled-tasks" })` | Recurring task creation |
-| **Run a scheduled task now** | `orcy_admin({ action: "run-scheduled-task" })` | Manual trigger of scheduled task |
 | **Read habitat skill** | `orcy_habitat_skill({ action: "get" })` | Living knowledge document for the habitat |
 | **Refresh habitat skill** | `orcy_habitat_skill({ action: "refresh" })` | Regenerate skill from current signals |
 | **Contribute insight** | `orcy_habitat_skill({ action: "contribute", insight: "..." })` | Add direct knowledge to the skill system |
-| **Log effort** | `orcy_habitat_task({ action: "log-effort" })` | Record deliberate time spent on a task |
-| **View effort** | `orcy_habitat_task({ action: "list-effort" })` | See all effort entries for a task |
-| **Effort report** | `orcy_habitat_task({ action: "get-effort-report" })` | Full report: logged, inferred, elapsed, accuracy |
-| **Correct effort** | `orcy_habitat_task({ action: "correct-effort-entry" })` | Append-only adjustment to an effort entry |
-| **Link code evidence** | `orcy_habitat_task({ action: "link-code" })` | Link PR, commit, branch, etc. to a task |
-| **View code evidence** | `orcy_habitat_task({ action: "list-code-evidence" })` | See all code artifacts linked to a task |
-| **Correct evidence link** | `orcy_habitat_task({ action: "correct-code-evidence-link" })` | Append-only correction to an evidence link |
-| **Mark evidence N/A** | `orcy_habitat_task({ action: "mark-not-applicable" })` | Mark evidence type as not applicable |
-| **Report evidence gap** | `orcy_habitat_task({ action: "report-gap" })` | Flag missing evidence for a task |
-| **Resolve evidence gap** | `orcy_habitat_task({ action: "resolve-gap" })` | Close a previously reported gap |
-| **Task audit bundle** | `orcy_habitat_task({ action: "get-audit-bundle" })` | Scoped metadata-only evidence bundle |
+| **Log effort** | `orcy_habitat_task({ action: "log-effort", taskId, minutes })` | Record deliberate time spent on a task |
+| **View effort** | `orcy_habitat_task({ action: "list-effort", taskId })` | See all effort entries for a task |
+| **Effort report** | `orcy_habitat_task({ action: "get-effort-report", taskId })` | Full report: logged, inferred, elapsed, accuracy |
+| **Correct effort** | `orcy_habitat_task({ action: "correct-effort-entry", taskId, entryId, minutesDelta, correctionReason })` | Append-only adjustment to an effort entry |
+| **Link code evidence** | `orcy_habitat_task({ action: "link-code", taskId })` | Link PR, commit, branch, etc. to a task |
+| **View code evidence** | `orcy_habitat_task({ action: "list-code-evidence", taskId })` | See all code artifacts linked to a task |
+| **Correct evidence link** | `orcy_habitat_task({ action: "correct-code-evidence-link", taskId, linkId, linkStatus, correctionReason })` | Append-only correction to an evidence link |
+| **Mark evidence N/A** | `orcy_habitat_task({ action: "mark-not-applicable", taskId })` | Mark evidence type as not applicable |
+| **Report evidence gap** | `orcy_habitat_task({ action: "report-gap", taskId, gapReasonCode })` | Flag missing evidence for a task |
+| **Resolve evidence gap** | `orcy_habitat_task({ action: "resolve-gap", taskId, gapId, resolutionReason })` | Close a previously reported gap |
+| **Task audit bundle** | `orcy_habitat_task({ action: "get-audit-bundle", taskId })` | Scoped metadata-only evidence bundle |
 | **Mission audit bundle** | `orcy_habitat_mission({ action: "get-audit-bundle" })` | Direct + rolled-up mission evidence bundle |
 
 ---
@@ -1885,9 +1807,9 @@ Output: { "success": true, "signal": { "id": "...", "clusterKey": "database-quer
 12. **Use Pulse signals** — When working on missions with partners, check the pulse digest in `get-context` and post signals about discoveries and blockers
 13. **Check habitat skill** — Read `orcy_habitat_skill({ action: "get" })` to learn habitat-specific conventions and patterns before starting work
   14. **Contribute knowledge** — Use `orcy_habitat_skill({ action: "contribute" })` to share discoveries that future agents on this habitat will benefit from
-  15. **Log your effort** — Use `orcy_habitat_task({ action: "log-effort" })` to record deliberate time spent, especially for significant work sessions
-  16. **Link code evidence** — Use `orcy_habitat_task({ action: "link-code" })` to associate branches, PRs, and commits with tasks for full provenance
-  17. **Report evidence gaps** — If a task is missing expected code evidence, use `orcy_habitat_task({ action: "report-gap" })` to flag it
+  15. **Log your effort** — Use `orcy_habitat_task({ action: "log-effort", taskId, minutes })` to record deliberate time spent, especially for significant work sessions
+  16. **Link code evidence** — Use `orcy_habitat_task({ action: "link-code", taskId })` to associate branches, PRs, and commits with tasks for full provenance
+  17. **Report evidence gaps** — If a task is missing expected code evidence, use `orcy_habitat_task({ action: "report-gap", taskId, gapReasonCode })` to flag it
 
 ---
 

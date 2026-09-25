@@ -123,6 +123,7 @@ describe("orcy_habitat_task — ListTools descriptor (firewall)", () => {
         "result",
         "reviewNote",
         "reason",
+        "failureReason",
         "artifacts",
         "limit",
         "offset",
@@ -343,6 +344,10 @@ describe("orcy_habitat_task — ListTools descriptor (firewall)", () => {
                 "type": "string",
               },
               "type": "array",
+            },
+            "failureReason": {
+              "description": "Why the task could not be completed (action=fail; mapped to the HTTP fail body's \`reason\` field, 1–500 chars)",
+              "type": "string",
             },
             "gapId": {
               "description": "UUID of the evidence gap (action=resolve-gap)",

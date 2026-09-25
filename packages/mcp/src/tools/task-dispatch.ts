@@ -102,6 +102,10 @@ const f = {
     description:
       "Why the task is being released (action=release) or rejected back for rework (action=reject)",
   }),
+  failureReason: field.string({
+    description:
+      "Why the task could not be completed (action=fail; mapped to the HTTP fail body's `reason` field, 1–500 chars)",
+  }),
   artifacts: field.array(
     {
       type: "object",
@@ -263,7 +267,11 @@ const TASK = defineActions({
     reject: { args: { taskId: f.taskId, reason: f.reason }, execute: habitatRejectTask },
     release: { args: {}, execute: habitatReleaseTask },
     retry: { args: {}, execute: habitatRetryTask },
-    fail: { args: {}, execute: habitatFailTask, enumLast: true },
+    fail: {
+      args: { taskId: f.taskId, failureReason: f.failureReason },
+      execute: habitatFailTask,
+      enumLast: true,
+    },
     "get-context": { args: {}, execute: habitatGetTaskContext },
     "get-events": { args: {}, execute: habitatGetTaskEvents },
     "get-comments": { args: {}, execute: habitatGetTaskComments },

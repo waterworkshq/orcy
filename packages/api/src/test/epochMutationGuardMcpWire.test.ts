@@ -316,6 +316,62 @@ describe("epoch mutation guard — served MCP wire", () => {
     expect(row.status).toBe("submitted");
   }, 60_000);
 
+  it("fail action: valid token + failureReason fails the task; omitted failureReason is refused before any write", async () => {
+    // Valid: claim → fail through the served dispatch tool.
+    const taskId = seedTask("fail-mcp");
+    const token = await claim(taskId, mcpAgentKey);
+    // Served transition table: fail is valid from in_progress (claimed → failed is not).
+    const started = await callTool("orcy_habitat_task", {
+      action: "start",
+      taskId,
+      executionToken: token,
+    });
+    expect(started.isError).toBeFalsy();
+    const failed = await callTool("orcy_habitat_task", {
+      action: "fail",
+      taskId,
+      failureReason: "blocked by an external outage",
+      executionToken: token,
+    });
+    expect(failed.isError).toBeFalsy();
+    const row = getDb().select().from(tasks).where(eq(tasks.id, taskId)).get() as {
+      status: string;
+    };
+    expect(row.status).toBe("failed");
+
+    // Omitted failureReason: refused by the dispatch required map BEFORE the
+    // HTTP call — no write, task untouched.
+    const task2 = seedTask("fail-mcp-no-reason");
+    const token2 = await claim(task2, mcpAgentKey);
+    const refused = await callTool("orcy_habitat_task", {
+      action: "fail",
+      taskId: task2,
+      executionToken: token2,
+    });
+    expect(refused.isError).toBe(true);
+    const refusedText = (refused.content as Array<{ type: string; text: string }>)[0]!.text;
+    expect(refusedText).toContain("missing required parameters: failureReason");
+    const row2 = getDb().select().from(tasks).where(eq(tasks.id, task2)).get() as {
+      status: string;
+    };
+    expect(row2.status).toBe("claimed");
+
+    // Wire schema floor: the HTTP fail route itself rejects an empty reason
+    // (zod min(1)) before the handler mutates anything.
+    const task3 = seedTask("fail-http-empty-reason");
+    const token3 = await claim(task3, mcpAgentKey);
+    const http = await fetch(`${baseUrl}/api/tasks/${task3}/fail`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Agent-API-Key": mcpAgentKey },
+      body: JSON.stringify({ executionToken: token3 }),
+    });
+    expect(http.status).toBe(400);
+    const row3 = getDb().select().from(tasks).where(eq(tasks.id, task3)).get() as {
+      status: string;
+    };
+    expect(row3.status).toBe("claimed");
+  }, 120_000);
+
   it("served review actions: approve/reject reach the canonical review decisions server-side", async () => {
     // The fixture grants the MCP agent its pending typed row directly (the
     // human-only management route is untouched by this ticket). A distinct
