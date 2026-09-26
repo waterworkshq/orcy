@@ -334,8 +334,8 @@ One-time setup per habitat:
   - `orcy_habitat_task({ action: 'complete' })` validates quality gates, dependencies, time tracking
 
 **Review decisions (approval skips gates at its own transition; completion checks them):** PENDING → CLAIMED → IN_PROGRESS → SUBMITTED → APPROVED → DONE
-  - `orcy_habitat_task({ action: 'approve', taskId })` — the review decision of a human, or of an agent holding a pending assigned reviewer row (`update` with `status: 'approved'` is an alias under the same authorization); with several required reviewers an approval may leave the task `submitted` until all required reviews are satisfied; with several required reviewers the task stays `submitted` until the last one decides
-  - Then `orcy_habitat_task({ action: 'complete', taskId })` marks it done — quality gates and review state are re-checked
+  - `orcy_habitat_task({ action: 'approve', taskId })` — the review decision of a human, or of an agent holding a pending assigned reviewer row (`update` with `status: "approved"` is an alias under the same authorization); with several required reviewers an approval may leave the task `submitted` until all required reviews are satisfied — skips gates at the approve transition only
+  - Then `orcy_habitat_task({ action: 'complete', taskId })` marks the task done — quality gates and review state are re-checked
 
 **Rejection loop:** SUBMITTED → REJECTED → (orcy reworks) → SUBMITTED
 

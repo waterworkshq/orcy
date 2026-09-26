@@ -67,9 +67,9 @@ All MCP tools use a **dispatch pattern** — each consolidated tool accepts an `
 
 # WRONG — N+1 calls that pollute your context
 > orcy_habitat_mission({ action: "list", habitatId: "...", limit: 50 })
-> orcy_habitat_mission({ action: "get-context", featureId: "feat-1" })
-> orcy_habitat_mission({ action: "get-context", featureId: "feat-2" })
-> orcy_habitat_mission({ action: "get-context", featureId: "feat-3" })
+> orcy_habitat_mission({ action: "get-context", missionId: "mission-1" })
+> orcy_habitat_mission({ action: "get-context", missionId: "mission-2" })
+> orcy_habitat_mission({ action: "get-context", missionId: "mission-3" })
 # ... repeating for every mission
 ```
 
@@ -89,8 +89,8 @@ When an orcy starts a session, it should follow this sequence:
 5. Call orcy_habitat_agent({ action: "heartbeat" }) to register presence
 6. Call orcy_habitat({ action: "summary", habitatId }) to understand the habitat state
 7. Call orcy_habitat_mission({ action: "list", habitatId }) to browse available missions
-8. Call orcy_habitat_mission({ action: "get-context", featureId }) to read the mission brief
-9. Call orcy_suggest({ action: "suggest-next-task", habitatId }) or orcy_habitat_task({ action: "list-in-mission", featureId }) to find work
+8. Call orcy_habitat_mission({ action: "get-context", missionId }) to read the mission brief
+9. Call orcy_suggest({ action: "suggest-next-task", habitatId }) or orcy_habitat_task({ action: "list-in-mission", missionId }) to find work
 10. Pick the highest-priority eligible task, call orcy_habitat_task({ action: "claim", taskId })
 11. Begin work on the claimed task
 ```
@@ -164,7 +164,7 @@ Missions automatically move between columns based on derived status:
 ### Stale Prevention
 
 - Call `orcy_habitat_agent({ action: "heartbeat" })` every 5 minutes while working
-- Tasks idle for more than 30 minutes are automatically released
+- Tasks idle past the heartbeat window (default 30 minutes) become sweep-eligible: the stale sweep attempts release of the agent's current task (guarded on the pointer still matching) — not an unconditional timer
 - If you cannot complete a task, call `orcy_habitat_task({ action: "release", taskId, reason, executionToken })` with a reason and your claim token
 
 ---
@@ -178,11 +178,11 @@ Use `orcy_habitat_task({ action: "complete", taskId })` to self-approve with ful
 ```
 1. orcy_habitat({ action: "summary", habitatId })         → Understand the habitat
 2. orcy_habitat_mission({ action: "list", habitatId })    → Browse missions
-3. orcy_habitat_mission({ action: "get-context", featureId }) → Read mission brief
+3. orcy_habitat_mission({ action: "get-context", missionId }) → Read mission brief
 4. orcy_suggest({ action: "suggest-next-task", habitatId })  → Find the best task
 5. orcy_habitat_task({ action: "claim", taskId })       → Claim it (pending → claimed)
 6. orcy_habitat_task({ action: "get-context", taskId }) → Full task details
-7. orcy_habitat_task({ action: "update", taskId, status: "in_progress", executionToken }) → Start working (present the claim epoch token)
+7. orcy_habitat_task({ action: "start", taskId, executionToken }) → Start working (present the claim epoch token)
 8. [ Work on the task ]
 9. orcy_habitat_task({ action: "submit", taskId, result, executionToken, artifacts }) → Submit (preserves artifact links)
 10. orcy_habitat_task({ action: "complete", taskId, reviewNote, artifacts })
@@ -199,15 +199,15 @@ Submit for pod review. An assigned reviewer approves (no quality gates) or rejec
 ```
 1. orcy_habitat({ action: "summary", habitatId })         → Understand the habitat
 2. orcy_habitat_mission({ action: "list", habitatId })    → Browse missions
-3. orcy_habitat_mission({ action: "get-context", featureId }) → Read mission brief
+3. orcy_habitat_mission({ action: "get-context", missionId }) → Read mission brief
 4. orcy_suggest({ action: "suggest-next-task", habitatId })  → Find the best task
 5. orcy_habitat_task({ action: "claim", taskId })       → Claim it (pending → claimed)
 6. orcy_habitat_task({ action: "get-context", taskId }) → Full task details
-7. orcy_habitat_task({ action: "update", taskId, status: "in_progress", executionToken }) → Start working (present the claim epoch token)
+7. orcy_habitat_task({ action: "start", taskId, executionToken }) → Start working (present the claim epoch token)
 8. [ Work on the task ]
 9. orcy_habitat_task({ action: "submit", taskId, result, executionToken, artifacts }) → Submit (preserves artifact links)
 10. orcy_habitat_agent({ action: "heartbeat" })  # Stay alive while waiting for pod review
-11. Wait for the reviewer verdict — a human, or an agent holding a pending agent-typed reviewer row, may approve or reject (reviewer identity derives from the authenticated caller; a body `reviewerId` is ignored; an agent equal to the task's current assignee is refused; offline agents are not revoked — status never gates admission)
+11. Wait for the reviewer verdict — a human, or an agent holding a pending agent-typed reviewer row, may approve or reject (assigned review rules block completion until gathered; reviewer identity derives from the authenticated caller, a body `reviewerId` is ignored; an agent equal to the task's current assignee is refused; offline agents are not revoked — status never gates admission)
 11a. If approved → orcy_habitat_task({ action: "complete", taskId, reviewNote, artifacts }) → done (gates re-checked)
 11b. If rejected → orcy_habitat_task({ action: "get-comments", taskId }), then restart with orcy_habitat_task({ action: "start", taskId, executionToken: X })
      (that start response mints the fresh rework token Y — capture it), fix, resubmit with Y
@@ -363,17 +363,18 @@ Input:
 
 Output:
 {
-  "habitat": { "name": "Sprint 24", "columns": [...], "totalMissions": 8, "totalTasks": 21 },
+  "habitat": { "name": "Sprint 24", "description": "...", "columns": [{ "name": "Backlog", "missionCount": 3, "isTerminal": false }], "totalMissions": 8 },
   "snapshot": {
-    "byStatus": { "not_started": 2, "in_progress": 3, "review": 1, "done": 2 },
-    "byPriority": { "high": 4, "medium": 12, ... },
+    "missionsByStatus": { "not_started": 2, "in_progress": 3, "done": 3 },
+    "tasksByStatus": { "pending": 6, "in_progress": 4, "submitted": 1, "done": 10 },
+    "byPriority": { "high": 4, "medium": 12 },
     "activeAgents": [{ "name": "coding-agent-1", "currentTask": "Fix login bug" }],
-    "featureProgress": [
-      { "featureId": "...", "title": "Auth System", "status": "in_progress", "completed": 2, "total": 5 }
-    ]
+    "blockedMissions": [{ "title": "Rate Limiting", "blockedBy": ["Auth System"] }],
+    "overdueMissions": [{ "title": "Dashboard UI", "dueAt": "..." }]
   },
   "recentActivity": [...],
-  "digest": "# Habitat Summary: Sprint 24\n\n## Current State\n..."
+  "digest": "# Habitat Summary: Sprint 24\n\n## Current State\n...",
+  "generatedAt": "..."
 }
 ```
 
@@ -589,9 +590,9 @@ Output:
 Get full mission context including description, acceptance criteria, all task statuses, and completed task results. **Call this before claiming a task** to understand the mission brief.
 
 ```
-orcy_habitat_mission({ action: "get-context", featureId: "feat-uuid" })
+orcy_habitat_mission({ action: "get-context", missionId: "mission-uuid" })
 
-Input: { "action": "get-context", "featureId": "feat-uuid" }
+Input: { "action": "get-context", "missionId": "mission-uuid" }
 
 Output:
 {
@@ -646,10 +647,10 @@ Output: { "missions": [...], "total": 2 }
 Archive a completed mission. A mission must have a status of `done` to be archived.
 
 ```
-orcy_habitat_mission({ action: "archive", featureId: "feat-uuid" })
+orcy_habitat_mission({ action: "archive", missionId: "mission-uuid" })
 
-Input: { "action": "archive", "featureId": "feat-uuid" }
-Output: { "success": true, "mission": { "id": "feat-uuid", "isArchived": true, ... } }
+Input: { "action": "archive", "missionId": "mission-uuid" }
+Output: { "success": true, "mission": { "id": "mission-uuid", "isArchived": true, ... } }
 ```
 
 #### Unarchive Mission
@@ -657,10 +658,10 @@ Output: { "success": true, "mission": { "id": "feat-uuid", "isArchived": true, .
 Restore an archived mission back to the active habitat (returns to 'done' status).
 
 ```
-orcy_habitat_mission({ action: "unarchive", featureId: "feat-uuid" })
+orcy_habitat_mission({ action: "unarchive", missionId: "mission-uuid" })
 
-Input: { "action": "unarchive", "featureId": "feat-uuid" }
-Output: { "success": true, "mission": { "id": "feat-uuid", "isArchived": false, ... } }
+Input: { "action": "unarchive", "missionId": "mission-uuid" }
+Output: { "success": true, "mission": { "id": "mission-uuid", "isArchived": false, ... } }
 ```
 
 #### Delete Mission
@@ -668,10 +669,10 @@ Output: { "success": true, "mission": { "id": "feat-uuid", "isArchived": false, 
 Delete a mission and all its tasks. Permanent and cannot be undone.
 
 ```
-orcy_habitat_mission({ action: "delete", featureId: "feat-uuid" })
+orcy_habitat_mission({ action: "delete", missionId: "mission-uuid" })
 
-Input: { "action": "delete", "featureId": "feat-uuid" }
-Output: { "success": true, "featureId": "feat-uuid", "message": "Mission feat-uuid deleted" }
+Input: { "action": "delete", "missionId": "mission-uuid" }
+Output: { "success": true, "missionId": "mission-uuid", "message": "Mission mission-uuid deleted" }
 ```
 
 ---
@@ -683,9 +684,9 @@ Output: { "success": true, "featureId": "feat-uuid", "message": "Mission feat-uu
 List all tasks within a mission.
 
 ```
-orcy_habitat_task({ action: "list-in-mission", featureId: "feat-uuid" })
+orcy_habitat_task({ action: "list-in-mission", missionId: "mission-uuid" })
 
-Input: { "action": "list-in-mission", "featureId": "feat-uuid" }
+Input: { "action": "list-in-mission", "missionId": "mission-uuid" }
 
 Output:
 {
@@ -710,12 +711,12 @@ Output:
 Create a task within a mission.
 
 ```
-orcy_habitat_task({ action: "create-in-mission", featureId: "feat-uuid", title: "Add refresh token rotation" })
+orcy_habitat_task({ action: "create-in-mission", missionId: "mission-uuid", title: "Add refresh token rotation" })
 
 Input:
 {
   "action": "create-in-mission",
-  "featureId": "feat-uuid",
+  "missionId": "mission-uuid",
   "title": "Add refresh token rotation",
   "description": "Implement refresh token rotation with 7-day expiry",
   "priority": "medium",
@@ -726,7 +727,7 @@ Input:
 
 Output:
 {
-  "task": { "id": "new-task-uuid", "status": "pending", "featureId": "feat-uuid", ... }
+  "task": { "id": "new-task-uuid", "status": "pending", "missionId": "mission-uuid", ... }
 }
 ```
 
@@ -1128,9 +1129,9 @@ Output:
 
 ---
 
-### Webhooks, Templates & Scheduled Tasks — not served over MCP
+### Webhooks, Templates & Scheduled Tasks — human-side
 
-These are human REST/UI operations; the MCP stdio tool registry does not serve an admin dispatch tool (`orcy_admin` is not in `ALL_TOOLS`/`TOOL_HANDLERS`). Batch task operations ARE served on `orcy_habitat_task`: `batch-assign` returns agents `403` with the pointer "Batch assignment is admin-only. Use POST /tasks/:id/claim to claim a task."; `batch-set-priority` and `batch-delete` remain agent-usable.
+MCP stdio serves no admin tool for managing webhook subscriptions, mission templates or scheduled tasks (`orcy_admin` is not in `ALL_TOOLS`/`TOOL_HANDLERS`). Use authenticated REST/UI: webhook subscriptions at `/api/v1/webhooks`, mission templates at `/api/v1/habitats/:habitatId/templates` for list/create and `/api/v1/templates/:id` for id-specific changes; scheduled tasks use the configured habitat's scheduled-task routes (`/api/v1/habitats/:habitatId/scheduled-tasks`) or the UI. Access depends on each HTTP route's policy; GET habitat templates is `local_actor`, so do **not** call all of these operations "human-only". Batch task operations ARE served on `orcy_habitat_task`: `batch-assign` returns agents `403` with the pointer "Batch assignment is admin-only. Use POST /tasks/:id/claim to claim a task."; `batch-set-priority` and `batch-delete` remain agent-usable.
 
 ### Prioritization — `orcy_habitat`
 
@@ -1150,9 +1151,9 @@ Output: { "settings": { "enabled": true, "rules": [...], "evaluateIntervalMinute
 Update prioritization rules for a habitat. Human auth required.
 
 ```
-orcy_habitat({ action: "update-rules", habitatId: "uuid", settings: { ... } })
+orcy_habitat({ action: "update-rules", habitatId: "uuid", rules: { ... } })
 
-Input: { "action": "update-rules", "habitatId": "uuid", "settings": { ... } }
+Input: { "action": "update-rules", "habitatId": "uuid", "rules": { ... } }
 ```
 
 #### Evaluate Prioritization Rules
@@ -1569,7 +1570,7 @@ If claim fails, try the next available task. Do not retry the same task.
 
 ### Stale Tasks
 
-If you are disconnected for more than 30 minutes while holding a task, it will be automatically released back to the pending pool. Call `orcy_habitat_agent({ action: "heartbeat" })` every 5 minutes while working to prevent stale release. When you reconnect, call `orcy_habitat({ action: "summary" })` then `orcy_habitat_mission({ action: "list" })` to find work.
+If you are disconnected past the heartbeat window (default 30 minutes) while holding a task, the stale sweep will attempt to release your current task back to the pending pool — a guarded attempt on the task pointer still matching, not an unconditional timer. Call `orcy_habitat_agent({ action: "heartbeat" })` every 5 minutes while working to prevent stale release. When you reconnect, call `orcy_habitat({ action: "summary" })` then `orcy_habitat_mission({ action: "list" })` to find work.
 
 ### Rejection Handling
 
@@ -1653,7 +1654,7 @@ ORCY_API_KEY=your-api-key
 }
 
 # Read mission context before claiming
-> orcy_habitat_mission({ action: "get-context", featureId: "feat-1" })
+> orcy_habitat_mission({ action: "get-context", missionId: "mission-1" })
 {
   "mission": { "title": "Auth System", "description": "...", "acceptanceCriteria": "..." },
   "tasks": [
