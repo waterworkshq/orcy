@@ -292,7 +292,7 @@ One-time setup per habitat:
 2. **Allowlist the repositories** — this is mandatory. Add the GitHub `repository.id` (a number, e.g. from the REST API `GET /repos/{owner}/{repo}` or any PR webhook payload's `repository.id`) to `codeReviewSettings.githubRepositories`, and the GitLab `project.id` (e.g. from `GET /api/v4/projects/{url-encoded-path}`) to `gitlabProjects`, via `PATCH /api/habitats/:id`. Full field reference: [API.md](API.md) → "Settings — trusted repository allowlist"; env-free setup walkthrough in [CONFIGURATION.md](CONFIGURATION.md) → "Provider Code-Review Webhooks".
 3. **Turn on `autoApproveOnMerge`** in the same settings payload (default off).
 
-**Upgrade note:** after upgrading Orcy, PR/MR webhooks stop linking and approving until step 2 is done — an empty allowlist refuses everything by design (fail-closed). Release and CI/CD webhooks are not affected. Anyone who can edit habitat settings (any logged-in human, see the known limitation in SECURITY.md) can change the allowlist.
+**Upgrade note:** after upgrading Orcy, PR/MR webhooks stop linking and approving until step 2 is done — an empty allowlist refuses everything by design (fail-closed). Release and CI/CD webhooks are not affected. Anyone who can edit habitat settings can change the allowlist: on team habitats that is any team member (see the settings-authority note in SECURITY.md); on personal habitats any logged-in human.
 
 ## Task Lifecycle
 

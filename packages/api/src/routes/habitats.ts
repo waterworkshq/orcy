@@ -101,6 +101,7 @@ export async function habitatRoutes(fastify: FastifyInstance): Promise<void> {
     "/habitats/:habitatId",
     {
       schema: { params: habitatIdParamsSchema, body: updateHabitatSchema },
+      preHandler: [requireHabitatAccess],
       config: { authPolicy: "human" },
     },
     async (request, _reply) => {
@@ -136,6 +137,7 @@ export async function habitatRoutes(fastify: FastifyInstance): Promise<void> {
     "/habitats/:habitatId/webhook-secrets",
     {
       schema: { params: habitatIdParamsSchema, body: webhookSecretsSchema },
+      preHandler: [requireHabitatAccess],
       config: { authPolicy: "human" },
     },
     async (request, _reply) => {

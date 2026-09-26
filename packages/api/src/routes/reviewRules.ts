@@ -1,7 +1,7 @@
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import * as reviewRuleRepo from '../repositories/reviewRule.js';
 import * as taskReviewerRepo from '../repositories/taskReviewer.js';
-import { requireHabitatAccess } from '../middleware/team.js';
+import { requireHabitatAccess, checkHabitatAccess } from '../middleware/team.js';
 import { badRequest, notFound, forbidden, unauthorized, conflict } from '../errors.js';
 import { isTeamMemberByHabitatId } from '../repositories/teamMember.js';
 import { getHabitatById } from '../repositories/habitat.js';
@@ -134,6 +134,13 @@ export async function reviewRuleRoutes(fastify: FastifyInstance): Promise<void> 
     '/tasks/:taskId/reviewers',
     { config: { authPolicy: "local_actor" } },
     async (request) => {
+      // Object access resolves through the TARGET task's actual
+      // Mission/Habitat (never a caller-supplied substitute) and runs the
+      // shared membership predicate before any reviewer row is read.
+      // Missing Task/Mission 404s come from getHabitatIdFromTask itself.
+      const habitatId = getHabitatIdFromTask(request.params.taskId);
+      await checkHabitatAccess(request, habitatId);
+
       const reviewers = taskReviewerRepo.getByTaskId(request.params.taskId);
       return { reviewers };
     }

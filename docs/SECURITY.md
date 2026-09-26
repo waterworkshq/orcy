@@ -325,7 +325,7 @@ The PR/MR handler family (`pull_request`, `pull_request_review`, `merge_request`
 - **Merge approval is a system principal.** `autoApproveOnMerge` (default off) approves the linked `submitted` task atomically with its audit event; effects fire post-commit, best-effort, with the same crash window as the human approve path. PR-review events update `reviewStatus` only and never approve. GitHub PR HMACs carry no timestamp: replay safety is the strict single-status CAS plus idempotent writes, not signature freshness.
 - **No reviewer decision rows, no pre-veto (explicit).** A merge approval creates NO reviewer decision rows (it is not a reviewer decision — the task's reviewer-row requirement is not consulted or satisfied by it), and it runs NO pre-commit interceptor veto (a plugin cannot veto a merge approval). Post-commit effects — SSE, watchers, dependency unblock, mission recalc, task-event hooks, and plugin POST-interceptors — run best-effort in-process, are not durable, and no effort or metric guarantee is claimed for them.
 
-**Known limitation (unchanged authority):** the allowlist is writable via `PATCH /habitats/:id` by **any authenticated human JWT** — there is no admin-only role or habitat-access restriction on the settings surface, and configuring a webhook secret does not isolate settings authority. This is the same authority that already governed `taskPattern`/`autoApproveOnMerge`; no new permission is introduced, and no admin-isolation property should be assumed.
+**Settings authority (membership-scoped, no admin-role tier):** the allowlist is writable via `PATCH /habitats/:id`, and webhook secrets via `PUT /habitats/:id/webhook-secrets`, by any authenticated human JWT **that passes the shared habitat-access check** — on team habitats that means any team member (all team roles, no admin-role distinction); nonmembers (including global admins) receive `403`, and personal habitats admit any authenticated human. Configuring a webhook secret does not elevate or isolate settings authority beyond that membership. This is the same settings surface that already governed `taskPattern`/`autoApproveOnMerge`; no admin-only tier exists, and no admin-isolation property should be assumed. Admission is a request-time check — no transaction-atomic settings-revocation guarantee is added.
 
 ### Chat Commands
 
@@ -467,7 +467,7 @@ The API uses `@fastify/helmet` for security headers. `Content-Security-Policy` i
 | File uploads not virus-scanned | Medium | Add malware scanning in production |
 | No agent board-scoping (agents access all boards) | Medium | Add board allowlist if multi-user |
 | Attachment filename not RFC 5987 encoded | Low | Use safe ASCII fallback with `filename*=`
-| Habitat settings (incl. PR/MR repository allowlist and `autoApproveOnMerge`) writable by any authenticated human JWT — no adminOnly, no habitat-access guard | Medium | Tighten to an admin/habitat-scoped authority before multi-user exposure |
+| Habitat settings (incl. PR/MR repository allowlist, `autoApproveOnMerge`, and webhook secrets) writable by ANY team member — viewer role included — on team habitats, and by ANY authenticated human on personal habitats; habitat-access guard present but the sensitive write authority is membership-level, not role-governed (no admin/settings-scoped tier) | Medium | Add an admin/settings-scoped authority tier before multi-user exposure |
 
 ---
 
