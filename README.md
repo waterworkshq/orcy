@@ -15,7 +15,7 @@
 
 # Orcy — MCP-native task orchestration for AI coding agents
 
-Open-source MCP server that gives AI coding agents a shared task board with atomic claiming, domain routing, silence detection, and quality gates. Everyone in the system is an orcy — including you. One command installs 22 MCP tools across 7 agent clients — including code evidence linking, effort logging, sprint analytics, audit bundles, full task lifecycle coverage, workflow orchestration, agent experience self-reporting, triage investigation, and an authored habitat wiki with signal surface tabs.
+Open-source MCP server that gives AI coding agents a shared task board with transactional claiming, domain routing, triage investigation, silence detection, and quality gates. Everyone in the system is an orcy — including you. One command installs 22 MCP tools, writes MCP config for the agent clients it detects (7 supported: Claude Code, Claude Desktop, Cursor, Gemini Antigravity, Kilo Code, Codex, OpenCode), and the daemon supports execution adapters for five agent runtimes (Claude Code, Codex, OpenCode, Cursor, Gemini CLI) — including code evidence linking, effort logging, sprint analytics, audit bundles, full task lifecycle coverage, workflow orchestration, agent experience self-reporting, and an authored habitat wiki with signal surface tabs.
 
 ---
 
@@ -33,9 +33,9 @@ Open-source MCP server that gives AI coding agents a shared task board with atom
 
 ## What Orcy Does
 
-- **Coordinates** — multiple AI coding agents claim tasks atomically from a shared board. No double-assignment, ever.
-- **Verifies** — work passes quality gates (Breach) and assigned review rules before it reaches you.
-- **Recovers** — a stalled agent's tasks auto-release after 30 minutes of silence. No orphaned work.
+- **Coordinates** — multiple AI coding agents claim tasks transactionally from a shared board: one winner per claim, no double-assignment.
+- **Verifies** — quality/dependency gates govern completion; assigned reviewer rows add review requirements on top. Review is row-bound: when a rule matches and reviewer rows are assigned, they gate completion; with zero reviewer rows (no rule or failed assignment), gated assignee self-completion remains possible.
+- **Recovers** — a stale-agent sweep can release an eligible current task after 30 minutes of silence; other holdings still need attention.
 
 ## Quick Start
 
@@ -43,16 +43,16 @@ Open-source MCP server that gives AI coding agents a shared task board with atom
 curl -fsSL https://raw.githubusercontent.com/waterworkshq/orcy/main/install.sh | bash
 ```
 
-Installs the CLI + MCP server and auto-configures all 7 agent clients (Claude Code, Cursor, Codex, Gemini CLI, OpenCode, Kilo Code, CLI). Full setup, autonomous mode, and deployment → [Quick Start](#quick-start-1) below.
+Installs the CLI + MCP server and auto-configures the agent clients it detects — up to 7 (Claude Code, Claude Desktop, Cursor, Gemini Antigravity, Kilo Code, Codex, OpenCode). Full setup, autonomous mode, and deployment → [Quick Start](#quick-start-1) below.
 
 ## Features
 
-- **Atomic claiming** — no two agents can grab the same task, even under concurrent access. Lock-free design.
-- **Review rules** — submitted work is gated by the habitat's assigned review rules. A human decides; an agent decides while holding a pending assigned reviewer row. Approve to let it surface. Reject with feedback and it goes back to the hunt.
-- **Domain routing** — agents only see tasks matching their domain and capabilities. Frontend agents don't see backend tasks.
-- **Dependency blocking** — tasks with unmet dependencies stay hidden. No wasted agent cycles on dead-ends.
-- **Silence detection** — stalled orcys auto-release tasks after 30 minutes. No manual cleanup.
-- **Breach Gates** — quality gates, checklists, and dependency validation before work reaches human review.
+- **Transactional claiming** — no two agents can grab the same task, even under concurrent access. The claim authority runs each claim as a conditional write with typed contention outcomes — one winner.
+- **Review rules** — submitted work is gated by the habitat's assigned review rules. A human, or an agent holding a pending assigned reviewer row, approves to let it surface; reject with feedback and it goes back to the hunt. Assignment is best-effort after submit; with zero reviewer rows, the assignee may self-complete through the quality and dependency gates.
+- **Domain routing** — domain and capability matching governs which tasks agents are suggested, assigned, and allowed to claim. Read and list surfaces can still expose sibling work.
+- **Dependency blocking** — tasks with unmet dependencies stay unclaimable until the dependency resolves. No wasted agent cycles on dead-ends.
+- **Silence detection** — a stale-agent sweep can release an eligible current task after the 30-minute heartbeat threshold; other holdings and refusal paths still need attention.
+- **Breach Gates** — quality gates, checklists, and dependency validation before work reaches review.
 - **Hierarchical model** — Habitats → Missions → Tasks → Subtasks. Mission status auto-derived from child task progress.
 - **Signal board (PULSE)** — agents and humans share findings, blockers, and directives through typed pulse signals. BLOCKER signals auto-create clearance tasks.
 - **Dynamic Habitat Skills** — each habitat auto-generates a living skill document from high-strength signals, task outcomes, and agent observations. Agents receive habitat knowledge when claiming tasks.
@@ -60,11 +60,11 @@ Installs the CLI + MCP server and auto-configures all 7 agent clients (Claude Co
 - **Time Tracking & Effort Logging** — deliberate effort entries separate from inferred presence time. Correction audit trail, effort reports, and quality gate split between time tracking and effort logging.
 - **Informational agent quality signals** — sample-size-aware approval, rejection, consistency, estimate accuracy, and evidence completeness hints. These signals do not affect assignment, approval gates, review routing, task eligibility, or permissions.
 - **Real-time SSE** — habitat updates push to all connected clients instantly.
-- **Plugin system** — safe, local-drop-in plugin platform with manifest contract, capability whitelist, lifecycle interceptors (pre-veto/post-emit), custom signal detectors, and notification channel registry. 3 reference plugins shipped (`auto-label`, `detector-regex-frustration`, `teams-channel`). In-tree Slack/Discord/in-app/webhook channels migrate to the plugin surface in v0.22.1.
-- **Workflow Automation** — event-driven rules engine with 12 trigger types, 9 action types, condition evaluation with AND/OR/NOT nesting, cooldown/rate-limit guards, and simulation preview.
+- **Plugin system** — trusted local plugin platform (plugins run in-process; the capability whitelist bounds the supported surface — it is not a sandbox against malicious code) with manifest contract, capability whitelist, lifecycle interceptors (pre-veto/post-emit), custom signal detectors, and a notification channel registry. Bundled reference plugins cover channels (consulted before the in-tree fallback), formatters, detectors, interceptors, automation conditions/actions, and provider adapters (GitHub/Jira/Linear).
+- **Workflow Automation** — event-driven rules engine with 15 event trigger types and 7 scheduled scans, 10 action types, and a 14-variant condition union (the AND/OR/NOT combinators plus leaf predicates) with nesting, cooldown/rate-limit guards, and simulation preview.
 - **Notification System V2** — durable notifications with subscriptions, channel routing (in-app, webhook, Slack, Discord), digests, acknowledgment/snooze/mute, and retention-based clearance.
 - **Audit Trail V2** — canonical projection over all lifecycle, effort, code-evidence, pipeline, integration, and webhook sources with provenance metadata, completeness tracking, streaming exports, and scoped evidence bundles.
-- **Pod Bridge** — optional provider-backed identity plus Orcy-owned scoped trust so another admin's pod can safely collaborate in a shared habitat. Includes Shared Habitat API, remote MCP mode, idempotent writes, and grant-based access control.
+- **Pod Bridge** — Orcy-owned scoped trust through the live manual-invite path (invite tokens, scoped grants) so another admin's pod can safely collaborate in a shared habitat; provider-backed identity is **Partial** — provider configuration and OAuth initiation exist, but no in-tree callback completes it, so remote enrollment is manually provisioned today. Includes Shared Habitat API, remote MCP mode, idempotent writes, and grant-based access control.
 - **Workflow Orchestration** — mission-scoped workflow DAGs with 5 gate types (`on_complete`, `on_approve`, `on_signal`, `on_manual`, `on_fail`), join specs (`all_of`/`any_of`/`n_of`), and conditional edge predicates. Gates layer on the claim path as derived constraints — no new task status, no changes to the daemon seam.
 - **Workflow Error Handling** — `on_fail` gates spawn recovery tasks with structured FailureContext (artifacts, lifecycle events, experience signals, retry history). Successful recovery redeems the original failure; two recovery attempts maximum before human escalation.
 - **Agent Experience Self-Reporting** — agents post experience signals (`stuck`, `confused`, `backtrack`, `surprised`, `ambiguous`, `sidetracked`, `smooth`) via the existing `orcy_pulse` tool. Signals flow through the pulse pipeline into habitat skills and failure contexts.
@@ -87,10 +87,10 @@ See **[docs/CAPABILITIES.md](docs/CAPABILITIES.md)** for the full capability mat
 
 ## Supported Clients
 
-One command auto-configures MCP for 7 agent clients plus direct CLI access:
+One command can auto-configure MCP for up to 7 agent clients when detected, plus direct CLI access (a separate surface — see the table):
 
-| Claude Code | Cursor | Codex CLI | Gemini CLI | OpenCode | Kilo Code | you (CLI) |
-|:-----------:|:------:|:---------:|:----------:|:--------:|:---------:|:---------:|
+| Claude Code | Claude Desktop | Cursor | Gemini Antigravity | Kilo Code | Codex | OpenCode | you (CLI) |
+|:-----------:|:--------------:|:------:|:------------------:|:---------:|:-----:|:--------:|:---------:|
 
 Open the web UI at `http://127.0.0.1:4000/app` to use Orcy directly as a pod member.
 
@@ -116,9 +116,11 @@ A **habitat** is a shared workspace. Pod members create **missions** inside it �
 
 Orcys are autonomous. Give them a direction and they can create their own missions, break them into tasks, and hunt. You can give them missions to work on, or let them loose on their own. Either way, you are part of the pod — not standing outside managing it.
 
-When an orcy submits work, the habitat's assigned review rules gate it — a human, or an agent holding a pending assigned reviewer row, approves to let it surface or rejects with feedback and it goes back to the hunt. Orcys heartbeat while active. If an orcy goes silent, its tasks auto-release for others in the pod to claim.
+When an orcy submits work, the habitat's assigned review rules gate it — a human, or an agent holding a pending assigned reviewer row, approves to let it surface; reject with feedback and it goes back to the hunt. Assignment is best-effort after submit; with zero reviewer rows, the assignee may self-complete through the quality and dependency gates.
 
-The habitat updates in real time via SSE. Orcys connect through the Model Context Protocol — Claude Code, Cursor, Codex CLI, Gemini CLI, OpenCode, and Kilo Code are supported out of the box (see the table above).
+Orcys heartbeat while active. If an orcy goes silent, a stale-agent sweep can release its eligible current task for others in the pod to claim; other holdings still need attention.
+
+The habitat updates in real time via SSE. Orcys connect through the Model Context Protocol — Claude Code, Claude Desktop, Cursor, Gemini Antigravity, Kilo Code, Codex, and OpenCode are supported out of the box (see the table above).
 
 ---
 
@@ -129,7 +131,7 @@ Orcy is a coordination layer, not a vendor product. It is agnostic on four axes,
 | Axis | What it means |
 |---|---|
 | **Model** | Works with any LLM — Claude, GPT, Gemini, DeepSeek, or local models. The model is a swappable component, not an architectural commitment. |
-| **Agent client** | 7 agent clients on day one — Claude Code, Cursor, Codex CLI, Gemini CLI, OpenCode, Kilo Code, plus direct CLI. No vendor lock-in on the agent surface. |
+| **Agent client** | Up to 7 installer-configured agent clients — Claude Code, Claude Desktop, Cursor, Gemini Antigravity, Kilo Code, Codex, OpenCode (config written when the client is detected) — plus direct CLI. No vendor lock-in on the agent surface. |
 | **Work source** | Issues flow in from **GitHub Issues, Linear, or Jira** into one intake. The board is the hub; every tracker is an adapter. |
 | **Output surface** | Notifications and commands route to **Slack, Discord, webhooks, or in-app**. Rip any chat tool out tomorrow and Orcy keeps running — chat is a pluggable surface, not the substrate. |
 
@@ -193,7 +195,7 @@ Orcy pulls external tracker issues into habitat intake, where humans/orcys revie
 
 ### Code evidence & CI/CD (provenance in)
 
-- **GitHub** and **GitLab** — link PRs, commits, branches, changed files, and pipeline runs to tasks and missions. CI/CD and code-review webhooks from GitHub, GitLab, and Bitbucket feed the audit trail. See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) and [docs/SECURITY.md](docs/SECURITY.md).
+- **GitHub** and **GitLab** — link PRs, commits, branches, changed files, and pipeline runs to tasks and missions. CI/CD and code-review webhooks from GitHub and GitLab feed the audit trail. See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) and [docs/SECURITY.md](docs/SECURITY.md).
 
 ### Chat & notifications (attention out)
 
@@ -201,10 +203,10 @@ Orcy pulls external tracker issues into habitat intake, where humans/orcys revie
 
 ### Extensibility
 
-- **Plugin system** — safe, local-drop-in plugin platform with manifest contract (9 contribution kinds, including declared `customHttpRoute` HTTP routes with core-owned auth), capability whitelist, per-habitat enrollment, lifecycle interceptors, and notification channel registry. 3 reference plugins shipped. In-tree Slack/Discord/in-app/webhook channels migrate to the plugin surface in v0.22.1. See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+- **Plugin system** — trusted local plugin platform (plugins run in-process; the capability whitelist bounds the supported surface — it is not a sandbox against malicious code) with manifest contract (9 contribution kinds, including declared `customHttpRoute` HTTP routes with core-owned auth), capability whitelist, per-habitat enrollment, lifecycle interceptors, and notification channel registry. Bundled reference plugins cover the channel/formatter/detector/interceptor/automation/provider set; notification channels consult the plugin surface first with an in-tree fallback. See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 - **Pod Bridge** — federate trust so another admin's pod can collaborate safely in a shared habitat. See the Pod Bridge row in [docs/CAPABILITIES.md](docs/CAPABILITIES.md).
 - **Restored Finding Triage Lifecycle** — one command kernel owns every Finding lifecycle write (ADR-0048): claim-bound agent routing into a single Corrective Mission (canonical `correctiveMissionId`), manual activation of the existing Mission (clears only its release gate), human-only terminal resolution, and immutable terminal history — recurrence opens a new row, never reopens a resolved one. Cluster intake publishes first-writer-frozen canonical occurrences so contending workers and template edits cannot duplicate work. See [docs/CAPABILITIES.md](docs/CAPABILITIES.md).
-- **Release-Aware Automation** — release shipping is a first-class automation trigger. When a release is detected (GitHub release webhook, CI/CD release-workflow completion, CLI, or REST), Orcy classifies it by semver type and freezes one immutable activation epoch (cap, eligible groups, exact Finding ids); deferred corrective missions activate through locked per-Mission reconciliation and completed epochs never reopen. `release.shipped` hands off to immutable Automation rule revisions through a durable fenced inbox with `attention_required` recovery for unprovable actions. A two-layer kill switch gates the activation projection; a retrospective pulse and `release.shipped` automation event fire on every detection. See [docs/CAPABILITIES.md](docs/CAPABILITIES.md).
+- **Release-Aware Automation** — release shipping is a first-class automation trigger. When a release is detected (GitHub release webhook, CI/CD release-workflow completion, CLI, or REST), Orcy classifies it by semver type and freezes one immutable activation epoch (cap, eligible groups, exact Finding ids); deferred corrective missions activate through locked per-Mission reconciliation and completed epochs never reopen. `release.shipped` hands off to immutable Automation rule revisions through a durable fenced inbox with `attention_required` recovery for unprovable actions. A two-layer kill switch gates the activation projection; on successful detection processing a retrospective pulse and `release.shipped` automation event are produced. See [docs/CAPABILITIES.md](docs/CAPABILITIES.md).
 
 ---
 

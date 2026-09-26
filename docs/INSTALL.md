@@ -463,7 +463,7 @@ See `docs/SKILL.md` for configuration details for Claude Desktop, Cursor, Gemini
 
 ## MCP Server Reference
 
-The MCP stdio server exposes 22 tools — 17 consolidated dispatch tools (each routing an `action` parameter to domain operations) plus 5 standalone/context tools. Review decisions are served end-to-end: `orcy_habitat_task` `approve`/`reject` actions, `orcy task approve`/`reject` CLI commands, and the HTTP review-decision routes. Webhooks, templates, and scheduled tasks are managed by humans via REST/UI and have no MCP tool. The dispatch table in [SKILL.md](SKILL.md) is the authority; highlights:
+The MCP stdio server exposes the tools in `ALL_TOOLS` (currently 22) — 17 consolidated dispatch tools (each routing an `action` parameter to domain operations) plus 5 standalone/context tools. Task batch operations (assign, set-priority, delete) and assigned-reviewer approve/reject live under `orcy_habitat_task`; the CLI also serves `orcy task approve`/`reject`, and review decisions have HTTP routes. The actor/role limits are action-specific (see SKILL.md). Webhooks, templates, and scheduled tasks are managed through authenticated HTTP/UI — no MCP management dispatch exists for them; route-specific access applies (e.g. template GET accepts an agent key, mutations are human-authenticated). The dispatch table in [SKILL.md](SKILL.md) is the authority; highlights:
 
 | Tool | Covers |
 |------|--------|

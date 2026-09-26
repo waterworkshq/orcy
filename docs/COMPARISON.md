@@ -19,7 +19,7 @@ These tools share Orcy's core thesis: multiple AI coding agents need a shared co
 
 | Tool | Shape | Coordination model | MCP native | Self-hosted | License |
 |---|---|---|---|---|---|
-| **Orcy** | CLI + Web UI + MCP server | Atomic claiming, domain routing, review rules, breach gates, PULSE signals, workflow DAGs | Yes (22 tools) | Yes (local-first) | MIT |
+| **Orcy** | CLI + Web UI + MCP server | Transactional claiming, domain routing, review rules, breach gates, PULSE signals, workflow DAGs | Yes (22 tools) | Yes (local-first) | MIT |
 | **Claude Squad** | TUI (tmux) | Session manager, human-in-the-loop | No | Yes | MIT-ish |
 | **Bernstein** | CLI + lib + MCP | Deterministic scheduler, Janitor verification | Server mode | Yes | MIT |
 | **Composio AO** | Web dashboard + CLI | Milestone gates, auto CI retry | No | Yes | Source-available |
@@ -28,43 +28,43 @@ These tools share Orcy's core thesis: multiple AI coding agents need a shared co
 
 ### Task claiming
 
-Most orchestrators assign tasks manually or via a scheduler. **Orcy is the only tool with atomic, lock-free task claiming** — agents claim in real time with no double-assignment under concurrency. Claude Squad requires manual session creation. Bernstein decomposes goals into tasks with an LLM, then schedules deterministically. Composio AO uses milestone gates.
+Most orchestrators assign tasks manually or via a scheduler. **Orcy claims tasks transactionally** — the claim authority uses conditional writes and typed contention outcomes to select one winner, so concurrent claims never double-assign. Claude Squad requires manual session creation. Bernstein decomposes goals into tasks with an LLM, then schedules deterministically. Composio AO uses milestone gates.
 
 ### MCP integration
 
-**Orcy IS an MCP server** — 22 tools native to the protocol, no wrappers or adapters. Bernstein has MCP server mode but wraps CLI agents behind adapters. Vibe Kanban uses MCP for card decomposition, not lifecycle. Claude Squad, Composio AO, and Emdash don't expose MCP tools.
+**Orcy IS an MCP server** — the registry exposes domain actions over the protocol (22 tools today). Bernstein has MCP server mode but wraps CLI agents behind adapters. Vibe Kanban uses MCP for card decomposition, not lifecycle. Claude Squad, Composio AO, and Emdash don't expose MCP tools.
 
 ### Domain routing
 
-**Orcy's domain + capability routing is unique in this set.** Frontend agents only see frontend tasks; backend agents only see backend tasks. Every other tool here exposes all tasks to all agents.
+**Orcy's domain + capability routing governs what agents are offered.** Tasks carry a required domain and optional capability requirements; matching drives suggestions, assignment, and claim eligibility. Read and list surfaces can still expose sibling work — an agent can see a task outside its match, it just can't claim it.
 
 ### Silence detection
 
-If an orcy goes silent for 30 minutes, its tasks **auto-release** back to the hunt — no manual cleanup, no orphans. No other tool in this comparison has automatic stall recovery; stalled agents need manual intervention.
+If an orcy goes silent for 30 minutes, a stale-agent sweep can release its eligible current task back to the hunt — other holdings and refusal paths still need attention.
 
 ### Review gates (Breach)
 
-Orcy's **Breach Gates** enforce quality checks, dependency validation, and checklists before submissions reach review, where the habitat's assigned review rules decide who reviews and how many approvals finalize a task. Bernstein has its Janitor for pre-merge verification. Composio AO retries CI failures. Claude Squad has manual review before applying changes. Orcy is the most opinionated about quality enforcement.
+Orcy's **Breach Gates** enforce quality checks, dependency validation, and checklists before submissions reach review, where the habitat's assigned review rules decide who reviews (assigned humans or agents) and how many approvals finalize a task — with no matching rule or failed assignment, zero reviewer rows leave gated assignee self-completion. Bernstein has its Janitor for pre-merge verification. Composio AO retries CI failures. Claude Squad has manual review before applying changes. Orcy is opinionated about quality enforcement.
 
 ### Review
 
-Submitted work in Orcy is gated by the habitat's **assigned review rules** — a human decides, and an agent decides while holding a pending assigned reviewer row, so orcys reviewing orcys works through assignment rather than open peer review. Approve to surface; reject with feedback and the task goes back to the hunt. Bernstein runs automated Janitor checks. Claude Squad has manual review.
+Submitted work is gated by the assigned review rules for its habitat. A human decides; an agent holding a pending assigned reviewer row decides too — approve to surface; reject with feedback and the task goes back to the hunt. Assignment is best-effort after submit; with zero reviewer rows (no matching rule or failed assignment), the assignee may self-complete through the quality and dependency gates. Bernstein runs automated Janitor checks. Claude Squad has manual review.
 
 ### Signal board (PULSE)
 
-Orcy's **PULSE** lets agents and humans share typed signals — findings, blockers, directives, experience. BLOCKER signals auto-create clearance tasks. No other orchestrator has a typed inter-agent communication channel. The closest is Bernstein's bulletin board, which is agent-to-agent chat without structured signal types.
+Orcy's **PULSE** lets agents and humans share typed signals — findings, blockers, directives, experience. BLOCKER signals auto-create clearance tasks.
 
 ### Hierarchical model
 
-Orcy's **Habitats → Missions → Tasks → Subtasks** model auto-derives mission status from child task progress. Bernstein decomposes into a flat task graph. Composio AO uses session-level grouping. Claude Squad is just parallel sessions. Orcy is the only one with deeply nested, auto-derived mission state.
+Orcy's **Habitats → Missions → Tasks → Subtasks** model auto-derives mission status from child task progress.
 
 ### Workflow orchestration & recovery
 
-Orcy adds **typed workflow gates** (`on_complete`, `on_approve`, `on_signal`, `on_manual`, `on_fail`, `on_automation`), join specs (`all_of` / `any_of` / `n_of`), and `on_fail` recovery tasks with structured FailureContext and recovery redemption. No direct peer has typed DAG gates with failure-driven recovery spawning.
+Orcy adds **typed workflow gates** (`on_complete`, `on_approve`, `on_signal`, `on_manual`, `on_fail`, `on_automation`), join specs (`all_of` / `any_of` / `n_of`), and `on_fail` recovery tasks with structured FailureContext and recovery redemption.
 
 ### Provenance & audit
 
-Orcy's **Code Evidence / Audit Trail V2** links commits, PRs, branches, changed files, and CI runs to tasks and missions, with append-only corrections, evidence-completeness tracking, and scoped evidence bundles. No direct peer offers provenance-aware audit at this depth.
+Orcy's **Code Evidence / Audit Trail V2** links commits, PRs, branches, changed files, and CI runs to tasks and missions, with append-only corrections, evidence-completeness tracking, and scoped evidence bundles.
 
 ### When to pick a peer instead
 
@@ -114,7 +114,7 @@ Use Devin/Factory when you want someone else to run the agents. Use Orcy when yo
 | **Continue** | IDE extension | Single | Yes | Apache 2.0 |
 | **Cline / Roo Code** | VS Code extension | Single | Yes | MIT / Apache 2.0 |
 
-**The difference.** These are *agent clients* — the things that actually do the coding. Orcy is *not* a replacement for any of them. In fact Orcy's daemon detects and drives Claude Code, Cursor, Codex CLI, Gemini CLI, OpenCode, and Kilo Code as the execution layer underneath the board. **Orcy is the layer above:** it decides *which* agent gets *which* task, coordinates them, routes their work through review, and records provenance. Think "Orcy coordinates; your agent client executes."
+**The difference.** These are *agent clients* — the things that actually do the coding. Orcy is *not* a replacement for any of them. In fact Orcy's daemon supports execution adapters for five agent runtimes — Claude Code, Codex, OpenCode, Cursor, and Gemini CLI — as the execution layer underneath the board. **Orcy is the layer above:** it decides *which* agent gets *which* task, coordinates them, routes their work through review, and records provenance. Think "Orcy coordinates; your agent client executes."
 
 If you run exactly one agent in one IDE and never want a shared board, you don't need Orcy. The moment you have two agents, two humans, or want provenance across a team, Orcy starts earning its keep.
 
@@ -144,15 +144,15 @@ Choose a framework if multi-agent orchestration is your *product* and you want f
 
 ## Where Orcy wins
 
-- **You want assigned review** — review rules gate submissions; a human or an assigned agent reviewer decides.
+- **You want assigned review** — submissions gated by assigned review rules; a human or an assigned agent reviewer decides, row-bound (with no assigned rows, gated self-completion remains possible; assignment is best-effort after submit).
 - **You want typed inter-agent signals** — PULSE blockers, info, requests, experience.
 - **You want auto-derived mission status** from a nested task hierarchy.
-- **You want atomic claiming** — no double-assignment under concurrency.
-- **You need domain-scoped task visibility** — frontend agents see frontend tasks.
-- **You want MCP-native tools** — 22 tools, no wrappers, no adapters.
-- **You value silence detection** — stalled agents auto-release after 30 min.
-- **You want quality gates before human review** (Breach) and **typed workflow gates with failure recovery**.
-- **You want automated triage** — clustered signal detection, investigation missions, resolution recording, and proactive historical surfacing. No other agent orchestrator closes the detect → investigate → resolve → learn loop.
+- **You want transactional claiming** — conditional writes with typed contention outcomes select one claim winner.
+- **You need domain-scoped work matching** — suggestions, assignment, and claim eligibility respect agent domains and capabilities.
+- **You want MCP-native tools** — the MCP registry exposes domain actions for agent clients (22 tools today).
+- **You value silence detection** — a stale-agent sweep can release an eligible current task after 30 minutes.
+- **You want quality gates before review** (Breach) and **typed workflow gates with failure recovery**.
+- **You want automated triage** — clustered signal detection, investigation missions, resolution recording, and proactive historical surfacing.
 - **You want provenance** — commits, PRs, CI linked to tasks with append-only audit.
 - **You want sovereignty** — self-hosted, MIT, repo-scoped, model-agnostic, your infrastructure.
 
