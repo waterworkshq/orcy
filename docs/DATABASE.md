@@ -17,7 +17,7 @@ The API uses **Drizzle ORM** with **better-sqlite3** for production. A separate 
 ```typescript
 // packages/api/drizzle.config.ts
 export default defineConfig({
-  schema: './src/db/schema.ts',
+  schema: './src/db/schema/index.ts',
   out: './drizzle',
   dialect: 'sqlite',
 });
@@ -34,9 +34,11 @@ export default defineConfig({
 
 ## Schema Reference
 
-The schema is defined in `packages/api/src/db/schema.ts` using Drizzle ORM. Schema uses `camelCase` TypeScript property names mapped to `snake_case` SQL column names via Drizzle column inference.
+The schema is defined in `packages/api/src/db/schema/` (a directory of per-domain schema files) using Drizzle ORM. Schema uses `camelCase` TypeScript property names mapped to `snake_case` SQL column names via Drizzle column inference.
 
-### Entity-Relationship Diagram (73 tables)
+### Entity-Relationship Diagram (selected core tables)
+
+The diagram below is illustrative, not a full catalog; the [Schema Index](#schema-index) lists every declared table.
 
 ```
 ┌──────────────────┐     ┌──────────────────┐     ┌──────────────────┐
@@ -91,13 +93,13 @@ The schema is defined in `packages/api/src/db/schema.ts` using Drizzle ORM. Sche
                          │ createdBy       │
                         │ version         │
                         └────────┬─────────┘
-                                 │ (featureId)
+                                 │ (missionId)
                                  ▼
                         ┌──────────────────┐     ┌──────────────────┐
                         │ tasks            │────<│ task_subtasks    │
                         │                  │     │                  │
                         │ id (PK)          │     │ id (PK)          │
-                        │ featureId (FK)   │     │ taskId (FK)      │
+                        │ missionId (FK)   │     │ taskId (FK)      │
                         │ title            │     │ title            │
                         │ description      │     │ completed       │
                         │ priority         │     │ order            │
@@ -105,9 +107,9 @@ The schema is defined in `packages/api/src/db/schema.ts` using Drizzle ORM. Sche
                         │ requiredDomain  │     └──────────────────┘
                         │ requiredCapabilities│
                         │ status          │   ┌──────────────────┐
-                        │ claimedAt       │   │ feature_watchers │
+                        │ claimedAt       │   │ mission_watchers │
                         │ startedAt       │   │                  │
-                        │ submittedAt     │   │ featureId (FK)   │
+                        │ submittedAt     │   │ missionId (FK)   │
                         │ completedAt     │   │ userId (FK)      │
                         │ rejectedCount   │   └──────────────────┘
                         │ rejectionReason │
@@ -131,10 +133,10 @@ The schema is defined in `packages/api/src/db/schema.ts` using Drizzle ORM. Sche
 │                  │     │                  │ └──────────────────┘
 │ id (PK)          │     │ id (PK)          │
 │ taskId (FK)      │     │ taskId (FK)      │ ┌──────────────────┐
-│ actorType        │     │ parentId (FK→cmts)│ │ feature_events   │
+│ actorType        │     │ parentId (FK→cmts)│ │ mission_events   │
 │ actorId          │     │ authorType       │ │                  │
 │ action           │     │ authorId         │ │ id (PK)          │
-│ fromColumnId     │     │ content          │ │ featureId (FK)   │
+│ fromColumnId     │     │ content          │ │ missionId        │
 │ toColumnId       │     │ createdAt        │ │ actorType        │
 │ fromStatus       │     │ updatedAt        │ │ actorId          │
 │ toStatus         │     └────────┬─────────┘ │ action           │
@@ -147,12 +149,12 @@ The schema is defined in `packages/api/src/db/schema.ts` using Drizzle ORM. Sche
                           │ id (PK)          │  └──────────────────┘
                           │ commentId (FK)   │
                           │ mentionedType    │ ┌──────────────────┐
-                          │ mentionedId      │ │ feature_         │
+                          │ mentionedId      │ │ mission_         │
                           │ mentionText      │ │ dependencies     │
                           └──────────────────┘ │                  │
-                                               │ featureId (FK)   │
+                                               │ missionId        │
 ┌──────────────────┐     ┌──────────────────┐ │ dependsOnId (FK) │
-│ task_dependencies│     │ feature_templates│ └──────────────────┘
+│ task_dependencies│     │ mission_templates│ └──────────────────┘
 │                  │     │                  │
 │ taskId (FK)      │     │ id (PK)          │ ┌──────────────────┐
 │ dependsOnId (FK) │     │ habitatId (FK)  │ │ saved_filters    │
@@ -260,64 +262,67 @@ The schema is defined in `packages/api/src/db/schema.ts` using Drizzle ORM. Sche
 **Constraints:** `UNIQUE(habitat_id, order)`
 **Indexes:** `idx_columns_habitat_id`, `idx_columns_next`
 
-#### `features`
+#### `missions`
 
-The habitat-level cards. Features flow through columns and contain tasks. Feature status is auto-derived from child task states.
+The habitat-level cards. Missions flow through columns and contain tasks. Mission status is auto-derived from child task states.
 
 | Column | Type | Constraints | Description |
 |--------|------|-------------|-------------|
-| `id` | TEXT | PK | Feature identifier (UUID) |
+| `id` | TEXT | PK | Mission identifier (UUID) |
 | `habitat_id` | TEXT | NOT NULL FK → habitats(id) ON DELETE CASCADE | Parent habitat |
 | `column_id` | TEXT | NOT NULL FK → columns(id) | Current column |
-| `title` | TEXT | NOT NULL | Feature title |
-| `description` | TEXT | NOT NULL DEFAULT '' | Detailed description (feature brief) |
-| `acceptance_criteria` | TEXT | NOT NULL DEFAULT '' | What defines this feature as complete |
-| `priority` | TEXT | NOT NULL DEFAULT 'medium' CHECK (IN 'low','medium','high','critical') | Priority level |
+| `title` | TEXT | NOT NULL | Mission title |
+| `description` | TEXT | NOT NULL DEFAULT '' | Detailed description (mission brief) |
+| `acceptance_criteria` | TEXT | NOT NULL DEFAULT '' | What defines this mission as complete |
+| `priority` | TEXT | NOT NULL DEFAULT 'medium' (one of 'low','medium','high','critical') | Priority level |
 | `labels` | TEXT | NOT NULL DEFAULT '[]' (JSON) | JSON array of strings |
-| `status` | TEXT | NOT NULL DEFAULT 'not_started' CHECK (IN 'not_started','in_progress','review','done','failed') | Auto-derived from tasks |
+| `status` | TEXT | NOT NULL DEFAULT 'not_started' | Auto-derived from tasks |
 | `display_order` | INTEGER | NOT NULL DEFAULT 0 | Sort order within column |
-| `depends_on` | TEXT | NOT NULL DEFAULT '[]' (JSON) | JSON array of feature UUIDs |
-| `blocks` | TEXT | NOT NULL DEFAULT '[]' (JSON) | JSON array of feature UUIDs |
+| `depends_on` | TEXT | NOT NULL DEFAULT '[]' (JSON) | JSON array of mission UUIDs |
+| `blocks` | TEXT | NOT NULL DEFAULT '[]' (JSON) | JSON array of mission UUIDs |
 | `due_at` | TEXT | DEFAULT NULL | Due date (ISO 8601) |
 | `sla_minutes` | INTEGER | DEFAULT NULL | SLA threshold in minutes |
 | `sla_deadline_at` | TEXT | DEFAULT NULL | Computed SLA deadline |
-| `is_archived` | INTEGER | NOT NULL DEFAULT 0 (boolean) | True if feature is archived |
-| `release_gate_type` | TEXT | nullable | Release gate type — `patch`, `minor`, or `major`. When set, the mission's tasks are blocked from claiming until a release of matching-or-greater type ships (either-match with `release_gate_version`). |
-| `release_gate_version` | TEXT | nullable | Release gate version pin — e.g. `v0.25` (prefix) or `v0.25.0` (exact). Either-match with `release_gate_type`. Satisfaction is derived at read-time from the `releases` table. |
-| `actual_minutes` | INTEGER | DEFAULT NULL | Actual time spent on feature tasks |
-| `planned_minutes` | INTEGER | DEFAULT NULL | Planned time estimate |
-| `planning_accuracy` | INTEGER | DEFAULT NULL | Estimation accuracy percentage |
-| `completed_at` | TEXT | DEFAULT NULL | When the feature was completed |
 | `created_by` | TEXT | NOT NULL | Creator identifier |
 | `created_at` | TEXT | NOT NULL DEFAULT (datetime('now')) | Creation timestamp |
 | `updated_at` | TEXT | NOT NULL DEFAULT (datetime('now')) | Last update timestamp |
 | `version` | INTEGER | NOT NULL DEFAULT 1 | Optimistic locking version |
+| `actual_minutes` | INTEGER | DEFAULT NULL | Actual time spent on mission tasks |
+| `planned_minutes` | INTEGER | DEFAULT NULL | Planned time estimate |
+| `planning_accuracy` | REAL | DEFAULT NULL | Estimation accuracy percentage |
+| `completed_at` | TEXT | DEFAULT NULL | When the mission was completed |
+| `is_archived` | INTEGER | NOT NULL DEFAULT 0 (boolean) | True if mission is archived |
+| `sprint_id` | TEXT | DEFAULT NULL | Owning sprint (plain reference; no declared FK) |
+| `release_gate_type` | TEXT | nullable | Release gate type — `patch`, `minor`, or `major`. When set, the mission's tasks are blocked from claiming until a release of matching-or-greater type ships (either-match with `release_gate_version`). |
+| `release_gate_version` | TEXT | nullable | Release gate version pin — e.g. `v0.25` (prefix) or `v0.25.0` (exact). Either-match with `release_gate_type`. Satisfaction is derived at read-time from the `releases` table. |
+| `release_deadline_type` | TEXT | nullable | Release deadline type — `patch`, `minor`, or `major`; deadline counterpart to `release_gate_type`. |
+| `release_deadline_version` | TEXT | nullable | Release deadline version pin; either-match with `release_deadline_type`. |
 
-**Indexes:** `idx_features_habitat_column(habitat_id, column_id)`, `idx_features_status`, `idx_features_priority`, `idx_features_column_order(column_id, display_order)`, `idx_features_due_at`, `idx_missions_habitat_gate` (release-gate lookup by habitat)
+**Indexes:** `idx_missions_habitat_column(habitat_id, column_id)`, `idx_missions_status`, `idx_missions_priority`, `idx_missions_column_order(column_id, display_order)`, `idx_missions_due_at`, `idx_missions_sla_deadline_at`, `idx_missions_sprint`, `idx_missions_habitat_gate` (release-gate lookup by habitat), `idx_missions_habitat_deadline` (release-deadline lookup by habitat)
 
-#### `feature_dependencies`
+#### `mission_dependencies`
 
-Cross-feature dependency edges. Only feature-level dependencies exist (no cross-feature task dependencies).
+Cross-mission dependency edges. Only mission-level dependencies exist (no cross-mission task dependencies).
 
 | Column | Type | Constraints | Description |
 |--------|------|-------------|-------------|
-| `feature_id` | TEXT | NOT NULL FK → features(id) ON DELETE CASCADE | Dependent feature |
-| `depends_on_id` | TEXT | NOT NULL FK → features(id) ON DELETE CASCADE | Blocking feature |
+| `mission_id` | TEXT | NOT NULL | Dependent mission (join key to missions(id); no declared FK) |
+| `depends_on_id` | TEXT | NOT NULL FK → missions(id) ON DELETE CASCADE | Blocking mission |
 
-**Constraints:** `PRIMARY KEY (feature_id, depends_on_id)`
-**Indexes:** `idx_feature_deps_depends_on`
+**Constraints:** `PRIMARY KEY (mission_id, depends_on_id)`
+**Indexes:** `idx_mission_deps_depends_on`
 
-#### `feature_events`
+#### `mission_events`
 
-Feature-level audit trail for column movements and status changes.
+Mission-level audit trail for column movements and status changes.
 
 | Column | Type | Constraints | Description |
 |--------|------|-------------|-------------|
 | `id` | TEXT | PK | Event identifier (UUID) |
-| `feature_id` | TEXT | NOT NULL FK → features(id) ON DELETE CASCADE | Related feature |
-| `actor_type` | TEXT | NOT NULL CHECK (IN 'human','agent','system') | Actor type |
-| `actor_id` | TEXT | NOT NULL | UUID of the actor |
-| `action` | TEXT | NOT NULL CHECK (IN 'created','updated','moved','status_changed','completed','deleted','dependency_resolved','code_evidence_linked','code_evidence_corrected','code_evidence_gap_reported','code_evidence_gap_resolved','code_evidence_marked_not_applicable','code_evidence_cleared_not_applicable') | Event action |
+| `mission_id` | TEXT | NOT NULL | Related mission (join key to missions(id); no declared FK) |
+| `actor_type` | TEXT | NOT NULL (one of 'human','agent','system','remote_human','remote_orcy','remote_pod') | Actor type |
+| `actor_id` | TEXT | NOT NULL | Identifier of the actor |
+| `action` | TEXT | NOT NULL (one of 'created','updated','moved','status_changed','completed','deleted','dependency_resolved','code_evidence_linked','code_evidence_corrected','code_evidence_gap_reported','code_evidence_gap_resolved','code_evidence_marked_not_applicable','code_evidence_cleared_not_applicable','workflow_attached','workflow_detached') | Event action |
 | `from_column_id` | TEXT | DEFAULT NULL | Source column |
 | `to_column_id` | TEXT | DEFAULT NULL | Target column |
 | `from_status` | TEXT | DEFAULT NULL | Previous status |
@@ -325,29 +330,29 @@ Feature-level audit trail for column movements and status changes.
 | `metadata` | TEXT | NOT NULL DEFAULT '{}' (JSON) | JSON blob with details |
 | `timestamp` | TEXT | NOT NULL DEFAULT (datetime('now')) | Event timestamp |
 
-**Indexes:** `idx_feature_events_feature`, `idx_feature_events_timestamp(timestamp DESC)`
+**Indexes:** `idx_mission_events_mission`, `idx_mission_events_timestamp`
 
-#### `feature_watchers`
+#### `mission_watchers`
 
-Feature-level watch notifications (replaces task_watchers for new features).
+Mission-level watch notifications.
 
 | Column | Type | Constraints | Description |
 |--------|------|-------------|-------------|
-| `feature_id` | TEXT | NOT NULL FK → features(id) ON DELETE CASCADE | Watched feature |
+| `mission_id` | TEXT | NOT NULL FK → missions(id) ON DELETE CASCADE | Watched mission |
 | `user_id` | TEXT | NOT NULL FK → users(id) ON DELETE CASCADE | Watching user |
 | `created_at` | TEXT | NOT NULL DEFAULT (datetime('now')) | When user started watching |
 
-**Constraints:** `PRIMARY KEY (feature_id, user_id)`
-**Index:** `idx_feature_watchers_user`
+**Constraints:** `PRIMARY KEY (mission_id, user_id)`
+**Index:** `idx_mission_watchers_user`
 
 #### `tasks`
 
-Tasks are work units inside features. Every task belongs to exactly one feature. Tasks use a state machine for lifecycle but do NOT have habitat/column references — they inherit column position from their parent feature.
+Tasks are work units inside missions. Every task belongs to exactly one mission. Tasks use a state machine for lifecycle but do NOT have habitat/column references — they inherit column position from their parent mission.
 
 | Column | Type | Constraints | Description |
 |--------|------|-------------|-------------|
 | `id` | TEXT | PK | Task identifier (UUID) |
-| `feature_id` | TEXT | NOT NULL FK → features(id) ON DELETE CASCADE | Parent feature |
+| `mission_id` | TEXT | NOT NULL FK → missions(id) ON DELETE CASCADE | Parent mission |
 | `title` | TEXT | NOT NULL | Task title |
 | `description` | TEXT | NOT NULL DEFAULT '' | Detailed description |
 | `priority` | TEXT | NOT NULL DEFAULT 'medium' CHECK (IN 'low','medium','high','critical') | Priority level |
@@ -367,7 +372,7 @@ Tasks are work units inside features. Every task belongs to exactly one feature.
 | `created_at` | TEXT | NOT NULL DEFAULT (datetime('now')) | Creation timestamp |
 | `updated_at` | TEXT | NOT NULL DEFAULT (datetime('now')) | Last update timestamp |
 | `version` | INTEGER | NOT NULL DEFAULT 1 | Optimistic locking version |
-| `order` | INTEGER | NOT NULL DEFAULT 0 | Sort order within feature |
+| `order` | INTEGER | NOT NULL DEFAULT 0 | Sort order within mission |
 | `delegated_to_agent_id` | TEXT | FK → agents(id) | Agent task was delegated to |
 | `estimated_minutes` | INTEGER | DEFAULT NULL | Estimated completion time |
 | `retry_policy` | TEXT | JSON | Retry configuration |
@@ -375,11 +380,11 @@ Tasks are work units inside features. Every task belongs to exactly one feature.
 | `next_retry_at` | TEXT | DEFAULT NULL | Next retry scheduled time |
 | `execution_token` | TEXT | DEFAULT NULL | Claim-epoch identity: fresh uuid minted in each successful claim transaction (claim authority); NULL = pre-migration / released / terminal. Not settable via task PATCH (migration 0078) |
 | `last_failure_event_id` | TEXT | DEFAULT NULL | Failure-provenance pointer (migration 0079): the failed event row id written atomically by the fail act-tx. Pointer-fenced retry/escalation consumers CAS on this column; set with the failure; cleared by the documented ownership/lifecycle resets (see the Failure Effect Receipts section for the full reset list and the receipt-path escalation caveat) — never by inference |
-| `last_release_event_id` | TEXT | DEFAULT NULL | Release-provenance pointer (migration 0080): the `released` event row id written atomically by the release act-tx (`releaseTaskWithEffects` — an independent provenance stream from the failure pointer). The receipt-path `workflow_gates` consumer fences the release's gate/spawn mutation on `status='pending' AND execution_token IS NULL AND last_release_event_id = :eventId`; the ownership/lifecycle reset paths clear it — both claim mints, plain release (incl. agent-delete/stale/automation callers), remote inline release, terminal writes, retry reset, escalation, and import execution-state reset — never by inference |
+| `last_release_event_id` | TEXT | DEFAULT NULL | Release-provenance pointer (migration 0080): the `released` event row id written atomically by the release act-tx (`releaseTaskWithEffects` — an independent provenance stream from the failure pointer). The receipt-path `workflow_gates` consumer fences the release's gate/spawn mutation on `status='pending' AND execution_token IS NULL AND last_release_event_id` = the released event; the ownership/lifecycle reset paths clear it (claim mints, releases, terminal writes, retry/escalation resets, agent-delete bulk reset, import execution-state reset) — never by inference. |
 
-**Indexes:** `idx_tasks_feature(feature_id)`, `idx_tasks_feature_order(feature_id, order)`, `idx_tasks_status`, `idx_tasks_assigned_agent`, `idx_tasks_required_domain`, `idx_tasks_priority`, `idx_tasks_delegated`, `idx_tasks_last_failure_event(last_failure_event_id)`, `idx_tasks_last_release_event(last_release_event_id)`
+**Indexes:** `idx_tasks_mission(mission_id)`, `idx_tasks_mission_order(mission_id, order)`, `idx_tasks_status`, `idx_tasks_assigned_agent`, `idx_tasks_required_domain`, `idx_tasks_priority`, `idx_tasks_delegated`, `idx_tasks_remote_assigned_participant`, `idx_tasks_last_failure_event(last_failure_event_id)`, `idx_tasks_last_release_event(last_release_event_id)`
 
-> **Note:** The `tasks` table contains only task-specific fields. Columns like `labels`, `depends_on`, `blocks`, `due_at`, `sla_minutes`, `sla_deadline_at` belong to the parent `features` table. Tasks derive their position from their parent feature's column.
+> **Note:** The `tasks` table contains only task-specific fields. Columns like `depends_on`, `blocks`, `due_at`, `sla_minutes`, `sla_deadline_at` belong to the parent `missions` table (labels live on both `tasks` and `missions`). Tasks derive their position from their parent mission's column.
 
 #### `agents`
 
@@ -422,7 +427,7 @@ Tasks are work units inside features. Every task belongs to exactly one feature.
 
 #### `task_dependencies`
 
-Within-feature sibling task dependencies only. Cross-feature dependencies use `feature_dependencies`.
+Within-mission sibling task dependencies only. Cross-mission dependencies use `mission_dependencies`.
 
 | Column | Type | Constraints | Description |
 |--------|------|-------------|-------------|
@@ -503,16 +508,16 @@ Within-feature sibling task dependencies only. Cross-feature dependencies use `f
 **Indexes:** `idx_comment_mentions_comment_id`, `idx_comment_mentions_target(mentioned_type, mentioned_id)`
 **Unique constraint:** `(comment_id, mentioned_type, mentioned_id, mention_text)`
 
-#### `feature_templates`
+#### `mission_templates`
 
 | Column | Type | Constraints | Description |
 |--------|------|-------------|-------------|
 | `id` | TEXT | PK | Template identifier (UUID) |
-| `habitat_id` | TEXT | FK → habitats(id) ON DELETE CASCADE | Habitat-specific or NULL for global |
+| `habitat_id` | TEXT | FK → habitats(id) ON DELETE CASCADE, nullable | Habitat-specific or NULL for global |
 | `name` | TEXT | NOT NULL | Template display name |
-| `title_pattern` | TEXT | NOT NULL DEFAULT '' | Prepended to task title |
+| `title_pattern` | TEXT | NOT NULL DEFAULT '' | Mission title pattern |
 | `description_pattern` | TEXT | NOT NULL DEFAULT '' | Markdown template for description |
-| `priority` | TEXT | DEFAULT NULL | Default priority |
+| `priority` | TEXT | DEFAULT 'medium' (one of 'low','medium','high','critical') | Default priority |
 | `labels` | TEXT | NOT NULL DEFAULT '[]' (JSON) | JSON array of label strings |
 | `required_domain` | TEXT | DEFAULT NULL | Default required domain |
 | `required_capabilities` | TEXT | NOT NULL DEFAULT '[]' (JSON) | JSON array of capability strings |
@@ -674,7 +679,7 @@ Structured signals for agent-to-agent and human-to-agent communication. Supports
 | Column | Type | Constraints | Description |
 |--------|------|-------------|-------------|
 | `id` | TEXT | PK | Pulse identifier (UUID) |
-| `mission_id` | TEXT | FK → features(id) ON DELETE CASCADE | Mission scope (NULL when scope is `"habitat"`) |
+| `mission_id` | TEXT | FK → missions(id) ON DELETE CASCADE | Mission scope (NULL when scope is `"habitat"`) |
 | `habitat_id` | TEXT | NOT NULL FK → habitats(id) ON DELETE CASCADE | Habitat |
 | `scope` | TEXT | NOT NULL DEFAULT 'mission' CHECK (IN 'mission','habitat') | Signal scope |
 | `from_type` | TEXT | NOT NULL CHECK (IN 'human','agent','system') | Author type |
@@ -948,13 +953,13 @@ Per-task completion status of individual checklist items.
 
 #### `scheduled_tasks`
 
-Recurring scheduled creation of features and tasks from templates. Supports cron expressions, fixed intervals, and one-time schedules.
+Recurring scheduled creation of missions and tasks from templates. Supports cron expressions, fixed intervals, and one-time schedules.
 
 | Column | Type | Constraints | Description |
 |--------|------|-------------|-------------|
 | `id` | TEXT | PK | Scheduled task identifier (UUID) |
 | `habitat_id` | TEXT | NOT NULL FK → habitats(id) ON DELETE CASCADE | Parent habitat |
-| `template_id` | TEXT | FK → feature_templates(id) ON DELETE SET NULL | Feature template reference (nullable) |
+| `template_id` | TEXT | FK → mission_templates(id) ON DELETE SET NULL | Mission template reference (nullable) |
 | `name` | TEXT | NOT NULL | Schedule display name |
 | `description` | TEXT | NOT NULL DEFAULT '' | Schedule description |
 | `schedule_type` | TEXT | NOT NULL CHECK (IN 'once','interval','cron') | Schedule type |
@@ -962,17 +967,17 @@ Recurring scheduled creation of features and tasks from templates. Supports cron
 | `interval_minutes` | INTEGER | DEFAULT NULL | Interval in minutes (when schedule_type is `interval`) |
 | `scheduled_at` | TEXT | DEFAULT NULL | One-time run time (when schedule_type is `once`) |
 | `timezone` | TEXT | NOT NULL DEFAULT 'UTC' | Timezone for schedule evaluation |
-| `feature_title` | TEXT | NOT NULL | Title for created features |
-| `feature_description` | TEXT | NOT NULL DEFAULT '' | Description for created features |
-| `feature_priority` | TEXT | NOT NULL DEFAULT 'medium' CHECK (IN 'low','medium','high','critical') | Priority for created features |
-| `feature_labels` | TEXT | NOT NULL DEFAULT '[]' (JSON) | JSON array of label strings |
-| `feature_domain` | TEXT | DEFAULT NULL | Domain for created features |
+| `mission_title` | TEXT | NOT NULL | Title for created missions |
+| `mission_description` | TEXT | NOT NULL DEFAULT '' | Description for created missions |
+| `mission_priority` | TEXT | NOT NULL DEFAULT 'medium' CHECK (IN 'low','medium','high','critical') | Priority for created missions |
+| `mission_labels` | TEXT | NOT NULL DEFAULT '[]' (JSON) | JSON array of label strings |
+| `mission_domain` | TEXT | DEFAULT NULL | Domain for created missions |
 | `tasks_template` | TEXT | NOT NULL DEFAULT '[]' (JSON) | JSON array of child task definitions |
 | `enabled` | INTEGER | NOT NULL DEFAULT 1 (boolean) | Whether schedule is active |
 | `last_run_at` | TEXT | DEFAULT NULL | Last execution timestamp |
 | `next_run_at` | TEXT | NOT NULL | Next scheduled execution |
 | `run_count` | INTEGER | NOT NULL DEFAULT 0 | Total executions |
-| `last_created_feature_id` | TEXT | DEFAULT NULL | UUID of last created feature |
+| `last_created_mission_id` | TEXT | DEFAULT NULL | UUID of last created mission |
 | `created_by` | TEXT | NOT NULL | Creator identifier |
 | `created_at` | TEXT | NOT NULL DEFAULT (datetime('now')) | Creation timestamp |
 | `updated_at` | TEXT | NOT NULL DEFAULT (datetime('now')) | Last update timestamp |
@@ -1139,7 +1144,7 @@ Durable mapping between an external issue and an Orcy mission. This is the idemp
 | `id` | TEXT | PK | Link identifier (UUID) |
 | `connection_id` | TEXT | NOT NULL FK → integration_connections(id) ON DELETE CASCADE | Parent connection |
 | `habitat_id` | TEXT | NOT NULL FK → habitats(id) ON DELETE CASCADE | Parent habitat |
-| `mission_id` | TEXT | NOT NULL FK → features(id) ON DELETE CASCADE | Linked Orcy mission |
+| `mission_id` | TEXT | NOT NULL FK → missions(id) ON DELETE CASCADE | Linked Orcy mission |
 | `provider` | TEXT | NOT NULL | Provider type |
 | `external_id` | TEXT | NOT NULL | Stable provider ID |
 | `external_key` | TEXT | NOT NULL | Human-readable issue key (e.g. 'owner/repo#42') |
@@ -1181,7 +1186,7 @@ Reviewable source items that may become missions after human/orcy clarification.
 | `recommended_mission_title` | TEXT | DEFAULT NULL | Suggested mission title |
 | `recommended_mission_description` | TEXT | DEFAULT NULL | Suggested mission description |
 | `review_status` | TEXT | NOT NULL DEFAULT 'new' | Review state: 'new', 'needs_clarification', 'ready', 'promoted', 'ignored' |
-| `promoted_mission_id` | TEXT | DEFAULT NULL FK → features(id) | Mission created from this candidate |
+| `promoted_mission_id` | TEXT | DEFAULT NULL FK → missions(id) ON DELETE SET NULL | Mission created from this candidate |
 | `raw_provider_payload` | TEXT | DEFAULT NULL (JSON) | Original provider payload for debugging/future refinement |
 | `external_updated_at` | TEXT | DEFAULT NULL | Provider-side last update |
 | `created_at` | TEXT | NOT NULL DEFAULT (datetime('now')) | Creation timestamp |
@@ -1872,7 +1877,7 @@ Delivery records for compact remote webhook payloads.
 
 The v0.20 "Orchestrated" release adds mission-scoped workflow DAGs with typed gates, join specs, failure recovery, and agent experience self-reporting. Three new tables store workflow definitions, typed gate edges with satisfaction state, and structured failure bundles for recovery consumption.
 
-**Migrations:** `0031_add_workflows.sql` (3 tables), `0032_add_workflow_join_specs.sql` (`join_specs` column on `workflows`), `0033_add_workflow_template_column.sql` (`workflow_template` column on `feature_templates`).
+**Migrations:** `0031_add_workflows.sql` (3 tables), `0032_add_workflow_join_specs.sql` (`join_specs` column on `workflows`), `0033_add_workflow_template_column.sql` (`workflow_template` column on `mission_templates`).
 
 #### `workflows`
 
@@ -1884,7 +1889,7 @@ Mission-scoped workflow definition. A mission has at most one active workflow. G
 | Column | Type | Constraints | Description |
 |--------|------|-------------|-------------|
 | `id` | TEXT | PK | Workflow identifier (UUID) |
-| `mission_id` | TEXT | NOT NULL FK → features(id) ON DELETE CASCADE | Parent mission |
+| `mission_id` | TEXT | NOT NULL FK → missions(id) ON DELETE CASCADE | Parent mission |
 | `habitat_id` | TEXT | NOT NULL FK → habitats(id) ON DELETE CASCADE | Parent habitat |
 | `resolved_variables` | TEXT | NOT NULL DEFAULT '{}' (JSON) | Snapshot of template variables resolved at attachment time (for audit) |
 | `join_specs` | TEXT | NOT NULL DEFAULT '{}' (JSON) | Per-task join specs keyed by downstream task ID. Each entry: `{ mode: "all_of" | "any_of" | "n_of", n?: number }`. Added in migration `0032`. |
@@ -1909,7 +1914,7 @@ Typed dependency edges between tasks with satisfaction state. Each gate declares
 |--------|------|-------------|-------------|
 | `id` | TEXT | PK | Gate identifier (UUID) |
 | `workflow_id` | TEXT | NOT NULL FK → workflows(id) ON DELETE CASCADE | Parent workflow |
-| `mission_id` | TEXT | NOT NULL FK → features(id) ON DELETE CASCADE | Parent mission (denormalized for query convenience) |
+| `mission_id` | TEXT | NOT NULL FK → missions(id) ON DELETE CASCADE | Parent mission (denormalized for query convenience) |
 | `habitat_id` | TEXT | NOT NULL FK → habitats(id) ON DELETE CASCADE | Parent habitat (denormalized) |
 | `upstream_task_id` | TEXT | NOT NULL FK → tasks(id) ON DELETE CASCADE | The task whose lifecycle event satisfies this gate |
 | `downstream_task_id` | TEXT | NOT NULL FK → tasks(id) ON DELETE CASCADE | The task that is blocked until this gate is satisfied |
@@ -2074,6 +2079,291 @@ Three triggers (`wiki_pages_ai`, `wiki_pages_ad`, `wiki_pages_au`) keep the inde
 Per-habitat cadence configuration added via migration `0036_wiki_cadence_settings.sql`. Stores `{ enabled, intervalMinutes, timezone }`. Managed via the wiki cadence REST routes.
 
 ---
+
+## Schema Index
+
+Every table declared in the Drizzle schema files under `packages/api/src/db/schema/`, grouped by declaring file. This is a catalog of Drizzle declarations, not proof that a physical table exists in every database or migration state. `index.ts` is a barrel re-export and `relations.ts` declares Drizzle relations only — neither contributes tables. **Detailed section** marks whether a `#### \`<table>\`` section for that table exists elsewhere in this document.
+
+#### `agent.ts`
+
+| Table | Purpose | Detailed section |
+|-------|---------|------------------|
+| `agents` | Registered orcys — credentials (API-key hash), domain, capabilities, status, rate limits | ✓ |
+| `agent_messages` | Agent-to-agent messages scoped to habitat/task | ✓ |
+
+#### `automation.ts`
+
+| Table | Purpose | Detailed section |
+|-------|---------|------------------|
+| `automation_rules` | Habitat automation rules (trigger/condition/actions, cooldown, rate caps) | ✓ |
+| `automation_rule_runs` | One row per rule execution — trigger, condition result, action results | ✓ |
+| `automation_rule_revisions` | Immutable digest-stamped revision history of rule definitions | ✗ |
+| `automation_event_inbox` | Inbox-admitted automation events awaiting handoff to rule deliveries | ✗ |
+| `automation_rule_deliveries` | Lease-fenced deliveries binding inbox events to rule revisions | ✗ |
+| `automation_delivery_action_checkpoints` | Per-action idempotency checkpoints within a delivery | ✗ |
+| `automation_delivery_dispositions` | Terminal dispositions (skip/complete/fail) per delivery | ✗ |
+| `automation_run_completion_outbox` | Outbox rows delivering run-completion notifications | ✗ |
+
+#### `cicd.ts`
+
+| Table | Purpose | Detailed section |
+|-------|---------|------------------|
+| `pull_requests` | PRs linked to tasks (provider, repo, number, state, review status) | ✓ |
+| `pipeline_events` | CI pipeline run events linked to tasks | ✓ |
+
+#### `code-evidence.ts`
+
+| Table | Purpose | Detailed section |
+|-------|---------|------------------|
+| `habitat_code_repositories` | Repositories connected to a habitat for code evidence | ✓ |
+| `code_branches` | Branches observed in connected repositories | ✓ |
+| `code_commits` | Commits ingested from connected repositories | ✓ |
+| `code_changed_files` | Files changed per commit | ✓ |
+| `code_reviews` | Code review records for repository activity | ✓ |
+| `code_evidence_links` | Links binding code artifacts to missions/tasks as evidence | ✓ |
+| `code_evidence_completeness` | Per-task/mission evidence completeness scoring | ✓ |
+| `code_evidence_gaps` | Reported gaps in mission code evidence | ✓ |
+
+#### `daemon.ts`
+
+| Table | Purpose | Detailed section |
+|-------|---------|------------------|
+| `daemon_instances` | Daemon runtimes (standalone CLI or in-process) | ✓ |
+| `daemon_agents` | Agent registrations per daemon instance | ✓ |
+| `daemon_sessions` | Session tracking per daemon instance | ✓ |
+
+#### `effects.ts`
+
+| Table | Purpose | Detailed section |
+|-------|---------|------------------|
+| `effect_receipts` | Durable failure-effect receipt outbox (per failed-event required-effect consumer) | ✓ |
+| `effect_receipt_targets` | Frozen per-target detector delivery units (budgets + leases live here) | ✓ |
+| `effect_receipt_attempts` | Append-only attempt history per receipt/target | ✓ |
+| `effect_receipt_admin_actions` | Append-only audited admin requeue history | ✓ |
+
+#### `extraction.ts`
+
+| Table | Purpose | Detailed section |
+|-------|---------|------------------|
+| `learning_loop_policies` | Habitat-scoped learning-loop policy configuration | ✓ |
+| `extraction_work_items` | Replay-safe logical work items for finding extraction | ✓ |
+| `extraction_attempts` | Lease-fenced physical extraction attempts | ✓ |
+| `extracted_findings` | Immutable cited findings proposed by the Learning Loop | ✓ |
+| `extracted_finding_sources` | Source citations per finding | ✓ |
+| `extracted_finding_scope_refs` | Server-derived scope references per finding | ✓ |
+| `extracted_finding_reviews` | Append-only human reviews on findings | ✓ |
+| `extracted_finding_promotions` | At-most-once promotion records per finding | ✓ |
+
+#### `habitat-skill.ts`
+
+| Table | Purpose | Detailed section |
+|-------|---------|------------------|
+| `habitat_skills` | Skill definitions attached to habitats | ✓ |
+| `habitat_skill_signals` | Signal records emitted per habitat skill | ✓ |
+
+#### `habitat.ts`
+
+| Table | Purpose | Detailed section |
+|-------|---------|------------------|
+| `habitats` | Top-level workspace containers with retry/health/CI/release settings | ✓ |
+| `missions` | Habitat-level work cards flowing through columns; contain tasks | ✓ |
+| `mission_dependencies` | Cross-mission dependency edges | ✓ |
+| `mission_events` | Mission audit trail (moves, status changes, evidence/workflow actions) | ✓ |
+| `mission_watchers` | Users watching a mission | ✓ |
+| `mission_comments` | Threaded comments on missions | ✗ |
+| `mission_comment_mentions` | Mention records inside mission comments | ✗ |
+| `columns` | Kanban columns with WIP limits and auto-advance behavior | ✓ |
+| `mission_templates` | Reusable mission templates (patterns, task skeletons, workflow template) | ✓ |
+| `saved_filters` | Per-user saved board filter configurations | ✓ |
+| `chat_integrations` | Chat provider integrations (webhook-style channels) | ✓ |
+| `chat_speaker_mappings` | Workspace-scoped provider-speaker → local-user attribution for chat review decisions (migration 0081) | ✓ |
+| `audit_export_schedules` | Scheduled audit exports (format, filters, destination) | ✗ |
+| `scheduled_tasks` | Recurring mission creation schedules (cron/interval/once) | ✓ |
+| `habitat_health_snapshots` | Point-in-time habitat health scores, dimensions, recommendations | ✗ |
+| `cumulative_flow_snapshots` | Daily cumulative flow metrics per column | ✓ |
+| `sprints` | Time-boxed sprints with committed/completed mission lists and capacity | ✗ |
+
+#### `importManifest.ts`
+
+| Table | Purpose | Detailed section |
+|-------|---------|------------------|
+| `import_attempts` | Lease-fenced, digest-pinned habitat import runs (mode, identity policy) | ✗ |
+
+#### `insight.ts`
+
+| Table | Purpose | Detailed section |
+|-------|---------|------------------|
+| `project_insights` | Aggregated project insight records | ✓ |
+
+#### `integration.ts`
+
+| Table | Purpose | Detailed section |
+|-------|---------|------------------|
+| `integration_connections` | External provider connections (GitHub/Jira/Linear) | ✓ |
+| `external_intake_candidates` | Inbound external issues awaiting review/promotion into missions | ✓ |
+| `external_issue_links` | Live mission-to-external-issue sync links | ✓ |
+| `integration_sync_runs` | Sync run records per connection (counts, errors) | ✓ |
+
+#### `notification.ts`
+
+| Table | Purpose | Detailed section |
+|-------|---------|------------------|
+| `notification_events` | Domain events fanned out to notifications | ✓ |
+| `notification_deliveries` | Per-recipient deliveries of a notification event | ✓ |
+| `notification_delivery_channel_states` | Per-delivery/channel/destination push unit; lease/fence, bounded reservations and retry eligibility (migration 0077) | ✓ |
+| `notification_delivery_attempts` | Delivery attempt history with provider responses | ✓ |
+| `notification_subscriptions` | Per-user notification channel subscriptions | ✓ |
+| `notification_digest_items` | Items queued into notification digests | ✓ |
+| `notification_retention_policies` | Retention/cleanup policies for notification data | ✓ |
+
+#### `plugin.ts`
+
+| Table | Purpose | Detailed section |
+|-------|---------|------------------|
+| `plugin_enrollments` | Per-habitat plugin contributions, enabled/configured state | ✗ |
+| `plugin_runs` | Plugin execution records (status, signals emitted) | ✗ |
+| `plugin_quarantines` | Plugins quarantined from execution (key, reason, timestamp) | ✗ |
+
+#### `pulse.ts`
+
+| Table | Purpose | Detailed section |
+|-------|---------|------------------|
+| `pulses` | Communication signal stream (mission/habitat scoped) | ✓ |
+| `pulse_cursors` | Read-position cursors into pulse streams | ✓ |
+
+#### `quality.ts`
+
+| Table | Purpose | Detailed section |
+|-------|---------|------------------|
+| `quality_checklist_templates` | Reusable quality checklist templates | ✓ |
+| `quality_checklist_items` | Items within a checklist template | ✓ |
+| `task_quality_checklists` | Checklist instances bound to tasks | ✓ |
+| `task_quality_checklist_items` | Items within a task checklist instance | ✓ |
+
+#### `reaction.ts`
+
+| Table | Purpose | Detailed section |
+|-------|---------|------------------|
+| `pulse_reactions` | Reactions on pulses | ✓ |
+
+#### `relations.ts`
+
+Relationship declarations only — no tables.
+
+#### `release.ts`
+
+| Table | Purpose | Detailed section |
+|-------|---------|------------------|
+| `releases` | Detected habitat releases (version, type, notes) | ✓ |
+| `release_projection_deliveries` | Idempotent delivery of release side-effect projections | ✗ |
+| `release_activation_epochs` | Release activation windows (frozen cap, auto-promote eligibility) | ✗ |
+| `release_activation_epoch_groups` | Mission groupings within an activation epoch, with dispositions | ✗ |
+
+#### `remote-pod.ts`
+
+| Table | Purpose | Detailed section |
+|-------|---------|------------------|
+| `identity_providers` | External identity providers per habitat | ✓ |
+| `identity_provider_auth_states` | OAuth state records for IdP flows | ✓ |
+| `external_identities` | External subject identities mapped to local users | ✗ |
+| `remote_invites` | Participant invitations to remote pods | ✓ |
+| `remote_pods` | Remote pod registrations | ✓ |
+| `remote_participants` | Participants joined to a remote pod | ✓ |
+| `remote_credentials` | Issued participant credentials | ✓ |
+| `remote_grants` | Grants issued to remote participants | ✓ |
+| `remote_grant_targets` | Scope targets a grant applies to | ✓ |
+| `remote_grant_rules` | Rule constraints narrowing a grant | ✓ |
+| `remote_grant_task_snapshots` | Task snapshots embedded in grants | ✓ |
+| `remote_idempotency_keys` | Idempotency keys for remote operations | ✓ |
+| `remote_webhook_endpoints` | Webhook endpoints registered for remote pods | ✓ |
+
+#### `remote-webhook.ts`
+
+| Table | Purpose | Detailed section |
+|-------|---------|------------------|
+| `remote_webhook_deliveries` | Delivery ledger for remote webhook endpoints | ✓ |
+
+#### `review.ts`
+
+| Table | Purpose | Detailed section |
+|-------|---------|------------------|
+| `review_rules` | Habitat review-assignment rules (matchers, strategy, required reviews) | ✗ |
+| `task_reviewers` | Reviewers assigned to a task with review status | ✗ |
+
+#### `task.ts`
+
+| Table | Purpose | Detailed section |
+|-------|---------|------------------|
+| `tasks` | Work units within missions (state-machine lifecycle) | ✓ |
+| `task_events` | Task audit trail | ✓ |
+| `task_dependencies` | Sibling task dependency edges within a mission | ✓ |
+| `task_comments` | Threaded comments on tasks | ✓ |
+| `task_subtasks` | Subtask checklists on tasks | ✓ |
+| `task_watchers` | Users watching a task | ✓ |
+| `task_comment_mentions` | Mention records in task comments | ✓ |
+| `task_attachments` | Files attached to tasks | ✓ |
+| `task_time_records` | Time entries logged against tasks | ✓ |
+| `effort_entries` | Effort log entries (estimates/corrections) | ✓ |
+
+#### `taskPublication.ts`
+
+| Table | Purpose | Detailed section |
+|-------|---------|------------------|
+| `task_creation_attempts` | Idempotency ledger for task-creation attempts (request fingerprints) | ✗ |
+| `task_creation_governance_decisions` | Plugin-governance decisions per prospective task | ✗ |
+| `task_creation_envelopes` | Published task-creation lifecycle envelopes | ✗ |
+| `task_creation_dispatch_targets` | Dispatch/sink targets for creation events | ✗ |
+| `task_creation_assignment_reservations` | Leased assignment reservations during creation | ✗ |
+| `mission_recalculation_markers` | Leased markers scheduling mission recalculation | ✗ |
+| `scheduled_occurrences` | Materialized occurrences of a scheduled task (ordinal, revision, result) | ✗ |
+
+#### `triage.ts`
+
+| Table | Purpose | Detailed section |
+|-------|---------|------------------|
+| `finding_triage` | Triage lifecycle for extracted findings (status, bucket, target release) | ✓ |
+| `triage_resolutions` | Cluster-level resolutions (root cause, resolution kind) | ✓ |
+| `triage_cluster_missions` | Links between triage clusters and Triage Missions | ✓ |
+| `finding_triage_evidence` | Pulses admitted as triage evidence, with admission roles | ✗ |
+| `finding_triage_lineage_repairs` | Lineage repair operations on mis-attributed findings | ✗ |
+| `finding_triage_lineage_baseline_evidence` | Baseline pulse evidence recorded for a lineage repair | ✗ |
+| `triage_publication_occurrences` | Versioned rendered publications of triage outcomes | ✗ |
+| `migration_preflight_attestations` | Attestations that a migration's preflight anomaly queries came back clean | ✓ |
+
+#### `user.ts`
+
+| Table | Purpose | Detailed section |
+|-------|---------|------------------|
+| `users` | Human user accounts | ✓ |
+| `notification_preferences` | Per-user notification channel preferences | ✓ |
+| `organizations` | Top-level organizations | ✓ |
+| `teams` | Teams within organizations | ✓ |
+| `team_members` | Membership rows linking users to teams with roles | ✓ |
+
+#### `webhook.ts`
+
+| Table | Purpose | Detailed section |
+|-------|---------|------------------|
+| `webhook_subscriptions` | Habitat webhook subscriptions (URL, secret, event filter) | ✓ |
+| `webhook_deliveries` | Webhook delivery attempts with response details | ✓ |
+
+#### `wiki.ts`
+
+| Table | Purpose | Detailed section |
+|-------|---------|------------------|
+| `wiki_pages` | Wiki pages per habitat | ✓ |
+| `wiki_page_versions` | Version history of wiki pages | ✓ |
+| `wiki_page_links` | Links between wiki pages | ✓ |
+| `wiki_coverage_markers` | Coverage markers mapping wiki content to missions/skills | ✓ |
+
+#### `workflow.ts`
+
+| Table | Purpose | Detailed section |
+|-------|---------|------------------|
+| `workflows` | Workflow instances attached to missions (resolved variables, join specs) | ✓ |
+| `task_workflow_gates` | Typed dependency edges between tasks in a workflow | ✓ |
+| `task_recovery_handoffs` | Recovery handoff records for failed workflow tasks | ✓ |
+| `failure_contexts` | Captured failure context for workflow recovery | ✓ |
 
 ## Dialect Helpers
 
@@ -2258,7 +2548,7 @@ Finding triage lifecycle record. Tracks an engineering finding's routing lifecyc
 | `bucket` | TEXT | | Routing bucket: fix_now, defer_to_patch, defer_to_release, document_as_known_limitation, needs_investigation |
 | `target_release` | TEXT | | Free-text tag (e.g. "v0.24") for version-pinned deferred findings |
 | `target_release_type` | TEXT | | Release-type tag for semver-type-targeted deferrals: `patch`, `minor`, or `major` (cascading match, ADR-0029). Added by migration `0047_finding_triage_target_release_type.sql`. Superseded read-only by the restored lifecycle (ADR-0048) — deferral is a release-gated Corrective Mission; mutations rejected |
-| `triage_mission_id` | TEXT | FK → features(id) ON DELETE RESTRICT | Linked corrective mission. Physical column retained; the domain mapper exposes it as canonical `correctiveMissionId` (deprecated equal alias `triageMissionId`). RESTRICT since the `0068` enforcement migration — Mission deletion cannot erase lifecycle history |
+| `triage_mission_id` | TEXT | FK → missions(id) ON DELETE RESTRICT | Linked corrective mission. Physical column retained; the domain mapper exposes it as canonical `correctiveMissionId` (deprecated equal alias `triageMissionId`). RESTRICT since the `0068` enforcement migration — Mission deletion cannot erase lifecycle history |
 | `corroborating_pulse_ids` | TEXT | | JSON array of pulse IDs linked as corroborating evidence (compatibility projection; `finding_triage_evidence` is the authoritative membership store) |
 | `admitted_by_triage_mission_id` | TEXT | | Bounded investigation Mission identity (ADR-0048; migration `0064`) |
 | `admitted_by_investigation_task_id` | TEXT | | Exact Task whose live claim authorizes agent routing (claim-bound routing) |
@@ -2317,7 +2607,7 @@ Lightweight junction table linking cluster triage missions to their `cluster_key
 | `id` | TEXT | PK | Record identifier |
 | `habitat_id` | TEXT | NOT NULL FK → habitats(id) ON DELETE CASCADE | Parent habitat |
 | `cluster_key` | TEXT | NOT NULL | The cluster's normalized subject |
-| `mission_id` | TEXT | NOT NULL FK → features(id) ON DELETE CASCADE | The triage mission |
+| `mission_id` | TEXT | NOT NULL FK → missions(id) ON DELETE CASCADE | The triage mission |
 | `status` | TEXT | NOT NULL DEFAULT 'open' | `open` or `resolved` |
 | `created_at` | TEXT | NOT NULL DEFAULT datetime('now') | Creation timestamp |
 | `resolved_at` | TEXT | | Resolution timestamp |
@@ -2650,7 +2940,6 @@ entries are:
 | `0076` | `0076_webhook_delivery_leases.sql` | Webhook retry restoration: adds the `lease_owner` / `lease_fence` / `lease_expires_at` ownership columns to `webhook_deliveries` and backfills `next_retry_at = created_at` for every pending row with NULL `next_retry_at`. **Operator note:** the backfill makes the entire accumulated pending backlog due at once. After upgrade the retry worker scans up to 50 rows per tick: enabled, valid, eligible rows retry (bounded by the 3-reservation budget per row); disabled, missing-subscription, malformed, or already-exhausted rows receive their terminal disposition without a send. Legacy rows keep their existing `attempts` accounting; unknown historical outcomes are not reconstructed. |
 | `0077` | `0077_notification_push_epoch.sql` | Notification V2 push restoration: creates `notification_delivery_channel_states` (per-(delivery, channel, destination) unit state machine), adds `notification_deliveries.push_epoch` with column-level DEFAULT `'restored'` and backfills every pre-existing row to `'legacy'` in the same migration (atomic cutover; the upgrade sends only new notifications), inserts one terminal `backlog_not_attempted` unit per non-terminal legacy delivery (fixed disposition; statuses/timestamps/attempts untouched), and adds the nullable `notification_delivery_attempts.destination_id` unit linkage. **Operator note:** pre-existing deliveries are never pushed after the upgrade — a legacy `pending` inbox stays readable and carries the not-attempted evidence unit; only post-upgrade notifications are pushed. |
 | `0078` | `0078_task_execution_token.sql` | Execution token (claim-epoch identity): adds nullable `tasks.execution_token` and `daemon_sessions.execution_token`. A fresh uuid is minted inside each successful claim transaction by the claim authority; the daemon session created in the same transaction carries the same token. Every ownership-ending writer (release, remote release ×2, agent delete bulk reset, import reset, fail, retry reset, escalation, reject, approve, done) clears it to NULL. Submit/start/delegation-offer preserve it. **No backfill** — pre-migration claimed tasks are not epoch-bound (legacy limitation). Token absence itself triggers no recovery: the existing stale-agent cleanup still applies only under its normal eligibility (agent stale past the heartbeat window with the task as its current task), and any later successful claim mints a token normally. |
-
 | `0079` | `0079_effect_receipts.sql` | Durable failure-effect receipts: creates `effect_receipts` / `effect_receipt_targets` / `effect_receipt_attempts` / `effect_receipt_admin_actions`; adds `tasks.last_failure_event_id` (failure-provenance pointer CAS'd by retry/escalation consumers), `task_events.execution_token` (immutable epoch stamp on failed events), `failure_contexts.source_event_id` (conditional per-event capture, at-most-once via partial unique), and `plugin_runs.dispatch_key` + `lease_token` / `lease_expires_at` / `signals_committed_at` (event-keyed detector dispatch units with lease-token attempt generations and the set-once composer marker; partial unique on `dispatch_key`). All new columns nullable, all uniqueness on the new columns via partial indexes — **zero legacy row rewrite**. Receipt/target state is updated during delivery and requeue; no time-based retention cleanup or manual receipt-delete API exists — attempt/admin history is append-only while the habitat exists, and habitat deletion cascades all four tables (scanner delegation's ownership EXISTS check depends on them while the habitat exists). |
 | `0080` | `0080_task_release_pointer.sql` | Release-provenance pointer: adds nullable `tasks.last_release_event_id` + `idx_tasks_last_release_event`. Written by the release act-tx (`releaseTaskWithEffects`); fenced by the receipt-path gates consumer for release spawn/gate mutation and cleared by the ownership/lifecycle reset paths (claim mints, releases, terminal writes, retry/escalation resets, agent-delete bulk reset, import execution-state reset). Additive only, no legacy row rewrite; independent stream from `last_failure_event_id` (0079). |
 | `0081` | `0081_chat_speaker_mappings.sql` | Chat review decisions through the canonical lifecycle: adds nullable `chat_integrations.provider_workspace_id` (existing NULL rows stay push-only) and the `chat_speaker_mappings` table — explicit workspace-scoped provider-speaker → local-user attribution with UNIQUE(integration, workspace, speaker), habitat FK CASCADE, integration FK CASCADE, local-user FK RESTRICT. Hand SQL + Drizzle parity (`chatSpeakerMappings` in `db/schema/habitat.ts`); FK delete semantics pinned on the production better-sqlite3 driver by `chatSpeakerMappingFk.test.ts`. |

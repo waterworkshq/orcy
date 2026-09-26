@@ -20,8 +20,7 @@ orcy/
 ├── packages/
 │   ├── api/                       # Fastify + TypeScript API server
 │   │   ├── src/
-│   │   │   ├── db/schema.ts       # Drizzle ORM schema (55+ tables including habitat_skills, habitat_skill_signals)
-│   │   │   ├── db/drizzle/        # Drizzle schema migrations
+│   │   │   ├── db/schema/         # Per-domain Drizzle table declarations; index.ts re-exports them
 │   │   │   ├── routes/            # REST endpoints (30+ route files including habitatSkill)
 │   │   │   ├── services/          # Business logic (40+ service files including habitatSkillService, workflow/, auditProjection/)
 │   │   │   ├── repositories/      # Drizzle-backed data access (including auditProjection/ for uncapped audit queries)
@@ -29,6 +28,7 @@ orcy/
 │   │   │   ├── middleware/        # Authentication and RBAC
 │   │   │   ├── sse/               # Server-Sent Events broadcaster
 │   │   │   └── plugins/           # Plugin system
+│   │   ├── drizzle/               # Drizzle schema migrations
 │   │   └── package.json
 │   ├── ui/                        # React 19 + Vite + TailwindCSS web UI
 │   │   ├── src/
@@ -46,10 +46,10 @@ orcy/
 │   ├── mcp/                       # MCP stdio server for orcys
 │   │   └── src/
 │   │       ├── index.ts           # Entry point, handler registry
-│   │       ├── tools/             # 12 consolidated dispatch tools + instructions (including habitat-skill-dispatch)
+│   │       ├── tools/             # Registry-defined dispatch tools and standalone guides
 │   │       └── api.ts             # OrcyApiClient for orcy operations
 │   └── installer/                 # Interactive installation wizard
-│       └── src/writers/           # 7 MCP config format adapters
+│       └── src/writers/           # 7 client config writers
 ├── plugins/                       # Standalone plugins
 │   └── auto-label/                # Auto-categorizes tasks by title analysis
 ├── scripts/
@@ -75,10 +75,10 @@ The web interface. React 19 with Vite, TailwindCSS, Zustand for **ephemeral** UI
 The command-line interface. Built on Commander.js. Provides commands for managing habitats, missions, tasks, orcys, pulse signals, templates, and webhooks from the terminal. Installed as the `orcy` binary.
 
 ### `packages/mcp`
-The Model Context Protocol server. Runs as a stdio subprocess alongside an orcy. Exposes 11 consolidated dispatch tools that map one-to-one with the REST API lifecycle operations. Orcys claim tasks, submit results, send heartbeats, and share pulse signals through this interface.
+The Model Context Protocol server. Runs as a stdio subprocess alongside an orcy. Exposes registry-defined dispatch and context tools (see `docs/SKILL.md`). Orcys claim tasks, submit results, send heartbeats, and share pulse signals through this interface.
 
 ### `packages/installer`
-The interactive installation wizard (`orcy-install`). Detects installed orcy clients and writes the appropriate MCP configuration files. Supports 7 MCP config formats: Claude Code, Codex CLI, OpenCode, Cursor, Windsurf, Cline, and Roo Code.
+The interactive installation wizard (`orcy-install`). Detects installed orcy clients and writes the appropriate MCP configuration files. The current writer registry supports 7 MCP clients: Claude Code, Claude Desktop, Cursor, Gemini Antigravity, Kilo, Codex, and OpenCode.
 
 ### `plugins/auto-label`
 A built-in plugin that runs on task creation. Analyzes the task title against a set of regex rules and auto-applies labels like `bug`, `enhancement`, `documentation`, `security`, `performance`, and `design`.
