@@ -374,8 +374,16 @@ A plugin with both system-scoped and habitat-scoped contributions in one module.
 _Avoid_: Duplex plugin, dual plugin
 
 **Plugin Manifest**:
-A typed declaration emitted by a plugin that names the plugin, declares its version, lists its contributions (notification channels, detectors, MCP tool definitions, lifecycle interceptors), and binds a config schema default. Manifest is the contract between plugin author and Orcy; the existing `KanbanPlugin` interface is collapsed into it for v0.22.
+A typed declaration emitted by a plugin that names the plugin, declares its version, lists its contributions (notification channels, detectors, MCP tool definitions, lifecycle interceptors), and binds a config schema default. The manifest is the contract between plugin author and Orcy; it replaced the earlier `KanbanPlugin` interface in v0.22.
 _Avoid_: Manifest when describing a process or data row rather than the plugin contract, plugin.json (the manifest is an exported object, not a file convention)
+
+**Plugin Contribution**:
+One typed extension point declared by a Plugin Manifest (detector, channel, interceptor phase, formatter, condition, action, provider, HTTP route, MCP tool) and validated at load. Quarantine, enrollment, and capability policy attach to the contribution, not the plugin.
+_Avoid_: Plugin (one plugin may ship many contributions), handler (the code that backs a contribution)
+
+**Plugin Run**:
+The durable per-invocation record of one *attempted* managed plugin handler execution (status `running`/`succeeded`/`failed`/`rate_limited`/`skipped`), created by the invocation runtime before any handler runs — a `skipped` (quarantined) or `rate_limited` (admission-denied) attempt records a run in which the handler never invoked. Only managed kinds (detectors, actions, channels, interceptors) are run-tracked; adapter-registered kinds produce no Plugin Run rows. See ARCHITECTURE.md "Plugin Invocation Runtime".
+_Avoid_: Audit event (the Plugin Run is telemetry; the audit projection references it)
 
 **Plugin Enrollment**:
 A per-habitat REST-managed configuration row that opts a habitat-scoped plugin into a specific habitat. Carries a habitat-scoped config blob validated against the plugin's manifest config schema, an `enabled` flag, and an audit trail. System plugins are not enrolled because their contributions are server-wide.
@@ -384,6 +392,10 @@ _Avoid_: Activation, installation, grant
 **Detected Signal**:
 A pulse signal emitted by a signal-detector plugin with `signalType: "detected"` and server-injected provenance (`metadata.detected: true`, `metadata.detector: "<pluginId>"`, `metadata.detectorRunId: "<runId>"`). Detected signals are categorically distinct from agent self-reports (`signalType: "experience"`) and intentional agent observations (`signalType: "finding"`) — they are automated pattern matches over pulse text, task events, comments, or submission output. They surface in the wiki signal-surface reader as their own sub-bucket (separate from Experience Signals and Engineering Findings) and route through v0.23 triage with different weighting from self-reports.
 _Avoid_: Auto-finding, auto-signal, machine signal, classified signal (when describing the pulse category rather than a triage decision)
+
+**Habitat Skill**:
+The living, auto-generated skill document a habitat distills from clustered, scored signals (frequency/recency/corroboration/outcome) and injects into agent task context. See ARCHITECTURE.md "Habitat Skill Architecture".
+_Avoid_: Wiki Page (authored synthesis), Insight (promoted signal), agent skills files
 
 **Pattern Cluster**:
 A time-windowed grouping of two or more implicit signals (experience, finding, or detected) sharing the same normalized subject (cluster key) and signal category within a habitat. A single signal is an observation; a cluster is an emerging pattern worth investigating, and is the trigger input to reactive triage. Clusters are detected by periodic scan, not per-signal event, because membership is a property of the window, not the individual post.
@@ -452,6 +464,30 @@ _Avoid_: available (as an authoritative term — "available" is informal, read-p
 **Eligible**:
 The agent-relative property of whether a *specific* agent may claim a Task — **Claimable** plus that agent's domain and capabilities satisfy the task's requirements. Resolved at the transport seam (route or service), not by the claimability authority, because the local-agent model (`domain` + `capabilities`) and the remote-participant model (grant scopes + Host-Approved Capability) differ. A task may be Claimable but not Eligible for a given agent; it is never Eligible without being Claimable.
 _Avoid_: qualified, permitted (when describing agent-relative claim fitness), claimable (when the distinction from the task-intrinsic property matters)
+
+**Publication Kernel**:
+The single one-way, CAS-enforced state machine every task-creation origin flows through — from reservation through governance, durable dispatch, an observation gate (which resolves directly to assignment or via a targeted-assignment reservation), and typed refusal terminals. Origins register durably post-cutover and attempts can recover after crashes rather than implying one synchronous publish-to-assignment path. See ARCHITECTURE.md "Execution & Reliability Core".
+_Avoid_: Task creation (the kernel owns publication, not any one create endpoint), queue
+
+**Claim Authority**:
+The sole mutation authority for task claims: one transaction runs occupancy, task-intrinsic guards, the observation and reservation gates, and the transition-budget gate around a conditional write, mapping failures to a typed refusal taxonomy that never collapses infrastructure failure into contention. See ARCHITECTURE.md "Execution & Reliability Core".
+_Avoid_: Claimable (the read-adjacent property), atomic update (the authority is the guard chain, not just the write)
+
+**Occurrence Reservation**:
+The atomically reserved instance of a scheduled run — occurrence identity, schedule advance, and one-shot disable settle in one immediate transaction, so a lost race rolls back the whole reservation and no dangling occurrence survives. See ARCHITECTURE.md "Execution & Reliability Core".
+_Avoid_: Cron tick, schedule entry (the reservation is the durable exactly-once unit)
+
+**Fenced Inbox**:
+The delivery-admission dedup for `release.shipped` frozen-revision deliveries: one inbox entry per `(event_type, event_id)` and one delivery per `(event_dedupe_key, rule_revision, generation)`, so crash replays and duplicate deliveries are not re-admitted. This is admission dedup, not an exactly-once execution guarantee: attempts can resume under leases with stable checkpoint carry-forward (proved checkpoints are never re-executed), explicitly authorized successor generations may re-attempt unproved actions, and an unproved non-resume-safe action parks the delivery as `attention_required` rather than re-executing.
+_Avoid_: Idempotency key (the fence is per-source durable admission, not a caller-supplied header), retry queue
+
+**Completion Outbox**:
+The crash-atomic post-commit record of a fenced automation delivery's completion event, drained and re-delivered until consumed — so completion survives crashes even though action side effects carry no such guarantee. Live-rule events keep the canonical lifecycle without this outbox.
+_Avoid_: Delivery guarantee for all automation side effects (the outbox covers completion events only)
+
+**Transition Budget**:
+A per-task count of metered Execute↔Review transitions measured against a habitat-configured ceiling (`lifecycleSettings.taskTransitionCeiling`; null = default 21, 0 = opt-out), counted from the audit trail itself; humans are unmetered. Guarded transition attempts at the ceiling are refused; the first breach attempt schedules a best-effort escalation to habitat humans — its emission failures are logged, not durably retried, so escalation is not promised. Not every metered emission is pre-write guarded — the retry scheduler's `retry_scheduled` event is counted without passing the guard.
+_Avoid_: Rate limit (it meters a specific task's Execute↔Review cycles, not request volume), WIP limit
 
 ## Example Dialogue
 

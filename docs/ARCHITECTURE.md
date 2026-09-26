@@ -13,7 +13,8 @@ This document covers the system architecture, design decisions, key flows, and i
 │  AI Agent (Claude Code / Codex / OpenCode / Cursor / Gemini) │
 │  MCP stdio transport                                     │
 │  ┌──────────────────────────────────────────────────┐   │
-│  │  MCP Server (16 dispatch tools)                      │   │
+│  │  MCP Server (22 tools — see the dispatch table      │   │
+│  │  in SKILL.md; counts drift, ALL_TOOLS is truth)     │   │
 │  │  Features: list │ create │ get_context │ delete  │   │
 │  │  Tasks: claim │ submit │ update │ heartbeat     │   │
 │  │  Rules: get │ update │ evaluate                │   │
@@ -45,7 +46,7 @@ This document covers the system architecture, design decisions, key flows, and i
 |-------|-----------|---------------|
 | HTTP assembly | `src/httpApp.ts` | The single owner of the production HTTP surface (ADR-0049): Fastify construction, root hooks, policy installation, raw-body eligibility, both API prefix groups, realtime, Remote Participant, optional UI, and staged plugin route installation. The executable receives only a narrow runtime handle |
 | Routes | `src/routes/` | HTTP parsing, validation, response formatting. Includes daemon machine routes (`/daemon/*`), human/UI daemon controls (`/daemons/*`), and habitat skill routes (`/habitats/:id/skill/*`) |
-| Services | `src/services/` | Business logic, SSE broadcasting, webhook dispatch, AI features. Includes `featureService.ts`, `prioritizationService.ts`, `scheduledTaskService.ts`, `habitatSkillService.ts`, daemon nudges/digests, and `daemonEngine.ts` for the API in-process daemon runtime; `daemon-wiring.ts` provides lazy dynamic-import DI for the in-process daemon; `inProcessClaimStrategy.ts` implements the in-process claim path |
+| Services | `src/services/` | Business logic, SSE broadcasting, webhook dispatch, AI features. Includes `missionService.ts`, `prioritizationService.ts`, `scheduledTaskService.ts`, `habitatSkillService.ts`, daemon nudges/digests, and `daemonEngine.ts` for the API in-process daemon runtime; `daemon-wiring.ts` provides lazy dynamic-import DI for the in-process daemon; `inProcessClaimStrategy.ts` implements the in-process claim path |
 | Repositories | `src/repositories/` | Drizzle-backed data access (habitat, mission, task, column, agent, daemon, comment, template, webhook, event-mission, habitatSkill) |
 | Models | `src/models/` | TypeScript types, Zod schemas. Includes `Mission`, `MissionWithProgress`, `MissionStatus` types |
 | Middleware | `src/middleware/` | Authentication (API key + JWT), RBAC, team-based access |
@@ -72,7 +73,7 @@ This document covers the system architecture, design decisions, key flows, and i
 | File | Responsibility |
 |------|---------------|
 | `src/index.ts` | MCP SDK server setup, tool registry |
-| `src/tools/index.ts` | All tool exports + dispatch tool files (18 MCP tools total, including instructions tools) |
+| `src/tools/index.ts` | All tool exports + dispatch tool files — the `ALL_TOOLS` registry (22 tools at present; the registry, not this table, is the count authority) |
 | `src/tools/habitat-dispatch.ts` | Habitat dispatch: list, find, summary, metrics, settings, health, analytics, prioritization rules |
 | `src/tools/mission-dispatch.ts` | Mission dispatch: lifecycle, context, comments, code evidence, scoped audit bundle |
 | `src/tools/task-dispatch.ts` | Task dispatch: lifecycle, CRUD, details, quality, subtasks, dependencies, effort, code evidence, scoped audit bundle |
@@ -207,6 +208,18 @@ separate cursor/snapshot API decision.
 
 ---
 
+## The Knowledge System
+
+Orcy's knowledge features are a ladder, not one feature — each rung raises the abstraction and tightens the governance:
+
+1. **Pulse / Insights** — raw, typed signals (findings, blockers, directives, experience, detected) and promoted insights; the capture layer.
+2. **Habitat Skill auto-distillation** — the habitat skill service clusters and scores signals into a machine-readable skill document, injected into agent task context (below).
+3. **Authored Wiki** — humans and agents synthesize the primitives into long-form curated prose; authored-only, versioned, searchable ([Habitat Wiki](#habitat-wiki-v021)).
+4. **Recurrence-aware Triage** — clustered signals trigger bounded investigation; resolutions are recorded keyed by clusterKey so recurring patterns surface their history ([Triage System](#triage-system-v023)).
+5. **Human-governed Learning Loop** — a dormant-by-default, citation-carrying proposal loop over an allowlist of history; accepted findings feed at most one Wiki draft, never auto-published ([Learning Loop](#learning-loop-v038)).
+
+The ladder is descriptive, not a pipeline: no rung feeds the next automatically, and no habitat is required to climb it — capture works without promotion, the Learning Loop is dormant by default and enrolled per Habitat, and the wiki stays empty until someone authors it. Authorship is not human-only — agents author wiki pages and claim the scheduler's authoring tasks. These mechanisms have distinct outputs, not a shared pipeline: the wiki scheduler creates authoring tasks but never writes content; the Learning Loop proposes drafts rather than publishing; triage may create investigation and corrective work (missions and tasks).
+
 ## Habitat Skill Architecture
 
 Each habitat auto-generates a living skill document from high-strength pulse signals, task outcomes, and agent observations. The system clusters signals by topic, scores them for strength, and promotes high-confidence signals into the skill document.
@@ -223,25 +236,36 @@ Each signal is normalized into a `cluster_key` (e.g., "auth-jwt-signing") and me
 
 ### Signal Scoring
 
-Strength is a composite 0-1 score from four dimensions:
+Strength is a composite 0-1 score from four dimensions (`calculateStrength`, `habitatSkillService.ts`):
 
 | Dimension | Weight | Input |
 |-----------|--------|-------|
-| Frequency | 30% | How often this cluster has been seen |
-| Corroboration | 30% | Number of distinct agents confirming |
-| Cross-mission | 20% | Number of distinct missions this signal spans |
-| Outcome | 20% | Ratio of successful to failed associated tasks |
+| Frequency | 35% | Saturates at 5 observations (`min(frequency / 5, 1)`) |
+| Recency | 25% | Linear decay over a 30-day window (`1 − daysSinceLastSeen / 30`) |
+| Corroboration | 25% | Distinct confirming agents, saturating at 3 (`min(corroboratingAgents / 3, 1)`) |
+| Outcome | 15% | Success ratio of associated tasks (defaults to 0.5 with no outcomes) |
+
+The cross-mission count is **not** a strength input — it feeds category reclassification only (below). Within one `scoreAllSignals` pass, reclassification reads each signal's stored `crossMissionCount` from before the pass; the cross-mission recompute (`recalculateCrossMissionCounts`) runs after the loop, so a freshly broadened cluster influences the *next* pass.
 
 ### Skill Categories
 
-Signals are classified into one of four categories:
+Signals carry one of seven categories (`SKILL_CATEGORIES`, `@orcy/shared/types/skill.ts`):
 
-| Category | Criteria | Description |
-|----------|----------|-------------|
-| `domain_knowledge` | frequency ≥ 3 and corroboration ≥ 2 | Confirmed technical knowledge |
-| `convention` | frequency ≥ 3 and corroboration ≥ 2 | Established team practices |
-| `pattern` | frequency ≥ 3 and cross-mission ≥ 2 | Cross-cutting patterns |
-| `anti_pattern` | failed tasks > successful tasks | Things that consistently fail |
+| Category | Description |
+|----------|-------------|
+| `convention` | Established team practices (pulse `finding`/`directive` signals) |
+| `pattern` | Cross-cutting patterns (experience `smooth`; also the reclassification target below) |
+| `pitfall` | Things that consistently fail (pulse `warning`/`blocker`; experience `stuck`/`confused`/`backtrack`) |
+| `domain_knowledge` | Confirmed technical knowledge (pulse `context`; experience `surprised`/`ambiguous`) |
+| `agent_insight` | Direct contributions and unclassified signal types (the default bucket) |
+| `anti_patterns` | Counterproductive behavior (experience `sidetracked`) |
+| `detected_patterns` | Plugin-detector output — provenance-distinct from agent self-reports (ADR-0013) |
+
+Initial category comes from signal provenance; `scoreAllSignals` then reclassifies on every scoring pass (`reclassifyCategory`):
+
+- `convention` → `domain_knowledge` when frequency ≥ 3 and corroborating agents ≥ 2 — this check runs **first and returns**, so a `convention` signal meeting both thresholds becomes `domain_knowledge`, never `pattern`, in that pass.
+- Otherwise, any category except `detected_patterns` becomes `pattern` when frequency ≥ 3 and stored `crossMissionCount` ≥ 2 (including `convention` when the first condition was not met).
+- `detected_patterns` is never promoted — plugin-attributed matches must stay categorically distinct from agent-observed knowledge so triage can weight them separately.
 
 ### Promotion & Demotion
 
@@ -612,7 +636,7 @@ Similarly, `GET /missions/:id/details` returns mission + tasks + events + progre
 
 ### MCP Tool Architecture (Consolidated Dispatch Pattern)
 
-The MCP server exposes **13 dispatch tools** with dozens of action-routed operations (plus `orcy_instructions` and `orcy_pulse_instructions` standalone tools). Each dispatch tool accepts an `action` parameter to route to specific operations:
+The MCP server exposes every tool in the `ALL_TOOLS` registry (`packages/mcp/src/tools/index.ts`) with dozens of action-routed operations. Each dispatch tool accepts an `action` parameter to route to specific operations. Tool and action counts drift release-to-release — the registry and the full dispatch table in [SKILL.md](SKILL.md) are the authority, not this illustrative subset:
 
 | Dispatch Tool | Actions | Purpose |
 |---------------|---------|---------|
@@ -624,7 +648,6 @@ The MCP server exposes **13 dispatch tools** with dozens of action-routed operat
 | `orcy_habitat_message` | `send`, `get-messages` | Agent-to-agent messaging |
 | `orcy_pulse` | `post`, `check` | Mission signal board — post findings, blockers, directives; check partner signals |
 | `orcy_habitat_subscription` | `subscribe`, `unsubscribe` | Real-time notifications |
-| `orcy_admin` | `list-webhooks`, `create-webhook`, `list-templates`, `batch-assign-tasks`, `export-audit-log`, `get-audit-summary`, `list-scheduled-tasks`, `create-scheduled-task`, `run-scheduled-task` | Admin operations + scheduled tasks |
 | `orcy_worktree` | `get-worktree` | Git worktree info |
 | `orcy_habitat_skill` | `get`, `refresh`, `contribute` | Dynamic habitat skills — get skill document, trigger regeneration, submit direct insights |
 | `orcy_sprint` | `list`, `get`, `get_active`, `get_metrics`, `get_burndown`, `get_carry_over`, `create`, `update`, `delete`, `start`, `complete`, `cancel`, `add_mission`, `remove_mission` | Sprint planning, lifecycle, and analytics |
@@ -976,7 +999,7 @@ Scheduled tasks are polled every 60 seconds via `scheduler.ts`:
 - Interval: 60,000ms (1 minute)
 - Polls `scheduled_tasks` where `nextRunAt <= now` AND `enabled = true`
 - Each execution: creates mission from template → creates child tasks → updates `lastRunAt`/`nextRunAt`/`runCount`
-- Catches up on missed executions after restart (polls all due, not just current tick)
+- Catches up on due occurrences after restart (polls all due, not just the current tick); occurrences whose window passed entirely during downtime are not backfilled — see Scheduled Occurrence Reservation and Repair below
 - Wired to also process audit export schedules in the same polling loop
 
 ### SSE Events
@@ -1117,11 +1140,11 @@ Server-side rules that react to events with bounded actions:
 | Component | Responsibility |
 |-----------|---------------|
 | `automationContextBuilder.ts` | Loads task/mission/agent/sprint/habitat context from repositories |
-| `automationEvaluator.ts` | Evaluates 12 condition types with AND/OR/NOT nesting (depth ≤ 5) |
-| `automationExecutor.ts` | Executes 9 action types with per-action results + composite status; `release_assignment` routes through the canonical epoch-fenced release act-tx (see `automationReleaseAssignment.ts`) |
+| `automationEvaluator.ts` | Evaluates 14 condition types with AND/OR/NOT nesting (depth ≤ 5) |
+| `automationExecutor.ts` | Executes 10 action types with per-action results + composite status; `release_assignment` routes through the canonical epoch-fenced release act-tx (see `automationReleaseAssignment.ts`) |
 | `automationSimulationService.ts` | Preview — condition tree, action previews, no side effects |
 | `automationEventService.ts` | Ingests server events → finds matching rules → applies guards |
-| `automationScanService.ts` | Scheduled scans (mission_blocked, sprint_ending, agent_silent, evidence_gap_open) |
+| `automationScanService.ts` | Scheduled scans (mission_blocked, sprint_ending, agent_silent, evidence_gap_open, signal_pattern_clustered, agent_quality_degraded, orphan_mission_unmapped) |
 | `automationTemplateRenderer.ts` | `{{task.title}}` token substitution with ~30 allowed tokens |
 
 ### Safety Guards
@@ -1480,7 +1503,7 @@ The Habitat Wiki adds an authored, versioned, searchable knowledge layer above t
 
 ## Plugin Runtime (v0.22)
 
-The plugin platform extracts Orcy's matured in-tree extension seams into a safe, local-drop-in plugin surface. Plugins load in-process (same Node event loop as the API server) and interact with Orcy core exclusively through a vetted capability whitelist.
+The plugin platform extracts Orcy's matured in-tree extension seams into a local-drop-in plugin surface. Plugins load in-process (same Node event loop as the API server) and are **trusted Node dependencies, not sandboxed code** — a plugin runs with the API process's own authority. The capability whitelist bounds the *supported* `PluginContext` (what Orcy will hand a plugin), not what malicious plugin code could do; it is a supported-surface contract, not a security boundary. Interaction with Orcy core is supported only through the vetted capability whitelist.
 
 ### Manifest / Module Split (ADR-0011)
 
@@ -1495,7 +1518,7 @@ Nine contribution kinds on the manifest, each carrying its own `scope`:
 | `signalDetector` | habitat | Detects patterns in pulses/comments/task events and emits `signalType:"detected"` signals |
 | `notificationChannel` | system | Delivers notifications via a custom channel (e.g. Microsoft Teams) |
 | `lifecycleInterceptor` | habitat | Pre-veto or post-emit hooks on task transitions |
-| `customMcpTool` | system | Declares a custom MCP tool (v0.22.0: validated-only — dispatch not wired, ADR-0018) |
+| `customMcpTool` | system | Declares a custom MCP tool — Declaration-only: validated and listed, not MCP-callable (ADR-0018) |
 | `customHttpRoute` | system | Declares an authenticated HTTP route under the core-owned plugin namespaces — manifest-declared `routeId`/method/relative path + keyed handler; core registers it with fixed `local_actor` auth (ADR-0050, see below) |
 | `webhookFormatter` | system | Formats outgoing webhook payloads; plugin-first dispatch with in-tree fallback (ADR-0021) |
 | `automationCondition` | system | Synchronous leaf node in the automation condition tree; fail-safe dispatch (errors → `{matched:false}`) (ADR-0022) |
@@ -1541,7 +1564,7 @@ Priority is ascending; lower-priority pre-hooks veto short-circuit. Per ADR-0039
 
 Trigger-based fire-and-forget-after-commit — same execution seam as post-interceptors. When a source event (`pulseCreated`, `taskEvent`, `commentCreated`, `taskSubmitted`) commits, the loader dispatches to enrolled detector handlers in a background `Promise`. Source event commits independently of detector outcome — detected signals are hints, not ground truth. Per-run atomic batching: signals from one detector invocation are written all-or-nothing in one `db.transaction`.
 
-**Rate limiting & concurrency (ADR-0039 Q12, Q14):** the error-rate `isRateLimited` gate is removed; runtime faults feed the per-contribution quarantine counter and threshold only. `rate_limited` Plugin Run status is written solely when a Detector cannot acquire habitat concurrency capacity (`ORCY_DETECTOR_MAX_CONCURRENT`, default 8) — that outcome is temporary and recovery-eligible. The concurrency slot is released when the **underlying handler Promise settles**, not when the watchdog fires; a never-settling handler intentionally holds its slot until process restart. The watchdog (`withTimeout`) is a deadline race, not cancellation — no claim is made that the handler or late side effects were cancelled. Detector manifest `rateLimitDefaults` are not activated in this release. Catch-up scan recovers events missed during outage with status-aware dedup (only `running`/`succeeded`/`failed` count as durably accounted) and per-target dispatch with durable-start watermark acknowledgement.
+**Rate limiting & concurrency (ADR-0039 Q12, Q14):** the error-rate `isRateLimited` gate is removed; runtime faults feed the per-contribution quarantine counter and threshold only. `rate_limited` Plugin Run status is written when a Detector is denied admission at either gate — habitat concurrency capacity (`ORCY_DETECTOR_MAX_CONCURRENT`, default 8) or a manifest sliding-window cap (below) — and both outcomes are temporary and recovery-eligible. The concurrency slot is released when the **underlying handler Promise settles**, not when the watchdog fires; a never-settling handler intentionally holds its slot until process restart. The watchdog (`withTimeout`) is a deadline race, not cancellation — no claim is made that the handler or late side effects were cancelled. Detector manifest `rateLimitDefaults` are enforced live: a sliding 60-second window caps detector invocations (`maxDetectionsPerMinute`) and a sliding 3600-second window caps emitted signals (`maxSignalsPerHour`), checked on every detector invocation through the invocation runtime's injected `checkDetectorRateLimit` dep (`pluginManager.ts` delegating to `detectorRateLimiter.ts`). Catch-up scan recovers events missed during outage with status-aware dedup (only `running`/`succeeded`/`failed` count as durably accounted) and per-target dispatch with durable-start watermark acknowledgement.
 
 ### Custom HTTP Routes (ADR-0050, supersedes ADR-0041)
 
@@ -1567,7 +1590,7 @@ Three tables:
 | Table | Purpose |
 |-------|---------|
 | `plugin_enrollments` | Per-contribution habitat enrollment. `UNIQUE (habitat_id, plugin_id, contribution_id)` — Mixed Plugin contributions enroll independently. |
-| `plugin_runs` | Per-invocation telemetry: `pluginId`, `contributionId`, `triggerType`, `status` (`running`/`succeeded`/`failed`/`rate_limited`/`skipped`), `signals_emitted`, `error`, `started_at`, `finished_at`. `rate_limited` = Detector concurrency capacity denied (recovery-eligible); `skipped` = quarantine blocked this attempt (recovery-eligible). Only `running`/`succeeded`/`failed` satisfy catch-up dedup (ADR-0039). |
+| `plugin_runs` | Per-invocation telemetry: `pluginId`, `contributionId`, `triggerType`, `status` (`running`/`succeeded`/`failed`/`rate_limited`/`skipped`), `signals_emitted`, `error`, `started_at`, `finished_at`. `rate_limited` = Detector denied admission by concurrency capacity or manifest sliding-window rate cap (recovery-eligible); `skipped` = quarantine blocked this attempt (recovery-eligible). Only `running`/`succeeded`/`failed` satisfy catch-up dedup (ADR-0039). |
 | `plugin_quarantines` | Persistent per-contribution quarantine state (added v0.22.3); keyed by the canonical kind-safe contribution key (ADR-0039 Q9). Re-populated into memory at boot by `loadQuarantinesFromDb()`. Admin-clearable via `DELETE /habitats/:id/plugins/:pluginKey/quarantine`. A one-time prerelease quarantine reset deletes legacy `pluginId:contributionId` rows whose format cannot map to the canonical key. |
 
 Quarantine state persists across API restart via the `plugin_quarantines` table (added v0.22.3), re-populated into memory at boot by `loadQuarantinesFromDb()`; the per-contribution error *counter* is in-memory and resets on restart (the persisted quarantine row survives). Quarantine applies to one contribution via its canonical kind-safe key (ADR-0039 Q9) — `(pluginId, kind, contributionId[, phase, event])` — not the whole plugin. The counter accrues runtime faults (throw, watchdog timeout, invalid return, validator rejection) over a fixed 60-second window; threshold breach auto-quarantines. Only Signal Detectors, Automation Actions, and pre Lifecycle Interceptors increment the counter; Notification Channels and post Lifecycle Interceptors carry a defensive quarantine gate only and cannot reach the auto-threshold (ADR-0039 Q2). Admin can clear a quarantine via `DELETE /habitats/:id/plugins/:pluginKey/quarantine`. `ORCY_DETECTOR_ALLOWLIST` (comma-separated plugin ids, unset = fail-closed, `*` = open) gates which detectors can be habitat-enrolled.
@@ -1578,7 +1601,7 @@ Quarantine state persists across API restart via the `plugin_quarantines` table 
 
 ### Custom MCP Tool (ADR-0018)
 
-`customMcpTool` is a first-class manifest kind in v0.22.0. The loader validates the contribution; the tool is surfaced via `getCustomMcpTools()` (scanning loaded plugin modules — no dedicated registry for this Tier-C kind). **The MCP server does NOT consume `getCustomMcpTools()` in v0.22.0** — the `orcy_*` count stays at 20. The cross-process wiring (REST endpoint for tool definitions + dispatcher route + MCP-server boot polling) is a v0.22.1 deliverable.
+`customMcpTool` is a first-class manifest kind. The loader validates the contribution; the tool is surfaced via `getCustomMcpTools()` (scanning loaded plugin modules — no dedicated registry for this Tier-C kind). **Status: Declaration-only.** The MCP server has no consumer for `getCustomMcpTools()` — declared tools are validated and listed but are not MCP-callable; no cross-process wiring (REST endpoint for tool definitions + dispatcher route + MCP-server boot polling) exists.
 
 ### Audit Source "plugin"
 
@@ -1592,9 +1615,9 @@ Every plugin invocation emits an `AuditEvent` via the write-only `ctx.audit` cap
 | `PLUGINS_ENABLED` | — | Comma-separated plugin names to load (unset = all discovered) |
 | `ORCY_DETECTOR_ALLOWLIST` | — | Detector enrollment gate (unset = fail-closed, `*` = open) |
 | `ORCY_PLUGIN_QUARANTINE_THRESHOLD` | `10` | Per-contribution runtime-fault count (60s window) for auto-quarantine |
-| `ORCY_DETECTOR_MAX_CONCURRENT` | `8` | Per-habitat concurrent detector handler invocations (capacity denial writes `rate_limited`) |
+| `ORCY_DETECTOR_MAX_CONCURRENT` | `8` | Per-habitat concurrent detector handler invocations (capacity or sliding-window denial writes `rate_limited`) |
 
-### Reference Plugins (15 shipped)
+### Reference Plugins (15, the live `plugins/` tree)
 
 | Plugin | Contribution kind | Scope |
 |--------|-------------------|-------|
@@ -1718,7 +1741,7 @@ The promotion loop is gated by two AND'd switches, both defaulting to on: the gl
 | `api/src/routes/triage.ts` | `POST /triage/release-trigger` + `targetReleaseType` on `PATCH /triage/findings/:id` |
 | `cli/src/commands/triage.ts` | `orcy triage release-trigger` CLI (sets `detectedBy: "cli"`) |
 
-## Learning Loop (implementation complete; release pending)
+## Learning Loop (v0.38)
 
 A bounded, human-governed proposal loop that converts an allowlist of trustworthy Orcy history into immutable, cited findings that agents may read through a task-bound query. Dormant by default (`ORCY_LEARNING_LOOP_ENABLED` global env + per-Habitat `enabled` policy flag); disabling new runs/promotions does not erase accepted reads.
 
@@ -1812,7 +1835,7 @@ Accepted findings create at most one Habitat Wiki **draft** (never auto-publishe
 | `mcp/src/tools/learning.ts` + `learning-dispatch.ts` | `orcy_learning` MCP tool (`list_accepted`/`get`) |
 | `mcp/src/tools/instructions.ts` | Agent skill guide entry for `orcy_learning` |
 
-## HTTP Route Assembly (implementation complete; release pending)
+## HTTP Route Assembly (v0.41)
 
 One staged assembly owns the production HTTP application (ADR-0049). `createHttpApplication` (`api/src/httpApp.ts`) constructs the Fastify instance and registers the entire core surface — root CORS/Helmet/error/audit hooks, the policy installer, raw-body capture, health/root, both local API prefix groups (`/api/v1` and deprecated `/api`, behaviorally paired), realtime (`/sse`), the Remote Participant API (`/api/shared`), and the optional static UI. The executable (`api/src/index.ts`) owns operational startup only (DB, caches, schedulers, workers, plugin discovery, daemon wiring, signals, shutdown) and receives a narrow runtime handle — staged plugin install, finalize, listen/inject, close, logging, and the derived inventory — never the `FastifyInstance` or any route registration capability.
 
@@ -1853,7 +1876,102 @@ The route inventory is derived at `finalize` from the same registration stream t
 | `api/src/test/httpRouteAuthorityBoundary.test.ts` | Structural escape guard (import/instance/registration boundary) |
 | `api/src/test/routeSurfaceCharacterization.test.ts` | Behavior-derived baseline: fixture parity, prefix parity, verified ingress, header probes |
 
-## Outgoing Webhook Delivery & Retry
+## Transactional Installer (v0.37)
+
+`@orcy/installer` treats an installation as a transaction. Every on-disk mutation is recorded step-by-step in an in-flight journal; the journal is committed into the install manifest only after all steps complete. Canonical sources: `packages/installer/src/journal.ts`, `lifecycle.ts`, `wizard.ts`, `verify.ts`, `doctor.ts`.
+
+### Journal vs committed manifest (two-file model)
+
+- **Journal** (`~/.orcy/install-journal.json`) — transient, per-step record of the in-flight transaction. Its *presence on disk* is the "install in progress / interrupted" signal. Every write is atomic (temp + fsync + rename).
+- **Manifest** (`~/.orcy/install-manifest.json`) — the committed ledger, written once at the commit point (`commitJournal`: manifest write completes *before* the journal unlink, so a crash mid-commit leaves both files; the leftover journal is stale and is deleted — the manifest is authoritative). The manifest path never holds in-flight state.
+
+### Viability-gated idempotent re-run
+
+A stale journal offers interactive **resume / rollback / abort** (non-interactive recovery requires `--recover`):
+
+- **Resume = re-run, not skip-ahead.** The journal is discarded and the whole wizard runs again; G8 idempotency (remove-then-inject markdown patching, `record()` dedup on `{path, action}`, idempotent package/MCP/service install) makes already-done steps converge instead of duplicate. Consequence: any future non-idempotent step would silently corrupt on resume — it must be made idempotent or skip-ahead resume built first.
+- **Viability gate** (`isJournalViable`): every `done` step's artifact must still exist on disk in the expected form (appended files need both sentinels, start before end). A non-viable journal is not resumable — it must be rolled back.
+- An orphaned-remote-agent journal is *never* viable (below).
+
+### Active-step rollback
+
+`rollbackJournal` reverses `done` steps newest-first. If the partial install recorded a service artifact, the service is stopped and uninstalled *before* files are reversed (otherwise the unit is deleted under a live process). A rollback with any reversal failure preserves the journal and aborts rather than installing over a half-cleaned state.
+
+### Unresolved registration blocks resume
+
+If the `registerAgent` step reached phase `"credentials"` (remote `POST /api/agents` succeeded, local `credentials.json` write did not), the journal is non-viable by definition — resuming would POST a **second** agent. Recovery surfaces the orphaned agent ids (`orphanedAgentIds`) for manual deletion; the installer cannot self-delete them because the API key was never stored locally.
+
+### `verify` vs `doctor`
+
+| Command | What it does |
+|---------|-------------|
+| `orcy-install verify` | Read-only recorded-path consistency audit: missing recorded paths, duplicate `{path, action}` entries, stale journals. It does not hash or compare file contents — a machine whose files were modified in place can still verify `ok` — and a machine with no manifest and no stale journal is `ok` (nothing recorded to check). Footprint dirs (`src`/`cache`/`node_modules`) are informational notes, not drift. Never mutates the filesystem. |
+| `orcy-install doctor` | Liveness probe: `~/.orcy/` layout, binaries present and on `PATH`, API `/health` reachable, service active state. Tells you whether the install *works*; `verify` tells you whether the recorded paths still exist on disk. |
+
+## Plugin Invocation Runtime (ADR-0039)
+
+All plugin handler execution is owned by one deep module — `createInvocationRuntime` (`api/src/plugins/invocationRuntime.ts`) — composed with the loader/registry in `pluginManager.ts` and the per-kind adapter catalog in `contributionAdapters.ts`. It has two entry points for two genuine execution regimes: the synchronous `checkPreVeto` (pre-task-transition gates) and the asynchronous `invokeManaged` (detectors, actions, channels, post-interceptors).
+
+### Validation and registration at load
+
+`loadPlugins` scans `PLUGINS_DIR` (symlink-escape guarded — no `import()` of code outside the trusted plugin directory). Each plugin is validated as a unit before registration: manifest conformance, orphaned-declaration checks (a declared contribution with no matching handler rejects the whole plugin), collision detection, and capability-matrix policy (`CAPABILITY_MATRIX` — data-driven per-kind allowed capabilities, e.g. pre-phase interceptors cannot require `pulseWriter`). A fault rejects that plugin; the scan continues with later valid plugins. Plugin HTTP route declarations are validated at discovery with the same whole-plugin rejection semantics (ADR-0050).
+
+### Managed invocation pipeline
+
+`invokeManaged` runs one pipeline for every managed-kind handler (detectors, actions, channels, interceptors — the only kinds that are run-tracked; the adapter-registered kinds below produce no Plugin Run rows):
+
+```
+startRun (Plugin Run row — the invocation gate) →
+  quarantine gate (quarantined contribution → run `skipped`) →
+    admission (detector concurrency slot + sliding-window rate caps → run `rate_limited`) →
+      context build (capability-scoped PluginContext) →
+        handler under the watchdog (withTimeout — deadline race) →
+          result validation (per-kind validator) →
+            onResult (server-owned signal persistence) →
+              fault classification → finishRun (terminal status)
+```
+
+- **No handler runs before `startRun` succeeds**; a `startRun` failure is an infrastructure fault, not a plugin fault.
+- **Fault classification** is explicit: an explicit `{ allow: false }` veto and expected domain outcomes (`status:"failed"`, `success:false`) are ordinary outcomes that never increment quarantine counters; runtime faults (handler throw, watchdog timeout, invalid return, validator rejection, Promise-return on the sync pre path) increment the contribution's counter when its kind counts faults. A `finishRun` infrastructure failure preserves the handler's outcome and never counts against the plugin; a pre-launch finish failure falls back to deleting the stranded `running` row so catch-up dedup is not falsely satisfied.
+- **Quarantine semantics.** Quarantine is per *contribution*, keyed by the canonical kind-safe identity `(kind, pluginId, contributionId[, phase, event])` — never the whole plugin. Runtime faults accrue over a fixed 60-second window; breaching `ORCY_PLUGIN_QUARANTINE_THRESHOLD` (default 10) auto-quarantines. Quarantined contributions are skipped (not failed) so Task work continues, and remain admin-clearable. Only Signal Detectors, Automation Actions, and pre Interceptors can reach the threshold; Channels and post Interceptors carry a defensive gate only.
+- **Timeout is a deadline, not cancellation** (ADR-0039 Q5). The watchdog is a `Promise` race — a late handler settles outlive it and no cancellation is claimed. Per-kind defaults (`INVOCATION_POLICY`): detectors 5s, actions/channels/post-interceptors 30s, pre-interceptors none (synchronous); a manifest `timeoutMs: 0` disables the watchdog.
+- **Concurrency and rate admission** apply to Detectors only: a per-habitat slot pool (`ORCY_DETECTOR_MAX_CONCURRENT`, default 8 — denial writes `rate_limited`, recovery-eligible), slot release attached to the *underlying handler settlement* rather than the watchdog winner, and manifest-declared sliding windows (`maxDetectionsPerMinute` over 60s, `maxSignalsPerHour` over 3600s) enforced through the injected rate-limiter dependency.
+
+### Adapter-registered, non-runtime dispatch kinds
+
+The remaining contribution kinds are validated and registered at load through the same adapter catalog but are **not** dispatched by the invocation runtime:
+
+- `webhookFormatter`, `automationCondition`, `integrationProvider` — consulted synchronously by their host subsystems (webhook dispatch, automation evaluation, issue sync) through registry getters, with kind-specific fail-safe semantics (e.g. a condition fault evaluates to `{matched: false}`). No Plugin Run row or quarantine accounting is involved.
+- `customHttpRoute` — core-mounted at boot with fixed `local_actor` auth (ADR-0050); handler faults are request-scoped (logged, generic 500) with no runtime counters.
+- `customMcpTool` — declaration-only: validated and listed via `getCustomMcpTools()`, never invoked (no MCP-server consumer).
+
+### The trusted-code limit
+
+Plugins are trusted in-process Node dependencies, not sandboxed code: a plugin runs with the API process's own authority. The capability whitelist bounds the *supported* `PluginContext` surface — it is a supported-surface contract, not a security boundary against malicious plugin code. The load-time guards (symlink containment, orphan/collision rejection) protect against *accidental* misdeclaration, not adversaries. Stronger isolation and cooperative cancellation of a running handler are **accepted future work, not a permanent rejection of the goal** (ADR-0039 Q5 records the deferral; the watchdog stays a deadline race until then) — today the residual risk is operator trust ("audit before installing", ADR-0012).
+
+## Execution & Reliability Core (v0.32–v0.42)
+
+### Task Publication Kernel (v0.32)
+
+Every Task-creation origin — interactive create, clone, automation, plugin, blocker clearance, workflow recovery, scheduled template/inline/handler, habitat import, triage cluster + orphan, manual template — flows through one kernel: `prepareTaskPublication` → `governTaskPublication` → `publishTaskWithClient` → durable dispatch → observation gate → assignment. The publication state machine is one-way and CAS-enforced, with **eight states** total (`task_creation_attempts.state`, `api/src/db/schema/taskPublication.ts`). Observation is a dual-branch gate (`creationDispatchWorker.ts`): with no active targeted reservation, dispatch advances `published_pending_observation` **directly to `created`**; with one, it advances to `published_pending_assignment`, which resolves to `created` (reservation consumed) or `created_unassigned`:
+
+```
+pending → published_pending_observation ──────────────────────────────→ created
+pending → published_pending_observation → published_pending_assignment → created
+                                                                     └→ created_unassigned
+pending → rejected_validation | vetoed | batch_rejected   (terminal refusal exits)
+```
+
+Legacy raw-insert paths are removed. Two lease-fenced background workers drive post-commit observation, dispatch, and assignment (creation dispatch at 5s, occurrence lease recovery at 60s); the dispatch worker composes the dispatch pipeline, the observation scan, and the targeted-assignment sweeper.
+
+| File | Role |
+|------|------|
+| `api/src/services/taskCreationPublication.ts` | Kernel entry — prepare/govern/publish |
+| `api/src/services/taskPublication*` (4 files) | Coordinator, governance (interceptor admission), guard verification, preparation |
+| `api/src/services/taskCreationAssignmentCoordinator.ts` | Targeted-assignment resolution + reservation consumption |
+| `api/src/services/creationDispatchWorker.ts` | Lease-fenced observation/dispatch worker (multi-instance safe) |
+
+### Outgoing Webhook Delivery & Retry
 
 Outgoing board webhooks (`webhook-delivery.ts` / `webhook-dispatch.ts`) run a lease/fence delivery model with a bounded send budget, mirroring the automation-inbox lease primitive:
 
@@ -1887,3 +2005,40 @@ Durable failure-effect completion: the restored service `failTask` path (`taskSe
 | `api/src/plugins/pluginManager.ts` | `invokeDetectorForEffectDelivery` runtime adoption seam (lease-fenced finish, code-only errors) |
 | `api/src/services/detectorScanService.ts` | Scanner delegation (row-id projection + ownership EXISTS) |
 | `api/src/routes/effectReceipts.ts` | Admin inspect/requeue API |
+
+### Claim Authority (ADR-0038)
+
+`claimWithAuthority` (`api/src/repositories/claimAuthority.ts`) is the sole mutation authority for claims. ONE transaction runs: occupancy check → task-intrinsic guards (`checkClaimability`: dependencies, mission dependencies, release gate, workflow gates — plain-claim mode only; delegated claims preserve the legacy contract that skips them) → observation gate → reservation gate (`task_creation_assignment_reservations`, transport-aware matching) → transition-budget gate → conditional `UPDATE … WHERE status='pending'` with version increment → post-write TOCTOU verify. Exceptions map to a typed taxonomy that never collapses infrastructure failure (`SQLITE_BUSY`) into contention: `infrastructure_failure` (retryable), `version_conflict` (serialization), domain refusals (`ineligible`, `already_claimed`, `reserved_for_other`, `observation_pending`, `transition_budget_exhausted`). Plain, delegated, and remote-participant claims all route through it; it is the only writer of `status='claimed'`.
+
+### Retry Ladder and Failure Recovery
+
+Two coexisting systems with different shapes:
+
+- **Retry ladder** (`api/src/services/retryService.ts`) — re-queues the same task: exponential backoff (base 60s, ×2, cap 3600s), per-task then per-habitat `RetryPolicy`, status-filtered retries, 30s background processor. **A policy is required**: with neither a task nor habitat `retryPolicy`/`retrySettings`, `shouldRetry` is false and `scheduleRetry` returns null — no retry happens by default. Escalation on exhaustion additionally requires `policy.escalateToHuman` to be set. Budget-guarded on the execution side via `guardTransitionTop` (`retry_executed`).
+- **Workflow recovery** — spawns a *new* recovery task from a frozen handler snapshot (`MAX_RECOVERY_DEPTH = 2`), carrying a structured FailureContext (artifacts, last 20 lifecycle events, last 50 experience signals, retry history); successful recovery redeems the original failure and fires downstream gates. Reconciled at boot by the idempotent `recoveryCoordinator` over durable `task_recovery_handoffs` rows.
+
+### Automation Attempt Lifecycle (fenced inbox + completion outbox)
+
+All automation execution funnels through `attemptRuleRun` (`automationAttemptLifecycle.ts`): target validation → admission → condition evaluation (evaluated per attempt on both the live and frozen paths — `automationAttemptLifecycle.ts`; on a resumed attempt the guards do not re-refuse, so the delivery proceeds past an unmatched condition by design) → causal guard → kill switch → actions → exactly-one terminal completion. **The fenced-inbox + completion-outbox delivery guarantee is scoped to `release.shipped` frozen-revision deliveries** (`automationInboxService.ts`): admission freezes the immutable `(event_type, event_id)` inbox entry together with the matched executable rule *revisions* (later live-rule edits cannot change what executes); terminalization is crash-atomic `BEGIN IMMEDIATE`; and the deduped completion-outbox row (migration 0069) is delivered after commit and re-delivered on drain (`initAutomationInboxDrain`, boot + bounded interval). Live-rule events keep the canonical lifecycle without this inbox/outbox guarantee. Admission dedup is per event and per `(event, rule_revision, generation)` delivery, with stable checkpoint carry-forward — it is not an exactly-once execution guarantee: on a stale lease, only actions with a declared end-to-end idempotency contract (`change_priority`, `mark_risk`) may resume the same generation; an unproved non-resume-safe action parks the delivery as `attention_required` (never auto-re-executed; operator waiver or an explicit successor generation is required).
+
+### Scheduled Occurrence Reservation and Repair
+
+Scheduled runs reserve an occurrence atomically (`api/src/repositories/scheduledOccurrenceReservation.ts`): `BEGIN IMMEDIATE` transaction wraps occurrence INSERT (unique on `(scheduledTaskId, scheduledFor)`), schedule-advance CAS (exactly-once), and one-shot disable; a lost advance race rolls the whole transaction back (typed `lost_race`), so no dangling occurrence survives. The wrapper is multi-instance-safe by design. Failures of terminal-`rejected` occurrences are repaired via new attempts with appended `retryHistory` (`scheduledOccurrenceRepair.ts`) — the row itself stays terminal. Missed intervals during downtime are not backfilled; `calculateNextRun` computes forward.
+
+### Transition Budget (v0.42, ADR-0051)
+
+A per-task brake with a habitat-configured ceiling on runaway review loops. Every task's Execute↔Review cycle is metered against `lifecycleSettings.taskTransitionCeiling` (`null` = default 21, `0` = opt-out); the meter is the `task_events` audit trail itself (no counter column). Human actors are unmetered; exits and bookkeeping actions are untaxed. Guarded transition attempts at the ceiling are refused with a typed reason (`transition_budget_exhausted`) while the first breach attempt schedules a best-effort escalation to the habitat's humans via the existing `escalated` event + SSE + direct notification (emit-once, marker-scoped) — emission failures are logged, so escalation is not promised. Enforcement is last-before-write inside the claim authority, the task transition paths (submit/reject/release/fail), and the retry-**execution** path — not every metered emission is pre-write guarded: `retry_executed` passes the guard, but the scheduler writes the metered `retry_scheduled` event without one. Breach escalation itself is scheduled in a microtask that fires after the caller's transaction settles — commit or rollback — (so it never joins the caller's transaction); an emission or import failure there is logged, not durably retried. See `api/src/services/tasks/transitionBudget.ts`.
+
+## Remote Pods / Pod Bridge (v0.19–v0.35)
+
+Federated participation for another admin's pod in a shared habitat. The **live path is manual**: invite-token acceptance (`POST /shared/invites/accept`, one-time token hash), scoped grants/credentials, and remote MCP are fully operational. **Provider-backed identity is Partial:** provider configuration and OAuth initiation exist (PKCE/state/nonce auth states with a 10-minute TTL), but no in-tree callback verifies or consumes the auth state — the unverified provider-invite acceptance route was removed, and provider acceptance returns only with a designed, state-consuming callback that is not yet built (accepted future work; see `identityProviderService.ts`). Manual invite acceptance is the only working provisioning path.
+
+| Component | Role |
+|---|---|
+| `identityProviderService.ts` + `schema/remote-pod.ts` | External identity providers (PKCE auth states) — Partial: configuration + initiation only; no in-tree callback consumes the state |
+| Grants, standings, scopes | `remote_pods`/`remote_grants` with 5 standings (`local_member`…`trusted_remote_pod`), per-action scope evaluation, eligibility modes, grace windows, revocation modes |
+| Remote MCP mode | `X-Orcy-Remote-Key` auth over an explicit 23-action / 9-scope allowlist (`packages/mcp/src/remote-actions.ts`) |
+| Idempotent writes | Required `Idempotency-Key` middleware with 24h replay protection and stale-pending takeover (`middleware/idempotency.ts`) |
+| Transport seam (v0.35) | `services/tasks/remote-task-lifecycle.ts` — remote mutations produce the same observable lifecycle as local ones (canonical task event + SSE + watchers + mission recalc + subscriber hooks), closing the governance-interceptor bypass and enforcing Host-Approved Capability |
+| Compact eventing | `compactRemoteWebhookDispatcher.ts` — HMAC-signed compact webhooks with a delivery ledger; single-attempt dispatch, failures record the delivery and emit `webhook.delivery_failed` (no automatic retry) |
+| Admin surface | `shareHabitatReadinessService.ts`, `sharedGrantVisibilityService.ts`, `remoteAccessAdminService.ts`, invite flows, credential rotation (`remoteCredentialService.ts` + `secretCrypto.ts`) |
