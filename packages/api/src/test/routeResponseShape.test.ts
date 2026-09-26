@@ -142,6 +142,8 @@ describe("settings-blob response shapes at the route boundary", () => {
       hasGitlabSecret: false,
       taskPattern: "ORC-",
       autoApproveOnMerge: false,
+      githubRepositories: [],
+      gitlabProjects: [],
     });
   });
 
