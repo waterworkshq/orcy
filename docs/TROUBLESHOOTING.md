@@ -82,9 +82,9 @@ pnpm install
 
 **Fix:**
 
-- Default limit is 100 requests per minute per IP/API key
-- Wait 60 seconds for the rate limit window to reset
-- Rate limit headers in response: `X-RateLimit-Limit`, `X-RateLimit-Remaining`, `X-RateLimit-Reset`, `Retry-After`
+- Default limits are per principal (custom middleware, sliding 60-second window): 60 requests/minute per agent (`X-Agent-API-Key`, with a per-agent `rateLimitPerMinute` DB override), 500 requests/minute per human (JWT), 60 requests/minute for unauthenticated traffic (keyed by IP). Counters are in-memory and process-local.
+- Follow the response's `Retry-After`, then retry; the window rolls per request rather than resetting at a fixed boundary
+- Rate limit headers in response: `X-RateLimit-Limit`, `X-RateLimit-Remaining`, and `Retry-After` on the 429 itself (no `X-RateLimit-Reset` header is sent)
 
 ### Task claim returns 409
 
@@ -288,13 +288,13 @@ All three must be set. If `ORCY_API_KEY` or `ORCY_AGENT_ID` is empty, the server
 
 **Fix:**
 
-- Agents must call `board_agent({ action: 'heartbeat' })` every 5 minutes while working
-- The stale detection runs every 60 seconds and releases tasks idle > 30 minutes
-- If the agent was genuinely offline, its claimed tasks are auto-released
+- Agents must call `orcy_habitat_agent({ action: 'heartbeat' })` every 5 minutes while working
+- After 30 minutes without an agent heartbeat, the minute-cadence stale sweep marks eligible agents offline and *attempts* to release their current claimed/in-progress task
+- Release is an attempt, not a guarantee: a fresh heartbeat, no current-task pointer, a transition-budget refusal, or an in-flight ownership change can defer or prevent it. Daemon session recovery is a separate 10-minute heartbeat path
 
 ### Agent can't claim any tasks
 
-**Symptom:** `board_feature({ action: 'list' })` returns empty, or all claims fail
+**Symptom:** `orcy_habitat_task({ action: 'list-in-mission', missionId })` returns empty, or all claims fail
 
 **Debugging steps:**
 
@@ -317,9 +317,9 @@ All three must be set. If `ORCY_API_KEY` or `ORCY_AGENT_ID` is empty, the server
 
 **Fix:**
 
-- Send heartbeats every 5 minutes: `board_agent({ action: 'heartbeat' })`
+- Send heartbeats every 5 minutes: `orcy_habitat_agent({ action: 'heartbeat' })`
 - Include `taskId` in heartbeat to confirm active work
-- The stale timeout (30 min) is hardcoded in `packages/api/src/index.ts` (`releaseStaleTasks(30)`) — there is no environment variable to change it
+- The stale timeout (30 min) is hardcoded in `packages/api/src/services/scheduler.ts` (`releaseStaleTasks(30)`, invoked from `startAllSchedulers()` at API boot) — there is no environment variable to change it
 
 ---
 

@@ -165,12 +165,34 @@ The app uses **Drizzle ORM with better-sqlite3** for production. Tests use `sql.
 
 ## Backup and Recovery
 
-```bash
-# Copy the database file (stop API first for consistent snapshot)
-cp orcy.db orcy.db.backup-$(date +%Y%m%d)
-```
+The database runs in **WAL mode** (`PRAGMA journal_mode = WAL` in `packages/api/src/db/index.ts:283`). Committed transactions may still live in the `orcy.db-wal` file and are merged into the main database only at checkpoint time — so a plain `cp orcy.db` of a running API can produce a **torn or stale snapshot** that misses committed writes.
 
-For automated backups, use cron to copy the file periodically.
+A consistent backup uses one of:
+
+1. **SQLite-consistent backup (works while the database is live).** The SQLite CLI's online backup writes a point-in-time-consistent single file even with connections open. This requires the `sqlite3` CLI on the host — a host-side tool that is **not** an Orcy dependency (Orcy uses better-sqlite3 in-process); no shipped script installs or checks for it:
+
+   ```bash
+   sqlite3 orcy.db ".backup 'orcy.db.backup-$(date +%Y%m%d)'"
+   ```
+
+   (`VACUUM INTO '…'` is equivalent on SQLite ≥ 3.27; neither command is wired into any shipped Orcy script.)
+
+2. **Truly offline copy.** Stop **every** process that uses this database — the API, the daemon, and any other client, however they are named and managed on this host — and **wait for them to exit** (verify nothing still holds the file open, e.g. `lsof orcy.db` returns nothing). Only then copy the WAL-aware database set, and restart afterward:
+
+   ```bash
+   # NOT a runnable recipe: every Orcy process using orcy.db must already be
+   # stopped AND fully exited before these copies run. Stopping one service
+   # (e.g. `systemctl stop orcy-api`) is NOT enough — daemons and other
+   # clients can keep the database open and commit to the WAL after the copy starts.
+   backup="orcy.db.backup-$(date +%Y%m%d)"
+   cp orcy.db "$backup"
+   [ -f orcy.db-wal ] && cp orcy.db-wal "${backup}-wal"
+   [ -f orcy.db-shm ] && cp orcy.db-shm "${backup}-shm"
+   ```
+
+   If you copy only the main database file, ensure a completed checkpoint or a clean close first — a `cp orcy.db` taken while any connection is open can be torn or miss committed WAL writes.
+
+**Do not** checkpoint-then-copy while the API runs and treat the result as a backup: a `wal_checkpoint(TRUNCATE)` merges the WAL into the main file at checkpoint time, but commits landing between the checkpoint and the end of the copy go to a fresh WAL and can be missing from — or tear across — the copied files. The snapshot is neither point-in-time nor guaranteed consistent. Use one of the consistent methods above; a bare file copy of a live WAL database is equally unsafe.
 
 ---
 
@@ -207,18 +229,34 @@ To enable JSON logging, modify the logger configuration in `src/index.ts` to rem
 
 ### Horizontal Scaling
 
-- **API**: Run multiple instances behind a load balancer. SSE connections are stateful — use sticky sessions or route `/sse/*` to a single instance.
+**Known limitation — single control plane.** A multi-instance deployment is not established end-to-end: the operational recommendation is a single API process per database (the daemon may also connect; SQLite allows multiple writers but Orcy's coordination is process-local), and each API process starts its own background loops and holds process-local SSE state. Running multiple API instances against one shared database is not a supported topology today — the per-process loops and SSE fan-out below would require explicit coordination that Orcy does not ship. Scale vertically (larger instance, `--max-old-space-size`) in the meantime.
+
+Some background operations are individually fenced against multi-process contention — examples:
+
+| Worker | Safety mechanism | Status |
+|--------|------------------|--------|
+| Creation-dispatch worker (`startCreationDispatchWorker`, booted in `packages/api/src/index.ts:52`) | Unique-per-process worker ID + lease-fenced CAS per attempt (`creationDispatchWorker.ts:32-36`) | Fenced for its operation |
+| Occurrence lease-recovery worker (`startOccurrenceLeaseRecoveryWorker`, booted in `packages/api/src/index.ts:51`) | Fenced lease reclaim + reclaim-count circuit breaker (`scheduledOccurrenceRecovery.ts`) | Fenced for its operation |
+| Scheduled-occurrence reservation (`reserveScheduledOccurrence`, `packages/api/src/repositories/scheduledOccurrenceReservation.ts:611`) | Manual `BEGIN IMMEDIATE` transaction; concurrent reservations serialize to a typed `already_exists`/`lost_race` outcome (`scheduledOccurrenceReservation.ts:566-600`) | Fenced for its operation |
+
+This is a list of examples, not an exhaustive census: absence from the table is not proof that a worker is unfenced, and presence is not a guarantee against every contention outcome (e.g. `SQLITE_BUSY` beyond the busy timeout).
+
+Other process-local coordination considerations:
+
+- **All other background schedulers** (`startAllSchedulers`, `packages/api/src/services/scheduler.ts:79-260` — stale-task release, overdue checks, anomaly scans, prioritization, digest generation, notification digests, automation scans, sprint auto-complete, etc.) are plain per-process `setInterval` loops, so under multiple instances each loop runs once per process. Individual work inside these loops may still carry durable dedup or fencing — do not assume duplicated work, and do not assume exactly-once work, without proving each worker's lease/idempotency behavior.
+- **SSE fan-out is in-process.** Connections live in the API process's memory (`packages/api/src/routes/sse.ts`), and event broadcasting walks that in-process registry. Sticky sessions or routing `/sse/*` to a single instance would only **fragment events across instances** — it does not coordinate schedulers or provide cross-instance fan-out.
 
 ### Rate Limiting
 
-The API has built-in rate limiting (100 requests/minute per key). Adjust in `packages/api/src/index.ts`:
+The API ships a **custom in-process rate-limit middleware** (`packages/api/src/middleware/rateLimit.ts`), not `@fastify/rate-limit`. There is no single global `max` to adjust, and the hook is installed on selected route groups (`packages/api/src/httpApp.ts`) — not a blanket guarantee on every route. Limits are per principal class over a sliding 60-second window:
 
-```typescript
-await fastify.register(rateLimit, {
-  max: 100,
-  timeWindow: '1 minute',
-});
-```
+| Principal class | Key | Default limit | Override |
+|-----------------|-----|---------------|----------|
+| Agent | `X-Agent-API-Key` header — a presented agent key takes this classification even when authentication itself fails | 60 requests/min | Per-agent DB column `rateLimitPerMinute`, looked up per request |
+| Human | `Authorization` header | 500 requests/min | — |
+| Unauthenticated fallback | IP | 60 requests/min | — |
+
+Storage is an in-memory `Map` — **process-local**: counters are not shared across processes or restarts. Responses that reach the limiter carry `X-RateLimit-Limit` and `X-RateLimit-Remaining`; a 429 additionally adds `Retry-After` (no `X-RateLimit-Reset` header is sent).
 
 ---
 

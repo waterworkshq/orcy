@@ -144,10 +144,10 @@ For Jira API tokens, users can create a token at <https://id.atlassian.com/manag
 
 | Setting | Value | Source |
 |---------|-------|--------|
-| Rate limit window | 1 minute | Hardcoded in `src/index.ts` |
-| Rate limit max | 100 requests | Hardcoded in `src/index.ts` |
-| Stale task threshold | 30 minutes | Hardcoded in `src/index.ts` (`releaseStaleTasks(30)`) |
-| Stale check interval | 60 seconds | Hardcoded in `src/index.ts` (`setInterval(..., 60_000)`) |
+| Rate limit window | 60 seconds, sliding | `packages/api/src/middleware/rateLimit.ts` (`WINDOW_MS`) |
+| Rate limit defaults | 60/min agent, 500/min human, 60/min unauthenticated fallback; per-agent override via `rateLimitPerMinute` DB column | `packages/api/src/middleware/rateLimit.ts`, installed on selected scopes via `packages/api/src/httpApp.ts` |
+| Stale task threshold | 30 minutes | `releaseStaleTasks(30)` in `packages/api/src/services/scheduler.ts` |
+| Stale check interval | 60 seconds | `startAllSchedulers` in `packages/api/src/services/scheduler.ts` |
 | Database file | `orcy.db` | Workspace root, via `DB_PATH` env var |
 | Database driver | `better-sqlite3` | Use `setDriver('postgres')` for PostgreSQL |
 | bcrypt rounds | 10 | Hardcoded in `src/routes/auth.ts` |
@@ -261,21 +261,9 @@ ORCY_REGISTRATION_TOKEN=your-registration-token
 
 ## Rate Limiting Configuration
 
-Rate limiting is configured in `packages/api/src/index.ts`:
+Rate limiting is a custom in-process middleware, `packages/api/src/middleware/rateLimit.ts` — there is no `@fastify/rate-limit` registration and no global `max` knob. It enforces a sliding 60-second window per principal class: 60 requests/min for agents (keyed by `X-Agent-API-Key`, overridable per agent via the `rateLimitPerMinute` database column), 500 requests/min for humans (keyed by the `Authorization` header), and 60 requests/min for unauthenticated traffic (keyed by IP). The middleware is installed as a `preHandler` on selected route scopes only (`packages/api/src/httpApp.ts`) and keeps counters in a process-local in-memory `Map` — limits are not shared across processes or restarts.
 
-```typescript
-await fastify.register(rateLimit, {
-  max: 100,              // Maximum requests per window
-  timeWindow: '1 minute', // Time window
-  keyGenerator: (request) => {
-    const agentKey = request.headers['x-agent-api-key'] as string | undefined;
-    if (agentKey) return `agent:${agentKey}`;  // Per API key
-    return `ip:${request.ip}`;                  // Per IP
-  },
-});
-```
-
-To change rate limits, modify these values and restart the API.
+To change limits, adjust the defaults in `packages/api/src/middleware/rateLimit.ts` or set per-agent `rateLimitPerMinute` values in the database, then restart the API. See [DEPLOYMENT.md](./DEPLOYMENT.md) and [SECURITY.md](./SECURITY.md) for operational details.
 
 ---
 
@@ -318,6 +306,20 @@ const fastify = Fastify({
 Set `LOG_LEVEL` environment variable to override (e.g., `LOG_LEVEL=debug` for more verbose output).
 
 ---
+
+## Automation, Plugins, Learning Loop & Publication
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `ORCY_AUTOMATION_EXECUTE_ACTIONS` | `true` | Global layer of the two-layer automation kill switch. Only the literal `"false"` disables action execution everywhere; per-habitat `automationSettings.executeActions` is the second layer. |
+| `ORCY_PLUGIN_WRITE_CAP` | `50` | Shared per-run cap on the supported PluginContext write helpers (`taskWriter` + `notificationSender` + `webhookCaller` combined), counted per invocation. Parsed with `Number`; a malformed value is not range-validated at this seam. This caps supported context calls — it is not an untrusted-plugin sandbox. |
+| `ORCY_PLUGIN_STALE_RUN_MINUTES` | `30` | Minutes after which a running plugin/detector run is flagged by the operator stale-run warning scan, and the minimum age before an operator can mark the run lost. Observability and manual disposition only — a running plugin is not automatically cancelled. |
+| `ORCY_DETECTOR_SCAN_INTERVAL_SECONDS` | `300` | Catch-up scan cadence for recovering events missed during downtime; not a guaranteed recovery latency. |
+| `ORCY_LEARNING_LOOP_ENABLED` | `false` | Global enable for the Learning Loop. Must be exactly `"true"` AND the per-habitat policy enabled for any extraction to run — the global flag alone runs nothing. |
+| `ORCY_LEARNING_LOOP_SCAN_INTERVAL_SECONDS` | `300` | Scheduler interval for learning-loop extraction runs (only active when enabled). |
+| `ORCY_ASSIGNMENT_DEADLINE_MS` | `86400000` (24h) | Default targeted-assignment reservation deadline for the publication adapters that consult the configured default — the task-creation publication path (`packages/api/src/services/taskCreationPublication.ts`) uses it when the caller supplies no explicit deadline (24h; positive integer milliseconds; checked per call; invalid or unparsable values fall back to 24h). Bounds the targeted reservation only — expiry is resolved by the assignment sweeper. **Not every targeted path reads this variable**: automation-created tasks (`packages/api/src/services/automationTaskPublication.ts`) use their own hard-coded 24-hour deadline, so tuning this variable does not tune every targeted reservation. |
+
+> **Agent session contract (not operator config):** spawned agent CLI sessions receive `ORCY_API_URL`, `ORCY_AGENT_ID`, and `ORCY_API_KEY` via the child environment; task identity and the execution token are conveyed in the invocation prompt. `generateMcpConfig()` stores the three connection variables only, whereas the separate `generateEnv()` helper supplies empty `ORCY_TASK_ID` / `ORCY_HABITAT_ID` placeholders — placeholders are not authorization credentials. `ORCY_TASK_TRAILER`/`ORCY_MISSION_TRAILER` are names of git-trailer key constants in `@orcy/shared`, not environment variables.
 
 ## See Also
 

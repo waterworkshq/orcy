@@ -31,7 +31,7 @@ Posture is classified by `classifyPosture()` in `packages/api/src/config/securit
 | Unauthorized API access | Default-deny auth on all non-public routes | Implemented |
 | Double-claiming of tasks | Atomic claim with version check | Implemented |
 | Agent impersonation | API key authentication + identity derived from `request.agent.id` only | Implemented |
-| Brute-force attacks | Rate limiting (100 req/min) | Implemented |
+| Brute-force attacks | In-process request rate limiting on selected API scopes (sliding window per principal: 60/min agent default, 500/min human, 60/min unauthenticated fallback) — per-process; not a distributed or credential-stuffing control | Implemented (scoped) |
 | Cross-origin requests | CORS disabled by default | Implemented |
 | Data tampering in transit | TLS (via reverse proxy) | Deployer responsibility |
 | SQL injection | Parameterized queries (Drizzle ORM) | Implemented |
@@ -390,23 +390,28 @@ Git worktree operations use safe process execution:
 
 ## Plugin Trust Model
 
-Plugins run in-process (same Node event loop as the API server). The capability whitelist (5 vetted capabilities: `pulseReader`, `pulseWriter`, `commentReader`, `taskReader`, `habitatReader`) is the contractual boundary between Orcy core and plugin code. Plugins cannot reach raw `getDb()`, repo mutation methods, or auth-bearing fields.
+**Plugins are trusted in-process Node dependencies — the capability whitelist is not a sandbox.** The loader `import()`s plugin modules into the same Node process as the API server (`pluginManager.ts:267-268`), so plugin code runs with the full authority of the API process: filesystem, network, `process.env`, and any module it can load on disk — including direct access to the SQLite database file. The capability whitelist (`VALID_CAPABILITIES` in `packages/api/src/plugins/pluginManager.ts` — check the source for the current set) bounds only the supported `PluginContext` API surface that `buildPluginContext()` attaches per contribution (`packages/api/src/plugins/context.ts`) — not what plugin code can do in-process. Isolation is not provided.
 
-**Treat plugins like code dependencies; audit before installing.** Operators who install plugins eat the same risk they eat for any `pnpm add` dependency. The whitelist closes the Orcy-data-mutation surface; the OS-side (filesystem, network, `process.env`) stays operator trust.
+**Treat plugins like code dependencies; audit before installing.** Installing a plugin carries the same trust decision as any `pnpm add` dependency — with the added exposure that the code executes inside the API process itself. Only load plugins from a `PLUGINS_DIR` you control.
 
-Worker-thread isolation and plugin marketplace are deferred to future releases. See ADR-0012 for the capability whitelist decision and ADR-0011 for the manifest/module contract.
+Worker-thread isolation is not implemented; ADR-0012 rejected it for that design. No isolation guarantee is provided. The plugin marketplace is deferred. See ADR-0012 for the capability whitelist decision and ADR-0011 for the manifest/module contract.
 
 ---
 
 ## Rate Limiting
 
+Rate limiting is a custom in-process middleware (`packages/api/src/middleware/rateLimit.ts`), not `@fastify/rate-limit`. It is a sliding 60-second window backed by an in-memory `Map` — **process-local**: limits are enforced per API process and are not shared across instances. The hook is installed on selected API scopes (`packages/api/src/httpApp.ts`), so coverage depends on middleware placement and key strategy — this is not a distributed or credential-stuffing control.
+
 | Dimension | Value |
 |-----------|-------|
-| Window | 1 minute |
-| Max requests | 100 per window |
-| Key strategy | API key for agents, IP for humans |
-| Response headers | `X-RateLimit-Limit`, `X-RateLimit-Remaining`, `X-RateLimit-Reset` |
-| Exceeded response | 429 with `Retry-After` header |
+| Window | 60 seconds (sliding) |
+| Agent default | 60 requests per window (keyed by `X-Agent-API-Key`) |
+| Per-agent override | `rateLimitPerMinute` column on the agent row (DB lookup per request) |
+| Human default | 500 requests per window (keyed by `Authorization` header) |
+| Unauthenticated fallback | 60 requests per window (keyed by IP) |
+| Storage | In-memory `Map`, process-local |
+| Response headers | `X-RateLimit-Limit`, `X-RateLimit-Remaining` |
+| Exceeded response | 429 with `Retry-After` header (no `X-RateLimit-Reset` is sent) |
 
 ---
 
