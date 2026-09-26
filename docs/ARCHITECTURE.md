@@ -668,7 +668,7 @@ Agent / Human
 
 ### Task State Machine
 
-Tasks use the following state machine. Two paths lead to `done`: the **gated path** (via `POST /tasks/:id/complete`) which validates quality gates and dependencies, and the **pod member override path** (via `POST /tasks/:id/approve`) which skips gates.
+Tasks use the following state machine. Completion reaches `done` only through the **gated path** (`POST /tasks/:id/complete`), which validates quality gates and dependencies — including after an approval. From `submitted`, two review decisions exist: approval (`POST /tasks/:id/approve`) moves the task to `approved` — or leaves it `submitted` while required reviews remain — and skips quality gates at its own transition only; rejection (`POST /tasks/:id/reject`) returns the task for rework. Decisions are made by a human or by an agent holding a pending assigned reviewer row (agent self-review is denied server-side); a separately opted-in system merge-approval webhook can also approve.
 
                     ┌──────────────────────────────────────────────┐
                     │                                              │
@@ -735,8 +735,8 @@ Tasks use the following state machine. Two paths lead to `done`: the **gated pat
 | `in_progress` | `pending` | `POST /tasks/:id/release` | Agent | n/a |
 | `in_progress` | `failed` | `POST /tasks/:id/fail` | Agent | n/a |
 | `submitted` | `done` | `POST /tasks/:id/complete` | Agent | ✅ enforced |
-| `submitted` | `approved` | `POST /tasks/:id/approve` | Human/System | ❌ skipped |
-| `submitted` | `rejected` | `POST /tasks/:id/reject` | Human/System | n/a |
+| `submitted` | `approved` | `POST /tasks/:id/approve` | Human / admitted agent-typed reviewer | ❌ skipped (this transition only; later `complete` re-checks) |
+| `submitted` | `rejected` | `POST /tasks/:id/reject` | Human / admitted agent-typed reviewer | n/a |
 | `approved` | `done` | `POST /tasks/:id/complete` | Agent | ✅ re-checks |
 | `rejected` | `in_progress` | `POST /tasks/:id/start` | Agent | n/a |
 | `failed` | `pending` | Retry/System | System | n/a |

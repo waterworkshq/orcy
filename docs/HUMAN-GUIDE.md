@@ -331,11 +331,11 @@ One-time setup per habitat:
 ```
 
 **Gated completion:** PENDING → CLAIMED → IN_PROGRESS → SUBMITTED → DONE
-  - `board_task({ action: 'complete' })` validates quality gates, dependencies, time tracking
+  - `orcy_habitat_task({ action: 'complete' })` validates quality gates, dependencies, time tracking
 
-**Pod review path (no gates):** PENDING → CLAIMED → IN_PROGRESS → SUBMITTED → APPROVED → DONE
-  - `board_task({ action: 'update', status: 'approved' })` skips quality gates (pod member approve)
-  - Then `board_task({ action: 'update', status: 'done' })` marks as done
+**Review decisions (approval skips gates at its own transition; completion checks them):** PENDING → CLAIMED → IN_PROGRESS → SUBMITTED → APPROVED → DONE
+  - `orcy_habitat_task({ action: 'approve', taskId })` — the review decision of a human, or of an agent holding a pending assigned reviewer row (`update` with `status: 'approved'` is an alias under the same authorization); with several required reviewers an approval may leave the task `submitted` until all required reviews are satisfied; with several required reviewers the task stays `submitted` until the last one decides
+  - Then `orcy_habitat_task({ action: 'complete', taskId })` marks it done — quality gates and review state are re-checked
 
 **Rejection loop:** SUBMITTED → REJECTED → (orcy reworks) → SUBMITTED
 

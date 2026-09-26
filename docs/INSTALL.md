@@ -242,7 +242,7 @@ The `orcy-install` wizard can automatically register the MCP server with support
 - **Claude Desktop** (`~/.config/Claude/claude_desktop_config.json`)
 - **Cursor** (`~/.cursor/mcp.json`)
 - **Gemini Antigravity** (`~/.gemini/antigravity/mcp_config.json`)
-- **Kilo** (`~/.kilo/mcp.json`)
+- **Kilo Code** (`~/.kilocode/mcp.json`)
 - **Codex (OpenAI)** (`~/.codex/config.toml`)
 - **OpenCode** (`~/.config/opencode/opencode.json`)
 
@@ -463,21 +463,28 @@ See `docs/SKILL.md` for configuration details for Claude Desktop, Cursor, Gemini
 
 ## MCP Server Reference
 
-The MCP stdio server exposes 11 consolidated dispatch tools:
+The MCP stdio server exposes 22 tools — 17 consolidated dispatch tools (each routing an `action` parameter to domain operations) plus 5 standalone/context tools. Review decisions are served end-to-end: `orcy_habitat_task` `approve`/`reject` actions, `orcy task approve`/`reject` CLI commands, and the HTTP review-decision routes. Webhooks, templates, and scheduled tasks are managed by humans via REST/UI and have no MCP tool. The dispatch table in [SKILL.md](SKILL.md) is the authority; highlights:
 
 | Tool | Covers |
 |------|--------|
-| `orcy_habitat` | list, find, get-settings, summary, metrics |
-| `orcy_habitat_mission` | list, create, delete, archive, unarchive, get-context |
-| `orcy_habitat_task` | list-in-mission, create-in-mission, update, delete, claim, start, submit, complete, approve, reject, release, retry, fail, get-context, get-events, get-comments, add-comment, get-time-report, get-blocked-status, get-approval-status, add-dependency, remove-dependency, get-quality-checklist, update-quality-checklist-item, validate-quality-gates, list-subtasks, create-subtask, delete-subtask |
+| `orcy_habitat` | list, find, get-settings, summary, metrics, get-health, get-health-history, predictions, bottlenecks, agent-quality, get-rules, update-rules, evaluate-rules |
+| `orcy_habitat_mission` | list, create, delete, archive, unarchive, get-context, get-comments, add-comment, link-code, list-code-evidence, correct-code-evidence-link, mark-not-applicable, clear-not-applicable, report-gap, resolve-gap, get-audit-bundle |
+| `orcy_habitat_task` | list-in-mission, create-in-mission, update, delete, claim, start, submit, complete, approve, reject, release, retry, fail, get-context, get-events, get-comments, add-comment, get-time-report, get-blocked-status, get-approval-status, add-dependency, remove-dependency, get-quality-checklist, update-quality-checklist-item, validate-quality-gates, list-subtasks, create-subtask, delete-subtask, log-effort, list-effort, get-effort-report, correct-effort-entry, link-code, list-code-evidence, correct-code-evidence-link, mark-not-applicable, clear-not-applicable, report-gap, resolve-gap, get-audit-bundle, batch-assign, batch-set-priority, batch-delete |
 | `orcy_habitat_agent` | register, list, heartbeat, get-stats |
 | `orcy_suggest` | suggest-next-task |
 | `orcy_habitat_message` | send, get-messages |
-| `orcy_pulse` | post, check |
+| `orcy_pulse` | post, check, promote, react |
 | `orcy_habitat_subscription` | subscribe, unsubscribe |
-| `orcy_admin` | list-webhooks, create-webhook, delete-webhook, list-templates, create-template, delete-template, batch-assign-tasks, batch-set-priority, batch-delete-tasks |
+| `orcy_sprint` | list, get, get_active, get_metrics, get_burndown, get_carry_over, create, update, delete, start, complete, cancel, add_mission, remove_mission |
+| `orcy_review` | list_rules, create_rule, update_rule, delete_rule, list_reviewers, add_reviewer, remove_reviewer |
+| `orcy_habitat_skill` | get, refresh, contribute |
+| `orcy_notification` | get_inbox, get_history, get_delivery, ack, snooze, clear, get_subscriptions |
+| `orcy_automation` | list, get, simulate, list_runs, get_rule_runs |
+| `orcy_wiki` | search, get_page, list_pages, get_authoring_context, create_page, save_version, restore_version, update_metadata, add_link, remove_link, mark_no_update_needed, trigger_refresh, get_signal_surface |
+| `orcy_learning` | list_accepted, get |
+| `orcy_triage` | investigate, top_issues, resolution_lookup, insert_deferred_mission, map_orphan_mission, set_focus_mission |
 | `orcy_worktree` | get-worktree |
-| `orcy_instructions` | Agent skill guide |
+| `orcy_instructions` | Agent skill guide (plus `orcy_pulse_instructions`, `orcy_wiki_instructions`, `orcy_get_workflow_context`, `orcy_get_failure_context`) |
 
 Build manually (if not using the installer):
 

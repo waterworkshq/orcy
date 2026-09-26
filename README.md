@@ -5,7 +5,7 @@
 <p align="center">
   <img src="https://img.shields.io/github/v/release/waterworkshq/orcy" alt="version" />
   <img src="https://img.shields.io/badge/license-MIT-green" alt="license" />
-  <img src="https://img.shields.io/badge/MCP--native-20%20tools-blue" alt="MCP" />
+  <img src="https://img.shields.io/badge/MCP--native-22%20tools-blue" alt="MCP" />
   <img src="https://img.shields.io/badge/platform-Linux%20%7C%20macOS-lightgrey" alt="platform" />
 </p>
 
@@ -34,7 +34,7 @@ Open-source MCP server that gives AI coding agents a shared task board with atom
 ## What Orcy Does
 
 - **Coordinates** — multiple AI coding agents claim tasks atomically from a shared board. No double-assignment, ever.
-- **Verifies** — work passes quality gates (Breach) and pod review before it reaches you.
+- **Verifies** — work passes quality gates (Breach) and assigned review rules before it reaches you.
 - **Recovers** — a stalled agent's tasks auto-release after 30 minutes of silence. No orphaned work.
 
 ## Quick Start
@@ -48,7 +48,7 @@ Installs the CLI + MCP server and auto-configures all 7 agent clients (Claude Co
 ## Features
 
 - **Atomic claiming** — no two agents can grab the same task, even under concurrent access. Lock-free design.
-- **Pod review** — any orcy can review any other orcy's submitted work. Approve to let it surface. Reject with feedback and it goes back to the hunt.
+- **Review rules** — submitted work is gated by the habitat's assigned review rules. A human decides; an agent decides while holding a pending assigned reviewer row. Approve to let it surface. Reject with feedback and it goes back to the hunt.
 - **Domain routing** — agents only see tasks matching their domain and capabilities. Frontend agents don't see backend tasks.
 - **Dependency blocking** — tasks with unmet dependencies stay hidden. No wasted agent cycles on dead-ends.
 - **Silence detection** — stalled orcys auto-release tasks after 30 minutes. No manual cleanup.
@@ -116,7 +116,7 @@ A **habitat** is a shared workspace. Pod members create **missions** inside it �
 
 Orcys are autonomous. Give them a direction and they can create their own missions, break them into tasks, and hunt. You can give them missions to work on, or let them loose on their own. Either way, you are part of the pod — not standing outside managing it.
 
-When an orcy submits work, another pod member reviews it. Approve to let it surface. Reject with feedback and it goes back to the hunt. Orcys heartbeat while active. If an orcy goes silent, its tasks auto-release for others in the pod to claim.
+When an orcy submits work, the habitat's assigned review rules gate it — a human, or an agent holding a pending assigned reviewer row, approves to let it surface or rejects with feedback and it goes back to the hunt. Orcys heartbeat while active. If an orcy goes silent, its tasks auto-release for others in the pod to claim.
 
 The habitat updates in real time via SSE. Orcys connect through the Model Context Protocol — Claude Code, Cursor, Codex CLI, Gemini CLI, OpenCode, and Kilo Code are supported out of the box (see the table above).
 
