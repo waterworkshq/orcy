@@ -220,9 +220,10 @@ Task actions are classified by authorization level (enforced by `packages/api/sr
 
 | Action | Who Can Perform |
 |--------|----------------|
-| Claim, Start, Submit, Complete | Assigned agent only |
+| Claim | Any authenticated agent passing the task's claim guards (configured domain/capability requirements, occupancy, claimable state, and other claim guards) |
+| Start, Submit, Complete | Assigned agent only |
 | Release, Fail | Assigned agent only |
-| Approve, Reject | Human reviewers only |
+| Approve, Reject | Human reviewer (admin/editor), or an agent holding a pending agent-typed reviewer row on the task (reviewer identity from the authenticated principal; assignee self-review refused) |
 | Delete | Agent or human (owner/admin) |
 
 ### Board Access Control

@@ -877,9 +877,9 @@ Release gates layer alongside mission dependencies as an additional blocking con
 1. A gated mission's tasks are blocked from claiming until a matching release ships.
 2. Either-match semantics: a gate is satisfied when the shipped release type matches-or-cascades (`patch ⊂ minor ⊂ major`) **or** the version pin matches (exact or prefix). A mission with both fields set is satisfied by either.
 3. Satisfaction is **derived at read-time** from the `releases` table — no stored gate state. `getAvailableTasksForAgent()` evaluates the gate fresh on every poll.
-4. When a release ships, `detectAndActivate` resolves release-gates on matched missions **before** the legacy finding-promotion loop. Resolved gates unblock claiming; linked findings promote (`triaged → in_progress`) as before. The notification guard is widened to fire when only gates resolved (no findings promoted).
+4. When a release ships, gate satisfaction is derived at read-time from the `releases` table and satisfies the release-gate predicate; other claim guards still apply. Linked findings activate (`triaged → in_progress`) through the frozen Release epoch described in [Release-Aware Automation](#release-aware-automation-v0240). The release notification fires only when findings activate; deadline misses raise their own `release.deadline_missed` warning.
 
-Gates supersede v0.24.0's finding-level `targetReleaseType` activation model — gating now lives at the mission level (greenfield, no migration of finding state). The finding-level `findReleaseMatched` path is retained but deprecated. See [ADR-0033](../docs/adr/) for the triage agent's expanded roadmap-editor role.
+Gates supersede v0.24.0's finding-level `targetReleaseType` activation model — gating now lives at the mission level (greenfield, no migration of finding state). The legacy finding-level `findReleaseMatched` activation loop was removed in v0.25.1; ADR-0048 later narrowed the triage agent's role to routing (superseding ADR-0033's roadmap-editor expansion).
 
 ### Task-Level Dependencies (Within Mission)
 
@@ -1703,9 +1703,9 @@ Orphan positioning (`map_orphan_mission`) crosses a dedicated bounded route — 
 
 ## Release-Aware Automation (v0.24.0)
 
-The v0.24.0 "Cadence" release makes release shipping a first-class automation trigger. When a release is detected (GitHub `release` webhook, `workflow_run` release-workflow completion, CLI, or REST), the system classifies it by semver type (patch/minor/major) and auto-promotes every deferred finding whose target matches — unconditionally, with no human gate.
+The v0.24.0 "Cadence" release makes release shipping a first-class automation trigger. When a release is detected (GitHub `release` webhook, `workflow_run` release-workflow completion, CLI, or REST), the system classifies it by semver type (patch/minor/major) and activates deferred corrective work through a frozen Release epoch. Activation transitions the eligible corrective Missions' linked Findings through the existing-Mission lifecycle kernel — it never creates replacement Missions and never bypasses the cap or drift checks below (ADR-0048 restored lifecycle; the ADR-0031 unconditional no-gate promotion loop is history).
 
-**ADRs:** 0029 (targeting — cascading-type + version-pin matchers), 0030 (classification + the `releases` table), 0031 (unconditional promotion + two-layer kill switch)
+**ADRs:** 0029 (targeting — cascading-type + version-pin matchers; activation semantics superseded by 0048), 0030 (classification + the `releases` table), 0031 (superseded unconditional promotion + the retained two-layer kill switch), 0048 (restored lifecycle — existing-Mission activation)
 
 ### Provider-Agnostic Trigger Seam
 
@@ -1725,20 +1725,22 @@ Release type is resolved one of two ways: (1) **caller override** — the caller
 
 ### Activation Loop
 
-Matched deferred findings are promoted unconditionally (ADR-0031) via the existing triage `promote()` + `createMission` path — the same code the manual `POST /triage/findings/:id/promote` route uses. A finding matches when its `target_release_type` is satisfied by the shipped type under the cascading matcher (`patch ⊂ minor ⊂ major`) **or** its `target_release` version-pin matches (exact `v0.24.0` or prefix `v0.24`). Each promoted finding transitions `triaged → in_progress` and gets a corrective mission sourced from its pulse; per-finding isolation means a mid-batch failure is counted as errored and the loop continues. After the loop: a batched notification, a retrospective habitat-scoped pulse, and a `release.shipped` automation event fire.
+Each detected Release freezes ONE immutable activation epoch alongside the `releases` row: the configured `maxPromotionsPerRelease` cap, the kill-switch state, the deterministic eligible corrective-Mission groups (release-gated `not_started` missions whose gate — cascading type `patch ⊂ minor ⊂ major` or exact/prefix version pin — is satisfied by the shipped release, each with a homogeneous set of ≥1 non-terminal `triaged` Findings; mixed-state groups are excluded, never partially activated; ordered by mission creation then id), the exact linked Finding ids, and an eligibility digest. Activation then reconciles per-group against that snapshot under locked transactions through the lifecycle kernel's `activateGroupWithClient` — it retains the Mission's release gate (satisfaction is derived at read-time from the shipped `releases` row, so the mission's tasks satisfy the release-gate predicate (other claim guards still apply)), never creates a replacement Mission, and attributes the activation to the Release; manual activation uses the same kernel but clears the gate. Groups that no longer match the frozen snapshot are deferred, not partially applied: `deferred_changed` (mission missing, membership drift, gate drift, digest mismatch, or already activated by another attribution), `deferred_oversized` (`oversized_for_release_cap` — needs manual activation or a higher future cap), `deferred_budget` (cap exhausted by earlier groups). Completion is final — completed epochs never reopen; deferred groups wait for a later Release or manual activation (`POST /triage/findings/:id/activate`; the legacy `POST /triage/findings/:id/promote` route is retired). Pre-cutover Release rows (created before epochs existed) replay as a documented no-op. Reconciliation processes notification (when findings activate), retrospective, and `release.shipped` projections; failed projections remain pending and are reported through `incompleteProjections`. The legacy `findingTriage.promote()` repository seam has no production callers; manual activation and Release activation both run through the lifecycle command kernel.
 
 ### Two-Layer Kill Switch
 
-The promotion loop is gated by two AND'd switches, both defaulting to on: the global `ORCY_RELEASE_AUTO_PROMOTE` env var and the per-habitat `releaseSettings.autoPromote` JSON column. The switch gates **only** the promotion loop — detection, recording, the retrospective pulse, and the `release.shipped` event fire regardless (PRD AC-ACTIVATE-8). This lets a deployment disable auto-promotion globally while still recording release history and emitting events for downstream consumers. See [CONFIGURATION.md](CONFIGURATION.md).
+The activation loop is gated by two AND'd switches, both defaulting to on: the global `ORCY_RELEASE_AUTO_PROMOTE` env var and the per-habitat `releaseSettings.autoPromote` JSON column. The switch gates **only** the activation loop — it does not disable detection/recording or the retrospective/event projections; their completion remains subject to projection outcomes. A disabled switch freezes an empty epoch. This lets a deployment disable auto-activation globally while still recording release history and emitting events for downstream consumers. See [CONFIGURATION.md](CONFIGURATION.md).
 
 **Key files:**
 
 | File | Role |
 |------|------|
 | `api/src/services/releaseSettingsService.ts` | `resolveReleaseSettings` (defaults merge) + `isAutoPromoteEnabled` (two-layer gate) |
-| `api/src/db/schema/release.ts` | `releases` table (idempotency + classification baseline) |
-| `api/src/repositories/findingTriage.ts` | `findReleaseMatched` (cascading-type + version-pin query) + `promote` |
-| `api/src/routes/triage.ts` | `POST /triage/release-trigger` + `targetReleaseType` on `PATCH /triage/findings/:id` |
+| `api/src/db/schema/release.ts` | `releases` table (idempotency + classification baseline) + `release_activation_epochs`/epoch-group tables (the frozen snapshot) |
+| `api/src/services/releaseTriggerService.ts` | Detect + classify + record + reconcile seam (`detectAndActivate`) |
+| `api/src/services/releaseReconciliationService.ts` | Epoch freeze, per-group locked activation reconciliation, deferral dispositions, notification/retrospective projections |
+| `api/src/services/findingTriageLifecycle.ts` | Shared activation kernel (manual clears the gate; Release retains it and attributes to the Release); production write authority via `activateGroupWithClient` |
+| `api/src/routes/triage.ts` | `POST /triage/release-trigger`; manual `POST /triage/findings/:id/activate` (legacy `/promote` and state-shaped `PATCH` retired) |
 | `cli/src/commands/triage.ts` | `orcy triage release-trigger` CLI (sets `detectedBy: "cli"`) |
 
 ## Learning Loop (v0.38)
