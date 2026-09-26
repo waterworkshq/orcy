@@ -393,4 +393,59 @@ describe("REC-08 administrative boundaries — served MCP wire", () => {
     const outsider = await create(outsiderJwt);
     expect(outsider.status).toBe(403);
   }, 30_000);
+
+  it("orcy_habitat update-rules / evaluate-rules: agent key gets EXACTLY 401 with persisted rules UNCHANGED; human JWT control mutates the same route", async () => {
+    // Prioritization is human-only TODAY (prioritization.ts authPolicy: "human"
+    // on PUT /habitats/:id/rules and POST /habitats/:id/rules/evaluate) — this
+    // pins the current boundary, not a future-RBAC design. Narrow coverage
+    // claim: the two wire denials + unchanged persisted state + a human
+    // positive control that proves the 401 is the auth axis (not an unmounted
+    // route, a validation 400, or a tool/param error that never leaves the
+    // dispatch layer).
+    const before = JSON.stringify(
+      habitatRepo.getHabitatById(habitatId)!.prioritizationSettings ?? null,
+    );
+
+    const payload = { enabled: false, fallbackToManual: false };
+
+    const update = await callTool("orcy_habitat", {
+      action: "update-rules",
+      habitatId,
+      rules: payload,
+    });
+    expect(update.isError).toBe(true);
+    const updateText = toolText(update);
+    expect(updateText).toContain("API 401:"); // request crossed to the real PUT route and was refused by its auth policy
+    expect(updateText).not.toContain("API 403:");
+
+    const evaluate = await callTool("orcy_habitat", { action: "evaluate-rules", habitatId });
+    expect(evaluate.isError).toBe(true);
+    const evaluateText = toolText(evaluate);
+    expect(evaluateText).toContain("API 401:"); // same for the POST /rules/evaluate sibling
+    expect(evaluateText).not.toContain("API 403:");
+
+    // Denials reached the routes yet mutated nothing.
+    expect(
+      JSON.stringify(habitatRepo.getHabitatById(habitatId)!.prioritizationSettings ?? null),
+    ).toBe(before);
+
+    // HUMAN POSITIVE CONTROL on the exact routes and payload class above: a
+    // JWT holder gets 200 and the settings DO change — so the agent 401s are
+    // attributable to the credential axis alone.
+    const humanJwt = mintHumanJwt(seededUserId, "admin");
+    const put = await fetch(`${baseUrl}/api/habitats/${habitatId}/rules`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${humanJwt}` },
+      body: JSON.stringify(payload),
+    });
+    expect(put.status).toBe(200);
+    const post = await fetch(`${baseUrl}/api/habitats/${habitatId}/rules/evaluate`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${humanJwt}` },
+    });
+    expect(post.status).toBe(200);
+    const after = habitatRepo.getHabitatById(habitatId)!.prioritizationSettings!;
+    expect(after.enabled).toBe(false);
+    expect(after.fallbackToManual).toBe(false);
+  }, 60_000);
 });

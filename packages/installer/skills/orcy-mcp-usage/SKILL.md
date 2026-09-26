@@ -28,6 +28,16 @@ If you also have the CLI installed, **prefer MCP for intra-session tool use** �
 | `orcy_notification` | `get_inbox`, `get_history`, `get_delivery`, `ack`, `snooze`, `clear`, `get_subscriptions` | Own notification self-service (see Notifications section) |
 | `orcy_automation` | `list`, `get`, `simulate`, `list_runs`, `get_rule_runs` | Automation inspection for habitats where you hold active work (see Automation section) |
 | `orcy_triage` | `investigate`, `top_issues`, `resolution_lookup`, `insert_deferred_mission`, `map_orphan_mission`, `set_focus_mission` | Triage investigation surface (see Triage section) |
+| `orcy_habitat_skill` | `get`, `refresh`, `contribute` | Dynamic habitat skills — living knowledge document |
+| `orcy_learning` | `list_accepted`, `get` | Read accepted findings from the learning loop (active task required) |
+| `orcy_wiki` | `search`, `get_page`, `list_pages`, `get_authoring_context`, `create_page`, `save_version`, `restore_version`, `update_metadata`, `add_link`, `remove_link`, `mark_no_update_needed`, `trigger_refresh`, `get_signal_surface` | Authored habitat wiki |
+| `orcy_wiki_instructions` | (tool) | Wiki authoring skill guide |
+| `orcy_pulse_instructions` | (tool) | Pulse signal-posting skill guide |
+| `orcy_instructions` | (tool) | Orcy workflow skill guide (read this first) |
+| `orcy_sprint` | `list`, `get`, `get_active`, `get_metrics`, `get_burndown`, `get_carry_over`, `create`, `update`, `delete`, `start`, `complete`, `cancel`, `add_mission`, `remove_mission` | Sprint planning, lifecycle, mission membership, and sprint analytics |
+| `orcy_review` | `list_rules`, `create_rule`, `update_rule`, `delete_rule`, `list_reviewers`, `add_reviewer`, `remove_reviewer` | Review assignment rules and task reviewer management |
+| `orcy_get_workflow_context` | _(single action — pass `taskId`)_ | Read your position in a workflow chain: upstream gates, downstream waiting tasks, gate states |
+| `orcy_get_failure_context` | _(single action — pass `taskId`)_ | Read the FailureContext for a task (used by recovery agents to understand what went wrong) |
 
 ---
 

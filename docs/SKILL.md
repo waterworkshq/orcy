@@ -44,6 +44,11 @@ All MCP tools use a **dispatch pattern** — each consolidated tool accepts an `
 | `orcy_get_workflow_context` | _(single action — pass `taskId`)_ | Read your position in a workflow chain: upstream gates, downstream waiting tasks, gate states |
 | `orcy_get_failure_context` | _(single action — pass `taskId`)_ | Read the FailureContext for a task (used by recovery agents to understand what went wrong) |
 | `orcy_triage` | `investigate`, `top_issues`, `resolution_lookup`, `insert_deferred_mission`, `map_orphan_mission`, `set_focus_mission` | Triage surface — investigate signal clusters (returns the ADR-0048 investigation mission id), check top issues, look up historical resolutions, route a finding to a deferred bucket (one atomic lifecycle command creating the gated corrective mission), position an orphan mission in the roadmap DAG (bounded agent-owned route, authorized only for the current claimant of the orphan's active investigation task), and set/clear the habitat focus mission |
+| `orcy_wiki` | `search`, `get_page`, `list_pages`, `get_authoring_context`, `create_page`, `save_version`, `restore_version`, `update_metadata`, `add_link`, `remove_link`, `mark_no_update_needed`, `trigger_refresh`, `get_signal_surface` | Authored habitat wiki — search, read, author, version, link, and query the signal surface (aggregated experience patterns + engineering findings) before starting work in a domain |
+| `orcy_wiki_instructions` | (tool) | Wiki authoring skill guide — how to author good wiki pages |
+| `orcy_pulse_instructions` | (tool) | Pulse signal-posting skill guide |
+| `orcy_instructions` | (tool) | Orcy workflow skill guide (this document's source) |
+| `orcy_learning` | `list_accepted`, `get` | Read accepted findings from the learning loop (requires an active task assignment; citations re-resolved at read time) |
 
 ---
 

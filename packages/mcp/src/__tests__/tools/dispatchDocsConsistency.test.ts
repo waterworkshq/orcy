@@ -189,3 +189,115 @@ describe("embedded instructions guide documents only live tools and actions", ()
     }
   });
 });
+
+// ---------------------------------------------------------------------------
+// Served-tool INVENTORY coverage. README's advertised tool count and both
+// skill copies must catalog every tool registered in ALL_TOOLS with a
+// substantive table row. This is an inventory claim only — a row proves the
+// tool is taught, not that every action or runtime behavior is documented.
+// ---------------------------------------------------------------------------
+
+const README_MARKDOWN = readFileSync(path.join(REPO_ROOT, "README.md"), "utf8");
+
+const SKILL_COPIES = [
+  "docs/SKILL.md",
+  "packages/installer/skills/orcy-mcp-usage/SKILL.md",
+] as const;
+
+/**
+ * The exact badge grammar README uses today:
+ * `img.shields.io/badge/MCP--native-<N>%20tools-<color>`.
+ * Returns the advertised count only when EXACTLY ONE recognized badge
+ * exists — zero (badge removed) or several (grammar drifted) both fail.
+ */
+function readmeBadgeToolCount(readme: string): number | null {
+  const badges = [...readme.matchAll(/img\.shields\.io\/badge\/MCP--native-(\d+)%20tools-[a-z]+/g)];
+  return badges.length === 1 ? Number(badges[0]![1]) : null;
+}
+
+/**
+ * Whether a skill copy carries a SUBSTANTIVE CATALOG TABLE ROW for
+ * `toolName`: a row whose FIRST cell is exactly the backticked tool name and
+ * whose action and description cells are both non-empty. A prose mention —
+ * a backticked name inside an auth-boundary aside, or a call-form example
+ * elsewhere — deliberately does NOT satisfy a missing row: mentions are not
+ * teaching. Exact first-cell equality also keeps a longer name sharing a
+ * prefix (`orcy_pulse_instructions`) from satisfying the shorter one
+ * (`orcy_pulse`), so an unserved or renamed stub cannot sneak through.
+ */
+function hasSubstantiveCatalogRow(markdown: string, toolName: string): boolean {
+  for (const line of markdown.split("\n")) {
+    const cells = line.split("|");
+    if (cells.length < 5) continue; // | name | actions | description | bookends
+    if (cells[1]!.trim() !== `\`${toolName}\``) continue;
+    if (cells[2]!.trim().length === 0) continue; // vacuous actions cell
+    if (cells[3]!.trim().length === 0) continue; // vacuous description cell
+    return true;
+  }
+  return false;
+}
+
+describe("served-tool inventory coverage (README badge + both skill copies)", () => {
+  it("README advertises exactly one MCP-native tools badge whose count equals ALL_TOOLS.length", () => {
+    const count = readmeBadgeToolCount(README_MARKDOWN);
+    expect(
+      count,
+      "README must carry exactly one recognized MCP--native-<N>%20tools badge (zero or several = drift)",
+    ).not.toBeNull();
+    expect(count).toBe(ALL_TOOLS.length);
+  });
+
+  it.each([...SKILL_COPIES])(
+    "%s catalogs every served tool (ALL_TOOLS) in a substantive table row",
+    (file) => {
+      const markdown = readFileSync(path.join(REPO_ROOT, file), "utf8");
+      const missing = ALL_TOOLS.map((t) => t.name).filter(
+        (name) => !hasSubstantiveCatalogRow(markdown, name),
+      );
+      expect(
+        missing,
+        `${file} lacks a substantive catalog row (first cell = exact backticked tool name, non-empty action + description cells) for served tools: ${missing.join(", ")}`,
+      ).toEqual([]);
+    },
+  );
+
+  it("checker discriminates: a removed row stays uncovered even when exact-name prose survives; prefix names and vacuous rows never pass", () => {
+    // Real-file negative: strip the orcy_review/orcy_sprint rows from the
+    // actual installer skill while its auth-boundary prose keeps naming both
+    // tools backticked — both must come back uncovered.
+    const installer = readFileSync(
+      path.join(REPO_ROOT, "packages/installer/skills/orcy-mcp-usage/SKILL.md"),
+      "utf8",
+    );
+    const rowStripped = installer
+      .split("\n")
+      .filter((line) => !line.startsWith("| `orcy_review`") && !line.startsWith("| `orcy_sprint`"))
+      .join("\n");
+    expect(rowStripped === installer).toBe(false); // the rows really were there to remove
+    expect(installer).toContain("`orcy_review`"); // exact-name prose mention survives the strip
+    expect(hasSubstantiveCatalogRow(rowStripped, "orcy_review")).toBe(false);
+    expect(hasSubstantiveCatalogRow(rowStripped, "orcy_sprint")).toBe(false);
+
+    // Synthetic: exact backticked prose without any row does not count.
+    const proseOnly = "Reviewer MANAGEMENT (`orcy_review` add/remove) is human-only.";
+    expect(hasSubstantiveCatalogRow(proseOnly, "orcy_review")).toBe(false);
+
+    // Prefix non-bleed: a longer tool's row never satisfies the shorter name.
+    const prefixRow = "| `orcy_pulse_instructions` | (tool) | Pulse guide |";
+    expect(hasSubstantiveCatalogRow(prefixRow, "orcy_pulse")).toBe(false);
+    expect(hasSubstantiveCatalogRow(prefixRow, "orcy_pulse_instructions")).toBe(true);
+
+    // A vacuous row (empty action/description cells) is not substantive.
+    expect(hasSubstantiveCatalogRow("| `orcy_suggest` |   |   |", "orcy_suggest")).toBe(false);
+
+    expect(
+      readmeBadgeToolCount("no badge here"),
+      "badge removed → null, not a silent pass",
+    ).toBeNull();
+    const tampered = README_MARKDOWN.replace(
+      /MCP--native-(\d+)%20tools/,
+      `MCP--native-${ALL_TOOLS.length + 1}%20tools`,
+    );
+    expect(readmeBadgeToolCount(tampered)).toBe(ALL_TOOLS.length + 1); // wrong count is read out, so the equality assert above fails on it
+  });
+});
