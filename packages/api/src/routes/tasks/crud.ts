@@ -5,6 +5,7 @@ import * as taskService from "../../services/tasks/index.js";
 import { updateTaskSchema } from "../../models/schemas.js";
 import { notFound, forbidden, conflict, badRequest } from "../../errors.js";
 import { applyDeclaredAuthPolicies } from "../../authPolicy.js";
+import { authorizeTaskAccess } from "../../middleware/realtimeAuth.js";
 
 const taskParamsSchema = z.object({ id: z.string() });
 
@@ -17,6 +18,7 @@ export async function taskCrudRoutes(fastify: FastifyInstance): Promise<void> {
       "/tasks/:id",
       { schema: { params: taskParamsSchema }, config: { authPolicy: "local_actor" } },
       async (request, _reply) => {
+        await authorizeTaskAccess(request, request.params.id);
         const task = taskService.getTask(request.params.id);
         if (!task) {
           throw notFound("Task not found");
@@ -59,6 +61,7 @@ export async function taskCrudRoutes(fastify: FastifyInstance): Promise<void> {
       "/tasks/:id",
       { schema: { params: taskParamsSchema }, config: { authPolicy: "local_actor" } },
       async (request, _reply) => {
+        await authorizeTaskAccess(request, request.params.id);
         const result = taskService.deleteTask(request.params.id);
         if (!result.success) {
           if (result.reason === "archived") {

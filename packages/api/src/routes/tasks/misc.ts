@@ -9,6 +9,7 @@ import * as gitWorktreeService from '../../services/gitWorktreeService.js';
 import { eventsQuerySchema } from '../../models/schemas.js';
 import { notFound, badRequest, serviceUnavailable, internalError } from '../../errors.js';
 import { applyDeclaredAuthPolicies } from "../../authPolicy.js";
+import { authorizeTaskAccess } from "../../middleware/realtimeAuth.js";
 
 const taskParamsSchema = z.object({ id: z.string() });
 
@@ -19,6 +20,7 @@ export async function taskMiscRoutes(fastify: FastifyInstance): Promise<void> {
     '/tasks/:id/events',
     { schema: { params: taskParamsSchema, querystring: eventsQuerySchema }, config: { authPolicy: "local_actor" } },
     async (request, _reply) => {
+      await authorizeTaskAccess(request, request.params.id);
       const parsed = request.query;
       const result = eventRepo.getEventsByTaskId(
         request.params.id,
@@ -81,6 +83,7 @@ export async function taskMiscRoutes(fastify: FastifyInstance): Promise<void> {
     '/tasks/:id/details',
     { schema: { params: taskParamsSchema }, config: { authPolicy: "local_actor" } },
     async (request, _reply) => {
+      await authorizeTaskAccess(request, request.params.id);
       const userId = request.user?.id;
       const result = await taskService.getTaskDetails(request.params.id, userId);
       if (!result) {

@@ -3,6 +3,7 @@ import * as commentService from "../services/commentService.js";
 import { badRequest, unauthorized, notFound, forbidden } from "../errors.js";
 import { z } from "zod";
 import { applyDeclaredAuthPolicies } from "../authPolicy.js";
+import { authorizeTaskAccess } from "../middleware/realtimeAuth.js";
 
 const createCommentSchema = z.object({
   content: z.string().min(1).max(5000),
@@ -87,6 +88,8 @@ export async function commentRoutes(fastify: FastifyInstance): Promise<void> {
       if (!parsed.success) {
         throw badRequest("Invalid query", parsed.error.flatten());
       }
+
+      await authorizeTaskAccess(request, request.params.id);
 
       const result = commentService.getComments(
         request.params.id,

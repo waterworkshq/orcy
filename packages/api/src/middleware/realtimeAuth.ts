@@ -2,6 +2,7 @@ import type { FastifyRequest, FastifyReply } from "fastify";
 import * as agentService from "../services/agentService.js";
 import { getHabitatById } from "../repositories/habitat.js";
 import { getMissionById } from "../repositories/mission.js";
+import { getTaskById } from "../repositories/task.js";
 import { isTeamMemberByHabitatId } from "../repositories/teamMember.js";
 import type { HumanRole } from "./auth.js";
 import { extractAndVerifyJwt } from "./jwt-verification.js";
@@ -114,4 +115,28 @@ export async function authorizeMissionAccess(
     throw notFound("Mission not found");
   }
   return checkHabitatAccess(request, mission.habitatId);
+}
+
+/**
+ * Task-id-keyed object authorization. Resolves the TARGET task's actual
+ * Mission/Habitat (never a caller-supplied substitute) and runs the same
+ * membership check as {@link authorizeHabitatAccess}. A missing Task or
+ * Mission throws 404 before the membership check; an existing but denied
+ * object intentionally throws 403 — local routes distinguish the two and
+ * claim no anti-enumeration collapse. Returns the validated habitat id.
+ */
+export async function authorizeTaskAccess(
+  request: FastifyRequest,
+  taskId: string,
+): Promise<string> {
+  const task = getTaskById(taskId);
+  if (!task) {
+    throw notFound("Task not found");
+  }
+  const mission = getMissionById(task.missionId);
+  if (!mission) {
+    throw notFound("Mission not found");
+  }
+  await checkHabitatAccess(request, mission.habitatId);
+  return mission.habitatId;
 }

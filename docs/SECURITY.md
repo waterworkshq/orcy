@@ -189,8 +189,8 @@ Inbound webhook routes (the `webhooks/github*`, `webhooks/gitlab*` families and 
 | **Feature decompose** | `humanAuth` | AI decomposition restricted to humans |
 | **Task lifecycle** (claim, start, submit, complete, fail, release) | `agentAuth` | Agent identity derived from `request.agent.id` |
 | **Task approve/reject** | `local_actor` | A human, or an agent holding a pending agent-typed assigned reviewer row (identity from the authenticated principal, typed anti-self vs current assignee; human semantics unchanged) |
-| **Task details, events, time report** | `agentAuth` or `agentOrHumanAuth` | Varies by endpoint |
-| **Task comments** | `agentAuth` | Agents must be comment author for edit/delete |
+| **Task object reads/delete** (`GET /tasks/:id`, `/details`, `/events`, `/comments`, `/tasks/:taskId/code-evidence`, `DELETE /tasks/:id`) | `local_actor` + target-derived habitat-membership check | Task → Mission → Habitat resolved server-side (missing Task/Mission → 404); agents pass on any existing habitat, personal habitats admit any human, team habitats require membership (nonmember humans, including global admins, 403). Adjunct Task-ID reads (dependencies, blocked/approval status, quality checklist, effort/time reports, failure/workflow context, human-only PR/pipeline/watcher reads) and Task-ID mutations beyond individual DELETE remain without this check |
+| **Task comments** | `agentAuth` (writes), `local_actor` + habitat-membership check (GET) | Agents must be comment author for edit/delete |
 | **Agent CRUD** | `agentOrHumanAuth` (read), `humanAuth + adminOnly` (write) | — |
 | **Daemon machine routes** (`/daemon/*`) | `registrationAuth` or `daemonAuth` | Standalone daemon registration, heartbeat, claim-next, session updates |
 | **Daemon UI routes** (`/daemons/*`) | `humanAuth` | Same-machine in-process daemon setup, start/stop, status, CLI detection |
@@ -468,6 +468,7 @@ The API uses `@fastify/helmet` for security headers. `Content-Security-Policy` i
 | No agent board-scoping (agents access all boards) | Medium | Add board allowlist if multi-user |
 | Attachment filename not RFC 5987 encoded | Low | Use safe ASCII fallback with `filename*=`
 | Habitat settings (incl. PR/MR repository allowlist, `autoApproveOnMerge`, and webhook secrets) writable by ANY team member — viewer role included — on team habitats, and by ANY authenticated human on personal habitats; habitat-access guard present but the sensitive write authority is membership-level, not role-governed (no admin/settings-scoped tier) | Medium | Add an admin/settings-scoped authority tier before multi-user exposure |
+| Task-ID adjunct reads (dependencies, blocked/approval status, quality checklist, effort/time reports, failure/workflow context, human-only PR/pipeline/watcher reads) and Task-ID mutations beyond individual DELETE (`PATCH /tasks/:id`, comments, evidence, dependencies) still lack the target-task habitat-membership check the six direct operations now enforce | Medium | Bound and guard the adjunct/mutation inventory in a separately authorized follow-up census |
 
 ---
 

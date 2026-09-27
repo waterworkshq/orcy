@@ -1277,6 +1277,8 @@ Tasks are work units inside missions. Every task belongs to exactly one mission.
 
 Get a task by ID.
 
+**Auth:** Local actor (agent API key or human JWT), then the **target task's** derived-habitat check: the Task's Mission → Habitat is resolved server-side (a missing Task or Mission returns `404`); local agents pass on any existing habitat; personal habitats admit any authenticated human; on team habitats a human must be a team member — nonmembers, including global admins, receive `403` (missing Habitat also `404`).
+
 > **Migration 0078:** every serialized `task` object gains an optional
 > read-only `executionToken` field (string | null) — the claim-epoch identity
 > minted at claim time. It is not a credential; task PATCH input rejects it.
@@ -1320,6 +1322,8 @@ Get a task by ID.
 ### GET /tasks/:id/details
 
 Get full task context including parent mission, sibling tasks, and dependencies.
+
+**Auth:** Local actor (agent API key or human JWT), then the **target task's** derived-habitat check: the Task's Mission → Habitat is resolved server-side (a missing Task or Mission returns `404`); local agents pass on any existing habitat; personal habitats admit any authenticated human; on team habitats a human must be a team member — nonmembers, including global admins, receive `403` (missing Habitat also `404`). The check runs before any detail rows (mission, siblings, subtasks, PRs, pipelines, events, comments, attachments, watchers) are assembled.
 
 **Response `200`:**
 
@@ -1399,7 +1403,9 @@ If the parent mission of this task is archived, the update fails with `403` ("Ca
 
 Delete a task. Triggers parent mission status recalculation.
 
-**Response `204`:** No content.
+**Auth:** Local actor (agent API key or human JWT), then the **target task's** derived-habitat check: the Task's Mission → Habitat is resolved server-side (a missing Task or Mission returns `404`); local agents pass on any existing habitat; personal habitats admit any authenticated human; on team habitats a human must be a team member — nonmembers, including global admins, receive `403` (missing Habitat also `404`). The membership denial precedes the archived-mission and dependent guards, and a denied delete performs no deletion, watcher notification, or event; admitted calls keep the archived/dependent outcomes below.
+
+**Response `200`:** `{ "success": true }`
 
 **Response `403`:** If the parent mission is archived ("Cannot delete a task in an archived mission").
 
@@ -1696,7 +1702,7 @@ The task is moved back to the "In Progress" column if it exists.
 
 ### GET /tasks/:taskId/reviewers
 
-List the reviewer rows assigned to a task (agent API key or human JWT). Object access resolves through the **target task's** actual Mission → Habitat (never a caller-supplied substitute) and runs the shared habitat-membership check before any row is read: agents pass on any existing habitat; on personal habitats any authenticated human passes; on team habitats a human must be a team member (nonmembers, including global admins, receive `403` — no reviewer rows leak). A missing Task or Mission returns `404`. **Retained limitation:** individual `GET /tasks/:id` and `DELETE /tasks/:id` remain without this habitat guard — this route's check is not a universal Task-isolation boundary.
+List the reviewer rows assigned to a task (agent API key or human JWT). Object access resolves through the **target task's** actual Mission → Habitat (never a caller-supplied substitute) and runs the shared habitat-membership check before any row is read: agents pass on any existing habitat; on personal habitats any authenticated human passes; on team habitats a human must be a team member (nonmembers, including global admins, receive `403` — no reviewer rows leak). A missing Task or Mission returns `404`. The same target-derived check now also guards the six direct Task object operations (`GET`/`DELETE /tasks/:id`, `GET /tasks/:id/details`, `/events`, `/comments`, and `GET /tasks/:taskId/code-evidence`). **Retained limitation:** the other Task-ID adjunct reads (`/dependencies`, `/blocked-status`, `/approval-status`, `/quality-checklist`, `/effort-report`, `/effort-entries`, `/time-report`, `/failure-context`, `/workflow-context`, human-only `/pull-requests`, `/pipeline-events`, `/watchers`) and Task-ID mutations beyond individual DELETE (including `PATCH /tasks/:id`, comment, evidence, and dependency writes) remain without this habitat guard — this is not a universal Task-isolation boundary.
 
 ### POST /tasks/:taskId/reviewers
 
@@ -2033,7 +2039,7 @@ Get a sprint carry-over report for incomplete or moved work.
 
 **Auth:** Agent or Human
 
-> **Administrative boundary — sprint and review-rule routes.** Sprint and review-rule READS are local-actor for agent keys with one habitat-shape carve-out: the habitat-scoped reads (`GET /habitats/:habitatId/sprints`, `GET /habitats/:habitatId/sprints/active`, `GET /habitats/:habitatId/review-rules`) and `GET /tasks/:taskId/reviewers` admit any agent on any habitat shape (habitat-scoped sprint/review-rule reads have no agent-facing habitat guard), while the four id-keyed sprint reads (`GET /sprints/:id`, `/metrics`, `/burndown`, `/carry-over`) additionally require a non-team (personal) habitat for agents — on team habitats agents receive **403** ("Agents cannot access team habitats"); for human JWTs: personal habitats admit any authenticated human, while on team habitats a nonmember receives **403** on the habitat-scoped sprint/review-rule reads, on the id-keyed sprint reads, on `GET /tasks/:taskId/reviewers` (resolved through the target task's Mission → Habitat; a missing Task or Mission is **404**), and on the batch route (`POST /habitats/:habitatId/tasks/batch`) plus the human-policy habitat settings surfaces (`PATCH /habitats/:id`, `PUT /habitats/:id/webhook-secrets`) — all via the same shared membership predicate. Every sprint lifecycle mutation (`POST /habitats/:habitatId/sprints`, `PATCH`/`DELETE /sprints/:id`, `POST /sprints/:id/start|complete|cancel|missions`, `DELETE /sprints/:id/missions/:missionId`) and every review-rule mutation (`POST /habitats/:habitatId/review-rules`, `PATCH`/`DELETE /review-rules/:id`) is human-authenticated (JWT) only: agent API keys receive **401** (not 403 — the auth policy rejects non-JWT callers before the handler), with no admin-role distinction — any authenticated human on personal habitats, any team member on team habitats.
+> **Administrative boundary — sprint and review-rule routes.** Sprint and review-rule READS are local-actor for agent keys with one habitat-shape carve-out: the habitat-scoped reads (`GET /habitats/:habitatId/sprints`, `GET /habitats/:habitatId/sprints/active`, `GET /habitats/:habitatId/review-rules`) and `GET /tasks/:taskId/reviewers` admit any agent on any habitat shape (habitat-scoped sprint/review-rule reads have no agent-facing habitat guard), while the four id-keyed sprint reads (`GET /sprints/:id`, `/metrics`, `/burndown`, `/carry-over`) additionally require a non-team (personal) habitat for agents — on team habitats agents receive **403** ("Agents cannot access team habitats"); for human JWTs: personal habitats admit any authenticated human, while on team habitats a nonmember receives **403** on the habitat-scoped sprint/review-rule reads, on the id-keyed sprint reads, on `GET /tasks/:taskId/reviewers` (resolved through the target task's Mission → Habitat; a missing Task or Mission is **404**), and on the batch route (`POST /habitats/:habitatId/tasks/batch`), the human-policy habitat settings surfaces (`PATCH /habitats/:id`, `PUT /habitats/:id/webhook-secrets`), and the six direct Task object operations (`GET`/`DELETE /tasks/:id`, `GET /tasks/:id/details`, `/events`, `/comments`, `GET /tasks/:taskId/code-evidence` — each resolved through the target task's Mission → Habitat; a missing Task or Mission is **404**) — all via the same shared membership predicate. Task-ID adjunct reads beyond those six (`/dependencies`, `/blocked-status`, `/approval-status`, `/quality-checklist`, `/effort-report`, `/effort-entries`, `/time-report`, `/failure-context`, `/workflow-context`, human-only `/pull-requests`, `/pipeline-events`, `/watchers`) and Task-ID mutations other than individual DELETE remain without this check. Every sprint lifecycle mutation (`POST /habitats/:habitatId/sprints`, `PATCH`/`DELETE /sprints/:id`, `POST /sprints/:id/start|complete|cancel|missions`, `DELETE /sprints/:id/missions/:missionId`) and every review-rule mutation (`POST /habitats/:habitatId/review-rules`, `PATCH`/`DELETE /review-rules/:id`) is human-authenticated (JWT) only: agent API keys receive **401** (not 403 — the auth policy rejects non-JWT callers before the handler), with no admin-role distinction — any authenticated human on personal habitats, any team member on team habitats.
 
 **Response `200`:** includes completed, carried-over, and incomplete counts plus task-level inferred reasons such as blocked dependencies, missing estimates, overdue work, repeated rejection history, or effort overrun.
 
@@ -2523,6 +2529,8 @@ Create a new quality checklist template.
 
 Get the audit trail for a task.
 
+**Auth:** Local actor (agent API key or human JWT), then the **target task's** derived-habitat check: the Task's Mission → Habitat is resolved server-side (a missing Task or Mission returns `404`); local agents pass on any existing habitat; personal habitats admit any authenticated human; on team habitats a human must be a team member — nonmembers, including global admins, receive `403` (missing Habitat also `404`).
+
 **Query Parameters:**
 
 | Param | Type | Default | Constraints |
@@ -2594,6 +2602,8 @@ Mission events (`mission_events` table) use a separate set of actions:
 ### GET /tasks/:id/comments
 
 Get all comments on a task.
+
+**Auth:** Local actor (agent API key or human JWT), then the **target task's** derived-habitat check: the Task's Mission → Habitat is resolved server-side (a missing Task or Mission returns `404`); local agents pass on any existing habitat; personal habitats admit any authenticated human; on team habitats a human must be a team member — nonmembers, including global admins, receive `403` (missing Habitat also `404`). (Applies to this GET; the write routes below keep their own policies.)
 
 **Response `200`:**
 
@@ -5354,7 +5364,7 @@ Link, query, and manage code evidence (branches, commits, PRs, pipelines, change
 
 Get the code evidence overview for a task, including completeness, summary, grouped evidence links, and active gaps.
 
-**Auth:** Agent or Human auth required.
+**Auth:** Local actor (agent API key or human JWT), then the **target task's** derived-habitat check: the Task's Mission → Habitat is resolved server-side (a missing Task or Mission returns `404`); local agents pass on any existing habitat; personal habitats admit any authenticated human; on team habitats a human must be a team member — nonmembers, including global admins, receive `403` (missing Habitat also `404`).
 
 **Query Parameters:**
 

@@ -14,7 +14,20 @@
  *    team-nonmember humans 403 (were 200); agents/anonymous/remote remain
  *    401 on the human-policy routes; per-task batch semantics retained
  *    (mixed batches are NOT atomic; a denied actor writes zero).
- *  - Individual GET/DELETE /tasks/:id remain UNGUARDED (separate work).
+ *  - Six Task object operations (task-object-access-followup) derive the
+ *    TARGET Task → Mission → Habitat server-side and enforce the shared
+ *    membership predicate BEFORE any read or deletion effect: GET and
+ *    DELETE /tasks/:id, GET /tasks/:id/details, /events, /comments and
+ *    /tasks/:taskId/code-evidence. Intended deltas: team-nonmember humans
+ *    403 (were 200); authenticated missing Task/orphaned Mission 404 on
+ *    reads that previously leaked (simple GET, details, events, comments).
+ *    Request-time authorization, not transactional revocation fencing.
+ *  - STILL UNGUARDED (explicit retained exposure, separate follow-up):
+ *    adjunct Task reads (/dependencies, /blocked-status, /approval-status,
+ *    /quality-checklist, /effort-report, /effort-entries, /time-report,
+ *    /failure-context, /workflow-context, human-only /pull-requests,
+ *    /pipeline-events, /watchers) and Task-ID mutations beyond individual
+ *    DELETE (PATCH /tasks/:id, comments/evidence/dependencies writes).
  *
  * No middleware mocks: every request crosses a real TCP socket into the
  * real application; MCP checks drive the spawned server over stdio with a
@@ -43,6 +56,14 @@ import * as pluginManager from "../plugins/pluginManager.js";
 import * as remotePodRepo from "../repositories/remotePod.js";
 import * as remoteParticipantRepo from "../repositories/remoteParticipant.js";
 import * as remoteCredentialService from "../services/remoteCredentialService.js";
+import * as eventRepo from "../repositories/event.js";
+import * as dependencyService from "../services/dependencyService.js";
+import * as codeEvidenceService from "../services/codeEvidenceService.js";
+import * as commentService from "../services/commentService.js";
+import * as watcherRepo from "../repositories/watcher.js";
+import * as dependencyReadRepo from "../repositories/dependency.js";
+import { sseBroadcaster } from "../sse/broadcaster.js";
+import { checkHabitatAccess } from "../middleware/realtimeAuth.js";
 
 const MCP_ENTRY = join(import.meta.dirname, "..", "..", "..", "mcp", "src", "index.ts");
 const PREFIXES = ["/api/v1", "/api"] as const;
@@ -847,5 +868,389 @@ describe("bounded object access — personal batch/PUT and role matrix (Sol revi
     expect(habitatRepo.getHabitatById(teamHabitatId)!.ciCdSettings?.gitlabSecret ?? "").toBe(
       "boa-team-member-secret",
     );
+  }, 30_000);
+});
+
+// ---- six-operation Task object access (task-object-access-followup) ------
+// GET /tasks/:id, DELETE /tasks/:id, GET /tasks/:id/details, /events,
+// /comments and /tasks/:taskId/code-evidence all resolve the TARGET Task →
+// Mission → Habitat and run the shared membership predicate before any read
+// or deletion effect. Request-time authorization only.
+
+const SIX_TITLE = "boa-six-task";
+const SIX_EVENT_ACTOR = "boa-six-event-actor";
+const SIX_COMMENT = "boa-six-comment-marker";
+const SIX_EVIDENCE_URL = "https://example.com/boa-six-evidence-marker";
+let sixTaskId: string;
+let sixSeeded = false;
+
+function sixReads(taskId: string): Array<[string, string]> {
+  return [
+    ["GET", `/tasks/${taskId}`],
+    ["GET", `/tasks/${taskId}/details`],
+    ["GET", `/tasks/${taskId}/events`],
+    ["GET", `/tasks/${taskId}/comments`],
+    ["GET", `/tasks/${taskId}/code-evidence`],
+  ];
+}
+
+async function ensureSixSeed(): Promise<string> {
+  if (sixSeeded) return sixTaskId;
+  sixTaskId = makeTask(teamHabitatId, SIX_TITLE, "boa-seed");
+  eventRepo.createEvent({
+    taskId: sixTaskId,
+    actorType: "human",
+    actorId: SIX_EVENT_ACTOR,
+    action: "updated",
+    metadata: {},
+  });
+  const comment = await wire("/api/v1", "POST", `/tasks/${sixTaskId}/comments`, {
+    agentKey,
+    body: { content: SIX_COMMENT },
+  });
+  expect(comment.status).toBe(201);
+  codeEvidenceService.linkTaskCodeEvidence(
+    sixTaskId,
+    { externalUrls: [SIX_EVIDENCE_URL], allowExternalRepository: true },
+    { type: "agent", id: agentId },
+    { habitatId: teamHabitatId },
+  );
+  sixSeeded = true;
+  return sixTaskId;
+}
+
+describe("task object access — five Task GET reads (derived habitat)", () => {
+  it("admits every member shape on both prefixes across all five reads; seeded content visible", async () => {
+    const taskId = await ensureSixSeed();
+    for (const prefix of PREFIXES) {
+      for (const token of [
+        memberAdminJwt,
+        memberViewerJwt,
+        teamOwnerJwt,
+        teamAdminJwt,
+        teamMemberJwt,
+      ]) {
+        for (const [, path] of sixReads(taskId)) {
+          const res = await wire(prefix, "GET", path, { token });
+          expect(res.status, `${prefix} ${path}`).toBe(200);
+        }
+        if (token === memberAdminJwt) {
+          const simple = await wire(prefix, "GET", `/tasks/${taskId}`, { token });
+          expect(simple.body.task.title).toBe(SIX_TITLE);
+          const details = await wire(prefix, "GET", `/tasks/${taskId}/details`, { token });
+          expect(details.text).toContain(SIX_TITLE);
+          const events = await wire(prefix, "GET", `/tasks/${taskId}/events`, { token });
+          expect(events.text).toContain(SIX_EVENT_ACTOR);
+          const comments = await wire(prefix, "GET", `/tasks/${taskId}/comments`, { token });
+          expect(comments.text).toContain(SIX_COMMENT);
+          const evidence = await wire(prefix, "GET", `/tasks/${taskId}/code-evidence`, { token });
+          expect(evidence.text).toContain(SIX_EVIDENCE_URL);
+        }
+      }
+    }
+  }, 60_000);
+
+  it("global-admin NONmember gets 403 on all five reads with zero seeded disclosure", async () => {
+    const taskId = await ensureSixSeed();
+    for (const prefix of PREFIXES) {
+      for (const [, path] of sixReads(taskId)) {
+        const res = await wire(prefix, "GET", path, { token: nonmemberAdminJwt });
+        expect(res.status, `${prefix} ${path}`).toBe(403);
+        expect(res.text).not.toContain(SIX_TITLE);
+        expect(res.text).not.toContain(SIX_EVENT_ACTOR);
+        expect(res.text).not.toContain(SIX_COMMENT);
+        expect(res.text).not.toContain(SIX_EVIDENCE_URL);
+      }
+    }
+  }, 30_000);
+
+  it("personal-habitat task admits any authenticated human (nonmember included) on all five reads", async () => {
+    const taskId = makeTask(personalHabitatId, "boa-six-personal", "boa-seed");
+    for (const prefix of PREFIXES) {
+      for (const [, path] of sixReads(taskId)) {
+        const res = await wire(prefix, "GET", path, { token: nonmemberAdminJwt });
+        expect(res.status, `${prefix} ${path}`).toBe(200);
+      }
+    }
+  }, 30_000);
+
+  it("local agent keys stay admitted on the TEAM-habitat task regardless of binding", async () => {
+    const taskId = await ensureSixSeed();
+    for (const key of [agentKey, boundAgentKey]) {
+      // boundAgent is currentTaskId-bound to a PERSONAL-habitat task; the
+      // predicate ignores agent task/habitat binding entirely.
+      for (const [, path] of sixReads(taskId)) {
+        const res = await wire("/api/v1", "GET", path, { agentKey: key });
+        expect(res.status, `${key.slice(0, 8)} ${path}`).toBe(200);
+      }
+    }
+  }, 30_000);
+
+  it("anonymous, invalid agent key and VALID remote credential get 401 on all five reads", async () => {
+    const taskId = await ensureSixSeed();
+    for (const prefix of PREFIXES) {
+      for (const [, path] of sixReads(taskId)) {
+        expect((await wire(prefix, "GET", path)).status, `${prefix} anon ${path}`).toBe(401);
+        expect(
+          (await wire(prefix, "GET", path, { agentKey: "not-a-key" })).status,
+          `${prefix} badkey ${path}`,
+        ).toBe(401);
+        expect(
+          (await wire(prefix, "GET", path, { remoteKey: validRemoteKey })).status,
+          `${prefix} remote ${path}`,
+        ).toBe(401);
+      }
+    }
+  }, 60_000);
+
+  it("authenticated missing Task and orphaned Mission are 404 on all five reads", async () => {
+    const missingTask = "00000000-0000-4000-8000-00000000000a";
+    const orphanTaskId = makeTask(teamHabitatId, "boa-six-orphan", "boa-seed");
+    const missionId = taskRepo.getMissionIdForTask(orphanTaskId)!;
+    getDb().delete(missions).where(eq(missions.id, missionId)).run();
+
+    for (const prefix of PREFIXES) {
+      // memberViewerJwt spreads the per-header rate-limit budget (the
+      // limiter counts raw headers; a single token would hit the cap).
+      for (const [, path] of sixReads(missingTask)) {
+        const res = await wire(prefix, "GET", path, { token: memberViewerJwt });
+        expect(res.status, `${prefix} missing ${path}`).toBe(404);
+      }
+      for (const [, path] of sixReads(orphanTaskId)) {
+        const res = await wire(prefix, "GET", path, { token: memberViewerJwt });
+        expect(res.status, `${prefix} orphan ${path}`).toBe(404);
+      }
+    }
+  }, 30_000);
+});
+
+describe("task object access — DELETE /tasks/:id (derived habitat)", () => {
+  it("global-admin NONmember DELETE is 403 with zero deletion effects (both prefixes)", async () => {
+    const task = makeTask(teamHabitatId, "boa-six-del-denied", "boa-seed");
+    eventRepo.createEvent({
+      taskId: task,
+      actorType: "human",
+      actorId: SIX_EVENT_ACTOR,
+      action: "updated",
+      metadata: {},
+    });
+    const comment = await wire("/api/v1", "POST", `/tasks/${task}/comments`, {
+      agentKey,
+      body: { content: "boa-six-del-comment" },
+    });
+    expect(comment.status).toBe(201);
+    const eventsBefore = eventRepo.getEventsByTaskId(task).total;
+    const commentsBefore = commentService.getComments(task).total;
+
+    for (const prefix of PREFIXES) {
+      const res = await wire(prefix, "DELETE", `/tasks/${task}`, { token: nonmemberAdminJwt });
+      expect(res.status, prefix).toBe(403);
+    }
+
+    // deleteTask never ran: task, events and comments all intact.
+    expect(taskRepo.getTaskById(task)).not.toBeNull();
+    expect(eventRepo.getEventsByTaskId(task).total).toBe(eventsBefore);
+    expect(commentService.getComments(task).total).toBe(commentsBefore);
+  }, 30_000);
+
+  it("membership denial precedes the dependent guard; member keeps the retained dependent failure", async () => {
+    const target = makeTask(teamHabitatId, "boa-six-dep-target", "boa-seed");
+    const dependent = makeTask(teamHabitatId, "boa-six-dep-dependent", "boa-seed");
+    dependencyService.addTaskDependency(dependent, target);
+
+    // Nonmember is denied on MEMBERSHIP (403), not dependents (400).
+    const denied = await wire("/api/v1", "DELETE", `/tasks/${target}`, {
+      token: nonmemberAdminJwt,
+    });
+    expect(denied.status).toBe(403);
+    expect(taskRepo.getTaskById(target)).not.toBeNull();
+
+    // Admitted member still hits the retained has-dependents guard.
+    const member = await wire("/api/v1", "DELETE", `/tasks/${target}`, {
+      token: memberAdminJwt,
+    });
+    expect(member.status).toBe(400);
+    expect(member.body.error).toContain("Cannot delete task");
+    expect(taskRepo.getTaskById(target)).not.toBeNull();
+    expect(taskRepo.getTaskById(dependent)).not.toBeNull();
+  }, 30_000);
+
+  it("member DELETE succeeds with existing effects; anonymous/bad-key/valid-remote stay 401; missing Task 404", async () => {
+    const doomed = makeTask(teamHabitatId, "boa-six-del-ok", "boa-seed");
+
+    for (const prefix of PREFIXES) {
+      expect((await wire(prefix, "DELETE", `/tasks/${doomed}`)).status, `${prefix} anon`).toBe(401);
+      expect(
+        (await wire(prefix, "DELETE", `/tasks/${doomed}`, { agentKey: "not-a-key" })).status,
+        `${prefix} badkey`,
+      ).toBe(401);
+      expect(
+        (await wire(prefix, "DELETE", `/tasks/${doomed}`, { remoteKey: validRemoteKey })).status,
+        `${prefix} remote`,
+      ).toBe(401);
+    }
+
+    const missing = await wire("/api", "DELETE", "/tasks/00000000-0000-4000-8000-00000000000b", {
+      token: memberAdminJwt,
+    });
+    expect(missing.status).toBe(404);
+
+    const ok = await wire("/api", "DELETE", `/tasks/${doomed}`, { token: memberViewerJwt });
+    expect(ok.status).toBe(200);
+    expect(ok.body.success).toBe(true);
+    expect(taskRepo.getTaskById(doomed)).toBeNull();
+  }, 30_000);
+
+  it("archived-mission DELETE failure is retained for an admitted member", async () => {
+    const task = makeTask(teamHabitatId, "boa-six-del-archived", "boa-seed");
+    const missionId = taskRepo.getMissionIdForTask(task)!;
+    missionRepo.updateMission(missionId, { isArchived: true });
+
+    const res = await wire("/api/v1", "DELETE", `/tasks/${task}`, { token: memberAdminJwt });
+    expect(res.status).toBe(403);
+    expect(res.body.error).toContain("archived");
+    expect(taskRepo.getTaskById(task)).not.toBeNull();
+  }, 30_000);
+});
+
+describe("task object access — served MCP compatibility (six operations)", () => {
+  it("orcy_habitat_task get-context/get-events/get-comments serve the guarded reads; delete deletes", async () => {
+    const taskId = await ensureSixSeed();
+
+    const context = await callTool("orcy_habitat_task", { action: "get-context", taskId });
+    expect(context.isError).toBeFalsy();
+    expect(toolText(context)).toContain(SIX_TITLE);
+
+    const events = await callTool("orcy_habitat_task", { action: "get-events", taskId });
+    expect(events.isError).toBeFalsy();
+    expect(toolText(events)).toContain(SIX_EVENT_ACTOR);
+
+    const comments = await callTool("orcy_habitat_task", { action: "get-comments", taskId });
+    expect(comments.isError).toBeFalsy();
+    expect(toolText(comments)).toContain(SIX_COMMENT);
+
+    const doomed = makeTask(teamHabitatId, "boa-six-mcp-del", "boa-seed");
+    const del = await callTool("orcy_habitat_task", { action: "delete", taskId: doomed });
+    expect(del.isError).toBeFalsy();
+    expect(taskRepo.getTaskById(doomed)).toBeNull();
+  }, 60_000);
+});
+
+// ---- DELETE effects + matrix fixup (Sol review required 1–2) ------------
+// Observes the REAL broadcast channel (in-process sseBroadcaster singleton
+// shared with the served app): notifyWatchers publishes task.watcher_notify
+// and emitTransition publishes task.deleted on the habitat stream.
+
+describe("task object access — DELETE effects and matrix fixup (Sol review required 1–2)", () => {
+  it("denied DELETE: zero broadcasts (no watcher notification, no deletion transition), no new event, dependency relation and watcher row intact", async () => {
+    const task = makeTask(teamHabitatId, "boa-fixup-denied", "boa-seed");
+    watcherRepo.addWatcher(task, "boa-fixup-watcher");
+    const dependent = makeTask(teamHabitatId, "boa-fixup-dependent", "boa-seed");
+    dependencyService.addTaskDependency(dependent, task);
+    const eventsBefore = eventRepo.getEventsByTaskId(task).total;
+
+    const seen: string[] = [];
+    const unsubscribe = sseBroadcaster.subscribe(teamHabitatId, (e) => seen.push(e.type));
+    try {
+      for (const prefix of PREFIXES) {
+        const res = await wire(prefix, "DELETE", `/tasks/${task}`, {
+          token: nonmemberAdminJwt,
+        });
+        expect(res.status, prefix).toBe(403);
+      }
+    } finally {
+      unsubscribe();
+    }
+
+    // deleteTask never ran: nothing was broadcast, no event row appeared,
+    // and the seeded watcher + dependency relation are untouched.
+    expect(seen).toEqual([]);
+    expect(taskRepo.getTaskById(task)).not.toBeNull();
+    expect(eventRepo.getEventsByTaskId(task).total).toBe(eventsBefore);
+    expect(
+      dependencyReadRepo.getTaskDependencies(dependent).dependsOn.some((d) => d.taskId === task),
+    ).toBe(true);
+    expect(watcherRepo.getWatcherUserIdsForTask(task)).toContain("boa-fixup-watcher");
+  }, 30_000);
+
+  it("admitted DELETE retains effects: watcher notification AND task.deleted broadcast observed on the habitat stream", async () => {
+    const task = makeTask(teamHabitatId, "boa-fixup-admitted", "boa-seed");
+    watcherRepo.addWatcher(task, "boa-fixup-watcher2");
+
+    const seen: string[] = [];
+    const unsubscribe = sseBroadcaster.subscribe(teamHabitatId, (e) => seen.push(e.type));
+    try {
+      const res = await wire("/api/v1", "DELETE", `/tasks/${task}`, { token: memberAdminJwt });
+      expect(res.status).toBe(200);
+      expect(res.body.success).toBe(true);
+    } finally {
+      unsubscribe();
+    }
+
+    expect(taskRepo.getTaskById(task)).toBeNull();
+    expect(seen).toContain("task.watcher_notify");
+    expect(seen).toContain("task.deleted");
+  }, 30_000);
+
+  it("DELETE actor matrix: personal human, unbound + other-habitat-bound agents, every member shape", async () => {
+    // Personal habitat admits any authenticated human (both prefixes).
+    for (const prefix of PREFIXES) {
+      const pTask = makeTask(personalHabitatId, `boa-fixup-personal-${prefix}`, "boa-seed");
+      const res = await wire(prefix, "DELETE", `/tasks/${pTask}`, { token: plainHumanJwt });
+      expect(res.status, `personal ${prefix}`).toBe(200);
+      expect(taskRepo.getTaskById(pTask)).toBeNull();
+    }
+
+    // Local agents delete TEAM-habitat tasks regardless of task binding.
+    for (const [label, key] of [
+      ["unbound", agentKey],
+      ["other-habitat-bound", boundAgentKey],
+    ] as const) {
+      const aTask = makeTask(teamHabitatId, `boa-fixup-agent-${label}`, "boa-seed");
+      const res = await wire("/api/v1", "DELETE", `/tasks/${aTask}`, { agentKey: key });
+      expect(res.status, label).toBe(200);
+      expect(taskRepo.getTaskById(aTask)).toBeNull();
+    }
+
+    // Every member shape deletes a team-habitat task.
+    for (const token of [
+      memberAdminJwt,
+      memberViewerJwt,
+      teamOwnerJwt,
+      teamAdminJwt,
+      teamMemberJwt,
+    ]) {
+      const mTask = makeTask(teamHabitatId, `boa-fixup-member-${token.length}`, "boa-seed");
+      const res = await wire("/api", "DELETE", `/tasks/${mTask}`, { token });
+      expect(res.status, `member ${token.slice(0, 12)}`).toBe(200);
+      expect(taskRepo.getTaskById(mTask)).toBeNull();
+    }
+  }, 60_000);
+
+  it("DELETE ancestry: orphaned Mission is 404 on both prefixes; missing-Habitat branch verified at the unit seam (FK cascade prevents a wire fixture)", async () => {
+    const orphan = makeTask(teamHabitatId, "boa-fixup-orphan", "boa-seed");
+    const missionId = taskRepo.getMissionIdForTask(orphan)!;
+    getDb().delete(missions).where(eq(missions.id, missionId)).run();
+
+    for (const prefix of PREFIXES) {
+      const res = await wire(prefix, "DELETE", `/tasks/${orphan}`, { token: memberViewerJwt });
+      expect(res.status, prefix).toBe(404);
+    }
+
+    // missions.habitatId is ON DELETE CASCADE: removing a habitat removes
+    // the mission and its tasks, so no wire fixture can reach
+    // checkHabitatAccess's missing-habitat branch. Verify that branch
+    // directly (unit seam of the same shared predicate) and disclose the
+    // fixture limit — this is NOT wire coverage of that branch.
+    const req = {
+      user: { id: "boa-member-admin" },
+    } as unknown as Parameters<typeof checkHabitatAccess>[0];
+    let statusCode = 0;
+    try {
+      await checkHabitatAccess(req, "00000000-0000-4000-8000-00000000000c");
+    } catch (err) {
+      statusCode = (err as { statusCode?: number }).statusCode ?? 0;
+    }
+    expect(statusCode).toBe(404);
   }, 30_000);
 });

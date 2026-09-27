@@ -28,6 +28,7 @@ import {
   taskIdParamsSchema,
 } from "./shared.js";
 import { applyDeclaredAuthPolicies } from "../../authPolicy.js";
+import { authorizeTaskAccess } from "../../middleware/realtimeAuth.js";
 
 export async function taskCodeEvidenceRoutes(fastify: FastifyInstance): Promise<void> {
   applyDeclaredAuthPolicies(fastify);
@@ -39,12 +40,15 @@ export async function taskCodeEvidenceRoutes(fastify: FastifyInstance): Promise<
       config: { authPolicy: "local_actor" },
     },
     async (request) => {
-      const task = taskRepo.getTaskById(request.params.taskId);
-      if (!task) throw notFound("Task not found");
+      // Object access resolves through the TARGET task's actual
+      // Mission/Habitat and authorizes BEFORE any evidence row is read;
+      // the service receives the validated habitat id, not a
+      // caller-supplied or nullable substitute.
+      const habitatId = await authorizeTaskAccess(request, request.params.taskId);
 
       return codeEvidenceService.getTaskCodeEvidence(request.params.taskId, {
         includeHistory: request.query.includeHistory,
-        habitatId: getHabitatIdForTask(request.params.taskId) ?? undefined,
+        habitatId,
       });
     },
   );
