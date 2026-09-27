@@ -1871,3 +1871,5 @@ Pulse is a passive shared memory of structured signals for missions and habitats
 Detector plugins exist and write `signalType:"detected"` signals. These are plugin-attributed pattern matches, not agent self-reports. They surface in the wiki "Detected Signals" tab with `metadata.detector` attribution.
 
 Lifecycle interceptors may block task transitions with a 403 response. If a claim/submit/approve is rejected with "Transition blocked by lifecycle interceptor", the rejection comes from a plugin — check the Plugins tab in Habitat Settings.
+
+> **Durable review safety (migration 0082):** review requirements are durable per-task state. Approvals require generation-tagged decisions admitted through the effective assignment projection; legacy-unknown requirements never finalize until an eligible human resolves them via `POST /tasks/:taskId/review-requirement/resolve` (persisted-role authorization, viewer ceiling); merge-webhook auto-approval applies only to genuine captured known-zero tasks; raw terminal primitives are guarded. See SECURITY.md 'Durable Review Safety'.

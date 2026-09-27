@@ -1,4 +1,6 @@
 # Orcy — Product Roadmap
+- Durable review-safety cutover landed (migration 0082): durable per-task review requirements with CHECK-enforced state matrix, immutable claim snapshots, append-only generation-tagged decisions, one-reservation finality with committed approval proof, guarded terminal primitives, known-zero-only merge auto-approval, and independent human recovery for legacy-unknown tasks.
+
 
 > **Version:** v0.42.0 | **Updated:** 2026-09-04
 

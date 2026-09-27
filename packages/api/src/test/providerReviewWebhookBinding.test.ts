@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import { updateTaskFixtureForTests } from "./helpers/taskFixtures.js";
 import { createHmac } from "node:crypto";
 import { eq, count } from "drizzle-orm";
 import Fastify, { type FastifyInstance } from "fastify";
@@ -19,6 +20,8 @@ import * as habitatRepo from "../repositories/habitat.js";
 import * as columnRepo from "../repositories/column.js";
 import * as missionRepo from "../repositories/mission.js";
 import * as taskRepo from "../repositories/task.js";
+import * as agentRepo from "../repositories/agent.js";
+import * as taskStateMachine from "../repositories/taskStateMachine.js";
 import * as eventRepo from "../repositories/event.js";
 import * as watcherRepo from "../repositories/watcher.js";
 import { rebuildCache } from "../services/habitatSecretCache.js";
@@ -110,7 +113,17 @@ async function createTaskInHabitat(
     title,
     createdBy: "user-binding",
   });
-  taskRepo.updateTask(task.id, { status });
+  if (status === "submitted") {
+    // Review safety: a submitted fixture walks the genuine lifecycle
+    // (claim→start→submit) so the requirement is captured known-zero and the
+    // merge gate legitimately applies — never a forged status.
+    const { agent } = agentRepo.createAgent({ name: `merge-fixture-${title}-${Math.random()}`, type: "claude-code", domain: "backend" });
+    taskStateMachine.claimTask(task.id, agent.id);
+    taskStateMachine.startTask(task.id, agent.id);
+    taskStateMachine.submitTask(task.id, agent.id, "merge fixture", []);
+  } else {
+    updateTaskFixtureForTests(task.id, { status });
+  }
   const after = taskRepo.getTaskById(task.id)!;
   return { habitatId, missionId: mission.id, taskId: task.id, version: after.version };
 }
@@ -631,7 +644,7 @@ describe("Merge approval — atomicity, effects, idempotency (GitHub happy path)
       title: "Done sibling",
       createdBy: "user-binding",
     });
-    taskRepo.updateTask(sibling.id, { status: "done" });
+    updateTaskFixtureForTests(sibling.id, { status: "done" });
     // Stored mission status is derived only by recalc runs — it has not run yet.
     const opened = makePRBody({ action: "opened", branchTaskId: fixture.taskId });
     githubService.handlePullRequestEvent(opened, ghSign(opened));

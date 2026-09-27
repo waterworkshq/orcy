@@ -14,6 +14,7 @@
  * Out of scope: the primitives themselves (read-only — we test them).
  */
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { taskReviewRequirements } from "../db/schema/index.js";
 import { closeDb, getDb, initTestDb } from "../db/index.js";
 import {
   taskCreationAttempts,
@@ -213,13 +214,17 @@ describe("Task + initial-event atomic rollback (failure-injected)", () => {
     const missionId = seedMission("rollback-mission");
     const beforeTasks = db.select().from(tasks).all().length;
     const beforeEvents = db.select().from(taskEvents).all().length;
+    const beforeRequirements = db.select().from(taskReviewRequirements).all().length;
 
     let capturedTaskId: string | undefined;
     let thrown: unknown;
     try {
       db.transaction((tx) => {
         const w = new FailingDbClient(tx as unknown as TaskPublicationDbClient, {
-          failAtWriteN: 2,
+          // Review safety: write #1 = task INSERT, write #2 = the task's
+          // `uncaptured` requirement birth row (same primitive, same tx),
+          // write #3 = the event INSERT.
+          failAtWriteN: 3,
         });
         // Write #1 — INSERT tasks (createTaskWithClient does SELECT(max) first
         // — a read through the wrapper — then INSERT).
@@ -229,7 +234,7 @@ describe("Task + initial-event atomic rollback (failure-injected)", () => {
           createdBy: "u",
         });
         capturedTaskId = task.id;
-        // Write #2 — INSERT task_events. The wrapper throws here. The primitive's
+        // Write #3 — INSERT task_events. The wrapper throws here. The primitive's
         // catch wraps it in repositoryCreateError, which propagates out of the tx
         // callback and triggers the rollback.
         createTaskEventWithClient(asPubClient(w), {
@@ -248,13 +253,24 @@ describe("Task + initial-event atomic rollback (failure-injected)", () => {
     expect(thrown).toBeInstanceOf(RepositoryError);
     expect((thrown as { entity?: string }).entity).toBe("taskEvent");
 
-    // NEITHER row committed.
+    // NEITHER row committed — and the review-safety requirement birth row
+    // (write #2, written by the same primitive inside the same tx) rolled
+    // back with them: a Task must never survive without its requirement row.
     const afterTasks = getDb().select().from(tasks).all().length;
     const afterEvents = getDb().select().from(taskEvents).all().length;
+    const afterRequirements = getDb().select().from(taskReviewRequirements).all().length;
     expect(afterTasks).toBe(beforeTasks);
     expect(afterEvents).toBe(beforeEvents);
+    expect(afterRequirements).toBe(beforeRequirements);
     expect(capturedTaskId).toBeDefined();
     expect(getDb().select().from(tasks).where(eq(tasks.id, capturedTaskId!)).all()).toHaveLength(0);
+    expect(
+      getDb()
+        .select()
+        .from(taskReviewRequirements)
+        .where(eq(taskReviewRequirements.taskId, capturedTaskId!))
+        .all(),
+    ).toHaveLength(0);
 
     // **Failure mode that breaks this assertion**: if `createTaskEventWithClient`
     // (or `createTaskWithClient`) wrote via `getDb()` instead of the passed
@@ -1080,7 +1096,7 @@ describe("completeAttemptWithClient + checkpoint terminal-lock", () => {
 // ---------------------------------------------------------------------------
 
 describe("createTaskWithClient order allocation on the passed client", () => {
-  it("SELECT(max) and INSERT both flow through the wrapper — writeCount=2, readCount>=2, orders 0 then 1", () => {
+  it("SELECT(max) and INSERTs (task + requirement birth row) flow through the wrapper — writeCount=4, readCount>=2, orders 0 then 1", () => {
     const db = getDb();
     const missionId = seedMission("order-mission");
 
@@ -1105,8 +1121,10 @@ describe("createTaskWithClient order allocation on the passed client", () => {
 
       // Both SELECTs (max order allocation) went through the wrapper.
       expect(w.readCount).toBeGreaterThanOrEqual(2);
-      // Both INSERTs went through the wrapper.
-      expect(w.writeCount).toBe(2);
+      // Review safety: each creation is now TWO writes through the wrapper —
+      // the task INSERT and its `uncaptured` requirement birth row — so two
+      // tasks are 4 writes, all on the passed client.
+      expect(w.writeCount).toBe(4);
       // Order rows must reference the two INSERTs (distinct).
       expect(w.writes.every((r) => r.kind === "insert")).toBe(true);
     });

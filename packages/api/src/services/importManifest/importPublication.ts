@@ -126,6 +126,7 @@ import {
   type AttemptTerminalResult,
 } from "../../repositories/taskPublication.js";
 import { reserveAttemptWithClient } from "../../repositories/taskCreationAttempts.js";
+import { resetRequirementsForImportWithClient } from "../../repositories/reviewSafety.js";
 import { createEventWithClient } from "../../repositories/events/event-crud.js";
 import type { ActorType } from "../../models/index.js";
 import {
@@ -1084,6 +1085,16 @@ function resetTaskExecutionState(
     })
     .where(inArray(tasksTable.missionId, missionIds))
     .run();
+
+  // Review-safety reset (same publication tx): advance generation, clear
+  // claimant/proof/active override, restore effective baseline immediately
+  // (never an override-free zero below a positive baseline awaiting the next
+  // claim). Floors, origin (incl. sticky preset_historical/legacy_unknown),
+  // decisions and history are preserved alongside the audit markers below.
+  resetRequirementsForImportWithClient(
+    tx,
+    preimage.map((row) => row.id),
+  );
 
   // ONE `updated` marker per actually-reset task (event row only — see the
   // docstring). Describes the reset itself, in the present, with real

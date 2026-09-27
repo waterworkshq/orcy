@@ -102,6 +102,7 @@ import { qualityGateRoutes } from "./routes/qualityGates.js";
 import { prioritizationRoutes } from "./routes/prioritization.js";
 import { scheduledTaskRoutes } from "./routes/scheduledTasks.js";
 import { reviewRuleRoutes } from "./routes/reviewRules.js";
+import { reviewSafetyRoutes } from "./routes/reviewSafety.js";
 import { sprintRoutes } from "./routes/sprints.js";
 import { integrationRoutes } from "./routes/integrations.js";
 import { githubIssueWebhookRoutes } from "./routes/githubIssueWebhooks.js";
@@ -428,6 +429,7 @@ async function registerApiRoutes(fastify: HttpAppInstance): Promise<void> {
   await fastify.register(prioritizationRoutes);
   await fastify.register(scheduledTaskRoutes);
   await fastify.register(reviewRuleRoutes);
+  await fastify.register(reviewSafetyRoutes);
   await fastify.register(sprintRoutes);
   await fastify.register(integrationRoutes);
   await fastify.register(githubIssueWebhookRoutes);

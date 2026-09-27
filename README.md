@@ -14,6 +14,8 @@
 </h3>
 
 # Orcy — MCP-native task orchestration for AI coding agents
+- Durable review-safety cutover landed (migration 0082): durable per-task review requirements with CHECK-enforced state matrix, immutable claim snapshots, append-only generation-tagged decisions, one-reservation finality with committed approval proof, guarded terminal primitives, known-zero-only merge auto-approval, and independent human recovery for legacy-unknown tasks.
+
 
 Open-source MCP server that gives AI coding agents a shared task board with transactional claiming, domain routing, triage investigation, silence detection, and quality gates. Everyone in the system is an orcy — including you. One command installs 22 MCP tools, writes MCP config for the agent clients it detects (7 supported: Claude Code, Claude Desktop, Cursor, Gemini Antigravity, Kilo Code, Codex, OpenCode), and the daemon supports execution adapters for five agent runtimes (Claude Code, Codex, OpenCode, Cursor, Gemini CLI) — including code evidence linking, effort logging, sprint analytics, audit bundles, full task lifecycle coverage, workflow orchestration, agent experience self-reporting, and an authored habitat wiki with signal surface tabs.
 

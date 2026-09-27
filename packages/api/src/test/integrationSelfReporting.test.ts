@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { updateTaskFixtureForTests } from "./helpers/taskFixtures.js";
 import { getDb, closeDb, initTestDb } from "../db/index.js";
 import { eq } from "drizzle-orm";
 import * as habitatRepo from "../repositories/habitat.js";
@@ -77,7 +78,7 @@ describe("I1 Scenario 5 — Self-reporting cross-feature bridge", () => {
       createdBy: "test",
     });
     // Assign the agent so experience signals are attributed correctly.
-    taskCrudRepo.updateTask(task.id, { assignedAgentId: agent.id });
+    updateTaskFixtureForTests(task.id, { assignedAgentId: agent.id });
 
     const definition: WorkflowTemplateDefinition = {
       gates: [{ upstreamTaskKey: task.id, downstreamTaskKey: task.id, gateType: "on_fail" }],

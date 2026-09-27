@@ -14,6 +14,15 @@ import * as taskReviewerRepo from "../../repositories/taskReviewer.js";
 import { logger } from "../../lib/logger.js";
 import { InterceptorVetoError } from "../../errors.js";
 import * as reviewAssignment from "../reviewAssignmentService.js";
+import {
+  approveWithReservation,
+  completeWithReservation,
+} from "../reviewFinalityService.js";
+import {
+  appendReviewDecisionWithClient,
+  getRequirementWithClient,
+  projectReviewersWithClient,
+} from "../../repositories/reviewSafety.js";
 import { emitTransition, emitTransitionNonRequired } from "./transition-emitter.js";
 import { guardTransitionTop } from "./transitionBudget.js";
 import { failTaskWithEffects } from "../effects/failureEffects.js";
@@ -410,8 +419,23 @@ export function completeTask(
     taskRepo.updateTask(taskId, { result: existingResult + separator + reviewNote });
   }
 
-  const task = taskRepo.markTaskDone(taskId);
-  if (!task) return { task: null };
+  // Review-safety cutover: the terminal `done` write runs under its own
+  // fresh immediate reservation — submitted→done only on genuine explicit
+  // known-zero with no unresolved assignment projection; approved→done only
+  // with committed proof equal to the current generation.
+  const completion = completeWithReservation(taskId);
+  if (completion.outcome !== "done") {
+    return {
+      task: null,
+      error:
+        completion.reason === "review_required" ||
+        completion.reason === "requirement_unknown" ||
+        completion.reason === "proof_invalid"
+          ? "REVIEW_REQUIRED"
+          : undefined,
+    };
+  }
+  const task = completion.task;
 
   const habitatId = getHabitatId(task);
   const metadata = {
@@ -466,81 +490,38 @@ export function approveTask(
 
   const currentHabitatId = getHabitatId(current);
 
-  // Deferred `task.review_completed` publication: the event is emitted only
-  // after its relevant ACCEPTED write — the gate-committed reviewer-row
-  // approval on partial/idempotent returns, or the accepted terminal write
-  // below when this approval completes the review. A losing transition never
-  // announces completion.
-  let publishReviewerApproval: (() => void) | null = null;
+  // Q10 + review-safety cutover: ONE BEGIN IMMEDIATE writer reservation now
+  // spans fresh task/requirement/assignment reads, projection-aware
+  // admission, prospective finality, the (single, final-only) pre-veto, the
+  // append-only decision, the submitted→approved CAS and the
+  // approved_generation proof stamp. A veto commits plugin telemetry ONLY;
+  // a lost terminal race rolls decision+proof back together.
+  const result = approveWithReservation({
+    taskId,
+    reviewerId,
+    reviewerType,
+    provenance: chatProvenance ? { chat: chatProvenance } : null,
+  });
 
-  if (reviewAssignment.hasAssignedReviewers(taskId)) {
-    if (!reviewAssignment.isAssignedReviewer(taskId, reviewerId, reviewerType)) {
-      return null;
-    }
+  if (result.outcome === "vetoed") throw new InterceptorVetoError(result.veto);
+  if (result.outcome === "refused") return null;
 
-    // Q10 (ADR-0039): Atomic final-approval gate — serialize the finality
-    // decision, pre-veto, and approval recording under BEGIN IMMEDIATE to
-    // prevent the TOCTOU race where two concurrent last-reviewer approvals
-    // both classify themselves non-final and skip pre-veto. The gate also
-    // revalidates admission in-transaction (typed row, pending-only agents,
-    // typed anti-self against the current assignee). See
-    // recordApprovalWithFinalityGate for the guardrail evaluation.
-    const gateResult = reviewAssignment.recordApprovalWithFinalityGate(
-      taskId,
-      reviewerId,
-      reviewerType,
-      () =>
-        pluginManager.runPreInterceptors(taskId, "taskApproved", currentHabitatId, {
-          actorType: reviewerType,
-          actorId: reviewerId,
-          reviewerId,
-          oldStatus: current.status,
-          newStatus: "approved",
-          task: current,
-        }),
-    );
-
-    if (gateResult.veto) throw new InterceptorVetoError(gateResult.veto);
-    if (gateResult.refusedFor) return null;
-
-    publishReviewerApproval = () => {
-      if (!gateResult.recorded) return;
-      sseBroadcaster.publish(currentHabitatId, {
-        type: "task.review_completed",
-        data: { taskId, reviewerId, status: "approved" },
-      });
-    };
-
-    if (!reviewAssignment.hasAllRequiredApprovals(taskId)) {
-      publishReviewerApproval();
-      return taskRepo.getTaskById(taskId);
-    }
-
-    // Race condition guard: re-read to ensure task hasn't been transitioned by a concurrent approval
-    const fresh = taskRepo.getTaskById(taskId);
-    if (!fresh || fresh.status !== "submitted") {
-      publishReviewerApproval();
-      return fresh ?? null;
-    }
-  } else {
-    // No assigned reviewers: pre-veto before the approval DB write.
-    const veto = pluginManager.runPreInterceptors(taskId, "taskApproved", currentHabitatId, {
-      actorType: reviewerType,
-      actorId: reviewerId,
-      reviewerId,
-      oldStatus: current.status,
-      newStatus: "approved",
-      task: current,
+  if (result.outcome === "recorded_partial") {
+    // Deferred `task.review_completed` publication for the ACCEPTED partial
+    // write only — a losing or refused transition never announces completion.
+    sseBroadcaster.publish(currentHabitatId, {
+      type: "task.review_completed",
+      data: { taskId, reviewerId, status: "approved" },
     });
-    if (veto) throw new InterceptorVetoError(veto);
+    return result.task;
   }
 
-  const task = taskRepo.approveTask(taskId);
-  // Lost terminal race (CAS: conditional UPDATE matched zero rows) — surface
-  // failure with NO review-completed SSE, transition, metrics, or
-  // notifications for a transition that did not land.
-  if (!task) return null;
-  publishReviewerApproval?.();
+  const task = result.task;
+
+  sseBroadcaster.publish(currentHabitatId, {
+    type: "task.review_completed",
+    data: { taskId, reviewerId, status: "approved" },
+  });
 
   try {
     timeTrackingService.calculateAndSetCompletionMetrics(taskId);
@@ -646,26 +627,59 @@ export function rejectTask(
       db.run(sql`COMMIT`);
       return null;
     }
+    // Review safety (B5): admission uses the EFFECTIVE current-generation
+    // projection under this reservation — never raw row status. Agents are
+    // admitted on a pending projection (an old-generation approved/rejected
+    // row projects pending and admits a fresh decision); a current-round
+    // rejection, a still-current legacy veto (generation 0) and the typed
+    // claimant's own slot do not admit. Humans keep existence-based
+    // admission (typed row present).
+    const rejectionRequirement = getRequirementWithClient(db, taskId);
+    const projected = rejectionRequirement
+      ? projectReviewersWithClient(db, taskId, rejectionRequirement).find(
+          (p) => p.reviewerType === reviewerType && p.reviewerId === reviewerId,
+        )
+      : undefined;
+    const hasRow = taskReviewerRepo.findByTaskAndReviewer(taskId, reviewerId, reviewerType);
+    const anyRows = taskReviewerRepo.getByTaskId(taskId).length > 0;
+    // Admission parity: with NO assignment rows at all, a human rejection is
+    // admitted (the requirement gate governs finality, not rejection); with
+    // rows present the typed row must exist, and agents additionally demand
+    // a pending projection (typed anti-self included).
+    if (anyRows && !hasRow) {
+      db.run(sql`COMMIT`);
+      return null;
+    }
     if (reviewerType === "agent") {
-      // Typed anti-self: the agent reviewer is the task's current assignee.
       if (now.assignedAgentId === reviewerId) {
         db.run(sql`COMMIT`);
         return null;
       }
-      // Agent decisions are pending-only; humans keep existence-based checks
-      // (idempotent re-approve, approved-then-reject unchanged).
-      const row = taskReviewerRepo.findByTaskAndReviewer(taskId, reviewerId, "agent");
-      if (!row || row.status !== "pending") {
-        db.run(sql`COMMIT`);
-        return null;
-      }
-    } else if (reviewAssignment.hasAssignedReviewers(taskId)) {
-      if (!reviewAssignment.isAssignedReviewer(taskId, reviewerId, "human")) {
+      if (anyRows && projected?.projected !== "pending") {
         db.run(sql`COMMIT`);
         return null;
       }
     }
+    // B5: the decision is appended ONLY after the rejection CAS commits —
+    // a lost CAS rolls the whole reservation back (no orphan decision).
     task = taskRepo.rejectTask(taskId, reason);
+    if (!task) {
+      db.run(sql`ROLLBACK`);
+      return null;
+    }
+    if (rejectionRequirement) {
+      appendReviewDecisionWithClient(db, {
+        taskId,
+        reviewGeneration: rejectionRequirement.reviewGeneration,
+        reviewRound: rejectionRequirement.reviewRound,
+        reviewerType,
+        reviewerId,
+        decision: "rejected",
+        actorType: reviewerType,
+        actorId: reviewerId,
+        provenance: chatProvenance ? { chat: chatProvenance } : null,
+      });
+    }
     db.run(sql`COMMIT`);
   } catch (err) {
     try {

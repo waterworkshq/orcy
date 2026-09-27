@@ -1,4 +1,8 @@
 import * as taskRepo from "../repositories/task.js";
+import {
+  retryTransitionToPendingWithEffects,
+  retryEscalateClearOwnerWithEffects,
+} from "../repositories/taskStateMachine.js";
 import * as habitatRepo from "../repositories/habitat.js";
 import { logger } from "../lib/logger.js";
 import type { Task, RetryPolicy } from "../models/index.js";
@@ -91,18 +95,11 @@ export function executeRetry(task: Task): Task | null {
 
   const newRetryCount = task.retryCount + 1;
 
-  const result = taskRepo.updateTask(task.id, {
-    status: "pending",
-    assignedAgentId: null,
-    rejectionReason: null,
-    retryCount: newRetryCount,
-    nextRetryAt: null,
-    executionToken: null,
-    lastFailureEventId: null,
-    lastReleaseEventId: null,
-  });
-
-  if (!result.success) return null;
+  // Dedicated immediate retry writer (review safety): the privileged
+  // status/assignee reset and the requirement ownership-end invariant share
+  // one reservation — the generic task update can no longer perform this.
+  const updated = retryTransitionToPendingWithEffects(task.id, newRetryCount);
+  if (!updated) return null;
 
   const habitatId = taskRepo.getHabitatIdForTask(task.id) ?? "";
 
@@ -113,25 +110,18 @@ export function executeRetry(task: Task): Task | null {
     newStatus: "pending",
     retryCount: newRetryCount,
     metadata: { retryCount: newRetryCount },
-    task: result.task,
+    task: updated,
   });
 
-  return result.task;
+  return updated;
 }
 
 /** Moves an exhausted task out of the retry loop for human attention and emits an escalation transition. */
 export function escalateToHuman(task: Task): Task | null {
   const policy = getEffectivePolicy(task);
 
-  const result = taskRepo.updateTask(task.id, {
-    assignedAgentId: null,
-    nextRetryAt: null,
-    executionToken: null,
-    lastFailureEventId: null,
-    lastReleaseEventId: null,
-  });
-
-  if (!result.success) return null;
+  const updated = retryEscalateClearOwnerWithEffects(task.id);
+  if (!updated) return null;
 
   const habitatId = taskRepo.getHabitatIdForTask(task.id) ?? "";
 
@@ -145,10 +135,10 @@ export function escalateToHuman(task: Task): Task | null {
       maxRetries: policy?.maxRetries ?? DEFAULT_POLICY.maxRetries,
       rejectionReason: task.rejectionReason,
     },
-    task: result.task,
+    task: updated,
   });
 
-  return result.task;
+  return updated;
 }
 
 /** Advances all due retry tasks, either executing the next attempt or escalating once the limit is reached. */

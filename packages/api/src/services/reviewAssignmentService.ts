@@ -3,6 +3,14 @@ import { users, teamMembers, habitats } from "../db/schema/index.js";
 import { eq, inArray, sql } from "drizzle-orm";
 import * as reviewRuleRepo from "../repositories/reviewRule.js";
 import * as taskReviewerRepo from "../repositories/taskReviewer.js";
+import {
+  appendReviewDecisionWithClient,
+  getRequirementWithClient,
+  getSnapshotWithClient,
+  projectReviewersWithClient,
+  projectedPendingCountByReviewer,
+  evaluateFinalityWithClient,
+} from "../repositories/reviewSafety.js";
 import * as taskRepo from "../repositories/task.js";
 import * as agentRepo from "../repositories/agent.js";
 import type { ReviewRule, Task, ReviewRuleStrategy } from "@orcy/shared";
@@ -78,9 +86,9 @@ export function getEligibleReviewers(
       id: u.id,
       username: u.username,
       displayName: u.displayName,
-      // Typed workload: an agent row sharing this user's id string must not
-      // inflate a human reviewer's pending count (identity is (type, id)).
-      pendingReviewCount: taskReviewerRepo.getPendingCountByReviewer(u.id, "human"),
+      // Typed workload (B3): the EFFECTIVE current-generation projection —
+      // stale rows on advanced generations do not inflate workload.
+      pendingReviewCount: projectedPendingCountByReviewer(getDb(), u.id, "human"),
     }));
 }
 
@@ -185,11 +193,22 @@ function assignDomainExpertReviewersLocked(
   const taken = new Set(existingRows.map((row) => row.reviewerId));
 
   let existingDomainSlots = 0;
+  const requirement = getRequirementWithClient(getDb(), taskId);
+  const projection = requirement
+    ? projectReviewersWithClient(getDb(), taskId, requirement)
+    : [];
   for (const row of existingRows) {
     if (row.reviewerType !== "agent") continue;
     if (row.reviewerId === task.assignedAgentId) continue;
     const agent = agentRepo.getAgentById(row.reviewerId);
-    if (agent && agent.domain === domain) existingDomainSlots++;
+    if (!agent || agent.domain !== domain) continue;
+    // B3: occupancy is the effective projection — a slot whose latest
+    // current-generation decision is a rejection does not occupy (it needs
+    // replacement), while pending/uncredited slots do.
+    const p = projection.find(
+      (x) => x.reviewerType === "agent" && x.reviewerId === row.reviewerId,
+    );
+    if (p && (p.projected === "pending" || p.projected === "approved")) existingDomainSlots++;
   }
 
   const remaining = Math.max(0, rule.requiredReviews - existingDomainSlots);
@@ -205,8 +224,8 @@ function assignDomainExpertReviewersLocked(
         return a.status === "offline" ? 1 : -1;
       }
       const pendingDiff =
-        taskReviewerRepo.getPendingCountByReviewer(a.id, "agent") -
-        taskReviewerRepo.getPendingCountByReviewer(b.id, "agent");
+        projectedPendingCountByReviewer(getDb(), a.id, "agent") -
+        projectedPendingCountByReviewer(getDb(), b.id, "agent");
       if (pendingDiff !== 0) return pendingDiff;
       if (a.createdAt !== b.createdAt) return a.createdAt < b.createdAt ? 1 : -1;
       return a.id < b.id ? -1 : 1;
@@ -257,12 +276,46 @@ export function assignReviewers(
   habitatId: string,
   excludeReviewerId?: string,
 ): AssignReviewersResult {
-  const matchedRules = matchRules(taskId, habitatId);
-  if (matchedRules.length === 0) {
-    return { assigned: [], skipped: true, reason: "no_matching_rules" };
-  }
+  // Review-safety cutover: allocation reads the FROZEN winning claim rule
+  // (immutable snapshot evidence), never a re-match against today's mutable
+  // rules — post-claim rule edits are future-facing only and can neither
+  // raise nor lower the captured requirement. Tasks without a requirement
+  // row (legacy/test fixtures that never claimed through the kernel) keep
+  // the historical re-match behavior.
+  const db = getDb();
+  const requirement = getRequirementWithClient(db, taskId);
+  const snapshot = requirement
+    ? getSnapshotWithClient(db, taskId, requirement.reviewGeneration)
+    : null;
 
-  const primaryRule = matchedRules[0];
+  let primaryRule: ReviewRule;
+  if (requirement && snapshot) {
+    if (!snapshot.matched) {
+      return { assigned: [], skipped: true, reason: "no_matching_rules" };
+    }
+    primaryRule = {
+      id: snapshot.ruleId ?? "snapshot",
+      habitatId,
+      name: "claim-snapshot",
+      enabled: 1,
+      priority: snapshot.rulePriority ?? 0,
+      matchDomain: snapshot.ruleMatchDomain ?? null,
+      matchLabels: (snapshot.ruleMatchLabels ?? []) as string[],
+      matchPriority: snapshot.ruleMatchPriority ?? null,
+      assignmentStrategy: (snapshot.ruleAssignmentStrategy ?? "domain_expert") as ReviewRuleStrategy,
+      requiredReviews: snapshot.requiredCount,
+      antiSelfReview: snapshot.ruleAntiSelfReview ?? 1,
+      fixedReviewerIds: (snapshot.ruleFixedReviewerIds ?? []) as string[],
+      createdAt: snapshot.capturedAt,
+      updatedAt: snapshot.ruleUpdatedAt ?? snapshot.capturedAt,
+    };
+  } else {
+    const matchedRules = matchRules(taskId, habitatId);
+    if (matchedRules.length === 0) {
+      return { assigned: [], skipped: true, reason: "no_matching_rules" };
+    }
+    primaryRule = matchedRules[0];
+  }
 
   if (primaryRule.assignmentStrategy === "domain_expert") {
     return assignDomainExpertReviewers(taskId, primaryRule);
@@ -287,8 +340,21 @@ export function assignReviewers(
   const assigned: AssignReviewersResult["assigned"] = [];
   const reviewsNeeded = primaryRule.requiredReviews;
 
+  // Fixup-2 blocker 3: slots are filled with DIFFERENT eligible identities —
+  // a candidate already holding a typed row (any status, incl. a rejected
+  // veto slot whose history must be retained) is filtered BEFORE selection,
+  // so a duplicate pick can never consume a required slot; when no fresh
+  // identity remains the allocation stops and finality stays blocked on the
+  // retained veto (authorized removal/rework is the repair path).
   for (let i = 0; i < reviewsNeeded; i++) {
-    const remaining = eligible.filter((e) => !assigned.some((a) => a.reviewerId === e.id));
+    const remaining = eligible.filter(
+      (e) =>
+        !assigned.some((a) => a.reviewerId === e.id) &&
+        // Typed dedupe BEFORE selection: only a human row excludes a human
+        // candidate (an agent row sharing the id string is a different
+        // reviewer).
+        !taskReviewerRepo.findByTaskAndReviewer(taskId, e.id, "human"),
+    );
     if (remaining.length === 0) break;
 
     const selected = selectReviewer(
@@ -298,10 +364,6 @@ export function assignReviewers(
       primaryRule.fixedReviewerIds,
     );
     if (!selected) break;
-
-    // Typed dedupe: an agent-typed row sharing this human's id string is a
-    // different reviewer — only a human row dedupes a human selection.
-    if (taskReviewerRepo.findByTaskAndReviewer(taskId, selected.id, "human")) continue;
     const createdRow = taskReviewerRepo.create(taskId, "human", selected.id);
     assigned.push({
       reviewerId: selected.id,
@@ -348,13 +410,26 @@ export function isAssignedReviewer(
 }
 
 /**
- * Returns whether the agent holds a PENDING agent-typed reviewer row on the
- * task — the admission contract for agent approve/reject decisions. Row
- * existence of the wrong type, or an already-decided row, does not admit.
+ * Returns whether the agent's reviewer slot ADMITS a fresh decision — the
+ * effective-assignment projection, never raw row status alone. A pending
+ * projection (unassigned slot, older-round rejection superseded by rework, or
+ * an uncredited legacy raw approval) admits; a current-round rejection, a
+ * still-current legacy raw rejection (generation 0 veto) and the typed
+ * current claimant's own slot do not.
  */
 export function hasPendingAgentReviewerRow(taskId: string, reviewerId: string): boolean {
-  const row = taskReviewerRepo.findByTaskAndReviewer(taskId, reviewerId, "agent");
-  return row !== null && row.status === "pending";
+  const db = getDb();
+  const requirement = getRequirementWithClient(db, taskId);
+  if (!requirement) {
+    // No requirement row (unknown): fall back to the raw pending-row check —
+    // never admit on an ambiguous state, preserving the pre-cutover default.
+    const row = taskReviewerRepo.findByTaskAndReviewer(taskId, reviewerId, "agent");
+    return row !== null && row.status === "pending";
+  }
+  const projected = projectReviewersWithClient(db, taskId, requirement).find(
+    (p) => p.reviewerType === "agent" && p.reviewerId === reviewerId,
+  );
+  return projected?.projected === "pending";
 }
 
 /**
@@ -371,22 +446,44 @@ export function recordApproval(
   if (!reviewer) return false;
   if (reviewer.status === "approved") return true; // already approved, idempotent
   taskReviewerRepo.updateStatus(reviewer.id, "approved");
+  // Review safety: the raw row flip is UI compatibility only — the durable
+  // credit is the append-only generation-tagged decision.
+  const db = getDb();
+  const requirement = getRequirementWithClient(db, taskId);
+  if (requirement) {
+    appendReviewDecisionWithClient(db, {
+      taskId,
+      reviewGeneration: requirement.reviewGeneration,
+      reviewRound: requirement.reviewRound,
+      reviewerType: reviewer.reviewerType as "human" | "agent",
+      reviewerId,
+      decision: "approved",
+      actorType: reviewer.reviewerType as "human" | "agent",
+      actorId: reviewerId,
+    });
+  }
   return true;
 }
 
 /**
- * Returns whether the task's reviewers have met the required approval count (using the supplied threshold or the current reviewer count as a fallback) and no approvals are still pending.
+ * Returns whether the task's review requirement is fully satisfied — the
+ * durable requirement + effective projection decide, never raw row status
+ * alone. An empty assignment set passes only when the captured requirement
+ * is genuine known-zero (or no requirement exists yet — legacy fallback to
+ * the old all-approved-row behavior).
  */
-export function hasAllRequiredApprovals(taskId: string, requiredCount?: number): boolean {
-  const reviewers = taskReviewerRepo.getByTaskId(taskId);
-  if (reviewers.length === 0) return true;
-
-  const approvedCount = reviewers.filter((r) => r.status === "approved").length;
-  const pendingCount = reviewers.filter((r) => r.status === "pending").length;
-
-  if (pendingCount > 0) return false;
-  const threshold = requiredCount ?? reviewers.length;
-  return approvedCount >= threshold;
+export function hasAllRequiredApprovals(taskId: string, _requiredCount?: number): boolean {
+  const db = getDb();
+  const requirement = getRequirementWithClient(db, taskId);
+  if (!requirement) {
+    const reviewers = taskReviewerRepo.getByTaskId(taskId);
+    if (reviewers.length === 0) return true;
+    const approvedCount = reviewers.filter((r) => r.status === "approved").length;
+    const pendingCount = reviewers.filter((r) => r.status === "pending").length;
+    if (pendingCount > 0) return false;
+    return approvedCount >= reviewers.length;
+  }
+  return evaluateFinalityWithClient(db, taskId).eligible;
 }
 
 /**

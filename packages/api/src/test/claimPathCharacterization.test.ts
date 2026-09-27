@@ -21,6 +21,7 @@
  * Out of scope: production code edits. This file is tests only.
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import { updateTaskFixtureForTests } from "./helpers/taskFixtures.js";
 import { closeDb, getDb, initTestDb } from "../db/index.js";
 import * as habitatRepo from "../repositories/habitat.js";
 import * as columnRepo from "../repositories/column.js";
@@ -320,7 +321,7 @@ describe("claimDelegatedTask — repo-level reason coverage", () => {
    * `assignedAgentId` FK so we exercise the happy-precondition path. */
   function seedDelegatedTask(title: string, delegateToId: string, assigneeId: string) {
     const { task } = seedMission({ title });
-    taskRepo.updateTask(task.id, {
+    updateTaskFixtureForTests(task.id, {
       delegatedToAgentId: delegateToId,
       status: "claimed",
       assignedAgentId: assigneeId,
@@ -372,7 +373,7 @@ describe("claimDelegatedTask — repo-level reason coverage", () => {
     const assignee = seedAgent("assignee");
     const delegate = seedAgent("delegate-target");
     const { task } = seedMission({ title: "delegated-submitted" });
-    taskRepo.updateTask(task.id, {
+    updateTaskFixtureForTests(task.id, {
       delegatedToAgentId: delegate.id,
       status: "submitted",
       assignedAgentId: assignee.id,
@@ -723,7 +724,7 @@ describe("services/tasks/task-delegation.ts claimDelegatedTask — wrapper-level
       title: "delegated-needs-cap",
       requiredCapabilities: ["python", "docker"],
     });
-    taskRepo.updateTask(task.id, {
+    updateTaskFixtureForTests(task.id, {
       delegatedToAgentId: agent.id,
       status: "claimed",
       assignedAgentId: originalAssignee.id,
@@ -747,7 +748,7 @@ describe("services/tasks/task-delegation.ts claimDelegatedTask — wrapper-level
     const agent = seedAgent("delegated-veto-victim");
     const originalAssignee = seedAgent("delegated-original-assignee-2");
     const { task } = seedMission({ title: "delegated-veto-pre" });
-    taskRepo.updateTask(task.id, {
+    updateTaskFixtureForTests(task.id, {
       delegatedToAgentId: agent.id,
       status: "claimed",
       assignedAgentId: originalAssignee.id,
@@ -777,7 +778,7 @@ describe("services/tasks/task-delegation.ts claimDelegatedTask — wrapper-level
     const agent = seedAgent("delegated-busy-assignee");
     const originalAssignee = seedAgent("delegated-original-assignee-3");
     const { task } = seedMission({ title: "delegated-busy-wrapper" });
-    taskRepo.updateTask(task.id, {
+    updateTaskFixtureForTests(task.id, {
       delegatedToAgentId: agent.id,
       status: "claimed",
       assignedAgentId: originalAssignee.id,

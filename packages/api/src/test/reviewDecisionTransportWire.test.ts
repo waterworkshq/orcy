@@ -162,18 +162,18 @@ describe("review decisions — C1 route vs service admission layering", () => {
     expect(taskRow(taskId).status).toBe("submitted");
   });
 
-  it("row-holding agent who IS the current assignee → 400 typed anti-self (service), not 403", async () => {
+  it("row-holding agent who IS the current assignee → 403 typed anti-self at the projection precheck", async () => {
     const worker = seedAgent("c1-self-worker");
     const taskId = seedSubmittedTask(worker.id, "c1-self");
     await submitViaWire(taskId, worker.apiKey, "c1-self-worker");
-    // The assignee themselves holds a pending agent-typed row — admitted by
-    // the route (row exists) but refused by the service anti-self recheck.
+    // Review-safety cutover: the assignee's own reviewer slot projects
+    // INELIGIBLE (typed anti-self) — the deny now fires at the projection-
+    // aware admission precheck (403) instead of the service recheck (400).
+    // Same refusal, earlier layer, no self-review reachable either way.
     taskReviewerRepo.create(taskId, "agent", worker.id);
 
     const res = await decide("approve", taskId, worker.apiKey);
-    expect(res.status).toBe(400);
-    const body = (await res.json()) as { error?: string };
-    expect(body.error).toContain("cannot be approved");
+    expect(res.status).toBe(403);
     expect(taskRow(taskId).status).toBe("submitted");
   });
 

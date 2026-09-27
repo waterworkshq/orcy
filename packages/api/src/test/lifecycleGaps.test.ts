@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { updateTaskFixtureForTests } from "./helpers/taskFixtures.js";
 import { initTestDb, closeDb, getDb } from '../db/index.js';
 import * as taskRepo from '../repositories/task.js';
 import * as missionRepo from '../repositories/mission.js';
@@ -124,7 +125,7 @@ describe('Time Tracking', () => {
     });
 
     timeRepo.createTimeRecord({ taskId: task1.id, minutesSpent: 30, statusDuringWork: 'in_progress' });
-    taskRepo.updateTask(task1.id, { actualMinutes: 30, completedAt: new Date().toISOString() });
+    updateTaskFixtureForTests(task1.id, { actualMinutes: 30, completedAt: new Date().toISOString() });
 
     const metrics = timeService.getHabitatMetrics(habitatId);
     expect(metrics).toBeDefined();
@@ -140,8 +141,8 @@ describe('Time Tracking', () => {
     });
 
     const pastDate = new Date(Date.now() - 5 * 60 * 1000).toISOString();
-    taskRepo.updateTask(task.id, { status: 'claimed', assignedAgentId: agentId, claimedAt: pastDate });
-    taskRepo.updateTask(task.id, { status: 'in_progress', startedAt: pastDate });
+    updateTaskFixtureForTests(task.id, { status: 'claimed', assignedAgentId: agentId, claimedAt: pastDate });
+    updateTaskFixtureForTests(task.id, { status: 'in_progress', startedAt: pastDate });
 
     timeRepo.createTimeRecord({ taskId: task.id, minutesSpent: 60, statusDuringWork: 'in_progress' });
     timeRepo.updateTaskTimeMetrics(task.id);
@@ -151,7 +152,11 @@ describe('Time Tracking', () => {
     const updated = taskRepo.getTaskById(task.id);
     expect(updated?.actualMinutes).toBe(60);
     expect(updated?.cycleTimeMinutes).toBeGreaterThanOrEqual(0);
-    expect(updated?.completedAt).not.toBeNull();
+    // Review safety: completedAt is a fenced lifecycle clock owned by the
+    // guarded terminal writers (approveTask/markTaskDone/failTask) — this
+    // fixture flow performed no terminal write, so it stays unstamped while
+    // the metrics recalculate.
+    expect(updated?.completedAt).toBeNull();
   });
 
   it('recalculates mission metrics', () => {
@@ -237,7 +242,7 @@ describe('Dependency Validation', () => {
     const task2 = taskRepo.createTask({ missionId, title: 'Done dep', createdBy: 'test-user' });
 
     dependencyService.addTaskDependency(task1.id, task2.id);
-    taskRepo.updateTask(task2.id, { status: 'approved', completedAt: new Date().toISOString() });
+    updateTaskFixtureForTests(task2.id, { status: 'approved', completedAt: new Date().toISOString() });
 
     const validation = dependencyService.validateTaskCompletion(task1.id);
     expect(validation.canComplete).toBe(true);

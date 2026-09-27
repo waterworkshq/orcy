@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { updateTaskFixtureForTests } from "./helpers/taskFixtures.js";
 import { closeDb, initTestDb } from "../db/index.js";
 import * as boardRepo from "../repositories/habitat.js";
 import * as columnRepo from "../repositories/column.js";
@@ -74,7 +75,7 @@ function setupTask(
     labels: opts?.labels,
   });
   if (opts?.assignedAgentId !== undefined && opts.assignedAgentId !== null) {
-    const result = taskRepo.updateTask(task.id, { assignedAgentId: opts.assignedAgentId });
+    const result = updateTaskFixtureForTests(task.id, { assignedAgentId: opts.assignedAgentId });
     if (result && "task" in result) return result.task;
   }
   return task;

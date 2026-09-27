@@ -3348,6 +3348,18 @@
     },
     {
       "method": "GET",
+      "path": "/api/tasks/:taskId/review-requirement",
+      "surface": "api-deprecated",
+      "guards": [
+        "humanAuth"
+      ],
+      "authKind": "human",
+      "rawBodyEligible": false,
+      "source": "core",
+      "generatedTwin": false
+    },
+    {
+      "method": "GET",
       "path": "/api/tasks/:taskId/reviewers",
       "surface": "api-deprecated",
       "guards": [
@@ -5506,6 +5518,18 @@
         "agentOrHumanAuth"
       ],
       "authKind": "local_actor",
+      "rawBodyEligible": false,
+      "source": "core",
+      "generatedTwin": false
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/tasks/:taskId/review-requirement",
+      "surface": "api-v1",
+      "guards": [
+        "humanAuth"
+      ],
+      "authKind": "human",
       "rawBodyEligible": false,
       "source": "core",
       "generatedTwin": false
@@ -8023,6 +8047,18 @@
     },
     {
       "method": "HEAD",
+      "path": "/api/tasks/:taskId/review-requirement",
+      "surface": "api-deprecated",
+      "guards": [
+        "humanAuth"
+      ],
+      "authKind": "human",
+      "rawBodyEligible": false,
+      "source": "framework",
+      "generatedTwin": true
+    },
+    {
+      "method": "HEAD",
       "path": "/api/tasks/:taskId/reviewers",
       "surface": "api-deprecated",
       "guards": [
@@ -10187,6 +10223,18 @@
     },
     {
       "method": "HEAD",
+      "path": "/api/v1/tasks/:taskId/review-requirement",
+      "surface": "api-v1",
+      "guards": [
+        "humanAuth"
+      ],
+      "authKind": "human",
+      "rawBodyEligible": false,
+      "source": "framework",
+      "generatedTwin": true
+    },
+    {
+      "method": "HEAD",
       "path": "/api/v1/tasks/:taskId/reviewers",
       "surface": "api-v1",
       "guards": [
@@ -10535,7 +10583,8 @@
       "path": "/api/habitats/:habitatId",
       "surface": "api-deprecated",
       "guards": [
-        "humanAuth"
+        "humanAuth",
+        "authorizeHabitatAccess"
       ],
       "authKind": "human",
       "rawBodyEligible": false,
@@ -10850,7 +10899,8 @@
       "path": "/api/v1/habitats/:habitatId",
       "surface": "api-v1",
       "guards": [
-        "humanAuth"
+        "humanAuth",
+        "authorizeHabitatAccess"
       ],
       "authKind": "human",
       "rawBodyEligible": false,
@@ -12025,7 +12075,8 @@
       "path": "/api/habitats/:habitatId/tasks/batch",
       "surface": "api-deprecated",
       "guards": [
-        "agentOrHumanAuth"
+        "agentOrHumanAuth",
+        "authorizeHabitatAccess"
       ],
       "authKind": "local_actor",
       "rawBodyEligible": false,
@@ -13289,6 +13340,18 @@
     },
     {
       "method": "POST",
+      "path": "/api/tasks/:taskId/review-requirement/resolve",
+      "surface": "api-deprecated",
+      "guards": [
+        "humanAuth"
+      ],
+      "authKind": "human",
+      "rawBodyEligible": false,
+      "source": "core",
+      "generatedTwin": false
+    },
+    {
+      "method": "POST",
       "path": "/api/tasks/:taskId/reviewers",
       "surface": "api-deprecated",
       "guards": [
@@ -14285,7 +14348,8 @@
       "path": "/api/v1/habitats/:habitatId/tasks/batch",
       "surface": "api-v1",
       "guards": [
-        "agentOrHumanAuth"
+        "agentOrHumanAuth",
+        "authorizeHabitatAccess"
       ],
       "authKind": "local_actor",
       "rawBodyEligible": false,
@@ -15395,6 +15459,18 @@
     },
     {
       "method": "POST",
+      "path": "/api/v1/tasks/:taskId/review-requirement/resolve",
+      "surface": "api-v1",
+      "guards": [
+        "humanAuth"
+      ],
+      "authKind": "human",
+      "rawBodyEligible": false,
+      "source": "core",
+      "generatedTwin": false
+    },
+    {
+      "method": "POST",
       "path": "/api/v1/tasks/:taskId/reviewers",
       "surface": "api-v1",
       "guards": [
@@ -15880,7 +15956,8 @@
       "path": "/api/habitats/:habitatId/webhook-secrets",
       "surface": "api-deprecated",
       "guards": [
-        "humanAuth"
+        "humanAuth",
+        "authorizeHabitatAccess"
       ],
       "authKind": "human",
       "rawBodyEligible": false,
@@ -16077,7 +16154,8 @@
       "path": "/api/v1/habitats/:habitatId/webhook-secrets",
       "surface": "api-v1",
       "guards": [
-        "humanAuth"
+        "humanAuth",
+        "authorizeHabitatAccess"
       ],
       "authKind": "human",
       "rawBodyEligible": false,

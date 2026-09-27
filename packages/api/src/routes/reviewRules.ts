@@ -7,6 +7,12 @@ import { isTeamMemberByHabitatId } from '../repositories/teamMember.js';
 import { getHabitatById } from '../repositories/habitat.js';
 import { getTaskById } from '../repositories/task.js';
 import * as agentRepo from '../repositories/agent.js';
+import { getDb } from '../db/index.js';
+import {
+  getRequirementWithClient,
+  projectReviewersWithClient,
+  projectedPendingCountByReviewer,
+} from '../repositories/reviewSafety.js';
 import * as userRepo from '../repositories/user.js';
 import { getMissionById } from '../repositories/mission.js';
 import { z } from 'zod';
@@ -63,7 +69,7 @@ function verifyRuleHabitatAccess(request: FastifyRequest, habitatId: string): vo
   throw unauthorized('Authentication required');
 }
 
-function getHabitatIdFromTask(taskId: string): string {
+export function getHabitatIdFromTask(taskId: string): string {
   const task = getTaskById(taskId);
   if (!task) throw notFound('Task not found');
   const mission = getMissionById(task.missionId);
@@ -141,8 +147,22 @@ export async function reviewRuleRoutes(fastify: FastifyInstance): Promise<void> 
       const habitatId = getHabitatIdFromTask(request.params.taskId);
       await checkHabitatAccess(request, habitatId);
 
+      // Review safety (B3): the reviewer GET exposes the EFFECTIVE
+      // current-generation assignment projection, never raw row status
+      // alone — a stale approved/rejected row projects pending after a new
+      // claim generation.
       const reviewers = taskReviewerRepo.getByTaskId(request.params.taskId);
-      return { reviewers };
+      const requirement = getRequirementWithClient(getDb(), request.params.taskId);
+      const projected = requirement
+        ? projectReviewersWithClient(getDb(), request.params.taskId, requirement)
+        : [];
+      const rows = reviewers.map((row) => {
+        const p = projected.find(
+          (x) => x.reviewerType === row.reviewerType && x.reviewerId === row.reviewerId,
+        );
+        return { ...row, projectedStatus: p?.projected ?? row.status };
+      });
+      return { reviewers: rows };
     }
   );
 

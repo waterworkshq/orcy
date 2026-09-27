@@ -32,6 +32,7 @@ import { tasks, taskEvents, taskWorkflowGates, workflows, agents } from "../../d
 import { eq, and, sql } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 import { createEventWithClient } from "../../repositories/events/event-crud.js";
+import { endOwnershipWithClient } from "../../repositories/reviewSafety.js";
 import { insertReceipt, type EffectDbClient } from "../../repositories/effectReceipts.js";
 import { habitatIdForTaskWithClient } from "../tasks/transitionBudget.js";
 import type { Task } from "../../models/index.js";
@@ -215,6 +216,15 @@ export function releaseTaskWithEffectsWithClient(
   if (!verify || verify.status !== "pending" || verify.ptr !== eventId) {
     throw new Error("release_actx_cas_lost");
   }
+
+  // ── 2b. Review-safety ownership end (same act-tx): clear typed claimant
+  // and approval proof, expire any active override restoring the baseline,
+  // advance the generation once. Floors/decisions/history preserved. A
+  // legacy both-NULL row (recovery drive degradation) normalizes without
+  // advancing.
+  endOwnershipWithClient(tx, taskId, {
+    advanceGeneration: row.assignedAgentId !== null,
+  });
 
   // ── 3. The stamped `released` event row (in-tx, epoch token) ─────────
   createEventWithClient(tx, {

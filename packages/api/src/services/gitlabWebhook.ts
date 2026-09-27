@@ -227,12 +227,15 @@ export function handleMergeRequestEvent(
       prRepo.updatePullRequest(existing.id, { state: "merged" });
 
       const settingsHabitatId = getHabitatIdForTask(taskId);
-      const settings = settingsHabitatId ? getSettingsForHabitat(settingsHabitatId) : null;
-      if (settings?.autoApproveOnMerge) {
+      void settingsHabitatId;
+      {
+        // Review safety (fixup-2): the operation accepts ONLY the verified
+        // wire material — every authoritative field is parsed from the
+        // delivered body inside its own reservation.
         approveTaskForMergedPR({
-          taskId,
-          habitatId: settingsHabitatId ?? resolved.habitatId,
-          provenance: { provider: "gitlab", repo, prNumber: mrNumber },
+          provider: "gitlab",
+          rawBody: JSON.stringify(body),
+          token: ingress.token,
         });
       }
 

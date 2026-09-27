@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { updateTaskFixtureForTests } from "./helpers/taskFixtures.js";
 import { getDb, closeDb, initTestDb } from "../db/index.js";
 import * as pulseRepo from "../repositories/pulse.js";
 import * as taskRepo from "../repositories/task.js";
@@ -99,7 +100,7 @@ describe("habitatDigestService", () => {
       priority: "medium",
       createdBy: "test",
     });
-    taskRepo.updateTask(t2.id, { status: "in_progress" } as any);
+    updateTaskFixtureForTests(t2.id, { status: "in_progress" }); // fenced-field fixture seeding
 
     const results = generateAllDigests();
     const hr = results.find((r: any) => r.habitatId === habitat.id);

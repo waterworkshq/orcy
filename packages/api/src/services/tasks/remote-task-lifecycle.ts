@@ -26,11 +26,12 @@
  */
 import { getDb } from "../../db/index.js";
 import { tasks } from "../../db/schema/index.js";
-import { eq, and, sql } from "drizzle-orm";
+import { eq, and, inArray, sql } from "drizzle-orm";
 import type { Task, Artifact } from "../../models/index.js";
 import type { ActorType } from "@orcy/shared";
 import * as taskRepo from "../../repositories/task.js";
 import { claimWithAuthorityClient, type ClaimResult } from "../../repositories/claimAuthority.js";
+import { endOwnershipWithClient } from "../../repositories/reviewSafety.js";
 import { submitWithAuthorityClient } from "../../repositories/taskStateMachine.js";
 import { createEventWithClient } from "../../repositories/events/event-crud.js";
 import { emitTransition } from "./transition-emitter.js";
@@ -140,27 +141,33 @@ export function claimTaskForRemote(
   }
 
   // 4. The atomic tx — only *WithClient(tx) primitives inside (invariant #8)
-  const { result, eventId } = getDb().transaction((tx) => {
-    // actorType threads the budget guard's human exemption into the
-    // transport-agnostic authority (remote_human claimants are exempt).
-    const r = claimWithAuthorityClient(tx, taskId, { kind: "remote", id: participantId }, {
-      actorType,
-    });
-    let evId: string | undefined;
-    if (r.success) {
-      const event = createEventWithClient(tx, {
-        taskId,
-        action: "claimed",
+  // Writer reservation (BEGIN IMMEDIATE): the claim kernel now also writes
+  // the review-safety capture, so the remote wrapper's composite tx takes the
+  // same reservation the local claimWithAuthority path does.
+  const { result, eventId } = getDb().transaction(
+    (tx) => {
+      // actorType threads the budget guard's human exemption into the
+      // transport-agnostic authority (remote_human claimants are exempt).
+      const r = claimWithAuthorityClient(tx, taskId, { kind: "remote", id: participantId }, {
         actorType,
-        actorId,
-        fromStatus: task.status as never,
-        toStatus: "claimed" as never,
-        metadata: withAuditProvenanceMetadata({}),
       });
-      evId = event.id;
-    }
-    return { result: r, eventId: evId };
-  });
+      let evId: string | undefined;
+      if (r.success) {
+        const event = createEventWithClient(tx, {
+          taskId,
+          action: "claimed",
+          actorType,
+          actorId,
+          fromStatus: task.status as never,
+          toStatus: "claimed" as never,
+          metadata: withAuditProvenanceMetadata({}),
+        });
+        evId = event.id;
+      }
+      return { result: r, eventId: evId };
+    },
+    { behavior: "immediate" },
+  );
 
   if (!result.success) {
     return { success: false, reason: claimFailureReason(result) };
@@ -434,14 +441,46 @@ export function releaseTaskForRemote(
         updatedAt: now,
         version: sql`${tasks.version} + 1`,
       })
-      .where(and(eq(tasks.id, taskId), eq(tasks.remoteAssignedParticipantId, participantId)))
+      .where(
+        and(
+          eq(tasks.id, taskId),
+          // Fixup-5: winning predicate — re-read participant in a releasable
+          // status (partial/skipped writes match 0 rows).
+          inArray(tasks.status, ["claimed", "in_progress"]),
+          eq(tasks.remoteAssignedParticipantId, participantId),
+        ),
+      )
       .run();
 
-    const updated = tx.select().from(tasks).where(eq(tasks.id, taskId)).get() as
+    // Fixup-5: cross-backend WINNING-POSTIMAGE verify BEFORE invalidation and
+    // BEFORE the release audit event — a skipped/partial write throws (both
+    // legs roll back, zero false events); a legitimate already-released row
+    // is a no-op returning failure WITHOUT event or invalidation.
+    const verify = tx.select().from(tasks).where(eq(tasks.id, taskId)).get() as
       | TaskRow
       | undefined;
-    const released = (updated as unknown as Task) ?? null;
-    if (!released) return { releasedTask: null, eventId: undefined, budgetRefused: undefined };
+    if (!verify) return { releasedTask: null, eventId: undefined, budgetRefused: undefined };
+    const fullPostimage =
+      verify.status === "pending" &&
+      verify.remoteAssignedParticipantId === null &&
+      verify.assignedAgentId === null &&
+      verify.executionToken === null &&
+      verify.lastFailureEventId === null &&
+      verify.lastReleaseEventId === null &&
+      verify.version > row.version;
+    if (!fullPostimage) {
+      // Fixup-6: no post-write no-op classification — a partial rewrite or a
+      // skipped write rolls the whole reservation back (no invalidation, no
+      // release audit event). Genuine no-ops are classified on the PRE-WRITE
+      // gate above, which never attempts a write.
+      throw new Error("remote_wrapper_release_lost_cas_rollback");
+    }
+    const released = verify as unknown as Task;
+
+    // Review-safety ownership end (same tx): clear typed claimant/proof,
+    // expire override restoring baseline, advance generation once (the gate
+    // above guarantees the remote assignee was actually set).
+    endOwnershipWithClient(tx, taskId, { advanceGeneration: true });
 
     const event = createEventWithClient(tx, {
       taskId,
@@ -453,7 +492,7 @@ export function releaseTaskForRemote(
       metadata: withAuditProvenanceMetadata({ reason }),
     });
     return { releasedTask: released, eventId: event.id, budgetRefused: undefined };
-  });
+  }, { behavior: "immediate" });
 
   if (budgetRefused) {
     return {

@@ -69,6 +69,7 @@ import { eq } from "drizzle-orm";
 import type { TaskStatus } from "@orcy/shared";
 import { getDb } from "../db/index.js";
 import { missions, tasks } from "../db/schema/index.js";
+import { markPresetHistoricalWithClient } from "../repositories/reviewSafety.js";
 import type { TaskPublicationDbClient } from "../repositories/taskPublication.js";
 import { publishTaskWithClient, type CommittedPublication } from "./taskPublicationCoordinator.js";
 import { governTaskPublication, type GovernedTaskResult } from "./taskPublicationGovernance.js";
@@ -468,6 +469,11 @@ export function publishInlineAggregateWithClient(
       for (let i = 0; i < publications.length; i++) {
         const meta = prepared.tasks[i].inlineEntryMetadata;
         const taskId = publications[i].task.id;
+        // Review safety: a non-pending preset is historical presentation only —
+        // sticky legacy_unknown, no floor, no proof (same aggregate tx).
+        if (meta.initialStatus !== "pending") {
+          markPresetHistoricalWithClient(tx, taskId);
+        }
         const updates: { status?: TaskStatus; order?: number } = {};
         if (meta.initialStatus !== "pending") {
           updates.status = meta.initialStatus;

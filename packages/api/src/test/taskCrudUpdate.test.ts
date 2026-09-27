@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { updateTaskFixtureForTests } from "./helpers/taskFixtures.js";
 
 vi.mock('../lib/logger.js', () => ({
   logger: {
@@ -92,7 +93,7 @@ describe('updateTask — mission recalculation', () => {
     vi.mocked(taskRepo.getTaskById).mockReturnValue(current as never);
     vi.mocked(taskRepo.updateTask).mockReturnValue({ success: true, task: updated } as never);
 
-    const result = updateTask('task-1', { status: 'done' }, 'user-1');
+    const result = updateTask('task-1', { status: 'done' } as never, 'user-1');
 
     expect(result.success).toBe(true);
     expect(missionService.recalculateMissionStatus).toHaveBeenCalledWith('feat-1');
@@ -116,7 +117,7 @@ describe('updateTask — mission recalculation', () => {
     vi.mocked(taskRepo.getTaskById).mockReturnValue(current as never);
     vi.mocked(taskRepo.updateTask).mockReturnValue({ success: true, task: current } as never);
 
-    updateTask('task-1', { status: 'approved' }, 'user-1');
+    updateTask('task-1', { status: 'approved' } as never, 'user-1');
 
     expect(missionService.recalculateMissionStatus).not.toHaveBeenCalled();
   });
@@ -132,7 +133,7 @@ describe('updateTask — mission recalculation', () => {
     });
     const consoleSpy = vi.spyOn(logger, 'error').mockImplementation(() => {});
 
-    const result = updateTask('task-1', { status: 'done' }, 'user-1');
+    const result = updateTask('task-1', { status: 'done' } as never, 'user-1');
 
     expect(result.success).toBe(true);
     expect(consoleSpy).toHaveBeenCalled();

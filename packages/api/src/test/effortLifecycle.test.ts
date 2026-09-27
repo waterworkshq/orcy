@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import * as taskService from "../services/tasks/index.js";
 import { initTestDb, closeDb, getDb } from "../db/index.js";
 import * as taskRepo from "../repositories/task.js";
 import * as missionRepo from "../repositories/mission.js";
@@ -326,7 +327,7 @@ describe("habitat metrics include effort splits", () => {
     submitTask(task.id, agentId, "done", []);
     timeTrackingService.calculateAndSetCompletionMetrics(task.id);
 
-    taskRepo.markTaskDone(task.id);
+    expect(taskService.completeTask(task.id, task.assignedAgentId ?? agentId).task?.status).toBe("done"); // guarded terminal service
     return task;
   }
 

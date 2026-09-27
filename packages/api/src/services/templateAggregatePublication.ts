@@ -132,6 +132,7 @@ import {
   taskWorkflowGates,
   missionTemplates,
 } from "../db/schema/index.js";
+import { markPresetHistoricalWithClient } from "../repositories/reviewSafety.js";
 import type { TaskPublicationDbClient } from "../repositories/taskPublication.js";
 import { publishTaskWithClient, type CommittedPublication } from "./taskPublicationCoordinator.js";
 import { governTaskPublication, type GovernedTaskResult } from "./taskPublicationGovernance.js";
@@ -550,6 +551,12 @@ export function publishTemplateAggregateWithClient(
         }
         if (meta.order !== i) {
           updates.order = meta.order;
+        }
+        if (meta.initialStatus !== "pending") {
+          // Review safety: a non-pending preset is historical presentation
+          // only — sticky legacy_unknown, no floor, no proof, never newly
+          // approved. Same aggregate tx as the status override.
+          markPresetHistoricalWithClient(tx, taskId);
         }
         if (Object.keys(updates).length > 0) {
           tx.update(tasks).set(updates).where(eq(tasks.id, taskId)).run();

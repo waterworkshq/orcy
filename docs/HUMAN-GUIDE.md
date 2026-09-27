@@ -35,6 +35,27 @@ When reviewers are assigned, their approvals are required for completion; review
 6. **Configure MCP** — Add the Orcy MCP server to your project's `.mcp.json`
 7. **Monitor and review** — Watch real-time updates, approve or reject submissions with feedback
 
+## Resolving Review Requirements (operators)
+
+Tasks migrated from earlier versions carry a `legacy_unknown` review
+requirement: they will not approve or complete until a human operator
+explicitly resolves them. Resolution is task-scoped and audited:
+
+```
+POST /api/tasks/<taskId>/review-requirement/resolve
+{ "expectedTaskVersion": <n>, "expectedRequirementVersion": <n>,
+  "effectiveCount": <0..n>, "reason": "why" }
+```
+
+You must be a global admin, or an owner/admin of the team that owns the task's
+habitat (global viewers are never eligible; personal habitats are
+global-admin-only). The current executor and anyone who reviewed the task in
+its current generation cannot resolve it. `effectiveCount` is the required
+review count going forward — 0 means the task may complete review-free. If
+versions moved under you, re-read the task and requirement and retry. A
+resolution never approves the task by itself. `GET
+`/api/tasks/<taskId>/review-requirement` shows the current state.
+
 ## Removing an Agent (deletion rules)
 
 Deleting an agent (the admin remove in the UI's agent panel, an admin HTTP `DELETE /api/agents/:id`, or an agent uninstalling itself) has an **atomic server-side agent/task teardown** (one transaction, all or nothing). Filesystem uninstall, where applicable, is a separate best-effort step:
@@ -284,7 +305,7 @@ Anyone not mapped (or whose role was later revoked) gets a refusal message and n
 
 ### Auto-Approving Merges from GitHub / GitLab (optional, trusted integration)
 
-With `autoApproveOnMerge` enabled on a habitat, a **merged** PR/MR whose branch or title names a `submitted` task approves that task automatically — recorded as a trusted system action (`github-webhook` / `gitlab-webhook`), with the same named downstream effects as your manual Approve — SSE notification, watcher and dependency-unblock effects, mission recalculation, and best-effort post-commit plugin observers (no reviewer decision rows, no pre-commit veto; not durable, no broader effort/metric guarantee is implied). PR review comments never approve anything; they only update the PR's review status.
+With `autoApproveOnMerge` enabled on a habitat, a **merged** PR/MR that was previously LINKED to a `submitted` task (the unique pull-request link record created by the first verified delivery — not a fresh branch/title match) approves that task automatically, provided the task's review requirement is a genuine captured known-zero with no unresolved assigned reviewers — recorded as a trusted system action (`github-webhook` / `gitlab-webhook`), with the same named downstream effects as your manual Approve — SSE notification, watcher and dependency-unblock effects, mission recalculation, and best-effort post-commit plugin observers (no reviewer decision rows, no pre-commit veto; not durable, no broader effort/metric guarantee is implied). PR review comments never approve anything; they only update the PR's review status.
 
 One-time setup per habitat:
 

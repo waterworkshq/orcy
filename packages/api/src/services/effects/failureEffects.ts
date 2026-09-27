@@ -26,6 +26,7 @@ import { tasks, taskEvents, taskWorkflowGates, workflows } from "../../db/schema
 import { eq, and, sql } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 import * as taskRepo from "../../repositories/task.js";
+import { endOwnershipWithClient } from "../../repositories/reviewSafety.js";
 import { createEventWithClient } from "../../repositories/events/event-crud.js";
 import {
   insertReceipt,
@@ -206,6 +207,14 @@ export function failTaskWithEffects(input: {
       if (!verify || verify.status !== "failed") {
         throw new Error("fail_actx_cas_lost");
       }
+
+      // ── 2b. Review-safety ownership end (same act-tx): the fail write ends
+      // the owner (assignee → NULL) — clear the typed claimant and approval
+      // proof, expire any active override restoring the baseline, advance the
+      // generation once. Floors/decisions/history preserved.
+      endOwnershipWithClient(tx, taskId, {
+        advanceGeneration: row.assignedAgentId !== null,
+      });
 
       // ── 3. The stamped `failed` event row (immutable, epoch token) ────────
       // The stamp carries the ACTUAL winning row's token (`row`, the in-tx

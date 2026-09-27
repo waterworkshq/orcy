@@ -29,6 +29,7 @@
  * not a mock.
  */
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { updateTaskFixtureForTests } from "./helpers/taskFixtures.js";
 import { closeDb, getDb, initTestDb } from "../db/index.js";
 import { eq } from "drizzle-orm";
 import {
@@ -722,7 +723,7 @@ describe("claimWithAuthorityClient — tx-aware primitive", () => {
 describe("claimWithAuthority — delegated mode", () => {
   function seedDelegated(title: string, delegateToId: string, assigneeId: string) {
     const { task } = seedMission({ title });
-    taskRepo.updateTask(task.id, {
+    updateTaskFixtureForTests(task.id, {
       delegatedToAgentId: delegateToId,
       status: "claimed",
       assignedAgentId: assigneeId,
@@ -752,7 +753,7 @@ describe("claimWithAuthority — delegated mode", () => {
   it("returns ineligible / not_delegated_to_you when the delegate identity mismatches", () => {
     const delegate = seedAgent("real-delegate");
     const { task } = seedMission({ title: "delegated-wrong" });
-    taskRepo.updateTask(task.id, { delegatedToAgentId: delegate.id, status: "claimed" });
+    updateTaskFixtureForTests(task.id, { delegatedToAgentId: delegate.id, status: "claimed" });
 
     const result = claimWithAuthority(getDb(), task.id, localClaimant("not-the-delegate"), {
       delegated: true,
@@ -770,7 +771,7 @@ describe("claimWithAuthority — delegated mode", () => {
     const delegate = seedAgent("delegate-pending");
     const { task } = seedMission({ title: "delegated-pending" });
     // Delegated but still pending — delegated claim requires claimed/in_progress.
-    taskRepo.updateTask(task.id, { delegatedToAgentId: delegate.id, status: "pending" });
+    updateTaskFixtureForTests(task.id, { delegatedToAgentId: delegate.id, status: "pending" });
 
     const result = claimWithAuthority(getDb(), task.id, localClaimant(delegate.id), {
       delegated: true,
@@ -789,7 +790,7 @@ describe("claimWithAuthority — delegated mode", () => {
     const delegate = seedAgent("delegate-intrinsic");
     // Release-gated mission — would fail checkClaimability in plain mode.
     const { task } = seedMission({ title: "delegated-no-intrinsic", releaseGateType: "minor" });
-    taskRepo.updateTask(task.id, {
+    updateTaskFixtureForTests(task.id, {
       delegatedToAgentId: delegate.id,
       status: "claimed",
       assignedAgentId: assignee.id,
@@ -821,7 +822,7 @@ describe("claimWithAuthority — delegated mode", () => {
 describe("M1 remediation — delegated claims honor the publication gates", () => {
   function seedDelegated(title: string, delegateToId: string, assigneeId: string) {
     const { task } = seedMission({ title });
-    taskRepo.updateTask(task.id, {
+    updateTaskFixtureForTests(task.id, {
       delegatedToAgentId: delegateToId,
       status: "claimed",
       assignedAgentId: assigneeId,

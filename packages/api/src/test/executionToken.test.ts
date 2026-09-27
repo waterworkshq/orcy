@@ -26,6 +26,8 @@
  * (read-only identity, not a credential; PATCH-input remains rejected).
  */
 import { describe, it, expect, beforeEach, afterEach, afterAll, vi } from "vitest";
+import * as taskService from "../services/tasks/index.js";
+import { updateTaskFixtureForTests } from "./helpers/taskFixtures.js";
 
 // R1: daemonEngine resolves suggestions via this module; tests control the
 // suggestion list through the mock. Real capability/veto/event chain untouched.
@@ -202,7 +204,7 @@ describe("T1 acceptance 1 — claim mints task + session token atomically", () =
     const delegate = seedAgent("delegate");
     const task = seedTask("delegated");
     taskRepo.updateTask(task.id, { delegatedToAgentId: delegate.id });
-    taskRepo.updateTask(task.id, {
+    updateTaskFixtureForTests(task.id, {
       assignedAgentId: owner.id,
       status: "claimed",
       claimedAt: new Date().toISOString(),
@@ -280,8 +282,8 @@ describe("T1 acceptance 3 — inadmissible status → in_progress is refused (no
   it("progression authority refuses a submitted status; token unchanged", () => {
     const agent = seedAgent();
     const task = seedTask("no-mint-submitted");
-    taskRepo.updateTask(task.id, { status: "submitted" });
-    taskRepo.updateTask(task.id, { assignedAgentId: agent.id });
+    updateTaskFixtureForTests(task.id, { status: "submitted" });
+    updateTaskFixtureForTests(task.id, { assignedAgentId: agent.id });
     const claimant: Claimant = { kind: "local", id: agent.id };
     const out = progressWithAuthority(getDb(), task.id, claimant);
     expect(out).toBeNull(); // refusal
@@ -520,8 +522,10 @@ describe("T1 acceptance 11 — every clear path yields NULL token", () => {
 
   it("failTask clears", async () => {
     const task = seedTask("clear-fail");
-    await claimStarted(task.id);
-    expect(taskStateMachine.failTask(task.id, "boom")).not.toBeNull();
+    const agent = await claimStarted(task.id);
+    // Fixup-4: the raw repo failTask export was removed (ownership-end
+    // without review invalidation); failure runs through the service path.
+    expect(taskService.failTask(task.id, agent.id, "agent", "boom")).not.toBeNull();
     expect(taskToken(task.id)).toBeNull();
   });
 
@@ -529,7 +533,7 @@ describe("T1 acceptance 11 — every clear path yields NULL token", () => {
     const task = seedTask("clear-retry");
     const agent = await claimStarted(task.id);
     const { executeRetry } = await import("../services/retryService.js");
-    taskRepo.updateTask(task.id, { status: "submitted", assignedAgentId: agent.id });
+    updateTaskFixtureForTests(task.id, { status: "submitted", assignedAgentId: agent.id });
     taskRepo.updateTask(task.id, { rejectionReason: "needs work" });
     const out = executeRetry(
       taskRepo.getTaskById(task.id) as unknown as import("../models/index.js").Task,
@@ -563,7 +567,9 @@ describe("T1 acceptance 11 — every clear path yields NULL token", () => {
     const task = seedTask("clear-approve");
     const agent = await claimStarted(task.id);
     taskStateMachine.submitTask(task.id, agent.id, "result", []);
-    expect(taskStateMachine.approveTask(task.id)).not.toBeNull();
+    // Review safety: terminal approval runs only through the guarded
+    // one-reservation service (no raw primitive exists any more).
+    expect(taskService.approveTask(task.id, "human-reviewer", "human")).not.toBeNull();
     expect(taskToken(task.id)).toBeNull();
   });
 
@@ -571,7 +577,7 @@ describe("T1 acceptance 11 — every clear path yields NULL token", () => {
     const task = seedTask("clear-done");
     const agent = await claimStarted(task.id);
     taskStateMachine.submitTask(task.id, agent.id, "result", []);
-    expect(taskStateMachine.markTaskDone(task.id)).not.toBeNull();
+    expect(taskService.completeTask(task.id, agent.id).task).not.toBeNull();
     expect(taskToken(task.id)).toBeNull();
   });
 
@@ -914,9 +920,11 @@ describe("T1 acceptance 10 — writer census (payload/call-site grep snapshot)",
   const CLEAR_SITES: Array<[string, string]> = [
     ["repositories/taskStateMachine.ts", "releaseTaskByRemoteParticipant"],
     ["repositories/taskStateMachine.ts", "releaseTask"],
-    ["repositories/taskStateMachine.ts", "failTask"],
-    ["repositories/taskStateMachine.ts", "approveTask"],
-    ["repositories/taskStateMachine.ts", "markTaskDone"],
+        // Review-safety B1: the raw terminal primitives no longer exist — the
+    // terminal writers are the private CAS closures in the finality service
+    // and the merge operation (token-clearing verified behaviorally).
+    ["services/reviewFinalityService.ts", "terminalApproveCas"],
+    ["services/reviewFinalityService.ts", "terminalDoneCas"],
     // REC-06 atomic agent deletion: the repo teardown no longer writes tasks
     // (assert + delete only); the ownership-ending writes for that flow are
     // the release bundle (WithClient CAS write) and the service's terminal
@@ -924,8 +932,12 @@ describe("T1 acceptance 10 — writer census (payload/call-site grep snapshot)",
     ["services/effects/releaseEffects.ts", "releaseTaskWithEffectsWithClient"],
     ["services/importManifest/importPublication.ts", "Reset execution state"],
     ["services/tasks/remote-task-lifecycle.ts", "releaseTaskForRemote"],
-    ["services/retryService.ts", "executeRetry"],
-    ["services/retryService.ts", "escalateToHuman"],
+    // Review-safety cutover: the retry ladder's privileged status/assignee
+    // writes moved from retryService's generic updateTask to the dedicated
+    // immediate retry writers in taskStateMachine (same token-clearing
+    // contract, now beside the requirement ownership-end normalization).
+    ["repositories/taskStateMachine.ts", "retryTransitionToPendingWithEffects"],
+    ["repositories/taskStateMachine.ts", "retryEscalateClearOwnerWithEffects"],
   ];
 
   it("every census writer carries executionToken: null in its ownership-ending write", async () => {
@@ -997,7 +1009,6 @@ describe("T1 acceptance 10 — writer census (payload/call-site grep snapshot)",
     walk(path.join(root, "repositories"));
 
     const ALLOWED = [
-      "services/retryService.ts", // executeRetry + escalateToHuman (listed below)
       "repositories/taskStateMachine.ts",
       "repositories/agent.ts",
       "services/importManifest/importPublication.ts",

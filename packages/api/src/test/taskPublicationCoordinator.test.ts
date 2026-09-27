@@ -379,17 +379,20 @@ describe("T3C happy path — full aggregate committed atomically", () => {
 describe("T3C atomicity matrix — failure injected at each write rolls back the whole aggregate", () => {
   /**
    * Write sequence for a full publication (1 subtask, 1 dep, 1 dispatch target,
-   * 1 reservation), NO participant hook:
+   * 1 reservation), NO participant hook (review-safety cutover adds the
+   * birth-state requirement row as write #2 — publication and requirement
+   * commit together):
    *   #1 INSERT task          (createTaskWithClient)
-   *   #2 INSERT event         (createTaskEventWithClient)
-   *   #3 INSERT subtask       (createSubtaskWithClient)
-   *   #4 INSERT dependency    (addTaskDependencyWithClient)
-   *   #5 INSERT envelope      (createCommittedTaskEnvelopeWithClient)
-   *   #6 INSERT dispatch tgt  (createCommittedTaskEnvelopeWithClient)
-   *   #7 INSERT recalc marker (markMissionForRecalculationWithClient)
-   *   #8 INSERT reservation   (createAssignmentReservationWithClient)
-   *   #9 UPDATE stamp         (stampCommittedIdentifiersWithClient — CS-53)
-   *   #10 UPDATE checkpoint   (checkpointAttemptWithClient)
+   *   #2 INSERT requirement   (insertUncapturedRequirementWithClient)
+   *   #3 INSERT event         (createTaskEventWithClient)
+   *   #4 INSERT subtask       (createSubtaskWithClient)
+   *   #5 INSERT dependency    (addTaskDependencyWithClient)
+   *   #6 INSERT envelope      (createCommittedTaskEnvelopeWithClient)
+   *   #7 INSERT dispatch tgt  (createCommittedTaskEnvelopeWithClient)
+   *   #8 INSERT recalc marker (markMissionForRecalculationWithClient)
+   *   #9 INSERT reservation   (createAssignmentReservationWithClient)
+   *   #10 UPDATE stamp        (stampCommittedIdentifiersWithClient — CS-53)
+   *   #11 UPDATE checkpoint   (checkpointAttemptWithClient)
    *
    * Each test injects a failure at ONE write boundary, expects a throw, and
    * asserts ZERO partial state + the attempt is STILL `pending`/resumable.
@@ -453,20 +456,22 @@ describe("T3C atomicity matrix — failure injected at each write rolls back the
   }
 
   it("write #1 (INSERT task) — whole aggregate rolls back", () => runMatrixCase(1));
-  it("write #2 (INSERT event) — whole aggregate rolls back", () => runMatrixCase(2));
-  it("write #3 (INSERT subtask) — whole aggregate rolls back", () => runMatrixCase(3));
-  it("write #4 (INSERT dependency) — whole aggregate rolls back", () => runMatrixCase(4));
-  it("write #5 (INSERT envelope) — whole aggregate rolls back", () => runMatrixCase(5));
-  it("write #6 (INSERT dispatch target) — whole aggregate rolls back", () => runMatrixCase(6));
-  it("write #7 (INSERT recalc marker) — whole aggregate rolls back", () => runMatrixCase(7));
-  it("write #8 (INSERT reservation) — whole aggregate rolls back", () => runMatrixCase(8));
-  it("write #9 (UPDATE committed-identifier stamp) — whole aggregate rolls back", () =>
-    runMatrixCase(9));
-  it("write #10 (UPDATE checkpoint) — whole aggregate rolls back", () => runMatrixCase(10));
+  it("write #2 (INSERT review requirement birth row) — whole aggregate rolls back", () =>
+    runMatrixCase(2));
+  it("write #3 (INSERT event) — whole aggregate rolls back", () => runMatrixCase(3));
+  it("write #4 (INSERT subtask) — whole aggregate rolls back", () => runMatrixCase(4));
+  it("write #5 (INSERT dependency) — whole aggregate rolls back", () => runMatrixCase(5));
+  it("write #6 (INSERT envelope) — whole aggregate rolls back", () => runMatrixCase(6));
+  it("write #7 (INSERT dispatch target) — whole aggregate rolls back", () => runMatrixCase(7));
+  it("write #8 (INSERT recalc marker) — whole aggregate rolls back", () => runMatrixCase(8));
+  it("write #9 (INSERT reservation) — whole aggregate rolls back", () => runMatrixCase(9));
+  it("write #10 (UPDATE committed-identifier stamp) — whole aggregate rolls back", () =>
+    runMatrixCase(10));
+  it("write #11 (UPDATE checkpoint) — whole aggregate rolls back", () => runMatrixCase(11));
 
-  it("a write AFTER #10 never happens (the full publication is exactly 10 writes for this fixture)", () => {
+  it("a write AFTER #11 never happens (the full publication is exactly 11 writes for this fixture)", () => {
     // Confirm the matrix covers EVERY write: run with no failure and assert
-    // writeCount === 10. If a primitive added a write, this guard fires and the
+    // writeCount === 11. If a primitive added a write, this guard fires and the
     // matrix above must be extended.
     const depTarget = getDb()
       .insert(tasks)
@@ -505,7 +510,7 @@ describe("T3C atomicity matrix — failure injected at each write rolls back the
         reservation: { deadline: "2099-01-01T00:00:00.000Z" },
       });
     });
-    expect(captured!.writeCount).toBe(10);
+    expect(captured!.writeCount).toBe(11);
   });
 });
 

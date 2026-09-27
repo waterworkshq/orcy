@@ -29,6 +29,7 @@
  * `importResetTaskAuditFileDb.test.ts` (production better-sqlite3 driver).
  */
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { taskReviewRequirements } from "../db/schema/index.js";
 import Fastify, { type FastifyInstance } from "fastify";
 import jwt from "jsonwebtoken";
 import { randomUUID } from "node:crypto";
@@ -177,8 +178,24 @@ function seedResetHabitat(): SeededHabitat {
     .run();
 
   // claimed — via the canonical claim (mints a real execution token).
+  // Review safety (B4): the claim kernel REFUSES a missing requirement row —
+  // the birth row is dropped for the rename and a birth-equivalent
+  // `uncaptured` row is re-seeded under the final id (explicit fixture
+  // state, mirroring what task creation would have written).
   const claimed = taskRepo.createTask({ missionId, title: "ClaimedTask", createdBy: "seeder" });
+  db.delete(taskReviewRequirements).where(eq(taskReviewRequirements.taskId, claimed.id)).run();
   db.update(tasksTable).set({ id: ids.claimed }).where(eq(tasksTable.id, claimed.id)).run();
+  db.insert(taskReviewRequirements)
+    .values({
+      taskId: ids.claimed,
+      origin: "ordinary",
+      state: "uncaptured",
+      knownPolicyFloor: 0,
+      requirementVersion: 1,
+      reviewGeneration: 0,
+      reviewRound: 0,
+    })
+    .run();
   const claimRes = taskStateMachine.claimTask(ids.claimed, agentId);
   if (!claimRes.success) throw new Error(`seed claim failed: ${claimRes.reason}`);
 
@@ -188,7 +205,21 @@ function seedResetHabitat(): SeededHabitat {
     title: "InProgressTask",
     createdBy: "seeder",
   });
+  // Review safety: same drop/rename/re-seed discipline as the claimed pair.
+  db.delete(taskReviewRequirements).where(eq(taskReviewRequirements.taskId, inProg.id)).run();
   db.update(tasksTable).set({ id: ids.in_progress }).where(eq(tasksTable.id, inProg.id)).run();
+  db.insert(taskReviewRequirements)
+    .values({
+      taskId: ids.in_progress,
+      origin: "ordinary",
+      state: "uncaptured",
+      knownPolicyFloor: 0,
+      requirementVersion: 1,
+      reviewGeneration: 0,
+      reviewRound: 0,
+    })
+    .run();
+
   const claim2 = taskStateMachine.claimTask(ids.in_progress, agentId);
   if (!claim2.success) throw new Error(`seed claim2 failed: ${claim2.reason}`);
   const started = taskStateMachine.startTask(ids.in_progress, agentId);
@@ -232,6 +263,42 @@ function seedResetHabitat(): SeededHabitat {
         updatedAt: now,
       })
       .run();
+  }
+
+
+  // Review safety: the raw-INSERT fixtures (pending + the five dirty rows)
+  // bypass every creation path,
+  // so seed their requirement rows exactly as the migration classifier would
+  // (sticky legacy_unknown; typed custody only where an assignment column is
+  // unambiguous) — the reset under test must exercise the requirement store.
+  for (const [key, typed] of [
+    ["pending", null],
+    ["submitted", null],
+    ["approved", null],
+    ["rejected", null],
+    ["done", null],
+    ["failed", null],
+  ] as const) {
+    db.insert(taskReviewRequirements)
+      .values({
+        taskId: ids[key],
+        origin: "legacy_unverified",
+        state: "legacy_unknown",
+        nonOverriddenFloor: null,
+        knownPolicyFloor: 0,
+        effectiveCount: null,
+        requirementVersion: 1,
+        reviewGeneration: 0,
+        reviewRound: 0,
+        claimantType: null,
+        claimantId: null,
+        approvedGeneration: null,
+        activeOverrideId: null,
+        selectedRuleId: null,
+      })
+      .onConflictDoNothing()
+      .run();
+    void typed;
   }
 
   const staleTokenRow = db

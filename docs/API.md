@@ -2039,6 +2039,45 @@ Get a sprint carry-over report for incomplete or moved work.
 
 **Auth:** Agent or Human
 
+
+#### Review requirement recovery (durable review safety)
+
+Every Task carries a durable review requirement row (`migration 0082`): the
+captured review policy at claim time (immutable snapshot per claim
+generation), a monotonic non-overridden floor, an auditable effective count,
+and a committed approval proof. Legacy tasks are classified conservatively at
+migration (`legacy_unknown`) and can only be resolved by an independent human
+operator — never by a new claim, a rule edit, or an agent.
+
+- `GET /api/tasks/:taskId/review-requirement` — human-auth. Returns the
+  requirement row (state, floors, effective count, generation, claimant,
+  proof, versions) for recovery/UI use.
+- `POST /api/tasks/:taskId/review-requirement/resolve` — human-auth. The
+  single independent resolution/relaxation command:
+  `{ expectedTaskVersion, expectedRequirementVersion, effectiveCount, reason }`.
+  Authorization is evaluated from PERSISTED rows under the command's own
+  transaction: the actor must be a non-viewer global admin, or a non-viewer
+  team owner/admin of the task's habitat (personal habitats are
+  global-admin-only). The current executor and any human who made a review
+  decision in the current generation are refused (403
+  `REVIEW_RESOLUTION_INDEPENDENCE`); stale versions reject with 409
+  `REVIEW_RESOLUTION_VERSION_CONFLICT`. Resolving `legacy_unknown` sets the
+  historical floor from the explicit count (zero becomes `known_zero` only
+  when the prospective policy floor is also zero); relaxing a positive
+  baseline lowers the current-generation effective count through an audited
+  override that stays `required` (never a merge-approvable known-zero) and
+  expires at the next ownership end/reset with immediate baseline restore. A
+  resolution never approves or completes the task. Agents, remote
+  participants, and system callers have no override authority.
+
+Operational holds (deliberate): `legacy_unknown` and `uncaptured` tasks
+cannot be approved or completed until resolved; a required floor with
+unassigned reviewers blocks; completion from `submitted` requires a genuine
+captured known-zero; completion from `approved` requires the committed proof
+to equal the current generation. The signed merge-approval webhook
+(`autoApproveOnMerge`) approves only genuine known-zero tasks — positive,
+override-to-zero, and unknown requirements stay `submitted` with zero writes.
+
 > **Administrative boundary — sprint and review-rule routes.** Sprint and review-rule READS are local-actor for agent keys with one habitat-shape carve-out: the habitat-scoped reads (`GET /habitats/:habitatId/sprints`, `GET /habitats/:habitatId/sprints/active`, `GET /habitats/:habitatId/review-rules`) and `GET /tasks/:taskId/reviewers` admit any agent on any habitat shape (habitat-scoped sprint/review-rule reads have no agent-facing habitat guard), while the four id-keyed sprint reads (`GET /sprints/:id`, `/metrics`, `/burndown`, `/carry-over`) additionally require a non-team (personal) habitat for agents — on team habitats agents receive **403** ("Agents cannot access team habitats"); for human JWTs: personal habitats admit any authenticated human, while on team habitats a nonmember receives **403** on the habitat-scoped sprint/review-rule reads, on the id-keyed sprint reads, on `GET /tasks/:taskId/reviewers` (resolved through the target task's Mission → Habitat; a missing Task or Mission is **404**), and on the batch route (`POST /habitats/:habitatId/tasks/batch`), the human-policy habitat settings surfaces (`PATCH /habitats/:id`, `PUT /habitats/:id/webhook-secrets`), and the six direct Task object operations (`GET`/`DELETE /tasks/:id`, `GET /tasks/:id/details`, `/events`, `/comments`, `GET /tasks/:taskId/code-evidence` — each resolved through the target task's Mission → Habitat; a missing Task or Mission is **404**) — all via the same shared membership predicate. Task-ID adjunct reads beyond those six (`/dependencies`, `/blocked-status`, `/approval-status`, `/quality-checklist`, `/effort-report`, `/effort-entries`, `/time-report`, `/failure-context`, `/workflow-context`, human-only `/pull-requests`, `/pipeline-events`, `/watchers`) and Task-ID mutations other than individual DELETE remain without this check. Every sprint lifecycle mutation (`POST /habitats/:habitatId/sprints`, `PATCH`/`DELETE /sprints/:id`, `POST /sprints/:id/start|complete|cancel|missions`, `DELETE /sprints/:id/missions/:missionId`) and every review-rule mutation (`POST /habitats/:habitatId/review-rules`, `PATCH`/`DELETE /review-rules/:id`) is human-authenticated (JWT) only: agent API keys receive **401** (not 403 — the auth policy rejects non-JWT callers before the handler), with no admin-role distinction — any authenticated human on personal habitats, any team member on team habitats.
 
 **Response `200`:** includes completed, carried-over, and incomplete counts plus task-level inferred reasons such as blocked dependencies, missing estimates, overdue work, repeated rejection history, or effort overrun.
@@ -5278,7 +5317,7 @@ Receive GitHub pull request, pull-request-review, and release events.
 | `repo_not_allowed` | Repository id is not in the resolved habitat's `githubRepositories` allowlist (including the empty/legacy default) |
 | `no_matching_task` | No task in the resolved habitat matches the task pattern |
 
-**Merge approval:** when the resolved habitat's `codeReviewSettings.autoApproveOnMerge` is `true` and the linked task is `submitted`, a merged PR approves the task as a trusted system principal (`github-webhook`) — one atomic transaction covers the approval write and its `approved` audit event; gates, dependency unblocks, mission recalculation, watchers, task-event hooks, and plugin post-interceptors fire post-commit (best-effort, same crash window as the human approve path). Duplicate MERGE APPROVALS are no-ops (zero new approval events, version bumps, or approval effects); the idempotent PR-link updates and `task.updated` notifications on open/update/reopen deliveries still occur. PR-REVIEW events only update the PR's `reviewStatus`; they never approve. Authorization checks (signature→habitat, allowlist, `autoApproveOnMerge`) are evaluated at the request's decision points — entry for secret/allowlist/pattern, the merge-decision point for the opt-in — and the approval transaction revalidates task status only: mid-request settings changes do not cancel an in-flight authorized request, and future deliveries recheck from scratch (no atomic settings-revocation guarantee).
+**Merge approval:** when the resolved habitat's `codeReviewSettings.autoApproveOnMerge` is `true` (re-read fresh inside the approval reservation) and the linked task is `submitted` with a GENUINE captured known-zero review requirement and NO unresolved assigned reviewers, a merged PR whose signed body matches the unique PR link record approves the task as a trusted system principal (`github-webhook`) — one atomic transaction covers the approval write and its `approved` audit event; gates, dependency unblocks, mission recalculation, watchers, task-event hooks, and plugin post-interceptors fire post-commit (best-effort, same crash window as the human approve path). Duplicate MERGE APPROVALS are no-ops (zero new approval events, version bumps, or approval effects); the idempotent PR-link updates and `task.updated` notifications on open/update/reopen deliveries still occur. PR-REVIEW events only update the PR's `reviewStatus`; they never approve. Authorization checks (signature→habitat, allowlist, `autoApproveOnMerge`) are evaluated at the request's decision points — entry for secret/allowlist/pattern, the merge-decision point for the opt-in — and the approval transaction revalidates task status only: mid-request settings changes do not cancel an in-flight authorized request, and future deliveries recheck from scratch (no atomic settings-revocation guarantee).
 
 ### POST /webhooks/gitlab
 

@@ -600,12 +600,16 @@ describe("domain_expert slot accounting (E rule)", () => {
     expect(row).not.toBeNull();
     taskReviewerRepo.updateStatus(row!.id, "rejected", "not good");
 
+    // Review safety (B3): occupancy uses the effective projection — a raw
+    // rejected slot (no generation-tagged decision) does not occupy, so the
+    // allocator fills the vacancy with a fresh eligible reviewer while the
+    // rejected row's history is preserved untouched.
     const again = reviewAssignment.assignReviewers(taskId, fixture.habitatId);
-    expect(again.assigned).toHaveLength(0);
+    expect(again.assigned).toHaveLength(1);
     const rows = rowsFor(taskId);
-    expect(rows).toHaveLength(1);
-    expect(rows[0].status).toBe("rejected"); // history preserved
-    expect(rows.some((r) => r.reviewerId === b)).toBe(false);
+    expect(rows).toHaveLength(2);
+    expect(rows.some((r) => r.status === "rejected")).toBe(true); // history preserved
+    expect(rows.some((r) => r.reviewerId === b)).toBe(true); // the replacement
   });
 
   it("domain update on the agent re-evaluates E against the CURRENT domain and fills the positive remainder", () => {
@@ -698,7 +702,14 @@ describe("domain_expert completion interplay", () => {
     domainRule(fixture.habitatId, 1);
     const humanId = attachHumanTeam(fixture, ["alice"])[0];
     const a = makeAgent("pair-agent", "backend");
+    // Review safety: finality evaluates the durable requirement — claim
+    // through the kernel so the domain rule captures (genuine generation +
+    // frozen snapshot) before the completion matrix runs. The WORKER is a
+    // separate agent: the claimant is never an eligible domain reviewer.
+    const worker = makeAgent("pair-worker", "backend");
     const taskId = createDomainTask(fixture, "backend");
+    const claim = taskRepo.claimTask(taskId, worker);
+    if (!claim.success) throw new Error(`fixture claim failed: ${claim.reason}`);
     taskReviewerRepo.create(taskId, "human", humanId); // human POST row
 
     const result = reviewAssignment.assignReviewers(taskId, fixture.habitatId);

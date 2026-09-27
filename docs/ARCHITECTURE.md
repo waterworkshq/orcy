@@ -687,6 +687,21 @@ Agent / Human
 
 ---
 
+## Durable Review Safety (migration 0082)
+
+The review requirement is durable state: a per-task requirement row
+(CHECK-enforced state matrix), one immutable claim snapshot per
+successful-claim generation, append-only typed decisions, and append-only
+human override evidence. The claim kernel captures policy inside the claim
+transaction; every ownership-ending writer (release, fail, remote release,
+agent deletion, retry, import reset) invalidates claimant/proof and expires
+overrides with immediate baseline restore in the same transaction; finality
+runs under one immediate reservation ending in a committed
+`approved_generation` proof. Legacy tasks are classified sticky-unknown at
+migration and resolve only through the independent human recovery command
+(viewer-ceiling persisted-role authorization). See SECURITY.md 'Durable
+Review Safety' and DATABASE.md migration `0082`.
+
 ## State Machines
 
 ### Task State Machine

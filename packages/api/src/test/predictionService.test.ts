@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { updateTaskFixtureForTests } from "./helpers/taskFixtures.js";
 import { eq } from "drizzle-orm";
 import { closeDb, getDb, initTestDb } from "../db/index.js";
 import * as agentRepo from "../repositories/agent.js";
@@ -77,7 +78,7 @@ function createTask(
 }
 
 function completeTask(taskId: string, completedAt: string, assignedAgentId?: string) {
-  taskRepo.updateTask(taskId, {
+  updateTaskFixtureForTests(taskId, {
     status: "done",
     completedAt,
     assignedAgentId: assignedAgentId ?? null,
@@ -126,7 +127,7 @@ describe("predictionService", () => {
     const blocked = createTask(mission.id, "Blocked", "high");
     const dependency = createTask(mission.id, "Dependency", "medium");
     const inProgress = createTask(mission.id, "In progress", "low");
-    taskRepo.updateTask(inProgress.id, { status: "in_progress" });
+    updateTaskFixtureForTests(inProgress.id, { status: "in_progress" });
     getDb()
       .insert(taskDependencies)
       .values({ taskId: blocked.id, dependsOnId: dependency.id })
@@ -193,7 +194,7 @@ describe("predictionService", () => {
   it("detects due-date risk, stale active work, and blocked pending work", () => {
     const { habitat, mission } = createFixture({ dueAt: daysAgo(1) });
     const stale = createTask(mission.id, "Stale", "medium");
-    taskRepo.updateTask(stale.id, { status: "in_progress" });
+    updateTaskFixtureForTests(stale.id, { status: "in_progress" });
     getDb()
       .update(tasks)
       .set({ updatedAt: daysAgo(4) })
@@ -254,7 +255,7 @@ describe("predictionService", () => {
   it("combines velocity, estimates, and at-risk tasks in getPredictions", () => {
     const { habitat, mission } = createFixture({ dueAt: daysAgo(1) });
     const task = createTask(mission.id, "Late task", "critical");
-    taskRepo.updateTask(task.id, { status: "in_progress" });
+    updateTaskFixtureForTests(task.id, { status: "in_progress" });
     getDb()
       .update(tasks)
       .set({ updatedAt: daysAgo(2) })

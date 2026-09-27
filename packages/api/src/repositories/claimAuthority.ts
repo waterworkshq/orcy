@@ -57,6 +57,7 @@ import { ExecutionEpochMismatchError } from "../errors.js";
 import { checkClaimability } from "./taskQueries.js";
 import { creationObservationStateForTaskWithClient } from "./taskPublication.js";
 import type { TaskPublicationDbClient } from "./taskPublication.js";
+import { captureRequirementOnClaimWithClient, bumpReviewRoundWithClient } from "./reviewSafety.js";
 import { guardTransition, habitatIdForTaskWithClient } from "../services/tasks/transitionBudget.js";
 import {
   driveDaemonSessionOutcome,
@@ -317,7 +318,20 @@ export function claimWithAuthorityClient(
     if (gate) return gate;
     const budget = budgetGateFailure(tx, row.id, opts, "claimed_delegated");
     if (budget) return budget;
-    return runClaimCommittedHook(commitDelegatedClaim(tx, row), tx, opts?.onClaimCommitted);
+    const delegated = commitDelegatedClaim(tx, row);
+    if (delegated.success) {
+      captureRequirementOnClaimWithClient(tx, {
+        taskId: row.id,
+        habitatId: habitatIdForTaskWithClient(tx, row.id) ?? "",
+        claimant: { type: "local_agent", id: row.delegatedToAgentId! },
+        task: {
+          requiredDomain: delegated.task.requiredDomain ?? null,
+          labels: (delegated.task.labels ?? []) as string[],
+          priority: delegated.task.priority,
+        },
+      });
+    }
+    return runClaimCommittedHook(delegated, tx, opts?.onClaimCommitted);
   }
 
   // ---- plain mode: the claimTask / claimTaskByRemoteParticipant contract ---
@@ -353,7 +367,29 @@ export function claimWithAuthorityClient(
   const budget = budgetGateFailure(tx, row.id, opts, "claimed");
   if (budget) return budget;
 
-  return runClaimCommittedHook(commitPlainClaim(tx, row, claimant), tx, opts?.onClaimCommitted);
+  const plain = commitPlainClaim(tx, row, claimant);
+  if (plain.success) {
+    // Review-safety capture — the MANDATORY kernel step on every successful
+    // claim, still inside the claim transaction and BEFORE the daemon hook:
+    // generation advance, one append-only snapshot, typed claimant, floor
+    // reapplied per state. A throw here rolls back the ENTIRE claim (task +
+    // snapshot + requirement stay coherent — claim success without a
+    // committed snapshot must never survive).
+    captureRequirementOnClaimWithClient(tx, {
+      taskId: row.id,
+      habitatId: habitatIdForTaskWithClient(tx, row.id) ?? "",
+      claimant: {
+        type: claimant.kind === "local" ? "local_agent" : "remote_participant",
+        id: claimant.id,
+      },
+      task: {
+        requiredDomain: plain.task.requiredDomain ?? null,
+        labels: (plain.task.labels ?? []) as string[],
+        priority: plain.task.priority,
+      },
+    });
+  }
+  return runClaimCommittedHook(plain, tx, opts?.onClaimCommitted);
 }
 
 /**
@@ -375,7 +411,12 @@ export function claimWithAuthority(
 ): ClaimResult {
   const client = db ?? getDb();
   try {
-    return client.transaction((tx) => claimWithAuthorityClient(tx, taskId, claimant, opts));
+    // Writer reservation: the claim kernel now also writes the review
+    // requirement capture, so the whole claim runs under BEGIN IMMEDIATE
+    // (same discipline as progressWithAuthority / submitTask).
+    return client.transaction((tx) => claimWithAuthorityClient(tx, taskId, claimant, opts), {
+      behavior: "immediate",
+    });
   } catch (err) {
     return mapInfraErrorToFailure(err, taskId, claimant);
   }
@@ -705,6 +746,14 @@ function progressWithAuthorityClient(
   // status === "claimed" → null. Also guards the serialized-write case.
   const updated = tx.select().from(tasks).where(eq(tasks.id, taskId)).get() as TaskRow | undefined;
   if (!updated || updated.status !== "in_progress") return null;
+
+  // 4b. Review-safety round bump — a successful rejected→in_progress rework
+  //     start increments review_round (NOT the generation): the rejecting
+  //     reviewer's slot projects pending for resubmission while earlier
+  //     eligible approvals survive. Same act-tx as the epoch mint.
+  if (row.status === "rejected") {
+    bumpReviewRoundWithClient(tx, taskId);
+  }
 
   // 5. REC-10 rework session leg — same act-tx as the mint: terminalize
   //    known-stale X owners (monotonic `lost`, keeps X) and rebind the exact-X

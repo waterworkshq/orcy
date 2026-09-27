@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { updateTaskFixtureForTests } from "./helpers/taskFixtures.js";
 import { getDb, closeDb, initTestDb } from '../db/index.js';
 import * as habitatRepo from '../repositories/habitat.js';
 import * as taskRepo from '../repositories/task.js';
@@ -131,8 +132,8 @@ describe('getTasksByHabitatId sort', () => {
     const t2 = createTask({ title: 'Pending', priority: 'low' });
     const t3 = createTask({ title: 'Claimed', priority: 'low' });
 
-    taskRepo.updateTask(t1.id, { status: 'done' });
-    taskRepo.updateTask(t3.id, { status: 'claimed' });
+    updateTaskFixtureForTests(t1.id, { status: 'done' });
+    updateTaskFixtureForTests(t3.id, { status: 'claimed' });
 
     const filters: TaskListFilters = { sortBy: 'status', sortDirection: 'asc' };
     const result = getTasksByHabitatId(habitatId, filters);
@@ -183,7 +184,7 @@ describe('getTasksByHabitatId sort', () => {
     const t1 = createTask({ title: 'Assigned', priority: 'low' });
     createTask({ title: 'Unassigned', priority: 'low' });
 
-    taskRepo.updateTask(t1.id, { assignedAgentId: agentId });
+    updateTaskFixtureForTests(t1.id, { assignedAgentId: agentId });
 
     const filters: TaskListFilters = { sortBy: 'assignedAgentId', sortDirection: 'asc' };
     const result = getTasksByHabitatId(habitatId, filters);
@@ -198,7 +199,7 @@ describe('getTasksByHabitatId sort', () => {
     const t2 = createTask({ title: 'Critical Done', priority: 'critical' });
     createTask({ title: 'Low Pending', priority: 'low' });
 
-    taskRepo.updateTask(t2.id, { status: 'done' });
+    updateTaskFixtureForTests(t2.id, { status: 'done' });
 
     const filters: TaskListFilters = { status: 'pending', sortBy: 'priority', sortDirection: 'asc' };
     const result = getTasksByHabitatId(habitatId, filters);

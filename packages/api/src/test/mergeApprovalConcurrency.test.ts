@@ -72,6 +72,10 @@ describe("merge approval concurrency — file SQLite IPC barrier", () => {
       pathToFileURL(join(distRoot, "repositories", "mission.js")).href
     );
     const taskRepo = await import(pathToFileURL(join(distRoot, "repositories", "task.js")).href);
+    const agentRepo = await import(pathToFileURL(join(distRoot, "repositories", "agent.js")).href);
+    const taskStateMachine = await import(
+      pathToFileURL(join(distRoot, "repositories", "taskStateMachine.js")).href
+    );
 
     const habitat = habitatRepo.createHabitat({ name: "race" });
     const { habitats } = await import(
@@ -104,7 +108,14 @@ describe("merge approval concurrency — file SQLite IPC barrier", () => {
       title: "race task",
       createdBy: "user-race",
     });
-    taskRepo.updateTask(task.id, { status: "submitted" });
+    // Review safety: the generic update can no longer forge status — the
+    // fixture walks the genuine lifecycle (claim→start→submit) so the
+    // requirement is captured known-zero and the merge gate legitimately
+    // applies.
+    const { agent } = agentRepo.createAgent({ name: "race-agent", type: "claude-code", domain: "backend" });
+    taskStateMachine.claimTask(task.id, agent.id);
+    taskStateMachine.startTask(task.id, agent.id);
+    taskStateMachine.submitTask(task.id, agent.id, "race fixture", []);
     taskId = task.id;
     baseVersion = taskRepo.getTaskById(taskId).version;
 
@@ -182,6 +193,10 @@ describe("merge approval concurrency — file SQLite IPC barrier", () => {
       .events.filter((e: { action: string }) => e.action === "approved");
     expect(approvedEvents).toHaveLength(1);
     const taskRepo = await import(pathToFileURL(join(distRoot, "repositories", "task.js")).href);
+    const agentRepo = await import(pathToFileURL(join(distRoot, "repositories", "agent.js")).href);
+    const taskStateMachine = await import(
+      pathToFileURL(join(distRoot, "repositories", "taskStateMachine.js")).href
+    );
     const task = taskRepo.getTaskById(taskId);
     expect(task.status).toBe("approved");
     expect(task.version).toBe(baseVersion + 1);

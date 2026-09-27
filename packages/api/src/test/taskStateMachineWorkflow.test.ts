@@ -14,58 +14,79 @@ vi.mock("../services/tasks/transitionBudget.js", () => ({
   habitatIdForTaskWithClient: vi.fn(() => "habitat-1"),
 }));
 
-vi.mock("../db/index.js", () => ({
-  getDb: () => ({
-    transaction: (fn: (tx: any) => any) =>
-      fn({
-        // select().from().where() supports BOTH .get() (the authority's row
-        // select + post-write TOCTOU re-select) and .all() (the authority's
-        // reservation-gate query — empty ⇒ no active reservation ⇒ gate open).
-        select: () => ({
-          from: () => ({
-            where: () => ({
-              get: () => mockTask,
-              all: () => [],
+vi.mock("../db/index.js", async () => {
+  const reviewSafety = await vi.importActual("../db/schema/reviewSafety.js");
+  const isReviewSafetyTable = (t: unknown) =>
+    t === (reviewSafety as any).taskReviewRequirements ||
+    t === (reviewSafety as any).taskReviewSnapshots ||
+    t === (reviewSafety as any).taskReviewDecisions ||
+    t === (reviewSafety as any).taskReviewOverrides;
+  const birthRow = {
+    taskId: "task-1",
+    origin: "ordinary",
+    state: "uncaptured",
+    nonOverriddenFloor: null,
+    knownPolicyFloor: 0,
+    effectiveCount: null,
+    requirementVersion: 1,
+    reviewGeneration: 0,
+    reviewRound: 0,
+    claimantType: null,
+    claimantId: null,
+    approvedGeneration: null,
+    activeOverrideId: null,
+    selectedRuleId: null,
+  };
+  return {
+    getDb: () => ({
+      transaction: (fn: (tx: any) => any) =>
+        fn({
+          // Review-safety capture (every successful claim) reads the
+          // requirement table (→ the birth `uncaptured` row), the rules
+          // table (→ no rows: explicit no-match capture) and writes the
+          // snapshot + requirement rows through insert no-ops. Everything
+          // else keeps the pre-cutover mock shape.
+          select: () => ({
+            from: (table: any) => {
+              const rows = {
+                get: () => (isReviewSafetyTable(table) ? { ...birthRow } : mockTask),
+                all: () => [] as unknown[],
+              };
+              return {
+                where: () => ({ ...rows, orderBy: () => rows }),
+              };
+            },
+          }),
+          insert: () => ({
+            values: () => ({
+              run: () => {},
+              onConflictDoNothing: () => ({ run: () => {} }),
+            }),
+          }),
+          update: () => ({
+            set: (value: Record<string, unknown>) => ({
+              where: () => ({
+                run: () => {
+                  Object.assign(mockTask, value);
+                },
+              }),
             }),
           }),
         }),
-        // Apply the UPDATE onto mockTask so the authority's post-write
-        // re-select (verifyAndReturn) observes the claimed assignee and
-        // status. Pre-T2 the repo returned success blindly after the UPDATE;
-        // the authority now verifies the write took effect.
-        update: () => ({
-          set: (value: Record<string, unknown>) => ({
-            where: () => ({
-              run: () => {
-                Object.assign(mockTask, value);
-              },
-            }),
-          }),
-        }),
-      }),
-  }),
-}));
-
-vi.mock("../db/schema/index.js", () => ({
-  tasks: {
-    id: "id",
-    status: "status",
-    assignedAgentId: "assigned_agent_id",
-    remoteAssignedParticipantId: "remote_assigned_participant_id",
-    version: "version",
-    claimedAt: "claimed_at",
-    updatedAt: "updated_at",
-  },
-  // The claim authority queries T1's reservation table; surface the columns it
-  // reads so the (empty) reservation-gate select resolves without throwing.
-  taskCreationAssignmentReservations: {
-    taskId: "task_id",
-    state: "state",
-    requestedAgentId: "requested_agent_id",
-  },
-}));
-
+    }),
+  };
+});
+vi.mock("../db/schema/index.js", async () => {
+  // Review-safety cutover, minimal adaptation: the REAL schema module —
+  // every export present and correctly bound (no stubs, no catch-all), so
+  // the widened import graph (daemon tables, review-safety tables) resolves
+  // exactly as in production. Behavior is shaped by the db mock below.
+  return (await vi.importActual("../db/schema/index.js")) as Record<string, unknown>;
+});
 vi.mock("drizzle-orm", () => ({
+  // Review-safety cutover: the real schema module's relations need the
+  // `relations` helper at import time.
+  relations: (name: string, fn: (helper: unknown) => unknown) => ({ name, fn }),
   eq: vi.fn((_c, _v) => ({})),
   and: vi.fn((..._c) => ({})),
   inArray: vi.fn((_c, _v) => ({})),

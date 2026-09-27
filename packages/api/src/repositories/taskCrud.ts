@@ -4,6 +4,7 @@ import { eq, and, max, sql } from "drizzle-orm";
 import type { Task, TaskStatus, TaskPriority, Artifact, RetryPolicy } from "../models/index.js";
 import { v4 as uuid } from "uuid";
 import { normalizeTaskId } from "@orcy/shared";
+import { insertUncapturedRequirementWithClient } from "./reviewSafety.js";
 
 export interface CreateTaskInput {
   missionId: string;
@@ -24,31 +25,22 @@ export interface UpdateTaskInput {
   priority?: TaskPriority;
   requiredDomain?: string | null;
   requiredCapabilities?: string[];
-  status?: TaskStatus;
   result?: string | null;
   artifacts?: Artifact[];
   rejectedCount?: number;
   rejectionReason?: string | null;
   delegatedToAgentId?: string | null;
-  assignedAgentId?: string | null;
   estimatedMinutes?: number | null;
   retryPolicy?: RetryPolicy | null;
   retryCount?: number;
   nextRetryAt?: string | null;
-  completedAt?: string | null;
-  claimedAt?: string | null;
-  startedAt?: string | null;
-  submittedAt?: string | null;
   actualMinutes?: number | null;
   cycleTimeMinutes?: number | null;
   leadTimeMinutes?: number | null;
   estimationAccuracy?: number | null;
   /** Claim-epoch identity. System writers ONLY (clears to NULL) — excluded from the route zod schema. */
-  executionToken?: string | null;
   /** Failure-provenance pointer (T2 §B.0). System writers ONLY (clears to NULL at the next epoch/terminal write) — excluded from the route zod schema. */
-  lastFailureEventId?: string | null;
   /** Release-provenance pointer (migration 0080). System writers ONLY (clears to NULL whenever the task leaves the unclaimed pending shape) — excluded from the route zod schema. */
-  lastReleaseEventId?: string | null;
 }
 
 export function createTask(input: CreateTaskInput): Task {
@@ -66,24 +58,33 @@ export function createTask(input: CreateTaskInput): Task {
     order = (result?.maxOrder ?? -1) + 1;
   }
 
-  db.insert(tasks)
-    .values({
-      id,
-      missionId: input.missionId,
-      title: input.title,
-      description: input.description ?? "",
-      priority: input.priority ?? "medium",
-      requiredDomain: input.requiredDomain ?? null,
-      requiredCapabilities: input.requiredCapabilities ?? [],
-      status: "pending",
-      labels: input.labels ?? [],
-      order,
-      createdBy: input.createdBy,
-      estimatedMinutes: input.estimatedMinutes ?? null,
-      createdAt: now,
-      updatedAt: now,
-    })
-    .run();
+  // One immediate writer reservation owns BOTH writes: the Task row and its
+  // birth-state `uncaptured` review requirement row commit atomically (a
+  // Task must never exist without a legal requirement row).
+  db.transaction(
+    (tx) => {
+      tx.insert(tasks)
+        .values({
+          id,
+          missionId: input.missionId,
+          title: input.title,
+          description: input.description ?? "",
+          priority: input.priority ?? "medium",
+          requiredDomain: input.requiredDomain ?? null,
+          requiredCapabilities: input.requiredCapabilities ?? [],
+          status: "pending",
+          labels: input.labels ?? [],
+          order,
+          createdBy: input.createdBy,
+          estimatedMinutes: input.estimatedMinutes ?? null,
+          createdAt: now,
+          updatedAt: now,
+        })
+        .run();
+      insertUncapturedRequirementWithClient(tx, id);
+    },
+    { behavior: "immediate" },
+  );
 
   return getTaskById(id)!;
 }
@@ -110,11 +111,40 @@ export type UpdateTaskResult =
   | { success: false; notFound: true }
   | { success: false; versionMismatch: true; currentVersion: number };
 
+// Review-safety authority fence: these authority-bearing fields can NEVER
+// pass the exported generic update — neither statically (removed from
+// UpdateTaskInput) nor at runtime (an input carrying one THROWS; `as any`
+// callers fail loudly instead of silently stripping). Status/assignee/token
+// writes belong to the guarded lifecycle/effects/retry writers only.
+const FENCED_UPDATE_FIELDS = [
+  "status",
+  "assignedAgentId",
+  "executionToken",
+  "claimedAt",
+  "startedAt",
+  "submittedAt",
+  "completedAt",
+  "lastFailureEventId",
+  "lastReleaseEventId",
+] as const;
+
+function assertNoFencedUpdateFields(id: string, input: UpdateTaskInput): void {
+  const record = input as Record<string, unknown>;
+  for (const field of FENCED_UPDATE_FIELDS) {
+    if (field in record && record[field] !== undefined) {
+      throw new Error(
+        `updateTask refuses authority-bearing field "${field}" on task ${id} — use the guarded lifecycle/effects/retry writer`,
+      );
+    }
+  }
+}
+
 export function updateTask(
   id: string,
   input: UpdateTaskInput,
   expectedVersion?: number,
 ): UpdateTaskResult {
+  assertNoFencedUpdateFields(id, input);
   const db = getDb();
   const now = new Date().toISOString();
 
@@ -141,21 +171,15 @@ export function updateTask(
   if (input.requiredDomain !== undefined) set.requiredDomain = input.requiredDomain;
   if (input.requiredCapabilities !== undefined)
     set.requiredCapabilities = input.requiredCapabilities;
-  if (input.status !== undefined) set.status = input.status;
   if (input.result !== undefined) set.result = input.result;
   if (input.artifacts !== undefined) set.artifacts = input.artifacts;
   if (input.rejectedCount !== undefined) set.rejectedCount = input.rejectedCount;
   if (input.rejectionReason !== undefined) set.rejectionReason = input.rejectionReason;
   if (input.delegatedToAgentId !== undefined) set.delegatedToAgentId = input.delegatedToAgentId;
-  if (input.assignedAgentId !== undefined) set.assignedAgentId = input.assignedAgentId;
   if (input.estimatedMinutes !== undefined) set.estimatedMinutes = input.estimatedMinutes;
   if (input.retryPolicy !== undefined) set.retryPolicy = input.retryPolicy;
   if (input.retryCount !== undefined) set.retryCount = input.retryCount;
   if (input.nextRetryAt !== undefined) set.nextRetryAt = input.nextRetryAt;
-  if (input.completedAt !== undefined) set.completedAt = input.completedAt;
-  if (input.claimedAt !== undefined) set.claimedAt = input.claimedAt;
-  if (input.startedAt !== undefined) set.startedAt = input.startedAt;
-  if (input.submittedAt !== undefined) set.submittedAt = input.submittedAt;
   if (input.actualMinutes !== undefined) set.actualMinutes = input.actualMinutes;
   if (input.cycleTimeMinutes !== undefined) set.cycleTimeMinutes = input.cycleTimeMinutes;
   if (input.leadTimeMinutes !== undefined) set.leadTimeMinutes = input.leadTimeMinutes;
@@ -163,11 +187,8 @@ export function updateTask(
   // Execution token (claim-epoch identity): system writers (retry ladder)
   // clear it to NULL on ownership-ending transitions. NOT part of the zod
   // UpdateTaskInput surface — routes can never write it.
-  if (input.executionToken !== undefined) set.executionToken = input.executionToken;
   // Failure-provenance pointer: same system-writer-only discipline as the
   // token above (never reachable through any route zod schema).
-  if (input.lastFailureEventId !== undefined) set.lastFailureEventId = input.lastFailureEventId;
-  if (input.lastReleaseEventId !== undefined) set.lastReleaseEventId = input.lastReleaseEventId;
 
   db.update(tasks)
     .set({ ...set, version: sql`${tasks.version} + 1` })
@@ -200,21 +221,15 @@ export interface UpdateTaskInput {
   priority?: TaskPriority;
   requiredDomain?: string | null;
   requiredCapabilities?: string[];
-  status?: TaskStatus;
   result?: string | null;
   artifacts?: Artifact[];
   rejectedCount?: number;
   rejectionReason?: string | null;
   delegatedToAgentId?: string | null;
-  assignedAgentId?: string | null;
   estimatedMinutes?: number | null;
   retryPolicy?: RetryPolicy | null;
   retryCount?: number;
   nextRetryAt?: string | null;
-  completedAt?: string | null;
-  claimedAt?: string | null;
-  startedAt?: string | null;
-  submittedAt?: string | null;
   actualMinutes?: number | null;
   cycleTimeMinutes?: number | null;
   leadTimeMinutes?: number | null;

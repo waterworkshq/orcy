@@ -43,7 +43,7 @@ import * as missionRepo from "../repositories/mission.js";
 import * as agentRepo from "../repositories/agent.js";
 import * as taskRepo from "../repositories/taskCrud.js";
 import { addTaskDependency } from "../repositories/dependency.js";
-import { markTaskDone } from "../repositories/taskStateMachine.js";
+import * as taskService from "../services/tasks/index.js";
 import {
   claimWithAuthority,
   claimWithAuthorityClient,

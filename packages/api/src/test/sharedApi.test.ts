@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import { updateTaskFixtureForTests } from "./helpers/taskFixtures.js";
 import Fastify, { type FastifyInstance } from "fastify";
 import { validatorCompiler, serializerCompiler } from "fastify-type-provider-zod";
 import { initTestDb, closeDb } from "../db/index.js";
@@ -1644,7 +1645,7 @@ describe("Phase D — Shared Habitat API", () => {
           createdBy: "test",
         });
 
-        taskRepo.updateTask(task.id, {
+        updateTaskFixtureForTests(task.id, {
           delegatedToAgentId: delegate.id,
           status: "claimed",
           assignedAgentId: assignee.id,

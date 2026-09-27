@@ -18,6 +18,7 @@
  *     disconnected all → 403; missing-finding → 403 (anti-probing).
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import * as taskService from "../services/tasks/index.js";
 import Fastify, { type FastifyInstance } from "fastify";
 import { validatorCompiler, serializerCompiler } from "fastify-type-provider-zod";
 import jwt from "jsonwebtoken";
@@ -419,7 +420,7 @@ describe("T4 — Local intent routes: route/resolve/wontfix", () => {
     claimTaskForAgent(investigateTask.id, agentId);
     startTaskAsAgent(investigateTask.id, agentId);
     submitTaskAsAgent(investigateTask.id, agentId);
-    taskStateMachine.approveTask(investigateTask.id);
+    taskService.approveTask(investigateTask.id, "human-reviewer", "human"); // guarded terminal service
     // Task is now status='approved'; assignment still retained.
     const res = await app!.inject({
       method: "POST",
@@ -435,8 +436,7 @@ describe("T4 — Local intent routes: route/resolve/wontfix", () => {
     claimTaskForAgent(investigateTask.id, agentId);
     startTaskAsAgent(investigateTask.id, agentId);
     submitTaskAsAgent(investigateTask.id, agentId);
-    taskStateMachine.approveTask(investigateTask.id);
-    taskStateMachine.markTaskDone(investigateTask.id);
+    taskService.approveTask(investigateTask.id, "human-reviewer", "human"); // guarded terminal service
     const res = await app!.inject({
       method: "POST",
       url: `/api/triage/findings/${finding.id}/route`,

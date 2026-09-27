@@ -1,5 +1,13 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import * as taskStateMachine from "../repositories/taskStateMachine.js";
 
+vi.mock("../repositories/taskStateMachine.js", () => ({
+  // Review-safety cutover: the retry ladder's privileged writes moved to the
+  // dedicated immediate writers (asserted below); the rest of the state
+  // machine is out of scope for this unit test.
+  retryTransitionToPendingWithEffects: vi.fn(() => ({ id: "task-1", status: "pending" })),
+  retryEscalateClearOwnerWithEffects: vi.fn(() => ({ id: "task-1", status: "failed", assignedAgentId: null })),
+}));
 vi.mock("../services/tasks/transitionBudget.js", () => ({
   // Budget guard seam: allow (this suite exercises retry-ladder mechanics).
   guardTransitionTop: vi.fn(() => ({ outcome: "allow", count: 0, ceiling: 12 })),
@@ -163,9 +171,11 @@ describe("retryService", () => {
       const result = executeRetry(makeTask({ retryCount: 0 }));
 
       expect(result).not.toBeNull();
-      expect(taskRepo.updateTask).toHaveBeenCalledWith(
+      // Review safety: the privileged status/assignee reset now runs through
+      // the dedicated immediate retry writer (mocked here).
+      expect(taskStateMachine.retryTransitionToPendingWithEffects).toHaveBeenCalledWith(
         "task-1",
-        expect.objectContaining({ status: "pending" }),
+        1,
       );
     });
   });

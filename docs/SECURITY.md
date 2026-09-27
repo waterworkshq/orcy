@@ -226,6 +226,37 @@ Task actions are classified by authorization level (enforced by `packages/api/sr
 | Approve, Reject | Human reviewer (admin/editor), or an agent holding a pending agent-typed reviewer row on the task (reviewer identity from the authenticated principal; assignee self-review refused) |
 | Delete | Agent or human (owner/admin) |
 
+### Durable Review Safety (migration 0082)
+
+Review authority is durable state, not transient row status. One
+`task_review_requirements` row per Task enforces (via SQL CHECK constraints)
+a four-state matrix: `uncaptured` (never-claimed pending — cannot finalize),
+`legacy_unknown` (historical uncertainty — cannot finalize until independent
+human resolution), `known_zero` (explicit no-matching-rule capture — the only
+review-free finalization path), and `required` (positive baseline; only an
+append-only audited override may lower the effective count, and it expires at
+the next ownership end/reset with immediate baseline restore). Every
+successful claim captures the winning rule as an immutable snapshot —
+post-claim rule edits, task priority/label changes, and reviewer-row churn
+cannot raise or lower a captured requirement. Approval decisions are
+append-only and typed (generation + round aware); reviewer-row removal never
+deletes decision evidence; the typed current claimant is excluded from both
+counting and blocking. Terminal approval runs under ONE immediate writer
+reservation (fresh reads → projection-aware admission → single final-only
+pre-veto → decision → submitted→approved CAS → `approved_generation` proof
+stamp); a veto commits plugin telemetry only, and a lost CAS rolls the
+decision back with the proof. Raw terminal primitives
+(`approveTask`/`markTaskDone`) refuse unguarded top-level calls (capability +
+production-callsite boundary guard), and the generic task update refuses
+authority-bearing fields (status/assignee/execution token/lifecycle
+clocks/provenance pointers) loudly. The signed merge-approval webhook may
+approve only genuine known-zero tasks. Independent human recovery
+(`POST /api/tasks/:taskId/review-requirement/resolve`) is the ONLY
+unknown→known exit and the ONLY positive-baseline reduction, authorized from
+persisted roles (global viewer ceiling; personal habitats global-admin-only)
+under the command's own transaction, with executor/decider independence
+refusals and append-only evidence.
+
 ### Board Access Control
 
 Board-scoped routes use `requireBoardAccess` middleware:
@@ -321,9 +352,9 @@ The PR/MR handler family (`pull_request`, `pull_request_review`, `merge_request`
 - **Exact-one habitat resolution.** The credential must verify against exactly ONE habitat's code-review secret. Zero matches refuse (`no_matching_habitat`) — this closes the unsigned local-dev allowance for the PR path, matching the release-path precedent (unsigned PR events are no longer processed even in local posture). More than one match — the same secret configured on two habitats — refuses (`ambiguous_signature_habitat`); an ambiguous binding is a refusal, never a first-match. Task resolution is scoped to the resolved habitat only.
 - **Trusted repository allowlist.** The event's immutable identity (GitHub `repository.id` / GitLab `project.id`) must appear in the resolved habitat's `codeReviewSettings.githubRepositories` / `gitlabProjects` before task extraction. A signer app that can emit many repositories never grants repository authority by signature alone. Missing, malformed, or unsafe-precision ids (values that would lose precision when coerced) refuse with zero writes.
 - **Fail-closed default.** An empty or absent allowlist refuses the entire PR/MR path. Upgrading therefore stops PR linking and merge-approval until an operator configures ids — an intentional tightening; release and CI/CD paths are separate seams and unchanged.
-- **Settings timing (check-then-act, disclosed — no atomic revocation claim).** The credential→habitat check, the repository-allowlist check, and the task-pattern read run at handler entry from a settings snapshot; `autoApproveOnMerge` is read again at the merge-decision point. The approval transaction revalidates the task's status (`submitted`) but performs **no settings recheck**. Rotating a secret, removing an allowlist entry, or disabling `autoApproveOnMerge` therefore does not cancel an already-authorized in-flight request that has passed its decision points; the next delivery rechecks everything from scratch (duplicate deliveries re-run the entry checks). This is the canonical check-then-act window, stated as such — no atomic settings-revocation guarantee is claimed or implemented.
+- **Settings timing (in-reservation for merge approval).** The credential→habitat check and the task-pattern read run at handler entry; the merge APPROVAL itself re-reads `autoApproveOnMerge`, the repository allowlist, and the fresh review requirement (genuine known-zero, no unresolved assignments) INSIDE its single `BEGIN IMMEDIATE` reservation, so a settings change between handler entry and the approval write is honored by the approving transaction. Linking/lookup remain check-then-act. settings snapshot; `autoApproveOnMerge` is read again at the merge-decision point. The approval transaction revalidates the task's status (`submitted`) but performs **no settings recheck**. Rotating a secret, removing an allowlist entry, or disabling `autoApproveOnMerge` therefore does not cancel an already-authorized in-flight request that has passed its decision points; the next delivery rechecks everything from scratch (duplicate deliveries re-run the entry checks). This is the canonical check-then-act window, stated as such — no atomic settings-revocation guarantee is claimed or implemented.
 - **Merge approval is a system principal.** `autoApproveOnMerge` (default off) approves the linked `submitted` task atomically with its audit event; effects fire post-commit, best-effort, with the same crash window as the human approve path. PR-review events update `reviewStatus` only and never approve. GitHub PR HMACs carry no timestamp: replay safety is the strict single-status CAS plus idempotent writes, not signature freshness.
-- **No reviewer decision rows, no pre-veto (explicit).** A merge approval creates NO reviewer decision rows (it is not a reviewer decision — the task's reviewer-row requirement is not consulted or satisfied by it), and it runs NO pre-commit interceptor veto (a plugin cannot veto a merge approval). Post-commit effects — SSE, watchers, dependency unblock, mission recalc, task-event hooks, and plugin POST-interceptors — run best-effort in-process, are not durable, and no effort or metric guarantee is claimed for them.
+- **No reviewer decision rows, no pre-veto (explicit); assigned-reviewer gate (migration 0082).** A merge approval creates NO reviewer decision rows (it is not a reviewer decision), and it requires the task's durable requirement to be a genuine captured known-zero with no unresolved assigned-reviewer slots — a pending or rejected assignment blocks merge approval until decided or removedatisfied by it), and it runs NO pre-commit interceptor veto (a plugin cannot veto a merge approval). Post-commit effects — SSE, watchers, dependency unblock, mission recalc, task-event hooks, and plugin POST-interceptors — run best-effort in-process, are not durable, and no effort or metric guarantee is claimed for them.
 
 **Settings authority (membership-scoped, no admin-role tier):** the allowlist is writable via `PATCH /habitats/:id`, and webhook secrets via `PUT /habitats/:id/webhook-secrets`, by any authenticated human JWT **that passes the shared habitat-access check** — on team habitats that means any team member (all team roles, no admin-role distinction); nonmembers (including global admins) receive `403`, and personal habitats admit any authenticated human. Configuring a webhook secret does not elevate or isolate settings authority beyond that membership. This is the same settings surface that already governed `taskPattern`/`autoApproveOnMerge`; no admin-only tier exists, and no admin-isolation property should be assumed. Admission is a request-time check — no transaction-atomic settings-revocation guarantee is added.
 

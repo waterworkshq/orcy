@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import { updateTaskFixtureForTests } from "./helpers/taskFixtures.js";
 import { getDb, closeDb, initTestDb } from "../db/index.js";
 import { eq } from "drizzle-orm";
 import * as habitatRepo from "../repositories/habitat.js";
@@ -284,7 +285,7 @@ describe("I2 Benchmark 3 — FailureBundle construction latency", () => {
       type: "claude-code",
       domain: "general",
     }).agent;
-    taskCrudRepo.updateTask(task.id, { assignedAgentId: agent.id });
+    updateTaskFixtureForTests(task.id, { assignedAgentId: agent.id });
 
     // Insert 25 lifecycle events (cap is 20, extras are dropped).
     for (let i = 0; i < 25; i++) {

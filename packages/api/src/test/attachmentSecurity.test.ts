@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { updateTaskFixtureForTests } from "./helpers/taskFixtures.js";
 import { initTestDb, closeDb } from '../db/index.js';
 import * as agentRepo from '../repositories/agent.js';
 import * as habitatRepo from '../repositories/habitat.js';
@@ -153,7 +154,7 @@ describe('Attachment Security', () => {
     });
 
     it('allows assigned agent to read attachment on assigned task', () => {
-      taskRepo.updateTask(taskId, { assignedAgentId: agent2Id });
+      updateTaskFixtureForTests(taskId, { assignedAgentId: agent2Id });
 
       const attachment = attachmentRepo.createAttachment({
         taskId,
@@ -226,7 +227,7 @@ describe('Attachment Security', () => {
     });
 
     it('allows assigned agent to delete', () => {
-      taskRepo.updateTask(taskId, { assignedAgentId: agent1Id });
+      updateTaskFixtureForTests(taskId, { assignedAgentId: agent1Id });
 
       const attachment = attachmentRepo.createAttachment({
         taskId,
@@ -389,7 +390,7 @@ describe('Attachment Security', () => {
     });
 
     it('assigned agent can delete attachment on their task', async () => {
-      taskRepo.updateTask(taskId, { assignedAgentId: agent1Id });
+      updateTaskFixtureForTests(taskId, { assignedAgentId: agent1Id });
 
       const attachment = attachmentRepo.createAttachment({
         taskId,
@@ -415,7 +416,7 @@ describe('Attachment Security', () => {
 
   describe('Download filename encoding — integration', () => {
     it('download uses safe Content-Disposition header', async () => {
-      taskRepo.updateTask(taskId, { assignedAgentId: agent1Id });
+      updateTaskFixtureForTests(taskId, { assignedAgentId: agent1Id });
 
       const attachment = attachmentRepo.createAttachment({
         taskId,

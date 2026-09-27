@@ -26,6 +26,9 @@
  *      action with `autoApproveOnMerge`) approves the linked task.
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import * as agentRepo from "../repositories/agent.js";
+import * as taskStateMachine from "../repositories/taskStateMachine.js";
+import { updateTaskFixtureForTests } from "./helpers/taskFixtures.js";
 import { createHmac } from "node:crypto";
 import { eq } from "drizzle-orm";
 import Fastify, { type FastifyInstance } from "fastify";
@@ -531,7 +534,19 @@ describe("feature-review end-to-end PR webhook trace", () => {
     const task = taskRepo.getTasksByMissionId(mission.id)[0];
     if (!task) throw new Error("task creation failed");
     // Transition it to submitted for the autoApprove path.
-    taskRepo.updateTask(task.id, { status: "submitted" });
+    // Review safety: a submitted fixture walks the genuine lifecycle
+    // (claim→start→submit) so the requirement captures known-zero and the
+    // signed merge gate legitimately applies.
+    {
+      const { agent } = agentRepo.createAgent({
+        name: `merge-e2e-${Math.random()}`,
+        type: "claude-code",
+        domain: "backend",
+      });
+      taskStateMachine.claimTask(task.id, agent.id);
+      taskStateMachine.startTask(task.id, agent.id);
+      taskStateMachine.submitTask(task.id, agent.id, "merge e2e fixture", []);
+    }
 
     // Configure with autoApproveOnMerge = true and a matching pattern.
     configureReviewSettings(habitatId, {

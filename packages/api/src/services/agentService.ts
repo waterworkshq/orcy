@@ -13,9 +13,10 @@ import type { BudgetActorType } from "./tasks/transitionBudget.js";
 import { habitatIdForTaskWithClient } from "./tasks/transitionBudget.js";
 import { requestEffectDeliveryPass } from "./effects/effectDeliverer.js";
 import { getDb } from "../db/index.js";
-import { tasks, agents } from "../db/schema/index.js";
+import { tasks, agents, taskReviewRequirements } from "../db/schema/index.js";
 import { eq, sql } from "drizzle-orm";
 import { createEventWithClient } from "../repositories/events/event-crud.js";
+import { getRequirementWithClient, endOwnershipWithClient } from "../repositories/reviewSafety.js";
 import { AgentDeletionBlockedError, conflict } from "../errors.js";
 import type { Agent, AgentStatus, Task } from "../models/index.js";
 import { logger } from "../lib/logger.js";
@@ -282,6 +283,81 @@ export function deleteAgent(
           })
           .where(eq(tasks.id, t.id))
           .run();
+
+        // Fixup-7: FULL intended-postimage verify of this writer's own
+        // effects before ANY review leg. This writer intends exactly:
+        // assignedAgentId=null, executionToken=null, updatedAt=now,
+        // version+1, and NOTHING else — status must be the unchanged
+        // terminal pre-image, the remote owner must be untouched, and every
+        // other field (lifecycle clocks, provenance pointers, metrics, retry)
+        // must equal the pre-image. Any deviation (skipped write, partial or
+        // injected rewrite) ABORTS the whole agent deletion.
+        const verifyRow = tx
+          .select()
+          .from(tasks)
+          .where(eq(tasks.id, t.id))
+          .get() as
+          | (typeof tasks.$inferSelect & {
+              updatedAt: string;
+            })
+          | undefined;
+        if (!verifyRow) {
+          throw conflict("Agent deletion aborted: terminal unassign verify lost the row; retry.", {
+            taskId: t.id,
+          });
+        }
+        const unassignNoop =
+          t.assignedAgentId === null && t.executionToken === null;
+        if (!unassignNoop) {
+          const unassignWon =
+            verifyRow.assignedAgentId === null &&
+            verifyRow.executionToken === null &&
+            verifyRow.status === t.status &&
+            verifyRow.remoteAssignedParticipantId === t.remoteAssignedParticipantId &&
+            verifyRow.lastFailureEventId === t.lastFailureEventId &&
+            verifyRow.lastReleaseEventId === t.lastReleaseEventId &&
+            verifyRow.lastActivityAt === t.lastActivityAt &&
+            verifyRow.nextRetryAt === t.nextRetryAt &&
+            verifyRow.rejectedCount === t.rejectedCount &&
+            verifyRow.rejectionReason === t.rejectionReason &&
+            verifyRow.completedAt === t.completedAt &&
+            verifyRow.claimedAt === t.claimedAt &&
+            verifyRow.startedAt === t.startedAt &&
+            verifyRow.submittedAt === t.submittedAt &&
+            verifyRow.actualMinutes === t.actualMinutes &&
+            verifyRow.cycleTimeMinutes === t.cycleTimeMinutes &&
+            verifyRow.leadTimeMinutes === t.leadTimeMinutes &&
+            verifyRow.estimationAccuracy === t.estimationAccuracy &&
+            verifyRow.version === t.version + 1;
+          if (!unassignWon) {
+            throw conflict("Agent deletion aborted: terminal unassign CAS lost; retry.", {
+              taskId: t.id,
+            });
+          }
+        }
+
+        // Review-safety custody ending (same tx) — UNCONDITIONAL on the task
+        // write's shape: a row whose current typed requirement claimant IS the
+        // deleted agent has its claimant/generation/override invalidated
+        // (baseline restored immediately) and its approval proof cleared —
+        // stale proof must never satisfy approved→done after deletion. When
+        // custody is already ambiguous (assignee set but requirement claimant
+        // absent/different) the contract's rule still applies: stay unknown,
+        // clear any stale proof, fabricate no typed custody. A pre-read no-op
+        // (custody already gone) does NOT introduce a skip path here: a
+        // matching claimant is still invalidated and stale proof is still
+        // cleared, exactly as when the write wins.
+        const requirement = getRequirementWithClient(tx, t.id);
+        if (requirement) {
+          if (requirement.claimantType === "local_agent" && requirement.claimantId === agentId) {
+            endOwnershipWithClient(tx, t.id, { advanceGeneration: true });
+          } else if (requirement.approvedGeneration !== null) {
+            tx.update(taskReviewRequirements)
+              .set({ approvedGeneration: null, updatedAt: now })
+              .where(eq(taskReviewRequirements.taskId, t.id))
+              .run();
+          }
+        }
       }
 
       // ── 6. Inbound delegation offers: clear + audit, owner unharmed ─────

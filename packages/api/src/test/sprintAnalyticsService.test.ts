@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { updateTaskFixtureForTests } from "./helpers/taskFixtures.js";
 import { eq } from "drizzle-orm";
 import { closeDb, getDb, initTestDb } from "../db/index.js";
 import {
@@ -61,7 +62,7 @@ function createTask(
 ) {
   const task = taskRepo.createTask({ missionId, title, createdBy: "user-1", estimatedMinutes });
   if (status !== "pending") {
-    taskRepo.updateTask(task.id, {
+    updateTaskFixtureForTests(task.id, {
       status: status as any,
       completedAt: status === "done" || status === "approved" ? new Date().toISOString() : null,
     });

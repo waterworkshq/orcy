@@ -6,6 +6,8 @@ import * as taskRepo from '../repositories/task.js';
 import * as missionRepo from '../repositories/mission.js';
 import * as reviewRuleRepo from '../repositories/reviewRule.js';
 import * as taskReviewerRepo from '../repositories/taskReviewer.js';
+import * as agentRepo from "../repositories/agent.js";
+import * as taskStateMachine from "../repositories/taskStateMachine.js";
 import { tasks, columns as columnsTable, habitats, users, teamMembers, teams, organizations } from '../db/schema/index.js';
 import { eq } from 'drizzle-orm';
 import {
@@ -53,6 +55,23 @@ function createTestTask(options?: { requiredDomain?: string | null; priority?: s
     priority: options?.priority as any,
     labels: options?.labels,
   });
+}
+
+/**
+ * Review safety: finality queries evaluate the DURABLE requirement — a
+ * never-claimed task stays `uncaptured` and can never finalize. Fixture
+ * claims the task through the kernel so the live rule captures (genuine
+ * generation + snapshot), then hands it back.
+ */
+function captureTestTask(task: ReturnType<typeof createTestTask>) {
+  const { agent } = agentRepo.createAgent({
+    name: `capture-${Math.random()}`,
+    type: 'claude-code',
+    domain: 'backend',
+  });
+  const res = taskStateMachine.claimTask(task.id, agent.id);
+  if (!res.success) throw new Error(`fixture claim failed: ${res.reason}`);
+  return res.task;
 }
 
 function setupTeamWithUsers(teamHabitatId: string, userNames: string[]) {
@@ -219,9 +238,12 @@ describe('approval tracking', () => {
   });
 
   it('records approval and tracks completion', () => {
-    const task = createTestTask();
+    // Review safety: the rule must exist BEFORE the claim so the kernel
+    // captures it (frozen snapshot); post-claim rule edits are future-facing.
+    const seeded = createTestTask();
     const { userIds } = setupTeamWithUsers(habitatId, ['alice']);
     reviewRuleRepo.create(habitatId, { name: 'Rule', assignmentStrategy: 'least_loaded', requiredReviews: 1 });
+    const task = captureTestTask(seeded);
     assignReviewers(task.id, habitatId);
 
     expect(hasAllRequiredApprovals(task.id)).toBe(false);
@@ -231,9 +253,10 @@ describe('approval tracking', () => {
   });
 
   it('requires all reviewers to approve', () => {
-    const task = createTestTask();
+    const seeded = createTestTask();
     const { userIds } = setupTeamWithUsers(habitatId, ['alice', 'bob']);
     reviewRuleRepo.create(habitatId, { name: 'Rule', assignmentStrategy: 'least_loaded', requiredReviews: 2 });
+    const task = captureTestTask(seeded);
     assignReviewers(task.id, habitatId);
 
     recordApproval(task.id, userIds[0]);

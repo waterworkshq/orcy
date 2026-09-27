@@ -32,6 +32,7 @@ import {
   taskCreationAssignmentReservations,
   missionRecalculationMarkers,
 } from "../db/schema/index.js";
+import { insertUncapturedRequirementWithClient } from "./reviewSafety.js";
 import { and, eq, isNull, max, sql } from "drizzle-orm";
 import type { CausalContext } from "@orcy/shared";
 import { v4 as uuid } from "uuid";
@@ -431,6 +432,11 @@ export function createTaskWithClient(
   } catch (err) {
     throw repositoryCreateError("task", err as Error, id);
   }
+
+  // Review-safety birth state (migration 0082): the kernel is the sole
+  // Task-creation path post-cutover, so the `uncaptured` requirement row is
+  // written on the SAME client — publication and requirement commit together.
+  insertUncapturedRequirementWithClient(db, id);
 
   if (rows.length > 0) return rows[0];
   // RETURNING empty (unreachable-in-production SQLite quirk): re-read on the

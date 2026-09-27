@@ -24,6 +24,8 @@
  *    decision; preserves creatable-by-authorized-humans status quo).
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import * as reviewFinality from "../services/reviewFinalityService.js";
+import { appendReviewDecisionWithClient, getRequirementWithClient } from "../repositories/reviewSafety.js";
 import { getDb, closeDb, initTestDb } from '../db/index.js';
 import * as agentRepo from '../repositories/agent.js';
 import * as habitatRepo from '../repositories/habitat.js';
@@ -265,13 +267,17 @@ describe('Agent review decisions — admission', () => {
     expect(result.allowed).toBe(false);
   });
 
-  it('agent whose row is already approved (not pending) is denied — agent decisions are pending-only', () => {
+  it('agent whose row is RAW-approved without decision evidence ADMITS a fresh decision (uncredited legacy evidence)', () => {
+    // Review-safety cutover: a raw approved row with NO generation-tagged
+    // decision is uncredited historical evidence — its slot projects PENDING
+    // and admits a fresh eligible decision (never auto-credits). Denial now
+    // keys on DECIDED slots, which the service layer enforces.
     const row = taskReviewerRepo.create(board.taskId, 'agent', reviewerId);
     taskReviewerRepo.updateStatus(row.id, 'approved');
     const result = authorizeTaskAction(task, { type: 'agent', id: reviewerId }, 'approve', {
       hasPendingAgentReviewerRow: pendingAgentEligibility(board.taskId),
     });
-    expect(result.allowed).toBe(false);
+    expect(result.allowed).toBe(true);
   });
 
   it('offline agent reviewer remains admissible — status is not a validity criterion', () => {
@@ -393,12 +399,17 @@ describe('Agent review decisions — typed predicates and human parity', () => {
     expect(taskRepo.getTaskById(board.taskId)!.status).toBe('submitted');
   });
 
-  it('agent re-approve of an already-approved row is refused (pending-only for agents)', () => {
+  it('agent re-approve of an already-DECIDED slot is idempotent (human parity; pending-projection admission)', () => {
+    // Review-safety cutover: the decided slot projects approved — a repeated
+    // approval records nothing new and re-evaluates finality idempotently,
+    // exactly like the human path below. A CURRENT-ROUND REJECTED slot still
+    // refuses agents (pending-projection admission); that matrix is covered
+    // in reviewSafetyFinality.test.ts.
     taskReviewerRepo.create(board.taskId, 'agent', reviewerId);
     expect(taskService.approveTask(board.taskId, reviewerId, 'agent')).not.toBeNull();
     reopenForReview(board.taskId);
     const second = taskService.approveTask(board.taskId, reviewerId, 'agent');
-    expect(second).toBeNull();
+    expect(second).not.toBeNull();
   });
 
   it('human idempotent re-approve is preserved', () => {
@@ -504,9 +515,11 @@ describe('Terminal transition integrity — CAS/rowcount surfacing', () => {
 
   afterEach(() => closeDb());
 
-  it('repo approveTask returns null when the conditional UPDATE matches no row', () => {
+  it('the guarded approval service returns null when the terminal CAS matches no row', () => {
     getDb().update(tasks).set({ status: 'rejected' }).where(eq(tasks.id, board.taskId)).run();
-    expect(taskRepo.approveTask(board.taskId)).toBeNull();
+    // Review safety: no raw terminal primitive exists — the service's own
+    // reservation refuses a non-submitted row (lost CAS surfaces as null).
+    expect(taskService.approveTask(board.taskId, reviewerId, 'agent')).toBeNull();
   });
 
   it('repo rejectTask returns null when the conditional UPDATE matches no row', () => {
@@ -624,31 +637,44 @@ describe('F1 — task.review_completed emission gating (service/event seam)', ()
     }
   });
 
-  it('an unrecorded gate outcome (recorded=false, no veto/refusal) emits NO task.review_completed', () => {
-    // Service/event seam: force the gate's unrecorded outcome — the row-vanish
-    // race between the gate's recheck and recordApproval that the in-tx write
-    // lock makes practically unreachable, driven here so the suppression is
-    // directly discriminated (deleting the `gateResult.recorded` guard in
-    // approveTask's deferred publish must turn this RED).
+  it('a refused reservation outcome emits NO task.review_completed', () => {
+    // Service/event seam (review-safety cutover): the one-reservation service
+    // owns admission; a refused outcome (e.g. the row-vanish race) must never
+    // announce completion. Driving the refused outcome directly keeps the
+    // suppression discriminated (deleting the outcome gate in approveTask's
+    // publish must turn this RED).
     taskReviewerRepo.create(board.taskId, 'agent', reviewerId);
     collectSse();
     const gateSpy = vi
-      .spyOn(reviewAssignment, 'recordApprovalWithFinalityGate')
-      .mockReturnValue({ recorded: false, wasFinal: true, veto: null });
+      .spyOn(reviewFinality, 'approveWithReservation')
+      .mockReturnValue({ outcome: 'refused', reason: 'not_assigned' });
     try {
       const result = taskService.approveTask(board.taskId, reviewerId, 'agent');
-      expect(result).not.toBeNull(); // the terminal write itself can still land
+      expect(result).toBeNull();
       expect(reviewCompleted()).toHaveLength(0);
     } finally {
       gateSpy.mockRestore();
     }
   });
 
-  it('an admission-refused gate outcome (refusedFor) emits NO task.review_completed', () => {
-    // Agent row already decided: the gate refuses in-transaction (not_pending)
-    // — no reviewer-row write, so no completion event.
+  it('a current-round rejected slot refuses agents and emits NO task.review_completed', () => {
+    // Review safety: a decided (current-round rejected) slot does not admit
+    // an agent decision — no reviewer-row write, no completion event.
     const row = taskReviewerRepo.create(board.taskId, 'agent', reviewerId);
-    taskReviewerRepo.updateStatus(row.id, 'approved');
+    void row;
+    const requirement = getRequirementWithClient(getDb(), board.taskId);
+    if (requirement) {
+      appendReviewDecisionWithClient(getDb(), {
+        taskId: board.taskId,
+        reviewGeneration: requirement.reviewGeneration,
+        reviewRound: requirement.reviewRound,
+        reviewerType: 'agent',
+        reviewerId,
+        decision: 'rejected',
+        actorType: 'agent',
+        actorId: reviewerId,
+      });
+    }
     collectSse();
     const result = taskService.approveTask(board.taskId, reviewerId, 'agent');
     expect(result).toBeNull();
@@ -670,15 +696,15 @@ describe('F2 — rejectTask in-transaction pending agent row requirement (servic
 
   afterEach(() => closeDb());
 
-  it('agent with an APPROVED row cannot reject at the service seam (in-tx pending recheck)', () => {
+  it('agent with a RAW-approved row (no generation decision) CAN reject — the pending projection admits a fresh decision', () => {
     const row = taskReviewerRepo.create(board.taskId, 'agent', reviewerId);
     taskReviewerRepo.updateStatus(row.id, 'approved');
     // Reopen the review window: task submitted, row already decided.
     reopenForReview(board.taskId);
 
     const rejected = taskService.rejectTask(board.taskId, reviewerId, 'late change of mind', 'agent');
-    expect(rejected).toBeNull();
-    expect(taskRepo.getTaskById(board.taskId)!.status).toBe('submitted');
+    expect(rejected).not.toBeNull();
+    expect(taskRepo.getTaskById(board.taskId)!.status).toBe('rejected');
   });
 
   it('agent with a PENDING row CAN reject at the service seam (positive control)', () => {

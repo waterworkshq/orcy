@@ -221,8 +221,11 @@ describe('Task Lifecycle Authorization', () => {
     });
 
     it('agent holding a pending typed reviewer row can approve task', () => {
-      taskReviewerRepo.create(claimedTask.id, 'agent', agent1Id);
-      const principal: Principal = { type: 'agent', id: agent1Id };
+      // Review safety: agent1 is the task's current EXECUTOR (claimant) — its
+      // own reviewer slot is ineligible (typed anti-self), so the admissible
+      // reviewer is a different agent (agent2).
+      taskReviewerRepo.create(claimedTask.id, 'agent', agent2Id);
+      const principal: Principal = { type: 'agent', id: agent2Id };
       const result = authorizeTaskAction(claimedTask, principal, 'approve', {
         hasPendingAgentReviewerRow: reviewAssignment.hasPendingAgentReviewerRow,
       });
@@ -241,8 +244,10 @@ describe('Task Lifecycle Authorization', () => {
     });
 
     it('agent holding a pending typed reviewer row can reject task', () => {
-      taskReviewerRepo.create(claimedTask.id, 'agent', agent1Id);
-      const principal: Principal = { type: 'agent', id: agent1Id };
+      // Review safety: same typed anti-self shape as approve — agent2 is the
+      // admissible independent reviewer (agent1 holds the claim).
+      taskReviewerRepo.create(claimedTask.id, 'agent', agent2Id);
+      const principal: Principal = { type: 'agent', id: agent2Id };
       const result = authorizeTaskAction(claimedTask, principal, 'reject', {
         hasPendingAgentReviewerRow: reviewAssignment.hasPendingAgentReviewerRow,
       });

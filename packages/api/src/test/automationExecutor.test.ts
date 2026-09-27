@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import { updateTaskFixtureForTests } from "./helpers/taskFixtures.js";
 const dnsState = vi.hoisted(() => ({ v4: ["93.184.216.34"], v6: [] as string[] }));
 vi.mock("node:dns", () => ({
   promises: {
@@ -215,7 +216,7 @@ describe("automationExecutor", () => {
         title: "Test Task",
         createdBy: "user-1",
       });
-      const updated = taskRepo.updateTask(task.id, { assignedAgentId: agent.id });
+      const updated = updateTaskFixtureForTests(task.id, { assignedAgentId: agent.id });
       const assigned = updated && "task" in updated ? updated.task : task;
 
       subscriptionRepo.createSubscription({
@@ -708,7 +709,7 @@ describe("automationExecutor", () => {
         title: "Test Task",
         createdBy: "user-1",
       });
-      const updated = taskRepo.updateTask(task.id, { assignedAgentId: agent.id });
+      const updated = updateTaskFixtureForTests(task.id, { assignedAgentId: agent.id });
       const assigned = updated && "task" in updated ? updated.task : task;
 
       const rule = buildRule(habitat.id, {
@@ -800,7 +801,7 @@ describe("attemptRuleRun (canonical lifecycle — formerly executeAndRecordRuleR
       title: "Test Task",
       createdBy: "user-1",
     });
-    taskRepo.updateTask(task.id, { assignedAgentId: agent.id });
+    updateTaskFixtureForTests(task.id, { assignedAgentId: agent.id });
 
     ruleRepo.createAutomationRule({
       habitatId: h.id,

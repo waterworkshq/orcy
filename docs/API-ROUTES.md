@@ -568,6 +568,8 @@
 | POST | `/tasks/:param/reject` | `local_actor` | current + deprecated twin |
 | POST | `/tasks/:param/release` | `agent` | current + deprecated twin |
 | POST | `/tasks/:param/retry` | `agent` | current + deprecated twin |
+| GET | `/tasks/:param/review-requirement` | `human` | current + deprecated twin |
+| POST | `/tasks/:param/review-requirement/resolve` | `human` | current + deprecated twin |
 | GET | `/tasks/:param/reviewers` | `local_actor` | current + deprecated twin |
 | POST | `/tasks/:param/reviewers` | `human` | current + deprecated twin |
 | DELETE | `/tasks/:param/reviewers/:param` | `human` | current + deprecated twin |
@@ -656,4 +658,4 @@
 
 ---
 
-Total operations (generated HEAD and framework preflight excluded; twins deduplicated): 470 across 36 families.
+Total operations (generated HEAD and framework preflight excluded; twins deduplicated): 472 across 36 families.

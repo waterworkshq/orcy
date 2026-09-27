@@ -235,11 +235,26 @@ describe("release-pointer census (acceptance 15, grep-verifiable)", () => {
       .split("export function releaseTaskByRemoteParticipant(")[1]!
       .split("export function claimDelegatedTask")[0]!;
     expect(remoteFn).toContain("lastReleaseEventId: null");
-    // Terminal writes clear both provenance pointers (symmetry).
-    for (const fn of ["approveTask", "markTaskDone", "rejectTask"]) {
+    // Terminal writes clear both provenance pointers (symmetry). Fixup-4
+    // removed the raw exported terminal primitives: the approve/done CAS now
+    // lives as module-private closures in the authoritative service, and the
+    // remaining exported terminal-ish writer (rejectTask) stays here.
+    for (const fn of ["rejectTask"]) {
       const body = text.split(`export function ${fn}(`)[1]!.split("export function")[0]!;
       expect(body).toContain("lastReleaseEventId: null");
     }
+    // The private terminal CAS closures (finality service) clear both pointers.
+    const finality = src("services/reviewFinalityService.ts");
+    for (const fn of ["terminalApproveCas", "terminalDoneCas"]) {
+      const body = finality.split(`function ${fn}(`)[1]!.split("function ")[0]!;
+      expect(body).toContain("lastReleaseEventId: null");
+      expect(body).toContain("lastFailureEventId: null");
+    }
+    // The signed merge CAS (webhook trust boundary) clears both pointers.
+    const merge = src("services/webhooks/mergeApproval.ts");
+    const mergeBody = merge.split("function mergeTerminalApproveCas(")[1]!.split("function ")[0]!;
+    expect(mergeBody).toContain("lastReleaseEventId: null");
+    expect(mergeBody).toContain("lastFailureEventId: null");
   });
 
   it("releaseTaskForRemote's SEPARATE inline release tx clears in its own tx", () => {
@@ -247,13 +262,21 @@ describe("release-pointer census (acceptance 15, grep-verifiable)", () => {
     expect(text).toContain("lastReleaseEventId: null");
   });
 
-  it("executeRetry and escalateToHuman clear the pointer with the failure pointer", () => {
-    const text = src("services/retryService.ts");
-    expect(text.split("export function executeRetry")[1]!.split("export function")[0]!).toContain(
-      "lastReleaseEventId: null",
-    );
+  it("the retry ladder's dedicated writers clear the pointer with the failure pointer", () => {
+    // Review-safety cutover: executeRetry/escalateToHuman moved their
+    // privileged status/assignee writes to the dedicated immediate retry
+    // writers in taskStateMachine (beside the requirement ownership-end
+    // normalization); the pointer-clearing contract moved with them.
+    const text = src("repositories/taskStateMachine.ts");
     expect(
-      text.split("export function escalateToHuman")[1]!.split("export function")[0]!,
+      text
+        .split("export function retryTransitionToPendingWithEffects")[1]!
+        .split("export function")[0]!,
+    ).toContain("lastReleaseEventId: null");
+    expect(
+      text
+        .split("export function retryEscalateClearOwnerWithEffects")[1]!
+        .split("export function")[0]!,
     ).toContain("lastReleaseEventId: null");
   });
 

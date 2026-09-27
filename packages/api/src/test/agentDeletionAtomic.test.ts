@@ -21,6 +21,7 @@
  *     auto-removed (known retained limitation).
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import { updateTaskFixtureForTests } from "./helpers/taskFixtures.js";
 import Fastify, { type FastifyInstance } from "fastify";
 import { validatorCompiler, serializerCompiler } from "fastify-type-provider-zod";
 import jwt from "jsonwebtoken";
@@ -321,7 +322,7 @@ describe("atomic agent deletion", () => {
         const t = makeTask(`${status}-task`);
         expect(taskStateMachine.claimTask(t.id, a.agent.id).success).toBe(true);
         // submitTask/rejectTask retain the assignee by design — mirror that shape.
-        taskRepo.updateTask(t.id, { status, assignedAgentId: a.agent.id });
+        updateTaskFixtureForTests(t.id, { status, assignedAgentId: a.agent.id });
 
         const before = taskRow(t.id)!;
         const res = await adminDelete(a.agent.id);
@@ -401,7 +402,7 @@ describe("atomic agent deletion", () => {
         expect(taskStateMachine.claimTask(t.id, a.agent.id).success).toBe(true);
         // Legacy/terminal shapes: assignee retained (markTaskDone/reject residue,
         // legacy pending-assigned anomaly), status set directly.
-        taskRepo.updateTask(t.id, { status, assignedAgentId: a.agent.id });
+        updateTaskFixtureForTests(t.id, { status, assignedAgentId: a.agent.id });
         const tokenBefore = taskRow(t.id)!.executionToken;
         const historyBefore = getDb()
           .select({ id: taskEvents.id })
@@ -496,7 +497,7 @@ describe("atomic agent deletion", () => {
       const done = makeTask("at-del-2");
       expect(taskStateMachine.claimTask(claimed.id, a.agent.id).success).toBe(true);
       expect(taskStateMachine.claimTask(done.id, a.agent.id).success).toBe(true);
-      taskRepo.updateTask(done.id, { status: "done", assignedAgentId: a.agent.id });
+      updateTaskFixtureForTests(done.id, { status: "done", assignedAgentId: a.agent.id });
 
       FAIL.deleteThrow = true;
       const res = await adminDelete(a.agent.id);

@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { updateTaskFixtureForTests } from "./helpers/taskFixtures.js";
 import { closeDb, initTestDb, getDb } from '../db/index.js';
 import * as habitatRepo from '../repositories/habitat.js';
 import * as columnRepo from '../repositories/column.js';
@@ -87,7 +88,7 @@ describe('Integration: Mission Lifecycle', () => {
     approveTask(task1.id, 'reviewer');
     approveTask(task2.id, 'reviewer');
 
-    taskRepo.updateTask(task1.id, { status: 'done' });
+    updateTaskFixtureForTests(task1.id, { status: 'done' });
     missionService.recalculateMissionStatus(mission.id);
 
     const updatedMission = missionRepo.getMissionById(mission.id)!;

@@ -1,10 +1,11 @@
 import { getDb } from "../db/index.js";
 import { tasks } from "../db/schema/index.js";
-import { eq, and, inArray, sql } from "drizzle-orm";
+import { eq, and, inArray, isNull, sql } from "drizzle-orm";
 import type { Task, Artifact } from "../models/index.js";
 import { repositoryTransactionError } from "../errors/repository.js";
 import { ExecutionEpochMismatchError } from "../errors.js";
 import { getTaskById } from "./taskCrud.js";
+import { endOwnershipWithClient, stampApprovedGenerationWithClient } from "./reviewSafety.js";
 import {
   claimWithAuthority,
   progressWithAuthority,
@@ -158,6 +159,12 @@ export function claimTaskByRemoteParticipant(
  * Phase D — submit a task claimed by a remote participant. Mirrors
  * `submitTask` but checks `remote_assigned_participant_id` instead of
  * `assigned_agent_id`.
+ *
+ * Fixup-4 sibling census: NOT an ownership end — the claimant fencing
+ * (status = in_progress AND remoteAssignedParticipantId = caller, version
+ * CAS) means only the current owner can submit, and finality remains gated
+ * downstream by the one-reservation finality service. No review invalidation
+ * is due on this path; left unchanged after verification.
  */
 export function submitTaskByRemoteParticipant(
   taskId: string,
@@ -268,33 +275,76 @@ export function releaseTaskByRemoteParticipant(
   taskId: string,
   remoteParticipantId: string,
 ): Task | null {
+  // Fixup-4 blocker 3 (sibling): the raw remote release now runs under ONE
+  // immediate writer reservation with the SAME ownership-end invalidation as
+  // every guarded release (review claimant/proof cleared, override expired
+  // with immediate baseline restore, generation advanced once). Token and
+  // provenance-pointer clears preserve the existing release contract; a lost
+  // CAS returns null with zero writes.
   const db = getDb();
   const now = new Date().toISOString();
 
-  const task = getTaskById(taskId);
-  if (!task) return null;
-  if (
-    (task.status !== "claimed" && task.status !== "in_progress") ||
-    task.remoteAssignedParticipantId !== remoteParticipantId
-  ) {
-    return null;
-  }
+  return db.transaction(
+    (tx) => {
+      type TaskRow = typeof tasks.$inferSelect;
+      const row = tx.select().from(tasks).where(eq(tasks.id, taskId)).get() as TaskRow | undefined;
+      if (!row) return null;
+      if (
+        (row.status !== "claimed" && row.status !== "in_progress") ||
+        row.remoteAssignedParticipantId !== remoteParticipantId
+      ) {
+        return null;
+      }
 
-  db.update(tasks)
-    .set({
-      remoteAssignedParticipantId: null,
-      status: "pending",
-      claimedAt: null,
-      executionToken: null,
-      lastFailureEventId: null,
-      lastReleaseEventId: null,
-      updatedAt: now,
-      version: sql`${tasks.version} + 1`,
-    })
-    .where(and(eq(tasks.id, taskId), eq(tasks.remoteAssignedParticipantId, remoteParticipantId)))
-    .run();
+      tx.update(tasks)
+        .set({
+          remoteAssignedParticipantId: null,
+          status: "pending",
+          claimedAt: null,
+          executionToken: null,
+          lastFailureEventId: null,
+          lastReleaseEventId: null,
+          updatedAt: now,
+          version: sql`${tasks.version} + 1`,
+        })
+        .where(
+          and(
+            eq(tasks.id, taskId),
+            // Fixup-5: winning predicate — the re-read participant in a
+            // releasable status (partial/skipped writes match 0 rows).
+            inArray(tasks.status, ["claimed", "in_progress"]),
+            eq(tasks.remoteAssignedParticipantId, remoteParticipantId),
+          ),
+        )
+        .run();
 
-  return getTaskById(taskId);
+      // Fixup-5: cross-backend WINNING-POSTIMAGE verify — full intended
+      // postimage before any invalidation; skipped/partial write throws and
+      // rolls back BOTH legs; a legitimate already-released row is a no-op.
+      const verify = tx.select().from(tasks).where(eq(tasks.id, taskId)).get() as
+        | TaskRow
+        | undefined;
+      if (!verify) return null;
+      const fullPostimage =
+        verify.status === "pending" &&
+        verify.remoteAssignedParticipantId === null &&
+        verify.assignedAgentId === null &&
+        verify.executionToken === null &&
+        verify.lastFailureEventId === null &&
+        verify.lastReleaseEventId === null &&
+        verify.version > row.version;
+      if (!fullPostimage) {
+        // Fixup-6: no post-write no-op classification — a partial rewrite
+        // (e.g. pending with a NEW local assignee) or a skipped write rolls
+        // back. Genuine no-ops are classified on the PRE-WRITE gate above.
+        throw new Error("remote_release_lost_cas_rollback");
+      }
+
+      endOwnershipWithClient(tx, taskId, { advanceGeneration: true });
+      return verify as unknown as Task;
+    },
+    { behavior: "immediate" },
+  );
 }
 
 export function claimDelegatedTask(
@@ -442,6 +492,12 @@ export function releaseTask(
         .where(
           and(
             eq(tasks.id, taskId),
+            // Fixup-5: winning predicate — only the re-read owner in a
+            // releasable status transitions (partial/skipped writes match 0).
+            inArray(tasks.status, ["claimed", "in_progress"]),
+            row.assignedAgentId === null
+              ? isNull(tasks.assignedAgentId)
+              : eq(tasks.assignedAgentId, row.assignedAgentId),
             ...(expectedExecutionToken !== undefined
               ? [epochGuardSql(expectedExecutionToken)]
               : []),
@@ -449,91 +505,230 @@ export function releaseTask(
         )
         .run();
 
-      const updated = tx.select().from(tasks).where(eq(tasks.id, taskId)).get() as
+      // Fixup-5: cross-backend WINNING-POSTIMAGE verify (sql.js exposes no
+      // {changes}) — the FULL intended postimage: status pending, BOTH
+      // assignment columns NULL, token + both provenance pointers NULL,
+      // version moved past the pre-image. A skipped/partial write throws and
+      // rolls back BOTH legs; a legitimate pre-existing already-released row
+      // is a true no-op (returns the row, NO invalidation, no error).
+      const verify = tx.select().from(tasks).where(eq(tasks.id, taskId)).get() as
         | TaskRow
         | undefined;
-      if (!updated) return null;
-      return updated as unknown as Task;
+      if (!verify) return null;
+      const wonRelease =
+        verify.status === "pending" &&
+        verify.assignedAgentId === null &&
+        verify.remoteAssignedParticipantId === null &&
+        verify.executionToken === null &&
+        verify.lastFailureEventId === null &&
+        verify.lastReleaseEventId === null &&
+        verify.version > row.version;
+      if (!wonRelease) {
+        // Fixup-6: after an ATTEMPTED write there is no no-op branch — any
+        // deviation from the full intended postimage (skipped write, PARTIAL
+        // rewrite, foreign shape) rolls the whole reservation back. A genuine
+        // no-op is classified ONCE, on the PRE-WRITE read above, which never
+        // attempts a write.
+        throw new Error("release_lost_cas_rollback");
+      }
+
+      // Review-safety ownership end (same immediate tx): clear typed claimant
+      // and approval proof, expire any active override restoring the baseline,
+      // advance the generation once when an owner actually ended.
+      endOwnershipWithClient(tx, taskId, {
+        advanceGeneration: row.assignedAgentId !== null || row.remoteAssignedParticipantId !== null,
+      });
+      return verify as unknown as Task;
     },
     { behavior: "immediate" },
   );
 }
 
-export function failTask(taskId: string, _reason: string): Task | null {
+/**
+ * RAW failTask — REMOVED from the production surface (fixup-4 blocker 3).
+ * The exported primitive could not carry the actor/epoch authority the real
+ * failure contract (failTaskWithEffects act-tx: epoch validation, budget,
+ * receipts, provenance pointers) requires, and it ended ownership without
+ * review invalidation. Production failure runs exclusively through
+ * `services/tasks/task-lifecycle.ts` failTask → failTaskWithEffects.
+ */
+
+
+// ---------------------------------------------------------------------------
+// Dedicated immediate retry writer (review-safety cutover)
+// ---------------------------------------------------------------------------
+
+/**
+ * The retry ladder's privileged transition — the ONLY sanctioned writer for
+ * the failed→pending retry reset outside the guarded lifecycle. One BEGIN
+ * IMMEDIATE owns: the status/assignee/token/pointer reset, the review-safety
+ * ownership-end normalization (claimant/proof cleared, any active override
+ * expired with immediate baseline restore), and the generation advance ONLY
+ * when the pre-image row still carried an owner (a failed task's owner
+ * already ended at the fail act-tx — a no-op escalation never manufactures a
+ * generation or a known-zero).
+ */
+export function retryTransitionToPendingWithEffects(taskId: string, newRetryCount: number): Task | null {
   const db = getDb();
   const now = new Date().toISOString();
 
-  const task = getTaskById(taskId);
-  if (!task) return null;
-  if (task.status !== "in_progress" && task.status !== "claimed") return null;
+  return db.transaction(
+    (tx) => {
+      type TaskRow = typeof tasks.$inferSelect;
+      const row = tx.select().from(tasks).where(eq(tasks.id, taskId)).get() as TaskRow | undefined;
+      if (!row) return null;
 
-  db.update(tasks)
-    .set({
-      status: "failed",
-      assignedAgentId: null,
-      completedAt: now,
-      executionToken: null,
-      lastFailureEventId: null,
-      lastReleaseEventId: null,
-      updatedAt: now,
-      version: sql`${tasks.version} + 1`,
-    })
-    .where(eq(tasks.id, taskId))
-    .run();
+      // Fixup-8 (Sol-adjudicated): retry-to-pending is a CUSTODY-ENDING
+      // transition for EITHER claimant kind. The write clears BOTH owner
+      // columns atomically; the review invalidation advances the generation
+      // exactly once iff EITHER preimage owner column was present.
+      //
+      // The ONLY no-op classification is PRE-WRITE, on the writer's FULL
+      // intended reset shape (both owners null, token + both provenance
+      // pointers null, rejectionReason/nextRetryAt null, retryCount already
+      // current): a genuinely complete clean row attempts NO UPDATE (version
+      // untouched, no generation change, no invalidation). Any stale field —
+      // including a stale execution token on an otherwise-clean pending row —
+      // means real work and the write runs.
+      const alreadyClean =
+        row.status === "pending" &&
+        row.assignedAgentId === null &&
+        row.remoteAssignedParticipantId === null &&
+        row.executionToken === null &&
+        row.lastFailureEventId === null &&
+        row.lastReleaseEventId === null &&
+        row.rejectionReason === null &&
+        row.nextRetryAt === null &&
+        row.retryCount === newRetryCount;
+      if (alreadyClean) {
+        return row as unknown as Task;
+      }
 
-  return getTaskById(taskId);
+      tx.update(tasks)
+        .set({
+          status: "pending",
+          assignedAgentId: null,
+          remoteAssignedParticipantId: null,
+          rejectionReason: null,
+          retryCount: newRetryCount,
+          nextRetryAt: null,
+          executionToken: null,
+          lastFailureEventId: null,
+          lastReleaseEventId: null,
+          updatedAt: now,
+          version: sql`${tasks.version} + 1`,
+        })
+        .where(eq(tasks.id, taskId))
+        .run();
+
+      // Fixup-8: after an ATTEMPTED write there is no no-op fallback — the
+      // FULL intended postimage (both owners NULL, every cleared field clean,
+      // exact retry count, version moved) or the whole reservation rolls
+      // back; a skipped or partially rewritten write never returns success.
+      const verify = tx.select().from(tasks).where(eq(tasks.id, taskId)).get() as
+        | TaskRow
+        | undefined;
+      if (!verify) return null;
+      const intendedPostimage =
+        verify.status === "pending" &&
+        verify.assignedAgentId === null &&
+        verify.remoteAssignedParticipantId === null &&
+        verify.executionToken === null &&
+        verify.lastFailureEventId === null &&
+        verify.lastReleaseEventId === null &&
+        verify.rejectionReason === null &&
+        verify.nextRetryAt === null &&
+        verify.retryCount === newRetryCount &&
+        verify.version > row.version;
+      if (!intendedPostimage) {
+        throw new Error("retry_transition_lost_cas_rollback");
+      }
+
+      endOwnershipWithClient(tx, taskId, {
+        advanceGeneration:
+          row.assignedAgentId !== null || row.remoteAssignedParticipantId !== null,
+      });
+      return verify as unknown as Task;
+    },
+    { behavior: "immediate" },
+  );
 }
 
-export function approveTask(taskId: string): Task | null {
+/**
+ * The retry ladder's escalation clear (status stays `failed`): clears the
+ * owner pointer/next-retry and runs the same review-safety normalization.
+ * No-op when the row's owner is already gone.
+ */
+export function retryEscalateClearOwnerWithEffects(taskId: string): Task | null {
   const db = getDb();
   const now = new Date().toISOString();
 
-  const runResult = db
-    .update(tasks)
-    .set({
-      status: "approved",
-      completedAt: now,
-      executionToken: null,
-      lastFailureEventId: null,
-      lastReleaseEventId: null,
-      updatedAt: now,
-      version: sql`${tasks.version} + 1`,
-    })
-    .where(and(eq(tasks.id, taskId), eq(tasks.status, "submitted")))
-    .run();
+  return db.transaction(
+    (tx) => {
+      type TaskRow = typeof tasks.$inferSelect;
+      const row = tx.select().from(tasks).where(eq(tasks.id, taskId)).get() as TaskRow | undefined;
+      if (!row) return null;
 
-  // Terminal-write CAS: a conditional UPDATE that matched zero rows means the
-  // task left `submitted` under us — that is a LOST transition, not success.
-  // Never treat a refetched non-null task as proof this write landed. The
-  // changes field exists on better-sqlite3 ({changes:N}); sql.js may not
-  // report it (undefined), so the refetched status is the cross-backend
-  // verification: a task that is not `approved` after this UPDATE did not
-  // transition through it.
-  const changes = (runResult as { changes?: number } | undefined)?.changes;
-  const updated = getTaskById(taskId);
-  if (changes === 0) return null;
-  if (!updated || updated.status !== "approved") return null;
-  return updated;
-}
+      // Fixup-8 (Sol-adjudicated): exhausted escalation is a CUSTODY-ENDING
+      // transition for EITHER claimant kind. The write clears BOTH owner
+      // columns (status stays failed); the review invalidation advances the
+      // generation exactly once iff EITHER preimage owner column was present.
+      // A genuine no-op is classified PRE-WRITE (nothing to clear): no
+      // UPDATE is attempted.
+      const nothingNeededClearing =
+        row.assignedAgentId === null &&
+        row.remoteAssignedParticipantId === null &&
+        row.executionToken === null &&
+        row.lastFailureEventId === null &&
+        row.lastReleaseEventId === null &&
+        row.nextRetryAt === null;
+      if (nothingNeededClearing) {
+        return row as unknown as Task;
+      }
 
-export function markTaskDone(taskId: string): Task | null {
-  const db = getDb();
-  const now = new Date().toISOString();
+      tx.update(tasks)
+        .set({
+          assignedAgentId: null,
+          remoteAssignedParticipantId: null,
+          nextRetryAt: null,
+          executionToken: null,
+          lastFailureEventId: null,
+          lastReleaseEventId: null,
+          updatedAt: now,
+          version: sql`${tasks.version} + 1`,
+        })
+        .where(eq(tasks.id, taskId))
+        .run();
 
-  db.update(tasks)
-    .set({
-      status: "done",
-      completedAt: now,
-      executionToken: null,
-      lastFailureEventId: null,
-      lastReleaseEventId: null,
-      updatedAt: now,
-      version: sql`${tasks.version} + 1`,
-    })
-    .where(and(eq(tasks.id, taskId), inArray(tasks.status, ["submitted", "approved"])))
-    .run();
+      // Fixup-8: after an ATTEMPTED write there is no no-op fallback — the
+      // FULL intended postimage (status unchanged failed, BOTH owners NULL,
+      // token + both provenance pointers + nextRetryAt cleared, version
+      // moved) or the whole reservation rolls back.
+      const verify = tx.select().from(tasks).where(eq(tasks.id, taskId)).get() as
+        | TaskRow
+        | undefined;
+      if (!verify) return null;
+      const postimageOk =
+        verify.status === row.status && // escalation never changes status
+        verify.assignedAgentId === null &&
+        verify.remoteAssignedParticipantId === null &&
+        verify.executionToken === null &&
+        verify.lastFailureEventId === null &&
+        verify.lastReleaseEventId === null &&
+        verify.nextRetryAt === null &&
+        verify.version > row.version;
+      if (!postimageOk) {
+        throw new Error("retry_escalation_lost_cas_rollback");
+      }
 
-  return getTaskById(taskId);
+      endOwnershipWithClient(tx, taskId, {
+        advanceGeneration:
+          row.assignedAgentId !== null || row.remoteAssignedParticipantId !== null,
+      });
+      return verify as unknown as Task;
+    },
+    { behavior: "immediate" },
+  );
 }
 
 export function rejectTask(taskId: string, reason: string): Task | null {

@@ -68,12 +68,14 @@ export function calculateAndSetCompletionMetrics(taskId: string): void {
 
   const effortMetrics = effortRepo.getPersistedEffortMetricsForTask(taskId, task.estimatedMinutes);
 
+  // completedAt is owned by the guarded terminal writers (approveTask /
+  // markTaskDone / failTask stamp it at the transition itself, before this
+  // recalculation runs) — the generic update carries metrics only.
   taskRepo.updateTask(taskId, {
     actualMinutes: effortMetrics.actualMinutes,
     cycleTimeMinutes,
     leadTimeMinutes,
     estimationAccuracy: effortMetrics.estimationAccuracy,
-    completedAt: now,
   });
 
   timeRepo.recalculateMissionMetrics(task.missionId);
