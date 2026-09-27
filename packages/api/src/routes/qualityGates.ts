@@ -4,6 +4,7 @@ import * as qualityRepo from '../repositories/qualityGate.js';
 import * as taskRepo from '../repositories/task.js';
 import { notFound, badRequest } from '../errors.js';
 import { applyDeclaredAuthPolicies } from "../authPolicy.js";
+import { authorizeTaskAccess } from "../middleware/realtimeAuth.js";
 
 export async function qualityGateRoutes(fastify: FastifyInstance): Promise<void> {
   applyDeclaredAuthPolicies(fastify);
@@ -12,10 +13,7 @@ export async function qualityGateRoutes(fastify: FastifyInstance): Promise<void>
     '/tasks/:id/quality-checklist',
     { config: { authPolicy: 'local_actor' } },
     async (request: FastifyRequest<{ Params: { id: string } }>, _reply: FastifyReply) => {
-      const task = taskRepo.getTaskById(request.params.id);
-      if (!task) {
-        throw notFound('Task not found');
-      }
+      await authorizeTaskAccess(request, request.params.id);
       return qualityGateService.getQualityReport(request.params.id);
     }
   );
@@ -53,10 +51,7 @@ export async function qualityGateRoutes(fastify: FastifyInstance): Promise<void>
     '/tasks/:id/approval-status',
     { config: { authPolicy: 'local_actor' } },
     async (request: FastifyRequest<{ Params: { id: string } }>, _reply: FastifyReply) => {
-      const task = taskRepo.getTaskById(request.params.id);
-      if (!task) {
-        throw notFound('Task not found');
-      }
+      await authorizeTaskAccess(request, request.params.id);
       return qualityGateService.getApprovalStatus(request.params.id);
     }
   );

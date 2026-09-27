@@ -7,6 +7,7 @@ import * as missionRepo from "../repositories/mission.js";
 import { notFound } from "../errors.js";
 import type { CodeEvidenceActorType } from "@orcy/shared";
 import { applyDeclaredAuthPolicies } from "../authPolicy.js";
+import { authorizeTaskAccess } from "../middleware/realtimeAuth.js";
 
 const taskIdParamsSchema = z.object({ id: z.string() });
 const entryIdParamsSchema = z.object({ id: z.string(), entryId: z.string() });
@@ -66,6 +67,7 @@ export async function effortRoutes(fastify: FastifyInstance): Promise<void> {
       config: { authPolicy: "local_actor" },
     },
     async (request) => {
+      await authorizeTaskAccess(request, request.params.id);
       const report = effortService.getTaskEffortReport(request.params.id);
       if (!report) {
         throw notFound("Task not found");
@@ -84,10 +86,7 @@ export async function effortRoutes(fastify: FastifyInstance): Promise<void> {
       config: { authPolicy: "local_actor" },
     },
     async (request) => {
-      const task = taskRepo.getTaskById(request.params.id);
-      if (!task) {
-        throw notFound("Task not found");
-      }
+      await authorizeTaskAccess(request, request.params.id);
       return effortService.listEffortEntries(request.params.id, {
         includeCorrections: request.query.includeCorrections,
         limit: request.query.limit,

@@ -3,6 +3,7 @@ import * as timeTrackingService from '../services/timeTrackingService.js';
 import * as taskRepo from '../repositories/task.js';
 import { badRequest, notFound } from '../errors.js';
 import { applyDeclaredAuthPolicies } from "../authPolicy.js";
+import { authorizeTaskAccess } from "../middleware/realtimeAuth.js";
 
 export async function timeTrackingRoutes(fastify: FastifyInstance): Promise<void> {
   applyDeclaredAuthPolicies(fastify);
@@ -11,6 +12,7 @@ export async function timeTrackingRoutes(fastify: FastifyInstance): Promise<void
     '/tasks/:id/time-report',
     { config: { authPolicy: "local_actor" } },
     async (request: FastifyRequest<{ Params: { id: string } }>, _reply: FastifyReply) => {
+      await authorizeTaskAccess(request, request.params.id);
       const report = timeTrackingService.getTaskTimeReport(request.params.id);
       if (!report) {
         throw notFound('Task not found');
