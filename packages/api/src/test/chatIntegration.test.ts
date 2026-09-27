@@ -133,6 +133,10 @@ vi.mock('../db/schema/index.js', () => ({
   tasks: { id: 'id', habitatId: 'habitatId', columnId: 'columnId', title: 'title', description: 'description', priority: 'priority', labels: 'labels', assignedAgentId: 'assignedAgentId', status: 'status' },
   habitats: { id: 'id', name: 'name' },
 }));
+vi.mock('../services/daemonSessionRecovery.js', () => ({
+  driveDaemonSessionOutcome: vi.fn(),
+  reworkContinuationSessionsWithClient: vi.fn(),
+}));
 
 vi.mock('uuid', () => ({
   v4: () => 'test-uuid-' + Math.random().toString(36).substring(2, 8),

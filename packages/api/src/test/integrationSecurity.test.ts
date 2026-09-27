@@ -115,6 +115,16 @@ vi.mock("../db/schema/index.js", () => ({
     status: "status",
   },
 }));
+vi.mock("../services/daemonSessionRecovery.js", () => ({
+  driveDaemonSessionOutcome: vi.fn(),
+  reworkContinuationSessionsWithClient: vi.fn(),
+}));
+
+vi.mock("../services/webhooks/mergeApproval.js", () => ({
+  approveTaskForMergedPR: vi.fn(() => {
+    throw new Error("Unexpected merge approval in signature verification test");
+  }),
+}));
 
 vi.mock("../sse/broadcaster.js", () => ({
   sseBroadcaster: { publish: vi.fn() },

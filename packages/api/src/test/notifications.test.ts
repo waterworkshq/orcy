@@ -122,6 +122,11 @@ vi.mock('../db/schema/index.js', () => ({
   taskCommentMentions: { id: 'id' },
 }));
 
+vi.mock('../services/daemonSessionRecovery.js', () => ({
+  driveDaemonSessionOutcome: vi.fn(),
+  reworkContinuationSessionsWithClient: vi.fn(),
+}));
+
 vi.mock('uuid', () => ({
   v4: () => `test-uuid-${++_idCounter}`,
 }));
