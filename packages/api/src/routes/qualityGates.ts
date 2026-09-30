@@ -1,10 +1,32 @@
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import * as qualityGateService from '../services/qualityGateService.js';
 import * as qualityRepo from '../repositories/qualityGate.js';
-import * as taskRepo from '../repositories/task.js';
 import { notFound, badRequest } from '../errors.js';
+import { z } from 'zod';
 import { applyDeclaredAuthPolicies } from "../authPolicy.js";
 import { authorizeTaskAccess } from "../middleware/realtimeAuth.js";
+
+/**
+ * Route-local PUT body contract. Unknown fields are stripped (zod default).
+ * `completedBy` is caller-supplied metadata, never an author/reviewer
+ * authority. At least one effective mapper field must be present — tested
+ * with `!== undefined`, so `isCompleted: false` and `evidenceUrl: null` are
+ * legitimate effective inputs.
+ */
+const updateChecklistItemSchema = z
+  .object({
+    isCompleted: z.boolean().optional(),
+    completedBy: z.string().nullable().optional(),
+    evidenceUrl: z.string().nullable().optional(),
+    notes: z.string().optional(),
+  })
+  .refine(
+    (data) =>
+      data.isCompleted !== undefined ||
+      data.evidenceUrl !== undefined ||
+      data.notes !== undefined,
+    { message: "At least one of isCompleted, evidenceUrl, or notes is required" },
+  );
 
 export async function qualityGateRoutes(fastify: FastifyInstance): Promise<void> {
   applyDeclaredAuthPolicies(fastify);
@@ -18,15 +40,22 @@ export async function qualityGateRoutes(fastify: FastifyInstance): Promise<void>
     }
   );
 
-  fastify.put<{ Params: { id: string; checklistId: string; itemId: string }; Body: { isCompleted?: boolean; evidenceUrl?: string; notes?: string } }>(
+  fastify.put<{ Params: { id: string; checklistId: string; itemId: string }; Body: z.infer<typeof updateChecklistItemSchema> }>(
     '/tasks/:id/quality-checklist/:checklistId/items/:itemId',
     { config: { authPolicy: 'local_actor' } },
     async (request, _reply) => {
+      const parsed = updateChecklistItemSchema.safeParse(request.body);
+      if (!parsed.success) {
+        throw badRequest("Validation failed", parsed.error.flatten());
+      }
+
+      await authorizeTaskAccess(request, request.params.id);
+
       const result = qualityGateService.updateChecklistItem(
         request.params.id,
         request.params.checklistId,
         request.params.itemId,
-        request.body
+        parsed.data
       );
       if (!result) {
         throw notFound('Checklist item not found');
@@ -39,10 +68,7 @@ export async function qualityGateRoutes(fastify: FastifyInstance): Promise<void>
     '/tasks/:id/quality-checklist/validate',
     { config: { authPolicy: 'local_actor' } },
     async (request: FastifyRequest<{ Params: { id: string } }>, _reply: FastifyReply) => {
-      const task = taskRepo.getTaskById(request.params.id);
-      if (!task) {
-        throw notFound('Task not found');
-      }
+      await authorizeTaskAccess(request, request.params.id);
       return qualityGateService.validateQualityGates(request.params.id);
     }
   );

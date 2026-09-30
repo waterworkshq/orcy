@@ -5,8 +5,9 @@ import {
   taskQualityChecklists,
   taskQualityChecklistItems,
 } from "../db/schema/index.js";
-import { eq, and } from "drizzle-orm";
+import { eq, and, exists, sql } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
+import { notFound } from "../errors.js";
 import type {
   QualityChecklistTemplate,
   QualityChecklistItem,
@@ -172,13 +173,17 @@ export function getChecklistItems(checklistId: string): TaskQualityChecklistItem
     .all() as TaskQualityChecklistItem[];
 }
 
+/** Client type shared by the ordinary `getDb()` handle and a transaction's tx. */
+type QualityDbClient = ReturnType<typeof getDb>;
+
 export function updateChecklistItem(
+  taskId: string,
   checklistId: string,
   checklistItemId: string,
   input: {
     isCompleted?: boolean;
-    completedBy?: string;
-    evidenceUrl?: string;
+    completedBy?: string | null;
+    evidenceUrl?: string | null;
     notes?: string;
   },
 ): TaskQualityChecklistItem | null {
@@ -194,37 +199,111 @@ export function updateChecklistItem(
   if (input.evidenceUrl !== undefined) updates.evidenceUrl = input.evidenceUrl;
   if (input.notes !== undefined) updates.notes = input.notes;
 
-  try {
-    db.update(taskQualityChecklistItems)
-      .set(updates)
-      .where(eq(taskQualityChecklistItems.id, checklistItemId))
-      .run();
-  } catch (err) {
-    throw repositoryUpdateError("taskQualityChecklistItem", err as Error, checklistItemId);
-  }
+  // Writer-reserved (immediate) atomic aggregate: the item UPDATE and the same
+  // owned checklist's status recalculation commit together or not at all.
+  // Request-time Task/Mission/Habitat admission is NOT part of this fence; the
+  // final SQL predicates bind item → instance checklist → URL Task.
+  return db.transaction(
+    (tx) => {
+      const scoped = tx
+        .select({ id: taskQualityChecklistItems.id })
+        .from(taskQualityChecklistItems)
+        .innerJoin(
+          taskQualityChecklists,
+          eq(taskQualityChecklistItems.checklistId, taskQualityChecklists.id),
+        )
+        .where(
+          and(
+            eq(taskQualityChecklistItems.id, checklistItemId),
+            eq(taskQualityChecklistItems.checklistId, checklistId),
+            eq(taskQualityChecklists.taskId, taskId),
+          ),
+        )
+        .get();
+      if (!scoped) return null;
 
-  const result = db
-    .select()
-    .from(taskQualityChecklistItems)
-    .where(eq(taskQualityChecklistItems.id, checklistItemId))
-    .get();
-  return (result as TaskQualityChecklistItem) ?? null;
+      let updated: TaskQualityChecklistItem | undefined;
+      try {
+        const rows = tx
+          .update(taskQualityChecklistItems)
+          .set(updates)
+          .where(
+            and(
+              eq(taskQualityChecklistItems.id, checklistItemId),
+              eq(taskQualityChecklistItems.checklistId, checklistId),
+              exists(
+                tx
+                  .select({ one: sql`1` })
+                  .from(taskQualityChecklists)
+                  .where(
+                    and(
+                      eq(taskQualityChecklists.id, checklistId),
+                      eq(taskQualityChecklists.taskId, taskId),
+                    ),
+                  ),
+              ),
+            ),
+          )
+          .returning()
+          .all() as TaskQualityChecklistItem[];
+        updated = rows[0];
+      } catch (err) {
+        throw repositoryUpdateError("taskQualityChecklistItem", err as Error, checklistItemId);
+      }
+      // Zero matched rows after a positive lookup (the row was reparented or
+      // removed between the scoped read and this statement): no effects.
+      if (!updated) return null;
+
+      recalcChecklistStatusWithClient(tx, taskId, checklistId);
+      return updated;
+    },
+    { behavior: "immediate" },
+  );
 }
 
-export function updateChecklistStatus(checklistId: string): string {
-  const db = getDb();
-  const items = getChecklistItems(checklistId);
-  const templateChecklist = getTaskChecklistById(checklistId);
-  if (!templateChecklist) return "pending";
+/**
+ * Derives and persists the instance checklist's status on the supplied client
+ * (the ordinary client for the public primitive, the aggregate's tx inside
+ * `updateChecklistItem`). Every read/write is scoped to the exact
+ * checklist → URL Task pair; a missing owned checklist or a zero-row scoped
+ * status UPDATE throws a generic 404 so an enclosing transaction rolls back —
+ * never a synthetic "pending" and never a committed item without its status.
+ */
+function recalcChecklistStatusWithClient(
+  client: QualityDbClient,
+  taskId: string,
+  checklistId: string,
+): string {
+  const items = client
+    .select()
+    .from(taskQualityChecklistItems)
+    .where(eq(taskQualityChecklistItems.checklistId, checklistId))
+    .all() as TaskQualityChecklistItem[];
+  const checklistRow = client
+    .select()
+    .from(taskQualityChecklists)
+    .where(
+      and(eq(taskQualityChecklists.id, checklistId), eq(taskQualityChecklists.taskId, taskId)),
+    )
+    .get() as TaskQualityChecklist | undefined;
+  if (!checklistRow) {
+    throw notFound("Quality checklist not found");
+  }
 
-  const template = getTemplateById(templateChecklist.templateId ?? "");
+  const template = checklistRow.templateId
+    ? ((client
+        .select()
+        .from(qualityChecklistTemplates)
+        .where(eq(qualityChecklistTemplates.id, checklistRow.templateId))
+        .get() as QualityChecklistTemplate | undefined) ?? null)
+    : null;
   const requiredItems = template?.isRequired
     ? items.filter((i) => {
-        const templateItem = db
+        const templateItem = client
           .select()
           .from(qualityChecklistItems)
           .where(eq(qualityChecklistItems.id, i.itemId))
-          .get();
+          .get() as QualityChecklistItem | undefined;
         return templateItem?.required ?? true;
       })
     : items;
@@ -239,21 +318,32 @@ export function updateChecklistStatus(checklistId: string): string {
     status = "in_progress";
   }
 
+  let statusRows: TaskQualityChecklist[];
   try {
-    db.update(taskQualityChecklists)
+    statusRows = client
+      .update(taskQualityChecklists)
       .set({
         status,
         completedAt: status === "passed" ? new Date().toISOString() : null,
       })
-      .where(eq(taskQualityChecklists.id, checklistId))
-      .run();
+      .where(
+        and(eq(taskQualityChecklists.id, checklistId), eq(taskQualityChecklists.taskId, taskId)),
+      )
+      .returning()
+      .all() as TaskQualityChecklist[];
   } catch (err) {
     throw repositoryUpdateError("taskQualityChecklist", err as Error, checklistId);
+  }
+  if (statusRows.length === 0) {
+    throw notFound("Quality checklist not found");
   }
 
   return status;
 }
 
+export function updateChecklistStatus(taskId: string, checklistId: string): string {
+  return recalcChecklistStatusWithClient(getDb(), taskId, checklistId);
+}
 export function getQualityReport(taskId: string): TaskQualityReport {
   const db = getDb();
   const checklists = getTaskChecklists(taskId);

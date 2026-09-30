@@ -308,6 +308,8 @@ orcy task get-quality-checklist <taskId>
 
 ### Update Checklist Item
 
+The URL Task's ancestry is resolved server-side first (missing Task/Mission/Habitat → 404), and the item must belong to the exact instance checklist under that exact Task — a wrong Task/checklist/item (including template-ID confusion) is a generic 404 `Checklist item not found` with no effects; the same checklist's status recalculation commits atomically with the item update. At least one option must be emitted — invoking the command with no options sends an empty update and now gets a 400. `--is-completed` sets completion only (there is no clear-completion flag); the string options emit their values verbatim.
+
 ```bash
 orcy task update-quality-checklist-item <taskId> <checklistId> <itemId> \
   --is-completed \
@@ -316,6 +318,8 @@ orcy task update-quality-checklist-item <taskId> <checklistId> <itemId> \
 ```
 
 ### Validate Quality Gates
+
+A pure read after the same ancestry admission: truth is re-derived from the live quality report (cached status is never repaired) and no dependency check or lifecycle effect is invoked.
 
 ```bash
 orcy task validate-quality-gates <taskId>

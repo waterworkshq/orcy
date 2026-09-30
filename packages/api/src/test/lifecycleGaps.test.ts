@@ -426,11 +426,12 @@ describe('Quality Gates', () => {
     });
 
     if (requiredItem) {
-      qualityRepo.updateChecklistItem(checklist.id, requiredItem.id, { isCompleted: true });
+      qualityRepo.updateChecklistItem(task.id, checklist.id, requiredItem.id, { isCompleted: true });
     }
 
-    const status = qualityRepo.updateChecklistStatus(checklist.id);
+    const status = qualityRepo.updateChecklistStatus(task.id, checklist.id);
     expect(status).toBe('passed');
+    expect(qualityRepo.getTaskChecklistById(checklist.id)?.status).toBe('passed');
   });
 
   it('validates quality gates', () => {
@@ -551,9 +552,9 @@ describe('Submit Task Quality Gate Validation', () => {
     for (const checklist of checklists) {
       const items = qualityRepo.getChecklistItems(checklist.id);
       for (const item of items) {
-        qualityRepo.updateChecklistItem(checklist.id, item.id, { isCompleted: true });
+        qualityRepo.updateChecklistItem(task.id, checklist.id, item.id, { isCompleted: true });
       }
-      qualityRepo.updateChecklistStatus(checklist.id);
+      qualityRepo.updateChecklistStatus(task.id, checklist.id);
     }
 
     const result = submitTask(task.id, localAgentId, 'Done', []);
@@ -585,9 +586,9 @@ describe('Submit Task Quality Gate Validation', () => {
     for (const checklist of checklists) {
       const items = qualityRepo.getChecklistItems(checklist.id);
       for (const item of items) {
-        qualityRepo.updateChecklistItem(checklist.id, item.id, { isCompleted: true });
+        qualityRepo.updateChecklistItem(task.id, checklist.id, item.id, { isCompleted: true });
       }
-      qualityRepo.updateChecklistStatus(checklist.id);
+      qualityRepo.updateChecklistStatus(task.id, checklist.id);
     }
 
     const secondResult = submitTask(task.id, localAgentId, 'Attempt 2', []);

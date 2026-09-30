@@ -2476,13 +2476,16 @@ Get the quality report for a task, including all checklists, item completion sta
 
 Update a checklist item (mark complete, add evidence, add notes).
 
-**Auth:** Agent or Human
+**Auth:** Local actor (agent API key or human JWT), then the **URL Task's** ancestry admission: the Task's Mission → Habitat is resolved server-side (missing Task/Mission/Habitat `404`); local agents (assigned or unassigned, any binding) pass on any existing habitat; personal habitats admit any authenticated human; on team habitats a human must be a team member — nonmembers, including global admins, receive `403`. Body validation runs before the ancestry lookup (`400` first for malformed bodies), admission runs before any child row is read or written. Beyond admission, the final UPDATE statement binds the exact **instance item → instance checklist → URL Task** triple (`item.id AND item.checklist_id` plus an EXISTS on `checklist.id AND checklist.task_id`): any broken containment relation — wrong Task with a correct child pair, another Task's checklist, an item belonging to a different checklist (same or different Task, same or different Habitat), a nonexistent checklist or item, or template/template-item IDs confused with instance IDs — is a generic `404` `Checklist item not found` with zero effects and no foreign data disclosed, never a foreign item update.
+
+The item UPDATE and the **same owned checklist's** status recalculation (required-template filtering, `pending`/`in_progress`/`passed` derivation, `completedAt` stamping/clearing; checklist `completedBy`/`notes`/`createdAt` untouched) commit in **one immediate transaction**: a status-write fault or a late scoped-parent mismatch rolls the item change back rather than leaving it committed. Statement faults surface as `5xx` `REPOSITORY_ERROR`. The fences are bounded: request-time admission is not in-transaction membership-revocation or Task-movement fencing, and no universal database-integrity guarantee is claimed.
 
 **Request:**
 
 ```json
 {
   "isCompleted": true,
+  "completedBy": "optional-caller-supplied-metadata",
   "evidenceUrl": "https://github.com/repo/actions/runs/123",
   "notes": "All 42 tests pass"
 }
@@ -2490,19 +2493,24 @@ Update a checklist item (mark complete, add evidence, add notes).
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
-| `isCompleted` | boolean | no | Mark item as complete/incomplete |
-| `evidenceUrl` | string | no | Link to evidence (CI run, PR, etc.) |
-| `notes` | string | no | Free-text notes |
+| `isCompleted` | boolean | no* | `true` stamps fresh `completedAt` and stores `completedBy` (input value or `null`); `false` clears both stamps. `null` is rejected (`400`). |
+| `completedBy` | string or null | no | Caller-supplied metadata recorded on the row, only effective when `isCompleted` is supplied. **Metadata, not authority** — it never rebinds to the authenticated actor and grants no reviewer/author power. |
+| `evidenceUrl` | string or null | no | Verbatim string (empty string allowed) or explicit `null` to clear the column. Omission preserves the prior value. No URL parsing/protocol restriction. |
+| `notes` | string | no* | Verbatim (empty string allowed); omission preserves. `null` is rejected (`400`). |
 
-**Response `200`:** Updated checklist item.
+\* At least one of `isCompleted`, `evidenceUrl`, or `notes` must be present (presence tested with `!== undefined`, so `isCompleted: false` and `evidenceUrl: null` alone are valid effective inputs). Absent/null/array/scalar bodies, wrong field types, `{}`, unknown-only fields and `completedBy`-only input are explicit `400`s with no mutation. These `400`s apply to bodies the framework parser successfully hands the route **as parsed JSON**; an empty or unparseable `application/json` payload fails earlier at the platform's content parser and surfaces the pre-existing generic `500 INTERNAL_ERROR` (platform behavior on both prefixes, unchanged by this batch — no shared error-handler change is part of these operations). Unknown fields mixed with legitimate data are stripped, never rejected; body-supplied Task/checklist/item IDs, `completedAt`, `status` or actor fields are inert and never move rows or grant authority. `completedBy`/`evidenceUrl` without `isCompleted` leave completion metadata unchanged. The REST surface accepts nullable `completedBy`/`evidenceUrl` clears; MCP and CLI inputs remain string-only.
 
-**Response `404`:** Checklist item not found.
+**Response `200`:** The unwrapped persisted instance item (`id`, `checklistId`, template-item `itemId`, `isCompleted`, nullable `completedBy`/`completedAt`/`evidenceUrl`, `notes`) returned from the UPDATE's RETURNING row — no wrapper, report or title projection.
+
+**Response `400`:** Malformed or ineffective body (see above).
+
+**Response `404`:** Generic `Checklist item not found` for every broken containment relation; `Task not found` (or Mission/Habitat) when ancestry is missing.
 
 ### POST /tasks/:id/quality-checklist/validate
 
 Validate all quality gates for a task. Returns whether all required items are complete.
 
-**Auth:** Agent or Human
+**Auth:** Local actor (agent API key or human JWT), then the same **URL Task's** ancestry admission as PUT (missing Task/Mission/Habitat `404`; nonmember team humans, including global admins, `403` before any report read). This is a **pure read** despite the POST/action name: it re-derives truth from the live quality report — cached checklist `status` is not validation truth and is never repaired — and creates no checklists, writes no rows, checks no dependencies, assigns no reviewers, approves nothing and emits no event, notification or SSE publication. Tasks with no checklists pass with empty failures; a Task with an inaccessible or dangling dependency still validates its own quality (dependency authorization is not invoked).
 
 **Response `200`:**
 

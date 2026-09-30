@@ -18,16 +18,15 @@ export function updateChecklistItem(
   itemId: string,
   input: {
     isCompleted?: boolean;
-    completedBy?: string;
-    evidenceUrl?: string;
+    completedBy?: string | null;
+    evidenceUrl?: string | null;
     notes?: string;
   },
 ) {
-  const result = qualityRepo.updateChecklistItem(checklistId, itemId, input);
-  if (result) {
-    qualityRepo.updateChecklistStatus(checklistId);
-  }
-  return result;
+  // Single delegated aggregate: the repository owns one immediate
+  // transaction covering the triple-scoped item UPDATE and the same owned
+  // checklist's status recalculation (no duplicate recalculation here).
+  return qualityRepo.updateChecklistItem(taskId, checklistId, itemId, input);
 }
 
 /** Evaluates the quality gates for a task and returns the list of failing categories. */
