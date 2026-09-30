@@ -1,6 +1,6 @@
 import { getDb } from "../db/index.js";
 import { taskComments, missionComments, tasks, missions } from "../db/schema/index.js";
-import { eq, and, desc, count, gt, gte, lte } from "drizzle-orm";
+import { eq, and, desc, count, gt, gte, lte, sql } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 import * as commentMentionRepo from "./commentMention.js";
 import type { TaskCommentMention } from "../models/index.js";
@@ -116,30 +116,137 @@ export function getCommentById(commentId: string): Comment | null {
   return attachMentions([row as Comment])[0] ?? null;
 }
 
-export function updateComment(commentId: string, content: string): Comment | null {
+/**
+ * Reply-only creation primitive: one conditional `INSERT … SELECT … WHERE EXISTS
+ * (parent.id = requestedParent AND parent.task_id = taskId) RETURNING`
+ * statement, so the reply reference is validated at INSERT time on both SQLite
+ * drivers. Returns the matched row with its mention projection, or null when
+ * the parent no longer exists or no longer belongs to the required Task at the
+ * moment the statement evaluates — never an unrestricted ID refetch fallback.
+ * Root creation, clone/import/fixture callers keep using {@link createComment}.
+ */
+export function createReplyComment(input: {
+  taskId: string;
+  parentId: string;
+  authorType: "human" | "agent" | "remote_human" | "remote_orcy";
+  authorId: string;
+  content: string;
+}): Comment | null {
+  const db = getDb();
+  const id = uuid();
+  const now = new Date().toISOString();
+
+  try {
+    const matched = db.all(sql`
+      INSERT INTO task_comments (id, task_id, parent_id, author_type, author_id, content, created_at, updated_at)
+      SELECT ${id}, ${input.taskId}, ${input.parentId}, ${input.authorType}, ${input.authorId}, ${input.content}, ${now}, ${now}
+      WHERE EXISTS (
+        SELECT 1 FROM task_comments parent
+        WHERE parent.id = ${input.parentId} AND parent.task_id = ${input.taskId}
+      )
+      RETURNING
+        id,
+        task_id AS taskId,
+        parent_id AS parentId,
+        author_type AS authorType,
+        author_id AS authorId,
+        content,
+        created_at AS createdAt,
+        updated_at AS updatedAt
+    `) as Comment[];
+    const row = matched[0] ?? null;
+    return row ? (attachMentions([row])[0] ?? null) : null;
+  } catch (err) {
+    throw repositoryCreateError("comment", err as Error, id);
+  }
+}
+
+/**
+ * Updates a comment ONLY under its required Task and exact typed author: the
+ * actual UPDATE statement matches `id AND task_id AND author_type AND
+ * author_id` and returns the row THIS statement matched via
+ * `UPDATE … RETURNING` (the cross-driver pattern from `updateSubtask`), so a
+ * zero-match — absent comment, reparented to another Task, or author changed —
+ * is a null result, never a false success or a foreign row. Mentions are
+ * attached to the returned row, with no post-write ID refetch.
+ */
+export function updateComment(
+  taskId: string,
+  commentId: string,
+  authorType: "human" | "agent",
+  authorId: string,
+  content: string,
+): Comment | null {
   const db = getDb();
   const now = new Date().toISOString();
 
   try {
-    db.update(taskComments)
+    const matched = db
+      .update(taskComments)
       .set({ content, updatedAt: now })
-      .where(eq(taskComments.id, commentId))
-      .run();
+      .where(
+        and(
+          eq(taskComments.id, commentId),
+          eq(taskComments.taskId, taskId),
+          eq(taskComments.authorType, authorType),
+          eq(taskComments.authorId, authorId),
+        ),
+      )
+      .returning()
+      .all();
+    const row = (matched[0] as Comment | undefined) ?? null;
+    return row ? (attachMentions([row])[0] ?? null) : null;
   } catch (err) {
     throw repositoryUpdateError("comment", err as Error, commentId);
   }
-
-  return getCommentById(commentId);
 }
 
-export function deleteComment(commentId: string): boolean {
+/**
+ * Deletes the SELECTED root comment ONLY when the final statement matches
+ * `id AND task_id AND author_type AND author_id` AND the entire descendant
+ * closure reachable through `parent_id` (recursive CTE, UNION so revisited
+ * cycles terminate) — evaluated AT PREDICATE TIME — contains no comment
+ * belonging to another Task (the cascade-consistency fence). The guarantee
+ * is bounded to that snapshot: a trigger or other writer mutating the
+ * closure, author or Task scope AFTER the predicate has evaluated is
+ * outside this fence (an independently reproduced accepted limit; the FK
+ * cascade then follows whatever the closure became). Same-Task descendants
+ * (any author) are removed by the existing self-FK cascade; the statement
+ * returns only the selected root's id, so success reflects the rows THIS
+ * statement actually removed. A foreign-Task descendant anywhere in the
+ * closure at predicate time is a zero-match (no row loss), not a collateral
+ * deletion.
+ */
+export function deleteComment(
+  taskId: string,
+  commentId: string,
+  authorType: "human" | "agent",
+  authorId: string,
+): boolean {
   const db = getDb();
   try {
-    db.delete(taskComments).where(eq(taskComments.id, commentId)).run();
+    const matched = db.all(sql`
+      WITH RECURSIVE comment_closure(id, task_id) AS (
+        SELECT id, task_id FROM task_comments WHERE id = ${commentId}
+        UNION
+        SELECT child.id, child.task_id
+        FROM task_comments child
+        JOIN comment_closure ON child.parent_id = comment_closure.id
+      )
+      DELETE FROM task_comments
+      WHERE id = ${commentId}
+        AND task_id = ${taskId}
+        AND author_type = ${authorType}
+        AND author_id = ${authorId}
+        AND NOT EXISTS (
+          SELECT 1 FROM comment_closure WHERE task_id <> ${taskId}
+        )
+      RETURNING id
+    `) as Array<{ id: string }>;
+    return matched.length > 0;
   } catch (err) {
     throw repositoryDeleteError("comment", err as Error, commentId);
   }
-  return true;
 }
 
 export function isCommentAuthor(commentId: string, authorType: string, authorId: string): boolean {

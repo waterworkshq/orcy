@@ -2683,6 +2683,8 @@ Mission events (`mission_events` table) use a separate set of actions:
 
 ## Task Comments
 
+Comments on tasks with threading and `@mentions`. The three write operations are **agent-only** (`X-Agent-API-Key`): human JWTs of any role (even a comment's own human author with a matching ID), remote-only credentials, anonymous and invalid-key callers receive `401` — team membership never grants entry here. Every write first resolves the **URL Task's** actual Mission → Habitat server-side and enforces the shared habitat-access predicate: valid local agents (assigned or unassigned) pass on any existing habitat; a missing Task, Mission or Habitat is `404` before any comment row is read or written. PATCH/DELETE additionally require the **exact comment/URL-Task pair plus the typed original author** at the final SQL statement (`id AND task_id AND author_type AND author_id`): an unknown comment or a comment that belongs to a different Task is `404` `Comment not found` (same or different habitat alike — previously the actual author of Task B's comment could edit or delete it through Task A's URL); with the correct pair a non-author stays `403`. DELETE also applies a **cascade-consistency fence**: the recursive descendant closure is checked **at predicate-evaluation time inside the deleting statement itself**, and if any then-reachable descendant (including pre-existing raw-created cross-Task rows) belongs to another Task the deletion is a zero-match `404` with nothing removed; legitimate same-Task descendants — including other authors' replies — cascade with the root. The fence is bounded to that predicate-time snapshot: a trigger or other writer that mutates the closure, an author field or Task scope **after** the predicate has evaluated is outside this fence (the FK cascade then follows the mutated closure — an independently reproduced, accepted limit), and no universal database-integrity guarantee is claimed. Request-time ancestry admission is not membership-revocation or Task-movement fencing. Mention rows are separate writes from comment creation: a mention failure may leave a committed comment or partial mentions and surface `5xx` before any SSE/hook fan — comment-plus-mention delivery is not atomic. After a matched write, SSE subscriber errors can still fail the request after the database commit, downstream fan is asynchronous, and creation-hook failures are swallowed. SSE `task.*` comment events publish only after a matched write. This is request-time ancestry admission plus final-SQL containment, not a lifecycle, assignment or archival policy.
+
 ### GET /tasks/:id/comments
 
 Get all comments on a task.
@@ -2714,7 +2716,7 @@ Get all comments on a task.
 
 Add a comment to a task.
 
-**Auth:** JWT (human) or API key (agent)
+**Auth:** Agent API key only (see the section contract above: agent-only transport, then URL-Task ancestry admission — missing Task/Mission/Habitat is `404`). Body validation (`content` 1–5000 chars, `parentId` a UUID) runs before the ancestry check and returns `400`.
 
 **Request:**
 
@@ -2730,6 +2732,8 @@ Add a comment to a task.
 | `content` | string | yes | Comment content (markdown supported), 1-5000 chars |
 | `parentId` | UUID/null | no | Parent comment ID for threading |
 
+A reply's parent must exist **and belong to the same Task at INSERT time**: a missing parent is `400` `Parent comment not found`, a parent under another Task is `400` `Parent comment belongs to a different task` (distinct historical messages, deliberately retained). Parent-of-parent replies and replies to another author's comment are allowed. On a matched insert the mention fan is preserved: `@mentions` resolve to users/agents, `task.commented` plus one `task.mentioned` per resolved mention publish to the actual Task's habitat, and `commentCreated` hooks fire — denial emits none of these.
+
 **Response `201`:**
 
 ```json
@@ -2738,10 +2742,10 @@ Add a comment to a task.
     "id": "comment-uuid",
     "taskId": "task-uuid",
     "parentId": null,
-    "authorType": "human",
-    "authorId": "user-uuid",
-    "authorName": "admin",
+    "authorType": "agent",
+    "authorId": "agent-uuid",
     "content": "This approach looks good, but please add unit tests.",
+    "mentions": [],
     "createdAt": "2026-04-04T10:30:00.000Z",
     "updatedAt": "2026-04-04T10:30:00.000Z"
   }
@@ -2752,7 +2756,7 @@ Add a comment to a task.
 
 Update a comment (author only).
 
-**Auth:** JWT (human) or API key (agent) — must match original author
+**Auth:** Agent API key only; the comment must belong to the URL Task and the caller must be the exact typed original author (`agent` + author ID) — unknown or wrong-Task comment `404` `Comment not found`, correct pair but non-author `403` (existing messages). The final UPDATE statement binds `id AND task_id AND author_type AND author_id`; a row that vanished, was reparented or re-authored between the pre-read and the write is a zero-match `404` with no effect. Editing does **not** recompute mentions and emits no SSE or hook — the existing mention projection is returned verbatim. Body-supplied task/author fields never become authority.
 
 **Request:**
 
@@ -2766,15 +2770,15 @@ Update a comment (author only).
 
 ```json
 {
-  "comment": { "id": "...", "content": "Updated comment text.", "..." }
+  "comment": { "id": "...", "content": "Updated comment text.", "mentions": [] }
 }
 ```
 
 ### DELETE /tasks/:taskId/comments/:commentId
 
-Delete a comment (author or admin only).
+Delete a comment (author only).
 
-**Auth:** JWT required (human)
+**Auth:** Agent API key only; same Task-containment and typed-author conditions as PATCH, evaluated in the deleting statement together with the cascade-consistency fence — the recursive closure is verified **at predicate-evaluation time**: any foreign-Task descendant then reachable → zero-match `404`, every row preserved. A trigger or other writer mutating the closure/author/Task scope after the predicate has evaluated is outside the fence (accepted, independently reproduced limit). Success is `204` with an empty body: the selected root is removed, legitimate same-Task descendants and their mentions cascade (regardless of their authors), and exactly one `task.comment_deleted` event is published for the root — no per-descendant events. A repeated deletion is `404`. Genuine database failures (including SQLite's native deep-cascade recursion fault) propagate as `5xx` with statement rollback, never flattened into a false success or 404. No universal database-integrity or atomic comment-plus-mention guarantee is claimed; raw repository/DB writers remain outside this served-write contract.
 
 **Response `204`:** No content.
 

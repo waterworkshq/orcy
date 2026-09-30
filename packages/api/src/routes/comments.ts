@@ -21,6 +21,13 @@ const commentsQuerySchema = z.object({
 
 /**
  * Task comment CRUD — create, list, update, and delete comments on tasks.
+ *
+ * Write transport is agent-only. Every write callback first resolves the URL
+ * Task's actual Mission → Habitat and enforces the shared habitat-access
+ * predicate (`authorizeTaskAccess`) before any row is read or written;
+ * PATCH/DELETE additionally bind the comment to the URL Task through the
+ * service and the final SQL statement (missing Task/Mission/Habitat is 404;
+ * an unknown or wrong-Task comment is 404 `Comment not found`).
  */
 export async function commentRoutes(fastify: FastifyInstance): Promise<void> {
   applyDeclaredAuthPolicies(fastify);
@@ -47,6 +54,8 @@ export async function commentRoutes(fastify: FastifyInstance): Promise<void> {
 
       const authorType = request.agent ? ("agent" as const) : ("human" as const);
       const authorId = request.agent?.id ?? request.user?.id ?? "anonymous";
+
+      await authorizeTaskAccess(request, request.params.id);
 
       try {
         const comment = commentService.addComment(
@@ -126,8 +135,11 @@ export async function commentRoutes(fastify: FastifyInstance): Promise<void> {
       const authorType = request.agent ? ("agent" as const) : ("human" as const);
       const authorId = request.agent?.id ?? request.user?.id ?? "anonymous";
 
+      await authorizeTaskAccess(request, request.params.id);
+
       try {
         const comment = commentService.editComment(
+          request.params.id,
           request.params.commentId,
           authorType,
           authorId,
@@ -165,8 +177,15 @@ export async function commentRoutes(fastify: FastifyInstance): Promise<void> {
       const authorType = request.agent ? ("agent" as const) : ("human" as const);
       const authorId = request.agent?.id ?? request.user?.id ?? "anonymous";
 
+      await authorizeTaskAccess(request, request.params.id);
+
       try {
-        commentService.removeComment(request.params.commentId, authorType, authorId);
+        commentService.removeComment(
+          request.params.id,
+          request.params.commentId,
+          authorType,
+          authorId,
+        );
         reply.code(204).send();
       } catch (err) {
         const error = err as Error;

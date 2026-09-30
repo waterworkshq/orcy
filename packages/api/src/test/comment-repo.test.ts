@@ -6,6 +6,8 @@ let _deleteRun = vi.fn();
 let _selectAllResult: Array<Record<string, unknown>> = [];
 let _selectGetResult: Record<string, unknown> | undefined = undefined;
 let _countResult = 0;
+let _updateReturningResult: Array<Record<string, unknown>> = [];
+let _rawAllResult: Array<Record<string, unknown>> = [];
 
 function createMockDb() {
   const doInsert = () => {
@@ -32,12 +34,14 @@ function createMockDb() {
     return chain;
   };
   const doUpdate = () => {
-    const chain = {
+    const chain: Record<string, unknown> = {
       set: () => chain,
       where: () => chain,
       run: () => {
         _updateRun();
       },
+      returning: () => chain,
+      all: () => _updateReturningResult,
     };
     return chain;
   };
@@ -55,6 +59,7 @@ function createMockDb() {
     select: (arg?: Record<string, unknown>) => doSelect(arg),
     update: () => doUpdate(),
     delete: () => doDelete(),
+    all: () => _rawAllResult,
   };
 }
 
@@ -85,6 +90,7 @@ vi.mock("uuid", () => ({ v4: vi.fn(() => "mock-comment-uuid") }));
 
 import {
   createComment,
+  createReplyComment,
   getCommentsByTaskId,
   getCommentById,
   updateComment,
@@ -101,6 +107,8 @@ describe("comment repository", () => {
     _selectAllResult = [];
     _selectGetResult = undefined;
     _countResult = 0;
+    _updateReturningResult = [];
+    _rawAllResult = [];
     (mentionMock.getMentionsByCommentIds as any).mockReturnValue([]);
   });
 
@@ -198,28 +206,82 @@ describe("comment repository", () => {
     });
   });
 
-  describe("updateComment", () => {
-    it("updates content", () => {
-      _selectGetResult = {
-        id: "c1",
+  describe("createReplyComment", () => {
+    it("returns the matched reply row from the conditional INSERT", () => {
+      _rawAllResult = [
+        {
+          id: "mock-comment-uuid",
+          taskId: "task-1",
+          parentId: "parent-1",
+          authorType: "agent",
+          authorId: "a1",
+          content: "Reply",
+          createdAt: "2025-01-01",
+          updatedAt: "2025-01-01",
+        },
+      ];
+      const result = createReplyComment({
         taskId: "task-1",
-        parentId: null,
-        authorType: "human",
-        authorId: "u1",
-        content: "Updated",
-        createdAt: "2025-01-01",
-        updatedAt: "2025-01-02",
-      };
-      const result = updateComment("c1", "Updated");
+        parentId: "parent-1",
+        authorType: "agent",
+        authorId: "a1",
+        content: "Reply",
+      });
+      expect(result!.id).toBe("mock-comment-uuid");
+      expect(result!.parentId).toBe("parent-1");
+      expect((result as any).mentions).toEqual([]);
+    });
+
+    it("returns null on a zero-row conditional INSERT (parent missing or wrong task)", () => {
+      _rawAllResult = [];
+      expect(
+        createReplyComment({
+          taskId: "task-1",
+          parentId: "gone",
+          authorType: "agent",
+          authorId: "a1",
+          content: "Reply",
+        }),
+      ).toBeNull();
+      // No unrestricted ID refetch fallback: the row lookup stays untouched.
+      expect(_selectGetResult).toBeUndefined();
+    });
+  });
+
+  describe("updateComment", () => {
+    it("updates content through the required pair+typed-author predicate and returns the matched row", () => {
+      _updateReturningResult = [
+        {
+          id: "c1",
+          taskId: "task-1",
+          parentId: null,
+          authorType: "human",
+          authorId: "u1",
+          content: "Updated",
+          createdAt: "2025-01-01",
+          updatedAt: "2025-01-02",
+        },
+      ];
+      const result = updateComment("task-1", "c1", "human", "u1", "Updated");
       expect(result!.content).toBe("Updated");
-      expect(_updateRun).toHaveBeenCalled();
+      expect((result as any).mentions).toEqual([]);
+    });
+
+    it("returns null on a zero-match (wrong task, author or absent comment)", () => {
+      _updateReturningResult = [];
+      expect(updateComment("task-1", "c1", "human", "u1", "Updated")).toBeNull();
     });
   });
 
   describe("deleteComment", () => {
-    it("deletes and returns true", () => {
-      expect(deleteComment("c1")).toBe(true);
-      expect(_deleteRun).toHaveBeenCalled();
+    it("returns true when the fenced root DELETE matched", () => {
+      _rawAllResult = [{ id: "c1" }];
+      expect(deleteComment("task-1", "c1", "human", "u1")).toBe(true);
+    });
+
+    it("returns false on a zero-match (closure, pair or author mismatch)", () => {
+      _rawAllResult = [];
+      expect(deleteComment("task-1", "c1", "human", "u1")).toBe(false);
     });
   });
 

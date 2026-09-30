@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 
 vi.mock("../repositories/comment.js", () => ({
   createComment: vi.fn(),
+  createReplyComment: vi.fn(),
   getCommentById: vi.fn(),
   getCommentsByTaskId: vi.fn(),
   updateComment: vi.fn(),
@@ -47,6 +48,7 @@ describe("commentService", () => {
     helperMocks.resolveMentions.mockReturnValue([]);
     cmtMentionMocks.createMentions.mockReturnValue([]);
     vi.mocked(commentRepo.createComment).mockReturnValue(makeComment() as any);
+    vi.mocked(commentRepo.createReplyComment).mockReturnValue(makeComment() as any);
     vi.mocked(commentRepo.getCommentById).mockReturnValue(null);
     vi.mocked(commentRepo.getCommentsByTaskId).mockReturnValue({ comments: [], total: 0 });
     vi.mocked(commentRepo.updateComment).mockReturnValue(null);
@@ -74,6 +76,60 @@ describe("commentService", () => {
       expect(() => addComment("t1", "human", "u1", "Nope", "p1")).toThrow(
         "Parent comment belongs to a different task",
       );
+    });
+
+    it("routes replies through the conditional reply primitive and maps a vanished parent to the missing-parent error", () => {
+      vi.mocked(getTaskById).mockReturnValue({ id: "t1" } as any);
+      vi.mocked(commentRepo.getCommentById).mockReturnValue(makeComment({ id: "p1" }) as any);
+      vi.mocked(commentRepo.createReplyComment).mockReturnValue(null);
+
+      expect(() => addComment("task-1", "human", "u1", "Reply", "p1")).toThrow(
+        "Parent comment not found",
+      );
+      expect(commentRepo.createReplyComment).toHaveBeenCalledWith({
+        taskId: "task-1",
+        parentId: "p1",
+        authorType: "human",
+        authorId: "u1",
+        content: "Reply",
+      });
+      expect(commentRepo.createComment).not.toHaveBeenCalled();
+    });
+
+    it("matched reply insert keeps the enriched comment, mentions and SSE fan", () => {
+      vi.mocked(getTaskById).mockReturnValue({ id: "t1" } as any);
+      vi.mocked(commentRepo.getCommentById).mockReturnValue(makeComment({ id: "p1" }) as any);
+      vi.mocked(commentRepo.createReplyComment).mockReturnValue(
+        makeComment({ id: "reply-c", parentId: "p1" }) as any,
+      );
+      vi.mocked(getHabitatIdForTask).mockReturnValue("h1");
+
+      const result = addComment("task-1", "human", "u1", "Reply", "p1");
+
+      expect(result.id).toBe("reply-c");
+      expect(result.parentId).toBe("p1");
+      expect(commentRepo.createComment).not.toHaveBeenCalled();
+      expect(sseBroadcaster.publish).toHaveBeenCalledWith(
+        "h1",
+        expect.objectContaining({ type: "task.commented" }),
+      );
+    });
+
+    it("root creation stays on the unconditional primitive", () => {
+      vi.mocked(getTaskById).mockReturnValue({ id: "t1" } as any);
+      vi.mocked(commentRepo.createComment).mockReturnValue(makeComment({ id: "root-c" }) as any);
+
+      const result = addComment("t1", "human", "u1", "Root");
+
+      expect(result.id).toBe("root-c");
+      expect(commentRepo.createReplyComment).not.toHaveBeenCalled();
+      expect(commentRepo.createComment).toHaveBeenCalledWith({
+        taskId: "t1",
+        authorType: "human",
+        authorId: "u1",
+        content: "Root",
+        parentId: null,
+      });
     });
 
     it("creates comment and broadcasts", () => {
@@ -129,44 +185,72 @@ describe("commentService", () => {
 
   describe("editComment", () => {
     it("throws when not found", () => {
-      expect(() => editComment("c1", "human", "u1", "x")).toThrow("Comment not found");
+      expect(() => editComment("task-1", "c1", "human", "u1", "x")).toThrow("Comment not found");
+    });
+
+    it("throws generic not found when the comment belongs to a different task (before author check)", () => {
+      vi.mocked(commentRepo.getCommentById).mockReturnValue(
+        makeComment({ taskId: "t2", authorType: "human", authorId: "u1" }) as any,
+      );
+      expect(() => editComment("task-1", "c1", "human", "u1", "x")).toThrow("Comment not found");
     });
 
     it("throws when not authorized", () => {
       vi.mocked(commentRepo.getCommentById).mockReturnValue(
         makeComment({ authorType: "agent", authorId: "a2" }) as any,
       );
-      expect(() => editComment("c1", "human", "u1", "x")).toThrow("Not authorized");
+      expect(() => editComment("task-1", "c1", "human", "u1", "x")).toThrow("Not authorized");
     });
 
     it("updates when authorized", () => {
       vi.mocked(commentRepo.getCommentById).mockReturnValue(makeComment() as any);
       vi.mocked(commentRepo.updateComment).mockReturnValue(makeComment({ content: "New" }) as any);
-      expect(editComment("c1", "human", "u1", "New")!.content).toBe("New");
+      expect(editComment("task-1", "c1", "human", "u1", "New")!.content).toBe("New");
+    });
+
+    it("throws generic not found on a final zero-match UPDATE (row vanished or author changed after the pre-read)", () => {
+      vi.mocked(commentRepo.getCommentById).mockReturnValue(makeComment() as any);
+      vi.mocked(commentRepo.updateComment).mockReturnValue(null);
+      expect(() => editComment("task-1", "c1", "human", "u1", "New")).toThrow("Comment not found");
     });
   });
 
   describe("removeComment", () => {
     it("throws when not found", () => {
-      expect(() => removeComment("c1", "human", "u1")).toThrow("Comment not found");
+      expect(() => removeComment("task-1", "c1", "human", "u1")).toThrow("Comment not found");
+    });
+
+    it("throws generic not found when the comment belongs to a different task (before author check)", () => {
+      vi.mocked(commentRepo.getCommentById).mockReturnValue(
+        makeComment({ taskId: "t2", authorType: "human", authorId: "u1" }) as any,
+      );
+      expect(() => removeComment("task-1", "c1", "human", "u1")).toThrow("Comment not found");
+      expect(commentRepo.deleteComment).not.toHaveBeenCalled();
     });
 
     it("throws when not authorized", () => {
       vi.mocked(commentRepo.getCommentById).mockReturnValue(
         makeComment({ authorType: "agent" }) as any,
       );
-      expect(() => removeComment("c1", "human", "u1")).toThrow("Not authorized");
+      expect(() => removeComment("task-1", "c1", "human", "u1")).toThrow("Not authorized");
     });
 
     it("deletes and broadcasts", () => {
       vi.mocked(commentRepo.getCommentById).mockReturnValue(makeComment() as any);
-      vi.mocked(getTaskById).mockReturnValue({ id: "t1" } as any);
       vi.mocked(getHabitatIdForTask).mockReturnValue("h1");
-      expect(removeComment("c1", "human", "u1")).toBe(true);
+      expect(removeComment("task-1", "c1", "human", "u1")).toBe(true);
       expect(sseBroadcaster.publish).toHaveBeenCalledWith(
         "h1",
         expect.objectContaining({ type: "task.comment_deleted" }),
       );
+    });
+
+    it("throws generic not found and never publishes on a final zero-match DELETE", () => {
+      vi.mocked(commentRepo.getCommentById).mockReturnValue(makeComment() as any);
+      vi.mocked(commentRepo.deleteComment).mockReturnValue(false);
+      vi.mocked(getHabitatIdForTask).mockReturnValue("h1");
+      expect(() => removeComment("task-1", "c1", "human", "u1")).toThrow("Comment not found");
+      expect(sseBroadcaster.publish).not.toHaveBeenCalled();
     });
   });
 });

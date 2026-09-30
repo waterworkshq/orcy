@@ -49,13 +49,27 @@ export function addComment(
     }
   }
 
-  const comment = commentRepo.createComment({
-    taskId,
-    authorType,
-    authorId,
-    content,
-    parentId: parentId || null,
-  });
+  let comment;
+  if (parentId) {
+    comment = commentRepo.createReplyComment({
+      taskId,
+      parentId,
+      authorType,
+      authorId,
+      content,
+    });
+    if (!comment) {
+      throw notFound("Parent comment not found");
+    }
+  } else {
+    comment = commentRepo.createComment({
+      taskId,
+      authorType,
+      authorId,
+      content,
+      parentId: parentId || null,
+    });
+  }
 
   const resolvedMentions = resolveMentions(content);
   const createdMentions = commentMentionRepo.createMentions(
@@ -120,7 +134,9 @@ export function getComments(taskId: string, limit?: number, offset?: number) {
 }
 
 /**
- * Edit the content of an existing comment. Only the original author can edit.
+ * Edit the content of an existing comment. Only the original author can edit,
+ * and the comment must belong to the required URL Task.
+ * @param taskId - ID of the Task the comment must belong to
  * @param commentId - ID of the comment to edit
  * @param authorType - Author type of the requester
  * @param authorId - ID of the requester
@@ -128,13 +144,14 @@ export function getComments(taskId: string, limit?: number, offset?: number) {
  * @returns The updated comment
  */
 export function editComment(
+  taskId: string,
   commentId: string,
   authorType: "human" | "agent",
   authorId: string,
   content: string,
 ) {
   const comment = commentRepo.getCommentById(commentId);
-  if (!comment) {
+  if (!comment || comment.taskId !== taskId) {
     throw notFound("Comment not found");
   }
 
@@ -142,19 +159,31 @@ export function editComment(
     throw forbidden("Not authorized to edit this comment");
   }
 
-  return commentRepo.updateComment(commentId, content);
+  const updated = commentRepo.updateComment(taskId, commentId, authorType, authorId, content);
+  if (!updated) {
+    throw notFound("Comment not found");
+  }
+  return updated;
 }
 
 /**
- * Delete a comment. Only the original author can delete.
+ * Delete a comment. Only the original author can delete, the comment must
+ * belong to the required URL Task, and the deletion publishes its single root
+ * event only after the final statement actually matched.
+ * @param taskId - ID of the Task the comment must belong to
  * @param commentId - ID of the comment to delete
  * @param authorType - Author type of the requester
  * @param authorId - ID of the requester
  * @returns The delete result
  */
-export function removeComment(commentId: string, authorType: "human" | "agent", authorId: string) {
+export function removeComment(
+  taskId: string,
+  commentId: string,
+  authorType: "human" | "agent",
+  authorId: string,
+) {
   const comment = commentRepo.getCommentById(commentId);
-  if (!comment) {
+  if (!comment || comment.taskId !== taskId) {
     throw notFound("Comment not found");
   }
 
@@ -162,17 +191,17 @@ export function removeComment(commentId: string, authorType: "human" | "agent", 
     throw forbidden("Not authorized to delete this comment");
   }
 
-  const task = getTaskById(comment.taskId);
-  const result = commentRepo.deleteComment(commentId);
+  const result = commentRepo.deleteComment(taskId, commentId, authorType, authorId);
+  if (!result) {
+    throw notFound("Comment not found");
+  }
 
-  if (task) {
-    const habitatId = getHabitatIdForTask(comment.taskId);
-    if (habitatId) {
-      sseBroadcaster.publish(habitatId, {
-        type: "task.comment_deleted",
-        data: { taskId: comment.taskId, commentId },
-      });
-    }
+  const habitatId = getHabitatIdForTask(comment.taskId);
+  if (habitatId) {
+    sseBroadcaster.publish(habitatId, {
+      type: "task.comment_deleted",
+      data: { taskId: comment.taskId, commentId },
+    });
   }
 
   return result;

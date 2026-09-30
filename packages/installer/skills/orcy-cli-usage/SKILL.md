@@ -269,6 +269,8 @@ orcy task add-comment <taskId> "Working on edge case tests now"
 orcy task add-comment <taskId> "Thanks for the feedback" --parent-id <commentUuid>
 ```
 
+`add-comment` hits the agent-only REST write route and inherits its containment contract: the `<taskId>` is resolved to its actual Mission → Habitat first (missing Task/Mission/Habitat → 404-style error), and `--parent-id` must reference a comment on that exact Task at write time — a missing parent errors `Parent comment not found` and another Task's parent `Parent comment belongs to a different task`. (`get-comments` above is unchanged: it retains the local-actor GET policy, not the agent-only write policy.)
+
 ---
 
 ## Subtasks

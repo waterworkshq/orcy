@@ -6,6 +6,7 @@ import { initTestDb, closeDb } from "../db/index.js";
 import { sharedApiRoutes } from "../routes/sharedApi.js";
 import { perAgentRateLimit } from "../middleware/rateLimit.js";
 import * as boardRepo from "../repositories/habitat.js";
+import * as commentRepo from "../repositories/comment.js";
 import * as columnRepo from "../repositories/column.js";
 import * as missionRepo from "../repositories/mission.js";
 import * as taskRepo from "../repositories/taskCrud.js";
@@ -617,6 +618,73 @@ describe("Phase D — Shared Habitat API", () => {
       expect(body.comment.content).toBe("Hello from remote!");
       expect(body.comment.authorType).toBe("remote_orcy");
       expect(body.comment.authorId).toBe(setup.participant.id);
+    });
+
+    it("POST /tasks/:id/comments reply branch: remote reply keeps remote attribution; missing and wrong-Task parents are 400 on the shared wire", async () => {
+      const setup = setupRemoteFixture();
+      const { task } = setupTaskFixture(setup);
+      // Root created through the same shared transport first.
+      const root = await app!.inject({
+        remoteAddress: "127.0.0.77",
+        method: "POST",
+        url: `/api/shared/tasks/${task.id}/comments`,
+        headers: remoteHeaders(setup, "test-comment-key-root"),
+        payload: { content: "remote root" },
+      });
+      expect(root.statusCode).toBe(201);
+      const rootComment = JSON.parse(root.body).comment;
+
+      // Reply through the changed conditional-INSERT branch: parentId binds
+      // to this exact Task and the reply keeps the remote typed attribution.
+      const reply = await app!.inject({
+        remoteAddress: "127.0.0.77",
+        method: "POST",
+        url: `/api/shared/tasks/${task.id}/comments`,
+        headers: remoteHeaders(setup, "test-comment-key-reply"),
+        payload: { content: "remote reply", parentId: rootComment.id },
+      });
+      expect(reply.statusCode).toBe(201);
+      const replyComment = JSON.parse(reply.body).comment;
+      expect(replyComment.parentId).toBe(rootComment.id);
+      expect(replyComment.taskId).toBe(task.id);
+      expect(replyComment.authorType).toBe("remote_orcy");
+      expect(replyComment.authorId).toBe(setup.participant.id);
+
+      // Missing parent: shared wire converts the service 404 to 400.
+      const missing = await app!.inject({
+        remoteAddress: "127.0.0.77",
+        method: "POST",
+        url: `/api/shared/tasks/${task.id}/comments`,
+        headers: remoteHeaders(setup, "test-comment-key-missing"),
+        payload: { content: "orphan", parentId: "00000000-0000-4000-8000-0000000000ec" },
+      });
+      expect(missing.statusCode).toBe(400);
+      expect(missing.body).toContain("Parent comment not found");
+
+      // Parent under another Task of the SAME habitat (still visible to the
+      // participant): wrong-Task parent is 400, distinct message preserved.
+      const otherTaskSetup = setupTaskFixture(setup);
+      const otherRoot = await app!.inject({
+        remoteAddress: "127.0.0.77",
+        method: "POST",
+        url: `/api/shared/tasks/${otherTaskSetup.task.id}/comments`,
+        headers: remoteHeaders(setup, "test-comment-key-other-root"),
+        payload: { content: "other task root" },
+      });
+      const otherRootComment = JSON.parse(otherRoot.body).comment;
+      const wrongTask = await app!.inject({
+        remoteAddress: "127.0.0.77",
+        method: "POST",
+        url: `/api/shared/tasks/${task.id}/comments`,
+        headers: remoteHeaders(setup, "test-comment-key-wrong"),
+        payload: { content: "cross reply", parentId: otherRootComment.id },
+      });
+      expect(wrongTask.statusCode).toBe(400);
+      expect(wrongTask.body).toContain("Parent comment belongs to a different task");
+
+      // Only the matched root and reply persisted on the target Task.
+      const rows = commentRepo.getCommentsByTaskId(task.id, 50, 0);
+      expect(rows.total).toBe(2);
     });
 
     it("POST /tasks/:id/comments rejects empty content", async () => {
