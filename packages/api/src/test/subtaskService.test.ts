@@ -54,7 +54,10 @@ function makeTask(overrides: Record<string, unknown> = {}) {
 
 describe("subtaskService", () => {
   beforeEach(() => {
-    vi.clearAllMocks();
+    // Reset implementations AND results between cases, not only call
+    // histories — a stale return from one case must never satisfy the
+    // truthful-success assertions of the next.
+    vi.resetAllMocks();
   });
 
   describe("getSubtasks", () => {
@@ -123,53 +126,70 @@ describe("subtaskService", () => {
   });
 
   describe("updateSubtask", () => {
-    it("updates subtask when it exists", () => {
+    it("updates subtask when it exists under the required parent", () => {
       vi.mocked(subtaskRepo.getSubtaskById).mockReturnValue(
-        makeSubtask({ taskId: "task-1" }) as any,
+        makeSubtask({ id: "sub-1", taskId: "task-1" }) as any,
       );
       vi.mocked(subtaskRepo.updateSubtask).mockReturnValue(
-        makeSubtask({ id: "sub-1", title: "Updated", completed: true }) as any,
+        makeSubtask({ id: "sub-1", taskId: "task-1", title: "Updated", completed: true }) as any,
       );
-      vi.mocked(taskRepo.getTaskById).mockReturnValue(makeTask() as any);
       vi.mocked(taskRepo.getHabitatIdForTask).mockReturnValue("habitat-1");
 
-      const result = updateSubtask("sub-1", { title: "Updated", completed: true });
+      const result = updateSubtask("task-1", "sub-1", { title: "Updated", completed: true });
 
       expect(result).not.toBeNull();
       expect(result!.title).toBe("Updated");
+      expect(subtaskRepo.updateSubtask).toHaveBeenCalledWith("task-1", "sub-1", {
+        title: "Updated",
+        completed: true,
+      });
       expect(sseBroadcaster.publish).toHaveBeenCalledWith(
         "habitat-1",
         expect.objectContaining({ type: "subtask.updated" }),
       );
     });
 
+    it("returns null and never writes when the child belongs to a different task", () => {
+      vi.mocked(subtaskRepo.getSubtaskById).mockReturnValue(
+        makeSubtask({ id: "sub-1", taskId: "task-2" }) as any,
+      );
+
+      const result = updateSubtask("task-1", "sub-1", { title: "Nope" });
+
+      expect(result).toBeNull();
+      expect(subtaskRepo.updateSubtask).not.toHaveBeenCalled();
+      expect(sseBroadcaster.publish).not.toHaveBeenCalled();
+    });
+
     it("returns null when subtask does not exist", () => {
       vi.mocked(subtaskRepo.getSubtaskById).mockReturnValue(null);
 
-      const result = updateSubtask("missing-sub", { title: "Nope" });
+      const result = updateSubtask("task-1", "missing-sub", { title: "Nope" });
 
       expect(result).toBeNull();
       expect(subtaskRepo.updateSubtask).not.toHaveBeenCalled();
     });
 
-    it("returns null when update fails", () => {
-      vi.mocked(subtaskRepo.getSubtaskById).mockReturnValue(makeSubtask() as any);
+    it("returns null when the final statement matches no row (zero match, no SSE)", () => {
+      vi.mocked(subtaskRepo.getSubtaskById).mockReturnValue(
+        makeSubtask({ id: "sub-1", taskId: "task-1" }) as any,
+      );
       vi.mocked(subtaskRepo.updateSubtask).mockReturnValue(null);
 
-      const result = updateSubtask("sub-1", { title: "Updated" });
+      const result = updateSubtask("task-1", "sub-1", { title: "Updated" });
 
       expect(result).toBeNull();
       expect(sseBroadcaster.publish).not.toHaveBeenCalled();
     });
 
-    it("does not broadcast when parent task not found", () => {
+    it("does not broadcast when habitat ancestry is not found", () => {
       vi.mocked(subtaskRepo.getSubtaskById).mockReturnValue(
-        makeSubtask({ taskId: "task-x" }) as any,
+        makeSubtask({ id: "sub-1", taskId: "task-1" }) as any,
       );
       vi.mocked(subtaskRepo.updateSubtask).mockReturnValue(makeSubtask() as any);
-      vi.mocked(taskRepo.getTaskById).mockReturnValue(null);
+      vi.mocked(taskRepo.getHabitatIdForTask).mockReturnValue(null);
 
-      const result = updateSubtask("sub-1", { title: "Updated" });
+      const result = updateSubtask("task-1", "sub-1", { title: "Updated" });
 
       expect(result).not.toBeNull();
       expect(sseBroadcaster.publish).not.toHaveBeenCalled();
@@ -177,40 +197,67 @@ describe("subtaskService", () => {
   });
 
   describe("deleteSubtask", () => {
-    it("deletes subtask and broadcasts", () => {
+    it("deletes the exact parent/child pair and broadcasts", () => {
       vi.mocked(subtaskRepo.getSubtaskById).mockReturnValue(
-        makeSubtask({ taskId: "task-1" }) as any,
+        makeSubtask({ id: "sub-1", taskId: "task-1" }) as any,
       );
-      vi.mocked(taskRepo.getTaskById).mockReturnValue(makeTask() as any);
+      vi.mocked(subtaskRepo.deleteSubtask).mockReturnValue(true);
       vi.mocked(taskRepo.getHabitatIdForTask).mockReturnValue("habitat-1");
 
-      const result = deleteSubtask("sub-1");
+      const result = deleteSubtask("task-1", "sub-1");
 
       expect(result).toBe(true);
-      expect(subtaskRepo.deleteSubtask).toHaveBeenCalledWith("sub-1");
+      expect(subtaskRepo.deleteSubtask).toHaveBeenCalledWith("task-1", "sub-1");
       expect(sseBroadcaster.publish).toHaveBeenCalledWith(
         "habitat-1",
         expect.objectContaining({ type: "subtask.deleted" }),
       );
     });
 
+    it("returns false and never writes when the child belongs to a different task", () => {
+      vi.mocked(subtaskRepo.getSubtaskById).mockReturnValue(
+        makeSubtask({ id: "sub-1", taskId: "task-2" }) as any,
+      );
+
+      const result = deleteSubtask("task-1", "sub-1");
+
+      expect(result).toBe(false);
+      expect(subtaskRepo.deleteSubtask).not.toHaveBeenCalled();
+      expect(sseBroadcaster.publish).not.toHaveBeenCalled();
+    });
+
     it("returns false when subtask does not exist", () => {
       vi.mocked(subtaskRepo.getSubtaskById).mockReturnValue(null);
 
-      const result = deleteSubtask("missing-sub");
+      const result = deleteSubtask("task-1", "missing-sub");
 
       expect(result).toBe(false);
       expect(subtaskRepo.deleteSubtask).not.toHaveBeenCalled();
     });
 
-    it("still deletes when parent task not found", () => {
-      vi.mocked(subtaskRepo.getSubtaskById).mockReturnValue(makeSubtask() as any);
-      vi.mocked(taskRepo.getTaskById).mockReturnValue(null);
+    it("returns false when the final statement matches no row (no delete-side SSE)", () => {
+      vi.mocked(subtaskRepo.getSubtaskById).mockReturnValue(
+        makeSubtask({ id: "sub-1", taskId: "task-1" }) as any,
+      );
+      vi.mocked(subtaskRepo.deleteSubtask).mockReturnValue(false);
 
-      const result = deleteSubtask("sub-1");
+      const result = deleteSubtask("task-1", "sub-1");
+
+      expect(result).toBe(false);
+      expect(sseBroadcaster.publish).not.toHaveBeenCalled();
+    });
+
+    it("still deletes when habitat ancestry is not found", () => {
+      vi.mocked(subtaskRepo.getSubtaskById).mockReturnValue(
+        makeSubtask({ id: "sub-1", taskId: "task-1" }) as any,
+      );
+      vi.mocked(subtaskRepo.deleteSubtask).mockReturnValue(true);
+      vi.mocked(taskRepo.getHabitatIdForTask).mockReturnValue(null);
+
+      const result = deleteSubtask("task-1", "sub-1");
 
       expect(result).toBe(true);
-      expect(subtaskRepo.deleteSubtask).toHaveBeenCalledWith("sub-1");
+      expect(subtaskRepo.deleteSubtask).toHaveBeenCalledWith("task-1", "sub-1");
       expect(sseBroadcaster.publish).not.toHaveBeenCalled();
     });
   });

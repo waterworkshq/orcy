@@ -273,6 +273,8 @@ orcy task add-comment <taskId> "Thanks for the feedback" --parent-id <commentUui
 
 ## Subtasks
 
+All subtask commands hit the agent-only REST routes and inherit their containment contract: the `<taskId>` is resolved to its actual Mission → Habitat first (missing Task/Mission/Habitat → 404-style error), and `delete-subtask` requires the subtask to belong to that exact Task — a wrong-parent subtask errors out with no deletion and no event. Humans/remote credentials are 401 on this surface.
+
 ### List Subtasks
 
 ```bash

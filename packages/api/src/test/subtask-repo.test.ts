@@ -3,8 +3,12 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 let _subtasksStore: Record<string, Record<string, unknown>> = {};
 let _selectAllResult: Array<Record<string, unknown>> = [];
 let _selectGetResult: Record<string, unknown> | undefined = undefined;
-let _updateRun = vi.fn();
-let _deleteRun = vi.fn();
+// Statement-returned row arrays, modeled INDEPENDENTLY from _selectGetResult:
+// the required-parent UPDATE/DELETE RETURNING result is the only success
+// signal, so zero-match is an explicitly empty array here.
+let updateReturning: Array<Record<string, unknown>> = [];
+let deleteReturning: Array<Record<string, unknown>> = [];
+let lastSet: Record<string, unknown> | undefined = undefined;
 let _insertRun = vi.fn();
 
 function createMockDb() {
@@ -37,11 +41,14 @@ function createMockDb() {
 
   const doUpdate = () => {
     const chain = {
-      set: () => chain,
-      where: () => chain,
-      run: () => {
-        _updateRun();
+      set: (vals: Record<string, unknown>) => {
+        lastSet = vals;
+        return chain;
       },
+      where: () => chain,
+      returning: () => ({
+        all: () => updateReturning,
+      }),
     };
     return chain;
   };
@@ -49,9 +56,9 @@ function createMockDb() {
   const doDelete = () => {
     const chain = {
       where: () => chain,
-      run: () => {
-        _deleteRun();
-      },
+      returning: () => ({
+        all: () => deleteReturning,
+      }),
     };
     return chain;
   };
@@ -88,6 +95,7 @@ vi.mock("drizzle-orm", async () => {
   return {
     ...actual,
     eq: vi.fn((_col: unknown, _val: unknown) => ({ _type: "eq" })),
+    and: vi.fn((..._conds: unknown[]) => ({ _type: "and" })),
     sql: vi.fn((_strings: TemplateStringsArray, ..._values: unknown[]) => ({ _type: "sql" })),
     inArray: vi.fn((_col: unknown, _vals: unknown[]) => ({ _type: "inArray" })),
     asc: vi.fn((_col: unknown) => ({ _type: "asc" })),
@@ -113,8 +121,9 @@ describe("subtask repository", () => {
     _subtasksStore = {};
     _selectAllResult = [];
     _selectGetResult = undefined;
-    _updateRun = vi.fn();
-    _deleteRun = vi.fn();
+    updateReturning = [];
+    deleteReturning = [];
+    lastSet = undefined;
     _insertRun = vi.fn();
   });
 
@@ -238,92 +247,132 @@ describe("subtask repository", () => {
   });
 
   describe("updateSubtask", () => {
-    it("updates title", () => {
-      _selectGetResult = {
-        id: "s1",
-        taskId: "task-1",
-        title: "Updated Title",
-        completed: false,
-        order: 0,
-        assigneeId: null,
-        createdAt: "2025-01-01",
-        updatedAt: "2025-01-02",
-      };
+    it("updates title under the required parent and returns the matched RETURNING row", () => {
+      updateReturning = [
+        {
+          id: "s1",
+          taskId: "task-1",
+          title: "Updated Title",
+          completed: false,
+          order: 0,
+          assigneeId: null,
+          createdAt: "2025-01-01",
+          updatedAt: "2025-01-02",
+        },
+      ];
 
-      const result = updateSubtask("s1", { title: "Updated Title" });
+      const result = updateSubtask("task-1", "s1", { title: "Updated Title" });
 
       expect(result).not.toBeNull();
       expect(result!.title).toBe("Updated Title");
-      expect(_updateRun).toHaveBeenCalled();
+      expect(lastSet).toMatchObject({ title: "Updated Title", updatedAt: expect.any(String) });
     });
 
     it("updates completed status", () => {
-      _selectGetResult = {
-        id: "s1",
-        taskId: "task-1",
-        title: "Check",
-        completed: true,
-        order: 0,
-        assigneeId: null,
-        createdAt: "2025-01-01",
-        updatedAt: "2025-01-02",
-      };
+      updateReturning = [
+        {
+          id: "s1",
+          taskId: "task-1",
+          title: "Check",
+          completed: true,
+          order: 0,
+          assigneeId: null,
+          createdAt: "2025-01-01",
+          updatedAt: "2025-01-02",
+        },
+      ];
 
-      const result = updateSubtask("s1", { completed: true });
+      const result = updateSubtask("task-1", "s1", { completed: true });
 
       expect(result!.completed).toBe(true);
-      expect(_updateRun).toHaveBeenCalled();
+      expect(lastSet).toMatchObject({ completed: true });
     });
 
     it("updates assignee", () => {
-      _selectGetResult = {
-        id: "s1",
-        taskId: "task-1",
-        title: "Check",
-        completed: false,
-        order: 0,
-        assigneeId: "agent-2",
-        createdAt: "2025-01-01",
-        updatedAt: "2025-01-02",
-      };
+      updateReturning = [
+        {
+          id: "s1",
+          taskId: "task-1",
+          title: "Check",
+          completed: false,
+          order: 0,
+          assigneeId: "agent-2",
+          createdAt: "2025-01-01",
+          updatedAt: "2025-01-02",
+        },
+      ];
 
-      const result = updateSubtask("s1", { assigneeId: "agent-2" });
+      const result = updateSubtask("task-1", "s1", { assigneeId: "agent-2" });
 
       expect(result!.assigneeId).toBe("agent-2");
+      expect(lastSet).toMatchObject({ assigneeId: "agent-2" });
     });
 
     it("updates order", () => {
-      _selectGetResult = {
-        id: "s1",
-        taskId: "task-1",
-        title: "Check",
-        completed: false,
-        order: 10,
-        assigneeId: null,
-        createdAt: "2025-01-01",
-        updatedAt: "2025-01-02",
-      };
+      updateReturning = [
+        {
+          id: "s1",
+          taskId: "task-1",
+          title: "Check",
+          completed: false,
+          order: 10,
+          assigneeId: null,
+          createdAt: "2025-01-01",
+          updatedAt: "2025-01-02",
+        },
+      ];
 
-      const result = updateSubtask("s1", { order: 10 });
+      const result = updateSubtask("task-1", "s1", { order: 10 });
 
       expect(result!.order).toBe(10);
+      expect(lastSet).toMatchObject({ order: 10 });
     });
 
-    it("returns null when subtask disappears after update", () => {
-      _selectGetResult = undefined;
+    it("maps only supplied fields — absent fields are never written", () => {
+      updateReturning = [
+        {
+          id: "s1",
+          taskId: "task-1",
+          title: "Untouched",
+          completed: true,
+          order: 3,
+          assigneeId: "agent-9",
+          createdAt: "2025-01-01",
+          updatedAt: "2025-01-02",
+        },
+      ];
 
-      const result = updateSubtask("s1", { title: "Gone" });
+      updateSubtask("task-1", "s1", { completed: false });
+
+      expect(lastSet).toEqual({ completed: false, updatedAt: expect.any(String) });
+    });
+
+    it("returns null when the required-parent statement matches no row (no post-write refetch)", () => {
+      // Zero-match (absent child or child under another parent) is an empty
+      // RETURNING — the obsolete post-UPDATE refetch characterization is gone.
+      updateReturning = [];
+
+      const result = updateSubtask("task-1", "s1", { title: "Gone" });
 
       expect(result).toBeNull();
     });
   });
 
   describe("deleteSubtask", () => {
-    it("deletes subtask and returns true", () => {
-      const result = deleteSubtask("s1");
+    it("deletes the exact parent/child pair and returns true from the returned ID", () => {
+      deleteReturning = [{ id: "s1" }];
+
+      const result = deleteSubtask("task-1", "s1");
 
       expect(result).toBe(true);
-      expect(_deleteRun).toHaveBeenCalled();
+    });
+
+    it("returns false when the required-parent statement returns no ID (zero match)", () => {
+      deleteReturning = [];
+
+      const result = deleteSubtask("task-1", "s1");
+
+      expect(result).toBe(false);
     });
   });
 

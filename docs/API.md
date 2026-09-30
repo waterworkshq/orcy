@@ -23,6 +23,7 @@ Complete reference for the Orcy REST API.
 - [Tasks](#tasks)
 - [Batch Operations](#batch-operations)
 - [Task Lifecycle](#task-lifecycle)
+- [Task Subtasks](#task-subtasks)
 - [Time Tracking & Estimation](#time-tracking--estimation)
 - [Advanced Analytics](#advanced-analytics)
 - [Effort Logging](#effort-logging)
@@ -1800,6 +1801,50 @@ Signal that a task's dependency has been resolved.
 ```
 
 ---
+
+## Task Subtasks
+
+Checklist-style subtasks attached to a task. All four operations are **agent-only** (`X-Agent-API-Key`): human JWTs, remote-only credentials, anonymous and invalid-key callers receive `401` on every operation — team membership never grants entry here. Each operation first resolves the **URL Task's** actual Mission → Habitat server-side and enforces the shared habitat-access predicate: valid local agents (assigned or unassigned) pass on any existing habitat; a missing Task, Mission or Habitat is `404` before any child row is read or written. PATCH/DELETE additionally enforce the **exact child/URL-parent pair**: an unknown subtask or a subtask that belongs to a different Task is `404` `Subtask not found` (same or different habitat alike, indistinguishable), with the final SQL statement itself bound to `id AND task_id` — a request naming Task A can never mutate or delete Task B's child, and SSE `subtask.*` events publish only after a matched write, attributed to the matched row's actual parent. This is request-time ancestry admission plus final-SQL child containment, not lifecycle policy — archived, approved or reviewer-gated parents keep current Subtask behavior when ancestry exists.
+
+### GET /tasks/:taskId/subtasks
+
+List subtasks for a task (agent API key only).
+
+**Response `200`:**
+
+```json
+{ "subtasks": [{ "id": "sub-uuid", "taskId": "uuid", "title": "Write unit tests", "completed": false, "order": 0, "assigneeId": null }], "total": 1, "completedCount": 0 }
+```
+
+An existing Task with no children returns the full empty shape `{ "subtasks": [], "total": 0, "completedCount": 0 }`. A missing Task (or missing Mission/Habitat ancestry) is `404` — previously the missing-Task case returned the empty shape.
+
+### POST /tasks/:taskId/subtasks
+
+Create a subtask (agent API key only). `title` is required: an absent body, a missing, empty/whitespace or non-string `title` is an explicit `400` `Title is required` — this validation runs **before** the Task ancestry check, which then returns `404` for a missing Task/Mission/Habitat. Optional `order` (default `0`) and `assigneeId` (default `null`); `completed` defaults to `false`. On success exactly one `subtask.created` event is published for the actual parent Task.
+
+**Request:**
+
+```json
+{ "title": "Write unit tests", "order": 1, "assigneeId": "agent-uuid" }
+```
+
+**Response `201`:** `{ "subtask": { ... } }`
+
+### PATCH /tasks/:taskId/subtasks/:subtaskId
+
+Update a subtask's `title`, `completed`, `order` or `assigneeId` (agent API key only; supplied-field semantics — `false`/`0`/`null` values are applied, a `taskId` field in the body is ignored and can never move the child). The subtask must belong to the URL Task: an unknown or wrong-parent child is `404` `Subtask not found` even when both Tasks are accessible to the caller (previously a wrong-parent PATCH returned `200` and mutated the other Task's child). A same-values update remains a success.
+
+**Request:**
+
+```json
+{ "completed": true }
+```
+
+**Response `200`:** `{ "subtask": { ... } }`
+
+### DELETE /tasks/:taskId/subtasks/:subtaskId
+
+Delete a subtask (agent API key only). Same exact-pair containment as PATCH: a wrong-parent or unknown child is `404` (previously a wrong-parent DELETE returned `204` and removed the other Task's child). Success is `204` with an empty body, removes exactly the matched row and publishes one `subtask.deleted` event; a repeated deletion is `404`. Unexpected database failures propagate as `5xx`, never flattened into a false success or 404.
 
 ## Time Tracking & Estimation
 

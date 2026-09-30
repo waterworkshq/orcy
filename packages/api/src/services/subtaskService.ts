@@ -21,7 +21,10 @@ export function getSubtasks(taskId: string) {
  * @param input - Subtask title, optional order and assigneeId
  * @returns The created subtask, or null if parent task not found
  */
-export function createSubtask(taskId: string, input: { title: string; order?: number; assigneeId?: string | null }) {
+export function createSubtask(
+  taskId: string,
+  input: { title: string; order?: number; assigneeId?: string | null },
+) {
   const task = getTaskById(taskId);
   if (!task) return null;
 
@@ -39,52 +42,60 @@ export function createSubtask(taskId: string, input: { title: string; order?: nu
 }
 
 /**
- * Update a subtask's title, completion status, order, or assignee.
+ * Update a subtask's title, completion status, order, or assignee — only
+ * under its required parent Task.
+ * @param taskId - ID of the required parent task (the URL parent on HTTP)
  * @param subtaskId - ID of the subtask to update
  * @param data - Fields to update
- * @returns The updated subtask, or null if not found
+ * @returns The updated subtask, or null when the child is absent or belongs
+ *   to a different Task (indistinguishable); no mutation or SSE then.
  */
-export function updateSubtask(subtaskId: string, data: { title?: string; completed?: boolean; order?: number; assigneeId?: string | null }) {
+export function updateSubtask(
+  taskId: string,
+  subtaskId: string,
+  data: { title?: string; completed?: boolean; order?: number; assigneeId?: string | null },
+) {
   const existing = subtaskRepo.getSubtaskById(subtaskId);
-  if (!existing) return null;
+  if (!existing || existing.taskId !== taskId) return null;
 
-  const updated = subtaskRepo.updateSubtask(subtaskId, data);
+  const updated = subtaskRepo.updateSubtask(taskId, subtaskId, data);
   if (!updated) return null;
 
-  const task = getTaskById(existing.taskId);
-  if (task) {
-    const habitatId = getHabitatIdForTask(existing.taskId);
-    if (habitatId) {
-      sseBroadcaster.publish(habitatId, {
-        type: "subtask.updated",
-        data: { taskId: existing.taskId, subtask: updated },
-      } as SSEEvent);
-    }
+  // The event's parent derives from the matched row's actual taskId — never
+  // from body fields or the pre-read alone.
+  const habitatId = getHabitatIdForTask(updated.taskId);
+  if (habitatId) {
+    sseBroadcaster.publish(habitatId, {
+      type: "subtask.updated",
+      data: { taskId: updated.taskId, subtask: updated },
+    } as SSEEvent);
   }
 
   return updated;
 }
 
 /**
- * Delete a subtask.
+ * Delete a subtask — only under its required parent Task.
+ * @param taskId - ID of the required parent task (the URL parent on HTTP)
  * @param subtaskId - ID of the subtask to delete
- * @returns True if deleted, false if not found
+ * @returns True when the exact (taskId, subtaskId) pair matched and was
+ *   deleted; false when the child is absent, belongs to a different Task,
+ *   or the final statement matched no row. No SSE unless matched.
  */
-export function deleteSubtask(subtaskId: string) {
+export function deleteSubtask(taskId: string, subtaskId: string) {
   const existing = subtaskRepo.getSubtaskById(subtaskId);
-  if (!existing) return false;
+  if (!existing || existing.taskId !== taskId) return false;
 
-  const task = getTaskById(existing.taskId);
-  subtaskRepo.deleteSubtask(subtaskId);
+  const matched = subtaskRepo.deleteSubtask(taskId, subtaskId);
+  if (!matched) return false;
 
-  if (task) {
-    const habitatId = getHabitatIdForTask(existing.taskId);
-    if (habitatId) {
-      sseBroadcaster.publish(habitatId, {
-        type: "subtask.deleted",
-        data: { taskId: existing.taskId, subtaskId },
-      } as SSEEvent);
-    }
+  // The pre-read's confirmed parent equals the SQL-required parent Task.
+  const habitatId = getHabitatIdForTask(taskId);
+  if (habitatId) {
+    sseBroadcaster.publish(habitatId, {
+      type: "subtask.deleted",
+      data: { taskId, subtaskId },
+    } as SSEEvent);
   }
 
   return true;

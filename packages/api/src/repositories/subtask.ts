@@ -1,6 +1,6 @@
 import { getDb } from "../db/index.js";
 import { taskSubtasks } from "../db/schema/index.js";
-import { eq, sql, inArray, asc } from "drizzle-orm";
+import { and, eq, sql, inArray, asc } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 import {
   repositoryCreateError,
@@ -68,7 +68,16 @@ export function getSubtaskById(subtaskId: string): Subtask | null {
   return (row as Subtask) ?? null;
 }
 
+/**
+ * Updates a subtask ONLY under its required parent Task: the actual UPDATE
+ * statement matches `id = subtaskId AND task_id = taskId` and returns the
+ * rows THIS statement matched via `UPDATE ... RETURNING` (the cross-driver
+ * pattern from `removeTaskDependency`), so a zero-match — absent child or a
+ * child that now belongs to another Task — is a null result, never a false
+ * success. There is deliberately no unconditional post-write ID refetch.
+ */
 export function updateSubtask(
+  taskId: string,
   subtaskId: string,
   data: { title?: string; completed?: boolean; order?: number; assigneeId?: string | null },
 ): Subtask | null {
@@ -82,22 +91,36 @@ export function updateSubtask(
   if (data.assigneeId !== undefined) set.assigneeId = data.assigneeId;
 
   try {
-    db.update(taskSubtasks).set(set).where(eq(taskSubtasks.id, subtaskId)).run();
+    const matched = db
+      .update(taskSubtasks)
+      .set(set)
+      .where(and(eq(taskSubtasks.id, subtaskId), eq(taskSubtasks.taskId, taskId)))
+      .returning()
+      .all();
+    return (matched[0] as Subtask | undefined) ?? null;
   } catch (err) {
     throw repositoryUpdateError("subtask", err as Error, subtaskId);
   }
-
-  return getSubtaskById(subtaskId);
 }
 
-export function deleteSubtask(subtaskId: string): boolean {
+/**
+ * Deletes a subtask ONLY under its required parent Task via
+ * `DELETE ... WHERE id = subtaskId AND task_id = taskId RETURNING id`, so
+ * success reflects the rows THIS statement actually removed — on both the
+ * sql.js (test) and better-sqlite3 (production) drivers.
+ */
+export function deleteSubtask(taskId: string, subtaskId: string): boolean {
   const db = getDb();
   try {
-    db.delete(taskSubtasks).where(eq(taskSubtasks.id, subtaskId)).run();
+    const matched = db
+      .delete(taskSubtasks)
+      .where(and(eq(taskSubtasks.id, subtaskId), eq(taskSubtasks.taskId, taskId)))
+      .returning({ id: taskSubtasks.id })
+      .all();
+    return matched.length > 0;
   } catch (err) {
     throw repositoryDeleteError("subtask", err as Error, subtaskId);
   }
-  return true;
 }
 
 export function getSubtaskCounts(
