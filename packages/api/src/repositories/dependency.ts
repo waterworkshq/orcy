@@ -22,11 +22,49 @@ export function addTaskDependency(taskId: string, dependsOnId: string): void {
   db.insert(taskDependencies).values({ taskId, dependsOnId }).run();
 }
 
-export function removeTaskDependency(taskId: string, dependsOnId: string): void {
+/**
+ * Deletes the exact ordered `(taskId, dependsOnId)` edge via
+ * `DELETE ... WHERE task_id = ? AND depends_on_id = ? RETURNING`, so the
+ * result reflects only the rows THIS statement matched. Returns true when a
+ * row was deleted, false when the exact pair does not exist — on both the
+ * sql.js (test) and better-sqlite3 (production) drivers.
+ */
+export function removeTaskDependency(taskId: string, dependsOnId: string): boolean {
   const db = getDb();
-  db.delete(taskDependencies)
+  const matched = db
+    .delete(taskDependencies)
     .where(and(eq(taskDependencies.taskId, taskId), eq(taskDependencies.dependsOnId, dependsOnId)))
-    .run();
+    .returning({ taskId: taskDependencies.taskId })
+    .all();
+  return matched.length > 0;
+}
+
+/**
+ * Raw ordered edge inventory for Task access checks: every
+ * `task_dependencies` row touching `taskId` in BOTH directions, read WITHOUT
+ * an inner join to `tasks`. Unlike the joined projection, a dangling edge
+ * (endpoint Task row abnormally missing) still surfaces its endpoint id so
+ * callers can fail closed instead of silently dropping the row.
+ */
+export function getTaskDependencyEdgeIds(taskId: string): {
+  outgoing: string[];
+  incoming: string[];
+} {
+  const db = getDb();
+  const outgoing = db
+    .select({ dependsOnId: taskDependencies.dependsOnId })
+    .from(taskDependencies)
+    .where(eq(taskDependencies.taskId, taskId))
+    .all();
+  const incoming = db
+    .select({ blockerId: taskDependencies.taskId })
+    .from(taskDependencies)
+    .where(eq(taskDependencies.dependsOnId, taskId))
+    .all();
+  return {
+    outgoing: outgoing.map((row) => row.dependsOnId),
+    incoming: incoming.map((row) => row.blockerId),
+  };
 }
 
 export function getTaskDependencies(taskId: string): TaskDependencyDetails {

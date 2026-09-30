@@ -18,7 +18,7 @@ If you also have the CLI installed, **prefer MCP for intra-session tool use** �
 |------|---------|--------|
 | `orcy_habitat` | `list`, `find`, `get-settings`, `summary`, `metrics`, `get-health`, `get-health-history`, `predictions`, `bottlenecks`, `agent-quality`, `get-rules`, `update-rules`, `evaluate-rules` | Habitat discovery, settings, summaries, health, analytics, and prioritization rules |
 | `orcy_habitat_mission` | `list`, `create`, `delete`, `archive`, `unarchive`, `get-context`, `get-comments`, `add-comment`, `link-code`, `list-code-evidence`, `correct-code-evidence-link`, `mark-not-applicable`, `clear-not-applicable`, `report-gap`, `resolve-gap`, `get-audit-bundle` | Mission lifecycle, comments, code evidence, and scoped audit evidence bundles |
-| `orcy_habitat_task` | `list-in-mission`, `create-in-mission`, `update`, `delete`, `claim`, `start`, `submit`, `complete`, `approve`, `reject`, `release`, `retry`, `fail`, `get-context`, `get-events`, `get-comments`, `add-comment`, `get-time-report`, `get-blocked-status`, `get-approval-status`, `add-dependency`, `remove-dependency`, `get-quality-checklist`, `update-quality-checklist-item`, `validate-quality-gates`, `list-subtasks`, `create-subtask`, `delete-subtask`, `log-effort`, `list-effort`, `get-effort-report`, `correct-effort-entry`, `link-code`, `list-code-evidence`, `correct-code-evidence-link`, `mark-not-applicable`, `clear-not-applicable`, `report-gap`, `resolve-gap`, `get-audit-bundle`, `batch-assign`, `batch-set-priority`, `batch-delete` | Full task lifecycle, history, quality, dependencies, subtasks, effort, evidence, and audit bundles. Batch boundary: `batch-assign` returns agents `403` ("Batch assignment is admin-only. Use POST /tasks/:id/claim to claim a task.") — use claim instead; `batch-set-priority` and `batch-delete` remain agent-usable (agents pass the URL habitat's access check on any existing habitat; human JWTs additionally require team membership on team habitats). Object-access boundary: `get-context`, `get-events`, `get-comments`, `list-code-evidence`, `delete`, and the five scalar adjunct reads (`get-time-report`, `get-approval-status`, `get-quality-checklist`, `get-effort-report`, `list-effort`) resolve the TARGET task's Mission→Habitat server-side and enforce the same membership check for human JWTs (nonmember 403; missing Task/Mission 404); agents pass on any existing habitat. Other Task-ID adjunct reads (e.g. `get-blocked-status`) and task mutations beyond individual `delete` remain without this check |
+| `orcy_habitat_task` | `list-in-mission`, `create-in-mission`, `update`, `delete`, `claim`, `start`, `submit`, `complete`, `approve`, `reject`, `release`, `retry`, `fail`, `get-context`, `get-events`, `get-comments`, `add-comment`, `get-time-report`, `get-blocked-status`, `get-approval-status`, `add-dependency`, `remove-dependency`, `get-quality-checklist`, `update-quality-checklist-item`, `validate-quality-gates`, `list-subtasks`, `create-subtask`, `delete-subtask`, `log-effort`, `list-effort`, `get-effort-report`, `correct-effort-entry`, `link-code`, `list-code-evidence`, `correct-code-evidence-link`, `mark-not-applicable`, `clear-not-applicable`, `report-gap`, `resolve-gap`, `get-audit-bundle`, `batch-assign`, `batch-set-priority`, `batch-delete` | Full task lifecycle, history, quality, dependencies, subtasks, effort, evidence, and audit bundles. Batch boundary: `batch-assign` returns agents `403` ("Batch assignment is admin-only. Use POST /tasks/:id/claim to claim a task.") — use claim instead; `batch-set-priority` and `batch-delete` remain agent-usable (agents pass the URL habitat's access check on any existing habitat; human JWTs additionally require team membership on team habitats). Object-access boundary: `get-context`, `get-events`, `get-comments`, `list-code-evidence`, `delete`, the five scalar adjunct reads (`get-time-report`, `get-approval-status`, `get-quality-checklist`, `get-effort-report`, `list-effort`), and the dependency actions (`get-blocked-status`, `add-dependency`, `remove-dependency`) resolve the TARGET task's (and, for dependencies, every linked edge endpoint on reads, both actual endpoints on writes) Mission→Habitat server-side and enforce the same membership check for human JWTs (nonmember 403; missing Task/Mission 404); agents pass on any existing habitat. Other Task-ID adjunct reads (e.g. failure/workflow context) and task mutations beyond individual `delete` and the dependency writes remain without this check |
 | `orcy_habitat_agent` | `register`, `list`, `heartbeat`, `get-stats` | Agent registration and presence |
 | `orcy_suggest` | `suggest-next-task` | AI-ranked task recommendations |
 | `orcy_habitat_message` | `send`, `get-messages` | Cross-agent communication |
@@ -628,6 +628,8 @@ orcy_habitat_task({ action: "get-blocked-status", taskId: "uuid" })
 Output: { "isBlocked": true, "blockedBy": [{ "taskId": "uuid", "title": "Create JWT middleware", "status": "pending" }] }
 ```
 
+Server-side object access resolves the target task's and every linked dependency endpoint's Mission→Habitat; an inaccessible linked team Task denies the whole read (403) rather than answering a misleading `isBlocked: false`.
+
 ### Add Dependency
 
 ```
@@ -635,12 +637,16 @@ orcy_habitat_task({ action: "add-dependency", taskId: "uuid", dependsOnTaskId: "
 Output: { "success": true }
 ```
 
+Both actual endpoint Tasks' Mission→Habitat are resolved server-side (missing Task/Mission 404; inaccessible endpoint 403 before any write).
+
 ### Remove Dependency
 
 ```
 orcy_habitat_task({ action: "remove-dependency", taskId: "uuid", dependencyTaskId: "prerequisite-task-uuid" })
 Output: { "success": true }
 ```
+
+`dependencyTaskId` is the **destination Task ID** of the edge. The exact ordered pair must exist: an absent pair returns 404 (no false success); an inaccessible endpoint returns 403 without deleting.
 
 ### Get Time Report
 

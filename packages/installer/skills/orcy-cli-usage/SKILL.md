@@ -325,17 +325,23 @@ orcy task get-approval-status <taskId>
 
 ### Get Blocked Status
 
+Check if a task is blocked by incomplete dependencies. Server-side object access resolves the target task's and every linked dependency endpoint's Mission→Habitat; an inaccessible linked team Task denies the whole read (403) rather than answering a misleading unblocked result.
+
 ```bash
 orcy task get-blocked-status <taskId>
 ```
 
 ### Add Dependency
 
+Add a dependency edge. Both actual endpoint Tasks' Mission→Habitat are resolved server-side (missing Task/Mission 404; inaccessible endpoint 403 before any write).
+
 ```bash
 orcy task add-dependency <taskId> <dependsOnTaskId>
 ```
 
 ### Remove Dependency
+
+Remove a dependency edge. `<dependencyTaskId>` is the **destination Task ID** of the edge. The exact ordered pair must exist: an absent pair returns 404 (no false success); an inaccessible endpoint returns 403 without deleting.
 
 ```bash
 orcy task remove-dependency <taskId> <dependencyTaskId>
