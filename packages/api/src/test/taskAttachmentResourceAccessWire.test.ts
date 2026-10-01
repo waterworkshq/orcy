@@ -28,11 +28,14 @@
  * `UPLOAD_DIR` is a module-load constant, so it is set in `vi.hoisted`, which
  * vitest lifts above the imports - before any module reads it.
  *
- * What this suite does NOT claim: it does not prove the final actor, parent or
- * filename is fenced, does not make the SQL delete matched-row truthful, and is
- * not filesystem-atomic. The file-before-row abort byte loss, the false
- * zero-row 204, and parent-cascade orphan bytes are characterized as the open
- * limitations they are. Follow-up B is unimplemented.
+ * What this suite does NOT claim: it does not prove filesystem-DB atomicity,
+ * orphan recovery, or immunity to arbitrary triggers. Since the DB-first
+ * command landed, the file-before-row abort byte loss and the false zero-row
+ * 204 are GONE: the destructive fault tests below now assert bytes-preserved
+ * rollback (500/409) and postcommit-only filesystem effects. The exhaustive
+ * current-authority/full-identity matrix for the same route lives in
+ * taskAttachmentDeleteAuthorityWire.test.ts; this file keeps its wire
+ * boundary observations and the closed download suite unchanged.
  */
 import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach, vi } from 'vitest';
 import net from 'node:net';
@@ -1653,9 +1656,11 @@ describe('existing stream and file behaviour is characterized, not repaired', ()
 
 // ===========================================================================
 describe('existing destructive faults - characterization only, NOT follow-up B criteria', () => {
-  it('500s an allowed delete whose stored path is a directory, leaving row and path in place', async () => {
-    // unlinkSync on a directory raises EISDIR BEFORE the DELETE, and the raw FS
-    // error is outside the repository try. Pinned as existing partial failure.
+  it('500s postcommit EISDIR with the row already ABSENT, leaving the stored directory intact', async () => {
+    // DB-first: the transaction commits the winning deletion first, then the
+    // unchanged unlink runs outside the SQL catch. A stored path that exists
+    // as a directory reaches unlinkSync and raises EISDIR — a real propagated
+    // filesystem error is 500 INTERNAL_ERROR with the row already gone.
     const dirName = `${randomUUID()}-undir.bin`;
     mkdirSync(join(env.uploadDir, dirName), { recursive: true });
     const a = makeAttachment(teamTaskId, {
@@ -1669,21 +1674,26 @@ describe('existing destructive faults - characterization only, NOT follow-up B c
     const res = await del('/api/v1', a.id, { token: memberAdminJwt });
     expect(res.status).toBe(500);
     expect(res.body.code).toBe('INTERNAL_ERROR');
-    // Row and path both remain: the unlink never completed.
-    expect(rowById(a.id)).toBeTruthy();
+    // The row removal COMMITTED before the unlink attempt: row absent,
+    // directory intact (unlink cannot remove a directory), replay is 404
+    // and never cleans the stored path. Orphan-directory outcome, documented.
+    expect(rowById(a.id)).toBeUndefined();
+    expect(statSync(join(env.uploadDir, dirName)).isDirectory()).toBe(true);
+    expect(deleteFileNames).toContain(dirName);
+
+    const replay = await del('/api/v1', a.id, { token: memberAdminJwt });
+    expect(replay.status).toBe(404);
+    expect(deleteFileNames.filter((name: string) => name === dirName).length).toBe(1);
     expect(statSync(join(env.uploadDir, dirName)).isDirectory()).toBe(true);
 
-    // Positive control after repairing the fixture: the same target deletes.
+    // Fixture repair only: the stored directory was this test's own fixture.
     rmSync(join(env.uploadDir, dirName), { recursive: true, force: true });
-    writeFileSync(join(env.uploadDir, dirName), Buffer.from('AAR-UNLINK-DIR-REPAIRED', 'utf-8'));
-    expect((await del('/api/v1', a.id, { token: memberAdminJwt })).status).toBe(204);
-    expect(rowById(a.id)).toBeUndefined();
   });
 
-  it('500s REPOSITORY_ERROR and LOSES the bytes when the SQL statement aborts after a successful unlink', async () => {
-    // Follow-up B territory, characterized honestly: the repository unlinks
-    // BEFORE the statement, so a statement abort destroys the stored bytes while
-    // the row survives. No compensation, staging, trash or recovery is added.
+  it('500s REPOSITORY_ERROR with the bytes PRESERVED when the SQL statement aborts (DB-first)', async () => {
+    // The transaction owns the whole command: a BEFORE DELETE RAISE(ABORT)
+    // throws inside the immediate transaction, which rolls back with zero
+    // filesystem effect, and the real failure wraps as REPOSITORY_ERROR.
     const a = makeAttachment(teamTaskId, {
       uploadedBy: 'aar-member-admin',
       originalName: 'abort-delete.txt',
@@ -1699,11 +1709,12 @@ describe('existing destructive faults - characterization only, NOT follow-up B c
       expect(res.status).toBe(500);
       expect(res.body.code).toBe('REPOSITORY_ERROR');
       expect(res.body.error).toBe('Failed to delete attachment');
-      // The unlink already happened: the bytes are gone and unrecoverable, and
-      // the row survives. This is the file-before-row byte loss, unclaimed.
-      expect(existsSync(join(env.uploadDir, a.filename))).toBe(false);
+      // DB-first: the statement aborted BEFORE any filesystem effect. The row
+      // survives and the bytes are untouched — the old byte loss is repaired.
+      expect(existsSync(join(env.uploadDir, a.filename))).toBe(true);
       expect(rowById(a.id)).toBeTruthy();
       expect(rowById(a.id).filename).toBe(a.filename);
+      expect(deleteFileSpy).not.toHaveBeenCalled();
     } finally {
       getDb().run(sql`DROP TRIGGER IF EXISTS aar_block_delete`);
     }
@@ -1713,10 +1724,10 @@ describe('existing destructive faults - characterization only, NOT follow-up B c
     expect(rowById(a.id)).toBeUndefined();
   });
 
-  it('returns a false 204 when the DELETE statement matches zero rows after a successful unlink', async () => {
-    // The repository returns an unconditional true after `.run()`, so a
-    // statement that removes nothing is still reported as success. Pinned as
-    // the current false-204 semantics; NOT repaired here.
+  it('409s with row and bytes intact when RAISE(IGNORE) makes the DELETE return zero rows', async () => {
+    // The conditional DELETE is verified through RETURNING: RAISE(IGNORE)
+    // removes nothing, the statement returns zero rows, and the command
+    // throws 409 CONFLICT inside the transaction — never a false 204.
     const a = makeAttachment(teamTaskId, {
       uploadedBy: 'aar-member-admin',
       originalName: 'zero-row.txt',
@@ -1728,14 +1739,22 @@ describe('existing destructive faults - characterization only, NOT follow-up B c
     );
     try {
       const res = await del('/api/v1', a.id, { token: memberAdminJwt });
-      // 204 with the row STILL present and the bytes already unlinked: the
-      // answer does not prove what was removed.
-      expect(res.status).toBe(204);
+      // Zero matched rows is a truthful 409 with full rollback and zero
+      // filesystem effect: row present, bytes present, no unlink attempted.
+      expect(res.status).toBe(409);
+      expect(res.body.code).toBe('CONFLICT');
+      expect(res.body.error).toBe('Attachment changed');
       expect(rowById(a.id)).toBeTruthy();
-      expect(existsSync(join(env.uploadDir, a.filename))).toBe(false);
+      expect(existsSync(join(env.uploadDir, a.filename))).toBe(true);
+      expect(deleteFileSpy).not.toHaveBeenCalled();
     } finally {
       getDb().run(sql`DROP TRIGGER IF EXISTS aar_ignore_delete`);
     }
+
+    // Positive control after dropping the trigger: the same target deletes.
+    expect((await del('/api/v1', a.id, { token: memberAdminJwt })).status).toBe(204);
+    expect(rowById(a.id)).toBeUndefined();
+    expect(existsSync(join(env.uploadDir, a.filename))).toBe(false);
   });
 });
 
@@ -1792,12 +1811,14 @@ describe('initial-lookup snapshot drift - labelled fault-seam characterization',
     }
   });
 
-  it('unlinks the CURRENT row filename on delete, so a reparented replacement file can be removed', async () => {
+  it('409s with NO unlink when the current row drifted from the admitted preimage', async () => {
     // Same labelled seam, destructive direction. The route admitted and
-    // authorized the SNAPSHOT (personal Habitat, member human uploader), but
-    // the repository's second ID-only SELECT re-reads the mutated row and
-    // unlinks ITS filename. The snapshot file is orphaned. This is exactly the
-    // un-limit this slice refuses to claim.
+    // authorized the SNAPSHOT (personal Habitat, admin human), but the
+    // DB-first command re-reads the CURRENT row inside its transaction: the
+    // filename drifted (the row stays in the still-admitted personal Habitat,
+    // so authority holds), and the full-identity comparison throws 409 before
+    // the conditional DELETE and before any filesystem effect. A reparent that
+    // REMOVES current admission is 403 by precedence, proven in the new suite.
     const a = makeAttachment(personalTaskId, {
       uploadedBy: 'aar-personal-admin',
       originalName: 'drift-delete.txt',
@@ -1812,7 +1833,7 @@ describe('initial-lookup snapshot drift - labelled fault-seam characterization',
       if (id === a.id && snapshot) {
         getDb()
           .update(taskAttachments)
-          .set({ taskId: otherTeamTaskId, filename: replacementName })
+          .set({ filename: replacementName })
           .where(eq(taskAttachments.id, a.id))
           .run();
       }
@@ -1821,25 +1842,34 @@ describe('initial-lookup snapshot drift - labelled fault-seam characterization',
 
     try {
       const res = await del('/api/v1', a.id, { token: personalAdminJwt });
-      expect(res.status).toBe(204);
-      // The REPLACEMENT file was unlinked, not the snapshot's.
-      expect(deleteFileNames).toContain(replacementName);
+      expect(res.status).toBe(409);
+      expect(res.body.code).toBe('CONFLICT');
+      expect(res.body.error).toBe('Attachment changed');
+      // Still authorized, but drifted: NEITHER file is touched and the row
+      // (still carrying the seam's competing write) survives intact.
+      expect(deleteFileSpy).not.toHaveBeenCalled();
+      expect(deleteFileNames).not.toContain(replacementName);
       expect(deleteFileNames).not.toContain(a.filename);
-      expect(existsSync(join(env.uploadDir, replacementName))).toBe(false);
-      // The snapshot's own bytes are orphaned: bytes lost with no row.
+      expect(existsSync(join(env.uploadDir, replacementName))).toBe(true);
       expect(existsSync(join(env.uploadDir, a.filename))).toBe(true);
-      expect(rowById(a.id)).toBeUndefined();
+      expect(rowById(a.id)).toBeTruthy();
+      expect(rowById(a.id).filename).toBe(replacementName);
     } finally {
       seam.mockRestore();
+      // Restore the row the seam mutated: the competing write was test-owned.
+      getDb()
+        .update(taskAttachments)
+        .set({ filename: a.filename })
+        .where(eq(taskAttachments.id, a.id))
+        .run();
     }
   });
 
   it('404s an allowed delete whose repository refetch no longer finds the attachment', async () => {
-    // The retained false-result branch. The repository's internal refetch is
-    // a LEXICAL getAttachmentById call, so an exported-binding spy returning
-    // null can never reach it. Instead the labelled seam below deletes the
-    // REAL row from the database right after the route's lookup consumed it:
-    // the repository's own internal refetch then genuinely observes absence.
+    // The command's same-transaction current-row read. The labelled seam
+    // below deletes the REAL row from the database right after the route's
+    // lookup consumed it: the command's in-transaction SELECT then genuinely
+    // observes absence and answers the same 404.
     const a = makeAttachment(teamTaskId, {
       uploadedBy: 'aar-member-admin',
       originalName: 'vanish.txt',

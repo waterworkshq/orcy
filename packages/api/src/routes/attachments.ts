@@ -106,10 +106,11 @@ export async function attachmentRoutes(fastify: FastifyInstance): Promise<void> 
         throw forbidden(authResult.reason ?? 'Access denied');
       }
 
-      const success = attachmentRepo.deleteAttachment(request.params.id);
-      if (!success) {
-        throw notFound('Attachment not found');
-      }
+      // DB-first destructive command: the repository revalidates current
+      // authority and the full admitted preimage in one immediate
+      // transaction, deletes conditionally with RETURNING + absence proof,
+      // and only then unlinks the removed row's file. Success is 204.
+      attachmentRepo.deleteAttachment(request, attachment);
 
       reply.code(204).send();
     }

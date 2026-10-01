@@ -2063,3 +2063,44 @@ Federated participation for another admin's pod in a shared habitat. The **live 
 | Transport seam (v0.35) | `services/tasks/remote-task-lifecycle.ts` — remote mutations produce the same observable lifecycle as local ones (canonical task event + SSE + watchers + mission recalc + subscriber hooks), closing the governance-interceptor bypass and enforcing Host-Approved Capability |
 | Compact eventing | `compactRemoteWebhookDispatcher.ts` — HMAC-signed compact webhooks with a delivery ledger; single-attempt dispatch, failures record the delivery and emit `webhook.delivery_failed` (no automatic retry) |
 | Admin surface | `shareHabitatReadinessService.ts`, `sharedGrantVisibilityService.ts`, `remoteAccessAdminService.ts`, invite flows, credential rotation (`remoteCredentialService.ts` + `secretCrypto.ts`) |
+
+## Attachment Deletion (DB-first)
+
+`DELETE /attachments/:id` is a bounded repository command
+(`repositories/attachment.ts`): after the route's ordinary admission
+(`routes/attachments.ts`), the command owns one synchronous
+`BEGIN IMMEDIATE` transaction that re-reads **current** facts — the live
+agent-key mapping (a key that no longer hashes to the same persisted agent is
+a late `401 INVALID_API_KEY`, even mid-request), the current
+Task → Mission → Habitat ancestry, team membership for humans, and the
+unchanged delete predicate (scalar uploader match OR assigned agent OR human
+JWT admin/editor role; roles come from verified JWT claims, never persisted
+`users.role`). Current-authority denial (`403`/`404`) precedes any identity
+conflict. The stored row's full eight-field identity — including the id and
+the nullable `uploadedBy`/`createdAt`, compared null-aware — must equal the
+admitted preimage or the command throws `409 Attachment changed` before the
+statement; the conditional `DELETE ... RETURNING` must remove exactly one row
+of that identity and a same-transaction postcheck must observe the target id
+absent (a trigger that reinserts the id rolls the whole transaction back).
+`FastifyRequest` here is an ordinary trusted internal boundary, not an
+unforgeable capability; the attachment route (`routes/attachments.ts`) is the
+command's only served caller.
+
+The writer reservation serializes the final checks, the winning delete and
+the postcheck into one unit against ordinary SQLite writers — other writers
+block while it runs, and it waits (bounded by the production
+`busy_timeout`) while they hold the lock: contention that resolves within
+the bounded wait simply succeeds, and only contention that exhausts the
+budget surfaces as an error — there is no retry protocol. Only after the
+transaction returns — commit completed — does the unchanged
+`fileStorage.deleteFile` run on the removed row's stored name, outside the
+SQL error wrap, so a real filesystem failure is `500 INTERNAL_ERROR` with the
+row already absent. There is deliberately **no** filesystem-database
+atomicity, compensation, trash, outbox or recovery: SQL faults preserve the
+bytes under the normal rollback (a catastrophic ambiguous commit outcome is
+not promised row retention); postcommit filesystem faults and crashes
+between commit and unlink leave orphan bytes that a retry of the same id
+(`404`) never cleans. The absence postcheck detects same-id reinsertion
+inside the transaction only; arbitrary triggers that rewrite authority or
+path facts mid-statement, full-identical ABA (no row version exists) and
+postcommit path/alias replacement remain outside the guarantee.

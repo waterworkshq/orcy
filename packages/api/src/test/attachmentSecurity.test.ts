@@ -87,6 +87,11 @@ describe('Attachment Security', () => {
   let taskId: string;
   let agent1Id: string;
   let agent2Id: string;
+  /** Actual plain keys: the DB-first command revalidates the served
+   * x-agent-api-key header under its transaction, so captured DELETE
+   * fixtures must present a real key — a fabricated agent id alone is 401. */
+  let agent1Key: string;
+  let agent2Key: string;
   let routes: CapturedRoute[];
 
   beforeEach(async () => {
@@ -124,9 +129,11 @@ describe('Attachment Security', () => {
 
     const a1 = agentRepo.createAgent({ name: 'agent-a', type: 'claude-code', domain: 'backend' });
     agent1Id = a1.agent.id;
+    agent1Key = a1.plainApiKey;
 
     const a2 = agentRepo.createAgent({ name: 'agent-b', type: 'opencode', domain: 'frontend' });
     agent2Id = a2.agent.id;
+    agent2Key = a2.plainApiKey;
 
     routes = captureRoutes();
   });
@@ -337,6 +344,7 @@ describe('Attachment Security', () => {
       const { request, reply, sent } = mockReqRes({
         params: { id: attachment.id },
         agent: { id: agent2Id, name: 'agent-b', domain: 'backend' },
+        headers: { 'x-agent-api-key': agent2Key },
       });
 
       await callHandler(handler, request, reply, sent);
@@ -359,6 +367,7 @@ describe('Attachment Security', () => {
       const { request, reply, sent } = mockReqRes({
         params: { id: attachment.id },
         agent: { id: agent1Id, name: 'agent-a' },
+        headers: { 'x-agent-api-key': agent1Key },
       });
 
       await handler(request, reply);
@@ -406,6 +415,7 @@ describe('Attachment Security', () => {
       const { request, reply, sent } = mockReqRes({
         params: { id: attachment.id },
         agent: { id: agent1Id, name: 'agent-a' },
+        headers: { 'x-agent-api-key': agent1Key },
       });
 
       await handler(request, reply);

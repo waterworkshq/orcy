@@ -5018,19 +5018,47 @@ the action denial.
 
 **Response `204`:** No content.
 
-**Known limitations, not repaired by this slice.** Admission is a request-time
-conjunction with the unchanged per-attachment predicate; it is not
-membership-revocation, Task-movement or file-identity fencing. Delete unlinks
-the file **before**
-deleting the row, so a failing database statement after a successful unlink
-leaves the bytes irreversibly gone with the row still present (`500`
-`REPOSITORY_ERROR`) - a rollback cannot restore them - and a delete that matches
-zero rows after a successful pre-read still answers `204`. Deleting a Task
-cascades its attachment rows without deleting the stored files, so orphaned
-bytes remain. Admission is evaluated at request time, so a Task deleted or
-reparented, or a membership revoked, after admission is not re-checked before
-the write. Persisted stored names are not additionally path- or symlink-fenced
-at read/delete time.
+**DB-first deletion with current authority.** The delete command re-reads
+current facts under one immediate transaction before anything touches disk:
+the live agent key mapping (`401 INVALID_API_KEY` if the key no longer maps to
+the same agent, even mid-request), the current Task -> Mission -> Habitat
+ancestry (missing parents `404`; nonmember humans `403 BOARD_ACCESS_DENIED`
+before any action check), team membership, and the unchanged delete predicate
+(scalar uploader match OR assigned agent OR human JWT admin/editor role) —
+all on the row's CURRENT parentage, not the admitted snapshot. The stored
+row's full eight-field identity (`id`, `taskId`, `filename`, `originalName`,
+`mimeType`, `sizeBytes`, `uploadedBy`, `createdAt`, null-aware) must equal the
+admitted preimage or the answer is `409 CONFLICT "Attachment changed"`; a
+URL id that moved or vanished is `404`. The conditional `DELETE ... RETURNING`
+must remove exactly that identity and a same-transaction postcheck must
+observe the target id absent, so a trigger that silently ignores the delete
+(`409`, bytes untouched) or reinserts the id (`409`, rollback) can never
+produce a false `204`.
+
+**Failure semantics, stated exactly.** A failing statement or a normal
+commit rollback is `500 REPOSITORY_ERROR` with the row and bytes preserved —
+the old file-before-row byte loss is repaired. A catastrophic driver/IO
+commit failure whose outcome is left indeterminate is not promised row
+retention; the command itself still never touches a file in that case. Only
+after the deletion commits does the unchanged file helper run on the removed
+row's stored name: an ordinary missing file is a no-op `204`, while a real
+propagated filesystem error (for example a stored path that exists as a
+directory, `EISDIR`) is `500 INTERNAL_ERROR` with the row already absent —
+surviving bytes are an orphan and a retry of the same id is `404` that never
+cleans them. The helper's `existsSync` can mask path/access errors as
+absence: in particular an existing regular-file `UPLOAD_DIR` makes the child
+path read absent, so the answer is `204` with the row gone and the root
+file's bytes retained — there is no automatic `ENOTDIR`/`EACCES`/`ENOENT`
+success-or-500 rewriting, and an unlink `ENOENT` that occurs after
+`existsSync` passed propagates as `500`. A crash between commit and unlink
+likewise leaves orphan bytes; there is no filesystem/database atomicity,
+compensation, trash or recovery, and no automatic cleanup permission is
+implied. Deleting a Task still cascades its attachment rows without deleting
+the stored files, so orphaned bytes remain. No row version exists: an
+attachment that changes and changes back byte-for-byte is indistinguishable
+(ABA ceiling), and arbitrary SQL triggers that rewrite authority or path
+facts mid-statement remain outside the guarantee. Persisted stored names are
+not additionally path- or symlink-fenced at read/delete time.
 
 ---
 

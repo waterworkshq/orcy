@@ -470,6 +470,12 @@ beforeAll(async () => {
     })
     .run();
   expect(attachmentRows(teamTaskId).length).toBe(2);
+  // R6 consumer ripple: persisted createdAt is nullable in storage, so the
+  // honest repository type is `string | null`. This fixture always writes a
+  // value - narrow with a runtime check, never a cast.
+  if (typeof older.createdAt !== 'string') {
+    throw new Error('fixture invariant broken: seeded attachment createdAt is null');
+  }
   expect(new Date(older.createdAt).getTime()).toBeLessThan(new Date('2999-01-01T00:00:00.000Z').getTime());
 
   // A second stored file on the ASSIGNED task, so the download positive
