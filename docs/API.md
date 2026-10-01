@@ -4839,58 +4839,101 @@ Update habitat-level notification preferences.
 
 ## Attachments
 
-Upload and manage task attachments.
+Upload and manage task attachments. Upload and list are nested under a Task and
+enforce that Task's parent habitat. Download and delete are addressed by
+attachment id and use a **different, per-attachment** predicate - see each
+section. There is no MCP or CLI attachment action.
 
 ### POST /tasks/:taskId/attachments
 
 Upload an attachment to a task.
 
-**Auth:** JWT required (human)
+**Auth:** `local_actor` (agent API key **or** human JWT) **plus the target
+Task's derived-habitat check.** The Task id comes from the URL, never from a
+multipart field. The Task's Mission -> Habitat is resolved server-side:
+
+- missing Task / Mission / Habitat -> `404` `Task not found` /
+  `Mission not found` / `Habitat not found`
+- a valid local agent passes on any existing habitat - assignment and binding
+  are irrelevant
+- a personal habitat (`teamId` null) admits any authenticated human, any JWT role
+- a team habitat requires actual team membership; nonmembers, **including global
+  admins**, receive `403` `BOARD_ACCESS_DENIED`
+- credential failure is `401` and precedes every ancestry outcome; an invalid
+  local key alongside a valid JWT is `401` `INVALID_API_KEY`
+
+**Pre-buffer guarantee.** The guard is the first statement of the handler and
+`request.file()` is lazy, so on denial there is **no** application-side file
+parsing or buffering, no upload-directory creation, no file write, no
+attachment row insert and no attachment SSE/audit effect. A denied request is
+therefore answered `403` / `404` / `401` - never `400 No file uploaded` - even
+with a perfectly valid multipart body attached.
 
 **Request:** `multipart/form-data`
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
-| `file` | file | yes | File to upload (max 50MB) |
-| `description` | string | no | File description |
+| _(first file part)_ | file | yes | The **first** file part the request yields is stored; its field name is not checked. No file at all is `400` `VALIDATION_ERROR` `No file uploaded`. |
+| _(any other field)_ | text | no | Not validated and **not persisted**. No `description` is stored. |
 
-**Response `201`:**
+There is no extension or MIME allowlist, no content scanning and no filename
+trim. The original name is sanitized only for the on-disk stored name (path
+separators and unsafe characters become `_`); `originalName` keeps what the
+client sent. Extra `taskId`, `uploadedBy` or `filename` text fields cannot move
+the stored parent or uploader.
+
+**Limits and partial failure.** `MAX_UPLOAD_SIZE_MB` (default 50) is read at
+module load. The file is written **before** its database row, so a failing
+insert leaves the stored bytes with no row and answers `500`
+`REPOSITORY_ERROR` `Failed to create attachment` - there is no file rollback.
+An ordinary over-limit multipart body is reported by the shared root error
+handler as a generic `500 INTERNAL_ERROR`.
+
+**Response `201`** - the raw stored row. There is no `url`, `contentType`,
+`size` or `description` projection:
 
 ```json
 {
   "attachment": {
-    "id": "attachment-uuid",
+    "id": "0f0a5f7c-0e2a-4c3e-9a1b-2f3d4e5f6a7b",
     "taskId": "task-uuid",
-    "filename": "screenshot.png",
-    "contentType": "image/png",
-    "size": 102400,
-    "description": "Error screenshot",
-    "url": "/api/attachments/attachment-uuid/download",
+    "filename": "0f0a5f7c-0e2a-4c3e-9a1b-2f3d4e5f6a7b-screenshot.png",
+    "originalName": "screenshot.png",
+    "mimeType": "image/png",
+    "sizeBytes": 102400,
     "uploadedBy": "user-uuid",
     "createdAt": "2026-04-04T12:00:00.000Z"
   }
 }
 ```
 
+`filename` is the stored name under a fresh storage UUID prefix, allocated
+separately from the row `id` (the two are not forced equal). `uploadedBy` is the
+authenticated principal's scalar id, agent first. `taskId` is the URL Task.
+Exactly one row and one file are created per success; no attachment SSE or Task
+audit event is published.
+
 ### GET /tasks/:taskId/attachments
 
 List attachments for a task.
 
-**Auth:** JWT required (human)
+**Auth:** `local_actor` plus the **same** target-Task derived-habitat check as
+the upload, evaluated **before** the list query, so a denied caller receives
+`403` / `404` and no query runs.
 
-**Response `200`:**
+**Response `200`** - the same raw row shape, ordered by `createdAt` descending.
+An existing Task with no attachments returns `{ "attachments": [] }`:
 
 ```json
 {
   "attachments": [
     {
-      "id": "attachment-uuid",
+      "id": "0f0a5f7c-0e2a-4c3e-9a1b-2f3d4e5f6a7b",
       "taskId": "task-uuid",
-      "filename": "screenshot.png",
-      "contentType": "image/png",
-      "size": 102400,
-      "description": "Error screenshot",
-      "url": "/api/attachments/attachment-uuid/download",
+      "filename": "0f0a5f7c-0e2a-4c3e-9a1b-2f3d4e5f6a7b-screenshot.png",
+      "originalName": "screenshot.png",
+      "mimeType": "image/png",
+      "sizeBytes": 102400,
       "uploadedBy": "user-uuid",
       "createdAt": "2026-04-04T12:00:00.000Z"
     }
@@ -4902,17 +4945,39 @@ List attachments for a task.
 
 Download an attachment.
 
-**Auth:** JWT required (human)
+**Auth:** `local_actor` plus a **per-attachment read predicate**, *not* the
+Task-admission check above. The loaded row's own `taskId` is the only real
+parent; unrelated supplied task/habitat/actor query or body fields confer no
+authority. Assigned agents and human JWTs may read. An unassigned agent that is
+**not** the uploader is `403` - being the uploader grants delete, not read. An
+unknown attachment id is `404` before the predicate runs, and a row whose Task
+no longer exists is `403 Task not found` from the predicate.
 
-**Response `200`:** Binary file data with appropriate `Content-Type` header.
+**Response `200`:** Binary file data with the stored `Content-Type` and an
+RFC 5987 `Content-Disposition`.
 
 ### DELETE /attachments/:id
 
 Delete an attachment.
 
-**Auth:** JWT required (human)
+**Auth:** `local_actor` plus a **per-attachment delete predicate**, again *not*
+the Task-admission check. Assigned agents may delete regardless of uploader; an
+unassigned agent may delete only its own upload; human JWTs delete via uploader
+match or an admin/editor role. Team membership alone never grants delete.
 
 **Response `204`:** No content.
+
+**Known limitations, not repaired by this slice.** Download and delete are
+outside the upload/list admission above. Delete unlinks the file **before**
+deleting the row, so a failing database statement after a successful unlink
+leaves the bytes irreversibly gone with the row still present (`500`
+`REPOSITORY_ERROR`) - a rollback cannot restore them - and a delete that matches
+zero rows after a successful pre-read still answers `204`. Deleting a Task
+cascades its attachment rows without deleting the stored files, so orphaned
+bytes remain. Admission is evaluated at request time, so a Task deleted or
+reparented, or a membership revoked, after admission is not re-checked before
+the write. Persisted stored names are not additionally path- or symlink-fenced
+at read/delete time.
 
 ---
 

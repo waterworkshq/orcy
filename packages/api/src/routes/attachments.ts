@@ -5,7 +5,7 @@ import * as fileStorage from '../services/fileStorage.js';
 import { badRequest, notFound, forbidden, payloadTooLarge } from '../errors.js';
 import { getPrincipalFromRequest } from '../middleware/taskAuth.js';
 import { authorizeAttachmentAccess, encodeContentDisposition } from '../middleware/attachmentAuth.js';
-import { getTaskById } from '../repositories/task.js';
+import { authorizeTaskAccess } from '../middleware/realtimeAuth.js';
 import { applyDeclaredAuthPolicies } from "../authPolicy.js";
 
 const MAX_UPLOAD_SIZE_MB = parseInt(process.env.MAX_UPLOAD_SIZE_MB || '50', 10);
@@ -24,10 +24,7 @@ export async function attachmentRoutes(fastify: FastifyInstance): Promise<void> 
     '/tasks/:taskId/attachments',
     { config: { authPolicy: "local_actor" } },
     async (request: FastifyRequest<{ Params: { taskId: string } }>, reply: FastifyReply) => {
-      const task = getTaskById(request.params.taskId);
-      if (!task) {
-        throw notFound('Task not found');
-      }
+      await authorizeTaskAccess(request, request.params.taskId);
 
       const data = await request.file();
       if (!data) {
@@ -61,10 +58,7 @@ export async function attachmentRoutes(fastify: FastifyInstance): Promise<void> 
     '/tasks/:taskId/attachments',
     { config: { authPolicy: "local_actor" } },
     async (request: FastifyRequest<{ Params: { taskId: string } }>, _reply: FastifyReply) => {
-      const task = getTaskById(request.params.taskId);
-      if (!task) {
-        throw notFound('Task not found');
-      }
+      await authorizeTaskAccess(request, request.params.taskId);
 
       const attachments = attachmentRepo.getAttachmentsByTaskId(request.params.taskId);
       return { attachments };
