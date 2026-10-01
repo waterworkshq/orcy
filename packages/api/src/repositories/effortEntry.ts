@@ -74,6 +74,120 @@ export function createEffortEntry(input: {
   return created;
 }
 
+/**
+ * Task-contained creation primitive for effort entries: one conditional
+ * `INSERT … SELECT … WHERE EXISTS (SELECT 1 FROM tasks WHERE tasks.id = taskId)
+ * RETURNING` statement, so the entry's Task ancestry is validated at INSERT
+ * time on both SQLite drivers. Returns the matched row, or null when the Task
+ * does not exist at the moment the statement evaluates — never an
+ * unrestricted insert or an unrestricted ID refetch fallback. Fixture/import
+ * callers keep using {@link createEffortEntry}.
+ */
+export function createTaskEffortEntry(input: {
+  taskId: string;
+  actorType: EffortActorType;
+  actorId?: string;
+  minutes: number;
+  source: EffortSource;
+  note?: string;
+  startedAt?: string;
+  endedAt?: string;
+}): EffortEntry | null {
+  const db = getDb();
+  const id = uuid();
+  const now = new Date().toISOString();
+
+  try {
+    const matched = db.all(sql`
+      INSERT INTO effort_entries (
+        id, task_id, actor_type, actor_id, minutes, source, note,
+        started_at, ended_at, recorded_at, corrects_entry_id, correction_reason, metadata
+      )
+      SELECT
+        ${id}, ${input.taskId}, ${input.actorType}, ${input.actorId ?? null}, ${input.minutes}, ${input.source}, ${input.note ?? null},
+        ${input.startedAt ?? null}, ${input.endedAt ?? null}, ${now}, NULL, NULL, NULL
+      WHERE EXISTS (SELECT 1 FROM tasks WHERE tasks.id = ${input.taskId})
+      RETURNING
+        id,
+        task_id AS taskId,
+        actor_type AS actorType,
+        actor_id AS actorId,
+        minutes,
+        source,
+        note,
+        started_at AS startedAt,
+        ended_at AS endedAt,
+        recorded_at AS recordedAt,
+        corrects_entry_id AS correctsEntryId,
+        correction_reason AS correctionReason,
+        metadata
+    `) as Array<EffortEntry>;
+    return matched[0] ?? null;
+  } catch (err) {
+    throw repositoryCreateError("effortEntry", err as Error, id);
+  }
+}
+
+/**
+ * Ancestry-contained correction primitive: one conditional
+ * `INSERT … SELECT … WHERE EXISTS (SELECT 1 FROM effort_entries WHERE id =
+ * correctsEntryId AND task_id = taskId) AND EXISTS (SELECT 1 FROM tasks WHERE
+ * tasks.id = taskId) RETURNING` statement, so the offsetting correction row
+ * only lands while the corrected entry belongs to the URL Task AND that Task
+ * still exists at the moment the statement evaluates (the cross-driver
+ * pattern from `createReplyComment`). Zero-match — absent entry, an entry
+ * parented to another Task, or a vanished Task — is a null result with no
+ * row written, never a false success. Fixture/import callers keep using
+ * {@link createEffortEntry}.
+ */
+export function createEffortCorrection(input: {
+  taskId: string;
+  correctsEntryId: string;
+  actorType: EffortActorType;
+  actorId?: string;
+  minutesDelta: number;
+  correctionReason: string;
+  note?: string;
+}): EffortEntry | null {
+  const db = getDb();
+  const id = uuid();
+  const now = new Date().toISOString();
+
+  try {
+    const matched = db.all(sql`
+      INSERT INTO effort_entries (
+        id, task_id, actor_type, actor_id, minutes, source, note,
+        started_at, ended_at, recorded_at, corrects_entry_id, correction_reason, metadata
+      )
+      SELECT
+        ${id}, ${input.taskId}, ${input.actorType}, ${input.actorId ?? null}, ${input.minutesDelta}, 'correction_adjustment', ${input.note ?? null},
+        NULL, NULL, ${now}, ${input.correctsEntryId}, ${input.correctionReason}, NULL
+      WHERE EXISTS (
+        SELECT 1 FROM effort_entries target
+        WHERE target.id = ${input.correctsEntryId} AND target.task_id = ${input.taskId}
+      )
+      AND EXISTS (SELECT 1 FROM tasks WHERE tasks.id = ${input.taskId})
+      RETURNING
+        id,
+        task_id AS taskId,
+        actor_type AS actorType,
+        actor_id AS actorId,
+        minutes,
+        source,
+        note,
+        started_at AS startedAt,
+        ended_at AS endedAt,
+        recorded_at AS recordedAt,
+        corrects_entry_id AS correctsEntryId,
+        correction_reason AS correctionReason,
+        metadata
+    `) as Array<EffortEntry>;
+    return matched[0] ?? null;
+  } catch (err) {
+    throw repositoryCreateError("effortEntry", err as Error, id);
+  }
+}
+
 export function getEffortEntryById(id: string): EffortEntry | null {
   const db = getDb();
   return (

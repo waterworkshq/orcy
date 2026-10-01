@@ -33,7 +33,7 @@ export function logEffort(
   const source: EffortSource =
     input.source ?? (actorType === "human" ? "human_manual" : "agent_reported");
 
-  const entry = effortRepo.createEffortEntry({
+  const entry = effortRepo.createTaskEffortEntry({
     taskId,
     actorType,
     actorId: actorId ?? undefined,
@@ -43,6 +43,9 @@ export function logEffort(
     startedAt: input.startedAt,
     endedAt: input.endedAt,
   });
+  if (!entry) {
+    throw notFound("Task not found");
+  }
 
   emitTaskAuditEvent({
     taskId,
@@ -114,16 +117,18 @@ export function correctEffortEntry(
     throw badRequest("actor_id is required for human and agent effort entries");
   }
 
-  const correction = effortRepo.createEffortEntry({
+  const correction = effortRepo.createEffortCorrection({
     taskId,
+    correctsEntryId: entryId,
     actorType,
     actorId: actorId ?? undefined,
-    minutes: input.minutesDelta,
-    source: "correction_adjustment",
-    note: input.note,
-    correctsEntryId: entryId,
+    minutesDelta: input.minutesDelta,
     correctionReason: input.correctionReason,
+    note: input.note,
   });
+  if (!correction) {
+    throw notFound("Effort entry not found");
+  }
 
   emitTaskAuditEvent({
     taskId,

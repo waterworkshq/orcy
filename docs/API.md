@@ -2271,7 +2271,7 @@ List all effort entries for a task, with actor name resolution.
 
 Log effort against a task. Creates a new effort entry and recalculates task effort metrics.
 
-**Auth:** Agent or Human
+**Auth:** Local actor (agent API key or human JWT), then the **URL Task's** ancestry admission: the Task's Mission → Habitat is resolved server-side (missing Task/Mission/Habitat `404`); local agents (assigned or unassigned, any binding) pass on any existing habitat; personal habitats admit any authenticated human; on team habitats a human must be a team member — nonmembers, including global admins, receive `403` (previously this write had no Task admission at all). Body validation runs first at the framework schema layer: a **parsed** body that fails schema validation is `400` regardless of membership. Raw malformed or empty JSON bodies (`"{"`, empty `application/json` body) are not schema failures — they return the pre-existing generic `500` `INTERNAL_ERROR` from the global parser/error-handler limit. Admission runs before any row is written; a denied write leaves zero rows and zero metric mutations. The final INSERT is Task-contained: the entry only lands while the URL Task exists at statement-evaluation time — zero-match is `404` `Task not found`, never an unrestricted insert. Post-commit effects keep their existing order and partial-commit truth: entry INSERT → audit event (a fault throws and leaves the entry committed — the audit is never best-effort) → Task effort-metric recalculation (version-CAS-limited, then Mission metrics) → `effort.updated` SSE. Limits: request-time admission is not in-transaction membership-revocation or Task-movement fencing; raw repository/DB writers stay outside this served-write contract.
 
 **Request:**
 
@@ -2287,11 +2287,13 @@ Log effort against a task. Creates a new effort entry and recalculates task effo
 
 | Field | Type | Required | Constraints | Description |
 |-------|------|----------|-------------|-------------|
-| `minutes` | number | yes | Positive integer | Minutes of effort |
-| `note` | string | no | — | Free-text description of the work |
-| `startedAt` | string | no | ISO 8601 datetime | When the work started |
-| `endedAt` | string | no | ISO 8601 datetime | When the work ended |
-| `source` | enum | no | `human_manual` or `agent_reported` | Source override (default: based on auth type) |
+| `minutes` | number | yes | Integer 1–1440 | Minutes of effort |
+| `note` | string | no | Max 500 characters | Free-text description of the work |
+| `startedAt` | string | no | ISO 8601 datetime | When the work started (accepted independently — no ordering check) |
+| `endedAt` | string | no | ISO 8601 datetime | When the work ended (accepted independently — no ordering check) |
+| `source` | enum | no | `human_manual` or `agent_reported` | Source label (default: by actor kind); either admitted local actor may pick either label — it is metadata, not proof of actor kind or an authorization grant |
+
+Identity, reference and audit fields (`actorType`, `actorId`, `taskId`, `id`, `correctsEntryId`, `metadata`, `recordedAt`, …) are not part of the schema: unknown body fields are stripped, and the stored actor always derives from the authenticated principal.
 
 **Response `200`:**
 
@@ -2313,14 +2315,17 @@ Log effort against a task. Creates a new effort entry and recalculates task effo
 }
 ```
 
-**Response `400`:** `minutes` is not a positive integer.
-**Response `404`:** Task not found.
+**Response `400`:** `minutes` is not an integer in 1–1440, `note` exceeds 500 characters, `source` is not `human_manual`/`agent_reported`, or a field has an invalid type (null body, scalar body, non-datetime strings).
+**Response `403`:** Team-habitat nonmember human (membership resolved through the Task's actual Mission → Habitat).
+**Response `404`:** Task (or Mission/Habitat ancestry) not found.
+
+Fault truth, by stage: an **audit INSERT** fault after the entry commits returns `500` with the entry retained and audit/metrics/SSE absent; a **Task metric UPDATE** fault retains entry+audit; a **Mission metric UPDATE** fault additionally retains the Task recalculation; a **subscriber** fault retains all persisted stages and may occur after earlier subscribers already observed the delivery. There is no aggregate transaction and no replay guarantee; a retried request appends a new entry.
 
 ### POST /tasks/:id/effort-entries/:entryId/correct
 
-Correct an existing effort entry by creating a delta adjustment entry. The original entry is never modified.
+Correct an existing effort entry by creating a delta adjustment entry. The original entry is never modified; the delta is summed into Task and Mission metrics on the next recalculation.
 
-**Auth:** Agent or Human
+**Auth:** Local actor (agent API key or human JWT), then the same **URL Task's** ancestry admission as POST `/tasks/:id/effort-entries` (missing Task/Mission/Habitat `404`; team-habitat nonmember humans, including global admins, `403` with zero rows and zero metric mutations). Admission runs BEFORE the correction containment pre-check — a nonmember receives `403` even for a foreign entry, never `400`. For admitted actors the pre-check keeps its historical shape: a missing entry is `404` `Effort entry not found`; an entry belonging to another Task is `400` `Effort entry does not belong to this task` with zero new rows. The final INSERT is ancestry-contained: the offsetting correction row only lands while the corrected entry belongs to the URL Task **and that Task exists** at statement-evaluation time (zero-match `404`, no audit event, no metric recalculation, no SSE — never a false success or an unrestricted insert). Post-commit order and partial-commit truth are unchanged: correction INSERT → audit event (faults throw, row stays committed) → Task metric recalculation → Mission metric recalculation → `effort.updated` SSE.
 
 **Request:**
 
@@ -2334,9 +2339,11 @@ Correct an existing effort entry by creating a delta adjustment entry. The origi
 
 | Field | Type | Required | Constraints | Description |
 |-------|------|----------|-------------|-------------|
-| `minutesDelta` | number | yes | Non-zero integer | Positive or negative adjustment |
-| `correctionReason` | string | yes | 1-500 characters | Machine-readable or free-text reason |
-| `note` | string | no | — | Additional context |
+| `minutesDelta` | number | yes | Non-zero integer −1440 to 1440 | Signed adjustment (positive or negative) |
+| `correctionReason` | string | yes | 1-500 characters | Machine-readable or free-text reason (whitespace-only accepted) |
+| `note` | string | no | Max 500 characters | Additional context |
+
+Each correction is an independent signed addition: repeated deltas against the same entry all count, correcting a correction references that exact correction row (not a root), and totals may go below zero. The new row's `source` is always `correction_adjustment` — a body `source` cannot override it — and unknown identity/reference/audit body fields are stripped.
 
 **Response `200`:**
 
@@ -2358,8 +2365,11 @@ Correct an existing effort entry by creating a delta adjustment entry. The origi
 }
 ```
 
-**Response `400`:** `minutesDelta` is 0, `correctionReason` missing or too long, or entry not found.
-**Response `404`:** Task not found.
+**Response `400`:** `minutesDelta` is 0 or outside −1440..1440, `correctionReason` missing/empty/too long, `note` over 500 characters, or the known entry belongs to another Task (`Effort entry does not belong to this task` — the deterministic initial pre-check).
+**Response `403`:** Team-habitat nonmember human (checked before the containment pre-check).
+**Response `404`:** Task (or Mission/Habitat ancestry) not found; the effort entry does not exist; or the original/Task vanished between pre-check and statement (generic late `404` `Effort entry not found` — no unrestricted refetch distinguishes race reasons).
+
+Fault truth, by stage: an **audit INSERT** fault after the correction row commits returns `500` with the correction retained and audit/metrics/SSE absent; a **Task metric UPDATE** fault retains correction+audit; a **Mission metric UPDATE** fault additionally retains the Task recalculation; a **subscriber** fault retains all persisted stages and may occur after earlier subscribers already observed the delivery. No aggregate transaction, no replay guarantee — a retry appends a distinct correction.
 
 ### GET /missions/:id/effort-report
 

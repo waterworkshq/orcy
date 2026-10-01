@@ -2,7 +2,6 @@ import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
 import * as effortService from "../services/effortService.js";
-import * as taskRepo from "../repositories/task.js";
 import * as missionRepo from "../repositories/mission.js";
 import { notFound } from "../errors.js";
 import type { CodeEvidenceActorType } from "@orcy/shared";
@@ -105,10 +104,7 @@ export async function effortRoutes(fastify: FastifyInstance): Promise<void> {
       config: { authPolicy: "local_actor" },
     },
     async (request) => {
-      const task = taskRepo.getTaskById(request.params.id);
-      if (!task) {
-        throw notFound("Task not found");
-      }
+      await authorizeTaskAccess(request, request.params.id);
 
       const actor = getActor(request);
 
@@ -131,10 +127,7 @@ export async function effortRoutes(fastify: FastifyInstance): Promise<void> {
       config: { authPolicy: "local_actor" },
     },
     async (request) => {
-      const task = taskRepo.getTaskById(request.params.id);
-      if (!task) {
-        throw notFound("Task not found");
-      }
+      await authorizeTaskAccess(request, request.params.id);
 
       const actor = getActor(request);
 

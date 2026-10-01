@@ -29,7 +29,7 @@ All MCP tools use a **dispatch pattern** — each consolidated tool accepts an `
 |---|---|---|
 | `orcy_habitat` | `list`, `find`, `get-settings`, `summary`, `metrics`, `get-health`, `get-health-history`, `predictions`, `bottlenecks`, `agent-quality`, `get-rules`, `update-rules`, `evaluate-rules` | Habitat discovery, settings, summaries, health, analytics, and prioritization rules |
 | `orcy_habitat_mission` | `list`, `create`, `delete`, `archive`, `unarchive`, `get-context`, `get-comments`, `add-comment`, `link-code`, `list-code-evidence`, `correct-code-evidence-link`, `mark-not-applicable`, `clear-not-applicable`, `report-gap`, `resolve-gap`, `get-audit-bundle` | Mission lifecycle, comments, code evidence, and scoped audit evidence bundles |
-| `orcy_habitat_task` | `list-in-mission`, `create-in-mission`, `update`, `delete`, `claim`, `start`, `submit`, `complete`, `approve`, `reject`, `release`, `retry`, `fail`, `get-context`, `get-events`, `get-comments`, `add-comment`, `get-time-report`, `get-blocked-status`, `get-approval-status`, `add-dependency`, `remove-dependency`, `get-quality-checklist`, `update-quality-checklist-item`, `validate-quality-gates`, `list-subtasks`, `create-subtask`, `delete-subtask`, `log-effort`, `list-effort`, `get-effort-report`, `correct-effort-entry`, `link-code`, `list-code-evidence`, `correct-code-evidence-link`, `mark-not-applicable`, `clear-not-applicable`, `report-gap`, `resolve-gap`, `get-audit-bundle`, `batch-assign`, `batch-set-priority`, `batch-delete` | Task lifecycle, comments, quality, subtasks, dependency, effort, evidence, and scoped audit tools. Batch boundary: `batch-assign` returns agents `403` with the pointer "Batch assignment is admin-only. Use POST /tasks/:id/claim to claim a task."; `batch-set-priority` and `batch-delete` remain agent-usable (agents pass the URL habitat's access check on any existing habitat; human JWTs additionally require team membership on team habitats — nonmember 403, missing habitat 404). Object-access boundary: `get-context`, `get-events`, `get-comments`, `list-code-evidence`, `delete`, the five scalar adjunct reads (`get-time-report`, `get-approval-status`, `get-quality-checklist`, `get-effort-report`, `list-effort`), and the dependency actions (`get-blocked-status`, `add-dependency`, `remove-dependency`) resolve the TARGET task's Mission→Habitat server-side and enforce the same membership check for human JWTs (nonmember 403; missing Task/Mission 404); agents pass on any existing habitat. Dependency reads (`get-blocked-status`) additionally authorize EVERY linked edge endpoint (both directions) and deny the whole read when any is inaccessible; dependency writes (`add-dependency`, `remove-dependency`) authorize only the SELECTED ordered pair's both actual endpoints — unrelated hidden edges do not deny an authorized write. Other Task-ID adjunct reads (e.g. failure/workflow context) and task mutations beyond individual `delete`, the dependency writes and the four agent-only Subtask actions (`list-subtasks`, `create-subtask`, `update` with `subtaskId`, `delete-subtask` — the URL Task's ancestry is resolved first with missing Task/Mission/Habitat 404, and `update`/`delete-subtask` enforce the exact child/URL-parent pair at the final SQL statement: wrong-parent child 404, no mutation, no event) remain without this check. The two served comment actions (`add-comment`, `get-comments`) additionally resolve the URL Task's ancestry first (missing Task/Mission/Habitat 404), and `add-comment` validates a reply's parent at INSERT time — a missing parent is a 400 `Parent comment not found` and a parent under another Task a 400 `Parent comment belongs to a different task`; there is no served comment edit/delete action. The two served quality actions (`update-quality-checklist-item`, `validate-quality-gates`) resolve the URL Task's actual ancestry first (missing Task/Mission/Habitat 404; human team nonmember 403): `update-quality-checklist-item` binds the exact instance item → instance checklist → URL Task triple at the final SQL statement in one atomic transaction with the same owned checklist's status recalculation — a wrong Task/checklist/item (including template-ID confusion) is a generic 404 `Checklist item not found` with no effects, and an empty effective update (no `isCompleted`/`evidenceUrl`/`notes`) is a 400; inputs stay string-only (no `completedBy` parameter, no nullable fields). `validate-quality-gates` is a pure report-derived read (no dependency check, no repair, no lifecycle effect) |
+| `orcy_habitat_task` | `list-in-mission`, `create-in-mission`, `update`, `delete`, `claim`, `start`, `submit`, `complete`, `approve`, `reject`, `release`, `retry`, `fail`, `get-context`, `get-events`, `get-comments`, `add-comment`, `get-time-report`, `get-blocked-status`, `get-approval-status`, `add-dependency`, `remove-dependency`, `get-quality-checklist`, `update-quality-checklist-item`, `validate-quality-gates`, `list-subtasks`, `create-subtask`, `delete-subtask`, `log-effort`, `list-effort`, `get-effort-report`, `correct-effort-entry`, `link-code`, `list-code-evidence`, `correct-code-evidence-link`, `mark-not-applicable`, `clear-not-applicable`, `report-gap`, `resolve-gap`, `get-audit-bundle`, `batch-assign`, `batch-set-priority`, `batch-delete` | Task lifecycle, comments, quality, subtasks, dependency, effort, evidence, and scoped audit tools. Batch boundary: `batch-assign` returns agents `403` with the pointer "Batch assignment is admin-only. Use POST /tasks/:id/claim to claim a task."; `batch-set-priority` and `batch-delete` remain agent-usable (agents pass the URL habitat's access check on any existing habitat; human JWTs additionally require team membership on team habitats — nonmember 403, missing habitat 404). Object-access boundary: `get-context`, `get-events`, `get-comments`, `list-code-evidence`, `delete`, the five scalar adjunct reads (`get-time-report`, `get-approval-status`, `get-quality-checklist`, `get-effort-report`, `list-effort`), and the dependency actions (`get-blocked-status`, `add-dependency`, `remove-dependency`) resolve the TARGET task's Mission→Habitat server-side and enforce the same membership check for human JWTs (nonmember 403; missing Task/Mission 404); agents pass on any existing habitat. Dependency reads (`get-blocked-status`) additionally authorize EVERY linked edge endpoint (both directions) and deny the whole read when any is inaccessible; dependency writes (`add-dependency`, `remove-dependency`) authorize only the SELECTED ordered pair's both actual endpoints — unrelated hidden edges do not deny an authorized write. Other Task-ID adjunct reads (e.g. failure/workflow context) and task mutations beyond individual `delete`, the dependency writes and the four agent-only Subtask actions (`list-subtasks`, `create-subtask`, `update` with `subtaskId`, `delete-subtask` — the URL Task's ancestry is resolved first with missing Task/Mission/Habitat 404, and `update`/`delete-subtask` enforce the exact child/URL-parent pair at the final SQL statement: wrong-parent child 404, no mutation, no event) remain without this check. The two served comment actions (`add-comment`, `get-comments`) additionally resolve the URL Task's ancestry first (missing Task/Mission/Habitat 404), and `add-comment` validates a reply's parent at INSERT time — a missing parent is a 400 `Parent comment not found` and a parent under another Task a 400 `Parent comment belongs to a different task`; there is no served comment edit/delete action. The two served quality actions (`update-quality-checklist-item`, `validate-quality-gates`) resolve the URL Task's actual ancestry first (missing Task/Mission/Habitat 404; human team nonmember 403): `update-quality-checklist-item` binds the exact instance item → instance checklist → URL Task triple at the final SQL statement in one atomic transaction with the same owned checklist's status recalculation — a wrong Task/checklist/item (including template-ID confusion) is a generic 404 `Checklist item not found` with no effects, and an empty effective update (no `isCompleted`/`evidenceUrl`/`notes`) is a 400; inputs stay string-only (no `completedBy` parameter, no nullable fields). `validate-quality-gates` is a pure report-derived read (no dependency check, no repair, no lifecycle effect). The two effort write actions (`log-effort`, `correct-effort-entry`) resolve the URL Task's actual ancestry first (missing Task/Mission/Habitat 404; human team nonmember 403 with zero rows and zero metric mutations) and land through ancestry-contained INSERTs — the logged entry only lands while the URL Task exists, and a correction only lands while its entry belongs to the URL Task at statement time (missing entry 404; a foreign-Task entry 400 for admitted actors; zero-match writes never reach audit/metrics/SSE) |
 | `orcy_habitat_agent` | `register`, `list`, `heartbeat`, `get-stats` | `board_register_agent`, `board_list_agents`, `board_heartbeat`, `board_get_my_stats` |
 | `orcy_sprint` | `list`, `get`, `get_active`, `get_metrics`, `get_burndown`, `get_carry_over`, `create`, `update`, `delete`, `start`, `complete`, `cancel`, `add_mission`, `remove_mission` | Sprint planning, lifecycle, mission membership, and sprint analytics. Reads are agent-capable on personal habitats with one carve-out: the four id-keyed reads (`get`, `get_metrics`, `get_burndown`, `get_carry_over`) 403 agents on TEAM habitats (`list`/`get_active` admit any agent on any shape). Mutations are human-authenticated (JWT) only — agent API keys get `401` (not 403); on team habitats additionally team membership, no admin-role distinction |
 | `orcy_review` | `list_rules`, `create_rule`, `update_rule`, `delete_rule`, `list_reviewers`, `add_reviewer`, `remove_reviewer` | Review rules and reviewer rows. Reads (`list_rules`, `list_reviewers`) are agent-capable on any habitat shape; for human JWTs, `list_reviewers` resolves the target task's Mission→Habitat and requires team membership on team habitats (nonmember 403; missing Task/Mission 404). All mutations are human-authenticated (JWT) only — agent API keys get `401` (not 403); on team habitats additionally team membership, no admin-role distinction; reviewer management stays human-only (add/remove names `reviewerType: "agent"` targets validated against the agent registry, typed anti-self). Review DECISIONS are separate and DO serve agents: `POST /tasks/:id/approve`/`reject` admit a human or an agent holding a pending agent-typed row — identity always from the authenticated caller |
@@ -1317,35 +1317,41 @@ Output: { "estimatedMinutes": 120, "actualMinutes": 95, "cycleTimeMinutes": 180,
 
 ### Effort Logging — `orcy_habitat_task`
 
-Deliberate effort entries separate from inferred heartbeat tracking. Three entry types: `human_manual`, `agent_reported`, `correction_adjustment`. Corrections are append-only — originals are never deleted.
+Deliberate effort entries separate from inferred heartbeat tracking. Three entry types: `human_manual`, `agent_reported`, `correction_adjustment`. Corrections are append-only — a correction never modifies or removes the original entry it references. Storage does not promise permanent retention: deleting a Task cascades its effort entries, and deleting a referenced entry raw nulls surviving references.
 
 #### Log Effort
 
-Log deliberate effort on a task.
+Log deliberate effort on a task. Requires an integer `minutes` of 1–1440; optional `note` (≤500 characters), `startedAt`/`endedAt` ISO datetimes (accepted independently — no ordering rule; both are forwarded by the MCP action). **`source` is a REST-body input only — the served MCP log action forwards `minutes`/`note`/`startedAt`/`endedAt` and has no source parameter.** Unknown body fields — identity, reference, audit — are stripped. The unwrapped raw entry row is returned; a replayed request appends another entry.
 
 ```
-orcy_habitat_task({ action: "log-effort", taskId: "uuid", minutes: 45, description: "Implemented auth middleware" })
+orcy_habitat_task({ action: "log-effort", taskId: "uuid", minutes: 45, note: "Implemented auth middleware" })
 
-Input:
+Output (raw entry row):
 {
-  "action": "log-effort",
+  "id": "effort-uuid",
   "taskId": "uuid",
+  "actorType": "agent",
+  "actorId": "agent-uuid",
   "minutes": 45,
-  "description": "Implemented auth middleware",
-  "entryType": "agent_reported",
-  "date": "2026-06-01"
+  "source": "agent_reported",
+  "note": "Implemented auth middleware",
+  "startedAt": null,
+  "endedAt": null,
+  "recordedAt": "2026-06-01T10:00:00.000Z",
+  "correctsEntryId": null,
+  "correctionReason": null,
+  "metadata": null
 }
-
-Output: { "success": true, "entry": { "id": "effort-uuid", "minutes": 45, "entryType": "agent_reported", "date": "2026-06-01" } }
 ```
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
 | `taskId` | string | yes | Task to log effort on |
-| `minutes` | number | yes | Effort duration in minutes |
-| `description` | string | no | What the effort was spent on |
-| `entryType` | string | no | `human_manual`, `agent_reported`, `correction_adjustment` (default: `agent_reported`) |
-| `date` | string | no | ISO date string (default: today) |
+| `minutes` | number | yes | Integer 1–1440 |
+| `note` | string | no | Free text, ≤500 characters |
+| `startedAt` | string | no | ISO 8601 datetime, stored verbatim (no ordering check) |
+| `endedAt` | string | no | ISO 8601 datetime, stored verbatim (no ordering check) |
+| `source` | string | no | `human_manual` or `agent_reported`; REST-body input only (the MCP action has no source parameter); defaults by actor kind; either admitted local actor may pick either label |
 
 #### List Effort
 
@@ -1378,31 +1384,36 @@ Output: {
 
 #### Correct Effort Entry
 
-Append-only correction to an existing effort entry. Does not delete the original.
+Append-only correction to an existing effort entry. Does not delete or modify the original. Requires a non-zero integer `minutesDelta` (−1440 to 1440) and `correctionReason` (1–500 characters; whitespace-only accepted); optional `note` (≤500 characters). Each correction is an independent signed addition — repeated deltas against the same entry all count, correcting a correction references that exact correction row, and totals may go below zero. The new row's `source` is always `correction_adjustment` (a body `source` cannot override it); unknown body fields are stripped. The unwrapped raw correction row is returned.
 
 ```
-orcy_habitat_task({ action: "correct-effort-entry", taskId: "uuid", entryId: "effort-uuid", correctionType: "adjustment", adjustedMinutes: 30, reason: "Overestimated by 15 min" })
+orcy_habitat_task({ action: "correct-effort-entry", taskId: "uuid", entryId: "effort-uuid", minutesDelta: 30, correctionReason: "Underestimated by 30 min" })
 
-Input:
+Output (raw correction row):
 {
-  "action": "correct-effort-entry",
+  "id": "correction-uuid",
   "taskId": "uuid",
-  "entryId": "effort-uuid",
-  "correctionType": "adjustment",
-  "adjustedMinutes": 30,
-  "reason": "Overestimated by 15 min"
+  "actorType": "agent",
+  "actorId": "agent-uuid",
+  "minutes": 30,
+  "source": "correction_adjustment",
+  "note": null,
+  "startedAt": null,
+  "endedAt": null,
+  "recordedAt": "2026-06-01T11:00:00.000Z",
+  "correctsEntryId": "effort-uuid",
+  "correctionReason": "Underestimated by 30 min",
+  "metadata": null
 }
-
-Output: { "success": true, "correction": { "id": "...", "originalEntryId": "effort-uuid", "adjustedMinutes": 30 } }
 ```
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
 | `taskId` | string | yes | Task containing the entry |
 | `entryId` | string | yes | The effort entry to correct |
-| `correctionType` | string | yes | `adjustment`, `superseded`, `incorrect`, `removed` |
-| `adjustedMinutes` | number | no | New minutes value (for `adjustment`) |
-| `reason` | string | no | Why the correction was made |
+| `minutesDelta` | number | yes | Non-zero integer −1440 to 1440 (signed addition) |
+| `correctionReason` | string | yes | 1–500 characters; whitespace-only accepted |
+| `note` | string | no | Free text, ≤500 characters |
 
 ---
 
