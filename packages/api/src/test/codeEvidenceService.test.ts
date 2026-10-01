@@ -495,6 +495,8 @@ describe("Correction", () => {
 
     const linkId = result.links[0].linkId;
     const corrected = correctEvidenceLink(
+      "task",
+      task.id,
       linkId,
       {
         status: "incorrect",
@@ -519,6 +521,8 @@ describe("Correction", () => {
     );
 
     const corrected = correctEvidenceLink(
+      "task",
+      task.id,
       result.links[0].linkId,
       {
         status: "removed",
@@ -549,6 +553,8 @@ describe("Correction", () => {
     );
 
     const corrected = correctEvidenceLink(
+      "task",
+      task.id,
       r1.links[0].linkId,
       {
         status: "superseded",
@@ -564,6 +570,8 @@ describe("Correction", () => {
 
   it("returns null for nonexistent link ID", () => {
     const result = correctEvidenceLink(
+      "task",
+      "nonexistent-task",
       "nonexistent-id",
       {
         status: "incorrect",
@@ -586,6 +594,8 @@ describe("Correction", () => {
     );
 
     correctEvidenceLink(
+      "task",
+      task.id,
       result.links[0].linkId,
       {
         status: "incorrect",
@@ -700,6 +710,8 @@ describe("Gap reporting and resolution", () => {
     );
 
     const resolved = resolveCodeEvidenceGap(
+      "task",
+      task.id,
       gap!.id,
       {
         resolutionReason: "Webhook now configured",
@@ -714,6 +726,8 @@ describe("Gap reporting and resolution", () => {
 
   it("returns null when resolving nonexistent gap", () => {
     const resolved = resolveCodeEvidenceGap(
+      "task",
+      "nonexistent-task",
       "nonexistent-gap-id",
       {
         resolutionReason: "N/A",
@@ -736,6 +750,8 @@ describe("Gap reporting and resolution", () => {
     );
 
     resolveCodeEvidenceGap(
+      "task",
+      task.id,
       gap!.id,
       {
         resolutionReason: "Found",
@@ -951,6 +967,8 @@ describe("getTaskCodeEvidence / getMissionCodeEvidence", () => {
     );
 
     correctEvidenceLink(
+      "task",
+      task.id,
       result.links[0].linkId,
       {
         status: "incorrect",
@@ -997,6 +1015,8 @@ describe("getTaskCodeEvidence / getMissionCodeEvidence", () => {
     );
 
     correctEvidenceLink(
+      "task",
+      task.id,
       r1.links[0].linkId,
       {
         status: "removed",

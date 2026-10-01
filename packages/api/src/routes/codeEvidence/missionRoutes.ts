@@ -87,14 +87,27 @@ export async function missionCodeEvidenceRoutes(fastify: FastifyInstance): Promi
       if (!mission) throw notFound("Mission not found");
 
       const actor = getActor(request);
+      // Shared-signature consequence of the Task evidence containment: the
+      // source link must belong to this exact Mission, and the emitted effect
+      // names the row the UPDATE actually corrected. Mission admission
+      // itself is unchanged.
       const corrected = codeEvidenceService.correctEvidenceLink(
+        "mission",
+        missionId,
         linkId,
         request.body as CodeEvidenceCorrectionInput,
         actor,
       );
       if (!corrected) throw notFound("Evidence link not found");
 
-      emitEvidenceEvent("mission", missionId, mission.habitatId, linkId, "corrected", actor);
+      emitEvidenceEvent(
+        "mission",
+        corrected.targetId,
+        mission.habitatId,
+        corrected.id,
+        "corrected",
+        actor,
+      );
       return { link: corrected };
     },
   );
@@ -195,7 +208,10 @@ export async function missionCodeEvidenceRoutes(fastify: FastifyInstance): Promi
       if (!mission) throw notFound("Mission not found");
 
       const actor = getActor(request);
+      // Same exact-pair source containment as the Mission correction POST.
       const resolved = codeEvidenceService.resolveCodeEvidenceGap(
+        "mission",
+        missionId,
         gapId,
         request.body as CodeEvidenceGapResolveInput,
         actor,
@@ -203,17 +219,17 @@ export async function missionCodeEvidenceRoutes(fastify: FastifyInstance): Promi
       if (!resolved) throw notFound("Evidence gap not found");
 
       missionEventRepo.createMissionEvent({
-        missionId,
+        missionId: resolved.targetId,
         actorType: actor.type,
         actorId: actor.id,
         action: "code_evidence_gap_resolved",
-        metadata: { gapId },
+        metadata: { gapId: resolved.id },
       });
       sseBroadcaster.publish(mission.habitatId, {
         type: "code_evidence.updated",
         data: {
           targetType: "mission",
-          targetId: missionId,
+          targetId: resolved.targetId,
           evidenceLinkId: "",
           changeKind: "verified",
         },

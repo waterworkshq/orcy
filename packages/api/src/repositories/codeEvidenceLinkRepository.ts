@@ -295,7 +295,16 @@ export function addCorroboratingSource(linkId: string, source: CodeEvidenceLinkS
   return getById(linkId);
 }
 
+/**
+ * Marks a source link corrected or superseded. The update is fenced on the
+ * link's polymorphic target pair as well as its id, so a link that moved to
+ * another target (or another target type) after the caller's pre-read is not
+ * mutated by this call. The returned row is the one the UPDATE actually
+ * changed, or null when the id/target pair matched nothing.
+ */
 export function correctLink(
+  targetType: CodeEvidenceTargetType,
+  targetId: string,
   id: string,
   status: "incorrect" | "removed" | "superseded",
   correctedByType: CodeEvidenceActorType,
@@ -307,7 +316,8 @@ export function correctLink(
   const now = new Date().toISOString();
 
   try {
-    db.update(codeEvidenceLinks)
+    const matched = db
+      .update(codeEvidenceLinks)
       .set({
         status,
         correctedByType,
@@ -316,13 +326,19 @@ export function correctLink(
         correctionReason,
         replacementLinkId: replacementLinkId ?? null,
       })
-      .where(eq(codeEvidenceLinks.id, id))
-      .run();
+      .where(
+        and(
+          eq(codeEvidenceLinks.id, id),
+          eq(codeEvidenceLinks.targetType, targetType),
+          eq(codeEvidenceLinks.targetId, targetId),
+        ),
+      )
+      .returning()
+      .all();
+    return matched.length > 0 ? matched[0] : null;
   } catch (err) {
     throw repositoryUpdateError("codeEvidenceLink", err as Error, id);
   }
-
-  return getById(id);
 }
 
 export function countActiveByTarget(targetType: CodeEvidenceTargetType, targetId: string) {

@@ -98,10 +98,35 @@ const mockEvidenceResult = {
   links: [{ linkId: "link-1", status: "active" }],
   completeness: { percentage: 80 },
 };
-const mockCorrectedLink = { linkId: "link-1", status: "corrected" };
+const mockCorrectedLink = {
+  id: "link-1",
+  linkId: "link-1",
+  targetType: "task",
+  targetId: "task-1",
+  status: "corrected",
+};
+const mockCorrectedMissionLink = {
+  id: "link-1",
+  linkId: "link-1",
+  targetType: "mission",
+  targetId: "mission-1",
+  status: "corrected",
+};
 const mockCompleteness = { percentage: 0, hasNotApplicable: true, reasonCode: "no-code" };
 const mockGap = { id: "gap-1", taskId: "task-1", reasonCode: "missing-tests", status: "open" };
-const mockResolvedGap = { id: "gap-1", taskId: "task-1", status: "resolved" };
+const mockResolvedGap = {
+  id: "gap-1",
+  targetType: "task",
+  targetId: "task-1",
+  taskId: "task-1",
+  status: "resolved",
+};
+const mockResolvedMissionGap = {
+  id: "gap-1",
+  targetType: "mission",
+  targetId: "mission-1",
+  status: "resolved",
+};
 const mockRepository = {
   id: "repo-1",
   habitatId: "habitat-1",
@@ -780,7 +805,7 @@ describe("POST /tasks/:taskId/code-evidence/:linkId/correct handler", () => {
     const body = { status: "incorrect", reason: "wrong commit" };
     const req = createMockRequest({ params: { taskId: "task-1", linkId: "link-1" }, body });
     const result = await route!.handler(req, createMockReply());
-    expect(mockCorrectEvidenceLink).toHaveBeenCalledWith("link-1", body, {
+    expect(mockCorrectEvidenceLink).toHaveBeenCalledWith("task", "task-1", "link-1", body, {
       type: "agent",
       id: "agent-1",
     });
@@ -839,7 +864,7 @@ describe("POST /tasks/:taskId/code-evidence/:linkId/correct handler", () => {
     const body = { status: "superseded", reason: "replaced", replacementLinkId: "link-2" };
     const req = createMockRequest({ params: { taskId: "task-1", linkId: "link-1" }, body });
     await route!.handler(req, createMockReply());
-    expect(mockCorrectEvidenceLink).toHaveBeenCalledWith("link-1", body, {
+    expect(mockCorrectEvidenceLink).toHaveBeenCalledWith("task", "task-1", "link-1", body, {
       type: "agent",
       id: "agent-1",
     });
@@ -1018,10 +1043,16 @@ describe("POST /tasks/:taskId/code-evidence/gaps/:gapId/resolve handler", () => 
     const body = { resolutionReason: "Tests added in PR #42" };
     const req = createMockRequest({ params: { taskId: "task-1", gapId: "gap-1" }, body });
     const result = await route!.handler(req, createMockReply());
-    expect(mockResolveCodeEvidenceGap).toHaveBeenCalledWith("gap-1", body, {
-      type: "agent",
-      id: "agent-1",
-    });
+    expect(mockResolveCodeEvidenceGap).toHaveBeenCalledWith(
+      "task",
+      "task-1",
+      "gap-1",
+      body,
+      {
+        type: "agent",
+        id: "agent-1",
+      },
+    );
     expect(result).toEqual({ gap: mockResolvedGap });
   });
 
@@ -1215,6 +1246,11 @@ describe("POST /missions/:missionId/code-evidence handler", () => {
 
 describe("POST /missions/:missionId/code-evidence/:linkId/correct handler", () => {
   beforeEach(resetMocks);
+  // The Mission handlers emit their effect for the row the service returned,
+  // so this describe's success mock must be Mission-shaped, not Task-shaped.
+  beforeEach(() => {
+    mockCorrectEvidenceLink.mockReturnValue(mockCorrectedMissionLink);
+  });
 
   it("corrects a mission evidence link", async () => {
     const routes = captureRoutes(missionCodeEvidenceRoutes);
@@ -1224,11 +1260,11 @@ describe("POST /missions/:missionId/code-evidence/:linkId/correct handler", () =
     const body = { status: "removed", reason: "stale" };
     const req = createMockRequest({ params: { missionId: "mission-1", linkId: "link-1" }, body });
     const result = await route!.handler(req, createMockReply());
-    expect(mockCorrectEvidenceLink).toHaveBeenCalledWith("link-1", body, {
+    expect(mockCorrectEvidenceLink).toHaveBeenCalledWith("mission", "mission-1", "link-1", body, {
       type: "agent",
       id: "agent-1",
     });
-    expect(result).toEqual({ link: mockCorrectedLink });
+    expect(result).toEqual({ link: mockCorrectedMissionLink });
   });
 
   it("emits corrected mission event", async () => {
@@ -1447,6 +1483,11 @@ describe("POST /missions/:missionId/code-evidence/gaps handler", () => {
 
 describe("POST /missions/:missionId/code-evidence/gaps/:gapId/resolve handler", () => {
   beforeEach(resetMocks);
+  // Same reason as the Mission correction describe: the effect names the row
+  // the service returned, so the success mock is Mission-shaped here.
+  beforeEach(() => {
+    mockResolveCodeEvidenceGap.mockReturnValue(mockResolvedMissionGap);
+  });
 
   it("resolves a mission evidence gap", async () => {
     const routes = captureRoutes(missionCodeEvidenceRoutes);
@@ -1457,11 +1498,17 @@ describe("POST /missions/:missionId/code-evidence/gaps/:gapId/resolve handler", 
     const body = { resolutionReason: "CI pipeline configured" };
     const req = createMockRequest({ params: { missionId: "mission-1", gapId: "gap-1" }, body });
     const result = await route!.handler(req, createMockReply());
-    expect(mockResolveCodeEvidenceGap).toHaveBeenCalledWith("gap-1", body, {
-      type: "agent",
-      id: "agent-1",
-    });
-    expect(result).toEqual({ gap: mockResolvedGap });
+    expect(mockResolveCodeEvidenceGap).toHaveBeenCalledWith(
+      "mission",
+      "mission-1",
+      "gap-1",
+      body,
+      {
+        type: "agent",
+        id: "agent-1",
+      },
+    );
+    expect(result).toEqual({ gap: mockResolvedMissionGap });
   });
 
   it("emits gap_resolved mission event", async () => {

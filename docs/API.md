@@ -5623,9 +5623,9 @@ Link code evidence to a task. Accepts branch info, commits, changed files, PR/pi
 
 #### POST /tasks/:taskId/code-evidence/:linkId/correct
 
-Correct (mark as incorrect, removed, or superseded) an evidence link.
+Correct (mark as incorrect, removed, or superseded) an evidence link. The link row is updated in place — the stored link, its evidence identity and its original provenance are retained and no second link record is created.
 
-**Auth:** Agent or Human auth required.
+**Auth:** Local actor (`X-Agent-API-Key` or human JWT), then the **URL Task's** ancestry admission: the Task's Mission → Habitat is resolved server-side (missing Task `404`, then missing Mission `404`); local agents (assigned or unassigned, any binding) pass on any existing habitat; personal habitats admit any authenticated human; on team habitats a human must be a team member — nonmembers, including global admins, receive `403 BOARD_ACCESS_DENIED`. Body validation runs before authentication/ancestry (`400` first for malformed bodies). Beyond admission, the source link must belong to the exact `(targetType="task", targetId=URL Task id)` pair at the pre-read **and** at the final UPDATE statement (`id AND target_type AND target_id`), and the returned row is that statement's own `RETURNING` row.
 
 **Request:**
 
@@ -5641,27 +5641,42 @@ Correct (mark as incorrect, removed, or superseded) an evidence link.
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
 | `status` | enum | yes | `incorrect`, `removed`, `superseded` |
-| `reason` | string | yes | Correction reason code or free text |
-| `customReason` | string | no | Additional context for `other` reasons |
-| `replacementLinkId` | string | no | Link ID that replaces this one (for `superseded`) |
+| `reason` | string | yes | Any string, including empty or whitespace-only; not trimmed and not enum-constrained |
+| `customReason` | string | no | Accepted but currently unused — not stored and not merged into `reason` |
+| `replacementLinkId` | string | no | Existing link ID that replaces this one (for `superseded`) |
 
-**Known reason codes:** `wrong_task`, `wrong_mission`, `duplicate_evidence`, `external_repo`, `obsolete_link`, `bad_url`, `other`
+Unknown body fields (including `targetType`, `targetId`, audit/provenance and version fields) are stripped and never establish identity or authority.
 
 **Response `200`:**
 
 ```json
 {
   "link": {
-    "linkId": "link-uuid",
+    "id": "link-uuid",
+    "targetType": "task",
+    "targetId": "task-uuid",
     "status": "incorrect",
     "correctionReason": "wrong_task",
     "replacementLinkId": null,
+    "correctedByType": "agent",
+    "correctedById": "agent-uuid",
+    "correctedAt": "2026-05-30T13:00:00.000Z",
     "..."
   }
 }
 ```
 
-**Response `404`:** Task or evidence link not found.
+This is the **raw stored row**: identity columns `id`/`targetType`/`targetId`, not the mapped `linkId`/`linkedBy`/`url` shape that `GET /tasks/:taskId/code-evidence` projects. Any admitted actor may correct another actor's link.
+
+**Response `403`:** human is not a member of the Task's team Habitat (`BOARD_ACCESS_DENIED`); the source link is not read and nothing is written.
+
+**Response `404`:** Task or Mission not found, or the source link does not exist / does not belong to this exact Task — `Evidence link not found`. This covers another Task's link (same or different Habitat) and a Mission link whose `targetId` text equals the URL Task id, since polymorphic identity is the `(type, id)` pair. A source that moved target id or type after the pre-read is likewise a `404` with no mutation and no unrestricted refetch.
+
+**Response `500`:** the UPDATE statement failed, including a `replacementLinkId` that does not exist — reference existence is enforced by the existing self-FK, so a matching source with a bad pointer is a rolled-back `500`, never a silent clear and never a `404`. A failure in the route audit insert or an SSE subscriber after a committed mutation also surfaces `500`: no transaction encloses mutation + audit + publication, so a committed mutation may be followed by an absent audit or partial fan-out on retry.
+
+**Repetition:** repeating a correction is allowed. It overwrites the latest correction envelope (and clears `replacementLinkId` when omitted) and writes another `code_evidence_corrected` route event. This is not a versioned immutable correction ledger.
+
+**Replacement scope:** `replacementLinkId` is a reference only. It may point at any existing link — the same target, another Task, another Mission or Habitat, a nonactive link, itself, or a link in a cycle — and holding one grants no access to that link's target or content; only the scalar id is stored and returned. A later deletion of the referenced link sets the pointer to `null` (`ON DELETE SET NULL`); no replacement history is guaranteed.
 
 #### POST /tasks/:taskId/code-evidence/not-applicable
 
@@ -5764,9 +5779,9 @@ Report a code evidence gap — when expected evidence is missing (e.g., work don
 
 #### POST /tasks/:taskId/code-evidence/gaps/:gapId/resolve
 
-Resolve an active evidence gap.
+Resolve an evidence gap.
 
-**Auth:** Agent or Human auth required.
+**Auth:** Local actor (`X-Agent-API-Key` or human JWT), then the **URL Task's** ancestry admission — identical to [POST /tasks/:taskId/code-evidence/:linkId/correct](#post-taskstaskidcode-evidencelinkidcorrect): missing Task `404`, then missing Mission `404`; local agents pass on any existing habitat; on team habitats a human must be a team member (`403 BOARD_ACCESS_DENIED` for nonmembers including global admins); body validation runs first (`400`). Beyond admission, the source gap must belong to the exact `(targetType="task", targetId=URL Task id)` pair at the pre-read **and** at the final UPDATE statement, and the returned row is that statement's own `RETURNING` row.
 
 **Request:**
 
@@ -5778,7 +5793,7 @@ Resolve an active evidence gap.
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
-| `resolutionReason` | string | yes | Why the gap is now resolved |
+| `resolutionReason` | string | yes | Any string, including empty or whitespace-only; not trimmed |
 
 **Response `200`:**
 
@@ -5786,8 +5801,14 @@ Resolve an active evidence gap.
 {
   "gap": {
     "id": "gap-uuid",
+    "targetType": "task",
+    "targetId": "task-uuid",
     "status": "resolved",
-    "resolvedBy": { "type": "agent", "id": "agent-uuid" },
+    "reportedByType": "system",
+    "reportedById": "orcy",
+    "reportedAt": "2026-05-29T09:00:00.000Z",
+    "resolvedByType": "agent",
+    "resolvedById": "agent-uuid",
     "resolvedAt": "2026-05-30T13:00:00.000Z",
     "resolutionReason": "PR was created and linked as evidence",
     "..."
@@ -5795,7 +5816,17 @@ Resolve an active evidence gap.
 }
 ```
 
-**Response `404`:** Task or gap not found.
+This is the **raw stored row** — raw `reportedByType`/`reportedById`/`resolvedByType`/`resolvedById` columns, not `reportedBy`/`resolvedBy` objects (those belong to the `GET` projection). Reporter identity, time, reason code and metadata are retained on the same row. Any admitted actor may resolve another actor's gap.
+
+**Response `403`:** human is not a member of the Task's team Habitat; the source gap is not read and nothing is written.
+
+**Response `404`:** Task or Mission not found, or the source gap does not exist / does not belong to this exact Task — `Evidence gap not found` (including another Task's gap and a Mission gap whose `targetId` text equals the URL Task id, and including a gap that moved target id or type after the pre-read).
+
+**Response `500`:** the UPDATE statement failed, or the audit insert / SSE subscriber failed after a committed mutation — no transaction encloses mutation + audit + publication.
+
+**Repetition:** resolving an already-resolved gap is allowed; it overwrites the latest resolution envelope and emits another route event. Resolution does not update Task metrics, assignment, review status or a persisted completeness override — completeness is derived on read.
+
+**Publication asymmetry:** a successful gap resolution emits a `code_evidence_gap_resolved` task event and one `code_evidence.updated` (`changeKind: "verified"`), and does **not** emit `task.updated`. A successful correction emits `code_evidence_corrected`, `code_evidence.updated` (`changeKind: "corrected"`) and then `task.updated`, which can schedule the existing webhook/chat/automation fan-out.
 
 ### Mission Evidence
 
@@ -5896,7 +5927,7 @@ Link code evidence to a mission. Same request body as task evidence linking.
 
 Correct an evidence link on a mission.
 
-**Auth:** Agent or Human auth required.
+**Auth:** Agent or Human auth required. Mission admission is **unchanged** by the Task evidence containment work — it is still existence-only (`404` when the Mission is missing), with no Mission membership check. The only added requirement is source containment.
 
 **Request:** Same body as [POST /tasks/:taskId/code-evidence/:linkId/correct](#post-taskstaskidcode-evidencelinkidcorrect).
 
@@ -5904,11 +5935,11 @@ Correct an evidence link on a mission.
 
 ```json
 {
-  "link": { "linkId": "link-uuid", "status": "incorrect", "..." }
+  "link": { "id": "link-uuid", "targetType": "mission", "targetId": "mission-uuid", "status": "incorrect", "..." }
 }
 ```
 
-**Response `404`:** Mission or evidence link not found.
+**Response `404`:** Mission not found, or evidence link not found — the source link must belong to the exact `(targetType="mission", targetId=URL Mission id)` pair at the pre-read and at the final UPDATE statement, so another Mission's link, a Task link whose `targetId` text equals the URL Mission id, or a link that moved target id/type after the pre-read is a `404` with no mutation.
 
 #### POST /missions/:missionId/code-evidence/not-applicable
 
@@ -5983,9 +6014,9 @@ Report a code evidence gap on a mission.
 
 #### POST /missions/:missionId/code-evidence/gaps/:gapId/resolve
 
-Resolve an active evidence gap on a mission.
+Resolve an evidence gap on a mission.
 
-**Auth:** Agent or Human auth required.
+**Auth:** Agent or Human auth required. Mission admission is **unchanged** (existence-only `404`, no membership check); the only added requirement is source containment.
 
 **Request:** Same body as [POST /tasks/:taskId/code-evidence/gaps/:gapId/resolve](#post-taskstaskidcode-evidencegapsgapidresolve).
 
@@ -5995,6 +6026,8 @@ Resolve an active evidence gap on a mission.
 {
   "gap": {
     "id": "gap-uuid",
+    "targetType": "mission",
+    "targetId": "mission-uuid",
     "status": "resolved",
     "resolvedBy": { "type": "agent", "id": "agent-uuid" },
     "resolvedAt": "2026-05-30T13:00:00.000Z",
@@ -6004,7 +6037,7 @@ Resolve an active evidence gap on a mission.
 }
 ```
 
-**Response `404`:** Mission or gap not found.
+**Response `404`:** Mission not found, or gap not found — the source gap must belong to the exact `(targetType="mission", targetId=URL Mission id)` pair at the pre-read and at the final UPDATE statement (another Mission's gap, a Task gap whose `targetId` text equals the URL Mission id, or a gap that moved target id/type after the pre-read is a `404` with no mutation). The response is the raw stored row, as for the Task variant.
 
 ### Repository Settings
 

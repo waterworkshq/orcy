@@ -1304,7 +1304,7 @@ Review evidence records. Captures review status and reviewer metadata.
 
 #### `code_evidence_links`
 
-Core polymorphic link table connecting Orcy entities (missions, tasks, subtasks) to code evidence records (branches, commits, changed files, reviews). Uses append-only corrections — links are never deleted, only superseded.
+Core polymorphic link table connecting Orcy entities (missions, tasks, subtasks) to code evidence records (branches, commits, changed files, reviews). Corrections are same-envelope updates, not appended rows: a correction rewrites the *same* link's `status`, latest correction actor/time/reason and optional replacement pointer on that row, so the row count does not grow and no second link record is created. Links are never deleted by a correction. `target_type`/`target_id` are plain polymorphic columns with **no** FK to the target, so target identity is a `(target_type, target_id)` pair rather than an id string.
 
 | Column | Type | Constraints | Description |
 |--------|------|-------------|-------------|
@@ -1313,12 +1313,12 @@ Core polymorphic link table connecting Orcy entities (missions, tasks, subtasks)
 | `target_id` | TEXT | NOT NULL | Target entity UUID |
 | `evidence_type` | TEXT | NOT NULL CHECK (IN 'branch','commit','changed_file','review','pr','pipeline') | Evidence entity type |
 | `evidence_id` | TEXT | NOT NULL | Evidence entity UUID |
-| `status` | TEXT | NOT NULL DEFAULT 'active' CHECK (IN 'active','superseded','incorrect','removed') | Link status (append-only corrections) |
+| `status` | TEXT | NOT NULL DEFAULT 'active' CHECK (IN 'active','superseded','incorrect','removed') | Link status (corrections overwrite this same row's value) |
 | `confidence` | REAL | NOT NULL DEFAULT 1.0 | Confidence score 0-1 |
 | `link_source` | TEXT | NOT NULL CHECK (IN 'webhook','branch_pattern','commit_trailer','agent_reported','human_manual','migration','api','artifact_mirror') | How the link was established |
-| `corrected_by` | TEXT | DEFAULT NULL FK → code_evidence_links(id) | Superseding link (for corrections) |
-| `correction_reason` | TEXT | DEFAULT NULL | Why this link was corrected |
-| `corrected_by_actor` | TEXT | DEFAULT NULL | Who corrected the link |
+| `replacement_link_id` | TEXT | DEFAULT NULL FK → code_evidence_links(id) ON DELETE SET NULL | **Reference only** to the superseding link. No target/active/generation constraint: it may point at any existing link (same or another Task/Mission/Habitat, nonactive, itself, or one in a cycle). The enforced FK is what supplies reference existence — a pointer to a missing link aborts the statement — and deleting the referenced link later sets this column to NULL, so no durable-reference history is kept |
+| `correction_reason` | TEXT | DEFAULT NULL | Why this link was corrected (latest correction only — repeating a correction overwrites it) |
+| `corrected_by_type` / `corrected_by_id` | TEXT | DEFAULT NULL | Typed actor (`agent`/`human`/`system`) and id of the **latest** corrector; earlier correction metadata is not kept as an immutable ledger |
 | `metadata` | TEXT | NOT NULL DEFAULT '{}' (JSON) | Additional link context |
 | `created_at` | TEXT | NOT NULL DEFAULT (datetime('now')) | Record creation timestamp |
 | `updated_at` | TEXT | NOT NULL DEFAULT (datetime('now')) | Last update timestamp |

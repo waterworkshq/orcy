@@ -91,19 +91,26 @@ export async function taskCodeEvidenceRoutes(fastify: FastifyInstance): Promise<
     },
     async (request) => {
       const { taskId, linkId } = request.params;
-      const task = taskRepo.getTaskById(taskId);
-      if (!task) throw notFound("Task not found");
+      // Object access resolves through the TARGET task's actual
+      // Mission/Habitat before any evidence row is read. The service then
+      // fences the source link on this exact task, and every effect below is
+      // emitted for the row the UPDATE actually corrected rather than for
+      // the URL input.
+      const habitatId = await authorizeTaskAccess(request, taskId);
 
       const actor = getActor(request);
       const corrected = codeEvidenceService.correctEvidenceLink(
+        "task",
+        taskId,
         linkId,
         request.body as CodeEvidenceCorrectionInput,
         actor,
       );
       if (!corrected) throw notFound("Evidence link not found");
 
-      const habitatId = getHabitatIdForTask(taskId);
-      if (habitatId) emitEvidenceEvent("task", taskId, habitatId, linkId, "corrected", actor);
+      // `targetType` is fenced to "task" by the predicate the row just
+      // satisfied, so only the ids come off the matched row.
+      emitEvidenceEvent("task", corrected.targetId, habitatId, corrected.id, "corrected", actor);
 
       return { link: corrected };
     },
@@ -208,36 +215,37 @@ export async function taskCodeEvidenceRoutes(fastify: FastifyInstance): Promise<
     },
     async (request) => {
       const { taskId, gapId } = request.params;
-      const task = taskRepo.getTaskById(taskId);
-      if (!task) throw notFound("Task not found");
+      // Same target admission and exact-pair source containment as the
+      // correction POST; the audit and SSE below name the gap the UPDATE
+      // actually resolved.
+      const habitatId = await authorizeTaskAccess(request, taskId);
 
       const actor = getActor(request);
       const resolved = codeEvidenceService.resolveCodeEvidenceGap(
+        "task",
+        taskId,
         gapId,
         request.body as CodeEvidenceGapResolveInput,
         actor,
       );
       if (!resolved) throw notFound("Evidence gap not found");
 
-      const habitatId = getHabitatIdForTask(taskId);
-      if (habitatId) {
-        eventRepo.createEvent({
-          taskId,
-          actorType: actor.type,
-          actorId: actor.id,
-          action: "code_evidence_gap_resolved",
-          metadata: { gapId },
-        });
-        sseBroadcaster.publish(habitatId, {
-          type: "code_evidence.updated",
-          data: {
-            targetType: "task",
-            targetId: taskId,
-            evidenceLinkId: "",
-            changeKind: "verified",
-          },
-        });
-      }
+      eventRepo.createEvent({
+        taskId: resolved.targetId,
+        actorType: actor.type,
+        actorId: actor.id,
+        action: "code_evidence_gap_resolved",
+        metadata: { gapId: resolved.id },
+      });
+      sseBroadcaster.publish(habitatId, {
+        type: "code_evidence.updated",
+        data: {
+          targetType: "task",
+          targetId: resolved.targetId,
+          evidenceLinkId: "",
+          changeKind: "verified",
+        },
+      });
 
       return { gap: resolved };
     },

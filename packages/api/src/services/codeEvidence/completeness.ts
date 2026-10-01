@@ -15,17 +15,27 @@ import * as codeEvidenceGapRepo from "../../repositories/codeEvidenceGapReposito
 import * as codeEvidenceLinkRepo from "../../repositories/codeEvidenceLinkRepository.js";
 import type { CodeEvidenceActor } from "./types.js";
 
-/** Marks an existing evidence link as corrected or superseded with an actor-supplied reason. */
+/**
+ * Marks the evidence link `resourceId` as corrected or superseded with an
+ * actor-supplied reason. The link must belong to the exact target pair the
+ * caller resolved: a missing link, or one owned by another target — including
+ * a Mission link whose targetId text happens to match — reads as not found and
+ * is never projected to the caller.
+ */
 export function correctEvidenceLink(
-  linkId: string,
+  targetType: CodeEvidenceTargetType,
+  targetId: string,
+  resourceId: string,
   input: CodeEvidenceCorrectionInput,
   actor: CodeEvidenceActor,
 ) {
-  const link = codeEvidenceLinkRepo.getById(linkId);
-  if (!link) return null;
+  const link = codeEvidenceLinkRepo.getById(resourceId);
+  if (!link || link.targetType !== targetType || link.targetId !== targetId) return null;
 
   return codeEvidenceLinkRepo.correctLink(
-    linkId,
+    targetType,
+    targetId,
+    resourceId,
     input.status,
     actor.type,
     actor.id,
@@ -76,13 +86,25 @@ export function reportCodeEvidenceGap(
   });
 }
 
-/** Marks an existing evidence gap as resolved with a resolution reason. */
+/** Marks the evidence gap `resourceId` as resolved, under the same exact target-pair containment as {@link correctEvidenceLink}. */
 export function resolveCodeEvidenceGap(
-  gapId: string,
+  targetType: CodeEvidenceTargetType,
+  targetId: string,
+  resourceId: string,
   input: CodeEvidenceGapResolveInput,
   actor: CodeEvidenceActor,
 ) {
-  return codeEvidenceGapRepo.resolveGap(gapId, actor.type, actor.id, input.resolutionReason);
+  const gap = codeEvidenceGapRepo.getById(resourceId);
+  if (!gap || gap.targetType !== targetType || gap.targetId !== targetId) return null;
+
+  return codeEvidenceGapRepo.resolveGap(
+    targetType,
+    targetId,
+    resourceId,
+    actor.type,
+    actor.id,
+    input.resolutionReason,
+  );
 }
 
 /** Computes the completeness status for a target, honoring a not-applicable override then counting active links and gaps. */

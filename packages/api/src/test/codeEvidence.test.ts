@@ -485,6 +485,8 @@ describe("CodeEvidenceLinkRepository", () => {
     });
 
     const corrected = codeEvidenceLinkRepo.correctLink(
+      "task",
+      "task-5",
       link!.id,
       "incorrect",
       "human",
@@ -668,6 +670,8 @@ describe("CodeEvidenceGapRepository", () => {
     });
 
     const resolved = codeEvidenceGapRepo.resolveGap(
+      "task",
+      "task-gap-3",
       gap!.id,
       "human",
       "user-1",

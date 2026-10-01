@@ -237,7 +237,7 @@ Output: { "success": true, "comment": { ... } }
 
 ### Mission Code Evidence & Audit Bundle
 
-Same evidence contract as tasks, scoped to the mission. Link commits/PRs/branches/pipelines, correct links append-only, report and resolve evidence gaps, and pull a scoped audit evidence bundle.
+Same evidence contract as tasks, scoped to the mission. Link commits/PRs/branches/pipelines, correct links in place on the existing row, report and resolve evidence gaps, and pull a scoped audit evidence bundle.
 
 ```
 orcy_habitat_mission({ action: "link-code", missionId: "mission-uuid", branchName: "feature/auth", commitSha: "abc123", pullRequestUrl: "https://github.com/org/repo/pull/42" })
@@ -251,6 +251,8 @@ orcy_habitat_mission({ action: "get-audit-bundle", missionId: "mission-uuid", in
 ```
 
 Reason codes are free-text strings (no fixed enum is enforced); `linkStatus` is `incorrect` | `removed` | `superseded`.
+
+Authority: the two mission evidence write actions require the link or gap to belong to that exact mission and return `404` otherwise, so a task's evidence id is refused through a mission call. Mission evidence admission itself is unchanged by this — a missing mission is `404`, and no mission-membership check is applied here.
 
 ### List Archived Missions
 
@@ -565,7 +567,7 @@ Corrections are appends: the original entry is never modified, repeated deltas a
 
 ## Code Evidence — `orcy_habitat_task`
 
-Link commits, PRs, branches, changed files, and pipeline runs to the task. Corrections are append-only; evidence gaps have their own lifecycle.
+Link commits, PRs, branches, changed files, and pipeline runs to the task. A correction updates the existing link row in place (same status, latest correction actor/time/reason, optional replacement reference) rather than appending a new record; evidence gaps have their own lifecycle.
 
 ```
 orcy_habitat_task({ action: "link-code", taskId: "uuid", branchName: "fix/login-redirect", commitSha: "abc123", pullRequestUrl: "https://github.com/org/repo/pull/42" })
@@ -578,6 +580,8 @@ orcy_habitat_task({ action: "resolve-gap", taskId: "uuid", gapId: "gap-uuid", re
 ```
 
 Reason codes are free-text strings (no fixed enum is enforced); `linkStatus` is `incorrect` | `removed` | `superseded`.
+
+Authority: `correct-code-evidence-link` and `resolve-gap` resolve the task's Mission→Habitat first and only act on a link or gap belonging to that exact task, so an id from another task — or a mission's — returns `404` with nothing changed; a missing task returns `404`, and a human who is not a member of the task's team habitat gets `403`. Both responses are the raw stored row. `replacementLinkId` is a reference only: it may point at any existing link and it does not grant access to that link's task or content, and a pointer that does not exist fails the call. The mission equivalents of both actions require the same exact-mission match.
 
 ### Get Audit Evidence Bundle
 

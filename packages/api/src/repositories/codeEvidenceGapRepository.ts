@@ -94,7 +94,14 @@ export function create(input: {
   return getById(id);
 }
 
+/**
+ * Marks a source gap resolved. Like {@link import("./codeEvidenceLinkRepository.js").correctLink},
+ * the update is fenced on the gap's polymorphic target pair as well as its id,
+ * and the returned row is the one the UPDATE actually changed (or null).
+ */
 export function resolveGap(
+  targetType: CodeEvidenceTargetType,
+  targetId: string,
   id: string,
   resolvedByType: CodeEvidenceActorType,
   resolvedById: string,
@@ -104,7 +111,8 @@ export function resolveGap(
   const now = new Date().toISOString();
 
   try {
-    db.update(codeEvidenceGaps)
+    const matched = db
+      .update(codeEvidenceGaps)
       .set({
         status: "resolved",
         resolvedByType,
@@ -112,13 +120,19 @@ export function resolveGap(
         resolvedAt: now,
         resolutionReason,
       })
-      .where(eq(codeEvidenceGaps.id, id))
-      .run();
+      .where(
+        and(
+          eq(codeEvidenceGaps.id, id),
+          eq(codeEvidenceGaps.targetType, targetType),
+          eq(codeEvidenceGaps.targetId, targetId),
+        ),
+      )
+      .returning()
+      .all();
+    return matched.length > 0 ? matched[0] : null;
   } catch (err) {
     throw repositoryUpdateError("codeEvidenceGap", err as Error, id);
   }
-
-  return getById(id);
 }
 
 export function countActiveByTarget(targetType: CodeEvidenceTargetType, targetId: string) {

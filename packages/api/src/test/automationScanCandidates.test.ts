@@ -881,7 +881,14 @@ describe("CS-56 cold-review m3.3 — candidate-query negative tests", () => {
       reportedById: "test",
     });
     expect(resolved).not.toBeNull();
-    codeEvidenceGapRepo.resolveGap(resolved!.id, "system", "test-harness", "auto-resolved-by-test");
+    codeEvidenceGapRepo.resolveGap(
+      "task",
+      task.id,
+      resolved!.id,
+      "system",
+      "test-harness",
+      "auto-resolved-by-test",
+    );
 
     const candidates = listActiveEvidenceGapsInHabitat(habitat.id);
     expect(candidates.map((c) => c.gapId)).toEqual([active!.id]);

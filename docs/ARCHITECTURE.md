@@ -418,17 +418,19 @@ Completeness status is derived per target (mission/task/subtask) by evaluating a
 | `not_applicable` | Explicit override via `code_evidence_completeness` table (with reasonCode) |
 | `unknown` | Target has no defined evidence expectations |
 
-### Append-Only Corrections
+### Corrections (Same-Envelope Mutation)
 
-Evidence links use an append-only correction model rather than mutations:
+A correction marks an evidence link with a correction status instead of inserting a second link record:
 
 | Correction | Effect |
 |------------|--------|
-| `superseded` | Link replaced by a newer, more accurate link |
+| `superseded` | Link replaced by a newer, more accurate link (`replacement_link_id` may point at it) |
 | `incorrect` | Link was wrong (with reason and actor who corrected it) |
 | `removed` | Link no longer relevant (with reason and actor) |
 
-Original links are never deleted — corrections create new link records with `status` set to the correction type, preserving the full audit trail.
+The correction updates the *same* link row: its `status`, the latest `correctedByType`/`correctedById`/`correctedAt`, `correctionReason` and an optional `replacement_link_id` pointer. The link's target identity, evidence identity, original linked actor/time/source, verification, confidence and metadata are all retained, and no provider evidence is deleted. The audit trail is the separate route-level `code_evidence_corrected` task/mission event written after the mutation — not an additional link row, and not an immutable ledger: repeating a correction overwrites the previous correction envelope (and clears `replacement_link_id` when the caller omits it) and writes another route event. "History" for a target is a query over current nonactive rows, so it reflects the latest envelope per link rather than every correction ever made.
+
+The `replacement_link_id` pointer is a reference, not a content grant or a source-ownership transfer. It is a nullable self-FK with `ON DELETE SET NULL` and carries no target/active/generation constraint, so it may reference any existing link — another Task, another Mission or Habitat, a nonactive link, itself, or a link participating in a cycle. Correction never fetches, discloses or authorizes the replacement object; only the scalar id is stored and returned. The FK is what supplies reference existence: a `replacementLinkId` that does not exist fails the statement (`500`, rolled back) rather than being silently dropped.
 
 ### Non-Blocking Webhook Integration
 

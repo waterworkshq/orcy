@@ -1482,31 +1482,38 @@ Output: { "target": { "type": "mission", "id": "uuid" }, "directMissionEvidence"
 
 #### Correct Code Evidence Link
 
-Append-only correction to an existing evidence link. Original entry is preserved.
+Marks an existing evidence link corrected. The link row itself is updated in place — the stored link, its evidence identity and its original provenance are preserved, and no second link record is created.
 
 ```
-orcy_habitat_task({ action: "correct-code-evidence-link", taskId: "uuid", evidenceId: "evidence-uuid", correctionType: "superseded", reason: "Replaced by PR #43", replacementUrl: "https://github.com/org/repo/pull/43" })
+orcy_habitat_task({ action: "correct-code-evidence-link", taskId: "uuid", linkId: "link-uuid", linkStatus: "superseded", correctionReason: "Replaced by PR #43", replacementLinkId: "link-uuid-2" })
 
 Input:
 {
   "action": "correct-code-evidence-link",
   "taskId": "uuid",
-  "evidenceId": "evidence-uuid",
-  "correctionType": "superseded",
-  "reason": "Replaced by PR #43",
-  "replacementUrl": "https://github.com/org/repo/pull/43"
+  "linkId": "link-uuid",
+  "linkStatus": "superseded",
+  "correctionReason": "Replaced by PR #43",
+  "replacementLinkId": "link-uuid-2"
 }
 
-Output: { "success": true, "correction": { "id": "...", "type": "superseded", "reason": "..." } }
+Output: { "link": { "id": "link-uuid", "targetType": "task", "targetId": "uuid", "status": "superseded", "correctionReason": "Replaced by PR #43", "replacementLinkId": "link-uuid-2", "correctedByType": "agent", "correctedById": "agent-uuid", "correctedAt": "..." } }
 ```
+
+The response is the raw stored link row (identity fields `id`/`targetType`/`targetId`, not the mapped `linkId`/`linkedBy`/`url` shape returned by `list-code-evidence`).
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
 | `taskId` | string | yes | Task containing the evidence |
-| `evidenceId` | string | yes | Evidence entry to correct |
-| `correctionType` | string | yes | `superseded`, `incorrect`, `removed` |
-| `reason` | string | no | Why the correction was made |
-| `replacementUrl` | string | no | New URL (for `superseded`) |
+| `linkId` | string | yes | Evidence link to correct; must belong to `taskId` |
+| `linkStatus` | string | yes | `superseded`, `incorrect`, `removed` |
+| `correctionReason` | string | yes | Why the correction was made (any string, including empty) |
+| `customReason` | string | no | Accepted but currently unused; not stored |
+| `replacementLinkId` | string | no | Existing link id to point at (for `superseded`) |
+
+The URL Task's actual Mission→Habitat is resolved first: a missing Task/Mission/Habitat is `404`, a human who is not a member of the Task's team Habitat is `403`, and the link must belong to that exact Task — a link on another Task, or a Mission link whose id text matches, is `404 Evidence link not found` with no mutation. `replacementLinkId` is a reference only: it may point at any existing link (another Task, another Mission or Habitat, a nonactive link, itself, or a link in a cycle), and no replacement content is returned or authorized by holding one. A `replacementLinkId` that does not exist is a `500` reference fault, not a `404`. Repeating a correction overwrites the latest correction envelope and clears `replacementLinkId` when the field is omitted.
+
+The Mission action `orcy_habitat_mission` takes the same fields with `missionId`; its source link must belong to that exact Mission.
 
 #### Mark Not Applicable
 
@@ -1546,11 +1553,13 @@ Output: { "success": true, "gap": { "id": "gap-uuid", "evidenceType": "review", 
 Resolve a previously reported evidence gap (typically after linking the missing evidence).
 
 ```
-orcy_habitat_task({ action: "resolve-gap", taskId: "uuid", gapId: "gap-uuid", resolution: "Review linked via PR #42" })
+orcy_habitat_task({ action: "resolve-gap", taskId: "uuid", gapId: "gap-uuid", resolutionReason: "Review linked via PR #42" })
 
-Input: { "action": "resolve-gap", taskId: "uuid", "gapId": "gap-uuid", "resolution": "Review linked via PR #42" }
-Output: { "success": true, "gap": { "id": "gap-uuid", "status": "resolved" } }
+Input: { "action": "resolve-gap", taskId: "uuid", "gapId": "gap-uuid", "resolutionReason": "Review linked via PR #42" }
+Output: { "gap": { "id": "gap-uuid", "targetType": "task", "targetId": "uuid", "status": "resolved", "resolutionReason": "Review linked via PR #42", "resolvedByType": "agent", "resolvedById": "agent-uuid", "reportedByType": "system", "reportedById": "orcy", "resolvedAt": "..." } }
 ```
+
+The response is the raw stored gap row. The URL Task's actual Mission→Habitat is resolved first (missing Task/Mission/Habitat `404`, human team nonmember `403`) and the gap must belong to that exact Task — another Task's gap, or a Mission gap whose id text matches, is `404 Evidence gap not found` with no mutation. Resolving an already-resolved gap is allowed and overwrites the latest resolution envelope. The Mission action `orcy_habitat_mission` takes the same fields with `missionId`; its gap must belong to that exact Mission.
 orcy_habitat_task({ action: "get-time-report", taskId: "uuid" })
 
 Input: { "action": "get-time-report", "taskId": "uuid" }
