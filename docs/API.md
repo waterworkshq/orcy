@@ -4945,13 +4945,17 @@ An existing Task with no attachments returns `{ "attachments": [] }`:
 
 Download an attachment.
 
-**Auth:** `local_actor` plus a **per-attachment read predicate**, *not* the
-Task-admission check above. The loaded row's own `taskId` is the only real
-parent; unrelated supplied task/habitat/actor query or body fields confer no
-authority. Assigned agents and human JWTs may read. An unassigned agent that is
-**not** the uploader is `403` - being the uploader grants delete, not read. An
-unknown attachment id is `404` before the predicate runs, and a row whose Task
-no longer exists is `403 Task not found` from the predicate.
+**Auth:** `local_actor` plus **actual-parent admission** (the loaded row's own
+`taskId` through Task → Mission → Habitat, as above) **and then** the unchanged
+**per-attachment read predicate**. The `taskId` comes only from the loaded row;
+unrelated supplied task/habitat/actor query or body fields confer no authority.
+An unknown attachment id is `404` first; a row whose actual Task, Mission or
+Habitat no longer exists is `404` (`Task`/`Mission`/`Habitat` `not found`) —
+the former Task-missing case was previously a predicate `403`. A human outside
+the owning team Habitat is `403 BOARD_ACCESS_DENIED` before the action check,
+even as a global admin or the stored uploader. After admission, assigned agents
+and human JWTs may read, and **every** unassigned agent is `403` — being the
+uploader grants delete, never read.
 
 **Response `200`:** Binary file data with the stored `Content-Type` and an
 RFC 5987 `Content-Disposition`.
@@ -4960,15 +4964,20 @@ RFC 5987 `Content-Disposition`.
 
 Delete an attachment.
 
-**Auth:** `local_actor` plus a **per-attachment delete predicate**, again *not*
-the Task-admission check. Assigned agents may delete regardless of uploader; an
-unassigned agent may delete only its own upload; human JWTs delete via uploader
-match or an admin/editor role. Team membership alone never grants delete.
+**Auth:** `local_actor` plus the same **actual-parent admission** (missing
+Task/Mission/Habitat `404`; nonmember humans `403 BOARD_ACCESS_DENIED` first)
+**and then** the unchanged **per-attachment delete predicate**: assigned agents
+may delete regardless of uploader; an unassigned agent may delete only its own
+upload; human JWTs delete via uploader match or an admin/editor **JWT** role.
+Team membership alone never grants delete, and membership is checked before
+the action denial.
 
 **Response `204`:** No content.
 
-**Known limitations, not repaired by this slice.** Download and delete are
-outside the upload/list admission above. Delete unlinks the file **before**
+**Known limitations, not repaired by this slice.** Admission is a request-time
+conjunction with the unchanged per-attachment predicate; it is not
+membership-revocation, Task-movement or file-identity fencing. Delete unlinks
+the file **before**
 deleting the row, so a failing database statement after a successful unlink
 leaves the bytes irreversibly gone with the row still present (`500`
 `REPOSITORY_ERROR`) - a rollback cannot restore them - and a delete that matches

@@ -74,6 +74,8 @@ export async function attachmentRoutes(fastify: FastifyInstance): Promise<void> 
         throw notFound('Attachment not found');
       }
 
+      await authorizeTaskAccess(request, attachment.taskId);
+
       const principal = getPrincipalFromRequest(request);
       const authResult = authorizeAttachmentAccess(attachment, principal, 'read');
       if (!authResult.allowed) {
@@ -95,6 +97,8 @@ export async function attachmentRoutes(fastify: FastifyInstance): Promise<void> 
       if (!attachment) {
         throw notFound('Attachment not found');
       }
+
+      await authorizeTaskAccess(request, attachment.taskId);
 
       const principal = getPrincipalFromRequest(request);
       const authResult = authorizeAttachmentAccess(attachment, principal, 'delete');
