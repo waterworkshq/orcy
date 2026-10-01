@@ -1703,7 +1703,7 @@ The task is moved back to the "In Progress" column if it exists.
 
 ### GET /tasks/:taskId/reviewers
 
-List the reviewer rows assigned to a task (agent API key or human JWT). Object access resolves through the **target task's** actual Mission → Habitat (never a caller-supplied substitute) and runs the shared habitat-membership check before any row is read: agents pass on any existing habitat; on personal habitats any authenticated human passes; on team habitats a human must be a team member (nonmembers, including global admins, receive `403` — no reviewer rows leak). A missing Task or Mission returns `404`. The same target-derived check now also guards the six direct Task object operations (`GET`/`DELETE /tasks/:id`, `GET /tasks/:id/details`, `/events`, `/comments`, and `GET /tasks/:taskId/code-evidence`), the five scalar adjunct reads (`GET /tasks/:id/quality-checklist`, `/approval-status`, `/effort-report`, `/effort-entries`, `/time-report`), and the four Task dependency operations (`GET /tasks/:id/dependencies`, `GET /tasks/:id/blocked-status`, `POST /tasks/:id/dependencies`, `DELETE /tasks/:id/dependencies/:depId`). The dependency operations enforce it differently by verb: the two GETs authorize **every linked edge endpoint** (both outgoing and incoming, inventoried from raw `task_dependencies` rows) — an inaccessible linked team Task denies the whole read with `403` before any projection, a blocked status is never answered with a misleading unblocked result, and an abnormally dangling edge endpoint (raw row whose Task no longer exists) is `404`. The two writes authorize only the **selected ordered pair** — `POST` both actual endpoints, `DELETE` the source and the exact destination — so existing unrelated hidden edges do not deny an otherwise authorized write. `POST` requires `dependsOnTaskId` (absent body or field is an explicit `400`) and authorizes both actual endpoints before any cycle/self/duplicate check (`409`) or write, preserving legacy cross-Habitat edges when the actor may access both endpoints. `DELETE` matches the exact ordered `(taskId, depId)` pair — `depId` is the **destination Task ID**, matching the UI and MCP clients — and an absent pair is now `404` `Dependency not found` (previously a false `{success:true}` 200), while an unexpected database failure propagates as `5xx`, distinct from the 404. **Retained limitation:** the remaining Task-ID adjunct reads (`/failure-context`, `/workflow-context`, human-only `/pull-requests`, `/pipeline-events`, `/watchers`) and Task-ID mutations beyond individual DELETE (including `PATCH /tasks/:id`, comment, and evidence writes) remain without this habitat guard — this is not a universal Task-isolation boundary.
+List the reviewer rows assigned to a task (agent API key or human JWT). Object access resolves through the **target task's** actual Mission → Habitat (never a caller-supplied substitute) and runs the shared habitat-membership check before any row is read: agents pass on any existing habitat; on personal habitats any authenticated human passes; on team habitats a human must be a team member (nonmembers, including global admins, receive `403` — no reviewer rows leak). A missing Task or Mission returns `404`. The same target-derived check now also guards the six direct Task object operations (`GET`/`DELETE /tasks/:id`, `GET /tasks/:id/details`, `/events`, `/comments`, and `GET /tasks/:taskId/code-evidence`), the five scalar adjunct reads (`GET /tasks/:id/quality-checklist`, `/approval-status`, `/effort-report`, `/effort-entries`, `/time-report`), the six estimate/watcher/adjunct operations (`PUT /tasks/:id/estimate`, `POST`/`DELETE /tasks/:id/watch`, `GET /tasks/:id/watchers`, `GET /tasks/:id/pull-requests`, `GET /tasks/:id/pipeline-events` — human-only watcher and adjunct reads; the estimate write stays local-actor), and the four Task dependency operations (`GET /tasks/:id/dependencies`, `GET /tasks/:id/blocked-status`, `POST /tasks/:id/dependencies`, `DELETE /tasks/:id/dependencies/:depId`). The dependency operations enforce it differently by verb: the two GETs authorize **every linked edge endpoint** (both outgoing and incoming, inventoried from raw `task_dependencies` rows) — an inaccessible linked team Task denies the whole read with `403` before any projection, a blocked status is never answered with a misleading unblocked result, and an abnormally dangling edge endpoint (raw row whose Task no longer exists) is `404`. The two writes authorize only the **selected ordered pair** — `POST` both actual endpoints, `DELETE` the source and the exact destination — so existing unrelated hidden edges do not deny an otherwise authorized write. `POST` requires `dependsOnTaskId` (absent body or field is an explicit `400`) and authorizes both actual endpoints before any cycle/self/duplicate check (`409`) or write, preserving legacy cross-Habitat edges when the actor may access both endpoints. `DELETE` matches the exact ordered `(taskId, depId)` pair — `depId` is the **destination Task ID**, matching the UI and MCP clients — and an absent pair is now `404` `Dependency not found` (previously a false `{success:true}` 200), while an unexpected database failure propagates as `5xx`, distinct from the 404. **Retained limitation:** the Task-ID routes still without this habitat guard are the two unguarded reads `GET /tasks/:id/workflow-context` and `GET /tasks/:id/failure-context`, and the unguarded writes `PATCH /tasks/:id` (agent-only metadata), `POST /tasks/:taskId/code-evidence` (linking), `POST`/`DELETE /tasks/:taskId/code-evidence/not-applicable`, and `POST /tasks/:taskId/code-evidence/gaps` — the agent-only comment and subtask writes are guarded by their own URL-Task ancestry and final-SQL containment contracts, not by this predicate — so this is not a universal Task-isolation boundary. The six operations named above are admitted at **request time** only: no membership-revocation fence, no statement-time ancestry join, no Task/Mission reparent or delete-and-recreate (ABA) protection, and no optimistic CAS between the admission read and the final write.
 
 ### POST /tasks/:taskId/reviewers
 
@@ -1894,7 +1894,7 @@ Get the time report for a task, including estimated vs actual minutes, cycle/lea
 
 Set or update the time estimate for a task.
 
-**Auth:** Agent or Human
+**Auth:** Local actor (agent API key or human JWT), then the **target task's** derived-habitat check: the Task's Mission → Habitat is resolved server-side (never a caller-supplied substitute; a missing Task, Mission or Habitat is `404`); local agents pass on any existing habitat; personal habitats admit any authenticated human; on team habitats a human must be a team member — nonmembers, including global admins, receive `403` `BOARD_ACCESS_DENIED`. The check runs **first**, before the Task read, the scalar check and the write, so a denied caller with an invalid body is `403`, never `400`, and a denied caller's Task is never mutated and never returned in a response body.
 
 **Request:**
 
@@ -1908,6 +1908,8 @@ Set or update the time estimate for a task.
 |-------|------|----------|-------------|
 | `estimatedMinutes` | number | yes | Must be >= 0 |
 
+The scalar contract is unchanged and still runs for admitted actors only: a non-number or negative value is `400` `estimatedMinutes must be a non-negative number`; `0` and fractional values are accepted exactly as before.
+
 **Response `200`:**
 
 ```json
@@ -1915,6 +1917,48 @@ Set or update the time estimate for a task.
   "task": { "id": "task-uuid", "estimatedMinutes": 120, "..." }
 }
 ```
+
+**Response `404`:** Task not found, Mission not found, or Habitat not found (ancestry resolved before the scalar check).
+
+**Response `403`:** `BOARD_ACCESS_DENIED` on team habitats for a nonmember human, including a global admin. No Task update, version bump or `updatedAt` change occurs. This write emits no Task event, watcher notification, SSE frame or metric recalculation — unchanged.
+
+### POST /tasks/:id/watch
+
+Subscribe the authenticated human to a task's watcher notifications.
+
+**Auth:** Human JWT only (`authPolicy: "human"`, unchanged) — agent API keys, remote keys and anonymous callers are `401`, and the policy reads the JWT only, so a valid JWT sent with an irrelevant agent or remote header is still admitted as that human. The watcher identity is always the authenticated principal (`request.user.id`); a `userId`, `taskId` or `habitatId` in the body grants nothing and is ignored.
+
+The **target task's** derived-habitat check runs before the subscription write: the Task's Mission → Habitat is resolved server-side (never a caller-supplied substitute; missing Task, Mission or Habitat is `404`); personal habitats admit any authenticated human; on team habitats a human must be a team member — nonmembers, including global admins, receive `403` `BOARD_ACCESS_DENIED`. The check sits **outside** the handler's `try`, so a denied or missing-ancestry request surfaces as its real `403`/`404` rather than the catch's `500`.
+
+**Request:** no body is required; any body is ignored for authority.
+
+**Response `201`:**
+
+```json
+{
+  "watcher": { "taskId": "task-uuid", "userId": "user-uuid", "createdAt": "2026-04-04T12:00:00.000Z" }
+}
+```
+
+A duplicate subscription is still `201` (the insert is a no-op on the existing `(taskId, userId)` pair) and the returned `createdAt` is the newly composed timestamp, not the stored one — unchanged. An existing Task in a nonmember's denial path creates no row. **Response `404`:** Task not found, Mission not found, or Habitat not found. **Response `403`:** `BOARD_ACCESS_DENIED` as above, with zero rows written.
+
+### DELETE /tasks/:id/watch
+
+Remove the authenticated human's own watcher subscription.
+
+**Auth:** Human JWT only (`authPolicy: "human"`, unchanged), with the same target-derived check running before the pair read: personal habitats admit any authenticated human; team habitats require membership (nonmembers, including global admins, are `403` `BOARD_ACCESS_DENIED` before any pair lookup); a missing Task, Mission or Habitat is `404`. The delete matches only the exact `(taskId, authenticated user)` pair, so one human can never remove another's subscription.
+
+**Response `204`:** empty body, the existing own-pair row removed and other users' rows untouched.
+
+**Response `404`:** two distinct wordings, both preserved. On an **existing, admitted** Task with no own pair, the answer is `Not watching this task` (unchanged). On a **missing** Task the ancestry now resolves first, so the answer is `Task not found` — this is a deliberate wording change from the previous `Not watching this task`. A missing Mission or Habitat is `404` with its own name.
+
+### GET /tasks/:id/watchers
+
+List the watcher rows for a task and whether the authenticated human is one of them.
+
+**Auth:** Human JWT only (`authPolicy: "human"`, unchanged), then the same target-derived check running before any row is read or the own-watch boolean is computed: personal habitats admit any authenticated human; team habitats require membership (nonmembers, including global admins are `403` `BOARD_ACCESS_DENIED`); a missing Task, Mission or Habitat is `404`. This route previously checked only that the Task existed; the Task existence check it replaces is the helper's own, so the `Task not found` `404` is unchanged while `Mission not found` and `Habitat not found` are now also possible.
+
+**Response `200`:** `{ "watchers": [...], "isWatching": boolean }`. Watcher rows are `{ "taskId", "userId", "createdAt" }` ordered ascending by `createdAt`; `isWatching` is derived from the authenticated user only, never from a body or query selector. An existing Task with no watchers is `200` with `watchers: []` and `isWatching: false` — the empty projection is distinct from a missing parent.
 
 ### GET /habitats/:id/metrics
 
@@ -2123,7 +2167,7 @@ to equal the current generation. The signed merge-approval webhook
 (`autoApproveOnMerge`) approves only genuine known-zero tasks — positive,
 override-to-zero, and unknown requirements stay `submitted` with zero writes.
 
-> **Administrative boundary — sprint and review-rule routes.** Sprint and review-rule READS are local-actor for agent keys with one habitat-shape carve-out: the habitat-scoped reads (`GET /habitats/:habitatId/sprints`, `GET /habitats/:habitatId/sprints/active`, `GET /habitats/:habitatId/review-rules`) and `GET /tasks/:taskId/reviewers` admit any agent on any habitat shape (habitat-scoped sprint/review-rule reads have no agent-facing habitat guard), while the four id-keyed sprint reads (`GET /sprints/:id`, `/metrics`, `/burndown`, `/carry-over`) additionally require a non-team (personal) habitat for agents — on team habitats agents receive **403** ("Agents cannot access team habitats"); for human JWTs: personal habitats admit any authenticated human, while on team habitats a nonmember receives **403** on the habitat-scoped sprint/review-rule reads, on the id-keyed sprint reads, on `GET /tasks/:taskId/reviewers` (resolved through the target task's Mission → Habitat; a missing Task or Mission is **404**), and on the batch route (`POST /habitats/:habitatId/tasks/batch`), the human-policy habitat settings surfaces (`PATCH /habitats/:id`, `PUT /habitats/:id/webhook-secrets`), and the six direct Task object operations (`GET`/`DELETE /tasks/:id`, `GET /tasks/:id/details`, `/events`, `/comments`, `GET /tasks/:taskId/code-evidence` — each resolved through the target task's Mission → Habitat; a missing Task or Mission is **404**), and the five scalar adjunct reads (`GET /tasks/:id/quality-checklist`, `/approval-status`, `/effort-report`, `/effort-entries`, `/time-report` — same target-derived resolution), and the four Task dependency operations (`GET /tasks/:id/dependencies`, `GET /tasks/:id/blocked-status`, `POST /tasks/:id/dependencies`, `DELETE /tasks/:id/dependencies/:depId` — target-derived resolution for the source Task; reads additionally authorize every linked edge endpoint from a raw both-direction inventory and deny the whole response `403` when any linked team Task is inaccessible, writes authorize only the selected ordered pair's both actual endpoints before mutating, and an absent DELETE pair is `404` rather than a false success) — all via the same shared membership predicate. Task-ID adjunct reads beyond those fifteen (`/failure-context`, `/workflow-context`, human-only `/pull-requests`, `/pipeline-events`, `/watchers`) and Task-ID mutations other than individual DELETE and the dependency writes remain without this check. Every sprint lifecycle mutation (`POST /habitats/:habitatId/sprints`, `PATCH`/`DELETE /sprints/:id`, `POST /sprints/:id/start|complete|cancel|missions`, `DELETE /sprints/:id/missions/:missionId`) and every review-rule mutation (`POST /habitats/:habitatId/review-rules`, `PATCH`/`DELETE /review-rules/:id`) is human-authenticated (JWT) only: agent API keys receive **401** (not 403 — the auth policy rejects non-JWT callers before the handler), with no admin-role distinction — any authenticated human on personal habitats, any team member on team habitats.
+> **Administrative boundary — sprint and review-rule routes.** Sprint and review-rule READS are local-actor for agent keys with one habitat-shape carve-out: the habitat-scoped reads (`GET /habitats/:habitatId/sprints`, `GET /habitats/:habitatId/sprints/active`, `GET /habitats/:habitatId/review-rules`) and `GET /tasks/:taskId/reviewers` admit any agent on any habitat shape (habitat-scoped sprint/review-rule reads have no agent-facing habitat guard), while the four id-keyed sprint reads (`GET /sprints/:id`, `/metrics`, `/burndown`, `/carry-over`) additionally require a non-team (personal) habitat for agents — on team habitats agents receive **403** ("Agents cannot access team habitats"); for human JWTs: personal habitats admit any authenticated human, while on team habitats a nonmember receives **403** on the habitat-scoped sprint/review-rule reads, on the id-keyed sprint reads, on `GET /tasks/:taskId/reviewers` (resolved through the target task's Mission → Habitat; a missing Task or Mission is **404**), and on the batch route (`POST /habitats/:habitatId/tasks/batch`), the human-policy habitat settings surfaces (`PATCH /habitats/:id`, `PUT /habitats/:id/webhook-secrets`), and the six direct Task object operations (`GET`/`DELETE /tasks/:id`, `GET /tasks/:id/details`, `/events`, `/comments`, `GET /tasks/:taskId/code-evidence` — each resolved through the target task's Mission → Habitat; a missing Task or Mission is **404**), and the five scalar adjunct reads (`GET /tasks/:id/quality-checklist`, `/approval-status`, `/effort-report`, `/effort-entries`, `/time-report` — same target-derived resolution), and the four Task dependency operations (`GET /tasks/:id/dependencies`, `GET /tasks/:id/blocked-status`, `POST /tasks/:id/dependencies`, `DELETE /tasks/:id/dependencies/:depId` — target-derived resolution for the source Task; reads additionally authorize every linked edge endpoint from a raw both-direction inventory and deny the whole response `403` when any linked team Task is inaccessible, writes authorize only the selected ordered pair's both actual endpoints before mutating, and an absent DELETE pair is `404` rather than a false success), and the six estimate/watcher/adjunct operations (`PUT /tasks/:id/estimate`, `POST`/`DELETE /tasks/:id/watch`, `GET /tasks/:id/watchers`, `GET /tasks/:id/pull-requests`, `GET /tasks/:id/pipeline-events` — same target-derived resolution; POST watch authorizes outside its `try` so a denial or missing parent keeps its `403`/`404`, DELETE authorizes before its own-pair read, and the estimate write keeps its `local_actor` policy so agents retain broad existing-Habitat admission) — all via the same shared membership predicate. The Task-context reads still outside this check are `GET /tasks/:id/failure-context` and `GET /tasks/:id/workflow-context`. Separately inventoried writes without target-derived admission are agent-only metadata `PATCH /tasks/:id`, evidence linking (`POST /tasks/:taskId/code-evidence`), completeness overrides (`POST`/`DELETE /tasks/:taskId/code-evidence/not-applicable`), and gap reporting (`POST /tasks/:taskId/code-evidence/gaps`); the evidence GET, correction and gap-resolution routes already have their own admission checks. This is a bounded inventory, not a claim that all other Task writes lack admission. Every sprint lifecycle mutation (`POST /habitats/:habitatId/sprints`, `PATCH`/`DELETE /sprints/:id`, `POST /sprints/:id/start|complete|cancel|missions`, `DELETE /sprints/:id/missions/:missionId`) and every review-rule mutation (`POST /habitats/:habitatId/review-rules`, `PATCH`/`DELETE /review-rules/:id`) is human-authenticated (JWT) only: agent API keys receive **401** (not 403 — the auth policy rejects non-JWT callers before the handler), with no admin-role distinction — any authenticated human on personal habitats, any team member on team habitats.
 
 **Response `200`:** includes completed, carried-over, and incomplete counts plus task-level inferred reasons such as blocked dependencies, missing estimates, overdue work, repeated rejection history, or effort overrun.
 
@@ -5390,7 +5434,9 @@ Receive GitLab CI pipeline events.
 
 Get pipeline events for a task.
 
-**Auth:** JWT required (human)
+**Auth:** JWT required (human), then the same **target task's** derived-habitat check as `PUT /tasks/:id/estimate`: the Task's Mission → Habitat is resolved server-side and the shared membership predicate runs before any row is queried (personal habitats admit any authenticated human; on team habitats a human must be a team member, nonmembers including global admins receiving `403` `BOARD_ACCESS_DENIED`; a missing Task, Mission or Habitat is `404`). `authPolicy: "human"` is unchanged, so agent API keys, remote keys and anonymous callers remain `401`.
+
+**Behaviour change:** a missing Task used to answer `200` with an empty array; it is now `404 Task not found`. An **existing** Task with no pipeline rows still answers `200` with `[]`.
 
 **Response `200`:**
 
@@ -5509,7 +5555,9 @@ The allowlist is configured through the existing habitat settings surface (`PATC
 
 Get pull requests associated with a task.
 
-**Auth:** JWT required (human)
+**Auth:** JWT required (human), then the same **target task's** derived-habitat check as `PUT /tasks/:id/estimate`: the Task's Mission → Habitat is resolved server-side and the shared membership predicate runs before any row is queried (personal habitats admit any authenticated human; on team habitats a human must be a team member, nonmembers including global admins receiving `403` `BOARD_ACCESS_DENIED`; a missing Task, Mission or Habitat is `404`). `authPolicy: "human"` is unchanged, so agent API keys, remote keys and anonymous callers remain `401`.
+
+**Behaviour change:** a missing Task used to answer `200` with an empty array; it is now `404 Task not found`. An **existing** Task with no pull-request rows still answers `200` with `[]`. This route protects access to the parent Task only; it does not independently authorize the `repositoryId`/`branchId`/commit evidence identifiers a stored row may reference.
 
 **Response `200`:**
 

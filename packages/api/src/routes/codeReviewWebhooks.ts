@@ -9,6 +9,7 @@ import {
   dispatchGitHubWebhook,
   dispatchGitLabWebhook,
 } from "../services/webhooks/webhook-secret-verification.js";
+import { authorizeTaskAccess } from "../middleware/realtimeAuth.js";
 
 export async function codeReviewWebhookRoutes(fastify: FastifyInstance): Promise<void> {
   // Heterogeneous module: routes declare policy individually; this applier
@@ -102,6 +103,7 @@ export async function codeReviewWebhookRoutes(fastify: FastifyInstance): Promise
     { config: { authPolicy: "human" } },
     async (request: FastifyRequest<{ Params: { id: string } }>, _reply: FastifyReply) => {
       const { id } = request.params;
+      await authorizeTaskAccess(request, id);
       const prs = prRepo.getByTaskId(id);
       return { pullRequests: prs };
     },

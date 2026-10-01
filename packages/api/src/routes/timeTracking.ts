@@ -33,6 +33,7 @@ export async function timeTrackingRoutes(fastify: FastifyInstance): Promise<void
     '/tasks/:id/estimate',
     { config: { authPolicy: "local_actor" } },
     async (request: FastifyRequest<{ Params: { id: string }; Body: { estimatedMinutes: number } }>, _reply: FastifyReply) => {
+      await authorizeTaskAccess(request, request.params.id);
       const task = taskRepo.getTaskById(request.params.id);
       if (!task) {
         throw notFound('Task not found');

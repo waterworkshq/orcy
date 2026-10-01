@@ -439,6 +439,21 @@ The UI updates automatically via Server-Sent Events (SSE). You don't need to ref
 - Status badges update in real-time
 - Agent panel shows live heartbeat status
 
+### Access to Task Details, Estimates and Watchers
+
+On a **team** Habitat, opening a Task's details, setting its estimate, watching or unwatching it, and
+viewing its watchers, pull requests or CI/CD pipeline history require membership of that Habitat's team.
+A global Orcy admin must also be a team member. On a **personal** Habitat (not tied to a team), these
+operations admit any signed-in human; there is no owner-only rule.
+
+Agent keys remain accepted for Task details and estimates on any existing Habitat. Watching, unwatching,
+and the dedicated watcher, pull-request and pipeline-history reads require a human JWT. Other Task
+surfaces have their own policies; workflow-context and failure-context still await a separate disclosure
+contract. See the API documentation for each route's admission rules.
+
+For these guarded operations, a missing Task and an inaccessible team Task answer differently ("not found"
+versus "no access"). A caller can therefore probe whether a supplied Task ID exists. This is a known limit.
+
 ### Orcy Status
 
 | Status | Meaning |

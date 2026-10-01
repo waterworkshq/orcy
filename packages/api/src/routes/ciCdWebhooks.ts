@@ -10,6 +10,7 @@ import {
   dispatchGitLabWebhook,
 } from "../services/webhooks/webhook-secret-verification.js";
 import { parseVersion, isPreRelease } from "@orcy/shared";
+import { authorizeTaskAccess } from "../middleware/realtimeAuth.js";
 
 export async function ciCdWebhookRoutes(fastify: FastifyInstance): Promise<void> {
   // Heterogeneous module: routes declare policy individually; this applier
@@ -132,6 +133,7 @@ export async function ciCdWebhookRoutes(fastify: FastifyInstance): Promise<void>
     { config: { authPolicy: "human" } },
     async (request: FastifyRequest<{ Params: { id: string } }>, _reply: FastifyReply) => {
       const { id } = request.params;
+      await authorizeTaskAccess(request, id);
       const events = pipelineRepo.getByTaskId(id);
       return { pipelineEvents: events };
     },

@@ -1,5 +1,5 @@
 import type { FastifyInstance, FastifyRequest, FastifyReply } from "fastify";
-import * as taskRepo from "../../repositories/task.js";
+import { authorizeTaskAccess } from "../../middleware/realtimeAuth.js";
 import * as watcherRepo from "../../repositories/watcher.js";
 import * as watcherService from "../../services/watcherService.js";
 import { notFound, internalError } from "../../errors.js";
@@ -13,6 +13,7 @@ export async function taskWatcherRoutes(fastify: FastifyInstance): Promise<void>
     { config: { authPolicy: "human" } },
     async (request: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) => {
       const userId = request.user!.id;
+      await authorizeTaskAccess(request, request.params.id);
       try {
         const watcher = watcherService.watchTask(request.params.id, userId);
         reply.code(201).send({ watcher });
@@ -32,6 +33,7 @@ export async function taskWatcherRoutes(fastify: FastifyInstance): Promise<void>
     { config: { authPolicy: "human" } },
     async (request: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) => {
       const userId = request.user!.id;
+      await authorizeTaskAccess(request, request.params.id);
       const removed = watcherRepo.removeWatcher(request.params.id, userId);
       if (!removed) {
         throw notFound("Not watching this task");
@@ -44,10 +46,7 @@ export async function taskWatcherRoutes(fastify: FastifyInstance): Promise<void>
     "/tasks/:id/watchers",
     { config: { authPolicy: "human" } },
     async (request: FastifyRequest<{ Params: { id: string } }>, _reply: FastifyReply) => {
-      const task = taskRepo.getTaskById(request.params.id);
-      if (!task) {
-        throw notFound("Task not found");
-      }
+      await authorizeTaskAccess(request, request.params.id);
       const watchers = watcherRepo.getWatchersForTask(request.params.id);
       const isCurrentlyWatching = watcherRepo.isWatching(request.params.id, request.user!.id);
       return { watchers, isWatching: isCurrentlyWatching };
