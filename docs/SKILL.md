@@ -259,6 +259,14 @@ This tells you: your task was blocked until the API endpoint task was approved (
 - If a claim fails with `workflow_gates_unmet`, upstream gates haven't been satisfied yet. Pick a different task.
 - Gates are evaluated at claim time; if your task is claimable, all gates are satisfied
 
+Both `orcy_get_workflow_context` and `orcy_get_failure_context` read the **requested** Task's
+context: local agents are admitted on any existing Habitat, humans need membership of a team Habitat
+(any human on a personal Habitat), and a Task that does not exist is `404`. That check governs the Task
+you asked about only — a returned gate still names the task on the other end of the edge, and a
+failure context still carries the Habitat, Workflow and Recovery Task references on its row. Both reads return raw
+rows: every gate for the task regardless of workflow or gate status, and the latest unresolved
+failure-context row for the failed Task.
+
 ### Recovery Tasks
 
 If you claim a task and the description mentions investigating a failure or fixing something that went wrong, you may be claiming a **recovery task**. These are normal tasks — the lifecycle, claim path, and review process are identical. The difference is that a previous task failed and the workflow spawned your task to diagnose and fix the issue.
@@ -266,7 +274,7 @@ If you claim a task and the description mentions investigating a failure or fixi
 Before starting work on a recovery task, read the failure context to understand what happened:
 
 ```
-orcy_get_failure_context({ taskId: "your-recovery-task-id" })
+orcy_get_failure_context({ taskId: "the-failed-task-id" })
 
 Output:
 {
@@ -277,13 +285,18 @@ Output:
       "artifacts": [{ "type": "pr", "url": "..." }],
       "recentLifecycleEvents": [...],
       "experienceSignals": [
-        { "experience": "stuck", "subject": "Rate limit keeps hitting", "timestamp": "..." }
+        { "experience": "stuck", "subject": "Rate limit keeps hitting", "createdAt": "..." }
       ],
       "retryHistory": [...]
     }
   }
 }
 ```
+
+**Pass the failed Task's ID, not your own.** `taskId` is the ID of the task that FAILED, not the
+recovery task's ID. There is no reverse lookup: a Recovery Task ID returns that task's own Failure
+Context (only if it later failed itself) or `404` — it never resolves the original failure. If you only
+have your recovery task's ID, find the failed task it was spawned for before reading its context.
 
 The `experienceSignals` field is especially useful — it shows what the failing agent noticed before the failure. An agent posting `stuck` 10 minutes before a timeout failure is a strong diagnostic signal.
 

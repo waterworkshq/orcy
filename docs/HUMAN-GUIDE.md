@@ -447,9 +447,15 @@ A global Orcy admin must also be a team member. On a **personal** Habitat (not t
 operations admit any signed-in human; there is no owner-only rule.
 
 Agent keys remain accepted for Task details and estimates on any existing Habitat. Watching, unwatching,
-and the dedicated watcher, pull-request and pipeline-history reads require a human JWT. Other Task
-surfaces have their own policies; workflow-context and failure-context still await a separate disclosure
-contract. See the API documentation for each route's admission rules.
+and the dedicated watcher, pull-request and pipeline-history reads require a human JWT. The workflow-context
+and failure-context reads follow the same team-membership rule for the Task you ask about.
+
+**What that rule does not cover.** It decides only whether you may read *that Task's* context. A workflow
+gate still names the Task on the other end of the edge, and a failure context still carries the
+Habitat, Workflow and Recovery Task references on its row, plus the raw notes the failing agent left. So membership here is
+not a promise that everything printed inside those responses is private to you. Reading another Task's
+edge, or the scope a failure was captured under, needs its own decision — see the API documentation for
+each route's admission rules.
 
 For these guarded operations, a missing Task and an inaccessible team Task answer differently ("not found"
 versus "no access"). A caller can therefore probe whether a supplied Task ID exists. This is a known limit.

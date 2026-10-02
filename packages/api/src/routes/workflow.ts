@@ -6,6 +6,7 @@ import * as failureContextService from "../services/failureContextService.js";
 import * as missionRepo from "../repositories/mission.js";
 import { badRequest, conflict, notFound } from "../errors.js";
 import { applyDeclaredAuthPolicies } from "../authPolicy.js";
+import { authorizeTaskAccess } from "../middleware/realtimeAuth.js";
 
 const joinSpecSchema = z.object({
   mode: z.enum(["all_of", "any_of", "n_of"]),
@@ -231,6 +232,7 @@ export async function workflowRoutes(fastify: FastifyInstance): Promise<void> {
     "/tasks/:id/failure-context",
     { config: { authPolicy: "local_actor" } },
     async (request: FastifyRequest<{ Params: { id: string } }>, _reply: FastifyReply) => {
+      await authorizeTaskAccess(request, request.params.id);
       const failureContext = failureContextService.getFailureContext(request.params.id);
       if (!failureContext) {
         throw notFound("No failure context found for this task");
@@ -244,6 +246,7 @@ export async function workflowRoutes(fastify: FastifyInstance): Promise<void> {
     "/tasks/:id/workflow-context",
     { config: { authPolicy: "local_actor" } },
     async (request: FastifyRequest<{ Params: { id: string } }>, _reply: FastifyReply) => {
+      await authorizeTaskAccess(request, request.params.id);
       const context = workflowService.getTaskWorkflowContext(request.params.id);
       if (context.upstream.length === 0 && context.downstream.length === 0) {
         throw notFound("Task is not part of any workflow");

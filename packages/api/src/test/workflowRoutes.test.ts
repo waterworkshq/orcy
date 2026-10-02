@@ -24,6 +24,13 @@ vi.mock("../repositories/mission.js", () => ({
   getMissionById: vi.fn(),
 }));
 
+// Partial override: the real module still supplies `authenticateRealtime`, which
+// `authPolicy.ts` consumes, so only the Task-admission helper is stubbed.
+vi.mock("../middleware/realtimeAuth.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../middleware/realtimeAuth.js")>();
+  return { ...actual, authorizeTaskAccess: vi.fn() };
+});
+
 import { workflowRoutes } from "../routes/workflow.js";
 import {
   manualUnblockGate,
@@ -38,6 +45,7 @@ import {
 } from "../services/workflowService.js";
 import { getFailureContext } from "../services/failureContextService.js";
 import { getMissionById } from "../repositories/mission.js";
+import { authorizeTaskAccess } from "../middleware/realtimeAuth.js";
 
 const JWT_SECRET = "dev-secret-change-in-production";
 
@@ -529,11 +537,18 @@ describe("workflowRoutes — GET /workflows/:id/failure-contexts", () => {
   });
 });
 
+/**
+ * Envelope + route-auth unit seam only: `authorizeTaskAccess` is stubbed in this
+ * file, so these cases are NOT object-authorization evidence. Real Task -> Mission
+ * -> Habitat admission over both prefixes is proven in
+ * taskContextAdmissionWire.test.ts.
+ */
 describe("workflowRoutes — GET /tasks/:id/failure-context", () => {
   let app: FastifyInstance;
 
   beforeEach(async () => {
     vi.clearAllMocks();
+    vi.mocked(authorizeTaskAccess).mockResolvedValue("unit-wf-habitat");
     app = await buildApp();
   });
 
@@ -541,7 +556,7 @@ describe("workflowRoutes — GET /tasks/:id/failure-context", () => {
     await app.close();
   });
 
-  it("returns the failure context when one exists (agent auth)", async () => {
+  it("returns the failure context when one exists (human JWT, Task access admitted)", async () => {
     const mockCtx = { id: "ctx-1", failedTaskId: "task-1", failureKind: "lifecycle_failed" };
     vi.mocked(getFailureContext).mockReturnValue(mockCtx as any);
 
@@ -552,6 +567,7 @@ describe("workflowRoutes — GET /tasks/:id/failure-context", () => {
     });
 
     expect(res.statusCode).toBe(200);
+    expect(authorizeTaskAccess).toHaveBeenCalledWith(expect.anything(), "task-1");
     expect(getFailureContext).toHaveBeenCalledWith("task-1");
     expect(JSON.parse(res.body).failureContext).toEqual(mockCtx);
   });
@@ -580,11 +596,18 @@ describe("workflowRoutes — GET /tasks/:id/failure-context", () => {
   });
 });
 
+/**
+ * Envelope + route-auth unit seam only: `authorizeTaskAccess` is stubbed in this
+ * file, so these cases are NOT object-authorization evidence. Real Task -> Mission
+ * -> Habitat admission over both prefixes is proven in
+ * taskContextAdmissionWire.test.ts.
+ */
 describe("workflowRoutes — GET /tasks/:id/workflow-context", () => {
   let app: FastifyInstance;
 
   beforeEach(async () => {
     vi.clearAllMocks();
+    vi.mocked(authorizeTaskAccess).mockResolvedValue("unit-wf-habitat");
     app = await buildApp();
   });
 
@@ -605,6 +628,7 @@ describe("workflowRoutes — GET /tasks/:id/workflow-context", () => {
     });
 
     expect(res.statusCode).toBe(200);
+    expect(authorizeTaskAccess).toHaveBeenCalledWith(expect.anything(), "task-1");
     expect(getTaskWorkflowContext).toHaveBeenCalledWith("task-1");
     const body = JSON.parse(res.body);
     expect(body.upstream).toHaveLength(1);
