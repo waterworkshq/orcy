@@ -446,6 +446,119 @@ describe("Phase E — Remote notification resolver", () => {
     });
   });
 
+  // -------------------------------------------------------------------------
+  // Effective-time eligibility
+  // -------------------------------------------------------------------------
+
+  describe("effective-time grant eligibility", () => {
+    /**
+     * A grant whose configured deadline has passed but whose persisted status is
+     * still `active` — the row shape a missed sweep leaves behind. A status-only
+     * filter keeps it; effective-time eligibility must drop it.
+     */
+    function pastExpiryIso(): string {
+      return new Date(Date.now() - 60_000).toISOString();
+    }
+
+    function podWideGrant(habitatId: string, podId: string, expiresAt: string | null) {
+      return grantRepo.createRemoteGrant({
+        habitatId,
+        remotePodId: podId,
+        remoteParticipantId: null,
+        grantType: "baseline_observer",
+        standing: "remote_observer",
+        actionScopes: ["read", "notification.write"],
+        eligibilityMode: "allowlist",
+        expiresAt,
+      });
+    }
+
+    it("a past-expiry grant stops adding recipients for a TARGETED event", () => {
+      const habitat = setupHabitat();
+      const pod = setupActivePod(habitat.id);
+      const p1 = setupActiveParticipant(habitat.id, pod.id, "remote_orcy");
+      const mission = setupMission(habitat.id);
+      const grant = podWideGrant(habitat.id, pod.id, pastExpiryIso());
+      grantRepo.addRemoteGrantTarget(grant.id, "mission", mission.id);
+
+      expect(grant.status, "row status is untouched — only authority changes").toBe("active");
+      expect(
+        findRemoteRecipientsForEvent({
+          habitatId: habitat.id,
+          eventType: "pulse.signal_posted",
+          targetType: "mission",
+          targetId: mission.id,
+        }),
+      ).toEqual([]);
+    });
+
+    it("a past-expiry grant stops adding recipients for a NO-TARGET event too", () => {
+      const habitat = setupHabitat();
+      const pod = setupActivePod(habitat.id);
+      setupActiveParticipant(habitat.id, pod.id, "remote_orcy");
+      podWideGrant(habitat.id, pod.id, pastExpiryIso());
+
+      // No targetType/targetId: the visibility helper is never consulted on this
+      // path, so eligibility must already have been decided before the loop.
+      expect(
+        findRemoteRecipientsForEvent({
+          habitatId: habitat.id,
+          eventType: "digest.ready",
+        }),
+      ).toEqual([]);
+    });
+
+    it("a still-active sibling grant keeps contributing — expiry is per grant, not per participant", () => {
+      const habitat = setupHabitat();
+      const pod = setupActivePod(habitat.id);
+      const p1 = setupActiveParticipant(habitat.id, pod.id, "remote_orcy");
+      const p2 = setupActiveParticipant(habitat.id, pod.id, "remote_orcy");
+
+      const expired = podWideGrant(habitat.id, pod.id, pastExpiryIso());
+      const active = podWideGrant(habitat.id, pod.id, null);
+      expect(expired.id).not.toBe(active.id);
+
+      const recipients = findRemoteRecipientsForEvent({
+        habitatId: habitat.id,
+        eventType: "digest.ready",
+      });
+      expect(recipients.map((r) => r.recipientId).toSorted()).toEqual([p1.id, p2.id].toSorted());
+    });
+
+    it("a grace-state grant (soft revoked) still contributes nothing", () => {
+      const habitat = setupHabitat();
+      const pod = setupActivePod(habitat.id);
+      setupActiveParticipant(habitat.id, pod.id, "remote_orcy");
+      const grant = podWideGrant(habitat.id, pod.id, null);
+      grantRepo.revokeRemoteGrant(
+        grant.id,
+        "soft",
+        "admin-1",
+        "soft revoked for eligibility proof",
+      );
+
+      expect(
+        findRemoteRecipientsForEvent({
+          habitatId: habitat.id,
+          eventType: "digest.ready",
+        }),
+      ).toEqual([]);
+    });
+
+    it("discovery is stable across repeated calls and does not mutate rows", () => {
+      const habitat = setupHabitat();
+      const pod = setupActivePod(habitat.id);
+      const p1 = setupActiveParticipant(habitat.id, pod.id, "remote_orcy");
+      podWideGrant(habitat.id, pod.id, null);
+      const event = { habitatId: habitat.id, eventType: "digest.ready" } as const;
+
+      const first = findRemoteRecipientsForEvent(event);
+      const second = findRemoteRecipientsForEvent(event);
+      expect(first.map((r) => r.recipientId)).toEqual([p1.id]);
+      expect(second).toEqual(first);
+    });
+  });
+
   describe("enqueueNotification integrates with remote resolver", () => {
     it("emits a delivery to the acting remote participant + eligible peers", () => {
       const habitat = setupHabitat();

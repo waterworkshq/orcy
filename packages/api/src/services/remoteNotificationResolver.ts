@@ -2,6 +2,7 @@ import * as grantRepo from "../repositories/remoteGrant.js";
 import * as podRepo from "../repositories/remotePod.js";
 import * as participantRepo from "../repositories/remoteParticipant.js";
 import { isTargetVisibleToParticipant } from "./sharedGrantVisibilityService.js";
+import { isEffectivelyActive } from "./remoteGrantTime.js";
 import type { NotificationEventType } from "@orcy/shared";
 import type { RemoteParticipantContext } from "../middleware/remoteAuth.js";
 
@@ -56,7 +57,14 @@ export function findRemoteRecipientsForEvent(ctx: RemoteEventContext): Discovere
   const result: DiscoveredRemoteRecipient[] = [];
   const seen = new Set<string>();
 
-  const grants = grantRepo.getActiveGrantsByHabitat(ctx.habitatId);
+  // One clock value for the whole discovery pass, and eligibility decided
+  // BEFORE the recipient loop — otherwise a past-expiry or malformed grant would
+  // still be walked and would still contribute fresh recipients for an event
+  // with no target at all, where the visibility helper is never consulted.
+  const now = Date.now();
+  const grants = grantRepo
+    .getActiveGrantsByHabitat(ctx.habitatId)
+    .filter((grant) => isEffectivelyActive(grant, now));
 
   for (const grant of grants) {
     // Build a synthetic context for visibility check
@@ -66,7 +74,7 @@ export function findRemoteRecipientsForEvent(ctx: RemoteEventContext): Discovere
     if (participant && participant.status !== "active") continue;
 
     if (ctx.targetType && ctx.targetId) {
-      if (!isVisibleForGrant(grant, ctx.targetType, ctx.targetId)) continue;
+      if (!isVisibleForGrant(grant, ctx.targetType, ctx.targetId, now)) continue;
     }
 
     // Pod-wide baseline grant (no specific participant) — every active
@@ -107,8 +115,9 @@ export function findRemoteRecipientsForEvent(ctx: RemoteEventContext): Discovere
  */
 function isVisibleForGrant(
   grant: grantRepo.RemoteGrantRow,
-  targetType: "task" | "mission" | "habitat" | "label" | "domain" | "column",
+  targetType: "task" | "mission" | "habitat",
   targetId: string,
+  now: number,
 ): boolean {
   const pod = podRepo.getRemotePodById(grant.remotePodId);
   if (!pod) return false;
@@ -133,5 +142,6 @@ function isVisibleForGrant(
     habitatId: grant.habitatId,
     grants: [grant],
   };
-  return isTargetVisibleToParticipant(syntheticCtx, targetType, targetId).visible;
+  return isTargetVisibleToParticipant(syntheticCtx, targetType, targetId, { grants: [grant], now })
+    .visible;
 }

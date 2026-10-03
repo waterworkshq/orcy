@@ -52,6 +52,7 @@ import {
 } from "../db/schema/index.js";
 import type { RemoteParticipantContext } from "../middleware/remoteAuth.js";
 import type { RemoteGrantRow, RemoteGrantTargetRow } from "../repositories/remoteGrant.js";
+import { isEffectivelyActive } from "./remoteGrantTime.js";
 import {
   getActiveGrantsByParticipant,
   getActiveGrantsByParticipantAndPod,
@@ -576,14 +577,18 @@ function findSingleGrantWithBothProofs(args: {
   const { grants, requiredScope, targetType, exactTargetId, client } = args;
   const matches: { grant: RemoteGrantRow; targets: RemoteGrantTargetRow[] }[] = [];
   const grantIdsToFetch: string[] = [];
+  // One clock value for this decision, shared by every candidate grant.
+  const now = Date.now();
 
   for (const grant of grants) {
-    // Only active scoped_elevation or permanent_execution grants can
-    // authorize triage.route. permanent_execution is allowed only when its
-    // action_scopes explicitly include the scope (it carries the same
-    // allowlist semantics).
-    if (grant.status !== "active") continue;
-    if (grant.expiresAt && new Date(grant.expiresAt).getTime() < Date.now()) continue;
+    // Effective time — not the persisted status — decides "still active". A row
+    // whose configured deadline has passed is no longer active even when no
+    // sweep has flipped its status, and the EXACT deadline instant is already
+    // denied. Only ordinary authority qualifies here: a grace-state grant never
+    // authorizes triage.route, which the classifier enforces by excluding it.
+    if (!isEffectivelyActive(grant, now)) continue;
+    // permanent_execution is allowed only when its action_scopes explicitly
+    // include the scope (it carries the same allowlist semantics).
     if (grant.grantType !== "scoped_elevation" && grant.grantType !== "permanent_execution")
       continue;
     if (grant.grantType === "permanent_execution") {

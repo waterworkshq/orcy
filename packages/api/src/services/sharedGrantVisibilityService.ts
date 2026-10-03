@@ -1,6 +1,7 @@
 import * as grantRepo from "../repositories/remoteGrant.js";
 import type { RemoteGrantRow, RemoteGrantTargetRow } from "../repositories/remoteGrant.js";
 import type { RemoteParticipantContext } from "../middleware/remoteAuth.js";
+import { isEffectivelyActive } from "./remoteGrantTime.js";
 
 /**
  * Result of a grant visibility check.
@@ -12,23 +13,51 @@ export interface GrantVisibilityResult {
 }
 
 /**
+ * Optional inputs for callers that must not evaluate the transport snapshot —
+ * a per-event stream refresh re-reads current grants and passes one captured
+ * clock value for the whole decision.
+ */
+export interface TargetVisibilityOptions {
+  /** Grants to evaluate. Defaults to the context's transport snapshot. */
+  grants?: RemoteGrantRow[];
+  /** Epoch milliseconds. Defaults to a single clock value captured for this decision. */
+  now?: number;
+}
+
+/**
  * Check if a remote participant can see a given target. The target is a
- * specific task, mission, or other entity. Visibility is determined by:
+ * specific task, mission, or other entity.
  *
- * 1. Allowlist: any active grant with an explicit target matching the entity
- * 2. Rule-based: any active rule_based grant whose snapshot contains the task,
- *    or whose rule matches the task's metadata (handled by the caller)
- * 3. Pod-wide baseline: any active baseline_observer grant without a
- *    specific participant (covers the whole pod)
+ * Visibility is determined by:
+ *
+ * 1. Allowlist: any EFFECTIVELY ACTIVE grant with an explicit target matching
+ *    the entity
+ * 2. Rule-based: any effectively active rule_based grant whose snapshot
+ *    contains the task, or whose rule matches the task's metadata (handled by
+ *    the caller)
+ * 3. Pod-wide baseline: any effectively active baseline_observer grant without
+ *    a specific participant (covers the whole pod)
+ *
+ * Only a grant that is active AT THE DECISION contributes. A persisted
+ * `status` of `active` whose configured deadline has passed contributes
+ * nothing, and a grace-state grant never contributes visibility — grace covers
+ * the three continuation actions only. Every existing predicate below the
+ * effective-time gate is unchanged, and the three are independent: a baseline
+ * grant still cannot be read from without separate read authority, and Mission
+ * visibility is never inferred for a child Task.
  */
 export function isTargetVisibleToParticipant(
   ctx: RemoteParticipantContext,
   targetType: "task" | "mission" | "habitat" | "label" | "domain" | "column",
   targetId: string,
+  options?: TargetVisibilityOptions,
 ): GrantVisibilityResult {
-  const activeGrants = ctx.grants.filter((g) => g.status === "active");
+  const grants = options?.grants ?? ctx.grants;
+  const now = options?.now ?? Date.now();
 
-  for (const grant of activeGrants) {
+  for (const grant of grants) {
+    if (!isEffectivelyActive(grant, now)) continue;
+
     if (grant.grantType === "baseline_observer" && grant.remoteParticipantId === null) {
       // Pod-wide baseline observer — sees everything in the habitat
       return { visible: true, matchedGrant: grant };
@@ -55,7 +84,7 @@ export function isTargetVisibleToParticipant(
 
   return {
     visible: false,
-    reason: "No active grant covers this target",
+    reason: "No effectively active grant covers this target",
   };
 }
 

@@ -2,10 +2,10 @@
  * In-transaction remote route authority must re-read credential, standing,
  * and grants — not trust the middleware snapshot.
  */
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { initTestDb, closeDb, getDb } from "../db/index.js";
 import { eq } from "drizzle-orm";
-import { findingTriage, remoteGrants, tasks } from "../db/schema/index.js";
+import { findingTriage, remoteGrants, remoteGrantTargets, tasks } from "../db/schema/index.js";
 import * as habitatRepo from "../repositories/habitat.js";
 import * as columnRepo from "../repositories/column.js";
 import * as missionRepo from "../repositories/mission.js";
@@ -178,6 +178,85 @@ describe("checkRemoteRouteAuthority live re-read", () => {
       .set({ expiresAt: "2000-01-01T00:00:00.000Z" })
       .where(eq(remoteGrants.id, grantId))
       .run();
+    const denied = check(snapshot, findingId, taskId, true);
+    expect(denied.kind).toBe("deny");
+    if (denied.kind === "deny") expect(denied.code).toBe("NO_SAME_GRANT_WITH_TASK_TARGET");
+  });
+
+  it("denies a past-expiry grant at the TRANSPORT precheck too, not only on the supplied-client re-check", () => {
+    const { findingId, taskId, snapshot, grantId } = seed();
+    getDb()
+      .update(remoteGrants)
+      .set({ expiresAt: "2000-01-01T00:00:00.000Z" })
+      .where(eq(remoteGrants.id, grantId))
+      .run();
+    // The precheck authorizes against the grant rows the middleware captured,
+    // so the snapshot must be rebuilt from storage to observe the new deadline —
+    // otherwise this would be testing a stale in-memory row, not the predicate.
+    const rebuilt: RemoteParticipantContext = {
+      ...snapshot,
+      grants: [grantRepo.getRemoteGrantById(grantId)!],
+    };
+    // Both must deny: a one-sided fix would leave a window where the transport
+    // says yes and only the in-transaction mutation says no.
+    const precheck = check(rebuilt, findingId, taskId, false);
+    expect(precheck.kind).toBe("deny");
+    if (precheck.kind === "deny") expect(precheck.code).toBe("NO_SAME_GRANT_WITH_TASK_TARGET");
+    expect(check(rebuilt, findingId, taskId, true).kind).toBe("deny");
+  });
+
+  it("denies at the EXACT expiry instant and allows one millisecond earlier (controlled clock)", () => {
+    const FIXED = 1_800_000_000_000;
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(FIXED);
+      const { findingId, taskId, snapshot, grantId } = seed();
+      getDb()
+        .update(remoteGrants)
+        .set({ expiresAt: new Date(FIXED).toISOString() })
+        .where(eq(remoteGrants.id, grantId))
+        .run();
+      const rebuilt: RemoteParticipantContext = {
+        ...snapshot,
+        grants: [grantRepo.getRemoteGrantById(grantId)!],
+      };
+
+      // One millisecond before the deadline the grant is still authoritative,
+      // on both the transport precheck and the in-transaction re-check.
+      vi.setSystemTime(FIXED - 1);
+      expect(check(rebuilt, findingId, taskId, false).kind).toBe("allow");
+      expect(check(rebuilt, findingId, taskId, true).kind).toBe("allow");
+
+      // AT the deadline it is not: the boundary is half-open, so the exact
+      // instant already belongs to grace, which never authorizes triage.route.
+      vi.setSystemTime(FIXED);
+      const denied = check(rebuilt, findingId, taskId, true);
+      expect(denied.kind).toBe("deny");
+      if (denied.kind === "deny") expect(denied.code).toBe("NO_SAME_GRANT_WITH_TASK_TARGET");
+      expect(check(rebuilt, findingId, taskId, false).kind).toBe("deny");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("split grants stay denied: the scope in one row and the exact Task target in another", () => {
+    const { findingId, taskId, snapshot, grantId } = seed();
+    const podId = snapshot.pod.id;
+    const participantId = snapshot.participant.id;
+    // Strip BOTH proofs from the seeded grant: keep the scope, drop the target.
+    getDb().delete(remoteGrantTargets).where(eq(remoteGrantTargets.grantId, grantId)).run();
+    // ...and give the exact Task target to a second grant that lacks the scope.
+    const scopeOnly = grantRepo.createRemoteGrant({
+      habitatId: snapshot.habitatId,
+      remotePodId: podId,
+      remoteParticipantId: participantId,
+      grantType: "scoped_elevation",
+      standing: "remote_contributor",
+      actionScopes: ["read"] as never,
+      eligibilityMode: "allowlist",
+    });
+    grantRepo.addRemoteGrantTarget(scopeOnly.id, "task", taskId);
+
     const denied = check(snapshot, findingId, taskId, true);
     expect(denied.kind).toBe("deny");
     if (denied.kind === "deny") expect(denied.code).toBe("NO_SAME_GRANT_WITH_TASK_TARGET");

@@ -308,6 +308,56 @@ v0.19 "Pod Bridge" adds optional cross-pod collaboration. Local-only is the **de
 - `graceWindowHours` (default 24) is enforced by elapsed-time check, not just status
 - Grace window is per-grant, configurable from 0 to 720 hours
 - Standing-based scope restrictions apply during grace (e.g., `submit` requires `remote_contributor`)
+- Heartbeat has **no** Task-state gate: a submitted or terminal row that still retains this remote owner stays heartbeat-eligible under the existing Habitat, owner, scope, and standing checks. Submit and release keep their own lifecycle-state checks. None of the three gained an active-visibility prerequisite.
+
+### Effective Grant Authority — Status Is Not Authority
+
+A grant's persisted `status` records what a writer last did. It is **not** authority. Authority is a function of the stored status, the stored timestamps, and the instant of the decision, computed by one pure evaluator (`services/remoteGrantTime.ts`) that classifies a row as **active**, **grace**, or **blocked**. It never fetches, mutates, or caches; one clock value is captured per authorization decision so every candidate grant in a decision is judged against the same instant. Persisted rows are never rewritten, and the `expireActiveGrants` sweep remains a storage primitive — correctness holds when it never runs.
+
+- A row still marked `active` whose configured deadline has passed carries **no ordinary authority** the moment the deadline is reached. The active boundary is half-open (`now < expiresAt`), so the exact deadline instant is already grace.
+- `expiresAt` is the configured natural deadline. `expiredAt` is a sweep/legacy stamp and can neither shorten nor extend it when `expiresAt` exists — a late sweep stamp cannot reopen a window the deadline already closed.
+- `revokedAt`, when evaluated, may only *shorten* an established window; it never restarts one.
+- A row **stored as `expired` or `grace`** with no `expiresAt` must carry a usable `expiredAt` to have any grace; a missing, malformed, or future start blocks that grant, with no `now` fallback fabricating grace. This requirement is scoped to those two statuses only: an `active` row with a null `expiresAt` is simply non-expiring, and a `soft_revoked` row with a null `expiresAt` and a valid `revokedAt` measures its window from the revocation with no `expiredAt` needed.
+- Evaluated timestamps must satisfy the **same grammar provisioning accepts** (`z.string().datetime()`). Date-only strings, numeric strings, and explicit non-`Z` offsets are rejected rather than coerced. A field the evaluator ignores is never parsed, so a malformed or future-dated historical stamp cannot veto restored `active` authority.
+- The grace window is validated only once a grace start exists, so a malformed window can never remove active authority before expiry. The window is half-open (`start <= now < start + hours`): the exact end is blocked, and a zero-hour window grants no grace.
+- A malformed evaluated field blocks **that grant only**. Another qualifying grant held by the same participant may still authorize, so expiry is never a participant-wide revocation.
+- Self and administrative metadata continue to show **persisted** state and expiry. That display is not authority; this section is the distinction.
+
+### Remote Stream — Read-Required, Minimally Projected
+
+`GET /sse/habitats/:id/stream` is the one served surface where a remote participant's authorization is re-established repeatedly rather than once per request.
+
+- Admission requires an **effectively active** grant carrying `read` for the freshly loaded standing. Grace is deliberately broader — it covers the three continuation actions only, and it never buys a read, a stream, or visibility.
+- Every event decision and the 30-second idle re-check re-read current credential, participant, pod, and grants. The connection-opening snapshot is never reused, so a revocation, expiry, read-scope loss, or standing change takes effect on the next decision rather than at the next reconnect.
+- **Immutable anchors.** The authenticated credential id, original participant id, original pod id, and subscribed Habitat id are captured at admission, and every refresh compares against *those* values. Reassigning the credential to another participant, moving the participant to a different pod, or drifting any credential/participant/pod Habitat binding **invalidates** the stream. A rebound identity is never followed and a new pod's grants are never adopted.
+- The refresh is read-only: it does not run `remoteParticipantAuth`, so a per-event visibility decision never mutates credential `lastUsedAt` or stamps request audit provenance.
+- The stream's **own** grant relevance filter is narrower than the general HTTP one — same Habitat, same pod, and either this exact participant or pod-wide. A participant-specific grant bound to a different pod is inconsistent and excluded here. This narrower rule applies at the stream boundary only; general HTTP action and visibility semantics are unchanged apart from effective time.
+- **Split grants are permitted.** One effectively active grant may supply `read` while another supplies the exact target visibility; each is independently relevant. Scope is not required on the visibility grant, visibility is not inferred from ownership, and Mission visibility is never inherited by a child Task.
+- A remote stream forwards **no** local payload. It emits only `{"type":"remote.entity_changed","data":{"targetType":"task"|"mission","targetId":"<persisted id>"}}`, constructed from scratch rather than by serializing and filtering the input event. The remote shape is a separate wire DTO, deliberately not added to the local `SSEEvent` union or the UI event registry, so closed local catalog consumers are unchanged. Local human and agent streams keep their existing admission, payloads, ordering, and broadcaster fan-out exactly.
+- The event allowlist is closed and matched by **exact** type — no `task.*`/`mission.*` wildcard, no recursive id discovery. Suppressed: Task/Mission deletion, `task.cloned` (two potential targets), watcher/mention recipient events, Pulse including Experience Signals, agents and Agent Mail, presence, Habitat/columns, webhook errors, schedules/sprints, and wiki/plugins/triage/extraction. A separately emitted `task.created` for a visible clone still produces the ordinary creation notice.
+- Target and ancestry are resolved by **exact persisted id** (`getTaskByIdExact`, plus the supplied-client Mission read that performs no `mission-` normalization). A payload-claimed Habitat is never trusted. A missing, dangling, or foreign-Habitat target suppresses that event only, with no target-specific denial frame.
+- **A notice is a hint, not a disclosure.** Details require the recipient's own authorized shared `GET`, and a Mission notice implies nothing about its child Tasks. Notice frequency reveals activity on an admitted entity; no anonymity or traffic-analysis resistance is claimed, and no deletion notice or eventual-removal guarantee exists.
+
+### Remote Stream — Generic Admission Responses
+
+Every remote stream admission stage — the policy-installed realtime authentication guard, the Habitat preHandler, and the handler read gate — is collapsed to one bounded generic response per status, with the specific reason logged server-side only:
+
+| Stage outcome | Status | Code |
+| --- | --- | --- |
+| Invalid or unresolvable credential | 401 | `REMOTE_STREAM_UNAUTHORIZED` |
+| Binding, standing, Habitat, grant, or read denial (including a missing Habitat) | 403 | `REMOTE_STREAM_FORBIDDEN` |
+| Unexpected database or validation fault | 500 | `REMOTE_STREAM_INTERNAL` |
+
+A distinct 404 is deliberately not used for a missing Habitat, because it would be an existence oracle. Unexpected faults are mapped like expected denials, so no internal exception text reaches the client. A midstream identity or read-authority failure sends one generic `disconnected` control frame and then terminates; it never names which relationship failed, because that would itself be a probing oracle.
+
+This mapping is scoped to requests carrying the SSE route's own trusted admission mark **and** actually attempting remote authentication. Local human and agent stream responses, and every other route, keep their existing codes and messages unchanged.
+
+### Accepted limits
+
+- Per-event authorization is **not transactional with the socket write**. A revocation after the final decision cannot retract an already-written notice. The guarantee is current-state admission at each decision, not atomic revocation or exactly-once delivery.
+- The 30-second idle re-check bounds connection *lifetime*; it is not a disclosure control, and no event is ever sent from a cached grant decision.
+- Remote callback fault containment is an **independently verified boundary**: every remote event-decision step that can fault — identity refresh, allowlist extraction, target resolution, the visibility predicate's own target/rule/snapshot reads, and the socket write — is individually guarded so a fault terminates only that stream with the generic control frame and releases its subscription and interval, and does not throw into `SSEBroadcaster.publish` (so later subscribers and the domain fan-out are unaffected). This is a containment guarantee, not a recovery guarantee — a cleanup collaborator that itself refuses to release is isolated, not coerced.
+- Basic shared GET read-scope omissions, workflow/Pulse/Experience projections, idempotent response/history entitlement, webhook endpoint disclosure, and rule-based snapshot creation/future matching are separate, still-open scopes. Effective expiry narrows existing grant-based checks; it does not add missing checks elsewhere and does not fix those residuals.
 
 ### Git Provider Permission Separation
 

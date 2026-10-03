@@ -2073,6 +2073,42 @@ Federated participation for another admin's pod in a shared habitat. The **live 
 | Compact eventing | `compactRemoteWebhookDispatcher.ts` — HMAC-signed compact webhooks with a delivery ledger; single-attempt dispatch, failures record the delivery and emit `webhook.delivery_failed` (no automatic retry) |
 | Admin surface | `shareHabitatReadinessService.ts`, `sharedGrantVisibilityService.ts`, `remoteAccessAdminService.ts`, invite flows, credential rotation (`remoteCredentialService.ts` + `secretCrypto.ts`) |
 
+### Effective grant time — one pure decision primitive
+
+`services/remoteGrantTime.ts` is the single place that decides whether a persisted grant row carries authority. It is a pure evaluator: given a row and an explicitly supplied epoch-millisecond `now`, it returns `active`, `grace`, or `blocked` with a bounded internal reason and the computed grace start/end. It never fetches, never mutates, and never reads a clock of its own, so one captured `now` serves every candidate grant in a single authorization decision. Persisted rows are never rewritten, and no scheduler was added — `expireActiveGrants` remains a storage primitive and correctness holds when it never runs.
+
+`status` is a record of what a writer last did, not a statement of authority. The evaluator's per-status precedence makes the configured `expiresAt` authoritative, keeps the `expiredAt` sweep stamp from ever shortening or extending it, allows an evaluated `revokedAt` only to shorten an established window, ignores historical stamps entirely for an `active` row (so a reactivation is not blocked by its own history), and fails closed whenever a required start cannot be established from a valid, non-future timestamp. Evaluated timestamps are validated with the same `z.string().datetime()` grammar the provisioning schema uses, so authorization cannot accept a timestamp shape an admin cannot actually provision. The grace window is validated only after a grace start exists, and the window itself is half-open, so a malformed window can never remove active authority before expiry and the exact end is blocked.
+
+Consumers read effective state at the point of authority: `middleware/remoteAuth.ts` action evaluation and generic connection validation, `services/sharedGrantVisibilityService.ts` (only effectively active grants contribute target visibility), `services/remoteNotificationResolver.ts` (eligibility decided before the recipient loop, so targetless events are covered too), `services/triageLifecycleAuthority.ts` (the exact-same-grant predicate, keeping its supplied-client batching and anti-probing properties), and the remote stream. Repository `getActiveGrants*` names continue to mean **persisted status selection**; their SQL is unchanged and the evaluator is applied at the consumers.
+
+### Remote stream projection boundary
+
+`routes/sse.ts` hosts the whole remote-stream boundary, and `sse/broadcaster.ts` is deliberately untouched. The broadcaster still publishes raw local events to every subscriber; the remote filter lives entirely in the route's own subscription callback, so local admission, payloads, ordering, and domain fan-out are unchanged and the closed local event catalog is never widened.
+
+```mermaid
+flowchart TD
+    A[Stream authentication] --> B{Local or remote?}
+    B -->|Local| L[Existing Habitat admission and raw local stream]
+    B -->|Remote| C[Fresh remote identity and effective active read authority]
+    C --> D[Connected control frame]
+    D --> E[Habitat event callback]
+    E --> F[Refresh identity and effective active read authority]
+    F --> G[Closed allowlist and runtime target extraction]
+    G --> H[Exact live target and actual Habitat]
+    H --> I[Effective active target visibility]
+    I --> J[Construct minimal notice from scratch]
+```
+
+`services/remoteStreamProjection.ts` owns the wire and the allowlist. It declares a **separate** remote DTO — `remote.entity_changed` carrying only `targetType` and `targetId` — which is intentionally not added to the local `SSEEvent` union or the UI registry, because serializing it through the local catalog would change closed local consumers for no benefit. Membership in the allowlist is by exact event type with no wildcard and no recursive id discovery, and the notice is constructed from its two scalar inputs rather than by serializing and then filtering the source event, so leaking a field is not expressible.
+
+Per-event authorization is a fresh read of current persisted state, never the connection-opening snapshot, and it happens *before* the visibility decision — a globally invalid or read-ineligible connection closes even for an event that would have been suppressed anyway. The refresh is read-only and deliberately bypasses `remoteParticipantAuth`, which would mutate credential `lastUsedAt` and stamp request audit provenance on what is only a visibility decision. Connection anchors (credential id, participant id, pod id, Habitat id) are captured at admission and compared against on every refresh, so a rebound credential, a re-homed participant, or a drifted Habitat binding invalidates the stream rather than being adopted. Target resolution uses an exact persisted-id Task seam and the existing supplied-client Mission read, so a payload-claimed Habitat or an alias spelling can never stand in for the real row's identity.
+
+Every step of the remote event decision that can fault is individually guarded inside the subscription callback — identity refresh, allowlist extraction, target resolution, the visibility predicate's own target/rule/snapshot reads, and the socket write — so a fault at any of them terminates only that stream with the generic control frame and releases its subscription and interval, instead of escaping into `SSEBroadcaster.publish` and skipping later subscribers or the domain fan-out. Cleanup is independently guarded per resource (interval and unsubscribe separately, each inside its own try), so one refusing collaborator cannot prevent the other's release; a collaborator that refuses is isolated, not coerced. This boundary has been independently verified as implemented; the accepted limits below still stand.
+
+Two accepted limits are architectural, not incidental. Per-event authorization is not transactional with the socket write, so a revocation after the final decision cannot retract an already-written notice — the guarantee is current-state admission at each decision, not atomic revocation or exactly-once delivery. And the closed allowlist means Task and Mission deletion is not announced (while `subtask.deleted` is allowlisted and projects onto its owning Task): remote clients reconcile on their next authorized query, with no tombstone disclosure and no eventual-removal guarantee.
+
+The route's admission mapping is a **route-owned** concern, not a policy one. `authPolicy.ts` is unchanged: the policy installer prepends the realtime guard to the route's own preHandler array, so a route-level preHandler cannot wrap it. Instead the route marks the request in an `onRequest` hook — which runs before every preHandler, is set only by this route, is never derived from a header, body, or query value, and carries no authority by itself — and the realtime authentication guard, the Habitat preHandler, and the handler read gate consult that mark together with the actual remote-credential path. Only then do they collapse to one bounded generic response per status. A deliberate consequence of that design: a synchronous, silently-returning `onRequest` hook does not advance Fastify's hook chain, so the mark uses this repository's callback style with an explicit `done()`.
+
 ## Attachment Deletion (DB-first)
 
 `DELETE /attachments/:id` is a bounded repository command

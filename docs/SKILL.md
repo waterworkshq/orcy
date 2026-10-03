@@ -1921,3 +1921,38 @@ Detector plugins exist and write `signalType:"detected"` signals. These are plug
 Lifecycle interceptors may block task transitions with a 403 response. If a claim/submit/approve is rejected with "Transition blocked by lifecycle interceptor", the rejection comes from a plugin — check the Plugins tab in Habitat Settings.
 
 > **Durable review safety (migration 0082):** review requirements are durable per-task state. Approvals require generation-tagged decisions admitted through the effective assignment projection; legacy-unknown requirements never finalize until an eligible human resolves them via `POST /tasks/:taskId/review-requirement/resolve` (persisted-role authorization, viewer ceiling); merge-webhook auto-approval applies only to genuine captured known-zero tasks; raw terminal primitives are guarded. See SECURITY.md 'Durable Review Safety'.
+
+---
+
+## Working from Another Pod (Remote Participant)
+
+If you run against a habitat shared with another admin's pod, you authenticate with `X-Orcy-Remote-Key` and your authority comes from **grants**, not from being a member. Two things determine what you can actually do.
+
+### Your grant's deadline is effective, not eventual
+
+When a grant's deadline passes, your **ordinary** authority stops at that instant at the existing grant-based gates: no target visibility (including for Tasks and Missions that grant previously covered), no claiming, commenting, or streaming. Nothing is grandfathered — an expired grant contributes no current visibility at all unless a different active grant authorizes it. Nothing has to sweep, restart, or re-issue anything — the decision is evaluated from the row's own timestamps at the moment you act. The same is true of a revoked grant. Expiry narrows the checks that already consult a grant; a few shared self/history reads are outside grant action gating and remain a known separate gap, so nothing newly blocked becomes allowed and nothing already allowed stays allowed by grace alone.
+
+For a bounded window after that, a grace period preserves three things only: `heartbeat`, `submit`, and `release`, and only while you are still the recorded remote owner of that Task. Grace adds **no** visibility and **no** stream, and it does not grant reads you lacked. `submit` during grace requires contributor standing.
+
+Expiry is evaluated per grant. If you hold two grants and one lapses, the other still authorizes you — one grant expiring never revokes everything you have. A grant with an inconsistent or unreadable deadline blocks only itself.
+
+**Practical behavior:** if a call you used to make starts returning `403` right after a deadline, you are almost certainly in or past grace. Reconnect with fresh credentials, or ask the host admin for a new grant. Do not retry in a loop — the decision is made fresh each time and will not change by itself.
+
+### Remote streams are notices, and there is no MCP stream tool
+
+A remote participant may subscribe to `GET /sse/habitats/:id/stream` with its remote key. That stream does **not** carry the habitat's payloads. It emits a single minimal notice:
+
+```text
+data: {"type":"remote.entity_changed","data":{"targetType":"task","targetId":"..."}}
+```
+
+Rules that matter to you as the consumer:
+
+- A notice says **that** something changed, never **what**. To learn anything, make your own authorized shared read — the notice carries no title, status, actor, reason, comment, or evidence.
+- `targetId` is the exact persisted id. Treat it as an opaque handle.
+- A Mission notice says nothing about that Mission's Tasks.
+- **Task and Mission deletions are never announced**; reconcile with an authorized query instead of waiting for a removal event. Deleting a **subtask** is different: it yields an ordinary Task notice, because it is an event about the surviving parent Task.
+- Only a closed set of event families notifies. Mentions, watchers, Pulse signals, presence, and agent mail do not.
+- Every event decision re-checks your authorization, so a revoked credential, an expired grant, a demotion, or a changed binding stops the stream on the next change. A stopped stream means "reconnect", not "retry harder".
+
+**There is no served MCP stream tool.** No `orcy_*` tool subscribes to events. If you want change notifications, use the HTTP stream above plus your own polling through the normal shared reads — do not assume a push tool exists.

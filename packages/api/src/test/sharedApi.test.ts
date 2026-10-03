@@ -5,6 +5,7 @@ import { validatorCompiler, serializerCompiler } from "fastify-type-provider-zod
 import { initTestDb, closeDb } from "../db/index.js";
 import { sharedApiRoutes } from "../routes/sharedApi.js";
 import { perAgentRateLimit } from "../middleware/rateLimit.js";
+import { registerErrorHandler } from "../errors/plugin.js";
 import * as boardRepo from "../repositories/habitat.js";
 import * as commentRepo from "../repositories/comment.js";
 import * as columnRepo from "../repositories/column.js";
@@ -134,6 +135,14 @@ async function buildApp(): Promise<FastifyInstance> {
   const app = Fastify({ logger: false });
   app.setValidatorCompiler(validatorCompiler);
   app.setSerializerCompiler(serializerCompiler);
+  // Production error handler, installed by DIRECT root call — matching the
+  // production assembly (httpApp.ts calls `registerErrorHandler(fastify)`
+  // directly, not `fastify.register`). registerErrorHandler is a plain
+  // function, not a Fastify plugin: `app.register` would encapsulate it as a
+  // sibling and NOT install the root error handler despite the earlier
+  // comment's claim. The direct call makes AppError bodies serialize exactly
+  // as the served API does — {error, code, details}.
+  await registerErrorHandler(app);
   await app.register(
     async (f) => {
       f.addHook("preHandler", perAgentRateLimit);
@@ -570,6 +579,539 @@ describe("Phase D — Shared Habitat API", () => {
   // ---------------------------------------------------------------------------
   // Comments
   // ---------------------------------------------------------------------------
+
+  // -------------------------------------------------------------------------
+  // Grace completion preservation
+  // -------------------------------------------------------------------------
+
+  describe("Grace completion — heartbeat / submit / release", () => {
+    // This file's remote surface shares ONE per-IP rate-limit window (60/min)
+    // across every test, so adding requests here would otherwise starve the
+    // tests that run later in the file. Sliding the clock past the window in a
+    // scoped beforeEach isolates these cases without touching the shared
+    // limiter, and faking only `Date` leaves the async request machinery on real
+    // timers.
+    beforeEach(() => {
+      vi.useFakeTimers({ toFake: ["Date"] });
+      vi.setSystemTime(Date.now() + 61_000);
+    });
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    function setupTaskFixture(setup: RemoteSetup) {
+      const mission = missionRepo.createMission({
+        habitatId: setup.habitat.id,
+        title: "Grace Mission",
+        priority: "medium",
+        createdBy: "test",
+      });
+      const task = taskRepo.createTask({
+        missionId: mission.id,
+        title: "Grace Task",
+        description: "A test task",
+        priority: "medium",
+        requiredCapabilities: [],
+        labels: [],
+        createdBy: "test",
+      });
+      grantRepo.addRemoteGrantTarget(setup.grant.id, "mission", mission.id);
+      grantRepo.addRemoteGrantTarget(setup.grant.id, "task", task.id);
+      return { mission, task };
+    }
+
+    /**
+     * Put the participant's grant into grace without changing the fixture's
+     * scope or standing: status `expired` plus a fresh sweep stamp on a row with
+     * no configured deadline (the legacy path).
+     */
+    function intoGrace(grantId: string): void {
+      grantRepo.updateRemoteGrantStatus(grantId, "expired", {
+        expiredAt: new Date().toISOString(),
+      });
+    }
+
+    it("heartbeat still works for a SUBMITTED task that retains this remote owner", async () => {
+      const setup = setupRemoteFixture(["heartbeat"]);
+      const { task } = setupTaskFixture(setup);
+      taskStateMachine.claimTaskByRemoteParticipant(task.id, setup.participant.id);
+      taskStateMachine.startTaskByRemoteParticipant(task.id, setup.participant.id);
+      taskStateMachine.submitTaskByRemoteParticipant(task.id, setup.participant.id, "done", []);
+
+      // A submitted/terminal row that RETAINS this remote owner: heartbeat has
+      // no Task-state gate, so a terminal status must not silently end it.
+      const db = (await import("../db/index.js")).getDb();
+      const { tasks, eq } = await import("../db/schema/index.js").then(async (m) => ({
+        tasks: m.tasks,
+        eq: (await import("drizzle-orm")).eq,
+      }));
+      db.update(tasks)
+        .set({ remoteAssignedParticipantId: setup.participant.id })
+        .where(eq(tasks.id, task.id))
+        .run();
+      expect(taskRepo.getTaskById(task.id)!.status).toBe("submitted");
+
+      intoGrace(setup.grant.id);
+
+      const res = await app!.inject({
+        method: "POST",
+        url: `/api/shared/tasks/${task.id}/heartbeat`,
+        headers: remoteHeaders(setup, "grace-heartbeat-terminal-1"),
+        payload: { progress: "still finishing up" },
+      });
+      expect(res.statusCode).toBe(200);
+      expect(JSON.parse(res.body).acknowledged).toBe(true);
+    });
+
+    it("heartbeat is still denied for the wrong owner during grace", async () => {
+      const setup = setupRemoteFixture(["heartbeat"]);
+      const { task } = setupTaskFixture(setup);
+      taskStateMachine.claimTaskByRemoteParticipant(task.id, setup.participant.id);
+      intoGrace(setup.grant.id);
+
+      // Strip the remote assignment: same Habitat, same grant, wrong owner.
+      const db = (await import("../db/index.js")).getDb();
+      const schema = await import("../db/schema/index.js");
+      const { eq } = await import("drizzle-orm");
+      db.update(schema.tasks)
+        .set({ remoteAssignedParticipantId: null })
+        .where(eq(schema.tasks.id, task.id))
+        .run();
+
+      const res = await app!.inject({
+        method: "POST",
+        url: `/api/shared/tasks/${task.id}/heartbeat`,
+        headers: remoteHeaders(setup, "grace-heartbeat-wrong-owner-1"),
+        payload: { progress: "x" },
+      });
+      expect(res.statusCode).toBe(403);
+    });
+
+    it("heartbeat is denied during grace when the grant omits the heartbeat scope", async () => {
+      const setup = setupRemoteFixture(["read"]);
+      const { task } = setupTaskFixture(setup);
+      taskStateMachine.claimTaskByRemoteParticipant(task.id, setup.participant.id);
+      intoGrace(setup.grant.id);
+
+      const res = await app!.inject({
+        method: "POST",
+        url: `/api/shared/tasks/${task.id}/heartbeat`,
+        headers: remoteHeaders(setup, "grace-heartbeat-no-scope-1"),
+        payload: { progress: "x" },
+      });
+      expect(res.statusCode).toBe(403);
+      expect(JSON.parse(res.body).code).toBe("ACTION_NOT_IN_GRANT_SCOPES");
+    });
+
+    it("submit during grace works for a remote_contributor and is denied for a remote_observer", async () => {
+      const contributor = setupRemoteFixture(["submit"]);
+      const { task } = setupTaskFixture(contributor);
+      taskStateMachine.claimTaskByRemoteParticipant(task.id, contributor.participant.id);
+      taskStateMachine.startTaskByRemoteParticipant(task.id, contributor.participant.id);
+      intoGrace(contributor.grant.id);
+
+      const ok = await app!.inject({
+        method: "POST",
+        url: `/api/shared/tasks/${task.id}/submit`,
+        headers: remoteHeaders(contributor, "grace-submit-contributor-1"),
+        payload: { result: "done" },
+      });
+      expect(ok.statusCode).toBe(200);
+
+      // Same grant state, but the submit-in-grace standing rule is preserved.
+      const observer = setupRemoteFixture(["submit"], { standing: "remote_observer" });
+      const { task: observerTask } = setupTaskFixture(observer);
+      taskStateMachine.claimTaskByRemoteParticipant(observerTask.id, observer.participant.id);
+      taskStateMachine.startTaskByRemoteParticipant(observerTask.id, observer.participant.id);
+      intoGrace(observer.grant.id);
+
+      const denied = await app!.inject({
+        method: "POST",
+        url: `/api/shared/tasks/${observerTask.id}/submit`,
+        headers: remoteHeaders(observer, "grace-submit-observer-1"),
+        payload: { result: "done" },
+      });
+      expect(denied.statusCode).toBe(403);
+      expect(JSON.parse(denied.body).code).toBe("GRANT_GRACE_STANDING_INSUFFICIENT");
+    });
+
+    it("release during grace works for the current owner and is denied for the wrong owner", async () => {
+      const setup = setupRemoteFixture(["release"]);
+      const { task } = setupTaskFixture(setup);
+      taskStateMachine.claimTaskByRemoteParticipant(task.id, setup.participant.id);
+      taskStateMachine.startTaskByRemoteParticipant(task.id, setup.participant.id);
+      intoGrace(setup.grant.id);
+
+      const other = setupRemoteFixture(["release"]);
+      const { task: otherTask } = setupTaskFixture(other);
+      taskStateMachine.claimTaskByRemoteParticipant(otherTask.id, other.participant.id);
+      taskStateMachine.startTaskByRemoteParticipant(otherTask.id, other.participant.id);
+      intoGrace(other.grant.id);
+
+      // A DIFFERENT Habitat's participant cannot release it — this is a
+      // Habitat denial (the separate same-Habitat wrong-owner control lives in
+      // its own test below).
+      const wrongHabitat = await app!.inject({
+        method: "POST",
+        url: `/api/shared/tasks/${task.id}/release`,
+        headers: remoteHeaders(other, "grace-release-wrong-habitat-1"),
+        payload: { reason: "not mine" },
+      });
+      expect(wrongHabitat.statusCode).toBe(403);
+
+      const ok = await app!.inject({
+        method: "POST",
+        url: `/api/shared/tasks/${task.id}/release`,
+        headers: remoteHeaders(setup, "grace-release-owner-1"),
+        payload: { reason: "handing back" },
+      });
+      expect(ok.statusCode).toBe(200);
+    });
+
+    it("heartbeat still works for a distinct TERMINAL (done) Task retaining this remote owner", async () => {
+      const setup = setupRemoteFixture(["heartbeat"]);
+      const { task } = setupTaskFixture(setup);
+      taskStateMachine.claimTaskByRemoteParticipant(task.id, setup.participant.id);
+      taskStateMachine.startTaskByRemoteParticipant(task.id, setup.participant.id);
+      taskStateMachine.submitTaskByRemoteParticipant(task.id, setup.participant.id, "done", []);
+      // A genuinely terminal state (done), still naming this remote owner: the
+      // no-Task-state-gate rule must survive terminality, not just `submitted`.
+      const db = (await import("../db/index.js")).getDb();
+      const { tasks, eq } = await import("../db/schema/index.js").then(async (m) => ({
+        tasks: m.tasks,
+        eq: (await import("drizzle-orm")).eq,
+      }));
+      db.update(tasks)
+        .set({ status: "done", remoteAssignedParticipantId: setup.participant.id })
+        .where(eq(tasks.id, task.id))
+        .run();
+      expect(taskRepo.getTaskById(task.id)!.status).toBe("done");
+
+      intoGrace(setup.grant.id);
+
+      const res = await app!.inject({
+        method: "POST",
+        url: `/api/shared/tasks/${task.id}/heartbeat`,
+        headers: remoteHeaders(setup, "grace-heartbeat-terminal-done-1"),
+        payload: { progress: "final" },
+      });
+      expect(res.statusCode).toBe(200);
+      expect(JSON.parse(res.body).acknowledged).toBe(true);
+    });
+
+    it("heartbeat during grace is denied for a Task in another Habitat", async () => {
+      const setup = setupRemoteFixture(["heartbeat"]);
+      const other = setupRemoteFixture(["heartbeat"]);
+      const { task } = setupTaskFixture(setup);
+      taskStateMachine.claimTaskByRemoteParticipant(task.id, setup.participant.id);
+      intoGrace(setup.grant.id);
+      intoGrace(other.grant.id);
+
+      const res = await app!.inject({
+        method: "POST",
+        url: `/api/shared/tasks/${task.id}/heartbeat`,
+        headers: remoteHeaders(other, "grace-heartbeat-wrong-habitat-1"),
+        payload: { progress: "x" },
+      });
+      expect(res.statusCode).toBe(403);
+    });
+
+    it("submit and release during grace are denied without their scope", async () => {
+      const noSubmit = setupRemoteFixture(["read"]);
+      const { task: submitTask } = setupTaskFixture(noSubmit);
+      taskStateMachine.claimTaskByRemoteParticipant(submitTask.id, noSubmit.participant.id);
+      taskStateMachine.startTaskByRemoteParticipant(submitTask.id, noSubmit.participant.id);
+      intoGrace(noSubmit.grant.id);
+
+      const submitDenied = await app!.inject({
+        method: "POST",
+        url: `/api/shared/tasks/${submitTask.id}/submit`,
+        headers: remoteHeaders(noSubmit, "grace-submit-no-scope-1"),
+        payload: { result: "x" },
+      });
+      expect(submitDenied.statusCode).toBe(403);
+      expect(JSON.parse(submitDenied.body).code).toBe("ACTION_NOT_IN_GRANT_SCOPES");
+
+      const noRelease = setupRemoteFixture(["read"]);
+      const { task: releaseTask } = setupTaskFixture(noRelease);
+      taskStateMachine.claimTaskByRemoteParticipant(releaseTask.id, noRelease.participant.id);
+      taskStateMachine.startTaskByRemoteParticipant(releaseTask.id, noRelease.participant.id);
+      intoGrace(noRelease.grant.id);
+
+      const releaseDenied = await app!.inject({
+        method: "POST",
+        url: `/api/shared/tasks/${releaseTask.id}/release`,
+        headers: remoteHeaders(noRelease, "grace-release-no-scope-1"),
+        payload: { reason: "x" },
+      });
+      expect(releaseDenied.statusCode).toBe(403);
+      expect(JSON.parse(releaseDenied.body).code).toBe("ACTION_NOT_IN_GRANT_SCOPES");
+    });
+
+    it("submit during grace is denied for the OWNER from a non-submittable state, by the actual seam's conflict code", async () => {
+      const setup = setupRemoteFixture(["submit"]);
+      const { task } = setupTaskFixture(setup);
+      // Owned by this participant (so ownership cannot be what denies), but held
+      // in `claimed` rather than `in_progress`: only the lifecycle-state guard of
+      // the submit seam can deny. Its real code is a 409 CONFLICT, not a 403.
+      taskStateMachine.claimTaskByRemoteParticipant(task.id, setup.participant.id);
+      intoGrace(setup.grant.id);
+      expect(taskRepo.getTaskById(task.id)!.status).toBe("claimed");
+
+      const res = await app!.inject({
+        method: "POST",
+        url: `/api/shared/tasks/${task.id}/submit`,
+        headers: remoteHeaders(setup, "grace-submit-invalid-state-1"),
+        payload: { result: "x" },
+      });
+      expect(res.statusCode).toBe(409);
+      // The ACTUAL unchanged shared-route error object: `conflict(message,
+      // details)` pins code to CONFLICT and carries the seam's reason in
+      // `details`. The seam's TASK_SUBMIT_FAILED identity lives in details, not
+      // in the code field.
+      expect(JSON.parse(res.body)).toEqual({
+        error: "Cannot submit task in current state",
+        code: "CONFLICT",
+        details: "TASK_SUBMIT_FAILED",
+      });
+      // The Task row is unchanged by the denial.
+      expect(taskRepo.getTaskById(task.id)!.status).toBe("claimed");
+    });
+
+    it("release during grace is denied for the OWNER from a non-releasable state, by the actual seam's conflict code", async () => {
+      const setup = setupRemoteFixture(["release"]);
+      const { task } = setupTaskFixture(setup);
+      // Owned, but ALREADY submitted: the release seam refuses to release a task
+      // that is no longer in a claimable/executing state.
+      taskStateMachine.claimTaskByRemoteParticipant(task.id, setup.participant.id);
+      taskStateMachine.startTaskByRemoteParticipant(task.id, setup.participant.id);
+      taskStateMachine.submitTaskByRemoteParticipant(
+        task.id,
+        setup.participant.id,
+        "already submitted",
+        [],
+      );
+      intoGrace(setup.grant.id);
+
+      const res = await app!.inject({
+        method: "POST",
+        url: `/api/shared/tasks/${task.id}/release`,
+        headers: remoteHeaders(setup, "grace-release-invalid-state-1"),
+        payload: { reason: "x" },
+      });
+      expect(res.statusCode).toBe(409);
+      // Complete actual conflict object (code CONFLICT; the seam's
+      // TASK_RELEASE_FAILED identity is the details argument).
+      expect(JSON.parse(res.body)).toEqual({
+        error: "Cannot release task in current state",
+        code: "CONFLICT",
+        details: "TASK_RELEASE_FAILED",
+      });
+      expect(taskRepo.getTaskById(task.id)!.status).toBe("submitted");
+    });
+
+    it("same-Habitat WRONG OWNER is denied for submit and release during grace, with the row unchanged", async () => {
+      const owner = setupRemoteFixture(["submit", "release"]);
+      const { task } = setupTaskFixture(owner);
+      taskStateMachine.claimTaskByRemoteParticipant(task.id, owner.participant.id);
+      taskStateMachine.startTaskByRemoteParticipant(task.id, owner.participant.id);
+      intoGrace(owner.grant.id);
+
+      // A SECOND active participant in the SAME Habitat/pod, holding the same
+      // scopes, so only ownership can distinguish them.
+      const rival = participantRepo.createRemoteParticipant({
+        remotePodId: owner.pod.id,
+        habitatId: owner.habitat.id,
+        participantType: "remote_orcy",
+        displayName: "Same-Habitat Rival",
+        standing: "remote_contributor",
+      });
+      participantRepo.activateRemoteParticipant(rival.id);
+      const { plaintextSecret: rivalSecret } = credentialService.createCredentialWithSecret({
+        remoteParticipantId: rival.id,
+        habitatId: owner.habitat.id,
+        credentialType: "api",
+      });
+      const rivalGrant = grantRepo.createRemoteGrant({
+        habitatId: owner.habitat.id,
+        remotePodId: owner.pod.id,
+        remoteParticipantId: rival.id,
+        grantType: "scoped_elevation",
+        standing: "remote_contributor",
+        actionScopes: ["submit", "release", "read"],
+      });
+      grantRepo.addRemoteGrantTarget(rivalGrant.id, "task", task.id);
+      // The RIVAL's grant must also be in grace: otherwise the rival's requests
+      // authorize under ACTIVE authority and the control proves nothing about
+      // grace. Both grants are now in the same effective state.
+      intoGrace(rivalGrant.id);
+      // Re-read BOTH grants from the repository: intoGrace persists new rows and
+      // does NOT mutate the in-memory objects returned at creation, so evaluating
+      // those originals would describe stale active/null-expiry rows. One shared
+      // clock value evaluates both live rows.
+      const { evaluateGrantTime } = await import("../services/remoteGrantTime.js");
+      const liveRival = grantRepo.getRemoteGrantById(rivalGrant.id)!;
+      const liveOwner = grantRepo.getRemoteGrantById(owner.grant.id)!;
+      const now = Date.now();
+      expect(evaluateGrantTime(liveRival, now).state).toBe("grace");
+      expect(evaluateGrantTime(liveOwner, now).state).toBe("grace");
+      const rivalSetupLike = {
+        ...owner,
+        participant: rival,
+        plaintextSecret: rivalSecret,
+        grant: rivalGrant,
+      };
+
+      const submitDenied = await app!.inject({
+        method: "POST",
+        url: `/api/shared/tasks/${task.id}/submit`,
+        headers: remoteHeaders(rivalSetupLike, "grace-submit-wrong-owner-same-habitat-1"),
+        payload: { result: "x" },
+      });
+      expect(submitDenied.statusCode).toBe(403);
+      expect(JSON.parse(submitDenied.body).code).toBe("TASK_NOT_OWNED");
+
+      const releaseDenied = await app!.inject({
+        method: "POST",
+        url: `/api/shared/tasks/${task.id}/release`,
+        headers: remoteHeaders(rivalSetupLike, "grace-release-wrong-owner-same-habitat-1"),
+        payload: { reason: "x" },
+      });
+      expect(releaseDenied.statusCode).toBe(403);
+      expect(JSON.parse(releaseDenied.body).code).toBe("TASK_NOT_OWNED");
+
+      // The row is unchanged by both denials, and the true owner can still act.
+      expect(taskRepo.getTaskById(task.id)!.status).toBe("in_progress");
+      expect(taskRepo.getTaskById(task.id)!.remoteAssignedParticipantId).toBe(owner.participant.id);
+      const ok = await app!.inject({
+        method: "POST",
+        url: `/api/shared/tasks/${task.id}/submit`,
+        headers: remoteHeaders(owner, "grace-submit-owner-after-rival-1"),
+        payload: { result: "owner submits" },
+      });
+      expect(ok.statusCode).toBe(200);
+    });
+
+    it("heartbeat and release are denied for a disallowed standing during grace", async () => {
+      // remote_observer cannot hold `heartbeat` or `release` under the standing
+      // policy, even when the grant text lists the scope.
+      const observer = setupRemoteFixture(["heartbeat", "release"], {
+        standing: "remote_observer",
+      });
+      const { task } = setupTaskFixture(observer);
+      taskStateMachine.claimTaskByRemoteParticipant(task.id, observer.participant.id);
+      intoGrace(observer.grant.id);
+
+      const heartbeat = await app!.inject({
+        method: "POST",
+        url: `/api/shared/tasks/${task.id}/heartbeat`,
+        headers: remoteHeaders(observer, "grace-heartbeat-disallowed-standing-1"),
+        payload: { progress: "x" },
+      });
+      expect(heartbeat.statusCode).toBe(403);
+      expect(JSON.parse(heartbeat.body).code).toBe("STANDING_ACTION_NOT_PERMITTED");
+
+      const release = await app!.inject({
+        method: "POST",
+        url: `/api/shared/tasks/${task.id}/release`,
+        headers: remoteHeaders(observer, "grace-release-disallowed-standing-1"),
+        payload: { reason: "x" },
+      });
+      expect(release.statusCode).toBe(403);
+      expect(JSON.parse(release.body).code).toBe("STANDING_ACTION_NOT_PERMITTED");
+    });
+
+    it("wrong-Habitat submit and release are denied as Habitat denials, separately classified", async () => {
+      const owner = setupRemoteFixture(["submit", "release"]);
+      const { task } = setupTaskFixture(owner);
+      taskStateMachine.claimTaskByRemoteParticipant(task.id, owner.participant.id);
+      intoGrace(owner.grant.id);
+
+      const foreign = setupRemoteFixture(["submit", "release"]);
+      const { task: foreignTask } = setupTaskFixture(foreign);
+      taskStateMachine.claimTaskByRemoteParticipant(foreignTask.id, foreign.participant.id);
+      intoGrace(foreign.grant.id);
+
+      // The foreign participant is the legitimate owner of ITS OWN task, so its
+      // credential and grant are healthy; only the Habitat differs.
+      const submitDenied = await app!.inject({
+        method: "POST",
+        url: `/api/shared/tasks/${task.id}/submit`,
+        headers: remoteHeaders(foreign, "grace-submit-wrong-habitat-1"),
+        payload: { result: "x" },
+      });
+      expect(submitDenied.statusCode).toBe(403);
+
+      const releaseDenied = await app!.inject({
+        method: "POST",
+        url: `/api/shared/tasks/${task.id}/release`,
+        headers: remoteHeaders(foreign, "grace-release-wrong-habitat-1"),
+        payload: { reason: "x" },
+      });
+      expect(releaseDenied.statusCode).toBe(403);
+
+      // Both denials leave the row untouched.
+      expect(taskRepo.getTaskById(task.id)!.remoteAssignedParticipantId).toBe(owner.participant.id);
+    });
+
+    it("grace continuation works with ZERO active target-visibility sources, asserted explicitly", async () => {
+      const setup = setupRemoteFixture(["heartbeat"]);
+      const { task } = setupTaskFixture(setup);
+      taskStateMachine.claimTaskByRemoteParticipant(task.id, setup.participant.id);
+      intoGrace(setup.grant.id);
+
+      // EXPLICIT zero-visibility assertion: the sole grant is in grace (not
+      // effectively active), so no effectively active grant covers this target.
+      // This prevents an added visibility prerequisite from hiding behind another
+      // fixture's row.
+      const { evaluateGrantTime } = await import("../services/remoteGrantTime.js");
+      const activeVisibilitySources = grantRepo
+        .getGrantsByHabitat(setup.habitat.id)
+        .filter(
+          (g) =>
+            evaluateGrantTime(g, Date.now()).state === "active" &&
+            grantRepo
+              .getRemoteGrantTargets(g.id)
+              .some((t) => t.targetType === "task" && t.targetId === task.id),
+        );
+      expect(activeVisibilitySources, "there must be NO active visibility source").toEqual([]);
+
+      const res = await app!.inject({
+        method: "POST",
+        url: `/api/shared/tasks/${task.id}/heartbeat`,
+        headers: remoteHeaders(setup, "grace-zero-visibility-1"),
+        payload: { progress: "still finishing" },
+      });
+      expect(res.statusCode).toBe(200);
+      expect(JSON.parse(res.body).acknowledged).toBe(true);
+    });
+
+    it("an expired grant does not revoke a sibling still-active grant", async () => {
+      const setup = setupRemoteFixture(["read"]);
+      const { task } = setupTaskFixture(setup);
+      const taskId = task.id;
+      intoGrace(setup.grant.id);
+
+      // A second, still-active grant for the same participant/pod/Habitat.
+      const survivor = grantRepo.createRemoteGrant({
+        habitatId: setup.habitat.id,
+        remotePodId: setup.pod.id,
+        remoteParticipantId: setup.participant.id,
+        grantType: "baseline_observer",
+        standing: "remote_contributor",
+        actionScopes: ["read", "comment"],
+      });
+      grantRepo.addRemoteGrantTarget(survivor.id, "task", taskId);
+
+      const res = await app!.inject({
+        method: "GET",
+        url: `/api/shared/tasks/${taskId}`,
+        headers: remoteHeaders(setup, "survivor-grant-read-1"),
+      });
+      expect(res.statusCode).toBe(200);
+      expect(JSON.parse(res.body).task.id).toBe(taskId);
+    });
+  });
 
   describe("Comments", () => {
     function setupTaskFixture(setup: RemoteSetup) {
@@ -1405,7 +1947,7 @@ describe("Phase D — Shared Habitat API", () => {
 
       expect(res.statusCode).toBe(409);
       const body = JSON.parse(res.body);
-      expect(body.message).toBe("capability_mismatch");
+      expect(body.error).toBe("capability_mismatch");
       expect(body.code).toBe("CONFLICT");
     });
 
@@ -1426,7 +1968,7 @@ describe("Phase D — Shared Habitat API", () => {
 
       expect(res.statusCode).toBe(409);
       const body = JSON.parse(res.body);
-      expect(body.message).toBe("domain_mismatch");
+      expect(body.error).toBe("domain_mismatch");
       expect(body.code).toBe("CONFLICT");
     });
 

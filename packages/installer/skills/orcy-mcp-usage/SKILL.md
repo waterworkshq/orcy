@@ -1125,3 +1125,30 @@ orcy_triage({ action: "set_focus_mission", habitatId, missionId })      # missio
 - `map_orphan_mission` positions an unmapped orphan mission through a dedicated bounded route — never the generic mission PATCH. Authorized only when you currently claim that orphan's GENUINE published investigate task (proved by the publication ledger — a claimed replacement task never authorizes); the server re-verifies orphan state, open investigation, and your claim in one transaction.
 - `investigate` returns `clusterMissionId` = the investigation mission id (`admittedByTriageMissionId`), plus `openFindings[]` carrying `correctiveMissionId` (the corrective work, a different mission) and the admitted investigation provenance. An `orphan-mission:{id}` investigation additionally verifies the open investigation junction: a disconnected mission with NO open orphan investigation is reported not investigable (no mapping instruction).
 > **Review safety note (migration 0082):** task approvals/completions evaluate the durable review requirement (legacy-unknown tasks are held until a human resolves them; merge auto-approval is known-zero-only). Agents cannot resolve or relax requirements — that command is human-only.
+
+## Remote Participants — Effective Grant Authority
+
+When Orcy is reached with `X-Orcy-Remote-Key` (remote MCP mode / `/api/shared/*`), authority comes from **grants**, not membership.
+
+- A grant's deadline is **effective, not eventual**. Once it passes, ordinary authority — target visibility (including for Tasks and Missions that grant previously covered), claims, comments, streaming — is denied at the next decision at the existing grant-based gates. Nothing is grandfathered: an expired grant contributes no current visibility unless a different active grant authorizes it. No sweep, restart, or re-issue is involved. Expiry narrows checks that already consult a grant; a few shared self/history reads are outside grant action gating and remain a known separate gap.
+- A bounded per-grant **grace** window preserves only `heartbeat`, `submit`, and `release`, and only for the current remote owner of the Task. Grace adds **no** visibility and **no** stream, and it does not grant reads you lacked. `submit` during grace requires contributor standing.
+- Expiry is evaluated **per grant**: one lapsing grant does not revoke the participant's other grants, and a single malformed grant blocks only itself.
+- Every request re-evaluates; nothing is cached across requests.
+
+### Remote streams — notices only, and no stream tool
+
+A remote participant may subscribe to `GET /sse/habitats/:id/stream` with its remote key. The stream carries **no** habitat payloads. It emits one minimal notice per visible change:
+
+```text
+data: {"type":"remote.entity_changed","data":{"targetType":"task","targetId":"..."}}
+```
+
+- A notice is a **hint that something changed, not a disclosure of what**. Details require your own authorized shared read.
+- `targetId` is the exact persisted id — an opaque handle.
+- A Mission notice implies nothing about that Mission's Tasks.
+- **Task and Mission deletions are never announced**; reconcile with an authorized query. Deleting a **subtask** yields an ordinary Task notice, because it is an event about the surviving parent Task.
+- Only a closed allowlist of exact event families notifies (mentions, watchers, Pulse, presence, and agent mail do not).
+- Authorization is re-checked on every event decision, so revocation, expiry, read-scope loss, a standing change, or a credential/participant/pod/Habitat rebinding ends the stream. Reconnect rather than retrying.
+- Admission denials are one bounded generic response per status (`REMOTE_STREAM_UNAUTHORIZED` 401, `REMOTE_STREAM_FORBIDDEN` 403, `REMOTE_STREAM_INTERNAL` 500) with no grant, credential, or target detail.
+
+**There is no served MCP stream tool.** No `orcy_*` dispatch tool subscribes to events — for change notifications, use the HTTP stream and then re-read through the normal authorized shared tools.

@@ -7,7 +7,12 @@ import { isTeamMemberByHabitatId } from "../repositories/teamMember.js";
 import type { HumanRole } from "./auth.js";
 import { extractAndVerifyJwt } from "./jwt-verification.js";
 import { unauthorized, forbidden, notFound } from "../errors.js";
-import { remoteParticipantAuth, isRemoteConnectionValid } from "./remoteAuth.js";
+import {
+  remoteParticipantAuth,
+  isRemoteConnectionValid,
+  isRemoteStreamAdmissionRequest,
+  guardRemoteStreamAdmission,
+} from "./remoteAuth.js";
 
 const MAX_QUERY_TOKEN_AGE_SECONDS = 30;
 
@@ -16,7 +21,30 @@ export function getHabitatIdFromParams(request: FastifyRequest): string | undefi
   return params.id ?? params.habitatId;
 }
 
+/**
+ * Policy-installed realtime authentication guard.
+ *
+ * For a remote stream admission the whole guard is wrapped so every failure —
+ * an expected denial or an unexpected database/validation fault — collapses to
+ * one bounded generic response per status, with the original error logged
+ * server-side. The route cannot wrap this guard itself: the policy installer
+ * prepends it to the route's own preHandler array, so it always runs first. The
+ * route's trusted mark (set in an earlier lifecycle stage) is what selects this
+ * path, and it only applies to remote-credential requests. Local human and agent
+ * streams, and every other route, take the unchanged path below.
+ */
 export async function authenticateRealtime(
+  request: FastifyRequest,
+  _reply: FastifyReply,
+): Promise<void> {
+  if (isRemoteStreamAdmissionRequest(request)) {
+    await guardRemoteStreamAdmission(request, () => authenticateRealtimeActor(request, _reply));
+    return;
+  }
+  await authenticateRealtimeActor(request, _reply);
+}
+
+async function authenticateRealtimeActor(
   request: FastifyRequest,
   _reply: FastifyReply,
 ): Promise<void> {
@@ -89,12 +117,26 @@ export async function checkHabitatAccess(
   throw unauthorized("Authentication required");
 }
 
+/**
+ * Habitat authorization for the realtime scope.
+ *
+ * For a remote stream admission this stage is wrapped in the same bounded
+ * mapping as the authentication guard, so a Habitat mismatch, an invalidated
+ * connection, a missing Habitat, or an unexpected fault all reach the client as
+ * one generic denial with no grant, standing, credential, or existence detail.
+ * The wrapped body is the unchanged shared check.
+ */
 export async function authorizeHabitatAccess(
   request: FastifyRequest,
   _reply: FastifyReply,
 ): Promise<void> {
   const habitatId = getHabitatIdFromParams(request);
   if (!habitatId) return;
+
+  if (isRemoteStreamAdmissionRequest(request)) {
+    await guardRemoteStreamAdmission(request, () => checkHabitatAccess(request, habitatId));
+    return;
+  }
   return checkHabitatAccess(request, habitatId);
 }
 

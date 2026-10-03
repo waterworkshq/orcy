@@ -453,6 +453,140 @@ describe("remoteActionScope middleware", () => {
     );
   });
 
+  it("expiry is evaluated per grant: a grace-state grant A does not revoke a still-active grant B", async () => {
+    const h = setupHabitat();
+    const setup = setupActiveParticipant(h.id, "remote_contributor");
+
+    // Grant A into grace. Its persisted status is `expired`, so it contributes
+    // nothing to an ordinary action.
+    grantRepo.updateRemoteGrantStatus(setup.grant.id, "expired", {
+      expiredAt: new Date().toISOString(),
+    });
+
+    // Grant B, same participant/pod/Habitat, still active and carrying `read`.
+    const survivor = grantRepo.createRemoteGrant({
+      habitatId: h.id,
+      remotePodId: setup.pod.id,
+      remoteParticipantId: setup.participant.id,
+      grantType: "baseline_observer",
+      standing: "remote_contributor",
+      actionScopes: ["read"],
+    });
+
+    const req = mockRequest({ "x-orcy-remote-key": setup.plaintextSecret });
+    await remoteParticipantAuth(req, mockReply());
+    expect(req.remoteParticipant!.grants.map((g) => g.id).toSorted()).toEqual(
+      [setup.grant.id, survivor.id].toSorted(),
+    );
+
+    // B independently authorizes the ordinary action.
+    await remoteActionScope("read")(req, mockReply());
+
+    // With B also blocked, nothing authorizes — proving A was never the thing
+    // that was carrying the decision. The request re-authenticates first,
+    // because the scope middleware authorizes against the per-request grant
+    // snapshot rather than re-reading storage mid-request.
+    grantRepo.revokeRemoteGrant(survivor.id, "hard", "admin-1", "both blocked");
+    const afterBlock = mockRequest({ "x-orcy-remote-key": setup.plaintextSecret });
+    await remoteParticipantAuth(afterBlock, mockReply());
+    await expectAppError(
+      () => remoteActionScope("read")(afterBlock, mockReply()),
+      403,
+      "GRANT_HARD_REVOKED",
+    );
+  });
+
+  it("a grant whose configured deadline passed authorizes only grace actions, without any sweep having run", async () => {
+    const h = setupHabitat();
+    const setup = setupActiveParticipant(h.id, "remote_contributor");
+    // The row shape a missed sweep leaves behind: persisted status is STILL
+    // `active`, but the configured deadline is long past.
+    grantRepo.updateRemoteGrantStatus(setup.grant.id, "active", {
+      expiredAt: new Date().toISOString(),
+    });
+    const db = getDb();
+    const { remoteGrants, eq } = await import("../db/schema/index.js").then(async (m) => ({
+      remoteGrants: m.remoteGrants,
+      eq: (await import("drizzle-orm")).eq,
+    }));
+    db.update(remoteGrants)
+      .set({ expiresAt: new Date(Date.now() - 60_000).toISOString() })
+      .where(eq(remoteGrants.id, setup.grant.id))
+      .run();
+
+    const req = mockRequest({ "x-orcy-remote-key": setup.plaintextSecret });
+    await remoteParticipantAuth(req, mockReply());
+
+    // Ordinary authority is gone even though the persisted status still says
+    // `active`; the bounded grace continuation survives.
+    await expectAppError(
+      () => remoteActionScope("claim")(req, mockReply()),
+      403,
+      "GRANT_GRACE_ACTION_BLOCKED",
+    );
+    await remoteActionScope("heartbeat")(req, mockReply());
+  });
+
+  it("an expired grant's grace window is bounded by the configured deadline, not by a late sweep stamp", async () => {
+    const h = setupHabitat();
+    const setup = setupActiveParticipant(h.id, "remote_contributor");
+    const db = getDb();
+    const { remoteGrants, eq } = await import("../db/schema/index.js").then(async (m) => ({
+      remoteGrants: m.remoteGrants,
+      eq: (await import("drizzle-orm")).eq,
+    }));
+    // Deadline 2 hours ago, but the sweep only just stamped expiredAt — the
+    // 1-hour window measured from the sweep stamp would wrongly still be open.
+    db.update(remoteGrants)
+      .set({
+        status: "expired",
+        graceWindowHours: 1,
+        expiresAt: new Date(Date.now() - 2 * 3_600_000).toISOString(),
+        expiredAt: new Date().toISOString(),
+      })
+      .where(eq(remoteGrants.id, setup.grant.id))
+      .run();
+
+    const req = mockRequest({ "x-orcy-remote-key": setup.plaintextSecret });
+    await remoteParticipantAuth(req, mockReply());
+    await expectAppError(
+      () => remoteActionScope("heartbeat")(req, mockReply()),
+      403,
+      "GRACE_WINDOW_ELAPSED",
+    );
+  });
+
+  it("generic connection validation PRESERVES usable grace after the configured deadline passes", async () => {
+    const h = setupHabitat();
+    const setup = setupActiveParticipant(h.id, "remote_contributor");
+    // A past configured deadline with the persisted status STILL `active`: the
+    // row shape a missed sweep leaves behind. Effective time puts the grant in
+    // grace, and the GENERIC connection validator deliberately accepts usable
+    // grace — this is the new proof that narrowing action/visibility authority
+    // did not narrow the generic connection check.
+    const db = getDb();
+    const { remoteGrants, eq } = await import("../db/schema/index.js").then(async (m) => ({
+      remoteGrants: m.remoteGrants,
+      eq: (await import("drizzle-orm")).eq,
+    }));
+    db.update(remoteGrants)
+      .set({ expiresAt: new Date(Date.now() - 60_000).toISOString() })
+      .where(eq(remoteGrants.id, setup.grant.id))
+      .run();
+
+    const req = mockRequest({ "x-orcy-remote-key": setup.plaintextSecret });
+    await remoteParticipantAuth(req, mockReply());
+
+    const result = isRemoteConnectionValid(req.remoteParticipant!);
+    expect(result.valid, "generic connection validity accepts usable grace").toBe(true);
+    // ...while ordinary action authority on the same row is already gone.
+    await expectAppError(
+      () => remoteActionScope("claim")(req, mockReply()),
+      403,
+      "GRANT_GRACE_ACTION_BLOCKED",
+    );
+  });
+
   it("pulse.post is allowed for remote_observer with that scope", async () => {
     const h = setupHabitat();
     const setup = setupActiveParticipant(h.id, "remote_observer", [

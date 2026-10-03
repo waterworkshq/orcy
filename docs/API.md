@@ -6577,7 +6577,65 @@ data: {"type":"task.claimed","data":{"taskId":"...","agentId":"..."}}
 data: {"type":"task.updated","data":{"id":"...","status":"in_progress",...}}
 ```
 
+#### Remote participants (`X-Orcy-Remote-Key`)
+
+A remote participant authenticates the same route with `X-Orcy-Remote-Key`, but receives a **deliberately reduced** wire. The local event catalog below is the local contract and does **not** apply to a remote subscriber.
+
+**Response:** `text/event-stream`
+
+```text
+data: {"type":"connected","data":{"habitatId":"habitat-uuid"}}
+
+data: {"type":"remote.entity_changed","data":{"targetType":"task","targetId":"persisted-task-id"}}
+
+data: {"type":"remote.entity_changed","data":{"targetType":"mission","targetId":"persisted-mission-id"}}
+
+data: {"type":"disconnected","data":{"reason":"REMOTE_STREAM_CLOSED"}}
+```
+
+`remote.entity_changed` is the only data event a remote subscriber receives. It is a **separate remote wire type** and is intentionally absent from the local `SSEEvent` union and the UI event registry.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `type` | `"remote.entity_changed"` | The only remote data event |
+| `data.targetType` | `"task"` \| `"mission"` | The entity kind that changed |
+| `data.targetId` | `string` | The **exact persisted id**, resolved from storage |
+
+`targetId` is the exact persisted id. Two cases behave differently and must not be conflated:
+
+- A **real persisted prefixed id** (`feat-…` for a Task, `mission-…` for a Mission) is a literal row, so it resolves normally and its ancestry is read exactly. Prefixed ids are supported, not stripped.
+- An **alias-only spelling** — a payload naming an id that has no literal row behind it — is **suppressed**, never rewritten to whatever it would normalize to. The notice can never stand in for a different row's identity.
+
+A notice carries **no** event type, status, action, timestamp, version, actor, comment/subtask/evidence id, title, reason, metadata, linked object id, or scope/grant id. Consumers that need those details must make their own authorized `/api/shared/*` request — a Mission notice implies nothing about its child Tasks, and notice frequency reveals activity on an admitted entity (no anonymity or traffic-analysis resistance is claimed).
+
+##### Remote notice allowlist
+
+A notice is emitted only for these **exact** event types. There is no `task.*`/`mission.*` wildcard, so an unknown future type is suppressed until it is deliberately added.
+
+| Exact event types | Target taken from the event |
+|-------------------|------------------------------|
+| `task.created`, `task.updated` | Task `data.id` |
+| `task.moved`, `task.claimed`, `task.submitted`, `task.approved`, `task.rejected`, `task.completed`, `task.failed`, `task.released`, `task.delegated`, `task.overdue`, `task.commented`, `task.comment_deleted`, `task.retry_scheduled`, `task.retry_executed`, `task.escalated`, `task.priority_changed`, `task.review_assigned`, `task.review_completed` | Task `data.taskId` |
+| `subtask.created`, `subtask.updated`, `subtask.deleted`, `effort.updated` | Task `data.taskId` |
+| `mission.created`, `mission.updated` | Mission `data.id` |
+| `mission.moved`, `mission.status_changed`, `mission.progress`, `mission.commented`, `mission.comment_deleted` | Mission `data.missionId` |
+| `code_evidence.updated` | `data.targetType` (must be exactly `task` or `mission`) + `data.targetId` |
+
+Everything else is suppressed, including **Task and Mission deletion** (`task.deleted`, `mission.deleted`). `subtask.deleted` **is** a deletion event, but it is deliberately allowlisted: it is an event about the surviving parent Task, so it is projected onto that Task rather than suppressed. Also suppressed: `task.cloned`, watcher and mention recipient events, Pulse and Experience Signals, agent and Agent Mail events, presence, Habitat/column events, webhook errors, schedules/sprints, and wiki/plugin/triage/extraction events. A clone's separately emitted `task.created` for a visible new Task still produces the ordinary creation notice.
+
+**Task and Mission deletions are not announced.** A deleted target cannot satisfy current existence and visibility, so remote clients reconcile on their next authorized query instead. There is no tombstone disclosure and no eventual-removal guarantee.
+
+##### Remote stream authorization
+
+- Admission requires an **effectively active** grant carrying `read` for the current standing. A grant in grace is not read authority, so it cannot open or keep a stream.
+- Every event decision and the 30-second idle re-check re-read current credential, participant, pod, and grants. Revocation, expiry, read-scope loss, a standing change, a credential reassigned to another participant, a participant moved to another pod, or a Habitat-binding drift all take effect on the next decision and invalidate the stream.
+- The credential, participant, pod, and Habitat identities fixed at admission are immutable for the life of the stream; a rebound identity is never adopted.
+- `read` scope and target visibility may come from **two different** effectively active grants. A Mission notice never implies a child Task notice.
+- Admitted remote denials use one bounded generic response per status: **401** `REMOTE_STREAM_UNAUTHORIZED` (invalid credential), **403** `REMOTE_STREAM_FORBIDDEN` (binding, standing, Habitat, grant, or read denial), **500** `REMOTE_STREAM_INTERNAL` (unexpected fault). No grant, credential, target, or exception detail is returned. Local human and agent stream responses are unchanged.
+
 ### Event Types
+
+> The table below is the **local** contract (human and agent subscribers). A remote participant subscribing with `X-Orcy-Remote-Key` receives only `remote.entity_changed`, as described above.
 
 | Type | Data | Description |
 |------|------|-------------|

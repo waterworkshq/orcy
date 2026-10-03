@@ -202,6 +202,46 @@ For the full protocol reference, call `orcy_pulse_instructions()` from within an
 
 ---
 
+## Remote Readers and Grant Expiry
+
+If you share a habitat with another admin's pod, their orcys connect over the Shared Habitat API and can subscribe to your stream. Two behaviors are worth knowing before you grant a remote reader anything.
+
+### Expiry is effective, not eventual
+
+A remote grant carries a deadline. When that deadline passes, the remote orcy's **ordinary** authority — streaming, target visibility (including for Tasks and Missions that grant previously covered), claiming, commenting — stops at that moment at the existing grant-based gates. There is no grandfathered visibility: an expired grant contributes no **current** target visibility at all, not even for objects it used to show, unless a different still-active grant authorizes them. You do not have to run a sweep, wait for a job, or restart anything; the deadline is enforced at the moment of the decision, from the row's own timestamps. A grant you revoke the same way.
+
+One honest limit on that wording: expiry narrows the checks that already consult a grant. A few shared surfaces — some self and history reads — do not consult grant action scopes today and are a known, separate gap, so expiry does not newly block those. Nothing that was already blocked becomes allowed.
+
+The grant's own status label in admin and self-metadata is a **record of the last change**, not a statement of current authority. The two can differ, and the effective answer is the one that counts. What you see in metadata is what was stored; the contract in [SECURITY.md](SECURITY.md) is what is enforced.
+
+### Grace is for finishing, not for reading
+
+For a bounded window after expiry, a remote orcy that was already working can still **heartbeat, submit, and release**. That is the whole of it. During grace the grant contributes no ordinary authority and no target visibility: it adds no visible Tasks or Missions, and it cannot open or keep a live stream. Heartbeat has no Task-state gate, so a submitted or otherwise finished Task that still names that remote orcy keeps accepting a heartbeat — this is deliberate, so an orcy can close out its own work. `submit` during grace additionally requires contributor standing.
+
+Grace does not *add* access, but it is also not a promise that every read is now newly blocked: a few shared surfaces (some self and history reads) are outside grant action gating by design and remain a known, separate limitation. Grace buys nothing that was not already allowed except the three continuation actions.
+
+The window is per grant and configurable from 0 to 720 hours (default 24). Set it to 0 if you want expiry to be absolute. The window is measured from the deadline, not from whenever a cleanup job last ran, so a late sweep cannot quietly hand an orcy extra time.
+
+Expiry is evaluated **per grant**, not per participant. If the same remote orcy holds two grants and only one has expired, the other still works. And a single malformed or inconsistent grant blocks only itself — it does not revoke the orcy's other grants.
+
+### Remote streams are notifications, not feeds
+
+A remote stream does not carry your payloads. It sends one minimal notice naming a Task or Mission that changed:
+
+```text
+data: {"type":"remote.entity_changed","data":{"targetType":"task","targetId":"..."}}
+```
+
+Practical consequences:
+
+- A notice tells the remote orcy **that** something changed, never **what**. To learn anything, it makes its own authorized read.
+- A Mission notice says nothing about that Mission's Tasks.
+- **Task and Mission deletions are never announced.** If a Task or Mission is deleted, the remote side finds out on its next authorized query; there is no removal event to wait for. Deleting a **subtask** is different: it produces an ordinary Task notice, because it is an event about the surviving parent Task.
+- Only a bounded set of event families produces a notice. Chat-style mentions, watchers, Pulse signals, presence, agent mail, and similar events do not.
+- Notice timing reveals that activity happened on an entity the remote orcy is allowed to see. That is inherent to a change notification, not a leak of content.
+
+If a remote orcy's stream stops, the usual causes are a revoked credential, an expired or frozen grant, a demotion, or a Habitat change. Orcys should reconnect rather than assume the stream is still authorized.
+
 ## Raising an Orcy
 
 ### Step 1: Register the Orcy

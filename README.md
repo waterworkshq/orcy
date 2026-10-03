@@ -216,7 +216,7 @@ Orcy pulls external tracker issues into habitat intake, where humans/orcys revie
 
 | Release | Theme |
 |---------|-------|
-| Soon | Unscheduled seeds (integration OAuth/webhook extraction and similar) wait on demand. See [docs/ROADMAP.md](docs/ROADMAP.md). |
+| Soon | Unscheduled seeds (integration OAuth/webhook extraction and similar) wait on demand. The bounded remote-stream & effective-grant hardening is implementation-complete and independently verified, pending release. See [docs/ROADMAP.md](docs/ROADMAP.md). |
 | Architecture Optimization | Ongoing Architecture Work pertaining to investigated codebase opportunities |
 | npm publishing | GO LIVE on npm for the CLI, MCP server, and daemon for one command installer |
 

@@ -106,6 +106,21 @@ export function getTaskById(id: string): Task | null {
   return db.select().from(tasks).where(eq(tasks.id, normalized)).get() ?? null;
 }
 
+/**
+ * EXACT persisted-id Task read — no `feat-` normalization at all.
+ *
+ * URL/MCP alias semantics are a property of `getTaskById` and stay there; this
+ * is the repository-owned seam for callers that must confirm the literal
+ * persisted row they were handed. A normalized lookup is not sufficient for
+ * that: it can resolve an alias spelling to a DIFFERENT row, or resolve nothing
+ * and silently suppress the row that actually exists, so an authorization
+ * decision built on it would answer about the wrong identity.
+ */
+export function getTaskByIdExact(id: string): Task | null {
+  const db = getDb();
+  return db.select().from(tasks).where(eq(tasks.id, id)).get() ?? null;
+}
+
 export type UpdateTaskResult =
   | { success: true; task: Task }
   | { success: false; notFound: true }
