@@ -28,13 +28,27 @@ export function addComment(
     }
   }
 
-  const comment = missionCommentRepo.createComment({
-    missionId,
-    authorType,
-    authorId,
-    content,
-    parentId: parentId || null,
-  });
+  // A reply is inserted under one conditional statement so the parent
+  // reference is re-checked against the required Mission AT INSERT time; a
+  // final miss maps the existing parent error BEFORE any mention row or event.
+  const comment = parentId
+    ? missionCommentRepo.createReplyComment({
+        missionId,
+        parentId,
+        authorType,
+        authorId,
+        content,
+      })
+    : missionCommentRepo.createComment({
+        missionId,
+        authorType,
+        authorId,
+        content,
+        parentId: null,
+      });
+  if (!comment) {
+    throw notFound("Parent comment not found");
+  }
 
   const resolvedMentions = resolveMentions(content);
   const createdMentions = missionCommentMentionRepo.createMentions(
@@ -81,15 +95,21 @@ export function getComments(missionId: string, limit?: number, offset?: number) 
   return missionCommentRepo.getCommentsByMissionId(missionId, limit, offset);
 }
 
-/** Updates a comment's content, enforcing that only the original author may edit. */
+/**
+ * Updates a comment's content. The comment must belong to the required Mission
+ * and only the original author may edit it; the final UPDATE re-checks both in
+ * its own predicate, so a row that changed after the pre-read is a not-found
+ * rather than a mutated foreign row.
+ */
 export function editComment(
+  missionId: string,
   commentId: string,
   authorType: "human" | "agent",
   authorId: string,
   content: string,
 ) {
   const comment = missionCommentRepo.getCommentById(commentId);
-  if (!comment) {
+  if (!comment || comment.missionId !== missionId) {
     throw notFound("Comment not found");
   }
 
@@ -97,13 +117,27 @@ export function editComment(
     throw forbidden("Not authorized to edit this comment");
   }
 
-  return missionCommentRepo.updateComment(commentId, content);
+  const updated = missionCommentRepo.updateComment(missionId, commentId, authorType, authorId, content);
+  if (!updated) {
+    throw notFound("Comment not found");
+  }
+  return updated;
 }
 
-/** Deletes a comment, enforcing that only the original author may remove it, and emits a `mission.comment_deleted` SSE event to the habitat. */
-export function removeComment(commentId: string, authorType: "human" | "agent", authorId: string) {
+/**
+ * Deletes a comment. Only the original author may remove it, the comment must
+ * belong to the required Mission, and the deletion publishes its single root
+ * `mission.comment_deleted` event only after the final statement actually
+ * matched — the same conditional fence the Task comment family uses.
+ */
+export function removeComment(
+  missionId: string,
+  commentId: string,
+  authorType: "human" | "agent",
+  authorId: string,
+) {
   const comment = missionCommentRepo.getCommentById(commentId);
-  if (!comment) {
+  if (!comment || comment.missionId !== missionId) {
     throw notFound("Comment not found");
   }
 
@@ -112,7 +146,10 @@ export function removeComment(commentId: string, authorType: "human" | "agent", 
   }
 
   const mission = getMissionById(comment.missionId);
-  const result = missionCommentRepo.deleteComment(commentId);
+  const result = missionCommentRepo.deleteComment(missionId, commentId, authorType, authorId);
+  if (!result) {
+    throw notFound("Comment not found");
+  }
 
   if (mission) {
     sseBroadcaster.publish(mission.habitatId, {

@@ -2933,7 +2933,8 @@
       "path": "/api/shared/habitats/:id/missions",
       "surface": "api-shared",
       "guards": [
-        "remoteParticipantAuth"
+        "remoteParticipantAuth",
+        "remoteActionScopeMiddleware"
       ],
       "authKind": "remote_participant",
       "rawBodyEligible": false,
@@ -2957,7 +2958,8 @@
       "path": "/api/shared/missions/:id",
       "surface": "api-shared",
       "guards": [
-        "remoteParticipantAuth"
+        "remoteParticipantAuth",
+        "remoteActionScopeMiddleware"
       ],
       "authKind": "remote_participant",
       "rawBodyEligible": false,
@@ -2969,7 +2971,8 @@
       "path": "/api/shared/missions/:id/comments",
       "surface": "api-shared",
       "guards": [
-        "remoteParticipantAuth"
+        "remoteParticipantAuth",
+        "remoteActionScopeMiddleware"
       ],
       "authKind": "remote_participant",
       "rawBodyEligible": false,
@@ -3031,7 +3034,8 @@
       "path": "/api/shared/tasks/:id",
       "surface": "api-shared",
       "guards": [
-        "remoteParticipantAuth"
+        "remoteParticipantAuth",
+        "remoteActionScopeMiddleware"
       ],
       "authKind": "remote_participant",
       "rawBodyEligible": false,
@@ -3043,7 +3047,8 @@
       "path": "/api/shared/tasks/:id/comments",
       "surface": "api-shared",
       "guards": [
-        "remoteParticipantAuth"
+        "remoteParticipantAuth",
+        "remoteActionScopeMiddleware"
       ],
       "authKind": "remote_participant",
       "rawBodyEligible": false,
@@ -7656,7 +7661,8 @@
       "path": "/api/shared/habitats/:id/missions",
       "surface": "api-shared",
       "guards": [
-        "remoteParticipantAuth"
+        "remoteParticipantAuth",
+        "remoteActionScopeMiddleware"
       ],
       "authKind": "remote_participant",
       "rawBodyEligible": false,
@@ -7680,7 +7686,8 @@
       "path": "/api/shared/missions/:id",
       "surface": "api-shared",
       "guards": [
-        "remoteParticipantAuth"
+        "remoteParticipantAuth",
+        "remoteActionScopeMiddleware"
       ],
       "authKind": "remote_participant",
       "rawBodyEligible": false,
@@ -7692,7 +7699,8 @@
       "path": "/api/shared/missions/:id/comments",
       "surface": "api-shared",
       "guards": [
-        "remoteParticipantAuth"
+        "remoteParticipantAuth",
+        "remoteActionScopeMiddleware"
       ],
       "authKind": "remote_participant",
       "rawBodyEligible": false,
@@ -7754,7 +7762,8 @@
       "path": "/api/shared/tasks/:id",
       "surface": "api-shared",
       "guards": [
-        "remoteParticipantAuth"
+        "remoteParticipantAuth",
+        "remoteActionScopeMiddleware"
       ],
       "authKind": "remote_participant",
       "rawBodyEligible": false,
@@ -7766,7 +7775,8 @@
       "path": "/api/shared/tasks/:id/comments",
       "surface": "api-shared",
       "guards": [
-        "remoteParticipantAuth"
+        "remoteParticipantAuth",
+        "remoteActionScopeMiddleware"
       ],
       "authKind": "remote_participant",
       "rawBodyEligible": false,

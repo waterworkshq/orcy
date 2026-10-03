@@ -2854,7 +2854,11 @@ Comments on missions with threading and @mentions. Structurally identical to tas
 
 ### POST /missions/:id/comments
 
-Add a comment to a mission.
+Add a comment to a mission. Replies carry the required pair: the parent comment
+must belong to the Mission in the URL, and that pair is re-checked by the
+inserting statement itself. A missing or different-Mission parent is
+`400 Parent comment not found` (or `Parent comment belongs to a different
+mission`), and nothing — no comment, mention row or event — is written.
 
 **Auth:** Agent API key OR JWT
 **Body:** `{ "content": "string", "parentId?": "uuid" }`
@@ -2870,7 +2874,13 @@ List comments on a mission.
 
 ### PATCH /missions/:id/comments/:commentId
 
-Edit a comment. Only the original author can edit.
+Edit a comment. The comment must belong to the Mission in the URL and only its
+original author may edit it. A comment that is absent or belongs to another
+Mission is `404 Comment not found` (the pair is checked before authorship);
+another author is `403 Not authorized to edit this comment`. The update
+statement re-checks Mission and author itself, so a comment that changed after
+the initial check is `404` rather than a mutated row, and the response carries
+the matched row with its mention rows.
 
 **Auth:** Agent API key OR JWT
 **Body:** `{ "content": "string" }`
@@ -2878,7 +2888,16 @@ Edit a comment. Only the original author can edit.
 
 ### DELETE /missions/:id/comments/:commentId
 
-Delete a comment. Only the original author can delete.
+Delete a comment. Same required pair and original-author rule as the edit
+(`404 Comment not found` for an absent or other-Mission comment, `403 Not
+authorized to delete this comment` for another author). The delete also refuses
+to cascade when any reachable descendant comment belongs to another Mission — the
+whole root deletion matches nothing (`404`) and every row is preserved.
+Replies and mentions under the deleted root are removed by the existing foreign
+key cascade, and one `mission.comment_deleted` event is published for the deleted
+root, only after the deletion actually matched — with one accepted exception: if
+the owning Mission no longer exists, the delete still succeeds and no event is
+published, because there is no Habitat to publish it to.
 
 **Auth:** Agent API key OR JWT
 **Response `204`:** No content.
@@ -6891,7 +6910,25 @@ Returns missions visible to the remote participant's grants.
 
 **Response:** `{ "missions": Mission[], "total": number }`
 
-Missions filtered by grant targets (allowlist or rule-based). If the grant has no targets, all missions in the habitat are visible.
+Missions are filtered per row by the participant's effectively active grants. An
+`allowlist` grant makes a Mission visible only when it names that Mission as a
+grant target — **an allowlist grant with no targets makes nothing visible**, not
+everything. Only a pod-wide `baseline_observer` grant (one issued to the pod with
+no specific participant) grants habitat-wide Mission visibility.
+
+**Read authority is separate from target visibility.** The `read` action scope and
+the target allowlist are two independent decisions: one grant may carry `read`
+while a different grant names the target, and that combination is sufficient. The
+`read` decision runs **before** the handler resolves its target, so a missing `read`
+scope is refused with `403` and the message `Remote action not permitted` (plus a
+grant-result code such as `ACTION_NOT_IN_GRANT_SCOPES`, `GRANT_GRACE_ACTION_BLOCKED`
+or `STANDING_ACTION_NOT_PERMITTED`) even when the requested id is missing or belongs
+to another Habitat — the refusal is not an existence oracle. With a valid `read`
+scope the pre-existing outcomes are unchanged: a missing target is `404 NOT_FOUND`,
+and a target that is hidden or in another Habitat is a generic `403` with the
+message `Access denied`. `read` is permitted for `remote_observer` and
+`remote_contributor` standing; `remote_reviewer` and `trusted_remote_pod` are
+refused reads by the standing policy.
 
 #### GET /api/shared/missions/:id
 

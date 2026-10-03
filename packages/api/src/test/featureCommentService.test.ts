@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 
 vi.mock("../repositories/featureComment.js", () => ({
   createComment: vi.fn(),
+  createReplyComment: vi.fn(),
   getCommentById: vi.fn(),
   getCommentsByMissionId: vi.fn(),
   updateComment: vi.fn(),
@@ -74,6 +75,7 @@ describe("featureCommentService", () => {
     resolveMentionsMock.mockReturnValue([]);
     createMentionsMock.mockReturnValue([]);
     vi.mocked(commentRepo.createComment).mockReturnValue(makeComment() as any);
+    vi.mocked(commentRepo.createReplyComment).mockReturnValue(null);
     vi.mocked(commentRepo.getCommentById).mockReturnValue(null);
     vi.mocked(commentRepo.getCommentsByMissionId).mockReturnValue({ comments: [], total: 0 });
     vi.mocked(commentRepo.updateComment).mockReturnValue(null);
@@ -163,6 +165,42 @@ describe("featureCommentService", () => {
         expect.objectContaining({ type: "mission.mentioned" }),
       );
     });
+
+    it("creates a reply through the conditional insert that re-checks the parent pair", () => {
+      vi.mocked(getMissionById).mockReturnValue(makeMission() as any);
+      vi.mocked(commentRepo.getCommentById).mockReturnValue(
+        makeComment({ id: "parent-1", missionId: "mission-1" }) as any,
+      );
+      vi.mocked(commentRepo.createReplyComment).mockReturnValue(
+        makeComment({ id: "reply-1", parentId: "parent-1" }) as any,
+      );
+
+      const result = addComment("mission-1", "human", "user-1", "Reply", "parent-1");
+
+      expect(result.id).toBe("reply-1");
+      expect(commentRepo.createReplyComment).toHaveBeenCalledWith({
+        missionId: "mission-1",
+        parentId: "parent-1",
+        authorType: "human",
+        authorId: "user-1",
+        content: "Reply",
+      });
+      expect(commentRepo.createComment).not.toHaveBeenCalled();
+    });
+
+    it("maps a final conditional-INSERT miss to the parent error before mentions or events", () => {
+      vi.mocked(getMissionById).mockReturnValue(makeMission() as any);
+      vi.mocked(commentRepo.getCommentById).mockReturnValue(
+        makeComment({ id: "parent-1", missionId: "mission-1" }) as any,
+      );
+      vi.mocked(commentRepo.createReplyComment).mockReturnValue(null);
+
+      expect(() => addComment("mission-1", "human", "user-1", "Reply", "parent-1")).toThrow(
+        "Parent comment not found",
+      );
+      expect(createMentionsMock).not.toHaveBeenCalled();
+      expect(sseBroadcaster.publish).not.toHaveBeenCalled();
+    });
   });
 
   describe("getComments", () => {
@@ -184,9 +222,20 @@ describe("featureCommentService", () => {
     it("throws when comment not found", () => {
       vi.mocked(commentRepo.getCommentById).mockReturnValue(null);
 
-      expect(() => editComment("missing", "human", "user-1", "Updated")).toThrow(
+      expect(() => editComment("mission-1", "missing", "human", "user-1", "Updated")).toThrow(
         "Comment not found",
       );
+    });
+
+    it("throws when the comment belongs to another mission", () => {
+      vi.mocked(commentRepo.getCommentById).mockReturnValue(
+        makeComment({ missionId: "mission-2" }) as any,
+      );
+
+      expect(() => editComment("mission-1", "comment-1", "human", "user-1", "Updated")).toThrow(
+        "Comment not found",
+      );
+      expect(commentRepo.updateComment).not.toHaveBeenCalled();
     });
 
     it("throws when not authorized", () => {
@@ -194,22 +243,38 @@ describe("featureCommentService", () => {
         makeComment({ authorType: "agent", authorId: "other-agent" }) as any,
       );
 
-      expect(() => editComment("comment-1", "human", "user-1", "Updated")).toThrow(
+      expect(() => editComment("mission-1", "comment-1", "human", "user-1", "Updated")).toThrow(
         "Not authorized to edit this comment",
       );
+      expect(commentRepo.updateComment).not.toHaveBeenCalled();
     });
 
-    it("updates comment when authorized", () => {
+    it("updates comment under the required pair and author", () => {
       vi.mocked(commentRepo.getCommentById).mockReturnValue(makeComment() as any);
       vi.mocked(commentRepo.updateComment).mockReturnValue(
         makeComment({ content: "Updated" }) as any,
       );
 
-      const result = editComment("comment-1", "human", "user-1", "Updated");
+      const result = editComment("mission-1", "comment-1", "human", "user-1", "Updated");
 
       expect(result).not.toBeNull();
       expect(result!.content).toBe("Updated");
-      expect(commentRepo.updateComment).toHaveBeenCalledWith("comment-1", "Updated");
+      expect(commentRepo.updateComment).toHaveBeenCalledWith(
+        "mission-1",
+        "comment-1",
+        "human",
+        "user-1",
+        "Updated",
+      );
+    });
+
+    it("throws when the final UPDATE matched no row", () => {
+      vi.mocked(commentRepo.getCommentById).mockReturnValue(makeComment() as any);
+      vi.mocked(commentRepo.updateComment).mockReturnValue(null);
+
+      expect(() => editComment("mission-1", "comment-1", "human", "user-1", "Updated")).toThrow(
+        "Comment not found",
+      );
     });
   });
 
@@ -217,7 +282,20 @@ describe("featureCommentService", () => {
     it("throws when comment not found", () => {
       vi.mocked(commentRepo.getCommentById).mockReturnValue(null);
 
-      expect(() => removeComment("missing", "human", "user-1")).toThrow("Comment not found");
+      expect(() => removeComment("mission-1", "missing", "human", "user-1")).toThrow(
+        "Comment not found",
+      );
+    });
+
+    it("throws when the comment belongs to another mission", () => {
+      vi.mocked(commentRepo.getCommentById).mockReturnValue(
+        makeComment({ missionId: "mission-2" }) as any,
+      );
+
+      expect(() => removeComment("mission-1", "comment-1", "human", "user-1")).toThrow(
+        "Comment not found",
+      );
+      expect(commentRepo.deleteComment).not.toHaveBeenCalled();
     });
 
     it("throws when not authorized", () => {
@@ -225,30 +303,47 @@ describe("featureCommentService", () => {
         makeComment({ authorType: "agent", authorId: "other" }) as any,
       );
 
-      expect(() => removeComment("comment-1", "human", "user-1")).toThrow(
+      expect(() => removeComment("mission-1", "comment-1", "human", "user-1")).toThrow(
         "Not authorized to delete this comment",
       );
+      expect(commentRepo.deleteComment).not.toHaveBeenCalled();
     });
 
-    it("deletes and broadcasts when authorized", () => {
+    it("deletes under the required pair and author and broadcasts", () => {
       vi.mocked(commentRepo.getCommentById).mockReturnValue(makeComment() as any);
       vi.mocked(getMissionById).mockReturnValue(makeMission() as any);
 
-      const result = removeComment("comment-1", "human", "user-1");
+      const result = removeComment("mission-1", "comment-1", "human", "user-1");
 
       expect(result).toBe(true);
-      expect(commentRepo.deleteComment).toHaveBeenCalledWith("comment-1");
+      expect(commentRepo.deleteComment).toHaveBeenCalledWith(
+        "mission-1",
+        "comment-1",
+        "human",
+        "user-1",
+      );
       expect(sseBroadcaster.publish).toHaveBeenCalledWith(
         "habitat-1",
         expect.objectContaining({ type: "mission.comment_deleted" }),
       );
     });
 
+    it("throws and emits no event when the final DELETE matched no row", () => {
+      vi.mocked(commentRepo.getCommentById).mockReturnValue(makeComment() as any);
+      vi.mocked(getMissionById).mockReturnValue(makeMission() as any);
+      vi.mocked(commentRepo.deleteComment).mockReturnValue(false);
+
+      expect(() => removeComment("mission-1", "comment-1", "human", "user-1")).toThrow(
+        "Comment not found",
+      );
+      expect(sseBroadcaster.publish).not.toHaveBeenCalled();
+    });
+
     it("still deletes when mission not found", () => {
       vi.mocked(commentRepo.getCommentById).mockReturnValue(makeComment() as any);
       vi.mocked(getMissionById).mockReturnValue(null);
 
-      const result = removeComment("comment-1", "human", "user-1");
+      const result = removeComment("mission-1", "comment-1", "human", "user-1");
 
       expect(result).toBe(true);
       expect(sseBroadcaster.publish).not.toHaveBeenCalled();

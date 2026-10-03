@@ -1938,6 +1938,17 @@ Expiry is evaluated per grant. If you hold two grants and one lapses, the other 
 
 **Practical behavior:** if a call you used to make starts returning `403` right after a deadline, you are almost certainly in or past grace. Reconnect with fresh credentials, or ask the host admin for a new grant. Do not retry in a loop — the decision is made fresh each time and will not change by itself.
 
+### Reading Missions, Tasks and their comments needs the `read` scope
+
+The basic shared reads — the habitat's Mission list, one Mission, one Task, Task comments, Mission comments — each need an effectively active grant that carries the **`read` action scope**, *in addition to* the target visibility you already needed. A grant that only names the targets (say, a `comment` grant) no longer lets you read them: you get `403 Remote action not permitted` with a grant-result code instead of the entity.
+
+Two properties worth relying on:
+
+- **Read and visibility are separable.** One grant can carry `read` while a different grant names the targets, and that is enough. You do not need a single grant that does both.
+- **Standing still decides.** `read` is allowed for `remote_observer` and `remote_contributor`. A `remote_reviewer` or `trusted_remote_pod` participant is refused reads by the existing standing policy — ask the host admin for contributor or observer standing if you need them.
+
+A refused read happens **before** the target is resolved, so a missing `read` scope returns the same 403 whether the id exists, belongs to another habitat, or does not exist at all. The denial is per request: it is not cached and it is not a revocation race.
+
 ### Remote streams are notices, and there is no MCP stream tool
 
 A remote participant may subscribe to `GET /sse/habitats/:id/stream` with its remote key. That stream does **not** carry the habitat's payloads. It emits a single minimal notice:

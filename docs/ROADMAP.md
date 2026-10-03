@@ -126,6 +126,12 @@ Release boundaries are risk management decisions: breaking changes, fragile feat
 
 ## Upcoming
 
+### Bounded object-access hardening (unversioned — implementation complete; release pending)
+
+| Ship | Story |
+|------|-------|
+| Unreleased | **Implementation complete; release pending.** Two bounded existing-contract repairs on the shared/Mission surfaces, both in the "fills a declared-but-absent guard" family rather than new policy. **Shared read action scope:** the five shared entity reads (Mission list, Mission, Task, Task comments, Mission comments) now carry the same `read` action preHandler the Mission Pulse read already used, so remote access needs an effectively active `read` grant *in addition to* the target visibility and Habitat checks those handlers already performed; read and visibility stay separable (split grants valid), the existing standing matrix is unchanged (`remote_reviewer`/`trusted_remote_pod` still denied), and a few shared self/history reads remain outside grant action gating. **Mission comment containment:** local edit/delete bind the exact `(mission_id, comment_id, typed original author)` pair at the final SQL statement (wrong pair `404`, wrong author `403`, `UPDATE … RETURNING` returns the row the statement matched), a reply validates its parent pair at INSERT time, and the root `DELETE` refuses the whole cascade when any reachable descendant belongs to another Mission. No Mission membership/role admission, no alias equivalence, no Mission FK, and no atomic comment-plus-mention delivery is implied; raw import and direct-DB writers stay outside the served contract. |
+
 ### Shipped Minor — v0.42.0 "Task Transition Budget"
 
 | Ship | Story |

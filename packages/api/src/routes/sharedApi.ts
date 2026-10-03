@@ -325,9 +325,12 @@ export async function sharedApiRoutes(fastify: FastifyInstance): Promise<void> {
   // Missions
   // -------------------------------------------------------------------------
 
-  /** GET /api/shared/habitats/:id/missions — missions visible to this participant */
+  /** GET /api/shared/habitats/:id/missions — visible missions (requires "read") */
   fastify.get<{ Params: { id: string } }>(
     "/habitats/:id/missions",
+    {
+      preHandler: [remoteActionScope("read")],
+    },
     async (request: FastifyRequest<{ Params: { id: string } }>, _reply: FastifyReply) => {
       const ctx = requireRemoteContext(request);
       if (request.params.id !== ctx.habitatId) {
@@ -341,9 +344,12 @@ export async function sharedApiRoutes(fastify: FastifyInstance): Promise<void> {
     },
   );
 
-  /** GET /api/shared/missions/:id — single mission if visible */
+  /** GET /api/shared/missions/:id — single mission if visible (requires "read") */
   fastify.get<{ Params: { id: string } }>(
     "/missions/:id",
+    {
+      preHandler: [remoteActionScope("read")],
+    },
     async (request: FastifyRequest<{ Params: { id: string } }>, _reply: FastifyReply) => {
       const ctx = requireRemoteContext(request);
       const mission = missionRepo.getMissionById(request.params.id);
@@ -363,9 +369,12 @@ export async function sharedApiRoutes(fastify: FastifyInstance): Promise<void> {
   // Tasks
   // -------------------------------------------------------------------------
 
-  /** GET /api/shared/tasks/:id — single task if visible */
+  /** GET /api/shared/tasks/:id — single task if visible (requires "read") */
   fastify.get<{ Params: { id: string } }>(
     "/tasks/:id",
+    {
+      preHandler: [remoteActionScope("read")],
+    },
     async (request: FastifyRequest<{ Params: { id: string } }>, _reply: FastifyReply) => {
       const ctx = requireRemoteContext(request);
       const task = taskRepo.getTaskById(request.params.id);
@@ -546,9 +555,12 @@ export async function sharedApiRoutes(fastify: FastifyInstance): Promise<void> {
   // Comments (read + write)
   // -------------------------------------------------------------------------
 
-  /** GET /api/shared/tasks/:id/comments — list task comments */
+  /** GET /api/shared/tasks/:id/comments — list task comments (requires "read") */
   fastify.get<{ Params: { id: string } }>(
     "/tasks/:id/comments",
+    {
+      preHandler: [remoteActionScope("read")],
+    },
     async (request: FastifyRequest<{ Params: { id: string } }>, _reply: FastifyReply) => {
       const ctx = requireRemoteContext(request);
       const task = taskRepo.getTaskById(request.params.id);
@@ -616,9 +628,12 @@ export async function sharedApiRoutes(fastify: FastifyInstance): Promise<void> {
     },
   );
 
-  /** GET /api/shared/missions/:id/comments — list mission comments */
+  /** GET /api/shared/missions/:id/comments — list mission comments (requires "read") */
   fastify.get<{ Params: { id: string } }>(
     "/missions/:id/comments",
+    {
+      preHandler: [remoteActionScope("read")],
+    },
     async (request: FastifyRequest<{ Params: { id: string } }>, _reply: FastifyReply) => {
       const ctx = requireRemoteContext(request);
       const mission = missionRepo.getMissionById(request.params.id);

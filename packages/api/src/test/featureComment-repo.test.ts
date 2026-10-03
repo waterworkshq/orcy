@@ -5,6 +5,8 @@ let _updateRun = vi.fn();
 let _deleteRun = vi.fn();
 let _selectAllResult: Array<Record<string, unknown>> = [];
 let _selectGetResult: Record<string, unknown> | undefined = undefined;
+let _rawAllResult: Array<Record<string, unknown>> = [];
+let _rawAllCalls = 0;
 let _countResult = 0;
 
 function createMockDb() {
@@ -35,6 +37,11 @@ function createMockDb() {
     const chain = {
       set: () => chain,
       where: () => chain,
+      returning: () => chain,
+      all: () => {
+        _updateRun();
+        return _selectAllResult;
+      },
       run: () => {
         _updateRun();
       },
@@ -44,6 +51,11 @@ function createMockDb() {
   const doDelete = () => {
     const chain = {
       where: () => chain,
+      returning: () => chain,
+      all: () => {
+        _deleteRun();
+        return _rawAllResult;
+      },
       run: () => {
         _deleteRun();
       },
@@ -55,6 +67,12 @@ function createMockDb() {
     select: (arg?: Record<string, unknown>) => doSelect(arg),
     update: () => doUpdate(),
     delete: () => doDelete(),
+    // Raw-SQL seam (conditional reply INSERT, cascade-fenced DELETE): the
+    // matched rows this statement returned.
+    all: () => {
+      _rawAllCalls += 1;
+      return _rawAllResult;
+    },
   };
 }
 
@@ -79,6 +97,7 @@ vi.mock("drizzle-orm", async () => {
   return {
     ...actual,
     eq: vi.fn((_col: unknown, _val: unknown) => ({ _type: "eq" })),
+    and: vi.fn((...conds: unknown[]) => ({ _type: "and", conds })),
     desc: vi.fn((_col: unknown) => ({ _type: "desc" })),
     count: vi.fn(() => ({ _type: "count" })),
   };
@@ -90,6 +109,7 @@ vi.mock("uuid", () => ({
 
 import {
   createComment,
+  createReplyComment,
   getCommentsByMissionId,
   getCommentById,
   updateComment,
@@ -105,6 +125,8 @@ describe("featureComment repository", () => {
     _deleteRun = vi.fn();
     _selectAllResult = [];
     _selectGetResult = undefined;
+    _rawAllResult = [];
+    _rawAllCalls = 0;
     _countResult = 0;
     (mentionMock.getMentionsByCommentIds as any).mockReturnValue([]);
   });
@@ -219,32 +241,87 @@ describe("featureComment repository", () => {
     });
   });
 
-  describe("updateComment", () => {
-    it("updates comment content", () => {
-      _selectGetResult = {
-        id: "c1",
-        missionId: "mission-1",
-        parentId: null,
-        authorType: "human",
-        authorId: "u1",
-        content: "Updated",
-        createdAt: "2025-01-01",
-        updatedAt: "2025-01-02",
-      };
+  describe("createReplyComment", () => {
+    it("returns the row the conditional INSERT matched", () => {
+      _rawAllResult = [
+        {
+          id: "mock-comment-uuid",
+          missionId: "mission-1",
+          parentId: "parent-1",
+          authorType: "agent",
+          authorId: "agent-1",
+          content: "Reply",
+          createdAt: "2025-01-01",
+          updatedAt: "2025-01-01",
+        },
+      ];
 
-      const result = updateComment("c1", "Updated");
+      const result = createReplyComment({
+        missionId: "mission-1",
+        parentId: "parent-1",
+        authorType: "agent",
+        authorId: "agent-1",
+        content: "Reply",
+      });
+
+      expect(result!.id).toBe("mock-comment-uuid");
+      expect(result!.parentId).toBe("parent-1");
+    });
+
+    it("returns null when the conditional INSERT matched no row", () => {
+      _rawAllResult = [];
+      expect(
+        createReplyComment({
+          missionId: "mission-1",
+          parentId: "missing-parent",
+          authorType: "human",
+          authorId: "u1",
+          content: "Reply",
+        }),
+      ).toBeNull();
+    });
+  });
+
+  describe("updateComment", () => {
+    it("returns the row the UPDATE matched", () => {
+      _selectAllResult = [
+        {
+          id: "c1",
+          missionId: "mission-1",
+          parentId: null,
+          authorType: "human",
+          authorId: "u1",
+          content: "Updated",
+          createdAt: "2025-01-01",
+          updatedAt: "2025-01-02",
+        },
+      ];
+
+      const result = updateComment("mission-1", "c1", "human", "u1", "Updated");
 
       expect(result).not.toBeNull();
       expect(result!.content).toBe("Updated");
       expect(_updateRun).toHaveBeenCalled();
     });
+
+    it("returns null when the UPDATE matched no row", () => {
+      _selectAllResult = [];
+      expect(updateComment("mission-1", "c1", "human", "u1", "Updated")).toBeNull();
+    });
   });
 
   describe("deleteComment", () => {
-    it("deletes and returns true", () => {
-      const result = deleteComment("c1");
-      expect(result).toBe(true);
-      expect(_deleteRun).toHaveBeenCalled();
+    it("returns true when the DELETE returned the root row", () => {
+      _rawAllResult = [{ id: "c1" }];
+      expect(deleteComment("mission-1", "c1", "human", "u1")).toBe(true);
+      // The fence lives in the final raw statement, so the raw seam — not the
+      // drizzle DELETE builder — is what executed.
+      expect(_rawAllCalls).toBe(1);
+    });
+
+    it("returns false when the DELETE matched no row", () => {
+      _rawAllResult = [];
+      expect(deleteComment("mission-1", "c1", "human", "u1")).toBe(false);
     });
   });
 

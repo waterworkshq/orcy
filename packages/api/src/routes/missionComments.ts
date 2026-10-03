@@ -95,6 +95,7 @@ export async function missionCommentRoutes(fastify: FastifyInstance): Promise<vo
 
       try {
         const comment = missionCommentService.editComment(
+          request.params.missionId,
           request.params.commentId,
           authorType,
           authorId,
@@ -129,7 +130,12 @@ export async function missionCommentRoutes(fastify: FastifyInstance): Promise<vo
       const authorId = request.agent?.id ?? request.user?.id ?? 'anonymous';
 
       try {
-        missionCommentService.removeComment(request.params.commentId, authorType, authorId);
+        missionCommentService.removeComment(
+          request.params.missionId,
+          request.params.commentId,
+          authorType,
+          authorId
+        );
         reply.code(204).send();
       } catch (err) {
         const error = err as Error;

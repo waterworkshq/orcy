@@ -1135,6 +1135,14 @@ When Orcy is reached with `X-Orcy-Remote-Key` (remote MCP mode / `/api/shared/*`
 - Expiry is evaluated **per grant**: one lapsing grant does not revoke the participant's other grants, and a single malformed grant blocks only itself.
 - Every request re-evaluates; nothing is cached across requests.
 
+### Shared entity reads require the `read` scope
+
+Reading the habitat's Missions, one Mission, one Task, Task comments or Mission comments needs an effectively active grant carrying the **`read` action scope**, *in addition to* the target visibility you already needed. A grant that only names targets (for example a `comment` grant) no longer authorizes those reads — you get `403 Remote action not permitted` with a grant-result code instead of the entity.
+
+- **Read and visibility are separable:** one grant may carry `read` while another names the targets. No single grant has to do both.
+- **Standing still decides:** `read` is permitted for `remote_observer` and `remote_contributor`; `remote_reviewer` and `trusted_remote_pod` are refused reads by the existing standing policy.
+- The refusal happens **before** the target is resolved, so a missing `read` scope yields the same 403 for a missing, foreign-habitat or existing target. It is evaluated per request.
+
 ### Remote streams — notices only, and no stream tool
 
 A remote participant may subscribe to `GET /sse/habitats/:id/stream` with its remote key. The stream carries **no** habitat payloads. It emits one minimal notice per visible change:
