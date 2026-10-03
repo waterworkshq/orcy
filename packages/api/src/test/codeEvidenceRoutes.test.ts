@@ -197,6 +197,33 @@ const { mockCreateMissionEvent } = vi.hoisted(() => ({
   mockCreateMissionEvent: vi.fn(),
 }));
 
+// Report-plan seam: the POST handlers compose build/admit/finalize/execute/
+// validate. Mocking the seam keeps this suite a route-boundary test (actor
+// mapping, event emission, response passthrough, denial ordering); the plan
+// itself is proven on a real DB by codeEvidenceReportStorage.test.ts and the
+// wire suites.
+const {
+  mockBuildReportPlan,
+  mockAdmitReportDestinations,
+  mockFinalizeReportPlan,
+  mockExecuteReportPlan,
+  mockValidateReportContexts,
+} = vi.hoisted(() => ({
+  mockBuildReportPlan: vi.fn(),
+  mockAdmitReportDestinations: vi.fn(async () => {}),
+  mockFinalizeReportPlan: vi.fn(),
+  mockExecuteReportPlan: vi.fn(),
+  mockValidateReportContexts: vi.fn(),
+}));
+
+vi.mock("../services/codeEvidence/reportPlan.js", () => ({
+  buildReportPlan: mockBuildReportPlan,
+  admitReportDestinations: mockAdmitReportDestinations,
+  finalizeReportPlan: mockFinalizeReportPlan,
+  executeReportPlan: mockExecuteReportPlan,
+  validateReportContexts: mockValidateReportContexts,
+}));
+
 vi.mock("../services/codeEvidenceService.js", () => ({
   getTaskCodeEvidence: mockGetTaskCodeEvidence,
   linkTaskCodeEvidence: mockLinkTaskCodeEvidence,
@@ -275,6 +302,22 @@ function resetMocks() {
   mockGetByHabitatId.mockReturnValue(mockRepository);
   mockCreateRepo.mockReturnValue(mockRepository);
   mockUpdateByHabitatId.mockReturnValue(mockRepository);
+  mockBuildReportPlan.mockImplementation(
+    (_origin: unknown, input: unknown) => ({ origin: "plan-stub", input }),
+  );
+  mockExecuteReportPlan.mockReturnValue({
+    result: mockEvidenceResult,
+    contexts: [
+      {
+        linkId: "link-1",
+        targetType: "task",
+        targetId: "task-1",
+        habitatId: "habitat-1",
+        entityTask: mockTask,
+        entityMission: null,
+      },
+    ],
+  });
 }
 
 describe("codeEvidence route registration", () => {
@@ -668,7 +711,7 @@ describe("GET /tasks/:taskId/code-evidence handler", () => {
 describe("POST /tasks/:taskId/code-evidence handler", () => {
   beforeEach(resetMocks);
 
-  it("links code evidence and returns result", async () => {
+  it("builds the report plan from the raw URL spelling and returns the bundle result", async () => {
     const routes = captureRoutes(taskCodeEvidenceRoutes);
     const route = routes.find(
       (r) => r.method === "POST" && r.path === "/tasks/:taskId/code-evidence",
@@ -680,35 +723,35 @@ describe("POST /tasks/:taskId/code-evidence handler", () => {
     };
     const req = createMockRequest({ params: { taskId: "task-1" }, body });
     const result = await route!.handler(req, createMockReply());
-    expect(mockGetTaskById).toHaveBeenCalledWith("task-1");
-    expect(mockLinkTaskCodeEvidence).toHaveBeenCalledWith(
-      "task-1",
-      body,
-      {
-        type: "agent",
-        id: "agent-1",
-      },
-      { habitatId: "habitat-1" },
-    );
+    expect(mockBuildReportPlan).toHaveBeenCalledWith({ kind: "task", rawId: "task-1" }, body);
+    expect(mockAdmitReportDestinations).toHaveBeenCalledTimes(1);
+    expect(mockFinalizeReportPlan).toHaveBeenCalledTimes(1);
+    expect(mockExecuteReportPlan).toHaveBeenCalledTimes(1);
+    expect(mockValidateReportContexts).toHaveBeenCalledTimes(1);
     expect(result).toEqual(mockEvidenceResult);
   });
 
-  it("emits SSE events for each linked evidence", async () => {
+  it("emits SSE events for each validated link context", async () => {
     const routes = captureRoutes(taskCodeEvidenceRoutes);
     const route = routes.find(
       (r) => r.method === "POST" && r.path === "/tasks/:taskId/code-evidence",
     );
     const req = createMockRequest({ params: { taskId: "task-1" }, body: {} });
     await route!.handler(req, createMockReply());
-    expect(mockGetMissionById).toHaveBeenCalledWith("mission-1");
-    expect(mockCreateEvent).toHaveBeenCalled();
+    expect(mockCreateEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        taskId: "task-1",
+        action: "code_evidence_linked",
+        metadata: { evidenceLinkId: "link-1", changeKind: "linked" },
+      }),
+    );
     expect(mockSsePublish).toHaveBeenCalledWith(
       "habitat-1",
       expect.objectContaining({ type: "code_evidence.updated" }),
     );
   });
 
-  it("emits SSE task.updated event", async () => {
+  it("republishes task.updated from the validated exact entity row", async () => {
     const routes = captureRoutes(taskCodeEvidenceRoutes);
     const route = routes.find(
       (r) => r.method === "POST" && r.path === "/tasks/:taskId/code-evidence",
@@ -733,15 +776,13 @@ describe("POST /tasks/:taskId/code-evidence handler", () => {
       user: { id: "user-1", role: "admin" },
     });
     await route!.handler(req, createMockReply());
-    expect(mockLinkTaskCodeEvidence).toHaveBeenCalledWith(
-      "task-1",
-      {},
-      { type: "human", id: "user-1" },
-      { habitatId: "habitat-1" },
-    );
+    expect(mockExecuteReportPlan).toHaveBeenCalledWith(expect.anything(), {
+      type: "human",
+      id: "user-1",
+    });
   });
 
-  it("uses system actor when neither agent nor user is set", async () => {
+  it("rejects a principal-less request at origin admission before any plan work", async () => {
     const routes = captureRoutes(taskCodeEvidenceRoutes);
     const route = routes.find(
       (r) => r.method === "POST" && r.path === "/tasks/:taskId/code-evidence",
@@ -752,17 +793,13 @@ describe("POST /tasks/:taskId/code-evidence handler", () => {
       agent: null,
       user: null,
     });
-    await route!.handler(req, createMockReply());
-    expect(mockLinkTaskCodeEvidence).toHaveBeenCalledWith(
-      "task-1",
-      {},
-      { type: "system", id: "system" },
-      { habitatId: "habitat-1" },
-    );
+    await expect(route!.handler(req, createMockReply())).rejects.toThrow("Authentication required");
+    expect(mockBuildReportPlan).not.toHaveBeenCalled();
+    expect(mockSsePublish).not.toHaveBeenCalled();
   });
 
-  it("skips SSE events when no links are returned", async () => {
-    mockLinkTaskCodeEvidence.mockReturnValue({ links: [], completeness: { percentage: 0 } });
+  it("emits no events when the bundle returns no link contexts", async () => {
+    mockExecuteReportPlan.mockReturnValue({ result: { links: [], warnings: [], errors: [] }, contexts: [] });
     const routes = captureRoutes(taskCodeEvidenceRoutes);
     const route = routes.find(
       (r) => r.method === "POST" && r.path === "/tasks/:taskId/code-evidence",
@@ -772,14 +809,15 @@ describe("POST /tasks/:taskId/code-evidence handler", () => {
     expect(mockSsePublish).not.toHaveBeenCalled();
   });
 
-  it("skips SSE events when habitatId cannot be resolved", async () => {
+  it("rejects honestly when origin ancestry cannot be resolved (no silent skip)", async () => {
     mockGetMissionById.mockReturnValue(null);
     const routes = captureRoutes(taskCodeEvidenceRoutes);
     const route = routes.find(
       (r) => r.method === "POST" && r.path === "/tasks/:taskId/code-evidence",
     );
     const req = createMockRequest({ params: { taskId: "task-1" }, body: {} });
-    await route!.handler(req, createMockReply());
+    await expect(route!.handler(req, createMockReply())).rejects.toThrow("Mission not found");
+    expect(mockBuildReportPlan).not.toHaveBeenCalled();
     expect(mockSsePublish).not.toHaveBeenCalled();
   });
 
@@ -1171,7 +1209,7 @@ describe("GET /missions/:missionId/code-evidence handler", () => {
 describe("POST /missions/:missionId/code-evidence handler", () => {
   beforeEach(resetMocks);
 
-  it("links code evidence and returns result", async () => {
+  it("builds the report plan from the raw URL spelling and returns the bundle result", async () => {
     const routes = captureRoutes(missionCodeEvidenceRoutes);
     const route = routes.find(
       (r) => r.method === "POST" && r.path === "/missions/:missionId/code-evidence",
@@ -1183,19 +1221,29 @@ describe("POST /missions/:missionId/code-evidence handler", () => {
     const req = createMockRequest({ params: { missionId: "mission-1" }, body });
     const result = await route!.handler(req, createMockReply());
     expect(mockGetMissionById).toHaveBeenCalledWith("mission-1");
-    expect(mockLinkMissionCodeEvidence).toHaveBeenCalledWith(
-      "mission-1",
-      body,
-      {
-        type: "agent",
-        id: "agent-1",
-      },
-      { habitatId: "habitat-1" },
-    );
+    expect(mockBuildReportPlan).toHaveBeenCalledWith({ kind: "mission", rawId: "mission-1" }, body);
+    expect(mockAdmitReportDestinations).toHaveBeenCalledTimes(1);
+    expect(mockExecuteReportPlan).toHaveBeenCalledWith(expect.anything(), {
+      type: "agent",
+      id: "agent-1",
+    });
     expect(result).toEqual(mockEvidenceResult);
   });
 
-  it("emits SSE events for each linked evidence", async () => {
+  it("emits SSE events for each validated link context", async () => {
+    mockExecuteReportPlan.mockReturnValue({
+      result: mockEvidenceResult,
+      contexts: [
+        {
+          linkId: "link-1",
+          targetType: "mission",
+          targetId: "mission-1",
+          habitatId: "habitat-1",
+          entityTask: null,
+          entityMission: mockMission,
+        },
+      ],
+    });
     const routes = captureRoutes(missionCodeEvidenceRoutes);
     const route = routes.find(
       (r) => r.method === "POST" && r.path === "/missions/:missionId/code-evidence",
@@ -1222,8 +1270,8 @@ describe("POST /missions/:missionId/code-evidence handler", () => {
     );
   });
 
-  it("skips SSE events when no links are returned", async () => {
-    mockLinkMissionCodeEvidence.mockReturnValue({ links: [], completeness: { percentage: 0 } });
+  it("emits no events when the bundle returns no link contexts", async () => {
+    mockExecuteReportPlan.mockReturnValue({ result: { links: [], warnings: [], errors: [] }, contexts: [] });
     const routes = captureRoutes(missionCodeEvidenceRoutes);
     const route = routes.find(
       (r) => r.method === "POST" && r.path === "/missions/:missionId/code-evidence",
@@ -2064,6 +2112,19 @@ describe("emitEvidenceEvent integration (task side effects)", () => {
   });
 
   it("mission link emits code_evidence_linked mission event and mission.updated SSE", async () => {
+    mockExecuteReportPlan.mockReturnValue({
+      result: mockEvidenceResult,
+      contexts: [
+        {
+          linkId: "link-1",
+          targetType: "mission",
+          targetId: "mission-1",
+          habitatId: "habitat-1",
+          entityTask: null,
+          entityMission: mockMission,
+        },
+      ],
+    });
     const routes = captureRoutes(missionCodeEvidenceRoutes);
     const route = routes.find(
       (r) => r.method === "POST" && r.path === "/missions/:missionId/code-evidence",
@@ -2101,12 +2162,10 @@ describe("getActor integration", () => {
       user: { id: "user-1", role: "admin" },
     });
     await route!.handler(req, createMockReply());
-    expect(mockLinkTaskCodeEvidence).toHaveBeenCalledWith(
-      "task-1",
-      {},
-      { type: "agent", id: "agent-42" },
-      { habitatId: "habitat-1" },
-    );
+    expect(mockExecuteReportPlan).toHaveBeenCalledWith(expect.anything(), {
+      type: "agent",
+      id: "agent-42",
+    });
   });
 
   it("uses human actor when request has user but no agent", async () => {
@@ -2121,15 +2180,13 @@ describe("getActor integration", () => {
       user: { id: "user-99", role: "member" },
     });
     await route!.handler(req, createMockReply());
-    expect(mockLinkTaskCodeEvidence).toHaveBeenCalledWith(
-      "task-1",
-      {},
-      { type: "human", id: "user-99" },
-      { habitatId: "habitat-1" },
-    );
+    expect(mockExecuteReportPlan).toHaveBeenCalledWith(expect.anything(), {
+      type: "human",
+      id: "user-99",
+    });
   });
 
-  it("uses system actor when request has neither agent nor user", async () => {
+  it("rejects a principal-less request at admission (system actor is unreachable over HTTP)", async () => {
     const routes = captureRoutes(taskCodeEvidenceRoutes);
     const route = routes.find(
       (r) => r.method === "POST" && r.path === "/tasks/:taskId/code-evidence",
@@ -2140,12 +2197,7 @@ describe("getActor integration", () => {
       agent: null,
       user: null,
     });
-    await route!.handler(req, createMockReply());
-    expect(mockLinkTaskCodeEvidence).toHaveBeenCalledWith(
-      "task-1",
-      {},
-      { type: "system", id: "system" },
-      { habitatId: "habitat-1" },
-    );
+    await expect(route!.handler(req, createMockReply())).rejects.toThrow("Authentication required");
+    expect(mockExecuteReportPlan).not.toHaveBeenCalled();
   });
 });

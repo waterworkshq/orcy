@@ -5,16 +5,32 @@ import type {
   CodeEvidenceLinkItem,
 } from "../../types/index.js";
 
+/**
+ * The ONE evidence-only persisted-ID adapter. Task evidence inputs that
+ * originate from a fetched Task row (`TaskDetailPanel` → `TaskCodeEvidence`
+ * → this panel's API calls) are PERSISTED row ids, not admitted URL
+ * spellings. Sending `feat-${persistedId}` lets the server's one-strip
+ * resolver select exactly that row for every spelling — plain `X` and
+ * literal `feat-X` alike (`feat-feat-X` strips once to `feat-X`). Without
+ * this, a detail view of a literal `feat-X` Task would address Task `X`.
+ *
+ * Deliberately NOT applied to Mission ids (no strip grammar) or to generic
+ * Task consumers outside the evidence surface.
+ */
+function persistedTaskEvidenceId(persistedTaskId: string): string {
+  return `feat-${persistedTaskId}`;
+}
+
 export const codeEvidenceApi = {
   getTaskEvidence: (taskId: string, includeHistory?: boolean) => {
     const qs = includeHistory ? "?includeHistory=true" : "";
     return request<import("../../types/index.js").CodeEvidenceResponse>(
-      `/tasks/${taskId}/code-evidence${qs}`,
+      `/tasks/${persistedTaskEvidenceId(taskId)}/code-evidence${qs}`,
     );
   },
   linkTaskCode: (taskId: string, input: import("../../types/index.js").CodeEvidenceLinkInput) =>
     request<import("../../types/index.js").CodeEvidenceBulkResult>(
-      `/tasks/${taskId}/code-evidence`,
+      `/tasks/${persistedTaskEvidenceId(taskId)}/code-evidence`,
       { method: "POST", body: JSON.stringify(input) },
     ),
   correctTaskLink: (
@@ -22,39 +38,51 @@ export const codeEvidenceApi = {
     linkId: string,
     input: import("../../types/index.js").CodeEvidenceCorrectionInput,
   ) =>
-    request<{ link: CodeEvidenceLinkItem }>(`/tasks/${taskId}/code-evidence/${linkId}/correct`, {
-      method: "POST",
-      body: JSON.stringify(input),
-    }),
+    request<{ link: CodeEvidenceLinkItem }>(
+      `/tasks/${persistedTaskEvidenceId(taskId)}/code-evidence/${linkId}/correct`,
+      {
+        method: "POST",
+        body: JSON.stringify(input),
+      },
+    ),
   markTaskNotApplicable: (
     taskId: string,
     input: import("../../types/index.js").CodeEvidenceNotApplicableInput,
   ) =>
     request<{ completeness: CodeEvidenceCompletenessInfo }>(
-      `/tasks/${taskId}/code-evidence/not-applicable`,
+      `/tasks/${persistedTaskEvidenceId(taskId)}/code-evidence/not-applicable`,
       {
         method: "POST",
         body: JSON.stringify(input),
       },
     ),
   clearTaskNotApplicable: (taskId: string) =>
-    request<{ success: boolean }>(`/tasks/${taskId}/code-evidence/not-applicable`, {
-      method: "DELETE",
-    }),
+    request<{ success: boolean }>(
+      `/tasks/${persistedTaskEvidenceId(taskId)}/code-evidence/not-applicable`,
+      {
+        method: "DELETE",
+      },
+    ),
   reportTaskGap: (taskId: string, input: import("../../types/index.js").CodeEvidenceGapInput) =>
-    request<{ gap: CodeEvidenceGapItem }>(`/tasks/${taskId}/code-evidence/gaps`, {
-      method: "POST",
-      body: JSON.stringify(input),
-    }),
+    request<{ gap: CodeEvidenceGapItem }>(
+      `/tasks/${persistedTaskEvidenceId(taskId)}/code-evidence/gaps`,
+      {
+        method: "POST",
+        body: JSON.stringify(input),
+      },
+    ),
   resolveTaskGap: (
     taskId: string,
     gapId: string,
     input: import("../../types/index.js").CodeEvidenceGapResolveInput,
   ) =>
-    request<{ gap: CodeEvidenceGapItem }>(`/tasks/${taskId}/code-evidence/gaps/${gapId}/resolve`, {
-      method: "POST",
-      body: JSON.stringify(input),
-    }),
+    request<{ gap: CodeEvidenceGapItem }>(
+      `/tasks/${persistedTaskEvidenceId(taskId)}/code-evidence/gaps/${gapId}/resolve`,
+      {
+        method: "POST",
+        body: JSON.stringify(input),
+      },
+    ),
 
   getMissionEvidence: (missionId: string, includeHistory?: boolean) => {
     const qs = includeHistory ? "?includeHistory=true" : "";

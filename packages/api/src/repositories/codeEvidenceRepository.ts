@@ -20,6 +20,33 @@ export function getByHabitatId(habitatId: string) {
   return rows.length > 0 ? rows[0] : null;
 }
 
+/** Client accepted by the supplied-client repository-identity primitives. */
+export type RepositoryIdentityDbClient = ReturnType<typeof getDb>;
+
+/**
+ * ALL repository-identity rows for a habitat. The reporting-domain selection
+ * treats cardinality as load-bearing: zero rows means fresh request-local
+ * unverified records, exactly one selects that configuration domain, and two
+ * or more (legacy/dirty installations) refuse before any evidence write.
+ */
+export function getAllByHabitatId(habitatId: string) {
+  const db = getDb();
+  return db
+    .select()
+    .from(habitatCodeRepositories)
+    .where(eq(habitatCodeRepositories.habitatId, habitatId))
+    .all();
+}
+
+/** getAllByHabitatId on a supplied client — used for the in-transaction drift recheck. */
+export function getAllByHabitatIdWithClient(client: RepositoryIdentityDbClient, habitatId: string) {
+  return client
+    .select()
+    .from(habitatCodeRepositories)
+    .where(eq(habitatCodeRepositories.habitatId, habitatId))
+    .all();
+}
+
 export function getById(id: string) {
   const db = getDb();
   const rows = db

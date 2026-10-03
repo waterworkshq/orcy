@@ -600,6 +600,14 @@ orcy_habitat_task({ action: "report-gap", taskId: "uuid", gapReasonCode: "<free-
 orcy_habitat_task({ action: "resolve-gap", taskId: "uuid", gapId: "gap-uuid", resolutionReason: "..." })
 ```
 
+**Transport spelling and history flag (read contract):**
+
+- `includeHistory` is transmitted as the literal string `true`/`false` and parsed deliberately server-side: absent and `false` both omit history collections (and their truncation keys); only `true` materializes them; any other wire text is a 400. The MCP client always sends the flag — the default `false` now means false (it previously coerced to true).
+- Concrete transport spellings for a task whose PERSISTED id is literally `feat-X`: REST addresses it as `feat-feat-X` (the server strips exactly one `feat-`), and this MCP client needs `feat-feat-feat-X` (it strips one `feat-` before the server strips another). For a normal persisted task id `X`, REST uses `feat-X` through the UI evidence adapter and MCP uses `X`.
+- Mission ids have no strip grammar on the REST side (exact first, then the `mission-` fallback), BUT this MCP client normalizes one `feat-` on them too: a persisted mission id literally `feat-M` is addressed over MCP as `feat-feat-M` (client strip lands on `feat-M`), while REST uses the stored spelling `feat-M` directly. This preprocessing ceiling is documented, not changed.
+- The response carries an additive `compatibility` section (labelled verified-legacy projection, classified not-applicable overrides with an explicit two-override conflict and no winner, `effectiveCompleteness`, and per-collection truncation flags). Exact counts live in `summary`; legacy alias rows are never rewritten.
+
+
 Reason codes are free-text strings (no fixed enum is enforced); `linkStatus` is `incorrect` | `removed` | `superseded`.
 
 Authority: `correct-code-evidence-link` and `resolve-gap` resolve the task's Mission→Habitat first and only act on a link or gap belonging to that exact task, so an id from another task — or a mission's — returns `404` with nothing changed; a missing task returns `404`, and a human who is not a member of the task's team habitat gets `403`. Both responses are the raw stored row. `replacementLinkId` is a reference only: it may point at any existing link and it does not grant access to that link's task or content, and a pointer that does not exist fails the call. The mission equivalents of both actions require the same exact-mission match.

@@ -294,12 +294,62 @@ export interface CodeEvidenceResponse {
   activeGaps: CodeEvidenceGapItem[];
   history?: CodeEvidenceHistory;
   warnings: string[];
+  compatibility?: CodeEvidenceCompatibility;
 }
 
 /** Historical view containing superseded/removed links and resolved gaps for a target. */
 export interface CodeEvidenceHistory {
   links: CodeEvidenceLinkItem[];
   resolvedGaps: CodeEvidenceGapItem[];
+}
+
+/**
+ * Labelled projection of evidence stored under a verified legacy target pair —
+ * a stored pair whose targetId text is not the canonical row id but resolves,
+ * under the current transport resolver, to the same actual object and kind.
+ * Legacy rows are never rewritten; they surface here for compatibility.
+ */
+export interface CodeEvidenceLegacySection {
+  label: "Verified legacy evidence";
+  storedTarget: { type: CodeEvidenceTargetType; id: string };
+  groups: CodeEvidenceResponse["groups"];
+  activeGaps: CodeEvidenceGapItem[];
+  history?: CodeEvidenceHistory;
+  summary: CodeEvidenceSummary;
+}
+
+/** One persisted not-applicable override, classified by which stored target pair owns it. */
+export interface CodeEvidenceOverrideEntry {
+  storedTarget: { type: CodeEvidenceTargetType; id: string };
+  classification: "canonical" | "verified_legacy";
+  value: CodeEvidenceCompletenessInfo;
+}
+
+/** Which materialized read collections were truncated at the per-section row cap. */
+export type CodeEvidenceTruncationKey =
+  | "canonicalActiveLinks"
+  | "canonicalActiveGaps"
+  | "legacyActiveLinks"
+  | "legacyActiveGaps"
+  | "canonicalHistoryLinks"
+  | "canonicalResolvedGaps"
+  | "legacyHistoryLinks"
+  | "legacyResolvedGaps";
+
+/**
+ * Additive compatibility projection served by the local Task and Mission
+ * evidence reads. The top-level canonical `target`/`summary`/`completeness`
+ * remain the canonical pair's authority; this section adds the verified
+ * legacy pair projection, every classified override (multiplicity is the
+ * conflict signal — there is no winner), the effective completeness the UI
+ * should badge, and per-collection truncation flags. History collections (and
+ * their truncation keys) are omitted entirely when history was not requested.
+ */
+export interface CodeEvidenceCompatibility {
+  legacy?: CodeEvidenceLegacySection;
+  overrides: CodeEvidenceOverrideEntry[];
+  effectiveCompleteness: CodeEvidenceCompletenessInfo;
+  truncation: Partial<Record<CodeEvidenceTruncationKey, boolean>>;
 }
 
 /** Extended {@link CodeEvidenceResponse} for missions, adding rolled-up task evidence and per-task completeness. */

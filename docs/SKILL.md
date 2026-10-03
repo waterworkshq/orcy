@@ -1471,6 +1471,13 @@ Input: { "action": "list-code-evidence", taskId: "uuid" }
 Output: { "evidence": [{ "id": "...", "evidenceType": "pull_request", "url": "...", "completeness": "complete", "corrections": [] }], "completeness": "complete" }
 ```
 
+**Transport spelling and history flag (read contract):**
+
+- `includeHistory` is transmitted as the literal string `true`/`false` and parsed deliberately server-side: absent and `false` both omit history collections (and their truncation keys); only `true` materializes them; any other wire text is a 400. The MCP client always sends the flag — the default `false` now means false (it previously coerced to true).
+- Concrete transport spellings for a task whose PERSISTED id is literally `feat-X`: REST addresses it as `feat-feat-X` (the server strips exactly one `feat-`), and this MCP client needs `feat-feat-feat-X` (it strips one `feat-` before the server strips another). For a normal persisted task id `X`, REST uses `feat-X` through the UI evidence adapter and MCP uses `X`.
+- Mission ids have no strip grammar on the REST side (exact first, then the `mission-` fallback), BUT this MCP client normalizes one `feat-` on them too: a persisted mission id literally `feat-M` is addressed over MCP as `feat-feat-M` (client strip lands on `feat-M`), while REST uses the stored spelling `feat-M` directly. This preprocessing ceiling is documented, not changed.
+- The response carries an additive `compatibility` section (labelled verified-legacy projection, classified not-applicable overrides with an explicit two-override conflict and no winner, `effectiveCompleteness`, and per-collection truncation flags). Exact counts live in `summary`; legacy alias rows are never rewritten.
+
 #### Get Task Audit Bundle
 
 Get a scoped, metadata-only evidence bundle for a task. Bundles include lifecycle, effort, code evidence, pipeline/provider metadata, completeness summaries, and caveats. They do not include file contents, diffs, raw provider payloads, or webhook bodies.

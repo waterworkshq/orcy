@@ -12,6 +12,81 @@ export function getById(id: string) {
   return rows.length > 0 ? rows[0] : null;
 }
 
+/** Client accepted by the supplied-client commit primitives (top-level db or a transaction). */
+export type CommitDbClient = ReturnType<typeof getDb>;
+
+/**
+ * All commit rows for one exact repository-domain key (repositoryId + exact
+ * SHA, case preserved). Duplicate/incompatible-provider cardinality is
+ * load-bearing for the refuse-ambiguous selection contract. The fresh
+ * request-local fallback (no configured domain) never selects by SHA.
+ */
+export function findByRepoAndShaWithClient(
+  client: CommitDbClient,
+  repositoryId: string,
+  sha: string,
+): (typeof codeCommits.$inferSelect)[] {
+  return client
+    .select()
+    .from(codeCommits)
+    .where(and(eq(codeCommits.repositoryId, repositoryId), eq(codeCommits.sha, sha)))
+    .all();
+}
+
+/**
+ * Creates a commit row on the supplied client. Attach-without-refresh: the
+ * report plan never updates an existing commit's metadata or verification —
+ * a selected existing row is linked as-is.
+ */
+export function createWithClient(
+  client: CommitDbClient,
+  input: {
+    repositoryId?: string | null;
+    provider: string;
+    repoSlug?: string | null;
+    sha: string;
+    branchId?: string | null;
+    message?: string | null;
+    authorName?: string | null;
+    authorEmail?: string | null;
+    authoredAt?: string | null;
+    url?: string | null;
+    verificationState?: CodeEvidenceVerificationState;
+    metadata?: Record<string, unknown>;
+  },
+) {
+  const id = uuid();
+  const now = new Date().toISOString();
+
+  try {
+    client
+      .insert(codeCommits)
+      .values({
+        id,
+        repositoryId: input.repositoryId ?? null,
+        provider: input.provider,
+        repoSlug: input.repoSlug ?? null,
+        sha: input.sha,
+        branchId: input.branchId ?? null,
+        message: input.message ?? null,
+        authorName: input.authorName ?? null,
+        authorEmail: input.authorEmail ?? null,
+        authoredAt: input.authoredAt ?? null,
+        url: input.url ?? null,
+        verificationState: input.verificationState ?? "unverified",
+        metadata: input.metadata ?? {},
+        createdAt: now,
+        updatedAt: now,
+      })
+      .run();
+  } catch (err) {
+    throw repositoryCreateError("codeCommit", err as Error, id);
+  }
+
+  const rows = client.select().from(codeCommits).where(eq(codeCommits.id, id)).all();
+  return rows.length > 0 ? rows[0] : null;
+}
+
 export function findByRepoAndSha(
   repositoryId: string | null,
   sha: string,

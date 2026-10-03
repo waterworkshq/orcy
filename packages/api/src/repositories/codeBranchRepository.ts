@@ -16,6 +16,72 @@ export function getById(id: string) {
   return rows.length > 0 ? rows[0] : null;
 }
 
+/** Client accepted by the supplied-client branch primitives (top-level db or a transaction). */
+export type BranchDbClient = ReturnType<typeof getDb>;
+
+/**
+ * All branch rows for one exact repository-domain key (repositoryId + exact
+ * name). Duplicate cardinality is load-bearing for the refuse-ambiguous
+ * selection contract; no unordered first match is chosen here. The fresh
+ * request-local fallback (no configured domain) never selects by name — its
+ * records are created per request — so a configured domain is required.
+ */
+export function findByRepoAndNameWithClient(
+  client: BranchDbClient,
+  repositoryId: string,
+  name: string,
+): (typeof codeBranches.$inferSelect)[] {
+  return client
+    .select()
+    .from(codeBranches)
+    .where(and(eq(codeBranches.repositoryId, repositoryId), eq(codeBranches.name, name)))
+    .all();
+}
+
+/** Creates a branch row on the supplied client. Attach-without-refresh: existing rows are never updated by the report plan. */
+export function createWithClient(
+  client: BranchDbClient,
+  input: {
+    repositoryId?: string | null;
+    provider: string;
+    repoSlug?: string | null;
+    name: string;
+    baseBranch?: string | null;
+    headSha?: string | null;
+    url?: string | null;
+    createdFromTaskId?: string | null;
+    verificationState?: CodeEvidenceVerificationState;
+  },
+) {
+  const id = uuid();
+  const now = new Date().toISOString();
+
+  try {
+    client
+      .insert(codeBranches)
+      .values({
+        id,
+        repositoryId: input.repositoryId ?? null,
+        provider: input.provider,
+        repoSlug: input.repoSlug ?? null,
+        name: input.name,
+        baseBranch: input.baseBranch ?? null,
+        headSha: input.headSha ?? null,
+        url: input.url ?? null,
+        createdFromTaskId: input.createdFromTaskId ?? null,
+        verificationState: input.verificationState ?? "unverified",
+        createdAt: now,
+        updatedAt: now,
+      })
+      .run();
+  } catch (err) {
+    throw repositoryCreateError("codeBranch", err as Error, id);
+  }
+
+  const rows = client.select().from(codeBranches).where(eq(codeBranches.id, id)).all();
+  return rows.length > 0 ? rows[0] : null;
+}
+
 export function findByRepoAndName(
   repositoryId: string | null,
   name: string,

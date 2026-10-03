@@ -27,6 +27,13 @@ import {
   notApplicableSchema,
 } from "./shared.js";
 import { applyDeclaredAuthPolicies } from "../../authPolicy.js";
+import {
+  admitReportDestinations,
+  buildReportPlan,
+  executeReportPlan,
+  finalizeReportPlan,
+  validateReportContexts,
+} from "../../services/codeEvidence/reportPlan.js";
 
 export async function missionCodeEvidenceRoutes(fastify: FastifyInstance): Promise<void> {
   applyDeclaredAuthPolicies(fastify);
@@ -41,7 +48,9 @@ export async function missionCodeEvidenceRoutes(fastify: FastifyInstance): Promi
       const mission = missionRepo.getMissionById(request.params.missionId);
       if (!mission) throw notFound("Mission not found");
 
-      return codeEvidenceService.getMissionCodeEvidence(request.params.missionId, {
+      // Canonical identity is the fetched Mission row (exact-first resolver);
+      // the compatibility projection keys off the persisted row id.
+      return codeEvidenceService.getMissionCodeEvidence(mission.id, {
         includeHistory: request.query.includeHistory,
         habitatId: mission.habitatId,
       });
@@ -55,20 +64,40 @@ export async function missionCodeEvidenceRoutes(fastify: FastifyInstance): Promi
       config: { authPolicy: "local_actor" },
     },
     async (request) => {
+      // Mission ORIGIN admission is unchanged: local_actor plus existence,
+      // no new membership predicate. Storage/event parity is the cutover:
+      // distinct trailer destinations receive the existing target-derived
+      // admission (Task→Mission→Habitat / Mission→Habitat) in first-seen
+      // order; occurrences resolving to the reporting Mission itself reuse
+      // origin admission. First 403/404 rejects the whole request with zero
+      // evidence/event effects.
       const { missionId } = request.params;
       const mission = missionRepo.getMissionById(missionId);
       if (!mission) throw notFound("Mission not found");
 
       const actor = getActor(request);
-      const result = codeEvidenceService.linkMissionCodeEvidence(
-        missionId,
+      const plan = buildReportPlan(
+        { kind: "mission", rawId: missionId },
         request.body as CodeEvidenceLinkInput,
-        actor,
-        { habitatId: mission.habitatId },
       );
+      await admitReportDestinations(request, plan);
+      finalizeReportPlan(plan);
+      const { result, contexts } = executeReportPlan(plan, actor);
+      validateReportContexts(plan, contexts, result);
 
-      for (const link of result.links) {
-        emitEvidenceEvent("mission", missionId, mission.habitatId, link.linkId, "linked", actor);
+      for (const context of contexts) {
+        emitEvidenceEvent(
+          context.targetType,
+          context.targetId,
+          context.habitatId,
+          context.linkId,
+          "linked",
+          actor,
+          {
+            task: context.entityTask ?? undefined,
+            mission: context.entityMission ?? undefined,
+          },
+        );
       }
 
       return result;
@@ -87,27 +116,21 @@ export async function missionCodeEvidenceRoutes(fastify: FastifyInstance): Promi
       if (!mission) throw notFound("Mission not found");
 
       const actor = getActor(request);
-      // Shared-signature consequence of the Task evidence containment: the
-      // source link must belong to this exact Mission, and the emitted effect
-      // names the row the UPDATE actually corrected. Mission admission
-      // itself is unchanged.
+      // Compatibility adapter: the source link must belong to the canonical
+      // fetched Mission pair or its one verified legacy pair; the UPDATE
+      // fences the row's OWN stored pair. Mission admission is unchanged.
       const corrected = codeEvidenceService.correctEvidenceLink(
         "mission",
-        missionId,
+        mission.id,
         linkId,
         request.body as CodeEvidenceCorrectionInput,
         actor,
       );
       if (!corrected) throw notFound("Evidence link not found");
 
-      emitEvidenceEvent(
-        "mission",
-        corrected.targetId,
-        mission.habitatId,
-        corrected.id,
-        "corrected",
-        actor,
-      );
+      emitEvidenceEvent("mission", mission.id, mission.habitatId, corrected.id, "corrected", actor, {
+        mission,
+      });
       return { link: corrected };
     },
   );
@@ -124,14 +147,19 @@ export async function missionCodeEvidenceRoutes(fastify: FastifyInstance): Promi
       if (!mission) throw notFound("Mission not found");
 
       const actor = getActor(request);
+      // Same transactional mark compatibility adapter as the Task route: a
+      // verified legacy Mission-pair override refuses 409 before writes.
+      // Mission admission (local_actor + existence) is unchanged.
       const result = codeEvidenceService.markCodeEvidenceNotApplicable(
         "mission",
-        missionId,
+        mission.id,
         request.body as CodeEvidenceNotApplicableInput,
         actor,
       );
 
-      emitEvidenceEvent("mission", missionId, mission.habitatId, "", "not_applicable", actor);
+      emitEvidenceEvent("mission", mission.id, mission.habitatId, "", "not_applicable", actor, {
+        mission,
+      });
       return { completeness: result };
     },
   );
@@ -148,10 +176,12 @@ export async function missionCodeEvidenceRoutes(fastify: FastifyInstance): Promi
       if (!mission) throw notFound("Mission not found");
 
       const actor = getActor(request);
-      codeEvidenceService.clearCodeEvidenceNotApplicable("mission", missionId);
+      // Clears the canonical override and every verified equivalent legacy
+      // override together in one immediate transaction.
+      codeEvidenceService.clearCodeEvidenceNotApplicable("mission", mission.id);
 
       missionEventRepo.createMissionEvent({
-        missionId,
+        missionId: mission.id,
         actorType: actor.type,
         actorId: actor.id,
         action: "code_evidence_cleared_not_applicable",
@@ -161,7 +191,7 @@ export async function missionCodeEvidenceRoutes(fastify: FastifyInstance): Promi
         type: "code_evidence.updated",
         data: {
           targetType: "mission",
-          targetId: missionId,
+          targetId: mission.id,
           evidenceLinkId: "",
           changeKind: "not_applicable",
         },
@@ -183,15 +213,18 @@ export async function missionCodeEvidenceRoutes(fastify: FastifyInstance): Promi
       if (!mission) throw notFound("Mission not found");
 
       const actor = getActor(request);
+      // New gaps store the fetched canonical Mission row id.
       const gap = codeEvidenceService.reportCodeEvidenceGap(
         "mission",
-        missionId,
+        mission.id,
         request.body as CodeEvidenceGapInput,
         actor,
       );
       if (!gap) throw badRequest("Failed to create evidence gap");
 
-      emitEvidenceEvent("mission", missionId, mission.habitatId, gap.id, "gap_reported", actor);
+      emitEvidenceEvent("mission", mission.id, mission.habitatId, gap.id, "gap_reported", actor, {
+        mission,
+      });
       return { gap };
     },
   );
@@ -208,10 +241,11 @@ export async function missionCodeEvidenceRoutes(fastify: FastifyInstance): Promi
       if (!mission) throw notFound("Mission not found");
 
       const actor = getActor(request);
-      // Same exact-pair source containment as the Mission correction POST.
+      // Same canonical/verified-legacy stored-pair containment as the
+      // Mission correction POST.
       const resolved = codeEvidenceService.resolveCodeEvidenceGap(
         "mission",
-        missionId,
+        mission.id,
         gapId,
         request.body as CodeEvidenceGapResolveInput,
         actor,
@@ -219,7 +253,7 @@ export async function missionCodeEvidenceRoutes(fastify: FastifyInstance): Promi
       if (!resolved) throw notFound("Evidence gap not found");
 
       missionEventRepo.createMissionEvent({
-        missionId: resolved.targetId,
+        missionId: mission.id,
         actorType: actor.type,
         actorId: actor.id,
         action: "code_evidence_gap_resolved",
@@ -229,7 +263,7 @@ export async function missionCodeEvidenceRoutes(fastify: FastifyInstance): Promi
         type: "code_evidence.updated",
         data: {
           targetType: "mission",
-          targetId: resolved.targetId,
+          targetId: mission.id,
           evidenceLinkId: "",
           changeKind: "verified",
         },

@@ -20,7 +20,6 @@ import {
   gapResolveSchema,
   gapSchema,
   getActor,
-  getHabitatIdForTask,
   includeHistoryQuerySchema,
   linkCodeSchema,
   linkIdParamsSchema,
@@ -29,6 +28,13 @@ import {
 } from "./shared.js";
 import { applyDeclaredAuthPolicies } from "../../authPolicy.js";
 import { authorizeTaskAccess } from "../../middleware/realtimeAuth.js";
+import {
+  admitReportDestinations,
+  buildReportPlan,
+  executeReportPlan,
+  finalizeReportPlan,
+  validateReportContexts,
+} from "../../services/codeEvidence/reportPlan.js";
 
 export async function taskCodeEvidenceRoutes(fastify: FastifyInstance): Promise<void> {
   applyDeclaredAuthPolicies(fastify);
@@ -46,7 +52,13 @@ export async function taskCodeEvidenceRoutes(fastify: FastifyInstance): Promise<
       // caller-supplied or nullable substitute.
       const habitatId = await authorizeTaskAccess(request, request.params.taskId);
 
-      return codeEvidenceService.getTaskCodeEvidence(request.params.taskId, {
+      // Canonical identity is the fetched row selected by the URL spelling —
+      // the read model (canonical primary + verified legacy projection)
+      // keys off the persisted row id, never the raw URL text.
+      const task = taskRepo.getTaskById(request.params.taskId);
+      if (!task) throw notFound("Task not found");
+
+      return codeEvidenceService.getTaskCodeEvidence(task.id, {
         includeHistory: request.query.includeHistory,
         habitatId,
       });
@@ -60,23 +72,42 @@ export async function taskCodeEvidenceRoutes(fastify: FastifyInstance): Promise<
       config: { authPolicy: "local_actor" },
     },
     async (request) => {
-      const { taskId } = request.params;
-      const task = taskRepo.getTaskById(taskId);
-      if (!task) throw notFound("Task not found");
+      // Origin admission is target-derived (settled owner decision): the
+      // URL Task's actual Mission/Habitat is authorized before any plan,
+      // write, or event. A denied origin rejects the whole request with
+      // zero evidence effects.
+      await authorizeTaskAccess(request, request.params.taskId);
 
       const actor = getActor(request);
-      const habitatId = getHabitatIdForTask(taskId);
-      const result = codeEvidenceService.linkTaskCodeEvidence(
-        taskId,
+      // Raw dispatch plan (occurrences before canonicalization), whole-
+      // request first-seen destination admission, reporting-domain storage
+      // selection, then ONE synchronous immediate write bundle with drift
+      // recheck. The entire returned context batch is validated before the
+      // first route event; an invalid context fails 500 with zero events
+      // (committed evidence may remain — no rollback claim). Later emitter
+      // failures may partially fan out.
+      const plan = buildReportPlan(
+        { kind: "task", rawId: request.params.taskId },
         request.body as CodeEvidenceLinkInput,
-        actor,
-        { habitatId: habitatId ?? undefined },
       );
+      await admitReportDestinations(request, plan);
+      finalizeReportPlan(plan);
+      const { result, contexts } = executeReportPlan(plan, actor);
+      validateReportContexts(plan, contexts, result);
 
-      if (result.links.length > 0 && habitatId) {
-        for (const link of result.links) {
-          emitEvidenceEvent("task", taskId, habitatId, link.linkId, "linked", actor);
-        }
+      for (const context of contexts) {
+        emitEvidenceEvent(
+          context.targetType,
+          context.targetId,
+          context.habitatId,
+          context.linkId,
+          "linked",
+          actor,
+          {
+            task: context.entityTask ?? undefined,
+            mission: context.entityMission ?? undefined,
+          },
+        );
       }
 
       return result;
@@ -97,20 +128,28 @@ export async function taskCodeEvidenceRoutes(fastify: FastifyInstance): Promise<
       // emitted for the row the UPDATE actually corrected rather than for
       // the URL input.
       const habitatId = await authorizeTaskAccess(request, taskId);
+      const task = taskRepo.getTaskById(taskId);
+      if (!task) throw notFound("Task not found");
 
       const actor = getActor(request);
+      // The source link must belong to the canonical fetched row's pair or
+      // its one verified legacy pair; the UPDATE fences the row's OWN stored
+      // pair (a legacy row keeps its alias pair and id).
       const corrected = codeEvidenceService.correctEvidenceLink(
         "task",
-        taskId,
+        task.id,
         linkId,
         request.body as CodeEvidenceCorrectionInput,
         actor,
       );
       if (!corrected) throw notFound("Evidence link not found");
 
-      // `targetType` is fenced to "task" by the predicate the row just
-      // satisfied, so only the ids come off the matched row.
-      emitEvidenceEvent("task", corrected.targetId, habitatId, corrected.id, "corrected", actor);
+      // The RESPONSE keeps the raw stored row (a legacy row retains its
+      // alias pair), but the EVENT names the canonical entity that the URL
+      // actually resolved to.
+      emitEvidenceEvent("task", task.id, habitatId, corrected.id, "corrected", actor, {
+        task,
+      });
 
       return { link: corrected };
     },
@@ -123,20 +162,29 @@ export async function taskCodeEvidenceRoutes(fastify: FastifyInstance): Promise<
       config: { authPolicy: "local_actor" },
     },
     async (request) => {
-      const { taskId } = request.params;
-      const task = taskRepo.getTaskById(taskId);
+      // Requested-Task admission (accepted four-write obligation): the URL
+      // Task's actual Mission/Habitat is resolved and admitted BEFORE any
+      // evidence row is read or written. local_actor and the established
+      // actor matrix are unchanged; the admitted Habitat and the fetched
+      // exact Task row (never a normalized refetch) drive every effect.
+      const habitatId = await authorizeTaskAccess(request, request.params.taskId);
+      const task = taskRepo.getTaskById(request.params.taskId);
       if (!task) throw notFound("Task not found");
 
       const actor = getActor(request);
+      // Compatibility adapter: candidate/override checks and the canonical
+      // upsert share one immediate transaction; a verified legacy override
+      // refuses 409 before any write. The stored pair is the fetched row id.
       const result = codeEvidenceService.markCodeEvidenceNotApplicable(
         "task",
-        taskId,
+        task.id,
         request.body as CodeEvidenceNotApplicableInput,
         actor,
       );
 
-      const habitatId = getHabitatIdForTask(taskId);
-      if (habitatId) emitEvidenceEvent("task", taskId, habitatId, "", "not_applicable", actor);
+      emitEvidenceEvent("task", task.id, habitatId, "", "not_applicable", actor, {
+        task,
+      });
 
       return { completeness: result };
     },
@@ -149,32 +197,36 @@ export async function taskCodeEvidenceRoutes(fastify: FastifyInstance): Promise<
       config: { authPolicy: "local_actor" },
     },
     async (request) => {
-      const { taskId } = request.params;
-      const task = taskRepo.getTaskById(taskId);
+      // Requested-Task admission as the mark POST: before any evidence row
+      // is read or deleted; the admitted Habitat and exact fetched row
+      // drive the effects.
+      const habitatId = await authorizeTaskAccess(request, request.params.taskId);
+      const task = taskRepo.getTaskById(request.params.taskId);
       if (!task) throw notFound("Task not found");
 
       const actor = getActor(request);
-      codeEvidenceService.clearCodeEvidenceNotApplicable("task", taskId);
+      // Clears the canonical override and every verified equivalent legacy
+      // override together in one immediate transaction (at most two exact
+      // stored pairs); unrelated or unresolvable pairs are untouched. The
+      // no-op keeps its 200 {success:true} envelope.
+      codeEvidenceService.clearCodeEvidenceNotApplicable("task", task.id);
 
-      const habitatId = getHabitatIdForTask(taskId);
-      if (habitatId) {
-        eventRepo.createEvent({
-          taskId,
-          actorType: actor.type,
-          actorId: actor.id,
-          action: "code_evidence_cleared_not_applicable",
-          metadata: {},
-        });
-        sseBroadcaster.publish(habitatId, {
-          type: "code_evidence.updated",
-          data: {
-            targetType: "task",
-            targetId: taskId,
-            evidenceLinkId: "",
-            changeKind: "not_applicable",
-          },
-        });
-      }
+      eventRepo.createEvent({
+        taskId: task.id,
+        actorType: actor.type,
+        actorId: actor.id,
+        action: "code_evidence_cleared_not_applicable",
+        metadata: {},
+      });
+      sseBroadcaster.publish(habitatId, {
+        type: "code_evidence.updated",
+        data: {
+          targetType: "task",
+          targetId: task.id,
+          evidenceLinkId: "",
+          changeKind: "not_applicable",
+        },
+      });
 
       return { success: true };
     },
@@ -187,21 +239,26 @@ export async function taskCodeEvidenceRoutes(fastify: FastifyInstance): Promise<
       config: { authPolicy: "local_actor" },
     },
     async (request) => {
-      const { taskId } = request.params;
-      const task = taskRepo.getTaskById(taskId);
+      // Requested-Task admission as the mark/clear POSTs: before any gap
+      // row is inserted or any event emitted.
+      const habitatId = await authorizeTaskAccess(request, request.params.taskId);
+      const task = taskRepo.getTaskById(request.params.taskId);
       if (!task) throw notFound("Task not found");
 
       const actor = getActor(request);
+      // New gaps store the fetched canonical row id; historical alias gaps
+      // stay visible and are resolved explicitly by resource id.
       const gap = codeEvidenceService.reportCodeEvidenceGap(
         "task",
-        taskId,
+        task.id,
         request.body as CodeEvidenceGapInput,
         actor,
       );
       if (!gap) throw badRequest("Failed to create evidence gap");
 
-      const habitatId = getHabitatIdForTask(taskId);
-      if (habitatId) emitEvidenceEvent("task", taskId, habitatId, gap.id, "gap_reported", actor);
+      emitEvidenceEvent("task", task.id, habitatId, gap.id, "gap_reported", actor, {
+        task,
+      });
 
       return { gap };
     },
@@ -219,19 +276,25 @@ export async function taskCodeEvidenceRoutes(fastify: FastifyInstance): Promise<
       // correction POST; the audit and SSE below name the gap the UPDATE
       // actually resolved.
       const habitatId = await authorizeTaskAccess(request, taskId);
+      const task = taskRepo.getTaskById(taskId);
+      if (!task) throw notFound("Task not found");
 
       const actor = getActor(request);
+      // Same canonical/verified-legacy stored-pair containment as the
+      // correction POST; the UPDATE fences the gap row's own stored pair.
       const resolved = codeEvidenceService.resolveCodeEvidenceGap(
         "task",
-        taskId,
+        task.id,
         gapId,
         request.body as CodeEvidenceGapResolveInput,
         actor,
       );
       if (!resolved) throw notFound("Evidence gap not found");
 
+      // Response keeps the resolved gap's raw stored row; events name the
+      // canonical entity and its validated habitat stream.
       eventRepo.createEvent({
-        taskId: resolved.targetId,
+        taskId: task.id,
         actorType: actor.type,
         actorId: actor.id,
         action: "code_evidence_gap_resolved",
@@ -241,7 +304,7 @@ export async function taskCodeEvidenceRoutes(fastify: FastifyInstance): Promise<
         type: "code_evidence.updated",
         data: {
           targetType: "task",
-          targetId: resolved.targetId,
+          targetId: task.id,
           evidenceLinkId: "",
           changeKind: "verified",
         },

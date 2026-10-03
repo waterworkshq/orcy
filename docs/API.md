@@ -5626,7 +5626,7 @@ Get the code evidence overview for a task, including completeness, summary, grou
 
 | Param | Type | Default | Description |
 |-------|------|---------|-------------|
-| `includeHistory` | boolean | `false` | Include superseded/corrected links and resolved gaps |
+| `includeHistory` | literal | absent (`false`) | Include superseded/corrected links and resolved gaps. Parsed deliberately: absent means `false`; only the literal strings `true` and `false` are recognized; any other value (including `1`, `yes`, or the empty string) is a `400` schema refusal |
 
 **Response `200`:**
 
@@ -5679,9 +5679,23 @@ Get the code evidence overview for a task, including completeness, summary, grou
     }
   ],
   "activeGaps": [],
-  "warnings": []
+  "warnings": [],
+  "compatibility": {
+    "legacy": {
+      "label": "Verified legacy evidence",
+      "storedTarget": { "type": "task", "id": "feat-task-uuid" },
+      "groups": [],
+      "activeGaps": [],
+      "summary": {}
+    },
+    "overrides": [],
+    "effectiveCompleteness": { "status": "partial" },
+    "truncation": { "canonicalActiveLinks": false }
+  }
 }
 ```
+
+**Canonical identity and the compatibility projection:** the response's canonical `target`/`groups`/`summary`/`completeness` describe the exact canonical pair — the fetched Task row's persisted id, never the raw URL spelling. An additive `compatibility` section additionally carries: (1) an optional labelled `legacy` projection for the at-most-one stored target pair that currently resolves to the same object and kind under the transport grammar (`feat-<id>` for Tasks with no literal collision, the stripped `mission-` spelling for Missions with no exact-row shadowing — legacy rows are never rewritten or merged); (2) `overrides` listing every persisted not-applicable override across the canonical and verified-legacy pairs, classified by owner — two entries is an explicit conflict, all are shown, and no winner is applied; (3) `effectiveCompleteness`, the compatibility-aware verdict the UI should badge (two overrides force `unknown`); and (4) `truncation` flags for the eight disjoint read collections. `summary.totalLinks`/`activeLinks` are exact active-population SQL counts (independent of the 100-row-per-collection materialized cap that fixes the old capped-array undercount); `historyCount`/`correctedCount` retain their all-non-active meaning. Materialized collections are ordered newest-first by their relevant timestamp with ascending row id tie-breaks. History collections and their truncation keys are omitted entirely when history was not requested.
 
 **Response `404`:** Task not found.
 
@@ -5689,7 +5703,9 @@ Get the code evidence overview for a task, including completeness, summary, grou
 
 Link code evidence to a task. Accepts branch info, commits, changed files, PR/pipeline URLs, and external URLs. Creates one link per evidence type derived from the input.
 
-**Auth:** Agent or Human auth required.
+**Auth:** Local actor (agent API key or human JWT), then the **URL Task's** target-derived admission (Task → Mission → Habitat membership, as the GET above). Before any write, every recognized trailer destination (`Orcy-Task`/`Orcy-Mission` in `commits[].trailers`) is resolved and admitted in original first-seen order: Task destinations through their own Task → Mission → Habitat check, Mission destinations through the shared Habitat predicate. The first missing (`404`) or denied (`403`) destination rejects the whole request with zero records, links, changed files, gap changes, audit rows and SSE — including branches and main commits that appear earlier in the input. Authorized cross-Habitat fan-out remains permitted.
+
+**Storage contract:** new writes store the fetched canonical row id for every selected destination. The reporting repository domain is the URL Task's configured repository: zero configured rows means fresh request-local unverified null records (one per exact branch name/commit SHA per request, never global name/SHA reuse); exactly one selects that configuration domain; two or more refuse `409 EVIDENCE_REPOSITORY_AMBIGUOUS` before any write. Inside a configured domain, duplicate same-key rows or a sole incompatible-provider row refuse `409 EVIDENCE_RECORD_AMBIGUOUS`; a selected existing record attaches **without refreshing** any stored metadata, verification, or timestamp (a supplied-differences warning `EXISTING_EVIDENCE_METADATA_RETAINED` may be returned), and conflicting supplied persisted metadata within one request refuses `409 EVIDENCE_INPUT_CONFLICT`. A novel commit record is created once from its main report source — unverified even in a verified repository — while a commit-trailer link may be verified under the existing source rules; record and link verification may legitimately differ. All record/link/corroboration/changed-file/gap operations compose one synchronous immediate transaction whose selected interval is fenced by an in-transaction recheck of the origin ancestry, repository fingerprint and planned record selection (`409 EVIDENCE_CONTEXT_CHANGED` on drift, never a silent replan); a thrown write failure rolls back the entire bundle, while ordinary returned warnings/errors keep their per-item bulk semantics. After commit, the entire returned link-context batch is validated against the admitted plan before the first route event; an invalid context surfaces `500` with zero route events (committed evidence may remain), and later audit/SSE failures may partially fan out — no atomic event guarantee exists.
 
 **Request:**
 
@@ -5830,7 +5846,7 @@ This is the **raw stored row**: identity columns `id`/`targetType`/`targetId`, n
 
 #### POST /tasks/:taskId/code-evidence/not-applicable
 
-Mark a task's code evidence as not applicable (e.g., research-only, documentation tasks with no code changes).
+Mark a task's code evidence as not applicable (e.g., research-only, documentation tasks with no code changes). **Auth:** the URL Task's target-derived admission (as the GET above) runs before any evidence row is read or written; the admitted Habitat and the fetched exact Task row drive the effects (a literal `feat-X` Task's events publish only on its own Habitat). The compatibility check and the canonical upsert run in one immediate transaction; when a **verified legacy override** exists for the same actual target, the mark refuses `409 EVIDENCE_OVERRIDE_CONFLICT` with zero writes (recovery is an explicit clear, then mark — two requests). Canonical-only marks update as before. The stored pair is the fetched canonical row id.
 
 **Auth:** Agent or Human auth required.
 
@@ -5870,7 +5886,9 @@ Mark a task's code evidence as not applicable (e.g., research-only, documentatio
 
 Clear the not-applicable status on a task, reverting completeness to `unknown`.
 
-**Auth:** Agent or Human auth required.
+Clears the canonical override **and** every verified-equivalent legacy override together in one immediate transaction — at most two exact stored pairs from the finite inverse rule, never a capped list inventory; adoption is re-verified inside the transaction, so a pair that a newly created literal Task/Mission now owns is not touched, and unrelated pairs never are. The no-op response stays `200 {success:true}` with the single canonical clear audit/SSE.
+
+**Auth:** the URL Task's target-derived admission (as the GET above), before any evidence row is read or deleted.
 
 **Response `200`:**
 
@@ -5886,7 +5904,9 @@ Clear the not-applicable status on a task, reverting completeness to `unknown`.
 
 Report a code evidence gap — when expected evidence is missing (e.g., work done outside Orcy, PR not created yet).
 
-**Auth:** Agent or Human auth required.
+New gaps store the fetched canonical Task row id. Historical gaps stored under a verified legacy alias pair stay visible in the read model's labelled legacy section and are resolved explicitly by resource id — new canonical linking never silently auto-resolves them.
+
+**Auth:** the URL Task's target-derived admission (as the GET above), before any gap row is inserted or any event emitted.
 
 **Request:**
 
@@ -5992,7 +6012,7 @@ Get the code evidence overview for a mission.
 
 | Param | Type | Default | Description |
 |-------|------|---------|-------------|
-| `includeHistory` | boolean | `false` | Include superseded/corrected links and resolved gaps |
+| `includeHistory` | literal | absent (`false`) | Include superseded/corrected links and resolved gaps. Parsed deliberately: absent means `false`; only the literal strings `true` and `false` are recognized; any other value (including `1`, `yes`, or the empty string) is a `400` schema refusal |
 
 **Response `200`:**
 
@@ -6065,7 +6085,7 @@ Get the code evidence overview for a mission.
 
 Link code evidence to a mission. Same request body as task evidence linking.
 
-**Auth:** Agent or Human auth required.
+**Auth — origin/destination asymmetry:** the URL Mission's **origin** admission is unchanged: `local_actor` plus Mission existence, with no Habitat-membership predicate (a team-nonmember human may still report the URL Mission). Every **distinct** trailer destination does receive admission in first-seen order: Task destinations through Task → Mission → Habitat, Mission destinations through the shared Habitat predicate. Occurrences that resolve to the already-selected reporting Mission — including raw aliases such as the unprefixed spelling of a `mission-` id — reuse the origin admission without adding a membership requirement. The first missing (`404`) or denied (`403`) destination rejects the whole request with zero writes and events. The reporting repository domain is the **reporting Mission's** habitat configuration, never a trailer destination's, and the same storage contract as the Task POST applies (reporting-domain selection, refuse-before-write ambiguity, attach-without-refresh, one immediate write bundle, drift fencing, post-commit context validation).
 
 **Request:** Same body as [POST /tasks/:taskId/code-evidence](#post-taskstaskidcode-evidence).
 

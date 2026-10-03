@@ -232,6 +232,10 @@ export type {
   CodeEvidenceNotApplicableInput,
   CodeEvidenceGapInput,
   CodeEvidenceGapResolveInput,
+  CodeEvidenceLegacySection,
+  CodeEvidenceOverrideEntry,
+  CodeEvidenceTruncationKey,
+  CodeEvidenceCompatibility,
 } from "./code-evidence.js";
 
 export {

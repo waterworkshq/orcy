@@ -140,6 +140,16 @@ Reference other task IDs that must complete before this task can be worked:
 
 Example: A "Implement dashboard UI" task might depend on "Create REST API endpoints" if the UI needs those endpoints to function.
 
+### Code Evidence
+
+The code evidence panel on a task (or mission) shows branches, commits, PRs, pipelines, changed files and external links reported against it, plus a completeness badge:
+
+- **Completeness and conflicts.** A "Not Applicable" override can be set on a target. If overrides exist on both the current canonical target and an older verified alias spelling of the same target, the panel shows an explicit **Override conflict** badge with every override listed — Orcy never silently picks a winner. Use the clear action to remove all equivalent overrides at once, then mark again if needed.
+- **Verified legacy evidence.** Evidence recorded under an older alias spelling of the same task/mission appears in a clearly labelled "Verified legacy evidence" section with its own counts. It is never rewritten or merged into the canonical rows; the panel just shows both so nothing disappears.
+- **Counts and truncation.** Summary counts are exact; the visible lists cap at 100 items per collection with a truncation notice when more exist.
+- **Where reports go.** Reporting evidence on a task admits the task's habitat (and every commit-trailer destination named in the report) before anything is written — one denied or missing destination refuses the whole report with zero side effects. Mission reports keep their broad reporting admission but apply the same destination checks to distinct trailer targets.
+- **Evidence durability.** A report commits as one unit: either all of its records, links, changed files and gap updates land or none do. Characterized per-item warnings and errors are still returned individually alongside committed valid items; only a thrown write failure rolls the whole bundle back. Events (audit trail + live updates) are published after the commit and can, in rare failure cases, be partially delivered — the evidence itself stays.
+
 ---
 
 ## Pulse: Mission Signal Board

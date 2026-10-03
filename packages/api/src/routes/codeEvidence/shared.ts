@@ -15,8 +15,27 @@ export const gapIdParamsSchema = z.object({ taskId: z.string(), gapId: z.string(
 export const missionGapIdParamsSchema = z.object({ missionId: z.string(), gapId: z.string() });
 export const habitatIdParamsSchema = z.object({ habitatId: z.string() });
 
+/**
+ * `includeHistory` is parsed DELIBERATELY: absent means false; only the
+ * literal strings `"true"` and `"false"` are recognized; any other value
+ * (including `"1"`, `"yes"`, or the empty string) is a 400 schema refusal.
+ * This replaces `z.coerce.boolean()`, whose truthiness coerced the served
+ * MCP client's explicit `?includeHistory=false` to TRUE.
+ */
 export const includeHistoryQuerySchema = z.object({
-  includeHistory: z.coerce.boolean().optional().default(false),
+  includeHistory: z
+    .string()
+    .optional()
+    .transform((value, ctx) => {
+      if (value === undefined) return false;
+      if (value === "true") return true;
+      if (value === "false") return false;
+      ctx.addIssue({
+        code: "custom",
+        message: "includeHistory must be 'true' or 'false'",
+      });
+      return false;
+    }),
 });
 
 const branchInputSchema = z.object({
@@ -111,6 +130,17 @@ export function emitEvidenceEvent(
   evidenceLinkId: string,
   changeKind: "linked" | "corrected" | "gap_reported" | "not_applicable" | "verified",
   actor: { type: CodeEvidenceActorType; id: string },
+  /**
+   * Exact already-validated entity rows for the `task.updated`/`mission.updated`
+   * republish. When supplied, the republish uses them directly; the fallback
+   * resolver lookups below must NEVER be used for a literal `feat-X` canonical
+   * Task id (one strip would select a different object), so callers holding
+   * validated rows always pass them.
+   */
+  exactEntity?: {
+    task?: Awaited<ReturnType<typeof taskRepo.getTaskById>>;
+    mission?: Awaited<ReturnType<typeof missionRepo.getMissionById>>;
+  },
 ) {
   if (targetType === "task") {
     eventRepo.createEvent({
@@ -154,10 +184,10 @@ export function emitEvidenceEvent(
   });
 
   if (targetType === "task") {
-    const task = taskRepo.getTaskById(targetId);
+    const task = exactEntity?.task ?? taskRepo.getTaskById(targetId);
     if (task) sseBroadcaster.publish(habitatId, { type: "task.updated", data: task });
   } else {
-    const mission = missionRepo.getMissionById(targetId);
+    const mission = exactEntity?.mission ?? missionRepo.getMissionById(targetId);
     if (mission) sseBroadcaster.publish(habitatId, { type: "mission.updated", data: mission });
   }
 }

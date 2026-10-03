@@ -30,9 +30,15 @@ import type {
   CodeEvidenceCompletenessStatus,
   CodeEvidenceVerificationState,
   CodeEvidenceType,
+  CodeEvidenceCompatibility,
   GapReason,
   NotApplicableReason,
 } from "../../types/index.js";
+
+const OVERRIDE_CLASSIFICATION_LABEL: Record<"canonical" | "verified_legacy", string> = {
+  canonical: "canonical target",
+  verified_legacy: "verified legacy target",
+};
 
 type CodeEvidencePanelProps =
   | { targetType: "task"; targetId: string }
@@ -251,6 +257,12 @@ export function CodeEvidencePanel({ targetType, targetId }: CodeEvidencePanelPro
         : api.codeEvidence.getTaskEvidence(targetId),
   });
 
+  // Compatibility derivation is hoisted so the clear-all action and the
+  // header badge share one authority; conflict multiplicity is the signal.
+  const compatibility: CodeEvidenceCompatibility | undefined = evidence?.compatibility;
+  const overrides = compatibility?.overrides ?? [];
+  const hasOverrideConflict = overrides.length >= 2;
+
   const linkMutation = useMutation({
     mutationFn: (url: string) =>
       isMission
@@ -294,6 +306,26 @@ export function CodeEvidencePanel({ targetType, targetId }: CodeEvidencePanelPro
       setGapDialogOpen(false);
       setSelectedGapReason("");
       setGapNote("");
+      invalidateQueries();
+    },
+    onError: (err: Error) => {
+      notify.error(err.message);
+    },
+  });
+
+  // Clear-all recovery: removes the canonical override AND every verified
+  // equivalent legacy override together (the server's atomic equivalent
+  // clear), through the evidence-only persisted-ID adapter for Tasks. This
+  // is the documented recovery for an override conflict and for a stale
+  // not-applicable mark (mark itself refuses 409 while a verified legacy
+  // override exists).
+  const clearNotApplicableMutation = useMutation({
+    mutationFn: () =>
+      isMission
+        ? api.codeEvidence.clearMissionNotApplicable(targetId)
+        : api.codeEvidence.clearTaskNotApplicable(targetId),
+    onSuccess: () => {
+      notify.success("Cleared not-applicable overrides");
       invalidateQueries();
     },
     onError: (err: Error) => {
@@ -354,6 +386,17 @@ export function CodeEvidencePanel({ targetType, targetId }: CodeEvidencePanelPro
         <Ban className="mr-1 h-3 w-3" />
         Mark Not Applicable
       </Button>
+      {overrides.length > 0 && (
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={() => clearNotApplicableMutation.mutate()}
+          loading={clearNotApplicableMutation.isPending}
+        >
+          <CheckCircle className="mr-1 h-3 w-3" />
+          Clear Not Applicable
+        </Button>
+      )}
       <Button size="sm" variant="outline" onClick={() => setGapDialogOpen(true)}>
         <AlertTriangle className="mr-1 h-3 w-3" />
         Report Gap
@@ -489,10 +532,28 @@ export function CodeEvidencePanel({ targetType, targetId }: CodeEvidencePanelPro
   }
 
   const completeness = evidence?.completeness;
+  const legacy = compatibility?.legacy;
   const groups = evidence?.groups ?? [];
   const gaps = evidence?.activeGaps ?? [];
-  const hasLinks = groups.some((g) => g.items.length > 0);
-  const isEmpty = !hasLinks && gaps.length === 0 && completeness?.status === "unknown";
+  // The effective badge is the compatibility-aware verdict when the section
+  // exists: a multi-override conflict is an explicit unknown with every
+  // override shown — the canonical-only completeness is never presented as
+  // overall truth in that state.
+  const badgeStatus: CodeEvidenceCompletenessStatus | undefined = compatibility
+    ? compatibility.effectiveCompleteness.status
+    : completeness?.status;
+  const hasLinks =
+    groups.some((g) => g.items.length > 0) ||
+    Boolean(legacy?.groups.some((g) => g.items.length > 0));
+  // Override rows (including a two-override conflict with zero active
+  // evidence) always keep the view NON-empty — their owners, reasons and
+  // warnings stay visible, with the clear-all recovery available.
+  const isEmpty =
+    !hasLinks &&
+    gaps.length === 0 &&
+    (legacy?.activeGaps.length ?? 0) === 0 &&
+    overrides.length === 0 &&
+    badgeStatus === "unknown";
 
   return (
     <Card className="mb-4">
@@ -500,10 +561,13 @@ export function CodeEvidencePanel({ targetType, targetId }: CodeEvidencePanelPro
         <CardTitle className="flex items-center gap-2 text-sm">
           <Code2 className="h-4 w-4" />
           {title}
-          {!isEmpty && completeness && (
-            <Badge className={COMPLETENESS_BADGE[completeness.status]}>
-              {COMPLETENESS_LABEL[completeness.status]}
+          {!isEmpty && badgeStatus && (
+            <Badge className={COMPLETENESS_BADGE[badgeStatus]}>
+              {COMPLETENESS_LABEL[badgeStatus]}
             </Badge>
+          )}
+          {hasOverrideConflict && (
+            <Badge className="glass-badge-blocked">Override conflict</Badge>
           )}
           {!isEmpty && evidence?.summary && (
             <span className="ml-auto text-xs text-muted-foreground">
@@ -556,16 +620,93 @@ export function CodeEvidencePanel({ targetType, targetId }: CodeEvidencePanelPro
               </div>
             )}
 
-            {evidence?.warnings && evidence.warnings.length > 0 && (
-              <div className="mt-3 space-y-1">
-                {evidence.warnings.map((w) => (
-                  <div key={w} className="text-xs text-yellow-600 dark:text-yellow-400">
-                    {w}
+            {legacy && (
+              <div className="mt-4 border-t pt-3">
+                <h4 className="mb-1.5 flex items-center gap-1.5 text-xs font-semibold uppercase text-muted-foreground">
+                  <Code2 className="h-3 w-3" />
+                  {legacy.label} (<code>{legacy.storedTarget.id}</code>) —{" "}
+                  {legacy.summary.activeLinks} linked
+                  {compatibility?.truncation.legacyActiveLinks ? "+ (truncated)" : ""}
+                </h4>
+                {legacy.groups.map((group) => {
+                  if (group.items.length === 0) return null;
+                  const Icon = EVIDENCE_ICON[group.evidenceType] ?? Code2;
+                  const label = EVIDENCE_LABEL[group.evidenceType] ?? group.evidenceType;
+                  return (
+                    <div key={`legacy-${group.evidenceType}`} className="mb-3">
+                      <h5 className="mb-1.5 flex items-center gap-1.5 text-[11px] font-semibold uppercase text-muted-foreground">
+                        <Icon className="h-3 w-3" />
+                        {label} ({group.items.length})
+                      </h5>
+                      <div className="space-y-1.5">
+                        {group.items.map((item) => (
+                          <EvidenceLinkItem key={item.linkId} item={item} />
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })}
+                {legacy.activeGaps.length > 0 && (
+                  <div className="mt-3">
+                    <h5 className="mb-1.5 flex items-center gap-1.5 text-[11px] font-semibold uppercase text-muted-foreground">
+                      <AlertTriangle className="h-3 w-3" />
+                      Legacy Active Gaps ({legacy.activeGaps.length}
+                      {compatibility?.truncation.legacyActiveGaps ? "+ (truncated)" : ""})
+                    </h5>
+                    <div className="space-y-1.5">
+                      {legacy.activeGaps.map((gap) => (
+                        <GapItem key={gap.id} gap={gap} />
+                      ))}
+                    </div>
                   </div>
-                ))}
+                )}
+                {legacy.groups.every((g) => g.items.length === 0) &&
+                  legacy.activeGaps.length === 0 && (
+                    <div className="text-xs text-muted-foreground">
+                      No active legacy evidence rows under this verified alias pair.
+                    </div>
+                  )}
               </div>
             )}
           </>
+        )}
+
+        {/* Override rows and warnings render in BOTH branches: an
+            override-only or conflicting view is never empty and always
+            shows every owner, reason and warning. */}
+            {overrides.length > 0 && (
+              <div className="mt-4 rounded border border-yellow-300 bg-yellow-50 p-2 text-sm dark:border-yellow-800 dark:bg-yellow-950">
+                <h4 className="mb-1.5 flex items-center gap-1.5 text-xs font-semibold uppercase text-yellow-800 dark:text-yellow-200">
+                  <Ban className="h-3 w-3" />
+                  Not-Applicable Overrides ({overrides.length})
+                  {hasOverrideConflict && " — conflict, no winner applied"}
+                </h4>
+                <div className="space-y-1">
+                  {overrides.map((entry) => (
+                    <div
+                      key={`${entry.storedTarget.type}:${entry.storedTarget.id}`}
+                      className="text-xs text-yellow-800 dark:text-yellow-200"
+                    >
+                      {OVERRIDE_CLASSIFICATION_LABEL[entry.classification]}{" "}
+                      <code>{entry.storedTarget.id}</code>
+                      {entry.value.reasonCode ? ` — ${entry.value.reasonCode.replace(/_/g, " ")}` : ""}
+                      {entry.value.reasonNote ? ` — ${entry.value.reasonNote}` : ""}
+                      {/* Actor provenance is part of the row so every override owner is visible. */}
+                      {entry.value.actor ? ` (by ${entry.value.actor.type} ${entry.value.actor.id})` : ""}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+        {evidence?.warnings && evidence.warnings.length > 0 && (
+          <div className="mt-3 space-y-1">
+            {evidence.warnings.map((w) => (
+              <div key={w} className="text-xs text-yellow-600 dark:text-yellow-400">
+                {w}
+              </div>
+            ))}
+          </div>
         )}
       </CardContent>
     </Card>

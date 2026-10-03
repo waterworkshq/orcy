@@ -436,6 +436,15 @@ The `replacement_link_id` pointer is a reference, not a content grant or a sourc
 
 Evidence linking in webhook handlers (GitHub Issues, GitLab MR, CI/CD pipelines) is wrapped in `try/catch` blocks. A failure to create evidence records does not block the primary webhook operation (mission sync, pipeline status update). Evidence linking failures are logged but never cause webhook handler errors.
 
+### Compatibility and Report-Plan Deep Modules
+
+Two deep modules own the accepted compatibility/storage contract:
+
+- `services/codeEvidence/targetCompatibility.ts` — the fetched-row identity seam. Exact stored-id Task/Mission reads (never the prefix-stripping helpers), the finite inverse lemma for legacy alias adoption (a Task's `feat-<id>` candidate excluded when a literal Task owns that exact id; a Mission's stripped `mission-` candidate excluded when shadowed or nested; the verified empty candidate for the literal `mission-` row), the canonical+verified-legacy pair computation used by reads, selected-resource containment, and the mark/clear transactions. No table-wide alias scan, no migration, no history rewrite.
+- `services/codeEvidence/reportPlan.ts` — the local report plan for Task and Mission routes: raw occurrence dispatch preserving the raw trailer skip grammar, whole-request first-seen destination admission (Mission origin keeps local_actor+existence; occurrences resolving to the reporting Mission reuse origin admission), reporting-domain selection (origin habitat only; cardinality 0/1/2+ with refuse-before-write ambiguity), attach-without-refresh record selection, one synchronous immediate write bundle over supplied-client repository primitives with an in-transaction drift recheck (ancestry + repository fingerprint + planned record ids/cardinality/provider/key → `EVIDENCE_CONTEXT_CHANGED`), and full post-commit context validation before the first route event.
+
+Ceilings this design states explicitly: the write bundle fences only its own selected interval (later out-of-scope writers with nonunique indexes can still create duplicates — branch/commit indexes are nonunique); a thrown write failure rolls back the bundle but ordinary returned warnings/errors keep bulk semantics; audit/SSE are post-commit and may partially fan out (no outbox); the request-time admission is not membership-revocation fencing; legacy alias rows are surfaced, never rewritten; record verification (created from the main report source, unverified even in a verified repository) and link verification (a commit-trailer link may be verified) may legitimately differ and are never refreshed on attach.
+
 ### Lazy Backfill
 
 Existing PRs and pipeline events created before the code evidence layer receive evidence links via `backfillExistingCodeEvidence()`. This function:
