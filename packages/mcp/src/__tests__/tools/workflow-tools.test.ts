@@ -56,9 +56,10 @@ describe("orcy_get_workflow_context — getWorkflowContext handler", () => {
   });
 
   it("calls client.getTaskWorkflowContext with the correct taskId", async () => {
+    // The served route's RESTRICTED shape (ADR-0052): no ids, no config.
     const mockContext = {
-      upstream: [{ id: "gate-1", gateType: "on_complete", satisfied: true }],
-      downstream: [{ id: "gate-2", gateType: "on_approve", satisfied: false }],
+      upstream: [{ gateType: "on_complete", satisfied: true, restricted: true }],
+      downstream: [{ gateType: "on_approve", satisfied: false, restricted: true }],
     };
     client.getTaskWorkflowContext.mockResolvedValue(mockContext);
 

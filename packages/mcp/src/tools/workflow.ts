@@ -11,7 +11,8 @@ type ToolHandler = (client: KanbanApiClient, args: Record<string, unknown>) => P
 /**
  * Reads the most recent unresolved failure context for a task, including the failure bundle
  * (artifacts, lifecycle events, experience signals, retry history, category summary).
- * Used by recovery agents investigating a failed task.
+ * Used by recovery agents investigating a failed task. The bundle is served in full to
+ * admitted local actors once the captured Habitat matches the Task's current Habitat.
  */
 export async function getFailureContext(
   client: KanbanApiClient,
@@ -21,8 +22,16 @@ export async function getFailureContext(
 }
 
 /**
- * Reads the upstream and downstream workflow gates for a single task, giving an agent
- * awareness of its place in a workflow chain (what feeds into this task, what waits on it).
+ * Reads the upstream and downstream workflow gates for a single task.
+ *
+ * The served route returns a RESTRICTED projection (ADR-0052): each entry is
+ * exactly `{gateType, satisfied, restricted}`. There is no chain navigation,
+ * no join semantics, no gate config and no Task/Workflow/Mission/Recovery ids,
+ * so this CANNOT determine whether a Task is claimable. Claimability is
+ * resolved at the claim mutation, which is the single authority (ADR-0038);
+ * every read surface, including this one, is an advisory projection. Callers
+ * must not treat `satisfied: false` as "unblocked" and must not treat this
+ * projection as a substitute for the claim attempt.
  */
 export async function getWorkflowContext(
   client: KanbanApiClient,
@@ -38,7 +47,9 @@ export const WORKFLOW_FAILURE_CONTEXT_TOOL: Tool = {
     "Read the failure context bundle for a task — including failure kind, reason, lifecycle events, " +
     "experience signals from the failing agent, retry history, and recovery status. " +
     "Use this when picking up a recovery task to understand what went wrong and why. " +
-    "Returns 404 (Error) if the task has no failure context.",
+    "Returns 404 (Error) if the task has no failure context, and 409 (Error) if the captured " +
+    "context belongs to a different Habitat than the task's current Habitat (a data-integrity " +
+    "condition, not a permissions problem).",
   inputSchema: {
     type: "object",
     properties: {
@@ -55,9 +66,13 @@ export const WORKFLOW_FAILURE_CONTEXT_TOOL: Tool = {
 export const WORKFLOW_CONTEXT_TOOL: Tool = {
   name: "orcy_get_workflow_context",
   description:
-    "Read the upstream and downstream workflow gates for a task to understand its place in a " +
-    "workflow chain — what tasks feed into this one (and their gate states), and what tasks are " +
-    "waiting on this one. Returns 404 (Error) if the task is not part of any workflow.",
+    "Read a RESTRICTED view of the workflow gates around a task: how many gates feed into it " +
+    "(upstream) and how many wait on it (downstream), each with only its gate type and whether it " +
+    "is satisfied. Gate configuration, join semantics, the connected Task ids and the owning " +
+    "workflow are NOT returned, so this is chain awareness only and cannot tell you whether the " +
+    "task is claimable — claimability is decided by the claim attempt itself, which is the single " +
+    "authority; this projection (like every read) is advisory. " +
+    "Returns 404 (Error) if the task is not part of any workflow.",
   inputSchema: {
     type: "object",
     properties: {

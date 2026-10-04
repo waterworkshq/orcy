@@ -36,7 +36,7 @@ If you also have the CLI installed, **prefer MCP for intra-session tool use** �
 | `orcy_instructions` | (tool) | Orcy workflow skill guide (read this first) |
 | `orcy_sprint` | `list`, `get`, `get_active`, `get_metrics`, `get_burndown`, `get_carry_over`, `create`, `update`, `delete`, `start`, `complete`, `cancel`, `add_mission`, `remove_mission` | Sprint planning, lifecycle, mission membership, and sprint analytics |
 | `orcy_review` | `list_rules`, `create_rule`, `update_rule`, `delete_rule`, `list_reviewers`, `add_reviewer`, `remove_reviewer` | Review assignment rules and task reviewer management. Reads are agent-capable on any habitat shape; for human JWTs, `list_reviewers` resolves the target task's Mission→Habitat and requires team membership on team habitats (nonmember 403; missing Task/Mission 404) |
-| `orcy_get_workflow_context` | _(single action — pass `taskId`)_ | Read your position in a workflow chain: upstream gates, downstream waiting tasks, gate states |
+| `orcy_get_workflow_context` | _(single action — pass `taskId`)_ | Read a restricted view of your position in a workflow chain: how many upstream/downstream gates exist, their type and whether each is satisfied (no task ids, no gate config — not enough to decide claimability) |
 | `orcy_get_failure_context` | _(single action — pass `taskId` of the FAILED task, not a recovery task)_ | Read the latest unresolved FailureContext for the failed Task (used by recovery agents to understand what went wrong) |
 
 ### Task-context reads (`orcy_get_workflow_context`, `orcy_get_failure_context`)
@@ -53,12 +53,19 @@ global admin, gets `403`); a Task that does not exist is `404`.
   its ID.
 - The bundle's `experienceSignals[]` entries carry `createdAt` (not `timestamp`), alongside
   `experience`, `subject` and `taskId`.
-- Responses are raw, not filtered: every workflow gate for the task whatever its workflow or gate
-  status, and the latest **unresolved** failure-context row for the failed task.
-- That admission governs the requested task only. A returned gate still names the opposite endpoint,
-  the workflow/Mission/Habitat and any recovery task; a failure context still carries the
-  Habitat, Workflow and Recovery Task references on its row, plus the raw lifecycle and experience notes
-  inside it.
+- **`orcy_get_workflow_context` is restricted.** Each entry is exactly
+  `{ gateType, satisfied, restricted: true }`: gate count, direction, type and satisfaction for the
+  requested task are kept (satisfied gates and gates on a detached workflow still appear), while the
+  connected task ids, gate configuration, join semantics and the owning workflow are omitted. It is
+  chain awareness only and **cannot** tell you whether a task is claimable — nor can any other read.
+  Claimability is resolved at the claim mutation, which is the single authority; read surfaces,
+  including this one, are advisory projections.
+- **`orcy_get_failure_context` is not restricted**: it returns the latest **unresolved** failure-context
+  row for the failed task in full, including the Habitat/Workflow/Recovery references on its row and the
+  lifecycle and experience notes inside it. It is refused with `409 CONFLICT` ("Failure context Habitat
+  does not match the Task Habitat") when the captured context belongs to a different Habitat than the
+  task's current one — an integrity condition, not a permissions problem, so it is returned even to a
+  caller who can see both Habitats.
 
 ---
 

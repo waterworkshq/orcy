@@ -1,10 +1,7 @@
 import type { FastifyInstance, FastifyRequest, FastifyReply } from "fastify";
 import { z } from "zod";
 import { inheritAuthPolicy } from "../authPolicy.js";
-import {
-  remoteActionScope,
-  mapParticipantToActorType,
-} from "../middleware/remoteAuth.js";
+import { remoteActionScope, mapParticipantToActorType } from "../middleware/remoteAuth.js";
 import {
   idempotentRemoteWrite,
   completeRemoteIdempotency,
@@ -39,6 +36,7 @@ import * as pulseRepo from "../repositories/pulse.js";
 import * as codeEvidenceLinking from "../services/codeEvidence/linking.js";
 import * as deliveryRepo from "../repositories/notificationDelivery.js";
 import * as workflowService from "../services/workflowService.js";
+import * as workflowReadProjection from "../services/workflowReadProjection.js";
 import { emitRemoteOriginatedNotification } from "../services/remoteNotifications.js";
 import {
   claimTaskForRemote,
@@ -838,7 +836,12 @@ export async function sharedApiRoutes(fastify: FastifyInstance): Promise<void> {
   // Workflow context (read-only — requires "read" scope)
   // -------------------------------------------------------------------------
 
-  /** GET /api/shared/missions/:id/workflow — mission workflow shape (requires "read") */
+  /**
+   * GET /api/shared/missions/:id/workflow — mission workflow shape (requires "read").
+   * Returns the selected active Workflow's status/version plus RESTRICTED gates
+   * (ADR-0052): no variables, failure handler, joinSpecs, author, detachment or
+   * any id. Mission visibility is the grant; child Task ids stay hidden.
+   */
   fastify.get<{ Params: { id: string } }>(
     "/missions/:id/workflow",
     {
@@ -860,11 +863,19 @@ export async function sharedApiRoutes(fastify: FastifyInstance): Promise<void> {
         throw notFound("No active workflow attached to this mission");
       }
       const gates = workflowService.getWorkflowShape(workflow.id);
-      return { workflow, gates };
+      return {
+        workflow: workflowReadProjection.restrictWorkflow(workflow),
+        gates: workflowReadProjection.restrictGates(gates),
+      };
     },
   );
 
-  /** GET /api/shared/tasks/:id/workflow-context — upstream/downstream gates for one task (requires "read") */
+  /**
+   * GET /api/shared/tasks/:id/workflow-context — upstream/downstream gates for
+   * one task (requires "read"). RESTRICTED gate DTO, same shape as the local
+   * reader (ADR-0052). A partial grant that makes the REQUESTED Task visible is
+   * sufficient; the opposite endpoint and Recovery Task remain hidden.
+   */
   fastify.get<{ Params: { id: string } }>(
     "/tasks/:id/workflow-context",
     {
@@ -886,7 +897,7 @@ export async function sharedApiRoutes(fastify: FastifyInstance): Promise<void> {
       if (context.upstream.length === 0 && context.downstream.length === 0) {
         throw notFound("Task is not part of any workflow");
       }
-      return context;
+      return workflowReadProjection.restrictTaskWorkflowContext(context);
     },
   );
 

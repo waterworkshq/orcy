@@ -124,6 +124,10 @@ Release boundaries are risk management decisions: breaking changes, fragile feat
 
 ---
 
+### Workflow reader policy — implementation complete; release pending
+
+Ordinary Workflow reads return restricted gate type/satisfaction projections rather than linked IDs or configuration. Served Failure Context reads reject captured/current Habitat mismatch as an integrity anomaly while preserving full admitted-local recovery diagnostics. Administrative and internal readers retain their existing authority. Independently verified; no version or release tag assigned.
+
 ## Upcoming
 
 ### Bounded object-access hardening (unversioned — implementation complete; release pending)

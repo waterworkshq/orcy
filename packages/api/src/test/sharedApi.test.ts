@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { updateTaskFixtureForTests } from "./helpers/taskFixtures.js";
 import Fastify, { type FastifyInstance } from "fastify";
 import { validatorCompiler, serializerCompiler } from "fastify-type-provider-zod";
-import { initTestDb, closeDb } from "../db/index.js";
+import { initTestDb, closeDb, getDb } from "../db/index.js";
 import { sharedApiRoutes } from "../routes/sharedApi.js";
 import { perAgentRateLimit } from "../middleware/rateLimit.js";
 import { registerErrorHandler } from "../errors/plugin.js";
@@ -1519,7 +1519,14 @@ describe("Phase D — Shared Habitat API", () => {
   });
 
   describe("Workflow context routes", () => {
-    function setupWorkflowFixture(setup: RemoteSetup) {
+    /**
+     * A Mission with two Tasks joined by ONE gate, carrying opaque config and a
+     * Recovery reference the readers must drop. `grantBothTasks: false` produces
+     * the deliberately PARTIAL grant (Mission + upstream Task A only) needed to
+     * discriminate: the requested Task is visible while its opposite endpoint
+     * is not.
+     */
+    async function setupWorkflowFixture(setup: RemoteSetup, opts?: { grantBothTasks?: boolean }) {
       const mission = missionRepo.createMission({
         habitatId: setup.habitat.id,
         title: "Workflow Mission",
@@ -1546,7 +1553,9 @@ describe("Phase D — Shared Habitat API", () => {
       });
       grantRepo.addRemoteGrantTarget(setup.grant.id, "mission", mission.id);
       grantRepo.addRemoteGrantTarget(setup.grant.id, "task", taskA.id);
-      grantRepo.addRemoteGrantTarget(setup.grant.id, "task", taskB.id);
+      if (opts?.grantBothTasks !== false) {
+        grantRepo.addRemoteGrantTarget(setup.grant.id, "task", taskB.id);
+      }
 
       const workflowId = workflowService.attachWorkflow(
         mission.id,
@@ -1557,18 +1566,64 @@ describe("Phase D — Shared Habitat API", () => {
               upstreamTaskKey: taskA.id,
               downstreamTaskKey: taskB.id,
               gateType: "on_complete" as const,
+              matchConfig: {
+                signalType: "experience",
+                subjectContains: "shared-opaque-config-sentinel",
+              },
             },
           ],
         },
-        {},
+        { secretVariable: "shared-resolved-variable-sentinel" },
         "test",
       );
-      return { mission, taskA, taskB, workflowId };
+      const [{ eq }, { taskWorkflowGates }] = await Promise.all([
+        import("drizzle-orm"),
+        import("../db/schema/index.js"),
+      ]);
+      const gate = getDb()
+        .select()
+        .from(taskWorkflowGates)
+        .where(eq(taskWorkflowGates.workflowId, workflowId))
+        .all()[0]!;
+      // A Recovery reference on the gate is a distinct hidden-id class.
+      const recoveryTask = taskRepo.createTask({
+        missionId: mission.id,
+        title: "Recovery Task",
+        description: "",
+        priority: "medium",
+        requiredCapabilities: [],
+        labels: [],
+        createdBy: "test",
+      });
+      getDb()
+        .update(taskWorkflowGates)
+        .set({ recoveryTaskId: recoveryTask.id, recoveryDepth: 3 })
+        .where(eq(taskWorkflowGates.id, gate.id))
+        .run();
+      return { mission, taskA, taskB, recoveryTask, gate, workflowId };
     }
 
     it("GET /missions/:id/workflow returns workflow shape when attached", async () => {
       const setup = setupRemoteFixture();
-      const { mission, workflowId } = setupWorkflowFixture(setup);
+      const { mission, workflowId, taskA, taskB, recoveryTask, gate } = await setupWorkflowFixture(setup);
+      // MISSION-ONLY visibility: drop both Task grant targets so the child Tasks
+      // are NOT visible to this participant. The Mission projection must still
+      // serve the restricted shape and must not leak the child Task ids.
+      // Imported locally, matching this file's existing dynamic-import idiom, so
+      // the module-scope `eq` is not shadowed by the local ones.
+      const [{ and, eq }, { remoteGrantTargets }] = await Promise.all([
+        import("drizzle-orm"),
+        import("../db/schema/index.js"),
+      ]);
+      getDb()
+        .delete(remoteGrantTargets)
+        .where(
+          and(
+            eq(remoteGrantTargets.grantId, setup.grant.id),
+            eq(remoteGrantTargets.targetType, "task"),
+          ),
+        )
+        .run();
 
       const res = await app!.inject({
         method: "GET",
@@ -1578,10 +1633,26 @@ describe("Phase D — Shared Habitat API", () => {
 
       expect(res.statusCode).toBe(200);
       const body = JSON.parse(res.body);
-      expect(body.workflow.id).toBe(workflowId);
-      expect(body.workflow.status).toBe("active");
-      expect(body.gates).toHaveLength(1);
-      expect(body.gates[0].gateType).toBe("on_complete");
+      // EXACT restricted Mission projection: status/version only, plus the
+      // restricted gate. The Workflow id is not disclosed here.
+      expect(body.workflow).toEqual({ status: "active", version: 1 });
+      expect(Object.keys(body.workflow).toSorted()).toEqual(["status", "version"]);
+      expect(body.gates).toEqual([{ gateType: "on_complete", satisfied: false, restricted: true }]);
+      // Child Task ids, the opaque config sentinel, resolved variables and the
+      // Recovery reference are absent from the whole response body.
+      const text = res.body;
+      for (const [what, value] of Object.entries({
+        workflowId,
+        upstreamTask: taskA.id,
+        downstreamTask: taskB.id,
+        recoveryTask: recoveryTask.id,
+        gateId: gate.id,
+        missionId: mission.id,
+        "config sentinel": "shared-opaque-config-sentinel",
+        "resolved variable sentinel": "shared-resolved-variable-sentinel",
+      })) {
+        expect(text, `shared Mission workflow must not disclose ${what}`).not.toContain(value);
+      }
     });
 
     it("GET /missions/:id/workflow returns 404 when no workflow attached", async () => {
@@ -1605,7 +1676,7 @@ describe("Phase D — Shared Habitat API", () => {
 
     it("GET /missions/:id/workflow rejects when read scope missing", async () => {
       const setup = setupRemoteFixture(["comment", "claim"]);
-      const { mission } = setupWorkflowFixture(setup);
+      const { mission } = await setupWorkflowFixture(setup);
 
       const res = await app!.inject({
         method: "GET",
@@ -1616,31 +1687,58 @@ describe("Phase D — Shared Habitat API", () => {
       expect(res.statusCode).toBe(403);
     });
 
-    it("GET /tasks/:id/workflow-context returns upstream and downstream gates", async () => {
+    it("GET /tasks/:id/workflow-context returns the restricted gate DTO under a PARTIAL same-Mission grant", async () => {
       const setup = setupRemoteFixture();
-      const { taskA, taskB } = setupWorkflowFixture(setup);
-
-      // Downstream task has upstream gate
-      const resDown = await app!.inject({
-        method: "GET",
-        url: `/api/shared/tasks/${taskB.id}/workflow-context`,
-        headers: remoteHeaders(setup),
+      // DELIBERATELY PARTIAL: only taskA is a grant target, so taskB is a hidden
+      // same-Mission neighbour. Admission for the REQUESTED Task must be
+      // sufficient, and its response must still hide the opposite endpoint.
+      const { taskA, taskB, workflowId, gate, recoveryTask } = await setupWorkflowFixture(setup, {
+        grantBothTasks: false,
       });
-      expect(resDown.statusCode).toBe(200);
-      const bodyDown = JSON.parse(resDown.body);
-      expect(bodyDown.upstream).toHaveLength(1);
-      expect(bodyDown.downstream).toHaveLength(0);
 
-      // Upstream task has downstream gate
+      // Visible upstream task has its downstream gate.
       const resUp = await app!.inject({
         method: "GET",
         url: `/api/shared/tasks/${taskA.id}/workflow-context`,
         headers: remoteHeaders(setup),
       });
       expect(resUp.statusCode).toBe(200);
-      const bodyUp = JSON.parse(resUp.body);
-      expect(bodyUp.upstream).toHaveLength(0);
-      expect(bodyUp.downstream).toHaveLength(1);
+      expect(JSON.parse(resUp.body)).toEqual({
+        upstream: [],
+        downstream: [{ gateType: "on_complete", satisfied: false, restricted: true }],
+      });
+      expect(resUp.body).not.toContain(taskB.id);
+
+      // Hidden downstream task is refused by exact visibility, and the refusal
+      // leaks no gate type or state.
+      const resDown = await app!.inject({
+        method: "GET",
+        url: `/api/shared/tasks/${taskB.id}/workflow-context`,
+        headers: remoteHeaders(setup),
+      });
+      expect(resDown.statusCode).toBe(403);
+      expect(resDown.body).not.toContain("on_complete");
+
+      // Exactly three keys per entry, asserted on the served bytes.
+      expect(Object.keys(JSON.parse(resUp.body).downstream[0]).toSorted()).toEqual([
+        "gateType",
+        "restricted",
+        "satisfied",
+      ]);
+
+      // No id, config, provenance or sentinel anywhere in the served payload.
+      for (const [what, value] of Object.entries({
+        upstreamTask: taskA.id,
+        downstreamTask: taskB.id,
+        workflowId,
+        gateId: gate.id,
+        recoveryTaskId: recoveryTask.id,
+        "config sentinel": "shared-opaque-config-sentinel",
+      })) {
+        expect(resUp.body, `shared Task workflow-context must not disclose ${what}`).not.toContain(
+          value,
+        );
+      }
     });
 
     it("GET /tasks/:id/workflow-context returns 404 when task not in any workflow", async () => {
@@ -1673,7 +1771,7 @@ describe("Phase D — Shared Habitat API", () => {
 
     it("GET /tasks/:id/workflow-context rejects without authentication", async () => {
       const setup = setupRemoteFixture();
-      const { taskA } = setupWorkflowFixture(setup);
+      const { taskA } = await setupWorkflowFixture(setup);
 
       const res = await app!.inject({
         method: "GET",

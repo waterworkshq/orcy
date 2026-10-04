@@ -41,7 +41,7 @@ All MCP tools use a **dispatch pattern** — each consolidated tool accepts an `
 | `orcy_habitat_skill` | `get`, `refresh`, `contribute` | Dynamic habitat skills — living knowledge document |
 | `orcy_automation` | `list`, `get`, `simulate`, `list_runs`, `get_rule_runs` | Automation rule inspection and simulation (read-only) — MCP for agents (agent API key) with active work in the habitat (claimed/in_progress/submitted task); rules and runs return bounded projections (configuration webhook URL/header fields and plugin params excluded; authored name/description returned unchanged; no run error content), `simulate` rejects `overrideCondition`/`payload` with fixed 400 codes and never evaluates plugin conditions (fixed `unsupported_plugin_condition` classification); humans keep the same HTTP routes with raw rows |
 | `orcy_notification` | `get_inbox`, `get_history`, `get_delivery`, `ack`, `snooze`, `clear`, `get_subscriptions` | Self-service notification inbox, history, delivery detail, acknowledgment, snooze, clear, and subscription reads — MCP self-service for agents (agent API key); the recipient is always the authenticated caller, never a request-supplied id; the equivalent HTTP recipient routes also serve humans (human JWT — raw event unchanged); agent `get_delivery` returns the canonical event fields (eventType/severity/title/body) plus a fixed allowlist of string context keys — never the raw payload |
-| `orcy_get_workflow_context` | _(single action — pass `taskId`)_ | Read your position in a workflow chain: upstream gates, downstream waiting tasks, gate states |
+| `orcy_get_workflow_context` | _(single action — pass `taskId`)_ | Read a restricted view of your position in a workflow chain: how many upstream/downstream gates exist, their type and whether each is satisfied (no task ids, no gate config — not enough to decide claimability) |
 | `orcy_get_failure_context` | _(single action — pass `taskId`)_ | Read the FailureContext for a task (used by recovery agents to understand what went wrong) |
 | `orcy_triage` | `investigate`, `top_issues`, `resolution_lookup`, `insert_deferred_mission`, `map_orphan_mission`, `set_focus_mission` | Triage surface — investigate signal clusters (returns the ADR-0048 investigation mission id), check top issues, look up historical resolutions, route a finding to a deferred bucket (one atomic lifecycle command creating the gated corrective mission), position an orphan mission in the roadmap DAG (bounded agent-owned route, authorized only for the current claimant of the orphan's active investigation task), and set/clear the habitat focus mission |
 | `orcy_wiki` | `search`, `get_page`, `list_pages`, `get_authoring_context`, `create_page`, `save_version`, `restore_version`, `update_metadata`, `add_link`, `remove_link`, `mark_no_update_needed`, `trigger_refresh`, `get_signal_surface` | Authored habitat wiki — search, read, author, version, link, and query the signal surface (aggregated experience patterns + engineering findings) before starting work in a domain |
@@ -235,24 +235,23 @@ Some missions have a **workflow** — a DAG of typed gates that control which ta
 
 ### Understanding Your Position
 
-If your task is part of a workflow, call `orcy_get_workflow_context` to see what's upstream (what needed to happen before your task became available) and what's downstream (what's waiting on your task):
+If your task is part of a workflow, call `orcy_get_workflow_context` to see how many gates sit upstream (what had to happen before your task became available) and how many sit downstream (what is waiting on your task), and whether each is satisfied:
 
 ```
 orcy_get_workflow_context({ taskId: "your-task-id" })
 
 Output:
 {
-  "workflow": { "id": "...", "status": "active" },
-  "upstreamGates": [
-    { "gateType": "on_approve", "upstreamTaskTitle": "Implement API endpoint", "satisfied": true }
+  "upstream": [
+    { "gateType": "on_approve", "satisfied": true, "restricted": true }
   ],
-  "downstreamGates": [
-    { "gateType": "on_complete", "downstreamTaskTitle": "Deploy to staging", "satisfied": false }
+  "downstream": [
+    { "gateType": "on_complete", "satisfied": false, "restricted": true }
   ]
 }
 ```
 
-This tells you: your task was blocked until the API endpoint task was approved (now satisfied), and once you complete your task, the deploy task will become claimable.
+This tells you: one gate upstream is already satisfied and one gate downstream is still waiting on you. It does **not** name the tasks on either end, the gate configuration or the workflow, so use it for shape and state, not for navigation. It also cannot decide claimability — that is settled by the claim attempt itself, which is the single authority; this read is advisory.
 
 **Key points:**
 - Claim behavior is unchanged — you claim tasks the same way whether or not a workflow is attached
@@ -262,10 +261,23 @@ This tells you: your task was blocked until the API endpoint task was approved (
 Both `orcy_get_workflow_context` and `orcy_get_failure_context` read the **requested** Task's
 context: local agents are admitted on any existing Habitat, humans need membership of a team Habitat
 (any human on a personal Habitat), and a Task that does not exist is `404`. That check governs the Task
-you asked about only — a returned gate still names the task on the other end of the edge, and a
-failure context still carries the Habitat, Workflow and Recovery Task references on its row. Both reads return raw
-rows: every gate for the task regardless of workflow or gate status, and the latest unresolved
-failure-context row for the failed Task.
+you asked about, and the two reads then return deliberately different amounts:
+
+- **`orcy_get_workflow_context` returns a RESTRICTED view.** Every entry is exactly
+  `{ gateType, satisfied, restricted: true }`. You get how many gates feed into the task and how many
+  wait on it, and whether each is satisfied — nothing else. The connected tasks, the gate
+  configuration, the join semantics and the owning workflow are **not** returned. Use it for chain
+  awareness ("something is waiting on me, and one gate upstream is still unsatisfied"). It cannot tell
+  you whether a task is claimable, and neither can any other read: claimability is decided by the
+  claim attempt, which is the single authority. This read is an advisory projection — try the claim.
+  A satisfied gate and a gate on a detached workflow both still appear.
+- **`orcy_get_failure_context` returns the full row** — reason, artifacts, Experience, lifecycle and
+  retry history — for the latest **unresolved** context of the failed task.
+
+If a failure context was captured in a different Habitat than the task's current one, you get `409`
+(`CONFLICT`, "Failure context Habitat does not match the Task Habitat"). That is a data-integrity
+condition, not a permissions problem: it happens even if you can see both Habitats. Report it to a
+human rather than working around it.
 
 ### Recovery Tasks
 

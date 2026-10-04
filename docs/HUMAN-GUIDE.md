@@ -500,14 +500,36 @@ operations admit any signed-in human; there is no owner-only rule.
 
 Agent keys remain accepted for Task details and estimates on any existing Habitat. Watching, unwatching,
 and the dedicated watcher, pull-request and pipeline-history reads require a human JWT. The workflow-context
-and failure-context reads follow the same team-membership rule for the Task you ask about.
+and failure-context reads follow the same team-membership rule for the Task you ask about. The
+workflow-context answer is deliberately reduced: you see how many gates feed into the Task and how
+many wait on it, each with its gate type and whether it is satisfied — not the connected Tasks, the
+gate configuration or the owning workflow. The failure-context answer stays complete (reason,
+artifacts, Experience and retry history) so you can investigate a failure, but it is refused if the
+captured failure belongs to a different Habitat than the Task's current one.
 
-**What that rule does not cover.** It decides only whether you may read *that Task's* context. A workflow
-gate still names the Task on the other end of the edge, and a failure context still carries the
-Habitat, Workflow and Recovery Task references on its row, plus the raw notes the failing agent left. So membership here is
-not a promise that everything printed inside those responses is private to you. Reading another Task's
-edge, or the scope a failure was captured under, needs its own decision — see the API documentation for
-each route's admission rules.
+**What that rule does and does not cover.** It decides only whether you may read *that Task's* context,
+so read the three disclosure levels separately:
+
+- **The workflow-context answer no longer names other objects at all.** The gate IDs, the Task on the
+  other end of each edge, the Workflow, Mission, Habitat and Recovery Task ids, the gate configuration
+  and every timestamp are all removed by the projection. What you get is the accepted disclosure: gate
+  count, direction, type and current satisfied state about the Task you asked about. Do not expect to
+  navigate the chain from this response.
+- **The stored chain underneath is not validated by that projection.** It hides identifiers; it does not
+  check them. Gates are still written with foreign-key existence only, so a stored cross-Mission or
+  cross-Habitat edge remains representable and validating it is separate, unfinished work. Treat a
+  surprising count or direction as a data question, not as an authorization guarantee.
+- **The failure-context answer stays complete by explicit decision.** On a consistent Habitat you get the
+  full diagnostic bundle — reason, artifacts, the individual Experience subjects and times, category
+  counts and the raw lifecycle/retry notes the failing agent left. That is a narrow, deliberate
+  exception to the usual aggregate-only habit, not a privacy guarantee: strings, URLs and metadata can
+  still carry opaque historical references. And the captured Habitat, Workflow and Recovery Task
+  references remain on the row, which is why a context captured in a different Habitat from the Task's
+  current one is refused outright with `409` rather than being shown to you.
+
+So membership on the Task you asked about is not a promise that everything printed inside a failure
+context is private to you, and the workflow-context restriction should not be read as a claim that the
+stored chain has been checked. See the API documentation for each route's exact admission rules.
 
 For these guarded operations, a missing Task and an inaccessible team Task answer differently ("not found"
 versus "no access"). A caller can therefore probe whether a supplied Task ID exists. This is a known limit.

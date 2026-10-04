@@ -3,6 +3,7 @@ import { z } from "zod";
 import { adminOnly } from "../middleware/rbac.js";
 import * as workflowService from "../services/workflowService.js";
 import * as failureContextService from "../services/failureContextService.js";
+import * as workflowReadProjection from "../services/workflowReadProjection.js";
 import * as missionRepo from "../repositories/mission.js";
 import { badRequest, conflict, notFound } from "../errors.js";
 import { applyDeclaredAuthPolicies } from "../authPolicy.js";
@@ -125,7 +126,16 @@ export async function workflowRoutes(fastify: FastifyInstance): Promise<void> {
     },
   );
 
-  /** GET /missions/:id/workflow - Get the active workflow shape for a mission. Auth: humanAuth + adminOnly. Returns { workflow, gates } or 404. */
+  /**
+   * GET /missions/:id/workflow - Get the active workflow shape for a mission.
+   * Auth: humanAuth + adminOnly. Returns { workflow, gates } or 404.
+   *
+   * Deliberately FULL, unlike the ordinary Task/shared readers (ADR-0052): this
+   * is the separate administrative authority (global `adminOnly`, no Habitat
+   * membership predicate), not a bypass on the ordinary routes. A global admin
+   * using `GET /tasks/:id/workflow-context` still gets the restricted DTO and
+   * still needs requested-Habitat membership.
+   */
   fastify.get<{ Params: { id: string } }>(
     "/missions/:id/workflow",
     { preHandler: [adminOnly], config: { authPolicy: "human" } },
@@ -227,21 +237,39 @@ export async function workflowRoutes(fastify: FastifyInstance): Promise<void> {
     },
   );
 
-  /** GET /tasks/:id/failure-context - Read the most recent unresolved failure context for a task. Auth: agentOrHumanAuth. Returns { failureContext } or 404. */
+  /**
+   * GET /tasks/:id/failure-context - Read the most recent unresolved failure
+   * context for a task. Auth: agentOrHumanAuth. Returns { failureContext } or
+   * 404. After admission, a context captured in a DIFFERENT Habitat than the
+   * Task's current validated Habitat is refused 409 CONFLICT (ADR-0052): that is
+   * a scope-consistency anomaly, not a membership denial, so access to both
+   * Habitats does not waive it. The bundle itself is served in full to admitted
+   * local actors on a consistent context (narrow diagnostic exception).
+   */
   fastify.get<{ Params: { id: string } }>(
     "/tasks/:id/failure-context",
     { config: { authPolicy: "local_actor" } },
     async (request: FastifyRequest<{ Params: { id: string } }>, _reply: FastifyReply) => {
-      await authorizeTaskAccess(request, request.params.id);
+      const currentHabitatId = await authorizeTaskAccess(request, request.params.id);
       const failureContext = failureContextService.getFailureContext(request.params.id);
       if (!failureContext) {
         throw notFound("No failure context found for this task");
+      }
+      if (failureContext.habitatId !== currentHabitatId) {
+        throw conflict("Failure context Habitat does not match the Task Habitat");
       }
       return { failureContext };
     },
   );
 
-  /** GET /tasks/:id/workflow-context - Read the upstream and downstream workflow gates for a task. Auth: agentOrHumanAuth. Returns { upstream, downstream } or 404 when task is not in a workflow. */
+  /**
+   * GET /tasks/:id/workflow-context - Read the upstream and downstream workflow
+   * gates for a task. Auth: agentOrHumanAuth. Returns a RESTRICTED
+   * { upstream, downstream } whose entries are exactly
+   * { gateType, satisfied, restricted: true } — no ids, config, timestamps or
+   * provenance (ADR-0052). Direction, count, order, type and satisfaction are
+   * preserved; 404 is still decided from the original selected arrays.
+   */
   fastify.get<{ Params: { id: string } }>(
     "/tasks/:id/workflow-context",
     { config: { authPolicy: "local_actor" } },
@@ -251,7 +279,7 @@ export async function workflowRoutes(fastify: FastifyInstance): Promise<void> {
       if (context.upstream.length === 0 && context.downstream.length === 0) {
         throw notFound("Task is not part of any workflow");
       }
-      return context;
+      return workflowReadProjection.restrictTaskWorkflowContext(context);
     },
   );
 }

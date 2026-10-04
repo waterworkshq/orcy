@@ -556,8 +556,13 @@ describe("workflowRoutes — GET /tasks/:id/failure-context", () => {
     await app.close();
   });
 
-  it("returns the failure context when one exists (human JWT, Task access admitted)", async () => {
-    const mockCtx = { id: "ctx-1", failedTaskId: "task-1", failureKind: "lifecycle_failed" };
+  it("returns the failure context when one exists and its Habitat matches (human JWT, Task access admitted)", async () => {
+    const mockCtx = {
+      id: "ctx-1",
+      failedTaskId: "task-1",
+      failureKind: "lifecycle_failed",
+      habitatId: "unit-wf-habitat",
+    };
     vi.mocked(getFailureContext).mockReturnValue(mockCtx as any);
 
     const res = await app.inject({
@@ -570,6 +575,30 @@ describe("workflowRoutes — GET /tasks/:id/failure-context", () => {
     expect(authorizeTaskAccess).toHaveBeenCalledWith(expect.anything(), "task-1");
     expect(getFailureContext).toHaveBeenCalledWith("task-1");
     expect(JSON.parse(res.body).failureContext).toEqual(mockCtx);
+  });
+
+  it("returns 409 CONFLICT with a bounded message when the captured Habitat differs from the Task Habitat", async () => {
+    vi.mocked(getFailureContext).mockReturnValue({
+      id: "ctx-2",
+      failedTaskId: "task-1",
+      failureKind: "lifecycle_failed",
+      // Captured in a different Habitat than the one authorizeTaskAccess
+      // validated. Access to BOTH does not waive the integrity refusal.
+      habitatId: "some-other-habitat",
+    } as any);
+
+    const res = await app.inject({
+      method: "GET",
+      url: "/tasks/task-1/failure-context",
+      headers: { authorization: `Bearer ${adminToken()}` },
+    });
+
+    expect(res.statusCode).toBe(409);
+    // Bounded message only: no captured Habitat id, no reason, no bundle.
+    expect(JSON.parse(res.body)).toEqual({
+      error: "Failure context Habitat does not match the Task Habitat",
+      code: "CONFLICT",
+    });
   });
 
   it("returns 404 when no failure context exists", async () => {
@@ -630,9 +659,11 @@ describe("workflowRoutes — GET /tasks/:id/workflow-context", () => {
     expect(res.statusCode).toBe(200);
     expect(authorizeTaskAccess).toHaveBeenCalledWith(expect.anything(), "task-1");
     expect(getTaskWorkflowContext).toHaveBeenCalledWith("task-1");
-    const body = JSON.parse(res.body);
-    expect(body.upstream).toHaveLength(1);
-    expect(body.downstream).toHaveLength(1);
+    // EXACT restricted DTO, and none of the stored row's identifying fields.
+    expect(JSON.parse(res.body)).toEqual({
+      upstream: [{ gateType: "on_complete", satisfied: true, restricted: true }],
+      downstream: [{ gateType: "on_approve", satisfied: false, restricted: true }],
+    });
   });
 
   it("returns 404 when task is not part of any workflow", async () => {
