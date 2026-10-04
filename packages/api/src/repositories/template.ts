@@ -1,12 +1,5 @@
 import { getDb } from "../db/index.js";
-import {
-  missionTemplates,
-  missions,
-  tasks,
-  columns,
-  workflows,
-  taskWorkflowGates,
-} from "../db/schema/index.js";
+import { missionTemplates, missions, tasks, columns, workflows } from "../db/schema/index.js";
 import { eq, or, and, isNull, sql, desc, asc, max } from "drizzle-orm";
 import type {
   MissionTemplate,
@@ -19,6 +12,10 @@ import type {
 import { v4 as uuid } from "uuid";
 import * as missionRepo from "./mission.js";
 import * as taskRepo from "./task.js";
+import {
+  insertWorkflowWithinMissionScope,
+  insertWorkflowGateWithinMissionScope,
+} from "./workflowIntegrity.js";
 import {
   repositoryCreateError,
   repositoryNotFoundError,
@@ -331,18 +328,15 @@ function instantiateWorkflow(tx: DbHandle, opts: InstantiateWorkflowOpts): strin
   }
 
   const workflowId = uuid();
-  tx.insert(workflows)
-    .values({
-      id: workflowId,
-      missionId,
-      habitatId,
-      resolvedVariables: resolvedVars,
-      joinSpecs: resolvedJoinSpecs,
-      failureHandler: resolvedFailureHandler,
-      status: "active",
-      createdBy: actor,
-    })
-    .run();
+  insertWorkflowWithinMissionScope(tx, {
+    id: workflowId,
+    missionId,
+    habitatId,
+    resolvedVariables: resolvedVars,
+    failureHandler: resolvedFailureHandler,
+    joinSpecs: resolvedJoinSpecs,
+    createdBy: actor,
+  });
 
   for (const gate of wfDef.gates) {
     const upstreamTaskId = keyToTaskId.get(gate.upstreamTaskKey);
@@ -384,23 +378,22 @@ function instantiateWorkflow(tx: DbHandle, opts: InstantiateWorkflowOpts): strin
       !!upstreamTaskRow &&
       (TERMINAL_TASK_STATUSES as readonly string[]).includes(upstreamTaskRow.status);
 
-    tx.insert(taskWorkflowGates)
-      .values({
-        id: uuid(),
-        workflowId,
-        missionId,
-        habitatId,
-        upstreamTaskId,
-        downstreamTaskId,
-        gateType: gate.gateType,
-        matchConfig: matchConfig ?? null,
-        condition: gate.condition ?? null,
-        satisfied: isPreSatisfied,
-        satisfiedAt: isPreSatisfied ? now : null,
-        satisfiedByEventId: isPreSatisfied ? `pre_satisfied_at_attach:${now}` : null,
-        recoveryDepth: 0,
-      })
-      .run();
+    insertWorkflowGateWithinMissionScope(tx, {
+      id: uuid(),
+      workflowId,
+      missionId,
+      habitatId,
+      upstreamTaskId,
+      downstreamTaskId,
+      gateType: gate.gateType,
+      matchConfig: matchConfig ?? null,
+      condition: gate.condition ?? null,
+      satisfied: isPreSatisfied,
+      satisfiedAt: isPreSatisfied ? now : null,
+      satisfiedByEventId: isPreSatisfied ? `pre_satisfied_at_attach:${now}` : null,
+      recoveryTaskId: null,
+      recoveryDepth: 0,
+    });
   }
 
   return workflowId;

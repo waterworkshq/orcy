@@ -47,6 +47,8 @@ import {
 } from "../db/schema/index.js";
 import * as habitatRepo from "../repositories/habitat.js";
 import * as columnRepo from "../repositories/column.js";
+import * as missionRepo from "../repositories/mission.js";
+import * as taskCrudRepo from "../repositories/taskCrud.js";
 import * as templateRepo from "../repositories/template.js";
 import * as pluginManager from "../plugins/pluginManager.js";
 import * as enrollmentRepo from "../repositories/pluginEnrollment.js";
@@ -958,5 +960,115 @@ describe("publishTemplateAggregateWithClient — post-cutover wiring", () => {
       "governance_denied",
     ];
     expect(outcomes).toContain(result.outcome);
+  });
+});
+
+// ===========================================================================
+// Workflow node integrity — selected-aggregate scope fencing (ADR-0002).
+// The FINAL Workflow/gate writes are anchored to the SELECTED aggregate's
+// generated Mission/Habitat. A prepared (tampered/stale/direct) contract
+// whose scope does not name the selected aggregate — INCLUDING a mutually
+// consistent foreign Workflow/gate aggregate — throws a descriptive
+// integrity Error inside the aggregate tx and rolls the WHOLE published
+// aggregate back (zero published domain aggregate; earlier
+// reservation/governance ledger rows may legitimately remain).
+// ===========================================================================
+
+describe("workflow node integrity — template aggregate scope fencing", () => {
+  /** A separately valid Mission + 2 Tasks in the SAME habitat (legal FKs). */
+  function foreignMissionFixture(): { missionId: string; task1: string; task2: string } {
+    const col = columnRepo.createColumn({ habitatId, name: "Foreign Col", order: 9 });
+    const m = missionRepo.createMission({
+      habitatId,
+      columnId: col.id,
+      title: "foreign-target",
+      createdBy: "t",
+    });
+    const t1 = taskCrudRepo.createTask({ missionId: m.id, title: "ft1", createdBy: "t" }).id;
+    const t2 = taskCrudRepo.createTask({ missionId: m.id, title: "ft2", createdBy: "t" }).id;
+    return { missionId: m.id, task1: t1, task2: t2 };
+  }
+
+  it("a mutually consistent FOREIGN prepared Workflow/gate aggregate is rejected and rolls the whole aggregate back", () => {
+    const template = createTemplate({
+      tasksTemplate: [
+        { key: "t1", title: "One", order: 0 },
+        { key: "t2", title: "Two", order: 1 },
+      ],
+      workflowTemplate: {
+        gates: [{ upstreamTaskKey: "t1", downstreamTaskKey: "t2", gateType: "on_complete" }],
+      },
+    });
+    const aggregate = prepareRepresentativeAggregate(template);
+    const attemptIds = seedAttemptsForAggregate(aggregate, "foreign-scope");
+    const foreign = foreignMissionFixture();
+
+    // Tamper the prepared contract into a fully self-consistent FOREIGN
+    // aggregate (Workflow + gates all name the foreign Mission and its
+    // Tasks). Ordinary preparation never produces this; a direct/stale
+    // caller can.
+    aggregate.workflow!.missionId = foreign.missionId;
+    aggregate.workflow!.gates = aggregate.workflow!.gates.map((g) => ({
+      ...g,
+      missionId: foreign.missionId,
+      upstreamTaskId: foreign.task1,
+      downstreamTaskId: foreign.task2,
+    }));
+
+    const before = countRows();
+    const usageBefore = templateUsageCount(template.id);
+
+    expect(() =>
+      publishTemplateAggregateWithClient(getDb(), { attemptIds, prepared: aggregate }),
+    ).toThrow(/does not name the selected aggregate Mission/);
+
+    const after = countRows();
+    expect(after.missions).toBe(before.missions);
+    expect(after.tasks).toBe(before.tasks);
+    expect(after.events).toBe(before.events);
+    expect(after.workflows).toBe(before.workflows);
+    expect(after.gates).toBe(before.gates);
+    expect(after.envelopes).toBe(before.envelopes);
+    expect(templateUsageCount(template.id)).toBe(usageBefore);
+  });
+
+  it("a gate endpoint drifting to a foreign-Mission Task fails the FINAL predicate and rolls the whole aggregate back", () => {
+    const template = createTemplate({
+      tasksTemplate: [
+        { key: "t1", title: "One", order: 0 },
+        { key: "t2", title: "Two", order: 1 },
+      ],
+      workflowTemplate: {
+        gates: [{ upstreamTaskKey: "t1", downstreamTaskKey: "t2", gateType: "on_complete" }],
+      },
+    });
+    const aggregate = prepareRepresentativeAggregate(template);
+    const attemptIds = seedAttemptsForAggregate(aggregate, "endpoint-drift");
+    const foreign = foreignMissionFixture();
+
+    // Scope stays the selected aggregate's; only the downstream endpoint
+    // drifts to the foreign Mission's task — the scope precheck passes but
+    // the final conditional gate INSERT must match zero rows.
+    aggregate.workflow!.gates[0]!.downstreamTaskId = foreign.task2;
+
+    const before = countRows();
+    const usageBefore = templateUsageCount(template.id);
+
+    let thrown: unknown;
+    try {
+      publishTemplateAggregateWithClient(getDb(), { attemptIds, prepared: aggregate });
+    } catch (err) {
+      thrown = err;
+    }
+    expect(thrown).toBeInstanceOf(Error);
+    expect(String((thrown as Error).message)).toMatch(/matched no selected Mission/);
+
+    const after = countRows();
+    expect(after.missions).toBe(before.missions);
+    expect(after.tasks).toBe(before.tasks);
+    expect(after.workflows).toBe(before.workflows);
+    expect(after.gates).toBe(before.gates);
+    expect(after.envelopes).toBe(before.envelopes);
+    expect(templateUsageCount(template.id)).toBe(usageBefore);
   });
 });

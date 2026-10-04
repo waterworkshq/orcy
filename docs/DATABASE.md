@@ -1932,6 +1932,8 @@ Typed dependency edges between tasks with satisfaction state. Each gate declares
 
 **Indexes:** `idx_workflow_gates_workflow(workflow_id)`, `idx_workflow_gates_downstream(downstream_task_id)`, `idx_workflow_gates_upstream(upstream_task_id)`, `idx_workflow_gates_satisfied(satisfied)`, `idx_workflow_gates_type(gate_type)`
 
+**Scope note:** The FKs to `workflows`/`missions`/`habitats`/`tasks` are independent existence constraints — they do not enforce equal-Mission ancestry, and no composite scope constraint or migration is added. Ancestry equality for **new application writes** (attach, template publication, Recovery linkage) is enforced at the application layer by statement-time conditional predicates (`repositories/workflowIntegrity.ts`); rows written before that fence or by raw DB/trigger writers can still exist without it.
+
 #### `failure_contexts`
 
 Structured failure bundle captured when a task fails (`failed`, `rejected`, or `released`/heartbeat-lost) within a workflow. Recovery agents read this via the `orcy_get_failure_context` MCP tool to understand what went wrong before starting work.

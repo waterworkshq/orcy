@@ -125,14 +125,12 @@ import { eq, sql } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 import type { TaskStatus } from "@orcy/shared";
 import { getDb } from "../db/index.js";
-import {
-  missions,
-  tasks,
-  workflows,
-  taskWorkflowGates,
-  missionTemplates,
-} from "../db/schema/index.js";
+import { missions, tasks, workflows, missionTemplates } from "../db/schema/index.js";
 import { markPresetHistoricalWithClient } from "../repositories/reviewSafety.js";
+import {
+  insertWorkflowWithinMissionScope,
+  insertWorkflowGateWithinMissionScope,
+} from "../repositories/workflowIntegrity.js";
 import type { TaskPublicationDbClient } from "../repositories/taskPublication.js";
 import { publishTaskWithClient, type CommittedPublication } from "./taskPublicationCoordinator.js";
 import { governTaskPublication, type GovernedTaskResult } from "./taskPublicationGovernance.js";
@@ -574,43 +572,63 @@ export function publishTemplateAggregateWithClient(
       //     `isPreSatisfied` gate, stamp `satisfied:true, satisfiedAt:now,
       //     satisfiedByEventId:"pre_satisfied_at_attach:${now}"` (the legacy
       //     format). recoveryDepth is always 0 for a fresh publication.
+      //
+      //     The FINAL Workflow/gate writes are conditional scoped inserts
+      //     (`repositories/workflowIntegrity.ts`) anchored to the SELECTED
+      //     aggregate's generated Mission/Habitat — never the prepared
+      //     Workflow's self-declared scope. A prepared contract whose scope
+      //     does not name the selected aggregate — including a mutually
+      //     consistent foreign one — throws a descriptive integrity Error
+      //     here, inside the aggregate tx, rolling the WHOLE published
+      //     aggregate (Mission/Tasks/events/Workflow/gates/usage/envelope)
+      //     back. Prepared snapshots are data, not authority; the final
+      //     predicates read the persisted own Mission/Task rows.
       let committedWorkflow: CommittedWorkflow | null = null;
       if (prepared.workflow) {
         const wf = prepared.workflow;
-        tx.insert(workflows)
-          .values({
-            id: wf.workflowId,
-            missionId: wf.missionId,
-            habitatId: wf.habitatId,
-            resolvedVariables: wf.resolvedVariables,
-            joinSpecs: wf.joinSpecs,
-            failureHandler: wf.failureHandler,
-            status: "active",
-            createdBy: prepared.mission.createdBy,
-            createdAt: now,
-            version: 1,
-          })
-          .run();
+        const selectedMissionId = prepared.mission.missionId;
+        const selectedHabitatId = prepared.mission.habitatId;
+        if (
+          wf.missionId !== selectedMissionId ||
+          wf.habitatId !== selectedHabitatId ||
+          wf.gates.some(
+            (gate) => gate.missionId !== selectedMissionId || gate.habitatId !== selectedHabitatId,
+          )
+        ) {
+          throw new Error(
+            `publishTemplateAggregateWithClient: prepared Workflow scope (mission ${wf.missionId}/habitat ${wf.habitatId}) does not name the selected aggregate Mission ${selectedMissionId}/Habitat ${selectedHabitatId} — refusing to publish a foreign Workflow; the aggregate rolls back.`,
+          );
+        }
+
+        insertWorkflowWithinMissionScope(tx, {
+          id: wf.workflowId,
+          missionId: selectedMissionId,
+          habitatId: selectedHabitatId,
+          resolvedVariables: wf.resolvedVariables,
+          failureHandler: wf.failureHandler,
+          joinSpecs: wf.joinSpecs,
+          createdBy: prepared.mission.createdBy,
+          createdAt: now,
+        });
 
         for (const gate of wf.gates) {
-          tx.insert(taskWorkflowGates)
-            .values({
-              id: uuid(),
-              workflowId: wf.workflowId,
-              missionId: gate.missionId,
-              habitatId: gate.habitatId,
-              upstreamTaskId: gate.upstreamTaskId,
-              downstreamTaskId: gate.downstreamTaskId,
-              gateType: gate.gateType,
-              matchConfig: gate.matchConfig,
-              condition: gate.condition,
-              satisfied: gate.isPreSatisfied,
-              satisfiedAt: gate.isPreSatisfied ? now : null,
-              satisfiedByEventId: gate.isPreSatisfied ? `pre_satisfied_at_attach:${now}` : null,
-              recoveryDepth: gate.recoveryDepth,
-              createdAt: now,
-            })
-            .run();
+          insertWorkflowGateWithinMissionScope(tx, {
+            id: uuid(),
+            workflowId: wf.workflowId,
+            missionId: selectedMissionId,
+            habitatId: selectedHabitatId,
+            upstreamTaskId: gate.upstreamTaskId,
+            downstreamTaskId: gate.downstreamTaskId,
+            gateType: gate.gateType,
+            matchConfig: gate.matchConfig,
+            condition: gate.condition,
+            satisfied: gate.isPreSatisfied,
+            satisfiedAt: gate.isPreSatisfied ? now : null,
+            satisfiedByEventId: gate.isPreSatisfied ? `pre_satisfied_at_attach:${now}` : null,
+            recoveryTaskId: null,
+            recoveryDepth: gate.recoveryDepth,
+            createdAt: now,
+          });
         }
 
         committedWorkflow =

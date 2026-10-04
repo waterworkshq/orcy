@@ -1,7 +1,19 @@
 import { getDb } from "../db/index.js";
-import { workflows, taskWorkflowGates, failureContexts } from "../db/schema/index.js";
+import {
+  workflows,
+  taskWorkflowGates,
+  failureContexts,
+  missions,
+  tasks,
+} from "../db/schema/index.js";
 import { eq, and, inArray, isNull, sql } from "drizzle-orm";
 import { logger } from "../lib/logger.js";
+import { badRequest, conflict } from "../errors.js";
+import {
+  insertWorkflowWithinMissionScope,
+  insertWorkflowGateWithinMissionScope,
+  WorkflowScopeMissError,
+} from "../repositories/workflowIntegrity.js";
 import { onTransition } from "./tasks/transition-emitter.js";
 import * as pulseService from "./pulseService.js";
 import { onAutomationRunCompleted } from "./automationExecutor.js";
@@ -398,7 +410,60 @@ function logAdvancementWriteErrors(results: AdvancementResult[]): void {
   }
 }
 
-/** Attaches a workflow DAG to a mission, creating the workflow row and all gate rows from the template definition. */
+/**
+ * Whole-input prevalidation for {@link attachWorkflow}: the SELECTED exact
+ * Mission must persist in the supplied Habitat, and EVERY explicit endpoint
+ * pair must be an existing Task of that Mission. Any miss — missing node,
+ * foreign-Mission node (same or different Habitat), or a supplied Habitat
+ * inconsistent with the selected Mission — is the single generic validity
+ * refusal 400 VALIDATION_ERROR `Invalid workflow nodes` (no foreign
+ * details). This is input validity, not object membership; the selected
+ * Mission's 404 stays route-owned.
+ */
+function validateAttachScopeAndNodes(
+  missionId: string,
+  habitatId: string,
+  gates: WorkflowTemplateDefinition["gates"],
+): void {
+  const db = getDb();
+
+  const mission = db
+    .select({ id: missions.id, habitatId: missions.habitatId })
+    .from(missions)
+    .where(eq(missions.id, missionId))
+    .get();
+  if (!mission || mission.habitatId !== habitatId) {
+    throw badRequest("Invalid workflow nodes");
+  }
+
+  const endpointIds = new Set<string>();
+  for (const gate of gates) {
+    endpointIds.add(gate.upstreamTaskKey);
+    endpointIds.add(gate.downstreamTaskKey);
+  }
+  const persisted = db
+    .select({ id: tasks.id })
+    .from(tasks)
+    .where(and(eq(tasks.missionId, missionId), inArray(tasks.id, [...endpointIds])))
+    .all();
+  const valid = new Set(persisted.map((row) => row.id));
+  for (const gate of gates) {
+    if (!valid.has(gate.upstreamTaskKey) || !valid.has(gate.downstreamTaskKey)) {
+      throw badRequest("Invalid workflow nodes");
+    }
+  }
+}
+
+/**
+ * Attaches a workflow DAG to a mission: the Workflow row and ALL gate rows
+ * commit in one own synchronous transaction of conditional scoped inserts
+ * (see `repositories/workflowIntegrity.ts`). The whole bundle is validated
+ * before the first write; a zero-match at any final statement after
+ * prevalidation means the persisted scope drifted mid-attach and surfaces
+ * as 409 CONFLICT `Workflow context changed` with the bundle rolled back.
+ * The best-effort `workflow_attached` audit is emitted only after a
+ * successful commit.
+ */
 export function attachWorkflow(
   missionId: string,
   habitatId: string,
@@ -408,36 +473,50 @@ export function attachWorkflow(
 ): string {
   const db = getDb();
   const workflowId = crypto.randomUUID();
+  const now = new Date().toISOString();
 
-  db.insert(workflows)
-    .values({
-      id: workflowId,
-      missionId,
-      habitatId,
-      resolvedVariables: variables,
-      failureHandler: definition.failureHandler ?? null,
-      joinSpecs: definition.joinSpecs ?? null,
-      status: "active",
-      createdBy,
-    })
-    .run();
+  validateAttachScopeAndNodes(missionId, habitatId, definition.gates);
 
-  for (const gate of definition.gates) {
-    db.insert(taskWorkflowGates)
-      .values({
-        id: crypto.randomUUID(),
-        workflowId,
+  try {
+    db.transaction((tx) => {
+      insertWorkflowWithinMissionScope(tx, {
+        id: workflowId,
         missionId,
         habitatId,
-        upstreamTaskId: gate.upstreamTaskKey,
-        downstreamTaskId: gate.downstreamTaskKey,
-        gateType: gate.gateType,
-        matchConfig: (gate.matchConfig as Record<string, unknown>) ?? null,
-        condition: gate.condition ?? null,
-        satisfied: false,
-        recoveryDepth: 0,
-      })
-      .run();
+        resolvedVariables: variables,
+        failureHandler: definition.failureHandler ?? null,
+        joinSpecs: definition.joinSpecs ?? null,
+        createdBy,
+        createdAt: now,
+      });
+
+      for (const gate of definition.gates) {
+        insertWorkflowGateWithinMissionScope(tx, {
+          id: crypto.randomUUID(),
+          workflowId,
+          missionId,
+          habitatId,
+          upstreamTaskId: gate.upstreamTaskKey,
+          downstreamTaskId: gate.downstreamTaskKey,
+          gateType: gate.gateType,
+          matchConfig: (gate.matchConfig as Record<string, unknown>) ?? null,
+          condition: gate.condition ?? null,
+          satisfied: false,
+          satisfiedAt: null,
+          satisfiedByEventId: null,
+          recoveryTaskId: null,
+          recoveryDepth: 0,
+        });
+      }
+    });
+  } catch (err) {
+    if (err instanceof WorkflowScopeMissError) {
+      // Post-precheck statement-time drift: the persisted selected scope
+      // changed between validation and a final conditional write. The
+      // transaction rolled the whole bundle back — no partial attach.
+      throw conflict("Workflow context changed");
+    }
+    throw err;
   }
 
   emitWorkflowMissionAudit(missionId, "workflow_attached", {

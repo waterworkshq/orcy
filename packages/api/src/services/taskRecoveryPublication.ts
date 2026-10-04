@@ -87,7 +87,7 @@
  * Story-2 implementation-context § "Story 1 kernel API surface" + § "Shared
  * contracts"; gap-audit O3; cold-critique C2.
  */
-import { and, eq, isNull, sql } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import type { AuditActorRef, AuditSource, CausalContext } from "@orcy/shared";
 import { getDb } from "../db/index.js";
 import {
@@ -101,6 +101,8 @@ import {
   taskCreationAttempts,
   taskWorkflowGates,
   failureContexts,
+  missions,
+  workflows,
 } from "../db/schema/index.js";
 import {
   prepareTaskPublication,
@@ -362,84 +364,252 @@ export function buildRecoveryLinkageParticipant(linkage: RecoveryLinkage): Parti
   return (db, ctx) => {
     const recoveryTaskId = ctx.task.id;
 
-    // 1. Insert the next-depth on_fail gate. The new gate's upstream is the
-    //    RECOVERY task (so it only fires if the recovery itself fails, enabling
-    //    recovery-of-recovery chains rather than re-firing on every repeat of
-    //    the original failure event). The downstream mirrors the original
-    //    gate's downstream so a successful recovery also unblocks the same
-    //    downstream task (consistent with F4 redemption semantics).
+    // ----- 0. Preimage + scope prechecks (INSIDE the publication tx, BEFORE
+    //      the first gate INSERT / pointer UPDATE / context UPDATE).
     //
-    //    Mirrors legacy `spawnRecoveryForGate` L321-335 exactly, except the
-    //    write targets the tx client `db` (not `getDb()`).
-    db.insert(taskWorkflowGates)
-      .values({
-        id: cryptoRandomUuid(),
-        workflowId: linkage.workflowId,
-        missionId: linkage.missionId,
-        habitatId: linkage.habitatId,
-        upstreamTaskId: recoveryTaskId,
-        downstreamTaskId: linkage.downstreamTaskId,
-        gateType: "on_fail",
-        matchConfig: null,
-        condition: null,
-        satisfied: false,
-        recoveryDepth: linkage.recoveryDepth + 1,
-      })
-      .run();
-
-    // 2. Link the original gate back to the spawned recovery task. This is a
-    //    COMPARE-AND-SET claim: `WHERE recovery_task_id IS NULL` ensures
-    //    exactly one attempt can win the gate (cold-review #2 M1). Two
-    //    distinct Recovery attempts for the same gate (different runIds →
-    //    different attempt keys) race here; the loser's CAS matches zero rows
-    //    → throw inside the participant → the whole publication aggregate
-    //    rolls back (no Task, no event, no next-depth gate, no linkage). The
-    //    losing attempt's failure handler surfaces the gate-already-linked
-    //    rejection cleanly.
-    //
-    //    `SELECT changes() AS n` is the kernel's portable CAS-classification
-    //    pattern (same as `completeAttemptWithClient`,
-    //    `consumeAssignmentReservationWithClient`, etc.).
-    db.update(taskWorkflowGates)
-      .set({ recoveryTaskId })
-      .where(
-        and(eq(taskWorkflowGates.id, linkage.gateId), isNull(taskWorkflowGates.recoveryTaskId)),
-      )
-      .run();
-    const gateCasAffected = db.get<{ n: number }>(sql`SELECT changes() AS n`)?.n ?? 0;
-    if (gateCasAffected === 0) {
+    //      The ORIGINAL gate is selected by exact id and its persisted
+    //      Workflow/current Mission/Habitat plus both endpoint Tasks must
+    //      satisfy the Mission-scoped invariant; the linkage descriptor must
+    //      match that persisted original (W/M/H/D/depth); the original
+    //      recovery pointer must still be null; the new Recovery Task's
+    //      PERSISTED row (not the ctx.task snapshot) must belong to the same
+    //      Mission; and a non-null optional Failure Context must exist with
+    //      failedTaskId === the captured exact original upstream U and a
+    //      null-or-this-Q pointer. The exact original upstream U is captured
+    //      as part of the preimage so the final statements cannot silently
+    //      adopt a changed upstream U2. Captured context Habitat/Workflow is
+    //      historical — it is deliberately NOT compared to the current M/H.
+    const original = db
+      .select()
+      .from(taskWorkflowGates)
+      .where(eq(taskWorkflowGates.id, linkage.gateId))
+      .get();
+    if (!original) {
       throw new Error(
-        `buildRecoveryLinkageParticipant: gate ${linkage.gateId} is already linked to another Recovery Task; ` +
-          `the publication aggregate rolls back (CAS loser).`,
+        `buildRecoveryLinkageParticipant: original gate ${linkage.gateId} does not exist; refusing Recovery linkage`,
+      );
+    }
+    const selectedUpstreamTaskId = original.upstreamTaskId;
+
+    if (
+      original.workflowId !== linkage.workflowId ||
+      original.missionId !== linkage.missionId ||
+      original.habitatId !== linkage.habitatId ||
+      original.downstreamTaskId !== linkage.downstreamTaskId ||
+      original.recoveryDepth !== linkage.recoveryDepth
+    ) {
+      throw new Error(
+        `buildRecoveryLinkageParticipant: linkage descriptor does not match persisted original gate ${linkage.gateId} (W/M/H/D/depth mismatch); refusing Recovery linkage`,
       );
     }
 
-    // 3. Link the failure context (if one was just built) to the recovery
-    //    task. The failure-context row is built by `handleFailureCapture`
-    //    BEFORE the recovery spawn; this participant write updates its
-    //    denormalized `recoveryTaskId` field. Skipped when no failure-context
-    //    exists (the action did not map to a failure kind) — the conditional
-    //    `if (ctx)` guard from legacy L344-347.
-    //
-    //    The legacy path called `failureContextService.linkRecoveryTask` which
-    //    routes through `failureContextRepo.updateFailureContext` → `getDb()`.
-    //    That escapes the publication tx, so the participant writes the update
-    //    directly on the tx client to preserve atomicity. A failure-context
-    //    row is a plain UPDATE on `failureContexts` by id — no service-layer
-    //    logic is bypassed (the repo's `updateFailureContext` is itself a
-    //    thin partial-update wrapper).
-    if (linkage.failureContextId) {
-      const result = db
-        .update(failureContexts)
-        .set({ recoveryTaskId })
-        .where(eq(failureContexts.id, linkage.failureContextId))
-        .run();
-      if (
-        (result as { changes?: number } | undefined)?.changes !== undefined &&
-        (result as { changes?: number }).changes !== 1
-      ) {
+    const scopeMission = db
+      .select({ id: missions.id, habitatId: missions.habitatId })
+      .from(missions)
+      .where(eq(missions.id, linkage.missionId))
+      .get();
+    if (!scopeMission || scopeMission.habitatId !== linkage.habitatId) {
+      throw new Error(
+        `buildRecoveryLinkageParticipant: Mission ${linkage.missionId} does not persist in Habitat ${linkage.habitatId}; refusing Recovery linkage`,
+      );
+    }
+
+    const scopeWorkflow = db
+      .select({ missionId: workflows.missionId, habitatId: workflows.habitatId })
+      .from(workflows)
+      .where(eq(workflows.id, linkage.workflowId))
+      .get();
+    if (
+      !scopeWorkflow ||
+      scopeWorkflow.missionId !== linkage.missionId ||
+      scopeWorkflow.habitatId !== linkage.habitatId
+    ) {
+      throw new Error(
+        `buildRecoveryLinkageParticipant: Workflow ${linkage.workflowId} does not persist naming Mission ${linkage.missionId}/Habitat ${linkage.habitatId}; refusing Recovery linkage`,
+      );
+    }
+
+    for (const [label, taskId] of [
+      ["original upstream", selectedUpstreamTaskId],
+      ["original downstream", linkage.downstreamTaskId],
+      ["new recovery Task", recoveryTaskId],
+    ] as const) {
+      const persisted = db
+        .select({ id: tasks.id })
+        .from(tasks)
+        .where(and(eq(tasks.id, taskId), eq(tasks.missionId, linkage.missionId)))
+        .get();
+      if (!persisted) {
         throw new Error(
-          `Failure-context link update affected ${(result as { changes?: number }).changes ?? 0} rows for context ${linkage.failureContextId} — expected exactly 1`,
+          `buildRecoveryLinkageParticipant: ${label} ${taskId} does not persist in Mission ${linkage.missionId}; refusing Recovery linkage`,
+        );
+      }
+    }
+
+    if (original.recoveryTaskId !== null) {
+      throw new Error(
+        `buildRecoveryLinkageParticipant: gate ${linkage.gateId} already links Recovery Task ${original.recoveryTaskId}; refusing re-linkage`,
+      );
+    }
+
+    // Supplied-but-empty context IDs are NOT absence (an empty exact ID has no
+    // matching row) — only undefined/null is a legitimately absent context; a
+    // supplied "" flows into the precheck/final predicates and refuses there.
+    const hasContextId = linkage.failureContextId != null;
+    if (linkage.failureContextId != null) {
+      const contextRow = db
+        .select({
+          failedTaskId: failureContexts.failedTaskId,
+          recoveryTaskId: failureContexts.recoveryTaskId,
+        })
+        .from(failureContexts)
+        .where(eq(failureContexts.id, linkage.failureContextId))
+        .get();
+      if (!contextRow || contextRow.failedTaskId !== selectedUpstreamTaskId) {
+        throw new Error(
+          `buildRecoveryLinkageParticipant: failure context ${linkage.failureContextId} is missing or its failedTaskId is not the original upstream ${selectedUpstreamTaskId}; refusing Recovery linkage`,
+        );
+      }
+      if (contextRow.recoveryTaskId !== null && contextRow.recoveryTaskId !== recoveryTaskId) {
+        throw new Error(
+          `buildRecoveryLinkageParticipant: failure context ${linkage.failureContextId} already links Recovery Task ${contextRow.recoveryTaskId}; refusing Recovery linkage`,
+        );
+      }
+    }
+
+    // ----- 1. FINAL conditional next-depth on_fail gate INSERT. The new
+    //      gate's upstream is the RECOVERY task (so it only fires if the
+    //      recovery itself fails, enabling recovery-of-recovery chains) and
+    //      its downstream mirrors the original gate's downstream (a
+    //      successful recovery unblocks the same downstream Task). The
+    //      statement repeats the required scope/preimage predicates —
+    //      including the still-null original pointer and the optional
+    //      context subject/pointer — so a drift between precheck and this
+    //      write is a zero-match that throws and rolls back the whole
+    //      publication aggregate.
+    const nextGateId = cryptoRandomUuid();
+    const contextPredicate = hasContextId
+      ? sql` AND EXISTS (
+            SELECT 1 FROM failure_contexts fc
+            WHERE fc.id = ${linkage.failureContextId}
+              AND fc.failed_task_id = ${selectedUpstreamTaskId}
+              AND (fc.recovery_task_id IS NULL OR fc.recovery_task_id = ${recoveryTaskId})
+          )`
+      : sql``;
+    db.get(sql`
+      INSERT INTO task_workflow_gates (
+        id, workflow_id, mission_id, habitat_id, upstream_task_id, downstream_task_id,
+        gate_type, match_config, condition, satisfied, recovery_task_id, recovery_depth
+      )
+      SELECT
+        ${nextGateId}, ${linkage.workflowId}, ${linkage.missionId}, ${linkage.habitatId},
+        ${recoveryTaskId}, ${linkage.downstreamTaskId}, 'on_fail', NULL, NULL, 0, NULL,
+        ${linkage.recoveryDepth + 1}
+      FROM task_workflow_gates g
+      JOIN workflows w ON w.id = g.workflow_id AND w.id = ${linkage.workflowId}
+        AND w.mission_id = ${linkage.missionId} AND w.habitat_id = ${linkage.habitatId}
+      JOIN missions m ON m.id = g.mission_id AND m.id = ${linkage.missionId} AND m.habitat_id = ${linkage.habitatId}
+      WHERE g.id = ${linkage.gateId}
+        AND g.workflow_id = ${linkage.workflowId}
+        AND g.mission_id = ${linkage.missionId}
+        AND g.habitat_id = ${linkage.habitatId}
+        AND g.upstream_task_id = ${selectedUpstreamTaskId}
+        AND g.downstream_task_id = ${linkage.downstreamTaskId}
+        AND g.recovery_depth = ${linkage.recoveryDepth}
+        AND g.recovery_task_id IS NULL
+        AND EXISTS (SELECT 1 FROM tasks tu WHERE tu.id = g.upstream_task_id AND tu.mission_id = ${linkage.missionId})
+        AND EXISTS (SELECT 1 FROM tasks tq WHERE tq.id = ${recoveryTaskId} AND tq.mission_id = ${linkage.missionId})
+        AND EXISTS (SELECT 1 FROM tasks td WHERE td.id = ${linkage.downstreamTaskId} AND td.mission_id = ${linkage.missionId})
+        AND EXISTS (SELECT 1 FROM habitats hh WHERE hh.id = ${linkage.habitatId})
+        ${contextPredicate}
+      RETURNING id
+    `);
+    const nextGateAffected = db.get<{ n: number }>(sql`SELECT changes() AS n`)?.n ?? 0;
+    if (nextGateAffected !== 1) {
+      throw new Error(
+        `buildRecoveryLinkageParticipant: next-depth gate insert matched no rows — the original gate/scope/Q/context preimage drifted before the final statement; the publication aggregate rolls back`,
+      );
+    }
+
+    // ----- 2. Link the ORIGINAL gate back to the spawned Recovery Task.
+    //      COMPARE-AND-SET carrying the FULL selected preimage (id + W/M/H +
+    //      original upstream U + downstream D + depth) and requiring the
+    //      still-null pointer: exactly one attempt can win. Two distinct
+    //      Recovery attempts for the same gate race here; the loser matches
+    //      zero rows → throw inside the participant → the whole publication
+    //      aggregate rolls back (no Task, no event, no next-depth gate, no
+    //      linkage). Alongside the gate scalars it repeats the whole
+    //      statement-time containment: the persisted Workflow's Mission/
+    //      Habitat, each endpoint and the new Q Task's Mission, AND the
+    //      selected Mission M still persisting in the selected Habitat H
+    //      (with H existing) — so a Mission reparented into another valid
+    //      Habitat after the next-gate INSERT cannot be adopted here even
+    //      though every scalar and every Task membership still equals M.
+    //      The immediate same-client `SELECT changes() AS n` (the kernel's
+    //      portable CAS-classification pattern) proves the single matched
+    //      row on both drivers — never `.run().changes` (boolean under
+    //      sql.js) and never the RETURNING projection (a truthy empty object
+    //      under sql.js on a zero-match).
+    db.get<{ id: string }>(sql`
+      UPDATE task_workflow_gates
+      SET recovery_task_id = ${recoveryTaskId}
+      WHERE id = ${linkage.gateId}
+        AND workflow_id = ${linkage.workflowId}
+        AND mission_id = ${linkage.missionId}
+        AND habitat_id = ${linkage.habitatId}
+        AND upstream_task_id = ${selectedUpstreamTaskId}
+        AND downstream_task_id = ${linkage.downstreamTaskId}
+        AND recovery_depth = ${linkage.recoveryDepth}
+        AND recovery_task_id IS NULL
+        AND EXISTS (
+          SELECT 1
+          FROM workflows w2
+          WHERE w2.id = ${linkage.workflowId}
+            AND w2.id = workflow_id
+            AND w2.mission_id = ${linkage.missionId}
+            AND w2.habitat_id = ${linkage.habitatId}
+        )
+        AND EXISTS (SELECT 1 FROM tasks tu2 WHERE tu2.id = upstream_task_id AND tu2.mission_id = ${linkage.missionId})
+        AND EXISTS (SELECT 1 FROM tasks td2 WHERE td2.id = downstream_task_id AND td2.mission_id = ${linkage.missionId})
+        AND EXISTS (SELECT 1 FROM tasks tq2 WHERE tq2.id = ${recoveryTaskId} AND tq2.mission_id = ${linkage.missionId})
+        AND EXISTS (
+          SELECT 1
+          FROM missions m2
+          WHERE m2.id = ${linkage.missionId}
+            AND m2.habitat_id = ${linkage.habitatId}
+            AND EXISTS (SELECT 1 FROM habitats h2 WHERE h2.id = m2.habitat_id)
+        )
+      RETURNING id
+    `);
+    const gateCasAffected = db.get<{ n: number }>(sql`SELECT changes() AS n`)?.n ?? 0;
+    if (gateCasAffected !== 1) {
+      throw new Error(
+        `buildRecoveryLinkageParticipant: gate ${linkage.gateId} lost its recovery-pointer CAS (already linked, or scope/preimage drifted); the publication aggregate rolls back`,
+      );
+    }
+
+    // ----- 3. Link the optional Failure Context to the Recovery Task. The
+    //      final UPDATE repeats the subject pair (context id + selected
+    //      original upstream U) and admits only a null-or-this-Q pointer; an
+    //      unrelated existing pointer is a linkage conflict, not silent
+    //      success (and not a stolen overwrite). SQLite `changes()` counts
+    //      every WHERE-matched row (including a same-Q idempotent re-write),
+    //      so the exact-one check holds on the same-Q match too. A no-match
+    //      on either driver throws and rolls back the aggregate. Null
+    //      optional context remains legitimate: no linkage write occurs.
+    if (hasContextId) {
+      db.get<{ id: string }>(sql`
+        UPDATE failure_contexts
+        SET recovery_task_id = ${recoveryTaskId}
+        WHERE id = ${linkage.failureContextId}
+          AND failed_task_id = ${selectedUpstreamTaskId}
+          AND (recovery_task_id IS NULL OR recovery_task_id = ${recoveryTaskId})
+        RETURNING id
+      `);
+      const contextLinkAffected = db.get<{ n: number }>(sql`SELECT changes() AS n`)?.n ?? 0;
+      if (contextLinkAffected !== 1) {
+        throw new Error(
+          `buildRecoveryLinkageParticipant: failure-context link for ${linkage.failureContextId} matched no rows (missing/foreign subject or a different pointer); the publication aggregate rolls back`,
         );
       }
     }

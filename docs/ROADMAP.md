@@ -128,6 +128,10 @@ Release boundaries are risk management decisions: breaking changes, fragile feat
 
 Ordinary Workflow reads return restricted gate type/satisfaction projections rather than linked IDs or configuration. Served Failure Context reads reject captured/current Habitat mismatch as an integrity anomaly while preserving full admitted-local recovery diagnostics. Administrative and internal readers retain their existing authority. Independently verified; no version or release tag assigned.
 
+### Mission-scoped Workflow write integrity — implementation complete; release pending
+
+Workflow attachment validates all nodes and commits the Workflow/gates atomically. Template and Recovery publication enforce exact persisted Mission/Habitat scope at their final write statements, including Recovery lineage and optional Failure Context subject/pointer checks. Both database drivers and rollback boundaries are independently verified. Existing invalid rows, raw-writer/trigger ceilings and earlier reservation records remain unchanged; no migration, version or release tag assigned.
+
 ## Upcoming
 
 ### Bounded object-access hardening (unversioned — implementation complete; release pending)

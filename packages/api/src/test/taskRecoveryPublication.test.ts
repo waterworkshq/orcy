@@ -30,7 +30,7 @@
  *     (v0.32.0).
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { eq } from "drizzle-orm";
+import { eq, sql, getTableName } from "drizzle-orm";
 import { closeDb, getDb, initTestDb } from "../db/index.js";
 import {
   tasks,
@@ -507,39 +507,56 @@ describe("T8A-pre P1 participant-throw rollback — the whole aggregate rolls ba
 });
 
 // ===========================================================================
-// 4. C2 ATOMICITY — inject failure at EVERY participant write boundary →
+// 4. C2 ATOMICITY — inject failure at EVERY participant RAW statement →
 //    zero unlinked Recovery Tasks.
+//
+//    The participant no longer writes through the drizzle insert/update builder
+//    chain — its three writes are raw `db.get(sql\`…\`)` conditional statements
+//    (next-gate INSERT, original-gate pointer CAS, optional failure-context
+//    UPDATE), each followed immediately by its own same-client
+//    `SELECT changes() AS n` oracle. FailingDbClient therefore counts RAW `get`
+//    statements (`rawGetCount`, `rawGets`) and can inject a fault BEFORE a
+//    chosen one executes. Builder-write indices are asserted to be UNCHANGED
+//    for these cases, which is itself the proof that the earlier "write #3/4/5"
+//    labels no longer named the participant's statements.
 // ===========================================================================
 
-describe("T8A-pre P1 C2 boundary injection — failure at each participant write rolls back the linkage", () => {
+describe("T8A-pre P1 C2 boundary injection — failure at each participant raw statement rolls back the linkage", () => {
+  /**
+   * Marks the raw `get` statements by SQL text so a fault can be injected at a
+   * NAMED statement and the executed prefix asserted — a later failure can
+   * never masquerade as an earlier boundary.
+   */
+  const RAW_MARKERS = [
+    { rawGetN: 1, marker: "INSERT INTO task_workflow_gates", label: "next-gate INSERT" },
+    { rawGetN: 3, marker: "UPDATE task_workflow_gates", label: "original-gate pointer CAS" },
+    { rawGetN: 5, marker: "UPDATE failure_contexts", label: "failure-context UPDATE" },
+  ] as const;
+
   /**
    * Composes the REAL coordinator + REAL buildRecoveryLinkageParticipant with a
-   * FailingDbClient, injects failure at write boundary `failAt`, and asserts
-   * zero partial state (no Task without its gate/linkage; no gate/linkage
-   * without its Task).
-   *
-   * The participant writes (with a failure-context present) land at:
-   *   - gate INSERT (next-depth on_fail gate)
-   *   - gate UPDATE (original gate's recoveryTaskId)
-   *   - failure-context UPDATE (recoveryTaskId link)
-   * Each must roll back the Task + event that already wrote.
+   * FailingDbClient, asserts the targeted raw statement and every raw
+   * statement before it actually executed, injects a deterministic fault
+   * before that one, and asserts zero partial state (no Task without its
+   * gate/linkage; no gate/linkage without its Task) plus the specific
+   * injected refusal (never a generic "something threw").
    */
-  function runBoundaryCase(failAt: number, label: string): void {
-    it(`failure at write #${failAt} (${label}) → zero unlinked Recovery Task`, () => {
+  function runRawBoundaryCase(marker: (typeof RAW_MARKERS)[number]): void {
+    it(`fault at raw get #${marker.rawGetN} (${marker.label}) → zero unlinked Recovery Task`, () => {
       const scenario = seedRecoveryScenario({ failureContext: true });
       const db = getDb();
       const beforeTasks = db.select().from(tasks).all().length;
       const beforeGates = db.select().from(taskWorkflowGates).all().length;
 
-      const attemptId = `attempt-bnd-${failAt}-${label}-${Date.now()}`;
+      const attemptId = `attempt-bnd-${marker.label}-${Date.now()}`;
       db.insert(taskCreationAttempts)
         .values({
           id: attemptId,
           source: "workflow",
           sourceScopeKind: "recovery_run",
-          sourceScopeId: `run-bnd-${failAt}`,
-          attemptKey: `spawn-bnd-${failAt}`,
-          requestFingerprint: `fp-bnd-${failAt}`,
+          sourceScopeId: `run-bnd-${marker.label}`,
+          attemptKey: `spawn-bnd-${marker.label}`,
+          requestFingerprint: `fp-bnd-${marker.label}`,
           publicationKind: "create",
           actorType: "system",
           actorId: "workflow-recovery",
@@ -551,10 +568,10 @@ describe("T8A-pre P1 C2 boundary injection — failure at each participant write
       const prepared = prepareTaskPublication({
         habitatId,
         targetMissionId: missionId,
-        title: `Boundary Task ${failAt}`,
+        title: `Boundary Task ${marker.label}`,
         actor: { type: "system", id: "workflow-recovery" },
         auditSource: "workflow",
-        causalContext: { root: { type: "workflow_recovery", id: `run-bnd-${failAt}` } },
+        causalContext: { root: { type: "workflow_recovery", id: `run-bnd-${marker.label}` } },
         initialEventAction: "created",
       });
       if (prepared.outcome !== "prepared") throw new Error("prepare failed");
@@ -575,13 +592,18 @@ describe("T8A-pre P1 C2 boundary injection — failure at each participant write
         failureContextId: scenario.failureContextId,
       };
       const participants = buildRecoveryLinkageParticipant(linkage);
+      const fault = new Error(`Injected raw-statement fault at ${marker.label} (#${marker.rawGetN})`);
 
       let thrown: unknown;
+      let wrapper: FailingDbClient | null = null;
       try {
         db.transaction((tx) => {
           const w = new FailingDbClient(tx as unknown as TaskPublicationDbClient, {
-            failAtWriteN: failAt,
+            failAtWriteN: null,
+            failAtRawGetN: marker.rawGetN,
+            rawGetError: fault,
           });
+          wrapper = w;
           publishTaskWithClientCoord(asPubClient(w), {
             attemptId,
             proposal: prepared.proposal,
@@ -592,7 +614,39 @@ describe("T8A-pre P1 C2 boundary injection — failure at each participant write
       } catch (err) {
         thrown = err;
       }
-      expect(thrown).toBeDefined();
+
+      // The EXACT injected refusal — not a generic throw from a later write.
+      expect(thrown).toBe(fault);
+
+      const w = wrapper as unknown as FailingDbClient;
+      // Every raw statement BEFORE the target really executed (the earlier
+      // boundaries were reached), and the target is the named statement.
+      expect(w.rawGetCount).toBe(marker.rawGetN);
+      const executed = w.rawGets.map((r) => r.text);
+      expect(executed).toHaveLength(marker.rawGetN);
+      expect(executed[marker.rawGetN - 1]).toContain(marker.marker);
+      if (marker.rawGetN > 1) {
+        for (const prior of RAW_MARKERS.filter((m) => m.rawGetN < marker.rawGetN)) {
+          expect(executed[prior.rawGetN - 1]).toContain(prior.marker);
+        }
+      }
+      // The participant's three statements are RAW gets, never builder
+      // writes — the pre-raw era's "write #3/4/5" labels named only the
+      // coordinator's own Task/event/envelope writes, never the participant.
+      // Every builder write recorded before the fault is a coordinator write;
+      // the participant's tables (task_workflow_gates / failure_contexts)
+      // appear ONLY as raw gets — exactly why the pre-raw "write #3/4/5"
+      // labels never named them.
+      const writtenTableNames = [...new Set(w.writes.map((x) => getTableName(x.table as never)))];
+      expect(writtenTableNames).not.toContain("task_workflow_gates");
+      expect(writtenTableNames).not.toContain("failure_contexts");
+      // Every COMPLETED participant statement was followed IMMEDIATELY by its
+      // own same-client `SELECT changes()` oracle — that adjacency is the
+      // portable match truth. The targeted statement is the only one without
+      // its oracle yet, because it never ran.
+      for (const prior of RAW_MARKERS.filter((m) => m.rawGetN < marker.rawGetN)) {
+        expect(executed[prior.rawGetN]).toContain("SELECT changes()");
+      }
 
       // ZERO unlinked Recovery Task: no new Task row, no new gate row.
       expect(getDb().select().from(tasks).all().length).toBe(beforeTasks);
@@ -617,17 +671,494 @@ describe("T8A-pre P1 C2 boundary injection — failure at each participant write
     });
   }
 
-  // Participant write boundaries (with a failure-context): the coordinator's
-  // write sequence is — task INSERT(1), event INSERT(2), gate INSERT(3),
-  // gate UPDATE(4), failure-context UPDATE(5), envelope INSERT(6), recalc
-  // marker(7), checkpoint UPDATE(8). Inject at each participant boundary AND
-  // one post-participant boundary (the checkpoint) to prove the linkage rolls
-  // back when a LATER write fails too.
-  runBoundaryCase(3, "participant-gate-insert");
-  runBoundaryCase(4, "participant-gate-update");
-  runBoundaryCase(5, "participant-failure-context-update");
-  runBoundaryCase(8, "post-participant-checkpoint");
+  for (const marker of RAW_MARKERS) runRawBoundaryCase(marker);
+
+  // ---------------------------------------------------------------------
+  // A LATER failure, after ALL THREE real Recovery writes have completed.
+  // The removed "write #8" case covered this and nothing else covered it:
+  // the participant-throw case fails DURING the participant, and the
+  // coordinator matrix has no participant. So the linkage can be fully
+  // written and then unwound by a fault in a LATER coordinator statement
+  // (the committed envelope). This asserts the call-through milestone
+  // (all three participant raw writes executed), the exact injected error
+  // identity, and that the whole domain bundle is gone afterwards.
+  // ---------------------------------------------------------------------
+  it("a fault in a LATER coordinator write (the committed envelope), after all three Recovery raw writes completed → the linkage is fully rolled back", () => {
+    const scenario = seedRecoveryScenario({ failureContext: true });
+    const db = getDb();
+    const beforeTasks = db.select().from(tasks).all().length;
+    const beforeEvents = db.select().from(taskEvents).all().length;
+    const beforeEnvelopes = db.select().from(taskCreationEnvelopes).all().length;
+
+    const attemptId = `attempt-later-${Date.now()}`;
+    db.insert(taskCreationAttempts)
+      .values({
+        id: attemptId,
+        source: "workflow",
+        sourceScopeKind: "recovery_run",
+        sourceScopeId: `run-later-${Date.now()}`,
+        attemptKey: `spawn-later-${Date.now()}`,
+        requestFingerprint: `fp-later-${Date.now()}`,
+        publicationKind: "create",
+        actorType: "system",
+        actorId: "workflow-recovery",
+        habitatId,
+        state: "pending",
+      })
+      .run();
+
+    const prepared = prepareTaskPublication({
+      habitatId,
+      targetMissionId: missionId,
+      title: "Later-fault Task",
+      actor: { type: "system", id: "workflow-recovery" },
+      auditSource: "workflow",
+      causalContext: { root: { type: "workflow_recovery", id: `run-later-${Date.now()}` } },
+      initialEventAction: "created",
+    });
+    if (prepared.outcome !== "prepared") throw new Error("prepare failed");
+    const governance = governTaskPublication({
+      attemptId,
+      tasks: [{ proposal: prepared.proposal, guard: prepared.guard }],
+      db,
+    });
+    if (governance.results[0].outcome === "vetoed") throw new Error("unexpected veto");
+
+    const linkage: RecoveryLinkage = {
+      gateId: scenario.gateId,
+      workflowId: scenario.workflowId,
+      habitatId,
+      missionId,
+      downstreamTaskId: scenario.downstreamTaskId,
+      recoveryDepth: 0,
+      failureContextId: scenario.failureContextId,
+    };
+    const fault = new Error("Injected later-write fault at the committed-envelope insert");
+    // Fault the ENVELOPE insert specifically — identified by the table it
+    // writes, not by a positional ordinal that shifts whenever the
+    // coordinator's write set changes.
+    let wrapper: FailingDbClient | null = null;
+
+    let thrown: unknown;
+    try {
+      db.transaction((tx) => {
+        const w = new FailingDbClient(tx as unknown as TaskPublicationDbClient, {
+          failAtWriteN: null,
+          failAtTableName: "task_creation_envelopes",
+          tableFaultError: fault,
+        });
+        wrapper = w;
+        publishTaskWithClientCoord(asPubClient(w), {
+          attemptId,
+          proposal: prepared.proposal,
+          guard: prepared.guard,
+          participants: buildRecoveryLinkageParticipant(linkage),
+        });
+      });
+    } catch (err) {
+      thrown = err;
+    }
+
+    // The EXACT injected refusal. The envelope repository wraps any driver
+    // failure in a RepositoryError that preserves the original as `cause`, so
+    // identity is asserted on the cause — still the specific injected fault,
+    // not a generic throw from some other write.
+    expect((thrown as { cause?: unknown }).cause).toBe(fault);
+    expect(String((thrown as Error).message)).toContain("taskCreationEnvelope");
+
+    const w = wrapper as unknown as FailingDbClient;
+    // Call-through milestone: ALL THREE real Recovery raw writes executed,
+    // each followed by its own same-client oracle, BEFORE the later fault.
+    const rawTexts = w.rawGets.map((r) => r.text);
+    expect(rawTexts.filter((t) => t.includes("INSERT INTO task_workflow_gates"))).toHaveLength(1);
+    expect(rawTexts.filter((t) => t.includes("UPDATE task_workflow_gates"))).toHaveLength(1);
+    expect(rawTexts.filter((t) => t.includes("UPDATE failure_contexts"))).toHaveLength(1);
+    expect(rawTexts.filter((t) => t.includes("SELECT changes()")).length).toBeGreaterThanOrEqual(3);
+    // The envelope insert really was reached (and faulted).
+    expect(w.writes.some((x) => getTableName(x.table as never) === "task_creation_envelopes")).toBe(
+      true,
+    );
+
+    // Whole domain bundle rolled back: no Task, no event, no envelope, the
+    // original gate unclaimed, no next-depth gate, the context unlinked, and
+    // the attempt still pending.
+    expect(getDb().select().from(tasks).all().length).toBe(beforeTasks);
+    expect(getDb().select().from(taskEvents).all().length).toBe(beforeEvents);
+    expect(getDb().select().from(taskCreationEnvelopes).all().length).toBe(beforeEnvelopes);
+    expect(
+      getDb().select().from(taskWorkflowGates).where(eq(taskWorkflowGates.id, scenario.gateId)).get()
+        ?.recoveryTaskId,
+    ).toBeNull();
+    expect(
+      getDb()
+        .select()
+        .from(taskWorkflowGates)
+        .where(eq(taskWorkflowGates.recoveryDepth, 1))
+        .all(),
+    ).toHaveLength(0);
+    expect(
+      getDb()
+        .select()
+        .from(failureContexts)
+        .where(eq(failureContexts.id, scenario.failureContextId!))
+        .get()?.recoveryTaskId,
+    ).toBeNull();
+    expect(
+      getDb().select().from(taskCreationAttempts).where(eq(taskCreationAttempts.id, attemptId)).get()
+        ?.state,
+    ).toBe("pending");
+  });
 });
+
+// ===========================================================================
+// 4a. STATEMENT-TIME CONTAINMENT — valid prechecks, then the persisted world
+//     drifts BEFORE a final statement. Only the statement-time predicates can
+//     catch that; the earlier reads already passed. The refusal must roll the
+//     whole caller-owned domain bundle back.
+//
+//     The seam overrides `get` on the SUPPLIED TRANSACTION CLIENT (where the
+//     participant's three raw statements actually execute) and mutates through
+//     that same client, so the drift is committed on the same connection inside
+//     the open transaction — exactly the state the next final statement sees.
+// ===========================================================================
+
+describe("T8A-pre P1 Recovery final-statement containment", () => {
+  /** Raw `get` statements of the participant, in execution order. */
+  const NEXT_GATE_INSERT = "INSERT INTO task_workflow_gates";
+  const POINTER_CAS = "UPDATE task_workflow_gates";
+  const CONTEXT_UPDATE = "UPDATE failure_contexts";
+
+  function sqlTextOf(arg: unknown): string {
+    const chunks = (arg as { queryChunks?: unknown[] } | undefined)?.queryChunks;
+    if (!Array.isArray(chunks)) return String(arg);
+    return chunks
+      .map((c) =>
+        typeof c === "string"
+          ? c
+          : Array.isArray((c as { value?: unknown[] })?.value)
+            ? ((c as { value: string[] }).value).join("")
+            : "",
+      )
+      .join("");
+  }
+
+  /**
+   * Runs the real participant against a supplied transaction with a REAL
+   * persisted Recovery Task Q, invoking `onStatement(sqlText)` immediately
+   * BEFORE each raw statement executes. Returns which statements ran.
+   */
+  function runParticipant(
+    linkage: RecoveryLinkage,
+    q: { id: string },
+    onStatement: (text: string) => void,
+  ): { executed: string[]; error: unknown } {
+    const executed: string[] = [];
+    const participant = buildRecoveryLinkageParticipant(linkage);
+    // Capture the refusal INSIDE the transaction callback and re-throw so the
+    // transaction still rolls back; the catch below receives the real error.
+    let error: unknown;
+    try {
+      getDb().transaction((tx) => {
+        const client = tx as unknown as TaskPublicationDbClient;
+        const original = client.get.bind(client) as (...a: unknown[]) => unknown;
+        // The drift callback writes through the ROOT client, which is not
+        // patched here, so it cannot re-enter this seam.
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        (client as any).get = (...args: unknown[]) => {
+          const text = sqlTextOf(args[0]);
+          if (text.includes("INSERT INTO") || text.includes("UPDATE ")) executed.push(text);
+          onStatement(text);
+          return (original as (...a: unknown[]) => unknown)(...args);
+        };
+        try {
+          participant(client, {
+            task: q as never,
+            event: undefined as never,
+            attemptId: "attempt-statement-containment",
+            proposal: undefined as never,
+          });
+        } finally {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          delete (client as any).get;
+        }
+      });
+    } catch (err) {
+      error = err;
+    }
+    return { executed, error };
+  }
+
+  function linkageFor(scenario: ReturnType<typeof seedRecoveryScenario>): RecoveryLinkage {
+    return {
+      gateId: scenario.gateId,
+      workflowId: scenario.workflowId,
+      habitatId,
+      missionId,
+      downstreamTaskId: scenario.downstreamTaskId,
+      recoveryDepth: 0,
+      ...(scenario.failureContextId ? { failureContextId: scenario.failureContextId } : {}),
+    };
+  }
+
+  /** Creates a second, separately valid Mission in the same Habitat. */
+  function otherMissionInHabitat(title: string): string {
+    const column = columnRepo.createColumn({ habitatId, name: title, order: 90 });
+    return missionRepo.createMission({
+      habitatId,
+      columnId: column.id,
+      title,
+      createdBy: "test",
+    }).id;
+  }
+
+  it("selected Mission M reparented into a separately VALID Habitat after the next-gate INSERT → the pointer CAS refuses (M/H containment) and the whole bundle rolls back", () => {
+    const scenario = seedRecoveryScenario({ failureContext: true });
+    const q = taskCrudRepo.createTask({ missionId, title: "Recovery Q", createdBy: "test" });
+    // A legal, separately valid Habitat. The reparent below is FK-legal, so
+    // only the statement-time M/H predicate can catch it: every gate scalar
+    // still says M/H and every Task still belongs to M.
+    const foreignHabitat = habitatRepo.createHabitat({ name: "CAS drift Habitat" });
+    const linkage = linkageFor(scenario);
+
+    // Observed INSIDE the transaction: the reparent lands on the same client
+    // the CAS then reads. After the rollback it is gone again, so this is the
+    // only point at which "the drift really happened" is observable — and it
+    // is what makes the refusal non-vacuous.
+    let driftObserved = false;
+    const { executed, error } = runParticipant(linkage, q, (text) => {
+      if (text.includes(POINTER_CAS)) {
+        getDb().run(
+          sql`UPDATE missions SET habitat_id = ${foreignHabitat.id} WHERE id = ${linkage.missionId}`,
+        );
+        driftObserved =
+          getDb().select().from(missions).where(eq(missions.id, linkage.missionId)).get()
+            ?.habitatId === foreignHabitat.id;
+      }
+    });
+
+    // The next-gate INSERT really executed first, and the CAS is what refused.
+    expect(executed.filter((t) => t.includes(NEXT_GATE_INSERT))).toHaveLength(1);
+    expect(executed.filter((t) => t.includes(POINTER_CAS))).toHaveLength(1);
+    expect(error, "pointer CAS must refuse persisted Mission/Habitat drift").toBeInstanceOf(Error);
+    expect(String((error as Error).message)).toContain("lost its recovery-pointer CAS");
+    expect(driftObserved).toBe(true);
+    // The whole domain bundle rolled back.
+    expect(
+      getDb().select().from(taskWorkflowGates).where(eq(taskWorkflowGates.id, scenario.gateId)).get()
+        ?.recoveryTaskId,
+    ).toBeNull();
+    expect(
+      getDb()
+        .select()
+        .from(taskWorkflowGates)
+        .where(eq(taskWorkflowGates.recoveryDepth, 1))
+        .all(),
+    ).toHaveLength(0);
+    expect(
+      getDb()
+        .select()
+        .from(failureContexts)
+        .where(eq(failureContexts.id, scenario.failureContextId!))
+        .get()?.recoveryTaskId,
+    ).toBeNull();
+  });
+
+  it("W reparented to a separately valid Mission AFTER the next-gate INSERT → the pointer CAS refuses and the whole bundle rolls back", () => {
+    const scenario = seedRecoveryScenario({ failureContext: true });
+    const q = taskCrudRepo.createTask({ missionId, title: "Recovery Q", createdBy: "test" });
+    const otherMission = otherMissionInHabitat("W drift target");
+    const linkage = linkageFor(scenario);
+
+    const { executed, error } = runParticipant(linkage, q, (text) => {
+      if (text.includes(POINTER_CAS)) {
+        // The gate's own mission_id still says M and every gate scalar is
+        // unchanged — only the persisted Workflow moved. A scalar-only CAS
+        // would adopt this foreign Q.
+        getDb().run(sql`UPDATE workflows SET mission_id = ${otherMission} WHERE id = ${linkage.workflowId}`);
+      }
+    });
+
+    // The next-gate INSERT really executed before the drift, and the CAS was
+    // really reached — this is not a precheck-only refusal.
+    expect(executed.filter((t) => t.includes(NEXT_GATE_INSERT))).toHaveLength(1);
+    expect(executed.filter((t) => t.includes(POINTER_CAS))).toHaveLength(1);
+    expect(String((error as Error).message)).toContain("lost its recovery-pointer CAS");
+
+    // Whole domain bundle rolled back: the gate is unclaimed, the next-depth
+    // gate is gone, and the failure context is unlinked.
+    expect(
+      getDb().select().from(taskWorkflowGates).where(eq(taskWorkflowGates.id, scenario.gateId)).get()
+        ?.recoveryTaskId,
+    ).toBeNull();
+    expect(
+      getDb()
+        .select()
+        .from(taskWorkflowGates)
+        .where(eq(taskWorkflowGates.recoveryDepth, 1))
+        .all(),
+    ).toHaveLength(0);
+    expect(
+      getDb()
+        .select()
+        .from(failureContexts)
+        .where(eq(failureContexts.id, scenario.failureContextId!))
+        .get()?.recoveryTaskId,
+    ).toBeNull();
+  });
+
+  it("original upstream U reparented AFTER the next-gate INSERT → the pointer CAS refuses (persisted-U containment)", () => {
+    const scenario = seedRecoveryScenario({ failureContext: true });
+    const q = taskCrudRepo.createTask({ missionId, title: "Recovery Q", createdBy: "test" });
+    const otherMission = otherMissionInHabitat("U drift target");
+    const linkage = linkageFor(scenario);
+
+    const { executed, error } = runParticipant(linkage, q, (text) => {
+      if (text.includes(POINTER_CAS)) {
+        getDb().run(
+          sql`UPDATE tasks SET mission_id = ${otherMission} WHERE id = ${scenario.failedTaskId}`,
+        );
+      }
+    });
+
+    expect(executed.filter((t) => t.includes(POINTER_CAS))).toHaveLength(1);
+    expect(String((error as Error).message)).toContain("lost its recovery-pointer CAS");
+    expect(
+      getDb().select().from(taskWorkflowGates).where(eq(taskWorkflowGates.id, scenario.gateId)).get()
+        ?.recoveryTaskId,
+    ).toBeNull();
+  });
+
+  it("Q reparented to another Mission AFTER the next-gate INSERT → the pointer CAS refuses (persisted-Q containment)", () => {
+    const scenario = seedRecoveryScenario({ failureContext: true });
+    const q = taskCrudRepo.createTask({ missionId, title: "Recovery Q", createdBy: "test" });
+    const otherMission = otherMissionInHabitat("Q drift target");
+    const linkage = linkageFor(scenario);
+
+    const { executed, error } = runParticipant(linkage, q, (text) => {
+      if (text.includes(POINTER_CAS)) {
+        getDb().run(sql`UPDATE tasks SET mission_id = ${otherMission} WHERE id = ${q.id}`);
+      }
+    });
+
+    expect(executed.filter((t) => t.includes(POINTER_CAS))).toHaveLength(1);
+    expect(String((error as Error).message)).toContain("lost its recovery-pointer CAS");
+    expect(
+      getDb().select().from(taskWorkflowGates).where(eq(taskWorkflowGates.id, scenario.gateId)).get()
+        ?.recoveryTaskId,
+    ).toBeNull();
+  });
+
+  it("U reparented BEFORE the next-gate INSERT → the next-gate INSERT refuses (persisted-U predicate on the INSERT itself)", () => {
+    const scenario = seedRecoveryScenario({ failureContext: true });
+    const q = taskCrudRepo.createTask({ missionId, title: "Recovery Q", createdBy: "test" });
+    const otherMission = otherMissionInHabitat("pre-INSERT U drift");
+    const linkage = linkageFor(scenario);
+
+    const { executed, error } = runParticipant(linkage, q, (text) => {
+      if (text.includes(NEXT_GATE_INSERT)) {
+        getDb().run(
+          sql`UPDATE tasks SET mission_id = ${otherMission} WHERE id = ${scenario.failedTaskId}`,
+        );
+      }
+    });
+
+    // The INSERT statement was reached and refused: no CAS, no context update.
+    expect(executed.filter((t) => t.includes(NEXT_GATE_INSERT))).toHaveLength(1);
+    expect(executed.filter((t) => t.includes(POINTER_CAS))).toHaveLength(0);
+    expect(String((error as Error).message)).toContain("next-depth gate insert matched no rows");
+    expect(
+      getDb().select().from(taskWorkflowGates).where(eq(taskWorkflowGates.id, scenario.gateId)).get()
+        ?.recoveryTaskId,
+    ).toBeNull();
+  });
+
+  it("W reparented BEFORE the next-gate INSERT → the next-gate INSERT refuses (persisted W M/H predicate on the INSERT itself)", () => {
+    const scenario = seedRecoveryScenario({ failureContext: true });
+    const q = taskCrudRepo.createTask({ missionId, title: "Recovery Q", createdBy: "test" });
+    const otherMission = otherMissionInHabitat("pre-INSERT W drift");
+    const linkage = linkageFor(scenario);
+
+    const { executed, error } = runParticipant(linkage, q, (text) => {
+      if (text.includes(NEXT_GATE_INSERT)) {
+        getDb().run(sql`UPDATE workflows SET mission_id = ${otherMission} WHERE id = ${linkage.workflowId}`);
+      }
+    });
+
+    expect(executed.filter((t) => t.includes(NEXT_GATE_INSERT))).toHaveLength(1);
+    expect(executed.filter((t) => t.includes(POINTER_CAS))).toHaveLength(0);
+    expect(String((error as Error).message)).toContain("next-depth gate insert matched no rows");
+  });
+
+  it("failure-context pointer changed to an unrelated Q before the final context UPDATE → refusal, whole bundle rolls back", () => {
+    const scenario = seedRecoveryScenario({ failureContext: true });
+    const q = taskCrudRepo.createTask({ missionId, title: "Recovery Q", createdBy: "test" });
+    const otherQ = taskCrudRepo.createTask({ missionId, title: "Other Q", createdBy: "test" });
+    const linkage = linkageFor(scenario);
+
+    const { executed, error } = runParticipant(linkage, q, (text) => {
+      if (text.includes(CONTEXT_UPDATE)) {
+        // Someone else claimed the context after the precheck.
+        getDb().run(
+          sql`UPDATE failure_contexts SET recovery_task_id = ${otherQ.id} WHERE id = ${linkage.failureContextId}`,
+        );
+      }
+    });
+
+    expect(executed.filter((t) => t.includes(POINTER_CAS))).toHaveLength(1);
+    expect(executed.filter((t) => t.includes(CONTEXT_UPDATE))).toHaveLength(1);
+    expect(String((error as Error).message)).toContain("failure-context link for");
+    // The gate claim and next-depth gate roll back with the context refusal.
+    expect(
+      getDb().select().from(taskWorkflowGates).where(eq(taskWorkflowGates.id, scenario.gateId)).get()
+        ?.recoveryTaskId,
+    ).toBeNull();
+    expect(
+      getDb()
+        .select()
+        .from(taskWorkflowGates)
+        .where(eq(taskWorkflowGates.recoveryDepth, 1))
+        .all(),
+    ).toHaveLength(0);
+  });
+
+  it("SAME-Q context pointer is an allowed match: the final context UPDATE writes it and the publication succeeds", () => {
+    const scenario = seedRecoveryScenario({ failureContext: true });
+    const q = taskCrudRepo.createTask({ missionId, title: "Recovery Q", createdBy: "test" });
+    // Already points at THIS Q (an idempotent re-link): null-or-same-Q admits it.
+    getDb()
+      .update(failureContexts)
+      .set({ recoveryTaskId: q.id })
+      .where(eq(failureContexts.id, scenario.failureContextId!))
+      .run();
+    const linkage = linkageFor(scenario);
+
+    const { executed, error } = runParticipant(linkage, q, () => {});
+
+    expect(error).toBeUndefined();
+    expect(executed.filter((t) => t.includes(POINTER_CAS))).toHaveLength(1);
+    expect(
+      getDb().select().from(taskWorkflowGates).where(eq(taskWorkflowGates.id, scenario.gateId)).get()
+        ?.recoveryTaskId,
+    ).toBe(q.id);
+  });
+
+  it("a supplied EMPTY failure-context id is not absence: it refuses before the first participant effect", () => {
+    const scenario = seedRecoveryScenario();
+    const q = taskCrudRepo.createTask({ missionId, title: "Recovery Q", createdBy: "test" });
+    const linkage: RecoveryLinkage = { ...linkageFor(scenario), failureContextId: "" };
+
+    const { executed, error } = runParticipant(linkage, q, () => {});
+
+    expect(String((error as Error).message)).toContain("failure context");
+    // Refused in the PRECHECK — no participant statement ran at all.
+    expect(executed).toHaveLength(0);
+    expect(
+      getDb().select().from(taskWorkflowGates).where(eq(taskWorkflowGates.id, scenario.gateId)).get()
+        ?.recoveryTaskId,
+    ).toBeNull();
+  });
+});
+
 
 // ===========================================================================
 // 4b. SAME-GATE CONCURRENT-ATTEMPT RACE (cold-review #2 M1) — the gate-linkage
@@ -660,15 +1191,16 @@ describe("T8A-pre P1 same-gate race — CAS guard on gate linkage (cold-review #
       .all()[0];
     expect(gateAfterWinner.recoveryTaskId).toBe(winnerTaskId);
 
-    // Second attempt (runId-B, same gate, different attempt key) → the CAS
-    // guard finds recoveryTaskId IS NOT NULL → matches zero rows → throws.
-    // The throw propagates out of publishRecoveryTask (participant throw →
-    // the publication tx rolls back the whole aggregate).
+    // Second attempt (runId-B, same gate, different attempt key) → the
+    // participant's linkage precheck finds the original gate's
+    // recoveryTaskId IS NOT NULL (and the final CAS would match zero rows)
+    // → throws. The throw propagates out of publishRecoveryTask (participant
+    // throw → the publication tx rolls back the whole aggregate).
     expect(() =>
       publishRecoveryTask(
         recoveryInput(scenario, { runId: freshRunId("race-loser"), actionKey: "spawn-0" }),
       ),
-    ).toThrow(/gate .* is already linked to another Recovery Task/);
+    ).toThrow(/already links Recovery Task/);
 
     // ZERO side effects from the loser: no new Task, no new event, no new gate.
     expect(getDb().select().from(tasks).all().length).toBe(beforeTasks + 1);
@@ -940,5 +1472,327 @@ describe("T8A-pre P1 post-cutover — legacy createRecoveryTask no longer reache
       getDb().select().from(taskEvents).where(eq(taskEvents.taskId, legacyRecovery.id)).all(),
     ).toHaveLength(0);
     void failedTask;
+  });
+});
+
+// ===========================================================================
+// 9. MISSION-SCOPED LINEAGE INTEGRITY (ADR-0002 new-write boundary) — the
+//    participant validates the ORIGINAL gate's exact persisted lineage
+//    (descriptor W/M/H/D/depth + captured upstream U + persisted endpoints +
+//    persisted Q + optional context subject/pointer) INSIDE the publication
+//    tx BEFORE its first mutation, repeats the required predicates in the
+//    final conditional statements, and refuses — rolling the whole domain
+//    bundle back — instead of propagating a NEW invalid Recovery graph.
+//    Captured-context Habitat/Workflow is historical and is deliberately
+//    NOT equated to the current Mission/Habitat.
+// ===========================================================================
+
+describe("workflow node integrity — Recovery linkage lineage", () => {
+  /** Full valid linkage for a scenario, with per-case field overrides. */
+  function fullLinkage(
+    scenario: ReturnType<typeof seedRecoveryScenario>,
+    overrides: Partial<RecoveryLinkage> = {},
+  ): RecoveryLinkage {
+    return {
+      gateId: scenario.gateId,
+      workflowId: scenario.workflowId,
+      habitatId,
+      missionId,
+      downstreamTaskId: scenario.downstreamTaskId,
+      recoveryDepth: 0,
+      ...(scenario.failureContextId ? { failureContextId: scenario.failureContextId } : {}),
+      ...overrides,
+    };
+  }
+
+  function depth1Gates(): number {
+    return getDb()
+      .select()
+      .from(taskWorkflowGates)
+      .all()
+      .filter((g) => g.recoveryDepth === 1).length;
+  }
+
+  it("descriptor Workflow mismatch refuses before any participant mutation and rolls the whole bundle", () => {
+    const scenario = seedRecoveryScenario({ failureContext: true });
+    const baseline = missionTaskCount();
+    const gatesBefore = depth1Gates();
+
+    expect(() =>
+      publishRecoveryTask(
+        recoveryInput(scenario, {
+          linkage: fullLinkage(scenario, { workflowId: "wf-not-the-original" }),
+        }),
+      ),
+    ).toThrow(/does not match persisted original gate|does not persist naming Mission/);
+
+    expect(missionTaskCount()).toBe(baseline);
+    expect(depth1Gates()).toBe(gatesBefore);
+    expect(
+      getDb()
+        .select()
+        .from(taskWorkflowGates)
+        .where(eq(taskWorkflowGates.id, scenario.gateId))
+        .get()?.recoveryTaskId,
+    ).toBeNull();
+  });
+
+  it("descriptor recoveryDepth mismatch refuses with zero linkage writes", () => {
+    const scenario = seedRecoveryScenario();
+    const gatesBefore = depth1Gates();
+    expect(() =>
+      publishRecoveryTask(
+        recoveryInput(scenario, { linkage: fullLinkage(scenario, { recoveryDepth: 7 }) }),
+      ),
+    ).toThrow(/does not match persisted original gate/);
+    expect(depth1Gates()).toBe(gatesBefore);
+  });
+
+  it("legacy original gate with a foreign-Mission upstream endpoint is refused", () => {
+    // Build the original gate's upstream OUTSIDE the selected Mission (the
+    // pre-integrity legacy shape — legal under independent FKs).
+    const otherHabitat = habitatRepo.createHabitat({ name: "Other Habitat" });
+    const otherColumn = columnRepo.createColumn({
+      habitatId: otherHabitat.id,
+      name: "Todo",
+      order: 0,
+    });
+    const otherMission = missionRepo.createMission({
+      habitatId: otherHabitat.id,
+      columnId: otherColumn.id,
+      title: "foreign-mission",
+      createdBy: "t",
+    });
+    const foreignUpstream = taskCrudRepo.createTask({
+      missionId: otherMission.id,
+      title: "foreign upstream",
+      createdBy: "t",
+    });
+    const db = getDb();
+    const downstream = taskCrudRepo.createTask({ missionId, title: "d", createdBy: "t" });
+    const wfId = `wf-legacy-${Date.now()}`;
+    const gateId = `gate-legacy-${Date.now()}`;
+    db.insert(workflows)
+      .values({
+        id: wfId,
+        missionId,
+        habitatId,
+        resolvedVariables: {},
+        status: "active",
+        createdBy: "t",
+      })
+      .run();
+    db.insert(taskWorkflowGates)
+      .values({
+        id: gateId,
+        workflowId: wfId,
+        missionId,
+        habitatId,
+        upstreamTaskId: foreignUpstream.id,
+        downstreamTaskId: downstream.id,
+        gateType: "on_fail",
+        matchConfig: null,
+        condition: null,
+        satisfied: false,
+        recoveryDepth: 0,
+      })
+      .run();
+
+    const baseline = missionTaskCount();
+    expect(() =>
+      publishRecoveryTask(
+        recoveryInput(
+          {
+            failedTaskId: foreignUpstream.id,
+            downstreamTaskId: downstream.id,
+            workflowId: wfId,
+            gateId,
+          },
+          {},
+        ),
+      ),
+    ).toThrow(/original upstream .* does not persist in Mission/);
+    expect(missionTaskCount()).toBe(baseline);
+  });
+
+  it("persisted Recovery Task drift (Q in another Mission) is refused — ctx.task snapshot is not authority", () => {
+    const scenario = seedRecoveryScenario();
+    const otherHabitat2 = habitatRepo.createHabitat({ name: "Q Habitat" });
+    const otherColumn2 = columnRepo.createColumn({
+      habitatId: otherHabitat2.id,
+      name: "Todo",
+      order: 0,
+    });
+    const otherMission2 = missionRepo.createMission({
+      habitatId: otherHabitat2.id,
+      columnId: otherColumn2.id,
+      title: "q-foreign-mission",
+      createdBy: "t",
+    });
+    const foreignQ = taskCrudRepo.createTask({
+      missionId: otherMission2.id,
+      title: "foreign Q",
+      createdBy: "t",
+    });
+
+    const participant = buildRecoveryLinkageParticipant({
+      gateId: scenario.gateId,
+      workflowId: scenario.workflowId,
+      habitatId,
+      missionId,
+      downstreamTaskId: scenario.downstreamTaskId,
+      recoveryDepth: 0,
+    });
+    const ctxStub = {
+      task: getDb().select().from(tasks).where(eq(tasks.id, foreignQ.id)).get()!,
+    } as never;
+
+    const db = getDb();
+    expect(() =>
+      db.transaction((tx) => {
+        participant(tx as never, ctxStub);
+      }),
+    ).toThrow(/new recovery Task .* does not persist in Mission/);
+    expect(
+      db.select().from(taskWorkflowGates).where(eq(taskWorkflowGates.id, scenario.gateId)).get()
+        ?.recoveryTaskId,
+    ).toBeNull();
+  });
+
+  it("non-null context for an unrelated failed Task is refused (subject pair)", () => {
+    const scenario = seedRecoveryScenario();
+    // Context whose failedTaskId is the DOWNSTREAM task, not the original upstream U.
+    const db = getDb();
+    const ctxId = `fctx-subject-${Date.now()}`;
+    db.insert(failureContexts)
+      .values({
+        id: ctxId,
+        failedTaskId: scenario.downstreamTaskId,
+        workflowId: scenario.workflowId,
+        habitatId,
+        failureKind: "lifecycle_failed",
+        failureReason: "wrong subject",
+        bundle: {
+          artifacts: [],
+          recentLifecycleEvents: [],
+          experienceSignals: [],
+          retryHistory: [],
+          experienceCategorySummary: {},
+        },
+        bundleSchemaVersion: 1,
+      })
+      .run();
+
+    const baseline = missionTaskCount();
+    expect(() =>
+      publishRecoveryTask(
+        recoveryInput(scenario, { linkage: fullLinkage(scenario, { failureContextId: ctxId }) }),
+      ),
+    ).toThrow(/its failedTaskId is not the original upstream/);
+    expect(missionTaskCount()).toBe(baseline);
+  });
+
+  it("context already linked to a DIFFERENT Recovery Task is a linkage conflict, never a stolen overwrite", () => {
+    const scenario = seedRecoveryScenario();
+    const db = getDb();
+    const otherRecovery = taskCrudRepo.createTask({ missionId, title: "other Q", createdBy: "t" });
+    const ctxId = `fctx-pointer-${Date.now()}`;
+    db.insert(failureContexts)
+      .values({
+        id: ctxId,
+        failedTaskId: scenario.failedTaskId,
+        workflowId: scenario.workflowId,
+        habitatId,
+        failureKind: "lifecycle_failed",
+        failureReason: "already linked",
+        bundle: {
+          artifacts: [],
+          recentLifecycleEvents: [],
+          experienceSignals: [],
+          retryHistory: [],
+          experienceCategorySummary: {},
+        },
+        bundleSchemaVersion: 1,
+        recoveryTaskId: otherRecovery.id,
+      })
+      .run();
+
+    expect(() =>
+      publishRecoveryTask(
+        recoveryInput(scenario, { linkage: fullLinkage(scenario, { failureContextId: ctxId }) }),
+      ),
+    ).toThrow(/already links Recovery Task/);
+    // The existing pointer is untouched.
+    expect(
+      db.select().from(failureContexts).where(eq(failureContexts.id, ctxId)).get()?.recoveryTaskId,
+    ).toBe(otherRecovery.id);
+  });
+
+  it("captured-context Habitat mismatch ALONE does not reject (historical capture is not compared to current M/H)", () => {
+    const scenario = seedRecoveryScenario();
+    const db = getDb();
+    const foreignHabitat = habitatRepo.createHabitat({ name: "Capture Habitat" });
+    const ctxId = `fctx-capture-${Date.now()}`;
+    db.insert(failureContexts)
+      .values({
+        id: ctxId,
+        failedTaskId: scenario.failedTaskId,
+        workflowId: null,
+        habitatId: foreignHabitat.id,
+        failureKind: "lifecycle_failed",
+        failureReason: "captured elsewhere",
+        bundle: {
+          artifacts: [],
+          recentLifecycleEvents: [],
+          experienceSignals: [],
+          retryHistory: [],
+          experienceCategorySummary: {},
+        },
+        bundleSchemaVersion: 1,
+      })
+      .run();
+
+    const result = publishRecoveryTask(
+      recoveryInput(scenario, { linkage: fullLinkage(scenario, { failureContextId: ctxId }) }),
+    );
+    expectCreatedRecovering(result);
+    // The context linked to the new Recovery Task (subject pair was valid).
+    expect(
+      db.select().from(failureContexts).where(eq(failureContexts.id, ctxId)).get()?.recoveryTaskId,
+    ).toBe(result.publication.task.id);
+  });
+
+  it("positive lineage: next gate is Q→original D at depth+1, original gate linked, context subject preserved", () => {
+    const scenario = seedRecoveryScenario({ failureContext: true });
+    const result = publishRecoveryTask(recoveryInput(scenario));
+    expectCreatedRecovering(result);
+    const q = result.publication.task.id;
+
+    const nextGates = getDb()
+      .select()
+      .from(taskWorkflowGates)
+      .all()
+      .filter((g) => g.recoveryDepth === 1);
+    expect(nextGates).toHaveLength(1);
+    expect(nextGates[0]!.upstreamTaskId).toBe(q);
+    expect(nextGates[0]!.downstreamTaskId).toBe(scenario.downstreamTaskId);
+    expect(nextGates[0]!.missionId).toBe(missionId);
+    expect(nextGates[0]!.habitatId).toBe(habitatId);
+    expect(nextGates[0]!.workflowId).toBe(scenario.workflowId);
+
+    expect(
+      getDb()
+        .select()
+        .from(taskWorkflowGates)
+        .where(eq(taskWorkflowGates.id, scenario.gateId))
+        .get()?.recoveryTaskId,
+    ).toBe(q);
+    expect(
+      getDb()
+        .select()
+        .from(failureContexts)
+        .where(eq(failureContexts.id, scenario.failureContextId!))
+        .get()?.recoveryTaskId,
+    ).toBe(q);
   });
 });

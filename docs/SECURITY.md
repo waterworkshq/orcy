@@ -233,6 +233,10 @@ Task actions are classified by authorization level (enforced by `packages/api/sr
 | Approve, Reject | Human reviewer (admin/editor), or an agent holding a pending agent-typed reviewer row on the task (reviewer identity from the authenticated principal; assignee self-review refused) |
 | Delete | Agent or human (owner/admin) |
 
+### Mission-Scoped Workflow Write Integrity (ADR-0002/0003/0042)
+
+Every application writer that creates a Workflow or gate row — the served admin attach (`POST /missions/:id/workflow`), the template-aggregate publisher (all six origins), the legacy `applyTemplate` instantiation boundary, and the Workflow-Recovery linkage participant — funnels its final writes through conditional `INSERT … SELECT`/`UPDATE` statements whose **statement-time predicates** require the persisted selected Mission to exist in the selected Habitat, the Workflow to name that Mission/Habitat, and every endpoint (and Recovery) Task to belong to that Mission (`repositories/workflowIntegrity.ts` + the participant's preimage CAS). Preconditions provide user-facing validation (attach: whole-input `400 VALIDATION_ERROR "Invalid workflow nodes"` before any write); the final predicates provide containment against drift between validation and the write (attach: `409 CONFLICT "Workflow context changed"` with the whole bundle rolled back; template/recovery: descriptive integrity failure rolling the whole aggregate back). The mutation outcome is decided by a portable `SELECT changes() AS n` immediately following each statement on the same supplied client — never `.run().changes` (boolean under the sql.js test driver). Scope is **finite new-write only**: legacy rows are not rewritten or retroactively legitimized, and raw DB/fixture/trigger writers remain outside the guarantee (a trigger or later raw write can still invalidate rows after a predicate evaluates).
+
 ### Durable Review Safety (migration 0082)
 
 Review authority is durable state, not transient row status. One

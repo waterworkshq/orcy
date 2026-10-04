@@ -19,6 +19,7 @@
  * absence is intentional. A primitive that tried to start a nested tx would
  * fail loudly in tests.
  */
+import { getTableName } from "drizzle-orm";
 import type { TaskPublicationDbClient } from "../../repositories/taskPublication.js";
 
 export type WriteKind = "insert" | "update" | "delete";
@@ -40,6 +41,25 @@ export interface FailureInjectorOptions {
    * sequence).
    */
   failAtWriteN: number | null;
+  /**
+   * The 1-based RAW `get` statement at which to throw (BEFORE execution).
+   * Catches raw conditional INSERT/UPDATE statements that never pass through
+   * the insert/update builder chain. `null`/omitted = no raw-get injection.
+   */
+  failAtRawGetN?: number | null;
+  /**
+   * Error thrown at {@link FailureInjectorOptions.failAtRawGetN}; defaults to
+   * a deterministic message naming the raw-get index.
+   */
+  rawGetError?: Error;
+  /**
+   * Fault the first BUILDER write whose SQL table name matches, instead of a
+   * positional ordinal — stable when the caller's write set changes. The
+   * participant's raw statements are unaffected (use `failAtRawGetN` for those).
+   */
+  failAtTableName?: string | null;
+  /** Error thrown at {@link FailureInjectorOptions.failAtTableName}. */
+  tableFaultError?: Error;
   /**
    * Optional factory for the injected error. Receives the {@link WriteRecord}
    * so tests can include context (table, kind, index) in the failure message.
@@ -69,6 +89,18 @@ export class FailingDbClient {
   failAtWriteN: number | null;
   /** Factory used to mint the injected error. */
   errorFactory: (record: WriteRecord) => Error;
+  /** Number of raw `get` statements reached on this wrapper (1-based). */
+  rawGetCount = 0;
+  /** Append-only log of raw `get` statements (index + SQL text when extractable). */
+  rawGets: Array<{ index: number; text: string }> = [];
+  /** Raw-get failure point. `null` = no raw-get injection. */
+  failAtRawGetN: number | null;
+  /** Error thrown at {@link failAtRawGetN}. */
+  rawGetError: Error | null;
+  /** Fault the first builder write to this SQL table name. `null` = off. */
+  failAtTableName: string | null;
+  /** Error thrown at {@link failAtTableName}; defaults to the write factory. */
+  tableFaultError: Error | null;
 
   constructor(
     /** The real drizzle client the wrapper proxies. Tests can read this to verify state post-rollback. */
@@ -80,6 +112,10 @@ export class FailingDbClient {
       options.errorFactory ??
       ((record) =>
         new Error(`Injected failure at write #${record.index} (${record.kind}) for Phase 3 test`));
+    this.failAtRawGetN = options.failAtRawGetN ?? null;
+    this.rawGetError = options.rawGetError ?? null;
+    this.failAtTableName = options.failAtTableName ?? null;
+    this.tableFaultError = options.tableFaultError ?? null;
   }
 
   // ---------------------------------------------------------------------------
@@ -121,14 +157,35 @@ export class FailingDbClient {
   }
 
   /**
-   * Pass-through for raw SQL reads (e.g. `db.get(sql\`SELECT changes() AS n\`)`
-   * in {@link checkpointAttemptWithClient}). NOT a write boundary — raw SQL
-   * execution is read-side here; write-counting happens at the insert/update/
-   * delete builder-chain terminals. Without this pass-through the wrapper
-   * cannot proxy a coordinator that composes the checkpoint primitive.
+   * Raw SQL execution (`db.get(sql\`INSERT …\`)`-style conditional writes,
+   * `SELECT changes() AS n` oracles). NOT a builder write boundary, but it IS
+   * the actual execution point of the participant's raw statements — so each
+   * raw `get` is counted in {@link rawGetCount} and appended (with its SQL
+   * text, when extractable) to {@link rawGets}. When {@link failAtRawGetN}
+   * equals the CURRENT call index, the configured error is thrown BEFORE the
+   * statement executes — a statement-level fault, not a later-write fault.
    */
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   get(...args: any[]): any {
+    this.rawGetCount += 1;
+    const text =
+      typeof args[0] === "object" && args[0] !== null && "queryChunks" in args[0]
+        ? // drizzle SQL chunk objects: each chunk is either a raw string or a
+          // `{ value: String[] }` wrapper; only the wrappers carry SQL text.
+          (args[0] as { queryChunks: unknown[] }).queryChunks
+            .map((c) =>
+              typeof c === "string"
+                ? c
+                : Array.isArray((c as { value?: unknown[] })?.value)
+                  ? ((c as { value: string[] }).value).join("")
+                  : "",
+            )
+            .join("")
+        : String(args[0]);
+    this.rawGets.push({ index: this.rawGetCount, text });
+    if (this.failAtRawGetN !== null && this.rawGetCount === this.failAtRawGetN) {
+      throw this.rawGetError ?? new Error(`Injected failure at raw get #${this.rawGetCount}`);
+    }
     return (this.inner as unknown as { get: (...a: unknown[]) => unknown }).get(...args);
   }
 
@@ -147,6 +204,8 @@ export class FailingDbClient {
     this.writeCount = 0;
     this.readCount = 0;
     this.writes = [];
+    this.rawGetCount = 0;
+    this.rawGets = [];
   }
 
   /** Reconfigure the failure point (e.g. between successive calls). */
@@ -217,6 +276,15 @@ export class FailingDbClient {
     this.writeCount += 1;
     const record: WriteRecord = { index: this.writeCount, kind, table };
     this.writes.push(record);
+    // Table-scoped fault: identifies the boundary by the table it writes
+    // rather than by a positional ordinal that shifts whenever the caller's
+    // write set changes. Independent of {@link failAtWriteN}; both may be set.
+    if (
+      this.failAtTableName !== null &&
+      getTableName(table as never) === this.failAtTableName
+    ) {
+      throw this.tableFaultError ?? this.errorFactory(record);
+    }
     if (this.failAtWriteN !== null && this.writeCount === this.failAtWriteN) {
       throw this.errorFactory(record);
     }
