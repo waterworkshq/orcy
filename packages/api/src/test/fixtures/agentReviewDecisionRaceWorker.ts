@@ -13,14 +13,19 @@
  *   2. PARENT: waits for every worker's READY, sends GO to each
  *      back-to-back.
  *   3. WORKER: on GO, runs `taskService.approveTask` / `rejectTask` for its
- *      reviewer and reports { ok, error }.
+ *      reviewer and reports { outcome, mode, ok, error? }.
  *
  * Usage: forked with argv [dbPath, mode, taskId, reviewerId, reason?].
  */
 import type { ChildProcess } from "node:child_process";
 
+/** `ok` (produced a result) | `refused` (production returned null, no throw) | `error` (a real throw, carries `error`). */
+export type RaceOutcome = "ok" | "refused" | "error";
+
 export interface RaceResultMessage {
   type: "RESULT";
+  outcome: RaceOutcome;
+  mode: string;
   ok: boolean;
   error?: string;
 }
@@ -51,10 +56,27 @@ async function main(): Promise<void> {
         mode === "reject"
           ? taskService.rejectTask(taskId, reviewerId, reason, "agent")
           : taskService.approveTask(taskId, reviewerId, "agent");
-      report({ type: "RESULT", ok: result !== null }, closeDb);
+      // `ok` is not renamed "terminal": a winning approve may be a non-terminal
+      // partial approval. A null result is a normal return, so it reports
+      // `refused` and carries no error payload.
+      report(
+        {
+          type: "RESULT",
+          outcome: result !== null ? "ok" : "refused",
+          mode,
+          ok: result !== null,
+        },
+        closeDb,
+      );
     } catch (err) {
       report(
-        { type: "RESULT", ok: false, error: err instanceof Error ? err.message : String(err) },
+        {
+          type: "RESULT",
+          outcome: "error",
+          mode,
+          ok: false,
+          error: err instanceof Error ? err.message : String(err),
+        },
         closeDb,
       );
     }

@@ -7,7 +7,7 @@
 Each minor release tells a story — a coherent set of changes with a clear "why."
 Release boundaries are risk management decisions: breaking changes, fragile features, and big refactors never ship together.
 
-> **Release-state convention.** "Delivered" entries describe implementation completion. The version/tag is cut by `release-it` only after an explicitly approved release; until then, an entry is described as "implementation complete; release pending" and the `package.json`/`@orcy/shared` version remains at the previous tag. "Shipped" wording is reserved for the moment the release tag lands.
+> **Release-state convention.** "Delivered" entries describe implementation completion. The version/tag is cut by `release-it` only after an explicitly approved release; until then, an entry is described as "implementation complete; release pending" and the root `package.json` product version remains at the previous release tag. Workspace package versions, including `@orcy/shared`, are separate and are not synchronized by the current release configuration. "Shipped" wording is reserved for the moment the release tag lands.
 
 ---
 

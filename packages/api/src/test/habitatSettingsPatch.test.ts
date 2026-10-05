@@ -212,6 +212,8 @@ describe("legacy partial blobs are normalized at every raw boundary", () => {
       hasGitlabSecret: false,
       taskPattern: "ORC-",
       autoApproveOnMerge: false,
+      githubRepositories: [],
+      gitlabProjects: [],
     });
   });
 

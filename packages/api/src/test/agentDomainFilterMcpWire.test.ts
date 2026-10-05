@@ -438,10 +438,13 @@ describe("agent domain filter — served MCP wire", () => {
   it("reap escalation: a child that ignores SIGTERM is really killed by SIGKILL and its exit observed", async () => {
     const stubborn = spawn(process.execPath, [
       "-e",
-      "process.stdout.write('ready\\n'); process.on('SIGTERM', () => {}); setInterval(() => {}, 1000);",
+      "process.on('SIGTERM', () => {}); setInterval(() => {}, 1000); process.stdout.write('ready\\n');",
     ]);
-    // Wait for the child to actually install its SIGTERM handler, so the
-    // initial SIGTERM cannot race node startup and win by accident.
+    // The child installs its SIGTERM handler BEFORE emitting the ready marker:
+    // parent and child are separate processes, so delivery of the ready bytes
+    // cannot otherwise order the child's later handler installation ahead of
+    // the parent's kill — a ready-first fixture can die to the initial
+    // SIGTERM before the ignore handler exists.
     const ready = new Promise<void>((resolve, reject) => {
       const timer = setTimeout(
         () => reject(new Error("stubborn child never reported ready")),

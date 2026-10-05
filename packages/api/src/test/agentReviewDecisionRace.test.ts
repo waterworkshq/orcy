@@ -29,6 +29,7 @@ import * as missionRepo from "../repositories/mission.js";
 import * as taskRepo from "../repositories/task.js";
 import * as taskReviewerRepo from "../repositories/taskReviewer.js";
 import { taskEvents } from "../db/schema/index.js";
+import type { RaceOutcome } from "./fixtures/agentReviewDecisionRaceWorker.js";
 
 const WORKER = join(import.meta.dirname, "fixtures", "agentReviewDecisionRaceWorker.ts");
 
@@ -37,7 +38,10 @@ interface RaceSpec {
   reviewerId: string;
 }
 
+/** `refused` is a legitimate normal return (production returns null, no throw); only `error` carries a cause. */
 interface WorkerOutcome {
+  outcome: RaceOutcome;
+  mode: string;
   ok: boolean;
   error?: string;
 }
@@ -192,7 +196,10 @@ function forkRacer(
   });
   const done = waitForMessage<WorkerOutcome>(
     child,
-    (m) => (m?.type === "RESULT" ? { ok: m.ok === true, error: m.error } : null),
+    (m) =>
+      m?.type === "RESULT"
+        ? { outcome: m.outcome, mode: m.mode, ok: m.ok === true, error: m.error }
+        : null,
     "result-wait",
   );
   return { child, done };
@@ -230,6 +237,11 @@ async function runRace(
     }
     for (const r of racers) r.child.send?.({ type: "GO" });
     const outcomes = await Promise.all(racers.map((r) => r.done.promise));
+    // Bind each reported mode to the spec its racer was forked with, so racer
+    // identity survives IPC rather than resting on array position.
+    outcomes.forEach((o, i) => {
+      expect(o.mode).toBe(specs[i].mode);
+    });
     const exits = children.map((child) => waitForExit(child).promise);
     for (const p of exits) taps.push(p.catch(() => {}));
     await Promise.all(exits);
@@ -345,9 +357,19 @@ describe("Agent review terminal races (cross-process, real connections)", () => 
     // row stays pending; de facto rejector-must-re-approve).
     const winner = task.status === "approved" ? 0 : 1;
     expect(outcomes[winner].ok).toBe(true);
+    expect(outcomes[winner].outcome).toBe("ok");
     const loser = 1 - winner;
     if (!outcomes[loser].ok) {
-      expect(outcomes[loser].error).toBeTruthy();
+      // A non-ok racer must classify WHY: "refused" (production returned null
+      // without throwing) or "error" (a real throw, which owes a message).
+      // The old unconditional `error` truthy assertion demanded an exception
+      // where a normal null return is the correct production behaviour.
+      expect(["refused", "error"]).toContain(outcomes[loser].outcome);
+      if (outcomes[loser].outcome === "refused") {
+        expect(outcomes[loser].error).toBeUndefined();
+      } else {
+        expect(outcomes[loser].error).toBeTruthy();
+      }
     }
     closeDb();
   }, 300000);
@@ -421,7 +443,7 @@ describe("Agent review terminal races (cross-process, real connections)", () => 
       await ready.promise;
       child.send?.({ type: "GO" });
       await expect(
-        waitForMessage<WorkerOutcome>(
+        waitForMessage<Pick<WorkerOutcome, "ok">>(
           child,
           (m) => (m?.type === "RESULT" ? { ok: m.ok === true } : null),
           "result-wait",

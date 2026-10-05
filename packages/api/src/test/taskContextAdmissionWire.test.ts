@@ -1489,6 +1489,10 @@ describe("admitted local agents keep the full Failure Context, including a Recov
     // served seam the tool actually uses, not the backend actor-free reader.
     const child = spawnMcpChild(recoveryAgentKey);
     let toolResponseText = "";
+    // Cleanup persists the receipt on every path; failures are recorded here and
+    // re-raised after the block, never inside `finally` (which would overwrite them).
+    let hasError = false;
+    let primaryError: unknown = null;
     try {
       const text = toolText(
         await mcpRequest(child, "tools/call", {
@@ -1548,6 +1552,11 @@ describe("admitted local agents keep the full Failure Context, including a Recov
       expect(pfc.bundle.experienceSignals[0].subject).toBe("stuck on recovery-mcp");
       expect(pfc.bundle.experienceSignals[0].createdAt).toBeTruthy();
       expect(pfc.bundle.experienceCategorySummary).toEqual({ stuck: 1 });
+    } catch (err) {
+      if (!hasError) {
+        hasError = true;
+        primaryError = err;
+      }
     } finally {
       // NESTED try/finally, so the receipt is persisted on EVERY path.
       //
@@ -1556,12 +1565,14 @@ describe("admitted local agents keep the full Failure Context, including a Recov
       // cleanup outcome is captured, the receipt is written regardless, the path
       // is announced, and only then is a cleanup failure re-raised — a failed
       // cleanup assertion is never swallowed.
-      let primaryError: unknown = null;
       let receipt: McpChildReceipt;
       try {
         receipt = await killMcpChild(child);
       } catch (err) {
-        primaryError = err;
+        if (!hasError) {
+          hasError = true;
+          primaryError = err;
+        }
         receipt = child.receipt;
       }
       let parsed: unknown = null;
@@ -1582,7 +1593,10 @@ describe("admitted local agents keep the full Failure Context, including a Recov
         receipt.receiptPath = join(dir, "mcp-child-receipt.json");
         receiptPath = writeMcpReceipt(dir, receipt);
       } catch (err) {
-        if (!primaryError) primaryError = err;
+        if (!hasError) {
+          hasError = true;
+          primaryError = err;
+        }
       }
       // Announced on the captured test output so the reviewer can retrieve THIS
       // attempt's receipt. Contains no secret.
@@ -1617,10 +1631,12 @@ describe("admitted local agents keep the full Failure Context, including a Recov
         expect(reread).toEqual(JSON.parse(serialized));
         expect(JSON.stringify(reread)).not.toContain(recoveryAgentKey);
       } catch (err) {
-        if (!primaryError) primaryError = err;
+        if (!hasError) {
+          hasError = true;
+          primaryError = err;
+        }
       }
-      // A failed cleanup is an explicit failure, not a swallowed one.
-      if (primaryError) throw primaryError;
     }
+    if (hasError) throw primaryError;
   }, 120_000);
 });

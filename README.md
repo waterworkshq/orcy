@@ -36,7 +36,7 @@ Open-source MCP server that gives AI coding agents a shared task board with tran
 ## What Orcy Does
 
 - **Coordinates** — multiple AI coding agents claim tasks transactionally from a shared board: one winner per claim, no double-assignment.
-- **Verifies** — quality/dependency gates govern completion; assigned reviewer rows add review requirements on top. Review is row-bound: when a rule matches and reviewer rows are assigned, they gate completion; with zero reviewer rows (no rule or failed assignment), gated assignee self-completion remains possible.
+- **Verifies** — quality and dependency gates govern completion alongside durable review requirements. Current-generation eligible approvals must meet the effective requirement with no pending or rejected projected reviewer slots. The assignee may self-complete submitted work only on the genuine known-zero review path; an empty assignment set or failed reviewer assignment does not erase required reviews.
 - **Recovers** — a stale-agent sweep can release an eligible current task after 30 minutes of silence; other holdings still need attention.
 
 ## Quick Start
@@ -50,7 +50,7 @@ Installs the CLI + MCP server and auto-configures the agent clients it detects �
 ## Features
 
 - **Transactional claiming** — no two agents can grab the same task, even under concurrent access. The claim authority runs each claim as a conditional write with typed contention outcomes — one winner.
-- **Review rules** — submitted work is gated by the habitat's assigned review rules. A human, or an agent holding a pending assigned reviewer row, approves to let it surface; reject with feedback and it goes back to the hunt. Assignment is best-effort after submit; with zero reviewer rows, the assignee may self-complete through the quality and dependency gates.
+- **Review rules** — successful claims capture the review requirement durably. Eligible assigned human and agent reviewers record generation-aware decisions; work can remain submitted until the required approvals and projected reviewer slots are settled. Assignment is best-effort after submit, but missing assignments do not lower the requirement. Rejection preserves the owner's rework continuation; unknown historical requirements need independent eligible human resolution before finalization.
 - **Domain routing** — domain and capability matching governs which tasks agents are suggested, assigned, and allowed to claim. Read and list surfaces can still expose sibling work.
 - **Dependency blocking** — tasks with unmet dependencies stay unclaimable until the dependency resolves. No wasted agent cycles on dead-ends.
 - **Silence detection** — a stale-agent sweep can release an eligible current task after the 30-minute heartbeat threshold; other holdings and refusal paths still need attention.
@@ -67,7 +67,7 @@ Installs the CLI + MCP server and auto-configures the agent clients it detects �
 - **Notification System V2** — durable notifications with subscriptions, channel routing (in-app, webhook, Slack, Discord), digests, acknowledgment/snooze/mute, and retention-based clearance.
 - **Audit Trail V2** — canonical projection over all lifecycle, effort, code-evidence, pipeline, integration, and webhook sources with provenance metadata, completeness tracking, streaming exports, and scoped evidence bundles.
 - **Pod Bridge** — Orcy-owned scoped trust through the live manual-invite path (invite tokens, scoped grants) so another admin's pod can safely collaborate in a shared habitat; provider-backed identity is **Partial** — provider configuration and OAuth initiation exist, but no in-tree callback completes it, so remote enrollment is manually provisioned today. Includes Shared Habitat API, remote MCP mode, idempotent writes, and grant-based access control.
-- **Workflow Orchestration** — mission-scoped workflow DAGs with 5 gate types (`on_complete`, `on_approve`, `on_signal`, `on_manual`, `on_fail`), join specs (`all_of`/`any_of`/`n_of`), and conditional edge predicates. Gates layer on the claim path as derived constraints — no new task status, no changes to the daemon seam.
+- **Workflow Orchestration** — Mission-scoped Workflow DAGs with typed gates (`on_complete`, `on_approve`, `on_signal`, `on_automation`, `on_manual`, `on_fail`), join specs (`all_of`/`any_of`/`n_of`) and conditional edge predicates. Gates layer on the claim path as derived constraints; they do not introduce a Task status.
 - **Workflow Error Handling** — `on_fail` gates spawn recovery tasks with structured FailureContext (artifacts, lifecycle events, experience signals, retry history). Successful recovery redeems the original failure; two recovery attempts maximum before human escalation.
 - **Agent Experience Self-Reporting** — agents post experience signals (`stuck`, `confused`, `backtrack`, `surprised`, `ambiguous`, `sidetracked`, `smooth`) via the existing `orcy_pulse` tool. Signals flow through the pulse pipeline into habitat skills and failure contexts.
 - **Workflow Templates** — reusable workflow templates with `{{variable}}` substitution, form-based authoring with JSON import/export, live SVG preview, and two shipped defaults (Build-Test-Review-Deploy, Parallel Investigation).
@@ -118,7 +118,7 @@ A **habitat** is a shared workspace. Pod members create **missions** inside it �
 
 Orcys are autonomous. Give them a direction and they can create their own missions, break them into tasks, and hunt. You can give them missions to work on, or let them loose on their own. Either way, you are part of the pod — not standing outside managing it.
 
-When an orcy submits work, the habitat's assigned review rules gate it — a human, or an agent holding a pending assigned reviewer row, approves to let it surface; reject with feedback and it goes back to the hunt. Assignment is best-effort after submit; with zero reviewer rows, the assignee may self-complete through the quality and dependency gates.
+When an orcy submits work, its durable review requirement governs finalization. Eligible assigned human and agent reviewers can record approval or rejection; an approval may leave the Task submitted until the effective review count is met and no pending or rejected projected reviewer slots remain. Reviewer assignment is best-effort, but assignment failure does not waive required reviews. Submitted self-completion remains available only for genuine known-zero requirements, through the quality and dependency gates; historical unknown requirements need independent eligible human resolution before finalization.
 
 Orcys heartbeat while active. If an orcy goes silent, a stale-agent sweep can release its eligible current task for others in the pod to claim; other holdings still need attention.
 

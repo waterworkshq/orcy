@@ -40,6 +40,16 @@ const {
   mockAddArtifact: vi.fn(),
 }));
 
+const { mockApproveForMergedPR } = vi.hoisted(() => ({
+  mockApproveForMergedPR: vi.fn(),
+}));
+
+// Unit seam only: merge approval owns its own DB transaction; real admission
+// and CAS behavior is covered against a seeded DB in reviewSafetyBypasses.test.ts.
+vi.mock("../services/webhooks/mergeApproval.js", () => ({
+  approveTaskForMergedPR: mockApproveForMergedPR,
+}));
+
 vi.mock("../services/codeEvidenceService.js", () => ({
   ensureEvidenceLinkForPullRequest: mockEnsurePR,
   ensureEvidenceLinkForPipelineEvent: mockEnsurePipeline,
@@ -201,6 +211,7 @@ describe("GitHub Webhook - Evidence Linking", () => {
     expect(result.status).toBe("closed");
     expect(mockEnsurePR).toHaveBeenCalledOnce();
     expect(mockEnsurePR).toHaveBeenCalledWith(PR_RECORD, "webhook", HABITAT_ID);
+    expect(mockApproveForMergedPR).toHaveBeenCalledOnce();
   });
 
   it("calls ensureEvidenceLinkForPullRequest on PR closed without merge", () => {
@@ -260,6 +271,7 @@ describe("GitHub Webhook - Evidence Linking", () => {
 
     expect(result.status).toBe("closed");
     expect(mockPublish).toHaveBeenCalled();
+    expect(mockApproveForMergedPR).toHaveBeenCalledOnce();
   });
 
   it("does not call ensureEvidenceLinkForPullRequest for unrecognized action", () => {
@@ -361,6 +373,7 @@ describe("GitLab Webhook - Evidence Linking", () => {
     expect(result.status).toBe("merged");
     expect(mockEnsurePR).toHaveBeenCalledOnce();
     expect(mockEnsurePR).toHaveBeenCalledWith(MR_RECORD, "webhook", HABITAT_ID);
+    expect(mockApproveForMergedPR).toHaveBeenCalledOnce();
   });
 
   it("does not call ensureEvidenceLinkForPullRequest on MR close without existing record", () => {
@@ -409,6 +422,7 @@ describe("GitLab Webhook - Evidence Linking", () => {
 
     expect(result.status).toBe("merged");
     expect(mockPublish).toHaveBeenCalled();
+    expect(mockApproveForMergedPR).toHaveBeenCalledOnce();
   });
 
   it("does not call ensureEvidenceLinkForPullRequest for unrecognized action", () => {
@@ -441,6 +455,7 @@ describe("GitLab Webhook - Evidence Linking", () => {
     expect(result.status).toBe("merged");
     expect(mockEnsurePR).toHaveBeenCalledOnce();
     expect(mockUpdatePullRequest).toHaveBeenCalledWith(MR_RECORD.id, { state: "merged" });
+    expect(mockApproveForMergedPR).toHaveBeenCalledOnce();
   });
 });
 

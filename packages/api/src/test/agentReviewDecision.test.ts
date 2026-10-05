@@ -746,7 +746,7 @@ describe('Reviewer creation — POST /tasks/:taskId/reviewers validation', () =>
   const postReviewer = (body: Record<string, unknown>, params?: Record<string, unknown>) => {
     const handler = findRoute(routes, 'POST', '/tasks/:taskId/reviewers');
     const { request, reply } = mockReqRes({
-      params: { taskId: params?.taskId ?? board.taskId, ...(params ?? {}) },
+      params: { taskId: params?.taskId ?? board.taskId, ...params },
       body,
       user: { id: 'human-42', role: 'admin' },
     });

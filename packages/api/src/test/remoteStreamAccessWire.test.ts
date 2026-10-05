@@ -457,6 +457,19 @@ function installStreamArtifactWitnesses() {
   };
 }
 
+/**
+ * Fixture-owned slot holding the response receiver of the last remote stream
+ * write. The receiver arrives as a PARAMETER (see {@link noteRemoteResponse})
+ * rather than being aliased to a local `this`, which is what the no-this-alias
+ * rule rejects. Capture timing is unchanged: the slot is filled inside the write
+ * itself, before any fault, so every consumer below still sees the same value.
+ */
+type RemoteResponseSlot = { response: http.ServerResponse | undefined };
+
+function noteRemoteResponse(slot: RemoteResponseSlot, res: http.ServerResponse): void {
+  slot.response = res;
+}
+
 function interceptStreamWrites(habitatId: string): {
   writes(): string[];
   remoteWrites(): string[];
@@ -465,7 +478,7 @@ function interceptStreamWrites(habitatId: string): {
   restore(): void;
 } {
   const all: Array<{ isRemote: boolean; text: string }> = [];
-  let remoteResponse: http.ServerResponse | undefined;
+  const remoteSlot: RemoteResponseSlot = { response: undefined };
   const original = http.ServerResponse.prototype.write;
   const spy = vi.spyOn(http.ServerResponse.prototype, "write").mockImplementation(function (
     this: http.ServerResponse,
@@ -475,7 +488,7 @@ function interceptStreamWrites(habitatId: string): {
     const url = this.req?.url;
     if (socket?.localPort === port && url === `${STREAM_PATH_PREFIX}${habitatId}/stream`) {
       const isRemote = Boolean((this.req.headers as Record<string, unknown>)["x-orcy-remote-key"]);
-      if (isRemote) remoteResponse = this;
+      if (isRemote) noteRemoteResponse(remoteSlot, this);
       const first = args[0];
       all.push({
         isRemote,
@@ -488,7 +501,7 @@ function interceptStreamWrites(habitatId: string): {
     writes: () => all.map((w) => w.text),
     remoteWrites: () => all.filter((w) => w.isRemote).map((w) => w.text),
     localWrites: () => all.filter((w) => !w.isRemote).map((w) => w.text),
-    remoteResponse: () => remoteResponse,
+    remoteResponse: () => remoteSlot.response,
     restore: () => spy.mockRestore(),
   };
 }
@@ -1865,7 +1878,7 @@ describe("remote stream — served lifecycle faults", () => {
     // and any fallback recurses. Everything this fixture needs — capture and
     // the connected-write fault — is composed inside this single implementation.
     const nativeWrite = http.ServerResponse.prototype.write;
-    let remoteResponse: http.ServerResponse | undefined;
+    const remoteSlot: RemoteResponseSlot = { response: undefined };
     const writeSpy = vi.spyOn(http.ServerResponse.prototype, "write").mockImplementation(function (
       this: http.ServerResponse,
       ...args: any[]
@@ -1875,7 +1888,7 @@ describe("remote stream — served lifecycle faults", () => {
         socket?.localPort === port &&
         this.req?.url === `${STREAM_PATH_PREFIX}${f.habitatId}/stream`;
       if (isStream && (this.req.headers as Record<string, unknown>)["x-orcy-remote-key"]) {
-        remoteResponse = this;
+        noteRemoteResponse(remoteSlot, this);
       }
       if (
         isStream &&
@@ -1920,7 +1933,7 @@ describe("remote stream — served lifecycle faults", () => {
       writeSpy.mockRestore();
       timerSpy.mockRestore();
       if (interval) clearInterval(interval);
-      remoteResponse?.destroy();
+      remoteSlot.response?.destroy();
     }
   });
 
@@ -2071,7 +2084,7 @@ describe("remote stream — served lifecycle faults", () => {
     // disconnected CONTROL write. The normal connected write passes through to
     // the native implementation, so admission itself is unimpaired.
     const nativeWrite = http.ServerResponse.prototype.write;
-    let remoteResponse: http.ServerResponse | undefined;
+    const remoteSlot: RemoteResponseSlot = { response: undefined };
     const writeSpy = vi.spyOn(http.ServerResponse.prototype, "write").mockImplementation(function (
       this: http.ServerResponse,
       ...args: any[]
@@ -2081,7 +2094,7 @@ describe("remote stream — served lifecycle faults", () => {
         socket?.localPort === port &&
         this.req?.url === `${STREAM_PATH_PREFIX}${f.habitatId}/stream`;
       if (isStream && (this.req.headers as Record<string, unknown>)["x-orcy-remote-key"]) {
-        remoteResponse = this;
+        noteRemoteResponse(remoteSlot, this);
         if (String(args[0]).includes('"type":"disconnected"')) {
           throw new Error("fixture disconnected write fault");
         }
@@ -2092,7 +2105,7 @@ describe("remote stream — served lifecycle faults", () => {
     let clearSpy: ReturnType<typeof vi.spyOn> | undefined;
     try {
       await openAdmittedStream(f.habitatId, remoteKey(f.secret));
-      const response = remoteResponse;
+      const response = remoteSlot.response;
       expect(response, "a remote response must have been captured").toBeDefined();
       endSpy = vi.spyOn(response!, "end").mockImplementation(() => {
         throw new Error("fixture end fault");
@@ -2129,7 +2142,7 @@ describe("remote stream — served lifecycle faults", () => {
       subscribeSpy.mockRestore();
       timerSpy.mockRestore();
       if (interval) clearInterval(interval);
-      remoteResponse?.destroy();
+      remoteSlot.response?.destroy();
     }
   });
 });

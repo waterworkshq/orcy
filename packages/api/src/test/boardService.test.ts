@@ -220,6 +220,8 @@ describe("boardService", () => {
         hasGitlabSecret: true,
         taskPattern: "[TASK]",
         autoApproveOnMerge: true,
+        githubRepositories: [],
+        gitlabProjects: [],
       });
       expect((masked.codeReviewSettings as any).githubSecret).toBeUndefined();
       expect((masked.codeReviewSettings as any).gitlabSecret).toBeUndefined();

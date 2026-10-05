@@ -376,7 +376,8 @@ function rawRequest(raw: string): Promise<{ status: number | null; raw: string }
       if (settled) return;
       settled = true;
       sock.destroy();
-      err ? reject(err) : resolve({ status: parseStatus(buf), raw: buf });
+      if (err) reject(err);
+      else resolve({ status: parseStatus(buf), raw: buf });
     };
     sock.on('error', done);
     sock.on('data', (d) => {

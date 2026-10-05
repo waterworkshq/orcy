@@ -227,7 +227,9 @@ function prepareLegacyLedgerDatabase(dbPath: string): void {
 /**
  * Launch a compiled API entrypoint with `node`, poll `/health` until ready,
  * optionally run caller probes against the live base URL, then SIGTERM and
- * assert exit code 0. Child is SIGKILLed in finally as a safety net. The
+ * assert exit code 0, reporting the observed {code, signal, timedOut} receipt
+ * plus captured stdout/stderr on failure. Cleanup on every path awaits both
+ * the observed exit and close (bounded, explicit failure on timeout). The
  * caller owns temp-file cleanup.
  */
 async function launchAndWaitForHealth(
@@ -250,15 +252,32 @@ async function launchAndWaitForHealth(
     stderr += d.toString();
   });
 
+  // ONE spawn-time exit observation and ONE close observation, registered
+  // immediately after spawn — before any kill — and reused everywhere below
+  // (readiness premature-exit check, shutdown receipt, finally cleanup). No
+  // overlapping per-stage listeners: every waiter resolves from this single
+  // registration.
   let exited = false;
   let exitCode: number | null = null;
   let exitSignal: string | null = null;
-  child.on("exit", (code, signal) => {
-    exited = true;
-    exitCode = code;
-    exitSignal = signal;
+  const exitObserved = new Promise<[number | null, string | null]>((resolveExit) => {
+    child.on("exit", (code, signal) => {
+      exited = true;
+      exitCode = code;
+      exitSignal = signal;
+      resolveExit([code, signal]);
+    });
+  });
+  const closeObserved = new Promise<void>((resolveClose) => {
+    child.on("close", () => resolveClose());
   });
 
+  // primaryError/hasError capture the FIRST failure directly (falsy-safe):
+  // the body catch records without throwing, the finally cleanup runs on
+  // every path and never throws over a recorded primary, and the single
+  // rethrow happens only after finally completes.
+  let primaryError: unknown;
+  let hasError = false;
   try {
     const HEALTH_TIMEOUT = 30_000;
     const deadline = Date.now() + HEALTH_TIMEOUT;
@@ -297,24 +316,79 @@ async function launchAndWaitForHealth(
       await probes(`http://127.0.0.1:${port}`);
     }
 
-    const cleanExitCode = await new Promise<number | null>((resolveExit) => {
-      const timer = setTimeout(() => {
+    // Shutdown receipt, from the single spawn-time exit observation. The
+    // graceful wait is a bounded race: if the 10 s grace expires, timedOut is
+    // marked, SIGKILL escalates, and the race resolves — never an unbounded
+    // hang — with the real exit event still winning the race when it fires.
+    const shutdown = await new Promise<{
+      code: number | null;
+      signal: string | null;
+      timedOut: boolean;
+    }>((resolveExit) => {
+      const grace = setTimeout(() => {
         child.kill("SIGKILL");
-        resolveExit(null);
+        resolveExit({ code: null, signal: null, timedOut: true });
       }, 10_000);
-      child.on("exit", (code) => {
-        clearTimeout(timer);
-        resolveExit(code);
+      exitObserved.then(([code, signal]) => {
+        clearTimeout(grace);
+        resolveExit({ code, signal, timedOut: false });
       });
       child.kill("SIGTERM");
     });
 
-    expect(cleanExitCode).toBe(0);
+    expect(
+      shutdown.code,
+      `clean SIGTERM shutdown required (pid=${child.pid} port=${port}); ` +
+        `receipt: ${JSON.stringify(shutdown)}\nstdout:\n${stdout}\nstderr:\n${stderr}`,
+    ).toBe(0);
+  } catch (bodyFailure) {
+    // Record — don't swallow — the primary body/probe/assertion failure.
+    hasError = true;
+    primaryError = bodyFailure;
   } finally {
-    if (!exited) {
-      child.kill("SIGKILL");
+    // Cleanup on EVERY path: force if not yet exited, then await BOTH the
+    // observed exit and close (single spawn-time promises, bounded by the
+    // 5 s ceiling, with the cutoff timer cleared on either outcome). A
+    // cutoff is an explicit cleanup failure, never a silent success, and
+    // never replaces the recorded primary failure.
+    let cutoff: ReturnType<typeof setTimeout> | undefined;
+    try {
+      if (!exited) {
+        child.kill("SIGKILL");
+      }
+      const CUTOFF_MS = 5_000;
+      const both = await Promise.race([
+        Promise.all([exitObserved, closeObserved]).then(() => "observed" as const),
+        new Promise<"cutoff">((resolveCutoff) => {
+          cutoff = setTimeout(() => resolveCutoff("cutoff"), CUTOFF_MS);
+        }),
+      ]);
+      if (both === "cutoff") {
+        const cutoffFailure = new Error(
+          `cleanup failed: exit/close not both observed within ${CUTOFF_MS}ms ` +
+            `(pid=${child.pid} exited=${exited})\nstdout:\n${stdout}\nstderr:\n${stderr}`,
+        );
+        if (!hasError) {
+          hasError = true;
+          primaryError = cutoffFailure;
+        } else {
+          console.error("cleanup failure (primary failure preserved):", cutoffFailure);
+        }
+      }
+    } catch (cleanupFailure) {
+      if (!hasError) {
+        hasError = true;
+        primaryError = cleanupFailure;
+      } else {
+        // Primary failure wins; the cleanup diagnostic is reported, not
+        // thrown over it.
+        console.error("cleanup failure (primary failure preserved):", cleanupFailure);
+      }
+    } finally {
+      clearTimeout(cutoff);
     }
   }
+  if (hasError) throw primaryError;
 }
 
 /**

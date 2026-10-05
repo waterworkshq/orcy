@@ -148,7 +148,7 @@ vi.mock("better-sqlite3", async (importOriginal) => {
         nativeControlTrace.entries.push(keyword);
         if (nativeControlTrace.onControlEntry) nativeControlTrace.onControlEntry(keyword);
       };
-      return new Orig(path, { ...(opts ?? {}), verbose });
+      return new Orig(path, { ...opts, verbose });
     }
     return new Orig(path, opts);
   };

@@ -14,7 +14,7 @@
  * enforcement migration is excluded by TAG (the documented raw-harness rule:
  * no preflight attestation is seeded here).
  */
-import { describe, it, expect, afterEach } from "vitest";
+import { describe, it, expect, beforeAll, beforeEach, afterEach, afterAll } from "vitest";
 import { join } from "node:path";
 import { existsSync, readFileSync, rmSync, mkdirSync } from "node:fs";
 import Database from "better-sqlite3";
@@ -52,13 +52,17 @@ function applyMigrationSql(db: Database.Database, sqlText: string): void {
   }
 }
 
-/** Applies every journal migration EXCEPT the enforcement (0068) migration —
- * raw harnesses must exclude it by tag or seed an attestation first. */
-function applyJournalExcept(db: Database.Database, skipPrefixes: string[]): void {
+/** Applies every journal migration BEFORE the 0077 epoch boundary, in order —
+ * the enforcement (0068) migration is excluded by tag (raw harnesses must
+ * exclude it or seed an attestation first), 0077 itself is applied separately
+ * after seeding, and migrations AFTER 0077 are never applied: they postdate
+ * the upgrade under test and cannot affect it. */
+function applyPreEpochJournal(db: Database.Database): void {
   const journal = readJournal();
   expect(journal.entries.length).toBeGreaterThan(0);
   for (const entry of journal.entries) {
-    if (skipPrefixes.some((p) => entry.tag.startsWith(p))) continue;
+    if (entry.tag.startsWith(EPOCH_TAG_PREFIX)) break;
+    if (entry.tag.startsWith(ENFORCEMENT_TAG)) continue;
     const sqlPath = join(DRIZZLE_DIR, `${entry.tag}.sql`);
     if (!existsSync(sqlPath)) continue; // pre-consolidation tags live in 0000
     applyMigrationSql(db, readFileSync(sqlPath, "utf-8"));
@@ -134,31 +138,68 @@ function buildUpgradedDb(): {
 } {
   mkdirSync(TEMP_ROOT, { recursive: true });
   const db = new Database(join(TEMP_ROOT, "epoch.db"));
-  applyJournalExcept(db, [ENFORCEMENT_TAG, EPOCH_TAG_PREFIX]);
-  const seeded = seedLegacyNotifications(db);
+  try {
+    applyPreEpochJournal(db);
+    const seeded = seedLegacyNotifications(db);
 
-  const before: Record<string, Record<string, unknown>> = {};
-  for (const status of Object.keys(seeded.deliveryIds)) {
-    before[status] = selectDelivery(db, seeded.deliveryIds[status]);
+    const before: Record<string, Record<string, unknown>> = {};
+    for (const status of Object.keys(seeded.deliveryIds)) {
+      before[status] = selectDelivery(db, seeded.deliveryIds[status]);
+    }
+    const beforeAttempt = db
+      .prepare("SELECT * FROM notification_delivery_attempts WHERE id = ?")
+      .get(seeded.attemptId) as Record<string, unknown>;
+
+    const epochTag = findJournalTag(EPOCH_TAG_PREFIX);
+    expect(epochTag, "journal must contain a 0077_* epoch migration entry").toBeTruthy();
+    applyMigrationSql(db, readFileSync(epochMigrationPath(epochTag), "utf-8"));
+
+    return { db, seeded, before: { ...before, __attempt: beforeAttempt } as never };
+  } catch (err) {
+    // Failed setup must not leak the already-open handle; a close failure
+    // must not mask the original setup failure.
+    try {
+      db.close();
+    } catch {
+      /* keep the original error */
+    }
+    throw err;
   }
-  const beforeAttempt = db
-    .prepare("SELECT * FROM notification_delivery_attempts WHERE id = ?")
-    .get(seeded.attemptId) as Record<string, unknown>;
-
-  const epochTag = findJournalTag(EPOCH_TAG_PREFIX);
-  expect(epochTag, "journal must contain a 0077_* epoch migration entry").toBeTruthy();
-  applyMigrationSql(db, readFileSync(epochMigrationPath(epochTag), "utf-8"));
-
-  return { db, seeded, before: { ...before, __attempt: beforeAttempt } as never };
 }
 
+/**
+ * The full pre-0077 journal replay is deterministic and byte-identical for
+ * every test, so the upgraded DB is built ONCE per suite instead of once per
+ * test (per-test rebuilds were pure redundant cost under the canonical
+ * file-parallel run). Isolation is preserved with a SAVEPOINT per test,
+ * rolled back after it, so no test's writes (e.g. the post-epoch default
+ * probe) can leak into another test's rows or ordering.
+ */
+let shared: ReturnType<typeof buildUpgradedDb> | undefined;
+
+beforeAll(() => {
+  shared = buildUpgradedDb();
+});
+
+beforeEach(() => {
+  shared!.db.exec("SAVEPOINT test_isolation");
+});
+
 afterEach(() => {
+  shared!.db.exec("ROLLBACK TO test_isolation");
+  shared!.db.exec("RELEASE test_isolation");
+});
+
+afterAll(() => {
+  // Close the raw handle BEFORE rmSync — an open better-sqlite3 connection
+  // keeps the file alive (and leaks the handle) on some platforms.
+  shared?.db.close();
   rmSync(TEMP_ROOT, { recursive: true, force: true });
 });
 
 describe("notification push epoch migration (0077)", () => {
   it("backfills every pre-existing delivery to 'legacy' and defaults new inserts to 'restored'", () => {
-    const { db } = buildUpgradedDb();
+    const { db } = shared!;
 
     expect(deliveryColumns(db)).toContain("push_epoch");
     const epochs = db
@@ -176,7 +217,7 @@ describe("notification push epoch migration (0077)", () => {
   });
 
   it("creates backlog_not_attempted units for non-terminal legacy deliveries only, with the fixed disposition", () => {
-    const { db, seeded } = buildUpgradedDb();
+    const { db, seeded } = shared!;
 
     const units = db
       .prepare("SELECT delivery_id, channel_key, state, disposition FROM notification_delivery_channel_states ORDER BY delivery_id")
@@ -194,7 +235,7 @@ describe("notification push epoch migration (0077)", () => {
   });
 
   it("preserves legacy statuses, timestamps, and attempt history byte-for-byte", () => {
-    const { db, before, seeded } = buildUpgradedDb();
+    const { db, before, seeded } = shared!;
 
     for (const [status, beforeRow] of Object.entries(before)) {
       if (status === "__attempt") continue;
