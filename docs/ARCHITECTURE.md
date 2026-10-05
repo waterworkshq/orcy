@@ -1921,7 +1921,7 @@ The route inventory is derived at `finalize` from the same registration stream t
 
 A stale journal offers interactive **resume / rollback / abort** (non-interactive recovery requires `--recover`):
 
-- **Resume = re-run, not skip-ahead.** The journal is discarded and the whole wizard runs again; G8 idempotency (remove-then-inject markdown patching, `record()` dedup on `{path, action}`, idempotent package/MCP/service install) makes already-done steps converge instead of duplicate. Consequence: any future non-idempotent step would silently corrupt on resume — it must be made idempotent or skip-ahead resume built first.
+- **Resume = re-run, not skip-ahead.** The journal is discarded and the whole wizard runs again; idempotency (remove-then-inject markdown patching, `record()` dedup on `{path, action}`, idempotent package/MCP/service install) makes already-done steps converge instead of duplicate. Consequence: any future non-idempotent step would silently corrupt on resume — it must be made idempotent or skip-ahead resume built first.
 - **Viability gate** (`isJournalViable`): every `done` step's artifact must still exist on disk in the expected form (appended files need both sentinels, start before end). A non-viable journal is not resumable — it must be rolled back.
 - An orphaned-remote-agent journal is *never* viable (below).
 

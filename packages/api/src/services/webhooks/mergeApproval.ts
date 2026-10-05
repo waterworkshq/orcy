@@ -1,6 +1,6 @@
 /**
  * Merge-as-approval — the full guarded operation, INSIDE the webhook trust
- * boundary (review-safety fixup-2, blocker 1).
+ * boundary.
  *
  * The exported operation accepts ONLY verified wire material:
  * `{ provider, rawBody, signature? (GitHub), token? (GitLab) }`. Every

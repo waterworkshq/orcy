@@ -132,7 +132,7 @@ orcy_pulse({
     blocksCurrentWork: false,
     suggestedBucket: "defer_to_patch",
     releaseImpact: ["v0.21"],
-    identifiedDuring: "v0.21 Phase 0"
+    identifiedDuring: "v0.21 characterization review"
   }
 })
 

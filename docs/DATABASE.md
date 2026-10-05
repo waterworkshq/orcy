@@ -3155,7 +3155,7 @@ Before committing schema changes:
 | Editing a released migration SQL file | Production DBs track applied hashes; editing changes the hash and can strand markers or cause re-application | Write a new migration instead |
 | Adding an index only in a migration file (not the Drizzle schema) | Future `drizzle-kit generate` runs emit a spurious diff | Declare `.index()` in the Drizzle schema table definition |
 | Deleting `drizzle/meta/` snapshots or `_journal.json` | `drizzle-kit generate` needs the latest snapshot to diff; production `migrate()` needs the full journal | Keep all snapshots and the journal intact |
-| Replacing `_journal.json` with a fresh single-entry journal | Recreates the F2 production journal gap — all post-consolidation migrations become invisible to `migrate()` | Never overwrite the production journal; add entries only via `drizzle-kit generate` |
+| Replacing `_journal.json` with a fresh single-entry journal | Recreates the production journal gap — all post-consolidation migrations become invisible to `migrate()` | Never overwrite the production journal; add entries only via `drizzle-kit generate` |
 | Adding `.references()` to mission_events | Deletes events on mission delete | Omit `.references()` to preserve events |
 
 ### Snapshot and Journal Integrity
@@ -3165,7 +3165,7 @@ The `drizzle/meta/` directory — snapshots (`*_snapshot.json`) and
 `_journal.json` with a freshly generated one.** Drizzle's `migrate()` reads
 only the journal to decide which migrations to apply; a single-entry journal
 would make every post-consolidation migration (0027–0053) invisible and
-silently break production upgrades. This is the exact defect that F2 repaired.
+silently break production upgrades. This is the exact defect the journal-integrity repair fixed.
 
 If a snapshot file goes missing or corrupt (e.g., after a botched merge):
 
@@ -3181,6 +3181,7 @@ If a snapshot file goes missing or corrupt (e.g., after a botched merge):
    production-driver gate).
 
 If the journal itself is damaged, recovery requires hand-repair guided by the
-code-level documentation in `packages/api/src/db/index.ts` (the F2/F2a/F3/F6
-comment blocks). There is no safe automated `drizzle-kit` command that can
+code-level documentation in `packages/api/src/db/index.ts` (the migration
+runner / journal-integrity repair comments). There is no safe
+automated `drizzle-kit` command that can
 reconstruct a multi-entry production journal from scratch.

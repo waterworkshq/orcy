@@ -82,7 +82,7 @@ const UNKNOWN_ACTION_VIEW = {
 } as const;
 
 /**
- * Runtime run-status whitelist (reviewer F1). The DB column is free text;
+ * Runtime run-status allowlist. The DB column is free text;
  * writers use the `AutomationRunStatus` union. `satisfies` pins this set to
  * that union so a union change fails typecheck here. A non-conforming
  * stored status is OMITTED from the agent view (the same discipline as

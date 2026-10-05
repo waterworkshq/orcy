@@ -61,8 +61,8 @@ function queryMissedPulses(habitatId: string, since: string): EventSourceRef[] {
  * Queries task events since `since` in a habitat (joined through tasks → missions
  * to scope by habitat_id).
  *
- * T2 (S-5): the projection now carries the event ROW id — the receipt
- * delegation check (B3) ships against the true row id, never the legacy
+ * The projection now carries the event ROW id — the receipt delegation
+ * check ships against the true row id, never the legacy
  * `taskId:action` tuple. The tuple remains the `sourceId` for UNOPTED events
  * (their legacy dispatch behavior is byte-for-byte unchanged).
  */
@@ -86,7 +86,7 @@ function queryMissedTaskEvents(
   const ownedRowIds = new Set<string>();
   const refs: EventSourceRef[] = [];
   for (const r of rows) {
-    // B3 delegation: a receipt-owned event (detector_dispatch receipt exists,
+    // Receipt-owned event delegation (detector_dispatch receipt exists,
     // enqueued in the act-tx — owned from birth) advances the watermark as
     // delegated: no dispatch, no target enumeration, no run row. The frozen
     // children are the only target set.

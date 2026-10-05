@@ -124,9 +124,9 @@ export interface AutomationSettings {
 
 /** Per-habitat kill-switch flags for Remote Participant Actions (v0.35.0). Stored as a JSON column on `habitats.remote_governance_settings`. Both flags default OFF; the effective value is resolved via `getRemoteGovernanceSettings` (env fallback + habitat override). */
 export interface RemoteGovernanceSettings {
-  /** D1: apply governance interceptors to remote-originated task mutations. */
+  /** Apply governance interceptors to remote-originated task mutations. */
   applyInterceptorsToRemote: boolean;
-  /** D2: enforce Host-Approved Capability checks for remote participants. */
+  /** Enforce Host-Approved Capability checks for remote participants. */
   enforceHostApprovedCapability: boolean;
 }
 

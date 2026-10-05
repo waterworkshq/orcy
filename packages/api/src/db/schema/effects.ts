@@ -3,8 +3,7 @@ import { habitats } from "./habitat.js";
 import { tasks } from "./task.js";
 
 /**
- * T2 — durable failure-effect receipt outbox (authority-and-effects contract
- * §B, ticket rev 6).
+ * Durable failure-effect receipt outbox.
  *
  * One row per (subject, consumer) required effect. `subject_type` is
  * `task_event` (subject_id = the task_events row id) or `pulse` (subject_id =

@@ -865,7 +865,7 @@ export function markPresetHistoricalWithClient(
 }
 
 /**
- * B3: current-generation projected-pending workload for one typed reviewer —
+ * Current-generation projected-pending workload for one typed reviewer —
  * the allocator's occupied-slot/workload accounting input. Counts, across
  * every task holding a row for this reviewer identity, the rows whose
  * EFFECTIVE current-generation projection is `pending` (a raw pending row on

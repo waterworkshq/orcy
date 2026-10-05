@@ -1,5 +1,5 @@
 /**
- * T2 — R-2 fixup: production deliverer wiring guard (compiled boot smoke).
+ * Production deliverer wiring guard (compiled boot smoke).
  *
  * Seeds a real file DB (better-sqlite3) through the REAL act-tx path with a
  * failed task whose retry_ladder receipt is pending-and-eligible (siblings
@@ -47,7 +47,7 @@ function getFreePort(): Promise<number> {
   });
 }
 
-describe("T2 fixup — R2 production deliverer boot smoke (compiled entry)", () => {
+describe("Effect deliverer production boot smoke (compiled entry)", () => {
   beforeAll(() => {
     expect(DIST_ENTRY).toBeTruthy();
   });

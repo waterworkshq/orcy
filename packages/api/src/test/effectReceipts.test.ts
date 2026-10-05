@@ -1206,7 +1206,7 @@ describe("T2 acceptance 12 — unopted parity + requeue lifecycle", () => {
 
 // ─── Fixup round (R1/R3/R4/R7/R8/B7 discriminators) ─────────────────────────
 
-describe("T2 fixup — R1/R3/R4/R7/R8/B7", () => {
+describe("Effect receipt authorization, retry, write-fencing and error-redaction regression proofs", () => {
   it("R7: in-tx wrong-actor refusal via the act-tx seam directly", () => {
     const agent = seedAgent();
     const intruder = seedAgent("intruder-2");

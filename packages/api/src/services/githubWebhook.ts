@@ -211,7 +211,7 @@ export function handlePullRequestEvent(
       prRepo.updatePullRequest(existing.id, { state: prState, prTitle });
 
       if (prState === "merged") {
-        // Review safety (fixup-2): the operation accepts ONLY the verified
+        // Review safety: the operation accepts ONLY the verified
         // wire material — every authoritative field is parsed from the
         // signed body inside its own reservation.
         approveTaskForMergedPR({

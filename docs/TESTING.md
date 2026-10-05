@@ -500,7 +500,7 @@ Used by: [`pulse-experience.test.ts`](../packages/mcp/src/__tests__/tools/pulse-
 
 **How:** Time `claimTask` with and without workflow gates on a large gate set (100 gates). Measure `FailureBundle` construction time. The benchmarks use `performance.now()` deltas.
 
-**Results (from I2 verification):**
+**Results (from workflow performance verification):**
 - Claim path overhead: zero measurable on SQLite (the EXISTS subquery is indexed)
 - FailureBundle construction: ~1.2ms average (20 events + 50 signals + 10 retries)
 - Subscriber early-filter: near-zero (single indexed lookup: "is this task in an active workflow?")

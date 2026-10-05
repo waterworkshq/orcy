@@ -12,9 +12,10 @@ import {
 import { atomicWriteJson } from "./atomic-write.js";
 
 /**
- * In-flight installation transaction journal (design §7 G1, G3; decision D4).
+ * In-flight installation transaction journal. See the Transactional Installer
+ * architecture section for the two-file model and the journal-viability rules.
  *
- * TWO-FILE MODEL (G1):
+ * TWO-FILE MODEL:
  *   - Journal  (~/.orcy/install-journal.json): transient, in-flight, per-step.
  *     Its PRESENCE on disk is the "install in progress / interrupted" signal.
  *   - Manifest (~/.orcy/install-manifest.json): committed ledger, written once

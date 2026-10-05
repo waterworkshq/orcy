@@ -8,7 +8,7 @@
  *   - derived parent aggregate writes (S-2: fenced on parent.state='pending';
  *     no direct dead_letter→delivered edge exists anywhere)
  *   - admin dead_letter-only requeue (audited, append-only)
- *   - scanner delegation EXISTS check (B3/S-5 — keyed on the event ROW id)
+ *   - scanner delegation EXISTS check (keyed on the event ROW id)
  *
  * Canonical key encodings (B2/S-4) live here: JSON.stringify of a typed array
  * — deterministic, delimiter-free, collision-safe for arbitrary ids. One
@@ -214,7 +214,7 @@ export function siblingReceiptState(
 }
 
 /**
- * B3/S-5 scanner delegation check: does a `detector_dispatch` receipt own this
+ * Scanner delegation check: does a `detector_dispatch` receipt own this
  * task-event ROW id? Keyed on the true row id — never the legacy tuple.
  */
 export function isTaskEventReceiptOwned(eventRowId: string): boolean {
