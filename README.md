@@ -216,7 +216,8 @@ Orcy pulls external tracker issues into habitat intake, where humans/orcys revie
 
 | Release | Theme |
 |---------|-------|
-| Soon | Unscheduled seeds (integration OAuth/webhook extraction and similar) wait on demand. Remote-stream & effective-grant hardening, shared-read scopes, Mission-comment containment, restricted Workflow readers with Failure Context Habitat integrity, and Mission-scoped Workflow write integrity are implementation-complete and independently verified, pending release. See [docs/ROADMAP.md](docs/ROADMAP.md). |
+| Shipped: v0.43.0 | Reliable Task authority and scoped context: delivery recovery, claim-token fencing, durable review safety, object-access containment, minimal remote streams and Mission-scoped Workflow integrity. See [release notes](docs/releases/v0.43.0.md). |
+| Next | Unscheduled seeds (integration OAuth/webhook extraction and similar) wait on demand. See [docs/ROADMAP.md](docs/ROADMAP.md#upcoming). |
 | Architecture Optimization | Ongoing Architecture Work pertaining to investigated codebase opportunities |
 | npm publishing | GO LIVE on npm for the CLI, MCP server, and daemon for one command installer |
 

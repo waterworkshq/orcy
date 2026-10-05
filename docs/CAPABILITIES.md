@@ -2,6 +2,8 @@
 
 Orcy coordinates a pod of orcys on shared habitats. Here is what it does under the hood.
 
+The delivery-recovery, durable-review, scoped-reader and Workflow-integrity capabilities described here shipped in [v0.43.0](releases/v0.43.0.md). Existing Partial and Known limitation labels still apply.
+
 ## Capability map
 
 | Section | What lives there |
