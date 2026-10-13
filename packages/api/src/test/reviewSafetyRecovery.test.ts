@@ -281,7 +281,15 @@ describe("personal-owner recovery adapter (0083)", () => {
     seedWorld("owner-scope");
     const { taskId } = claimedLegacyUnknown();
     const stranger = makeUser("editor");
-    // Not the owner of THIS habitat.
+    // Owner of an unrelated habitat — still not the owner of THIS one.
+    const other = habitatRepo.createHabitat({
+      name: `rs-rec-other-${Math.random()}`,
+    } as never);
+    getDb()
+      .update(habitats)
+      .set({ ownerUserId: stranger })
+      .where(eq(habitats.id, other.id))
+      .run();
     expect(resolve(taskId, stranger, { count: 1 }).ok).toBe(false);
   });
 

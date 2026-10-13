@@ -256,8 +256,12 @@ describe("local authorization matrix (real production driver)", () => {
   it("grants downward from a Team-defined scope but never into a sibling Team", () => {
     const admin = makeUser("admin");
     const subject = makeUser("editor");
-    const own = teamRepo.createTeam({ organizationId: makeOrganization(db), name: "own", slug: `own-${Math.random()}` });
-    const sibling = teamRepo.createTeam({ organizationId: makeOrganization(db), name: "sib", slug: `sib-${Math.random()}` });
+    // ONE organization for both Teams: the isolation claim under test is
+    // sibling-within-one-org (a cross-org boundary would be trivially held by
+    // unrelated ancestry and match the case name).
+    const organizationId = makeOrganization(db);
+    const own = teamRepo.createTeam({ organizationId, name: "own", slug: `own-${Math.random()}` });
+    const sibling = teamRepo.createTeam({ organizationId, name: "sib", slug: `sib-${Math.random()}` });
 
     const ownChain = makeChain(own.id);
     const siblingChain = makeChain(sibling.id);

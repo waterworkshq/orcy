@@ -67,7 +67,7 @@ describe("UI per-domain API organization", () => {
   });
 
   it.each([
-    ["reviewersApi", ["list"]],
+    ["reviewersApi", ["list", "add", "remove"]],
     ["dashboardApi", ["get"]],
     ["metricsApi", ["experience", "workflow"]],
     ["workflowsApi", ["getForMission", "detach", "unblockGate"]],

@@ -57,6 +57,11 @@ beforeAll(() => {
          VALUES (?, ?, ?, ?, 1, '{"clean":true}', datetime('now'))`,
       ).run(ENFORCEMENT_TAG, PINNED_SCHEMA, PINNED_PREFLIGHT, PINNED_DIGEST);
     }
+    // A legacy personal habitat that exists BEFORE 0083 applies: 0083 adds
+    // the nullable owner_user_id with no backfill, so it must remain NULL.
+    if (entry.tag === "0083_role_foundation_governance") {
+      db.exec("INSERT INTO habitats (id, name, team_id) VALUES ('rf-h-legacy','L',NULL)");
+    }
     applyTag(entry.tag);
   }
 });
@@ -140,6 +145,12 @@ describe("0083 role foundation migration (production driver)", () => {
       | undefined;
     expect(owner?.type).toBe("TEXT");
     expect(owner?.notnull).toBe(0);
+    // YU: seeded pre-0083 (see beforeAll) — the assertion is no longer
+    // vacuous on an empty table: a real legacy row must survive un-backfilled.
+    const legacyOwner = db
+      .prepare("SELECT owner_user_id o FROM habitats WHERE id = 'rf-h-legacy'")
+      .get() as { o: string | null };
+    expect(legacyOwner.o).toBeNull();
     const nullOwners = db
       .prepare("SELECT COUNT(*) c FROM habitats WHERE owner_user_id IS NOT NULL")
       .get() as { c: number };
@@ -206,6 +217,9 @@ describe("0083 role foundation migration (production driver)", () => {
   });
 
   it("enforces the composite (definition_id, revision_id) FK and the active-grant-tuple unique", () => {
+    // Standalone-safe: seed the issuer here instead of relying on the
+    // preceding habitat test's rf-u1 (suite order is not a dependency).
+    db.exec("INSERT OR IGNORE INTO users (id, username, password_hash, role) VALUES ('rf-u1','rf-u1','x','admin')");
     expect(() =>
       db.exec(
         `INSERT INTO role_assignments

@@ -1,5 +1,5 @@
 /**
- * Local role administration — REAL cross-connection serialization proof (R1).
+ * Local role administration — REAL cross-connection serialization proofs (R1).
  *
  * The obligation: on a real forked SQLite database, two concurrent actors
  * running the REAL governance commands must serialize, not interleave. Every
@@ -8,12 +8,20 @@
  * command when that command's own read happens — not silently overwritten,
  * not double-applied.
  *
- * Scheduling is FORCED, not labelled: the first writer's real `createAssignment`
- * command blocks at its own ledger-version write seam (test-owned interception
- * of that worker's connection `.update()`, on a synchronous filesystem gate)
- * while the competing writer commits a real command on its own connection.
- * The gate is released only after the competing command has returned, and the
- * SAME blocked command then resumes inside its own still-open reservation.
+ * Test 1 is a stale-expectation check (X4): its gate sits BEFORE the command
+ * opens its reservation, so the blocked command runs entirely after the
+ * peer's commit — it proves cross-process WAL-visibility of that commit plus
+ * the stale-CAS refusal, not in-reservation read-under-contention. Tests 2-4
+ * are true concurrent races: both commands run simultaneously on separate
+ * connections and only the writer reservation's CAS can order them.
+ *
+ * Scheduling of the first test is FORCED, not labelled: the first writer's
+ * real `createAssignment` command blocks at its own ledger-version write seam
+ * (test-owned interception of that worker's connection `.transaction()`, on a
+ * synchronous filesystem gate) while the competing writer commits a real
+ * command on its own connection. The gate is released only after the
+ * competing command has returned, and the SAME blocked command then runs
+ * start-to-finish against the peer's committed state.
  *
  * Each test names the implementation that would break its assertion.
  *
@@ -188,7 +196,7 @@ describe("R1 — cross-connection serialization of REAL governance commands", ()
     rmSync(dir, { recursive: true, force: true });
   });
 
-  it("two actors issuing the same command on separate connections: the second actor's committed bump is OBSERVED by the blocked first command (409 GOVERNANCE_VERSION_CONFLICT), not overwritten", async () => {
+  it("stale-expectation under cross-process visibility: a command whose expected scope version predates a peer's committed bump refuses with 409 GOVERNANCE_VERSION_CONFLICT and never double-applies", async () => {
     // Actor A runs the REAL createAssignment command and blocks at its own
     // ledger-version write seam, holding its reservation.
     const gateDir = join(dir, "gate-issue");
@@ -246,15 +254,16 @@ describe("R1 — cross-connection serialization of REAL governance commands", ()
       writeFileSync(join(gateDir, releaseName), "1");
       const blockedMsg = await blocked.next();
 
-      // CORRECTED (H1): the barrier sits BEFORE this command opens its
+      // Scope note (X4): the barrier sits BEFORE this command opens its
       // reservation (BEGIN IMMEDIATE takes the write lock at BEGIN, so an
       // in-callback barrier would deadlock the peer — see the worker
       // docstring). The whole command, its pre-check included, therefore ran
-      // AFTER the peer committed. The commit it observes is cross-process
-      // WAL-visibility, and its stale-CAS refusal + exactly-one-grant are a
-      // correct regression net. This schedule does NOT discriminate
-      // in-reservation-read-under-contention: the peer's commit predated this
-      // command entirely.
+      // AFTER the peer committed. What this proves is cross-process
+      // WAL-visibility of the peer's commit plus the stale-CAS refusal and
+      // exactly-one-grant regression net — a stale-expectation check, NOT an
+      // in-reservation-read-under-contention serialization proof (that
+      // schedule is impossible to force without holding SQLite's write lock,
+      // which is exactly the deadlock the placement note records).
       expect(blockedMsg.kind).toBe("error");
       expect(String(blockedMsg.message)).toMatch(/Scope version expectation failed/);
 

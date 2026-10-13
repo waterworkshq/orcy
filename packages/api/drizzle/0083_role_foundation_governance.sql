@@ -7,7 +7,9 @@
 
       - governance_scopes: four-kind (team/habitat/mission/task) scope ledger
         with incarnations. PK (scope_kind, scope_id, incarnation); partial
-        unique keeps exactly ONE active incarnation per (kind, id). A retired
+        unique keeps at most ONE materialized active incarnation per
+        (kind, id) — a live, never-materialized scope has no stored active
+        row and reads as virtual until first mutation. A retired
         incarnation is never reactivated; history is retained. Authorized
         reads of a live, never-materialized scope report virtual
         (incarnation 1, version 1) WITHOUT writing; the first mutation

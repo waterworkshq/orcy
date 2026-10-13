@@ -17,7 +17,14 @@
 import { and, eq } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 import { getDb } from "../db/index.js";
-import { agents, habitats, roleAssignments, teamMembers, teams, users } from "../db/schema/index.js";
+import {
+  agents,
+  habitats,
+  roleAssignments,
+  teamMembers,
+  teams,
+  users,
+} from "../db/schema/index.js";
 import { AppError } from "../errors.js";
 import {
   ASSIGNABLE_SCOPES,
@@ -174,7 +181,14 @@ export function normalizeExpiry(raw: string | null | undefined): string | null {
   // exactly those, without depending on parse leniency either way.
   const written = raw.slice(0, 19).split(/[-T:]/).map(Number);
   const [y, mo, d, h, mi, sec] = written;
-  if (y === undefined || mo === undefined || d === undefined || h === undefined || mi === undefined || sec === undefined) {
+  if (
+    y === undefined ||
+    mo === undefined ||
+    d === undefined ||
+    h === undefined ||
+    mi === undefined ||
+    sec === undefined
+  ) {
     throw new AppError(400, "VALIDATION_ERROR", "Invalid expiresAt");
   }
   if (mo < 1 || mo > 12 || d < 1 || d > 31 || h > 23 || mi > 59 || sec > 59) {
@@ -263,10 +277,40 @@ function governorScopeForScope(
  * gate (so revision-validation detail never leaks to a forbidden actor) and
  * BEFORE the scope CAS / mutation / audit (so a refused command writes
  * nothing). `permissions` is the committed text column; the CHECK constraint
- * guarantees a nonempty JSON array, so this parse cannot fail.
+ * only guarantees nonempty TEXT (length > 2), NOT valid JSON — the parse
+ * below is bounded and refuses malformed storage as a 400.
  */
-function assertRevisionAssignableAtScope(permissionsJson: string, scopeKind: GovernanceScopeKind): void {
-  const perms = JSON.parse(permissionsJson) as string[];
+function assertRevisionAssignableAtScope(
+  permissionsJson: string,
+  scopeKind: GovernanceScopeKind,
+  catalogueVersion: number,
+): void {
+  if (catalogueVersion !== LOCAL_PERMISSION_CATALOGUE_VERSION) {
+    throw new AppError(400, "VALIDATION_ERROR", "Stored revision catalogue version is unsupported");
+  }
+  // Bounded parse: the length>2 CHECK only guarantees nonempty TEXT, not
+  // valid JSON — malformed storage must refuse as 400, never throw through
+  // the reservation as an unclassified error.
+  let perms: unknown;
+  try {
+    perms = JSON.parse(permissionsJson);
+  } catch {
+    throw new AppError(
+      400,
+      "VALIDATION_ERROR",
+      "Stored revision permissions are malformed (invalid JSON)",
+    );
+  }
+  if (!Array.isArray(perms) || perms.length === 0 || perms.some((p) => typeof p !== "string")) {
+    // Whole-revision contract: nonempty string array (a revision with zero
+    // permissions is outside the issuance contract — the CHECK only excludes
+    // '[]', and malformed history must fail closed here).
+    throw new AppError(
+      400,
+      "VALIDATION_ERROR",
+      "Stored revision permissions are malformed (not a nonempty string array)",
+    );
+  }
   for (const perm of perms) {
     if (!ASSIGNABLE_SCOPES[perm as LocalPermission]?.includes(scopeKind)) {
       throw new AppError(
@@ -380,7 +424,12 @@ function revisionView(r: RoleRevisionRow): RevisionView {
 export type DefinitionDetailView = {
   definition: DefinitionSummary;
   revisions: RevisionView[];
-  namespace: { scopeKind: "team" | "habitat"; scopeId: string; incarnation: number; version: number } | null;
+  namespace: {
+    scopeKind: "team" | "habitat";
+    scopeId: string;
+    incarnation: number;
+    version: number;
+  } | null;
 };
 
 /** GET /role-definitions/:id — definition + revisions + namespace ledger state. */
@@ -503,6 +552,12 @@ export function createCustomDefinition(input: CreateDefinitionInput): {
   scope: { incarnation: number; version: number };
 } {
   validatePermissions(input.permissions);
+  // Trust-boundary name normalization (route schemas also trim): a
+  // whitespace-only name is refused, not persisted as a blank definition.
+  const name = input.name.trim();
+  if (name.length === 0 || name.length > 200) {
+    throw new AppError(400, "VALIDATION_ERROR", "name must be 1-200 non-whitespace characters");
+  }
   return getDb().transaction(
     (tx) => {
       const scope = readNamespaceScope(tx, input.scopeKind, input.scopeId);
@@ -518,7 +573,7 @@ export function createCustomDefinition(input: CreateDefinitionInput): {
         throw governanceConflict("Scope version expectation failed");
       }
       const { definition, revision } = createDefinitionWithClient(tx, {
-        name: input.name,
+        name,
         namespaceKind: input.scopeKind,
         namespaceScopeId: input.scopeId,
         namespaceIncarnation: scope.incarnation,
@@ -536,7 +591,7 @@ export function createCustomDefinition(input: CreateDefinitionInput): {
         objectId: definition.id,
         versionBefore: input.expectedScopeVersion,
         versionAfter: input.expectedScopeVersion + 1,
-        details: { name: input.name, permissions: input.permissions },
+        details: { name, permissions: input.permissions },
       });
       return {
         definition: definitionSummary(definition),
@@ -660,7 +715,17 @@ export function retireDefinition(input: RetireDefinitionInput): {
       }
       const retired = retireDefinitionWithClient(tx, input.definitionId);
       if (!retired) throw revisionConflict("Definition was concurrently retired");
+      // Capture the affected scopes BEFORE revocation flips state to
+      // 'revoked' — the collector below filters on state 'active'.
+      const scopes = collectActiveAssignmentScopes(tx, input.definitionId);
       const revoked = revokeAssignmentsForDefinition(tx, input.definitionId, input.reason);
+      // Roster changed → every affected assignment scope's ledger advances in
+      // this same reservation (stale scope versions die with the revocation);
+      // the namespace scope's own ledger was already CAS-bumped above.
+      bumpAssignmentScopesForDefinitionRetirement(tx, scopes, {
+        scopeKind: nsKind,
+        scopeId: def.namespaceScopeId,
+      });
       audit(tx, {
         actorType: "human",
         actorId: input.actorUserId,
@@ -695,6 +760,83 @@ function revokeAssignmentsForDefinition(
   return rows.length;
 }
 
+/**
+ * Distinct (scopeKind, scopeId, scopeIncarnation) of the definition's
+ * ACTIVE assignments — the scopes whose rosters change when those
+ * assignments are revoked, each with the incarnation the assignment
+ * CAPTURED. Must run BEFORE the revocation (it filters on state 'active').
+ */
+function collectActiveAssignmentScopes(
+  tx: LocalAuthorizationDbClient,
+  definitionId: string,
+): { scopeKind: ScopeKindLiteral; scopeId: string; scopeIncarnation: number }[] {
+  const rows = tx
+    .select({
+      scopeKind: roleAssignments.scopeKind,
+      scopeId: roleAssignments.scopeId,
+      scopeIncarnation: roleAssignments.scopeIncarnation,
+    })
+    .from(roleAssignments)
+    .where(and(eq(roleAssignments.definitionId, definitionId), eq(roleAssignments.state, "active")))
+    .all();
+  // Dedup on the FULL captured identity (kind, id, incarnation): an orphan
+  // assignment that captured a PREVIOUS incarnation must not shadow a
+  // current-capture sibling of the same scope (row order is arbitrary).
+  const seen = new Set<string>();
+  return rows.filter((s) => {
+    const key = `${s.scopeKind}:${s.scopeId}:${s.scopeIncarnation}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+/**
+ * Descendant-scope ledger bump for definition retirement: revoking the
+ * definition's assignments changes the roster state of every scope those
+ * assignments lived in, so each affected scope's version must advance in the
+ * SAME reservation — otherwise a stale scope version captured before the
+ * revocation remains reusable after the roster changed. Each distinct scope
+ * is bumped exactly once (the namespace scope itself was already CAS-bumped
+ * at the top of retireDefinition; it still appears here when assignments
+ * live at the namespace scope, so the loop below skips it via the CAS-read
+ * identity). Scopes that are missing/retired (resource already deleted,
+ * assignment retained as history) have no live ledger to bump and are
+ * skipped. Virtual (never-materialized) scopes that DID carry an assignment
+ * are materialized first; the single-writer reservation makes the read
+ * current, so this bump cannot race another writer.
+ */
+function bumpAssignmentScopesForDefinitionRetirement(
+  tx: LocalAuthorizationDbClient,
+  scopes: { scopeKind: ScopeKindLiteral; scopeId: string; scopeIncarnation: number }[],
+  skip: { scopeKind: "team" | "habitat"; scopeId: string },
+): void {
+  const skipKey = `${skip.scopeKind}:${skip.scopeId}`;
+  for (const s of scopes) {
+    const key = `${s.scopeKind}:${s.scopeId}`;
+    if (key === skipKey) continue; // already CAS-bumped at the namespace
+    const read = readScopeForWriterWithClient(tx, s.scopeKind, s.scopeId);
+    if (read.kind !== "active") continue;
+    // Exact captured-incarnation qualifier: an orphan ACTIVE assignment that
+    // captured a PREVIOUS incarnation must not bump the CURRENT one — its
+    // roster no longer includes that scope's live state (reenrollment
+    // semantics), so there is no live ledger change to publish.
+    if (read.incarnation !== s.scopeIncarnation) continue;
+    // read.kind === "active" && matching incarnation but materialization
+    // refused: an expected-live ledger cannot be written — roll the whole
+    // retirement back rather than skip the ledger bump silently.
+    if (!read.materialized && !materializeScopeWithClient(tx, s.scopeKind, s.scopeId)) {
+      throw governanceConflict("Assignment-scope ledger materialization failed");
+    }
+    // Under this exclusive reservation a failed bump is an internal fault —
+    // throw so the whole retirement rolls back rather than silently
+    // publishing a roster change with a stale ledger version.
+    if (!bumpScopeVersionWithClient(tx, s.scopeKind, s.scopeId, read.incarnation, read.version)) {
+      throw governanceConflict("Assignment-scope ledger bump failed");
+    }
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Assignment commands
 // ---------------------------------------------------------------------------
@@ -717,10 +859,18 @@ export function createAssignment(input: CreateAssignmentInput): AssignmentView {
     (tx) => {
       // Typed principal existence (registry rows, 404 before 403).
       if (input.principalType === "human") {
-        const u = tx.select({ id: users.id }).from(users).where(eq(users.id, input.principalId)).get();
+        const u = tx
+          .select({ id: users.id })
+          .from(users)
+          .where(eq(users.id, input.principalId))
+          .get();
         if (!u) throw notFoundError("Principal user");
       } else {
-        const a = tx.select({ id: agents.id }).from(agents).where(eq(agents.id, input.principalId)).get();
+        const a = tx
+          .select({ id: agents.id })
+          .from(agents)
+          .where(eq(agents.id, input.principalId))
+          .get();
         if (!a) throw notFoundError("Principal agent");
       }
 
@@ -760,7 +910,7 @@ export function createAssignment(input: CreateAssignmentInput): AssignmentView {
       // forbidden actor never sees revision-validation detail, and BEFORE any
       // scope CAS / insert / audit — the evaluator later filtering the row out
       // is not an alternative interpretation of the issuance contract.
-      assertRevisionAssignableAtScope(rev.permissions, input.scopeKind);
+      assertRevisionAssignableAtScope(rev.permissions, input.scopeKind, rev.catalogueVersion);
 
       if (
         !casAndBumpScope(tx, input.scopeKind, input.scopeId, {
@@ -874,7 +1024,7 @@ export function repinAssignment(input: RepinInput): AssignmentView {
       // An assign-only Task/Mission assignment adopting a revision that also
       // carries review.configure is refused here — adoption is issuance-
       // equivalent and cannot widen a grant past the fixed catalogue.
-      assertRevisionAssignableAtScope(rev.permissions, assignment.scopeKind);
+      assertRevisionAssignableAtScope(rev.permissions, assignment.scopeKind, rev.catalogueVersion);
 
       if (
         !casAndBumpScope(tx, assignment.scopeKind, assignment.scopeId, {
@@ -1062,7 +1212,10 @@ export type ClearOwnerInput = {
   expectedScopeVersion: number;
 };
 
-export function clearHabitatOwner(input: ClearOwnerInput): { habitatId: string; ownerUserId: null } {
+export function clearHabitatOwner(input: ClearOwnerInput): {
+  habitatId: string;
+  ownerUserId: null;
+} {
   if (!input.reason.trim()) {
     throw new AppError(400, "VALIDATION_ERROR", "reason must be nonempty");
   }

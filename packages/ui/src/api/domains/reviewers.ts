@@ -1,5 +1,5 @@
 import { request } from "../transport.js";
-import type { TaskReviewer } from "../../types/index.js";
+import type { TaskReviewer, ReviewerType } from "../../types/index.js";
 
 export const reviewersApi = {
   list: (taskId: string) =>
@@ -8,14 +8,15 @@ export const reviewersApi = {
     ),
   // Optional roster token: echo the `reviewersToken` from a prior list to
   // guard against concurrent roster drift; omitted = legacy compatibility.
-  add: (taskId: string, body: { reviewerId: string; reviewerType?: string; expectedReviewersToken?: string }) =>
+  add: (taskId: string, body: { reviewerId: string; reviewerType?: ReviewerType; expectedReviewersToken?: string }) =>
     request<{ reviewer: TaskReviewer }>(`/tasks/${taskId}/reviewers`, {
       method: "POST",
       body: JSON.stringify(body),
     }),
+  // undefined = legacy LWW (param omitted); "" = explicit invalid → server 400.
   remove: (taskId: string, reviewerId: string, expectedReviewersToken?: string) =>
     request<void>(
-      `/tasks/${taskId}/reviewers/${reviewerId}${expectedReviewersToken ? `?expectedReviewersToken=${expectedReviewersToken}` : ""}`,
+      `/tasks/${taskId}/reviewers/${reviewerId}${expectedReviewersToken !== undefined ? `?expectedReviewersToken=${encodeURIComponent(expectedReviewersToken)}` : ""}`,
       { method: "DELETE" },
     ),
 };

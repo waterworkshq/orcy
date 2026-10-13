@@ -127,8 +127,10 @@ import {
 } from "../../repositories/taskPublication.js";
 import { reserveAttemptWithClient } from "../../repositories/taskCreationAttempts.js";
 import {
+  reenrollRestoredScopeWithClient,
   retireMissionCustodyWithClient,
   retireTaskCustodyWithClient,
+  type CustodyActor,
 } from "../governanceCustody.js";
 import { resetRequirementsForImportWithClient } from "../../repositories/reviewSafety.js";
 import { createEventWithClient } from "../../repositories/events/event-crud.js";
@@ -1154,10 +1156,34 @@ function resetTaskExecutionState(
  * the common case; standalone subtask reset on preserved tasks is rare and
  * tracked for M3 refinement).
  */
+/**
+ * Same-lineage restore context: the exact server-id sets the prepared
+ * manifest will re-insert for missions/tasks under `replace` dispositions.
+ * The scoped-delete custody seam re-enrolls (instead of retiring) precisely
+ * these ids — never a broad rescan. A domain under `reset` re-inserts
+ * nothing, so its set stays empty.
+ */
+function buildRestoreContext(prepared: PreparedImport): {
+  missionIds: Set<string>;
+  taskIds: Set<string>;
+} {
+  const missionIds =
+    prepared.manifest.domains.missions?.disposition === "replace"
+      ? new Set((prepared.preparedDomains.missions?.missions ?? []).map((m) => m.missionServerId))
+      : new Set<string>();
+  const taskIds =
+    prepared.manifest.domains.tasks?.disposition === "replace"
+      ? new Set((prepared.preparedDomains.tasks?.tasks ?? []).map((t) => t.taskServerId))
+      : new Set<string>();
+  return { missionIds, taskIds };
+}
+
 function scopedDeleteDomain(
   tx: TaskPublicationDbClient,
   domainName: Exclude<ManifestDomainName, "habitatSettings">,
   targetHabitatId: string,
+  restore?: { missionIds: Set<string>; taskIds: Set<string> },
+  custodyActor?: CustodyActor,
 ): void {
   switch (domainName) {
     case "columns":
@@ -1180,8 +1206,39 @@ function scopedDeleteDomain(
         }
         // Governance custody (administration ticket): retire Mission + child
         // Task ledgers/grants before the replacement deletes the rows.
+        // Under `identityPolicy:"restore"` the replacement re-inserts
+        // the SAME server ids. A retired-only scope can never reactivate, so
+        // retiring a to-be-restored key would leave it permanently
+        // retired-only (every evaluator read answers RETIRED_SCOPE). Those
+        // keys RE-ENROLL a fresh active incarnation instead — an authorized,
+        // atomic custody transition, not a delete. Remap (fresh ids) and
+        // reset-only domains keep the plain retire.
+        //
+        // Child tasks are handled HERE (before the missions delete cascades
+        // them away) even for a restored mission: every CURRENT child task
+        // id is collected while the rows still exist; ids the prepared tasks
+        // domain will restore re-enroll, the rest retire.
+        const restoredMissions = restore?.missionIds ?? new Set<string>();
+        const restoredTasks = restore?.taskIds ?? new Set<string>();
+        const childTaskIds = tx
+          .select({ id: tasksTable.id })
+          .from(tasksTable)
+          .where(inArray(tasksTable.missionId, missionIds))
+          .all()
+          .map((r) => r.id);
+        for (const taskId of childTaskIds) {
+          if (restoredTasks.has(taskId)) {
+            reenrollRestoredScopeWithClient(tx, "task", taskId, "import replacement", custodyActor);
+          } else {
+            retireTaskCustodyWithClient(tx, taskId, "import replacement", custodyActor);
+          }
+        }
         for (const missionId of missionIds) {
-          retireMissionCustodyWithClient(tx, missionId, "import replacement");
+          if (restoredMissions.has(missionId)) {
+            reenrollRestoredScopeWithClient(tx, "mission", missionId, "import replacement", custodyActor);
+          } else {
+            retireMissionCustodyWithClient(tx, missionId, "import replacement", custodyActor);
+          }
         }
         tx.delete(missions).where(eq(missions.habitatId, targetHabitatId)).run();
       }
@@ -1199,13 +1256,21 @@ function scopedDeleteDomain(
           .map((r) => r.id);
         if (missionIds.length > 0) {
           // Governance custody: retire each Task's ledger/grants first.
+          // (Same rationale as the missions branch): a same-id restore
+          // re-enrolls the exact prepared re-insert ids; reset-only keeps
+          // the plain retire.
+          const restoredTasks = restore?.taskIds ?? new Set<string>();
           for (const taskId of tx
             .select({ id: tasksTable.id })
             .from(tasksTable)
             .where(inArray(tasksTable.missionId, missionIds))
             .all()
             .map((r) => r.id)) {
-            retireTaskCustodyWithClient(tx, taskId, "import replacement");
+            if (restoredTasks.has(taskId)) {
+              reenrollRestoredScopeWithClient(tx, "task", taskId, "import replacement", custodyActor);
+            } else {
+              retireTaskCustodyWithClient(tx, taskId, "import replacement", custodyActor);
+            }
           }
           tx.delete(tasksTable).where(inArray(tasksTable.missionId, missionIds)).run();
         }
@@ -1499,6 +1564,21 @@ export function publishImportAggregateWithClient(
   const causalContext: CausalContext = {
     root: { type: IMPORT_CAUSAL_ROOT_TYPE, id: prepared.manifest.manifestId },
   };
+  // A same-lineage restore re-inserts the SAME server
+  // ids, so its scoped-delete custody seam re-enrolls instead of retiring
+  // (only under `replace` dispositions — a reset re-inserts nothing).
+  const restoreContext = buildRestoreContext(prepared);
+  const isRestore = prepared.manifest.identityPolicy === "restore";
+  // The real import caller (human|agent only — the governance
+  // audit enum has no `system`; never fabricate one).
+  const custodyActor: CustodyActor | undefined =
+    (prepared.authority.caller.type === "human" || prepared.authority.caller.type === "agent") &&
+    prepared.authority.caller.id !== null
+      ? {
+          actorType: prepared.authority.caller.type,
+          actorId: prepared.authority.caller.id,
+        }
+      : undefined;
 
   // ----- 0. Reserve per-Task attempts (BEFORE the tx) -------------------
   // Mirror T9A-Phase-3's reservation loop. A replay short-circuits the whole
@@ -1795,8 +1875,13 @@ export function publishImportAggregateWithClient(
           const isTasksReset = domainName === "tasks" && envelope.disposition === "reset";
           if (isTasksReset) continue;
           if (envelope.disposition === "replace" || envelope.disposition === "reset") {
-            scopedDeleteDomain(tx, domainName, targetHabitatId);
-          }
+            scopedDeleteDomain(
+              tx,
+              domainName,
+              targetHabitatId,
+              isRestore ? restoreContext : undefined,
+              custodyActor,
+            );          }
         }
       }
 

@@ -717,12 +717,12 @@ Review Safety' and DATABASE.md migration `0082`.
 
 Scoped local authorization is stored, not inferred: a four-kind governance
 scope ledger (team/habitat/mission/task) with immutable incarnations —
-exactly one active incarnation per scope, retired history retained and
+at most one materialized active incarnation per scope, retired history retained and
 never reactivated; server-owned built-in role definitions and custom
 Team/Habitat-namespaced definitions whose permission sets are insert-only
 immutable revisions; typed human/agent assignments pinning an exact
 revision at an exact scope/incarnation with decision-time expiry and
-retained revocation history; and an append-only governance audit with plain
+retained revocation history; and a managed append-only governance audit with plain
 citations that survive every retirement. Habitats gain an explicit
 personal owner column (global-admin assigned, never backfilled); review
 rules gain an integer version. The transaction-client evaluator
@@ -745,7 +745,8 @@ team-bound habitat creation) are implemented in
 `services/governanceCustody.ts`; review-governance consumers run in
 `services/reviewGovernance.ts`. Managed seams cover the served command
 and deletion surfaces; raw database writes and trigger removal remain
-outside the guarantee. See
+outside the guarantee. The governance audit has no SQL UPDATE/DELETE guard;
+append-only describes the managed writer API, not physical database immutability. See
 DATABASE.md migration `0083` and the role-foundation contract.
 
 ## State Machines

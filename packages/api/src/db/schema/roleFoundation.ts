@@ -114,7 +114,10 @@ export const roleRevisions = sqliteTable(
     uniqueIndex("uq_role_revisions_definition_ordinal").on(table.definitionId, table.ordinal),
     uniqueIndex("uq_role_revisions_definition_id").on(table.definitionId, table.id),
     check("rr_ordinal_positive", sql`ordinal >= 1`),
-    // length > 2 excludes '[]' — permissions must be a nonempty JSON array.
+    // length > 2 excludes the empty array '[]' only — it does NOT guarantee
+    // valid JSON. Nonempty is the storage contract; malformed text is
+    // refused at read time by the bounded managed-side parser (managed
+    // validator in localRoleAdministration), not by this CHECK.
     check("rr_permissions_nonempty", sql`length(permissions) > 2`),
     check("rr_catalogue_version_positive", sql`catalogue_version >= 1`),
   ],

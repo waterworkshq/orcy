@@ -638,13 +638,16 @@ describe("assignments", () => {
       scopeIncarnation: 1,
       expectedScopeVersion: 2,
     });
+    expect(assign.statusCode).toBe(201); // a non-201 pins rev 1 for the wrong reason
     const a = assign.body.assignment as Record<string, string>;
-    await call("POST", `/api/v1/role-definitions/${s.definitionId}/revisions`, s.owner, {
+    const mint = await call("POST", `/api/v1/role-definitions/${s.definitionId}/revisions`, s.owner, {
       scopeIncarnation: 1,
       expectedScopeVersion: 3,
       expectedLatestRevision: 1,
       permissions: ["review.configure"],
     });
+    expect(mint.statusCode).toBe(201); // a failed mint leaves nothing new to pin against
+    expect((mint.body.revision as Record<string, unknown>).ordinal).toBe(2);
     const row = getDb().select().from(roleAssignments).where(eq(roleAssignments.id, a.id)).get()!;
     expect(row.revisionId).toBe(s.revisionId); // still pinned to rev 1
   });

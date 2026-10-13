@@ -9,10 +9,12 @@
  *
  *   persisted users.role !== 'viewer'
  *   && (users.role === 'admin'
+ *       || (habitat is personal AND owner_user_id === actorUserId)
  *       || (habitat has a team AND persisted team_members.role IN
  *           ('owner','admin') for that team))
  *
- * Personal habitats (no team) are global-admin-only by the same predicate.
+ * Personal habitats admit the persisted global admin or their explicit
+ * non-viewer personal owner; unowned personal habitats are global-admin-only.
  * The current typed claimant/executor and any actor who decided review in
  * the current generation are refused. A resolution never approves or
  * completes; a relaxation stays `required` (override-to-zero is never a

@@ -2069,7 +2069,11 @@ export class KanbanApiClient
     reviewerId: string,
     expectedReviewersToken?: string,
   ): Promise<void> {
-    const qs = expectedReviewersToken ? `?expectedReviewersToken=${expectedReviewersToken}` : "";
+    // undefined = legacy LWW (param omitted); "" = explicit invalid → server 400.
+    const qs =
+      expectedReviewersToken !== undefined
+        ? `?expectedReviewersToken=${encodeURIComponent(expectedReviewersToken)}`
+        : "";
     await this.request<void>("DELETE", `/api/tasks/${taskId}/reviewers/${reviewerId}${qs}`);
   }
 

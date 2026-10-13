@@ -34,11 +34,12 @@
  *     assign/priority/delete asymmetry is intentional — this pins the open
  *     side only, no broad write coverage claimed).
  *
- *   HUMAN-ROLE FACT PINS (HTTP only — the MCP transport is agent-key):
- *     an editor-role JWT held by a TEAM MEMBER passes POST review-rule create
- *     (no admin-role distinction is enforced anywhere) — and so does a
- *     VIEWER-role member (weakest role), separating the role axis from the
- *     membership axis; a viewer-role JWT held by a NON-member gets 403.
+ *   HUMAN-ROLE FACT PINS (HTTP only — the MCP transport is agent-key;
+ *     governed since review-governance): rule create is governed by
+ *     review.configure with a viewer ceiling — a VIEWER-role TEAM MEMBER gets
+ *     403 (viewer ceiling) and an EDITOR-role member gets 403 (membership
+ *     alone does not govern); only the persisted governor (the team owner
+ *     adapter) creates. A viewer-role NON-member gets 403 as well.
  *
  * Prerequisites are bare fixtures in a controlled disposable test DB
  * (initTestDb in-memory sql.js): habitats/missions/tasks via repositories,
@@ -71,7 +72,7 @@ import {
 } from "../repositories/roleFoundation.js";
 import { LOCAL_PERMISSION_CATALOGUE_VERSION } from "../services/localAuthorization.js";
 import { governanceAudit, reviewRules, roleAssignments } from "../db/schema/index.js";
-import { eq } from "drizzle-orm";
+import { eq, and } from "drizzle-orm";
 import * as pluginManager from "../plugins/pluginManager.js";
 
 const MCP_ENTRY = join(import.meta.dirname, "..", "..", "..", "mcp", "src", "index.ts");
@@ -480,17 +481,34 @@ describe("REC-08 administrative boundaries — served MCP wire", () => {
 
     const res = await callTool("orcy_review", { action: "create_rule", habitatId, name: "wire-granted-rule" });
     expect(res.isError).toBeFalsy();
-    const created = JSON.parse(toolText(res)) as { reviewRule: { habitatId: string; version: number } };
+    const created = JSON.parse(toolText(res)) as { reviewRule: { id: string; habitatId: string; version: number } };
     expect(created.reviewRule.habitatId).toBe(habitatId);
     expect(created.reviewRule.version).toBe(1);
-    // The audit row proves the command (not just the route) ran.
-    expect(
-      getDb()
-        .select()
-        .from(governanceAudit)
-        .where(eq(governanceAudit.operation, "review_rule.create"))
-        .all().length,
-    ).toBeGreaterThanOrEqual(1);
+    // The audit row for THIS agent request proves the command (not just the
+    // route) ran: the shared in-memory DB already holds earlier review_rule.create
+    // rows (e.g. the owner-create case), so pin the exact objectId/actor of a
+    // row that only this MCP call could have written.
+    const agentAuditRows = getDb()
+      .select()
+      .from(governanceAudit)
+      .where(
+        and(
+          eq(governanceAudit.operation, "review_rule.create"),
+          eq(governanceAudit.objectId, created.reviewRule.id),
+          eq(governanceAudit.actorType, "agent"),
+          eq(governanceAudit.actorId, mcpAgentId),
+        ),
+      )
+      .all();
+    expect(agentAuditRows.length).toBe(1);
+    expect(agentAuditRows[0]).toMatchObject({
+      scopeKind: "habitat",
+      scopeId: habitatId,
+      objectKind: "review_rule",
+      objectId: created.reviewRule.id,
+      actorType: "agent",
+      actorId: mcpAgentId,
+    });
   }, 60_000);
 
   it("orcy_habitat update-rules / evaluate-rules: agent key gets EXACTLY 401 with persisted rules UNCHANGED; human JWT control mutates the same route", async () => {

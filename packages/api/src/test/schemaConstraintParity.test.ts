@@ -1,7 +1,7 @@
 /**
  * Drizzle-declaration ↔ physical-schema constraint parity.
  *
- * The hand-written migration SQL (0064–0070) is the migration source of
+ * The hand-written migration SQL (0064–0083) is the migration source of
  * truth, but the Drizzle exports are the `drizzle-kit generate` baseline —
  * any constraint that exists in one and not the other is drift: generate
  * would either drop it or emit a spurious diff for it. This test builds a
@@ -72,7 +72,7 @@ import {
 const PACKAGE_ROOT = join(import.meta.dirname, "..", "..");
 const DRIZZLE_DIR = join(PACKAGE_ROOT, "drizzle");
 
-/** Tables created or rebuilt by migrations 0064–0070, with their exports. */
+/** Tables created or rebuilt by migrations 0064–0083, with their exports. */
 const SCOPED_TABLES: readonly { table: SQLiteTable; name: string }[] = [
   { table: findingTriage, name: "finding_triage" },
   { table: triageResolutions, name: "triage_resolutions" },
@@ -381,7 +381,7 @@ function drizzleCheckBodies(table: SQLiteTable): string[] {
 // The parity assertions
 // ---------------------------------------------------------------------------
 
-describe("Drizzle ↔ migration SQL constraint parity (0064–0070 tables)", () => {
+describe("Drizzle ↔ migration SQL constraint parity (0064–0083 tables)", () => {
   const db = buildProductionShapeDb();
 
   it("built a production-shaped database with enforcement applied", () => {

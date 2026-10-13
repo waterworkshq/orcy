@@ -293,7 +293,6 @@ describe("agent grants", () => {
 
 describe("typed principal equality", () => {
   it("treats a human and an agent with the same string id as different principals", () => {
-    makeUser("same-id", "editor");
     const agent = agentRepo.createAgent({
       name: `ev-agent-same-${Math.random()}`,
       type: "claude-code",
@@ -303,13 +302,16 @@ describe("typed principal equality", () => {
     makeUser(agent.id, "editor");
     const habitat = habitatRepo.createHabitat({ name: `ev-typed-${Math.random()}` });
     makeUser("h-admin", "admin");
+    // Coordinator revision grants review.configure at a Habitat — the exact
+    // permission under test, so the positive side is a grant match, not an
+    // inert permission-mismatch denial.
     db.insert(roleAssignments)
       .values({
         id: "as-agent-same",
         principalType: "agent",
         principalId: agent.id,
-        definitionId: "builtin-role-review-coordinator",
-        revisionId: "builtin-role-review-coordinator-rev-1",
+        definitionId: "builtin-role-coordinator",
+        revisionId: "builtin-role-coordinator-rev-1",
         scopeKind: "habitat",
         scopeId: habitat.id,
         scopeIncarnation: 1,
@@ -318,19 +320,20 @@ describe("typed principal equality", () => {
         issuerUserId: "h-admin",
       })
       .run();
-    // The human sharing the agent's id has no grant.
+    // The agent holding the grant is allowed for the granted permission.
+    expect(
+      evaluatePermissionsWithClient(db, { type: "agent", id: agent.id }, "review.configure", {
+        scopeKind: "habitat",
+        scopeId: habitat.id,
+      }),
+    ).toMatchObject({ allowed: true });
+    // The human sharing that same id string is a DIFFERENT principal: the
+    // agent-typed grant does not authorize them.
     expect(
       evaluatePermissionsWithClient(db, { type: "human", id: agent.id }, "review.configure", {
         scopeKind: "habitat",
         scopeId: habitat.id,
       }),
     ).toEqual({ allowed: false, reason: "NO_ACTIVE_GRANT" });
-    // And the agent id that matches the human's id has no grant either.
-    expect(
-      evaluatePermissionsWithClient(db, { type: "agent", id: "same-id" }, "review.configure", {
-        scopeKind: "habitat",
-        scopeId: habitat.id,
-      }),
-    ).toEqual({ allowed: false, reason: "PRINCIPAL_NOT_FOUND" });
   });
 });

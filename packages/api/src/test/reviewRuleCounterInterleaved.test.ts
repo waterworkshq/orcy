@@ -133,6 +133,15 @@ describe("review-rule counter — the ACTUAL repository update interleaved at it
       // getById pre-read inside reviewRule.update has already completed).
       const deadline = Date.now() + 30_000;
       while (!existsSync(join(gateDir, "entered"))) {
+        // Fail fast: a worker that dies before reaching its seam must not
+        // burn the full 30s window — the failure is the worker's, not a hang.
+        // exit OR signal: SIGTERM/SIGKILL leave exitCode null, so the exit
+        // test alone would miss a killed worker and keep polling.
+        if (original.child.exitCode !== null || original.child.signalCode !== null) {
+          throw new Error(
+            `original writer exited early (code ${original.child.exitCode}, signal ${original.child.signalCode}) before reaching its seam`,
+          );
+        }
         if (Date.now() > deadline) throw new Error("original writer never reached its seam");
         await new Promise((r) => setTimeout(r, 25));
       }

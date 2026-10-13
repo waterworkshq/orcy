@@ -54,9 +54,11 @@ this human-reserved recovery power; assignment/owner authority does not weaken
 the current executor/decider independence refusals. The current executor and
 anyone who reviewed the task in its current generation cannot resolve it.
 `effectiveCount` is the required review count going forward — 0 means the task
-may complete review-free, and only the legacy-unknown command can reduce a
-positive captured baseline; reviewer removal never lowers the durable
-requirement floor. If versions moved under you, re-read the task and
+may complete review-free. The same command handles both reduction cases: it
+resolves `legacy_unknown` requirements to a known count, and it can reduce a
+positive `required` baseline (down to, never below, the durable policy floor);
+reviewer removal never lowers the durable requirement floor. If versions moved
+under you, re-read the task and
 requirement and retry. A resolution never approves the task by itself. `GET
 /api/tasks/<taskId>/review-requirement` shows the current state.
 

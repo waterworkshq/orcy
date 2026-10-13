@@ -12,7 +12,7 @@ import { v4 as uuid } from "uuid";
 import { getDb } from "../db/index.js";
 import { appendGovernanceAuditWithClient } from "../repositories/roleFoundation.js";
 import { isGovernorWithClient, casAndBumpScope } from "./localRoleAdministration.js";
-import { retireHabitatCustodyWithClient } from "./governanceCustody.js";
+import { retireHabitatCustodyWithClient, type CustodyActor } from "./governanceCustody.js";
 import { sseBroadcaster } from "../sse/broadcaster.js";
 import { rebuildCache as rebuildHabitatSecretCache } from "./habitatSecretCache.js";
 import * as missionService from "./missionService.js";
@@ -329,15 +329,22 @@ export function updateHabitat(habitatId: string, input: UpdateHabitatInput): Pub
   return publishHabitatUpdate(habitatId, habitat);
 }
 
-/** Removes a {@link Habitat} and all of its dependents; side effect: rebuilds the board secret cache and publishes `habitat.deleted` SSE. */
-export function deleteHabitat(habitatId: string): void {
+/**
+ * Removes a {@link Habitat} and all of its dependents; side effect: rebuilds
+ * the board secret cache and publishes `habitat.deleted` SSE.
+ *
+ * `actor`: the authenticated human/agent driving the deletion, audited
+ * on the custody retirement. Omitted → `human`/`unknown` (no fabricated
+ * identity; the audit enum has no `system`).
+ */
+export function deleteHabitat(habitatId: string, actor?: CustodyActor): void {
   // Governance custody (administration ticket): retire Habitat + descendant
   // Mission/Task ledgers, namespace definitions and grants BEFORE the row
   // delete — one reservation, atomic with the deletion.
   const db = getDb();
   db.transaction(
     (tx) => {
-      retireHabitatCustodyWithClient(tx, habitatId, "habitat deleted");
+      retireHabitatCustodyWithClient(tx, habitatId, "habitat deleted", actor);
       habitatRepo.deleteHabitat(habitatId);
     },
     { behavior: "immediate" },
@@ -644,10 +651,20 @@ interface ImportHabitatData extends HabitatExportData {
   };
 }
 
-/** Reconstructs a {@link Habitat} from an import payload (export versions 1 and 2 are supported), optionally replacing an existing habitat id; side effect: deletes the existing habitat, persists columns, missions, tasks, comments, templates, and webhooks, and publishes `habitat.created` SSE. */
+/**
+ * Reconstructs a {@link Habitat} from an import payload (export versions 1
+ * and 2 are supported), optionally replacing an existing habitat id; side
+ * effect: deletes the existing habitat, persists columns, missions, tasks,
+ * comments, templates, and webhooks, and publishes `habitat.created` SSE.
+ *
+ * `actor`: no live route caller today (the v3 kernel path owns the
+ * import routes); kept so a future caller's authenticated identity reaches
+ * the custody audit instead of `unknown`.
+ */
 export function importHabitat(
   data: ImportHabitatData,
   existingHabitatId?: string,
+  actor?: CustodyActor,
 ): ImportResult | null {
   const warnings: string[] = [];
 
@@ -877,7 +894,7 @@ export function importHabitat(
       const db = getDb();
       db.transaction(
         (tx) => {
-          retireHabitatCustodyWithClient(tx, habitatId, "import rebuild failed");
+          retireHabitatCustodyWithClient(tx, habitatId, "import rebuild failed", actor);
           habitatRepo.deleteHabitat(habitatId);
         },
         { behavior: "immediate" },
@@ -895,7 +912,7 @@ export function importHabitat(
     const db = getDb();
     db.transaction(
       (tx) => {
-        retireHabitatCustodyWithClient(tx, existingHabitatId, "import replaced");
+        retireHabitatCustodyWithClient(tx, existingHabitatId, "import replaced", actor);
         habitatRepo.deleteHabitat(existingHabitatId);
       },
       { behavior: "immediate" },

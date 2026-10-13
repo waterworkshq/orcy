@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { makeMission } from "./factories/mission.js";
+vi.mock("../services/governanceCustody.js", () => ({ retireMissionCustodyWithClient: vi.fn() }));
 
 // The service wraps deletes in a `BEGIN IMMEDIATE` reservation — stub the db
 // handle so the tests stay DB-free.

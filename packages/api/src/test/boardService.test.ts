@@ -48,6 +48,11 @@ const missionServiceMocks = vi.hoisted(() => ({
 const cacheMock = vi.hoisted(() => ({ rebuildCache: vi.fn() }));
 const sseMock = vi.hoisted(() => vi.fn());
 const pluginMock = vi.hoisted(() => ({ emitHabitatCreated: vi.fn(() => Promise.resolve()) }));
+const custodyMock = vi.hoisted(() => ({ retireHabitatCustodyWithClient: vi.fn() }));
+vi.mock("../services/governanceCustody.js", () => custodyMock);
+vi.mock("../db/index.js", () => ({
+  getDb: () => ({ transaction: (run: (tx: object) => unknown) => run({}) }),
+}));
 
 vi.mock("../repositories/habitat.js", () => habitatRepoMocks);
 vi.mock("../repositories/column.js", () => columnRepoMocks);

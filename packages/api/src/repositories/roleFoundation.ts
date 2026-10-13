@@ -187,10 +187,11 @@ export function retireScopeWithClient(
 }
 
 /**
- * Custody re-enrollment (Team deletion transition): retire the active
+ * Controlled custody re-enrollment (Team deletion or same-lineage restore): retire the active
  * incarnation if any, then insert a FRESH active incarnation (old + 1, or 1
- * when no history) at version 1. This is the sole initial re-enrollment
- * seam per the binding addendum — not a general transfer API.
+ * when no history) at version 1. Callers constrain this to retained Team
+ * descendants or the exact replaced/restored import IDs, never arbitrary
+ * ID reuse or a general transfer API.
  */
 export function reenrollScopeWithClient(
   tx: LocalAuthorizationDbClient,
@@ -420,7 +421,9 @@ export function listDefinitionsForNamespaceWithClient(
 }
 
 /** The immutable migration-seeded built-in definitions (fixed vocabulary). */
-export function listBuiltinDefinitionsWithClient(tx: LocalAuthorizationDbClient): RoleDefinitionRow[] {
+export function listBuiltinDefinitionsWithClient(
+  tx: LocalAuthorizationDbClient,
+): RoleDefinitionRow[] {
   return tx
     .select()
     .from(roleDefinitions)
@@ -601,7 +604,9 @@ export function appendGovernanceAuditWithClient(
   tx: LocalAuthorizationDbClient,
   input: GovernanceAuditInsert,
 ): void {
-  tx.insert(governanceAudit).values({ ...input, id: input.id ?? uuid() }).run();
+  tx.insert(governanceAudit)
+    .values({ ...input, id: input.id ?? uuid() })
+    .run();
 }
 
 // ---------------------------------------------------------------------------

@@ -202,7 +202,7 @@ A durable record of one Automation Rule evaluation or execution, including trigg
 _Avoid_: Treating automation side effects as invisible background work
 
 **Governance Scope**:
-A local authority boundary for review management, stored as a four-kind ledger row (`team`, `habitat`, `mission`, or `task`) with an immutable incarnation and positive version. Exactly one incarnation is active; retirement history is retained and never reactivated. Authorization reads the current persisted ledger and resource ancestry inside the command reservation — never from JWT role claims alone.
+A local authority boundary for review management, stored as a four-kind ledger row (`team`, `habitat`, `mission`, or `task`) with an immutable incarnation and positive version. At most one incarnation is active (a scope that exists but has never been mutated may be unmaterialized and use a virtual incarnation); retirement history is retained and never reactivated. Authorization reads the current persisted ledger and resource ancestry inside the command reservation — never from JWT role claims alone.
 _Avoid_: Role (reserved for local-vs-remote trust standing); permission (reserved for the two operational grants)
 
 **Operational Permission**:
@@ -214,7 +214,7 @@ An immutable, insert-only row in the role-revision ledger that pins a nonempty s
 _Avoid_: Version bump, mutable role config
 
 **Scope Incarnation**:
-The immutable integer identity of one governed lifetime for a team/habitat/mission/task scope. Custody transitions retire the old incarnation and enroll surviving descendants at a fresh incarnation, so retired scope IDs and stale versions cannot revive authority.
+The immutable integer identity of one governed lifetime for a team/habitat/mission/task scope. Team deletion re-enrolls surviving descendants at fresh incarnations; authorized same-lineage import restoration also re-enrolls replaced Mission/Task IDs with ledger history. Other deletions leave scopes retired. Old grants stay revoked across either transition, so a reused ID or stale version cannot revive authority.
 _Avoid_: Version, generation
 
 **Personal Owner**:

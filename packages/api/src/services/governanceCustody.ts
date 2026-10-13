@@ -17,9 +17,9 @@
  *   - Mission delete: retire Mission + child-Task ledgers/grants.
  *   - Task delete: retire the Task ledger/grants.
  */
-import { eq, inArray } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
-import { habitats, missions, tasks } from "../db/schema/index.js";
+import { governanceScopes, habitats, missions, tasks } from "../db/schema/index.js";
 import type { LocalAuthorizationDbClient } from "./localAuthorization.js";
 import {
   appendGovernanceAuditWithClient,
@@ -29,6 +29,12 @@ import {
   retireScopeWithClient,
   revokeAssignmentsForScopeWithClient,
 } from "../repositories/roleFoundation.js";
+
+/** Truthful custody actor: only `human`/`agent` exist in the audit enum. */
+export interface CustodyActor {
+  actorType: "human" | "agent";
+  actorId: string;
+}
 
 function audit(
   tx: LocalAuthorizationDbClient,
@@ -60,28 +66,40 @@ export function taskIdsForHabitat(tx: LocalAuthorizationDbClient, habitatId: str
   return taskIdsForMissions(tx, missionIdsForHabitat(tx, habitatId));
 }
 
+/**
+ * Retire the active incarnation of one scope under a truthful actor.
+ *
+ * - A live-but-virtual scope is materialized first so the retired incarnation
+ *   is retained as history (a bare retire is a no-op on virtual scopes).
+ * - No-op when nothing is active AND nothing is live-virtual (already retired
+ *   or the resource no longer exists): no audit row, no fabricated state.
+ * - The audit row reports the ACTUAL retired incarnation and version span —
+ *   never a hardcoded incarnation 1 — and the real caller actor, never a
+ *   fabricated `human`/`system` identity.
+ */
 function retireOne(
   tx: LocalAuthorizationDbClient,
   scopeKind: "team" | "habitat" | "mission" | "task",
   scopeId: string,
   reason: string,
+  actor?: CustodyActor,
 ): void {
-  // Revoke first (retained rows), then retire the ledger incarnation. A
-  // never-materialized (virtual) scope is materialized first so the retired
-  // incarnation is retained as history — a bare retire is a no-op on virtual
-  // scopes and would leave no trace.
+  // Revoke first (retained rows), then retire the ledger incarnation.
   revokeAssignmentsForScopeWithClient(tx, scopeKind, scopeId, reason);
   materializeScopeWithClient(tx, scopeKind, scopeId);
-  retireScopeWithClient(tx, scopeKind, scopeId);
+  const retired = retireScopeWithClient(tx, scopeKind, scopeId);
+  if (retired === null) return; // nothing active: no state change, no audit
   audit(tx, {
-    actorType: "human",
-    actorId: "system",
+    actorType: actor?.actorType ?? "human",
+    actorId: actor?.actorId ?? "unknown",
     operation: `${scopeKind}.custody_retired`,
     scopeKind,
     scopeId,
-    scopeIncarnation: 1,
+    scopeIncarnation: retired.incarnation,
     objectKind: scopeKind,
     objectId: scopeId,
+    versionBefore: retired.version - 1,
+    versionAfter: retired.version,
     details: { reason },
   });
 }
@@ -91,8 +109,9 @@ export function retireTaskCustodyWithClient(
   tx: LocalAuthorizationDbClient,
   taskId: string,
   reason: string,
+  actor?: CustodyActor,
 ): void {
-  retireOne(tx, "task", taskId, reason);
+  retireOne(tx, "task", taskId, reason, actor);
 }
 
 /** Retire a Mission + its child Tasks (Mission delete seam). */
@@ -100,6 +119,7 @@ export function retireMissionCustodyWithClient(
   tx: LocalAuthorizationDbClient,
   missionId: string,
   reason: string,
+  actor?: CustodyActor,
 ): void {
   const childTaskIds = tx
     .select({ id: tasks.id })
@@ -107,8 +127,8 @@ export function retireMissionCustodyWithClient(
     .where(eq(tasks.missionId, missionId))
     .all()
     .map((r) => r.id);
-  for (const taskId of childTaskIds) retireTaskCustodyWithClient(tx, taskId, reason);
-  retireOne(tx, "mission", missionId, reason);
+  for (const taskId of childTaskIds) retireTaskCustodyWithClient(tx, taskId, reason, actor);
+  retireOne(tx, "mission", missionId, reason, actor);
 }
 
 /** Retire v3-import domain replacement targets inside the publication tx. */
@@ -116,15 +136,16 @@ export function retireImportDomainWithClient(
   tx: LocalAuthorizationDbClient,
   domain: "tasks" | "missions",
   targetHabitatId: string,
+  actor?: CustodyActor,
 ): void {
   if (domain === "tasks") {
     for (const taskId of taskIdsForHabitat(tx, targetHabitatId)) {
-      retireTaskCustodyWithClient(tx, taskId, "import replacement");
+      retireTaskCustodyWithClient(tx, taskId, "import replacement", actor);
     }
     return;
   }
   for (const missionId of missionIdsForHabitat(tx, targetHabitatId)) {
-    retireMissionCustodyWithClient(tx, missionId, "import replacement");
+    retireMissionCustodyWithClient(tx, missionId, "import replacement", actor);
   }
 }
 
@@ -137,16 +158,17 @@ export function retireHabitatCustodyWithClient(
   tx: LocalAuthorizationDbClient,
   habitatId: string,
   reason: string,
+  actor?: CustodyActor,
 ): void {
   const missionIds = missionIdsForHabitat(tx, habitatId);
   for (const taskId of taskIdsForMissions(tx, missionIds)) {
-    retireTaskCustodyWithClient(tx, taskId, reason);
+    retireTaskCustodyWithClient(tx, taskId, reason, actor);
   }
   for (const missionId of missionIds) {
-    retireOne(tx, "mission", missionId, reason);
+    retireOne(tx, "mission", missionId, reason, actor);
   }
   retireDefinitionsForNamespaceWithClient(tx, "habitat", habitatId);
-  retireOne(tx, "habitat", habitatId, reason);
+  retireOne(tx, "habitat", habitatId, reason, actor);
 }
 
 /**
@@ -163,6 +185,7 @@ export function retireTeamCustodyWithClient(
   tx: LocalAuthorizationDbClient,
   teamId: string,
   reason: string,
+  actor?: CustodyActor,
 ): { habitatIds: string[] } {
   const habitatIds = tx
     .select({ id: habitats.id })
@@ -171,11 +194,52 @@ export function retireTeamCustodyWithClient(
     .all()
     .map((r) => r.id);
   for (const habitatId of habitatIds) {
-    retireHabitatCustodyWithClient(tx, habitatId, reason);
+    retireHabitatCustodyWithClient(tx, habitatId, reason, actor);
   }
   retireDefinitionsForNamespaceWithClient(tx, "team", teamId);
-  retireOne(tx, "team", teamId, reason);
+  retireOne(tx, "team", teamId, reason, actor);
   return { habitatIds };
+}
+
+/**
+ * Same-id restore re-enrollment for one scope the import is about to
+ * re-insert under its existing server id. Retires any ACTIVE incarnation
+ * (revoking its grants — stale grants never survive a custody transition)
+ * and enrolls a FRESH active incarnation so the restored entity's ledger
+ * reads active, not retired-only. A scope with NO ledger history (never
+ * materialized — the common restore case for pre-governance exports) is
+ * left alone: nothing to retire, nothing to revive, no churn. Only call
+ * this for ids the prepared manifest actually restores — never as a broad
+ * rescan, which would re-enroll preserved/unrelated scopes. Audited with
+ * the real import actor.
+ */
+export function reenrollRestoredScopeWithClient(
+  tx: LocalAuthorizationDbClient,
+  scopeKind: "task" | "mission",
+  scopeId: string,
+  reason: string,
+  actor?: CustodyActor,
+): void {
+  const hasHistory = tx
+    .select({ scopeKind: governanceScopes.scopeKind })
+    .from(governanceScopes)
+    .where(and(eq(governanceScopes.scopeKind, scopeKind), eq(governanceScopes.scopeId, scopeId)))
+    .get();
+  if (!hasHistory) return; // never materialized — the restore reads virtual 1/1
+  revokeAssignmentsForScopeWithClient(tx, scopeKind, scopeId, reason);
+  retireOne(tx, scopeKind, scopeId, reason, actor);
+  const fresh = reenrollScopeWithClient(tx, scopeKind, scopeId);
+  audit(tx, {
+    actorType: actor?.actorType ?? "human",
+    actorId: actor?.actorId ?? "unknown",
+    operation: `${scopeKind}.custody_reenrolled`,
+    scopeKind,
+    scopeId,
+    scopeIncarnation: fresh.incarnation,
+    objectKind: scopeKind,
+    objectId: scopeId,
+    details: { reason },
+  });
 }
 
 /** Post-delete half of the Team custody bundle (same reservation). */
@@ -183,6 +247,7 @@ export function reenrollTeamDescendantsWithClient(
   tx: LocalAuthorizationDbClient,
   habitatIds: string[],
   reason: string,
+  actor?: CustodyActor,
 ): void {
   for (const habitatId of habitatIds) {
     // Skip habitats the delete actually removed (defensive; SET NULL keeps them).
@@ -192,7 +257,7 @@ export function reenrollTeamDescendantsWithClient(
       .where(eq(habitats.id, habitatId))
       .get();
     if (!still) continue;
-    reenrollScopeWithClient(tx, "habitat", habitatId);
+    const fresh = reenrollScopeWithClient(tx, "habitat", habitatId);
     const missionIds = missionIdsForHabitat(tx, habitatId);
     for (const taskId of taskIdsForMissions(tx, missionIds)) {
       reenrollScopeWithClient(tx, "task", taskId);
@@ -201,12 +266,12 @@ export function reenrollTeamDescendantsWithClient(
       reenrollScopeWithClient(tx, "mission", missionId);
     }
     audit(tx, {
-      actorType: "human",
-      actorId: "system",
+      actorType: actor?.actorType ?? "human",
+      actorId: actor?.actorId ?? "unknown",
       operation: "habitat.custody_reenrolled",
       scopeKind: "habitat",
       scopeId: habitatId,
-      scopeIncarnation: 1,
+      scopeIncarnation: fresh.incarnation,
       objectKind: "habitat",
       objectId: habitatId,
       details: { reason },

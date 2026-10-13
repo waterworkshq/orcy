@@ -44,13 +44,6 @@ export interface TaskReviewer {
   reviewNote: string | null;
   /** Current-generation projected status (shipped 0082 projection; not a new column). */
   projectedStatus?: ReviewerStatus | "ineligible";
-  /**
-   * Deterministic SHA-256 roster token over the task's actual reviewer rows,
-   * their raw and projected statuses, and the review-requirement fields
-   * (missing/state/generation/round/version). Opaque: clients echo it back on
-   * manual add/remove as `expectedReviewersToken`; it is not parseable state.
-   */
-  reviewersToken?: string;
 }
 
 /** Input payload for creating a new {@link ReviewRule}; only the rule name is required. */

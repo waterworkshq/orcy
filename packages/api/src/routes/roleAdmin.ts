@@ -50,7 +50,9 @@ const scopeExpectationSchema = z.object({
 });
 
 const createDefinitionSchema = scopeExpectationSchema.extend({
-  name: z.string().min(1).max(200),
+  // Trim at the route boundary: whitespace-only names are rejected, padded
+  // names persist trimmed (matches the service-layer normalization below).
+  name: z.string().trim().min(1).max(200),
   permissions: permissionsSchema,
 });
 

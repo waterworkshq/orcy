@@ -91,7 +91,10 @@ function makeUser(role: "admin" | "editor" | "viewer"): string {
 
 function makeTeam(ownerUserId: string): string {
   const orgId = uuid();
-  getDb().insert(organizations).values({ id: orgId, name: `o-${orgId}`, slug: `o-${orgId}` }).run();
+  getDb()
+    .insert(organizations)
+    .values({ id: orgId, name: `o-${orgId}`, slug: `o-${orgId}` })
+    .run();
   const teamId = uuid();
   getDb()
     .insert(teams)
@@ -177,21 +180,15 @@ function ruleVersion(ruleId: string): number {
 }
 
 function reviewerRows(taskId: string): number {
-  return getDb()
-    .select()
-    .from(taskReviewers)
-    .where(eq(taskReviewers.taskId, taskId))
-    .all().length;
+  return getDb().select().from(taskReviewers).where(eq(taskReviewers.taskId, taskId)).all().length;
 }
 
 function auditRowsFor(op: string): number {
-  return (
-    getDb()
-      .select({ id: governanceAudit.id })
-      .from(governanceAudit)
-      .where(eq(governanceAudit.operation, op))
-      .all().length
-  );
+  return getDb()
+    .select({ id: governanceAudit.id })
+    .from(governanceAudit)
+    .where(eq(governanceAudit.operation, op))
+    .all().length;
 }
 
 beforeEach(async () => {
@@ -239,32 +236,23 @@ describe("review-rule CAS (0083 optional expectedVersion)", () => {
     const before = ruleVersion(ruleId);
 
     // Omitted expectation: legacy LWW — succeeds regardless.
-    const lww = await call(
-      "PATCH",
-      `/api/review-rules/${ruleId}`,
-      admin,
-      { name: "renamed" },
-    );
+    const lww = await call("PATCH", `/api/review-rules/${ruleId}`, admin, { name: "renamed" });
     expect(lww.statusCode).toBe(200);
     expect(ruleVersion(ruleId)).toBe(before + 1);
 
     // Fresh expectation: succeeds and bumps again.
-    const fresh = await call(
-      "PATCH",
-      `/api/review-rules/${ruleId}`,
-      admin,
-      { name: "fresh", expectedVersion: before + 1 },
-    );
+    const fresh = await call("PATCH", `/api/review-rules/${ruleId}`, admin, {
+      name: "fresh",
+      expectedVersion: before + 1,
+    });
     expect(fresh.statusCode).toBe(200);
     expect(ruleVersion(ruleId)).toBe(before + 2);
 
     // Stale expectation (pre-update version): 409, row unchanged.
-    const stale = await call(
-      "PATCH",
-      `/api/review-rules/${ruleId}`,
-      admin,
-      { name: "stale", expectedVersion: before },
-    );
+    const stale = await call("PATCH", `/api/review-rules/${ruleId}`, admin, {
+      name: "stale",
+      expectedVersion: before,
+    });
     expect(stale.statusCode).toBe(409);
     expect(stale.body).toMatchObject({ code: "REVIEW_RULE_VERSION_CONFLICT" });
     const row = getDb().select().from(reviewRules).where(eq(reviewRules.id, ruleId)).get()!;
@@ -289,7 +277,9 @@ describe("review-rule CAS (0083 optional expectedVersion)", () => {
       admin,
     );
     expect(del.statusCode).toBe(204);
-    expect(getDb().select().from(reviewRules).where(eq(reviewRules.id, ruleId)).get()).toBeUndefined();
+    expect(
+      getDb().select().from(reviewRules).where(eq(reviewRules.id, ruleId)).get(),
+    ).toBeUndefined();
     expect(auditRowsFor("review_rule.delete")).toBeGreaterThanOrEqual(1);
   });
 
@@ -326,7 +316,9 @@ describe("review-rule CAS (0083 optional expectedVersion)", () => {
     const res = await call("PATCH", `/api/review-rules/${ruleId}`, viewer, { name: "x" });
     expect(res.statusCode).toBe(403);
     expect(res.body).toMatchObject({ code: "AUTHORIZATION_DENIED" });
-    expect(getDb().select().from(reviewRules).where(eq(reviewRules.id, ruleId)).get()!.name).toBe("r");
+    expect(getDb().select().from(reviewRules).where(eq(reviewRules.id, ruleId)).get()!.name).toBe(
+      "r",
+    );
     expect(auditRowsFor("review_rule.update")).toBe(0);
   });
 });
@@ -378,27 +370,21 @@ describe("reviewer roster token CAS (0083 optional expectedReviewersToken)", () 
     expect(token).toBe(tokenDirect);
 
     // Stale token: 409, no new row.
-    const stale = await call(
-      "POST",
-      `/api/tasks/${taskId}/reviewers`,
-      admin,
-      {
-        reviewerId: user,
-        reviewerType: "agent",
-        expectedReviewersToken: "0".repeat(64),
-      },
-    );
+    const stale = await call("POST", `/api/tasks/${taskId}/reviewers`, admin, {
+      reviewerId: user,
+      reviewerType: "agent",
+      expectedReviewersToken: "0".repeat(64),
+    });
     expect(stale.statusCode).toBe(409);
     expect(stale.body).toMatchObject({ code: "REVIEWERS_TOKEN_CONFLICT" });
     expect(reviewerRows(taskId)).toBe(1); // seeded human row only
 
     // Fresh token + duplicate human: idempotent 200, no new row.
-    const dup = await call(
-      "POST",
-      `/api/tasks/${taskId}/reviewers`,
-      admin,
-      { reviewerId: user, reviewerType: "human", expectedReviewersToken: token },
-    );
+    const dup = await call("POST", `/api/tasks/${taskId}/reviewers`, admin, {
+      reviewerId: user,
+      reviewerType: "human",
+      expectedReviewersToken: token,
+    });
     expect(dup.statusCode).toBe(200);
     expect(reviewerRows(taskId)).toBe(1);
 
@@ -408,16 +394,11 @@ describe("reviewer roster token CAS (0083 optional expectedReviewersToken)", () 
       type: "opencode",
       domain: "backend",
     }).agent;
-    const add = await call(
-      "POST",
-      `/api/tasks/${taskId}/reviewers`,
-      admin,
-      {
-        reviewerId: agent.id,
-        reviewerType: "agent",
-        expectedReviewersToken: computeReviewersToken(getDb() as never, taskId),
-      },
-    );
+    const add = await call("POST", `/api/tasks/${taskId}/reviewers`, admin, {
+      reviewerId: agent.id,
+      reviewerType: "agent",
+      expectedReviewersToken: computeReviewersToken(getDb() as never, taskId),
+    });
     expect(add.statusCode).toBe(201);
     expect(reviewerRows(taskId)).toBe(2); // human + agent rows
 
@@ -425,8 +406,12 @@ describe("reviewer roster token CAS (0083 optional expectedReviewersToken)", () 
     // type → 409 REVIEWER_TYPE_CONFLICT (registry checks pass for both types).
     const dualId = uuid();
     userRepo.createUser({
-      id: dualId, username: `dual-${dualId.slice(0, 8)}`, passwordHash: "x",
-      role: "editor", createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
+      id: dualId,
+      username: `dual-${dualId.slice(0, 8)}`,
+      passwordHash: "x",
+      role: "editor",
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
     });
     // Force the registry-id collision the cross-type check is about:
     // register the agent row under the human's id string via raw insert
@@ -448,16 +433,20 @@ describe("reviewer roster token CAS (0083 optional expectedReviewersToken)", () 
     getDb()
       .insert(taskReviewers)
       .values({
-        id: uuid(), taskId, reviewerType: "agent", reviewerId: dualId,
-        status: "pending", assignedAt: new Date().toISOString(), reviewedAt: null, reviewNote: null,
+        id: uuid(),
+        taskId,
+        reviewerType: "agent",
+        reviewerId: dualId,
+        status: "pending",
+        assignedAt: new Date().toISOString(),
+        reviewedAt: null,
+        reviewNote: null,
       })
       .run();
-    const cross = await call(
-      "POST",
-      `/api/tasks/${taskId}/reviewers`,
-      admin,
-      { reviewerId: dualId, reviewerType: "human" },
-    );
+    const cross = await call("POST", `/api/tasks/${taskId}/reviewers`, admin, {
+      reviewerId: dualId,
+      reviewerType: "human",
+    });
     expect(cross.statusCode).toBe(409);
     expect(cross.body).toMatchObject({ code: "REVIEWER_TYPE_CONFLICT" });
 
@@ -487,22 +476,34 @@ describe("reviewer roster token CAS (0083 optional expectedReviewersToken)", () 
     const habitatId = makePersonalHabitat(admin);
     const taskId = makeTaskInHabitat(habitatId);
 
+    // The TYPED anti-self case: an agent reviewer whose id IS the task's
+    // current assignee. The actor is the admin (not the assignee itself), so
+    // only the reviewer-target anti-self guard can produce this 400.
+    const assignee = agentRepo.createAgent({
+      name: `a-self-${uuid().slice(0, 8)}`,
+      type: "opencode",
+      domain: "backend",
+    }).agent;
+    getDb().update(tasks).set({ assignedAgentId: assignee.id }).where(eq(tasks.id, taskId)).run();
+    const selfReview = await call("POST", `/api/tasks/${taskId}/reviewers`, admin, {
+      reviewerId: assignee.id,
+      reviewerType: "agent",
+    });
+    expect(selfReview.statusCode).toBe(400);
+    expect(String(selfReview.body.error ?? "")).toContain("self-review");
+
     // Agent reviewer naming a non-existent agent id: 400.
-    const unknownAgent = await call(
-      "POST",
-      `/api/tasks/${taskId}/reviewers`,
-      admin,
-      { reviewerId: "not-an-agent", reviewerType: "agent" },
-    );
+    const unknownAgent = await call("POST", `/api/tasks/${taskId}/reviewers`, admin, {
+      reviewerId: "not-an-agent",
+      reviewerType: "agent",
+    });
     expect(unknownAgent.statusCode).toBe(400);
 
     // Agent reviewer naming a non-existent user id: 400.
-    const unknownUser = await call(
-      "POST",
-      `/api/tasks/${taskId}/reviewers`,
-      admin,
-      { reviewerId: "not-a-user", reviewerType: "human" },
-    );
+    const unknownUser = await call("POST", `/api/tasks/${taskId}/reviewers`, admin, {
+      reviewerId: "not-a-user",
+      reviewerType: "human",
+    });
     expect(unknownUser.statusCode).toBe(400);
 
     expect(reviewerRows(taskId)).toBe(0);
@@ -520,16 +521,11 @@ describe("audit append inside the reservation", () => {
     const taskId = makeTaskInHabitat(habitatId);
     const user = makeUser("editor");
 
-    const add = await call(
-      "POST",
-      `/api/tasks/${taskId}/reviewers`,
-      admin,
-      {
-        reviewerId: user,
-        reviewerType: "human",
-        expectedReviewersToken: computeReviewersToken(getDb() as never, taskId),
-      },
-    );
+    const add = await call("POST", `/api/tasks/${taskId}/reviewers`, admin, {
+      reviewerId: user,
+      reviewerType: "human",
+      expectedReviewersToken: computeReviewersToken(getDb() as never, taskId),
+    });
     expect(add.statusCode).toBe(201);
     expect(reviewerRows(taskId)).toBe(1);
 
@@ -612,7 +608,11 @@ describe("review-governance proof-coverage ceiling (rev-2 items)", () => {
     expect(body.reviewRule.version).toBe(1);
     expect(auditRowsFor("review_rule.create")).toBe(1);
     expect(
-      getDb().select().from(governanceAudit).where(eq(governanceAudit.operation, "review_rule.create")).all()[0],
+      getDb()
+        .select()
+        .from(governanceAudit)
+        .where(eq(governanceAudit.operation, "review_rule.create"))
+        .all()[0],
     ).toMatchObject({ actorType: "agent", actorId: agent.id });
   });
 
@@ -633,7 +633,9 @@ describe("review-governance proof-coverage ceiling (rev-2 items)", () => {
     expect(res.statusCode).toBe(403);
     expect(JSON.parse(res.body)).toMatchObject({ code: "AUTHORIZATION_DENIED" });
     // No rule, no audit — the refusal is total.
-    expect(getDb().select().from(reviewRules).where(eq(reviewRules.habitatId, habitatId)).all().length).toBe(0);
+    expect(
+      getDb().select().from(reviewRules).where(eq(reviewRules.habitatId, habitatId)).all().length,
+    ).toBe(0);
     expect(auditRowsFor("review_rule.create")).toBe(0);
   });
 
@@ -644,10 +646,14 @@ describe("review-governance proof-coverage ceiling (rev-2 items)", () => {
     const viewer = makeUser("viewer");
     teamMemberRepo.addMember({ teamId, userId: viewer, role: "member" });
 
-    const res = await call("POST", `/api/habitats/${habitatId}/review-rules`, viewer, { name: "v" });
+    const res = await call("POST", `/api/habitats/${habitatId}/review-rules`, viewer, {
+      name: "v",
+    });
     expect(res.statusCode).toBe(403);
     expect(res.body).toMatchObject({ code: "AUTHORIZATION_DENIED" });
-    expect(getDb().select().from(reviewRules).where(eq(reviewRules.habitatId, habitatId)).all().length).toBe(0);
+    expect(
+      getDb().select().from(reviewRules).where(eq(reviewRules.habitatId, habitatId)).all().length,
+    ).toBe(0);
 
     // Positive control: the team owner (persisted governor) creates fine.
     const ok = await call("POST", `/api/habitats/${habitatId}/review-rules`, owner, { name: "ok" });
@@ -694,7 +700,9 @@ describe("review-governance proof-coverage ceiling (rev-2 items)", () => {
       payload: { name: "revoked-try" },
     });
     expect(update.statusCode).toBe(403);
-    expect(getDb().select().from(reviewRules).where(eq(reviewRules.id, ruleId)).get()!.name).toBe("will-update");
+    expect(getDb().select().from(reviewRules).where(eq(reviewRules.id, ruleId)).get()!.name).toBe(
+      "will-update",
+    );
   });
 
   it("expired grant refuses at mutation time (expiry evaluated at decision)", async () => {
@@ -720,19 +728,37 @@ describe("review-governance proof-coverage ceiling (rev-2 items)", () => {
       payload: { name: "expired-try" },
     });
     expect(res.statusCode).toBe(403);
-    expect(getDb().select().from(reviewRules).where(eq(reviewRules.habitatId, habitatId)).all().length).toBe(0);
+    expect(
+      getDb().select().from(reviewRules).where(eq(reviewRules.habitatId, habitatId)).all().length,
+    ).toBe(0);
   });
 
   it("audit-fault rollback for a review op: the rule create rolls back completely", async () => {
     const admin = makeUser("admin");
     const habitatId = makePersonalHabitat(admin);
-    const db = getDb() as unknown as { transaction: (cb: (tx: unknown) => unknown, cfg?: unknown) => unknown };
+    const db = getDb() as unknown as {
+      transaction: (cb: (tx: unknown) => unknown, cfg?: unknown) => unknown;
+    };
     const original = db.transaction;
-    const rulesBefore = getDb().select().from(reviewRules).where(eq(reviewRules.habitatId, habitatId)).all().length;
+    const rulesBefore = getDb()
+      .select()
+      .from(reviewRules)
+      .where(eq(reviewRules.habitatId, habitatId))
+      .all().length;
     const auditBefore = auditRowsFor("review_rule.create");
 
     db.transaction = function faulting(cb: (tx: unknown) => unknown, cfg?: unknown) {
-      return original.call(db, (tx) => cb(new FailingDbClient(tx as never, { failAtWriteN: null, failAtTableName: "governance_audit" })), cfg);
+      return original.call(
+        db,
+        (tx) =>
+          cb(
+            new FailingDbClient(tx as never, {
+              failAtWriteN: null,
+              failAtTableName: "governance_audit",
+            }),
+          ),
+        cfg,
+      );
     };
     let threw = false;
     try {
@@ -747,7 +773,9 @@ describe("review-governance proof-coverage ceiling (rev-2 items)", () => {
       db.transaction = original;
     }
     expect(threw).toBe(true);
-    expect(getDb().select().from(reviewRules).where(eq(reviewRules.habitatId, habitatId)).all().length).toBe(rulesBefore);
+    expect(
+      getDb().select().from(reviewRules).where(eq(reviewRules.habitatId, habitatId)).all().length,
+    ).toBe(rulesBefore);
     expect(auditRowsFor("review_rule.create")).toBe(auditBefore);
   });
 
@@ -797,11 +825,11 @@ describe("review-governance proof-coverage ceiling (rev-2 items)", () => {
     const projected = requirement
       ? projectReviewersWithClient(getDb() as never, taskId, requirement)
       : [];
-    const recomputed = computeReviewersToken(
-      getDb() as never,
-      taskId,
-      { rows: body.reviewers as never[], requirement, projected },
-    );
+    const recomputed = computeReviewersToken(getDb() as never, taskId, {
+      rows: body.reviewers as never[],
+      requirement,
+      projected,
+    });
     expect(recomputed).toBe(body.reviewersToken);
   });
 });
@@ -924,7 +952,9 @@ function forkCommandWorker(
     while (waiters.length > 0) {
       waiters
         .shift()!
-        .reject(new Error(`worker ${mode} exited early (code ${code}); ${queue.length} result(s) queued`));
+        .reject(
+          new Error(`worker ${mode} exited early (code ${code}); ${queue.length} result(s) queued`),
+        );
     }
   });
   const exited = new Promise<void>((resolve) => {
@@ -996,8 +1026,14 @@ describe("A. cross-process GET-snapshot discriminator (reviewGovernanceCommands)
     getDb()
       .insert(taskReviewers)
       .values({
-        id: uuid(), taskId, reviewerType: "human", reviewerId: seededReviewer,
-        status: "pending", assignedAt: new Date().toISOString(), reviewedAt: null, reviewNote: null,
+        id: uuid(),
+        taskId,
+        reviewerType: "human",
+        reviewerId: seededReviewer,
+        status: "pending",
+        assignedAt: new Date().toISOString(),
+        reviewedAt: null,
+        reviewNote: null,
       })
       .run();
     // Materialize the requirement row so the peer's bumpReviewRoundWithClient
@@ -1006,10 +1042,20 @@ describe("A. cross-process GET-snapshot discriminator (reviewGovernanceCommands)
     getDb()
       .insert(taskReviewRequirements)
       .values({
-        taskId, origin: "ordinary", state: "uncaptured", nonOverriddenFloor: null,
-        knownPolicyFloor: 0, effectiveCount: null, requirementVersion: 1,
-        reviewGeneration: 0, reviewRound: 0, claimantType: null, claimantId: null,
-        approvedGeneration: null, activeOverrideId: null, selectedRuleId: null,
+        taskId,
+        origin: "ordinary",
+        state: "uncaptured",
+        nonOverriddenFloor: null,
+        knownPolicyFloor: 0,
+        effectiveCount: null,
+        requirementVersion: 1,
+        reviewGeneration: 0,
+        reviewRound: 0,
+        claimantType: null,
+        claimantId: null,
+        approvedGeneration: null,
+        activeOverrideId: null,
+        selectedRuleId: null,
         updatedAt: new Date().toISOString(),
       })
       .onConflictDoNothing()
@@ -1029,10 +1075,18 @@ describe("A. cross-process GET-snapshot discriminator (reviewGovernanceCommands)
     mkdirSync(gateDirA, { recursive: true });
     const releaseA = `release-${Math.random()}`;
 
-    const peer = forkCommandWorker(fileDbPath, taskId, "rosterwait", undefined, gateDirA, releaseA, {
-      WORKER_REVIEWER_ID: peerReviewer,
-      WORKER_ACTOR_ID: agent.id,
-    });
+    const peer = forkCommandWorker(
+      fileDbPath,
+      taskId,
+      "rosterwait",
+      undefined,
+      gateDirA,
+      releaseA,
+      {
+        WORKER_REVIEWER_ID: peerReviewer,
+        WORKER_ACTOR_ID: agent.id,
+      },
+    );
     try {
       // Peer completes initDb (WAL/FK on the production file) before the GET
       // opens its read transaction — handshake is READY, not a spawned guess.
@@ -1045,7 +1099,9 @@ describe("A. cross-process GET-snapshot discriminator (reviewGovernanceCommands)
       // the frame blocks — the read transaction is OPEN with its snapshot
       // held while the peer commits on its own connection.
       const db = getDb() as unknown as {
-        select: (...a: unknown[]) => { from: (t: unknown) => { where: (w: unknown) => { all: () => unknown[] } } };
+        select: (...a: unknown[]) => {
+          from: (t: unknown) => { where: (w: unknown) => { all: () => unknown[] } };
+        };
       };
       const originalSelect = db.select.bind(db);
       let seamHit = false;
@@ -1054,7 +1110,9 @@ describe("A. cross-process GET-snapshot discriminator (reviewGovernanceCommands)
         if (!seamHit) {
           const wrapped = {
             from: (t: unknown) => {
-              const b1 = builder.from(t) as never as { where: (w: unknown) => { all: () => unknown[] } };
+              const b1 = builder.from(t) as never as {
+                where: (w: unknown) => { all: () => unknown[] };
+              };
               return {
                 where: (w: unknown) => {
                   const b2 = b1.where(w);
@@ -1070,8 +1128,13 @@ describe("A. cross-process GET-snapshot discriminator (reviewGovernanceCommands)
                       writeFileSync(join(gateDirA, releaseA), "1");
                       const deadline = Date.now() + 60_000;
                       while (!existsSync(join(gateDirA, "peer-commit"))) {
-                        if (Date.now() > deadline) throw new Error("peer commit timeout inside GET seam");
-                        spawnSync(process.execPath, ["-e", "Atomics.wait(new Int32Array(new SharedArrayBuffer(4)),0,0,20);"], { timeout: 1000 });
+                        if (Date.now() > deadline)
+                          throw new Error("peer commit timeout inside GET seam");
+                        spawnSync(
+                          process.execPath,
+                          ["-e", "Atomics.wait(new Int32Array(new SharedArrayBuffer(4)),0,0,20);"],
+                          { timeout: 1000 },
+                        );
                       }
                       return out;
                     },
@@ -1123,7 +1186,11 @@ describe("A. cross-process GET-snapshot discriminator (reviewGovernanceCommands)
 
         // Part 3 — cross-process visibility: the peer's row is durably
         // committed on the canonical file by a real second connection.
-        const rows = getDb().select().from(taskReviewers).where(eq(taskReviewers.taskId, taskId)).all();
+        const rows = getDb()
+          .select()
+          .from(taskReviewers)
+          .where(eq(taskReviewers.taskId, taskId))
+          .all();
         expect(rows.some((r) => r.reviewerId === peerReviewer)).toBe(true);
 
         // The token over the held pre-state must differ from a token over the
@@ -1249,9 +1316,17 @@ describe("B. SAME-request admission→mutation window (reviewGovernanceCommands)
     try {
       // The request is admitted and held. Revoke the grant on an INDEPENDENT
       // connection while the SAME request waits.
-      const revoker = forkCommandWorker(fileDbPath, rule.id, "revoke", undefined, undefined, undefined, {
-        WORKER_ASSIGNMENT_ID: assignmentId,
-      });
+      const revoker = forkCommandWorker(
+        fileDbPath,
+        rule.id,
+        "revoke",
+        undefined,
+        undefined,
+        undefined,
+        {
+          WORKER_ASSIGNMENT_ID: assignmentId,
+        },
+      );
       try {
         revoker.send({ type: "GO" });
         const revoked = await revoker.next();
@@ -1261,7 +1336,8 @@ describe("B. SAME-request admission→mutation window (reviewGovernanceCommands)
         await revoker.dispose();
       }
       expect(
-        getDb().select().from(roleAssignments).where(eq(roleAssignments.id, assignmentId)).get()!.state,
+        getDb().select().from(roleAssignments).where(eq(roleAssignments.id, assignmentId)).get()!
+          .state,
       ).toBe("revoked");
 
       // Release: the SAME request enters its reservation, reads authority
@@ -1279,7 +1355,11 @@ describe("B. SAME-request admission→mutation window (reviewGovernanceCommands)
       expect(row.name).toBe("positive-control-ok");
       expect(row.version).toBe(2);
       expect(
-        getDb().select().from(governanceAudit).where(eq(governanceAudit.operation, "review_rule.update")).all().length,
+        getDb()
+          .select()
+          .from(governanceAudit)
+          .where(eq(governanceAudit.operation, "review_rule.update"))
+          .all().length,
       ).toBe(1);
     } finally {
       writeFileSync(join(gateDir, gateRelease), "1");
@@ -1302,12 +1382,16 @@ describe("B. SAME-request admission→mutation window (reviewGovernanceCommands)
       .where(and(eq(roleAssignments.principalId, agent.id), eq(roleAssignments.state, "active")))
       .get()!.id;
 
-    // SHORT FUTURE deadline with startup margin: +8s. Carrier fork +
-    // initDb + Fastify assembly + socket admission historically lands in
-    // ~2-4s, so 8s leaves room while keeping the bounded wait short. If
-    // admission somehow eats the whole margin, the admission-instant check
-    // below FAILS the fixture — an initially-expired denial never counts.
-    const deadlineMs = Date.now() + 8_000;
+    // SHORT FUTURE deadline with startup margin: +30s. Carrier fork +
+    // initDb + Fastify assembly + socket admission can exceed 8s on a loaded
+    // CI runner, which would fail the admission-instant check before the
+    // deadline-crossing wait (the actual subject) ever runs. The margin only
+    // needs to exceed worst-case startup; the deadline-crossing wait stays
+    // bounded by WORKER_CROSS_AT, so the test does not get slower on a
+    // healthy runner. If admission somehow eats the whole margin, the
+    // admission-instant check below FAILS the fixture — an initially-expired
+    // denial never counts.
+    const deadlineMs = Date.now() + 30_000;
     const storedExpiry = new Date(deadlineMs).toISOString();
     getDb()
       .update(roleAssignments)
@@ -1335,15 +1419,25 @@ describe("B. SAME-request admission→mutation window (reviewGovernanceCommands)
       // now < deadline — otherwise this fixture proves nothing.
       expect(Date.now(), "admission must precede the stored deadline").toBeLessThan(deadlineMs);
       expect(
-        JSON.stringify(getDb().select().from(roleAssignments).where(eq(roleAssignments.id, assignmentId)).get()),
+        JSON.stringify(
+          getDb().select().from(roleAssignments).where(eq(roleAssignments.id, assignmentId)).get(),
+        ),
       ).toBe(assignmentBefore);
 
       // Deadline crossing, NO expiry rewrite: the waitonly waiter sleeps
       // until the stored deadline on wall clock and signals via the existing
       // marker protocol. The grant's bytes are never touched.
-      const waiter = forkCommandWorker(fileDbPath, rule.id, "waitonly", undefined, gateDir, `x-${Math.random()}`, {
-        WORKER_CROSS_AT: String(deadlineMs),
-      });
+      const waiter = forkCommandWorker(
+        fileDbPath,
+        rule.id,
+        "waitonly",
+        undefined,
+        gateDir,
+        `x-${Math.random()}`,
+        {
+          WORKER_CROSS_AT: String(deadlineMs),
+        },
+      );
       try {
         waiter.send({ type: "GO" });
         const crossed = await waiter.next();
@@ -1368,16 +1462,22 @@ describe("B. SAME-request admission→mutation window (reviewGovernanceCommands)
       expect(row.name).toBe("expiry-window");
       expect(row.version).toBe(1);
       expect(
-        getDb().select().from(governanceAudit).where(eq(governanceAudit.operation, "review_rule.update")).all().length,
+        getDb()
+          .select()
+          .from(governanceAudit)
+          .where(eq(governanceAudit.operation, "review_rule.update"))
+          .all().length,
       ).toBe(0);
       expect(
-        JSON.stringify(getDb().select().from(roleAssignments).where(eq(roleAssignments.id, assignmentId)).get()),
+        JSON.stringify(
+          getDb().select().from(roleAssignments).where(eq(roleAssignments.id, assignmentId)).get(),
+        ),
       ).toBe(assignmentBefore);
     } finally {
       writeFileSync(join(gateDir, gateRelease), "1");
       await carrier.dispose();
     }
-  }, 60_000);
+  }, 120_000);
 });
 
 describe("C. audit-fault rollback across ALL FIVE real commands (reviewGovernanceCommands)", () => {
@@ -1406,21 +1506,28 @@ describe("C. audit-fault rollback across ALL FIVE real commands (reviewGovernanc
   /** Same fault as withAuditFault, but hands the callback's FailingDbClient
    *  back to the caller (writeCount/writes survive the throw) so the test can
    *  assert fault-reach evidence. */
-  function withAuditFaultCapturing(fn: () => unknown, out: { client: FailingDbClient | null }): void {
+  function withAuditFaultCapturing(
+    fn: () => unknown,
+    out: { client: FailingDbClient | null },
+  ): void {
     const db = getDb() as unknown as {
       transaction: (cb: (tx: unknown) => unknown, cfg?: unknown) => unknown;
     };
     const original = db.transaction;
     db.transaction = function faulting(cb: (tx: unknown) => unknown, cfg?: unknown) {
-      return original.call(db, (tx) => {
-        const failing = new FailingDbClient(tx as never, {
-          failAtWriteN: null,
-          failAtTableName: "governance_audit",
-          tableFaultError: new Error("Injected failure at governance_audit write"),
-        });
-        out.client = failing;
-        return cb(failing);
-      }, cfg);
+      return original.call(
+        db,
+        (tx) => {
+          const failing = new FailingDbClient(tx as never, {
+            failAtWriteN: null,
+            failAtTableName: "governance_audit",
+            tableFaultError: new Error("Injected failure at governance_audit write"),
+          });
+          out.client = failing;
+          return cb(failing);
+        },
+        cfg,
+      );
     };
     try {
       fn();
@@ -1473,11 +1580,11 @@ describe("C. audit-fault rollback across ALL FIVE real commands (reviewGovernanc
       {
         label: "createRuleCommand",
         faulted: () =>
-        createRuleCommand({
-          habitatId,
-          actor: { type: "human", id: admin },
-          fields: { name: `twin-create-${(seq += 1)}` },
-        }),
+          createRuleCommand({
+            habitatId,
+            actor: { type: "human", id: admin },
+            fields: { name: `twin-create-${(seq += 1)}` },
+          }),
 
         twin: () => {
           const created = createRuleCommand({
@@ -1492,11 +1599,11 @@ describe("C. audit-fault rollback across ALL FIVE real commands (reviewGovernanc
       {
         label: "updateRuleCommand",
         faulted: () =>
-        updateRuleCommand({
-          ruleId: rule.id,
-          actor: { type: "human", id: admin },
-          fields: { name: `twin-update-${(seq += 1)}` },
-        }),
+          updateRuleCommand({
+            ruleId: rule.id,
+            actor: { type: "human", id: admin },
+            fields: { name: `twin-update-${(seq += 1)}` },
+          }),
 
         twin: () => {
           const updated = updateRuleCommand({
@@ -1511,31 +1618,34 @@ describe("C. audit-fault rollback across ALL FIVE real commands (reviewGovernanc
       {
         label: "deleteRuleCommand",
         faulted: () =>
-        deleteRuleCommand({
-          ruleId: rule.id,
-          expectedVersion: undefined,
-          actor: { type: "human", id: admin },
-        }),
+          deleteRuleCommand({
+            ruleId: rule.id,
+            expectedVersion: undefined,
+            actor: { type: "human", id: admin },
+          }),
 
         twin: () => {
-          const doomed = createRuleCommand({
-            habitatId,
+          // SAME target as the faulted call — the positive control must prove
+          // deletion works for the exact rule the faulted path operated on.
+          deleteRuleCommand({
+            ruleId: rule.id,
+            expectedVersion: undefined,
             actor: { type: "human", id: admin },
-            fields: { name: `twin-delete-${(seq += 1)}` },
           });
-          deleteRuleCommand({ ruleId: doomed.id, actor: { type: "human", id: admin } });
-          expect(getDb().select().from(reviewRules).where(eq(reviewRules.id, doomed.id)).get()).toBeUndefined();
+          expect(
+            getDb().select().from(reviewRules).where(eq(reviewRules.id, rule.id)).get(),
+          ).toBeUndefined();
         },
       },
       {
         label: "addReviewerCommand",
         faulted: () =>
-        addReviewerCommand({
-          taskId,
-          reviewerId: addReviewerHuman,
-          reviewerType: "human",
-          actor: { type: "human", id: admin },
-        }),
+          addReviewerCommand({
+            taskId,
+            reviewerId: addReviewerHuman,
+            reviewerType: "human",
+            actor: { type: "human", id: admin },
+          }),
 
         twin: () => {
           const added = addReviewerCommand({
@@ -1550,11 +1660,11 @@ describe("C. audit-fault rollback across ALL FIVE real commands (reviewGovernanc
       {
         label: "removeReviewerCommand",
         faulted: () =>
-        removeReviewerCommand({
-          taskId,
-          reviewerId: removeReviewerHuman,
-          actor: { type: "human", id: admin },
-        }),
+          removeReviewerCommand({
+            taskId,
+            reviewerId: removeReviewerHuman,
+            actor: { type: "human", id: admin },
+          }),
 
         twin: () => {
           removeReviewerCommand({
@@ -1566,7 +1676,12 @@ describe("C. audit-fault rollback across ALL FIVE real commands (reviewGovernanc
             getDb()
               .select()
               .from(taskReviewers)
-              .where(and(eq(taskReviewers.taskId, taskId), eq(taskReviewers.reviewerId, removeReviewerHuman)))
+              .where(
+                and(
+                  eq(taskReviewers.taskId, taskId),
+                  eq(taskReviewers.reviewerId, removeReviewerHuman),
+                ),
+              )
               .get(),
           ).toBeUndefined();
         },
@@ -1599,12 +1714,17 @@ describe("C. audit-fault rollback across ALL FIVE real commands (reviewGovernanc
       // the FINAL boundary — the fault was reached at the audit sink, after
       // the mutation.
       const mutationWrites = writes.filter((w) => w.table !== "governance_audit");
-      expect(mutationWrites.length, `${label} mutation write must reach the wrapper first`).toBeGreaterThanOrEqual(1);
-      expect(writes[writes.length - 1]!.table, `${label} fault must fire at the audit insert`).toBe("governance_audit");
-      // And no audit row survived (the insert threw before executing).
       expect(
-        getDb().select().from(governanceAudit).all().length,
-      ).toBe(JSON.parse(baseline).audit.length);
+        mutationWrites.length,
+        `${label} mutation write must reach the wrapper first`,
+      ).toBeGreaterThanOrEqual(1);
+      expect(writes[writes.length - 1]!.table, `${label} fault must fire at the audit insert`).toBe(
+        "governance_audit",
+      );
+      // And no audit row survived (the insert threw before executing).
+      expect(getDb().select().from(governanceAudit).all().length).toBe(
+        JSON.parse(baseline).audit.length,
+      );
 
       // Complete rollback: full affected-state equality.
       expect(affectedState(rule.id, [taskId])).toBe(baseline);

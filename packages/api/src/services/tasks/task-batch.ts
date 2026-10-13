@@ -57,7 +57,7 @@ export function batchOperateTasks(
   habitatId: string,
   input: import("../../models/schemas.js").BatchTaskInput,
   actorId: string,
-  _actorType: "human" | "agent" = "human",
+  actorType: "human" | "agent" = "human",
 ): import("../../models/index.js").BatchTaskResponse {
   const { taskIds, operation, payload } = input;
   const results: import("../../models/index.js").BatchTaskResult[] = [];
@@ -117,7 +117,10 @@ export function batchOperateTasks(
     }
 
     if (operation === "delete") {
-      const deleted = deleteTask(task.id);
+      const deleted = deleteTask(task.id, {
+        actorType: actorType,
+        actorId: actorId,
+      });
       if (!deleted.success) {
         results.push({
           taskId: task.id,

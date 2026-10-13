@@ -27,17 +27,21 @@
  *                  delete row, one IMMEDIATE reservation). Reports completion
  *                  or the thrown error.
  *
- *   issue-seam   — the SERIALIZATION proof. Invokes the real
- *                  `createAssignment` command with a TEST-OWNED
- *                  interception of THIS connection's `.update()` so the first
- *                  ledger version bump inside the command blocks between the
- *                  command's own existence/authority reads and its write,
- *                  on a SYNCHRONOUS filesystem gate. The parent's competing
- *                  writer commits on its own connection while this frame is
- *                  held; the gate then releases and the SAME command
- *                  resumes. Production source is untouched — no production
- *                  hook exists; the swap is confined to this worker process's
- *                  own client object.
+ *   issue-seam   — the STALE-EXPECTATION proof (pre-reservation gate). Invokes
+ *                  the real `createAssignment` command with a TEST-OWNED
+ *                  interception of THIS connection's `.transaction()` so the
+ *                  command blocks BEFORE it opens its writer reservation
+ *                  (BEGIN IMMEDIATE), on a SYNCHRONOUS filesystem gate — not
+ *                  between the command's reads and its write inside the
+ *                  reservation. The parent's competing writer commits on its
+ *                  own connection while this frame is held; the gate then
+ *                  releases and the SAME command runs start-to-finish against
+ *                  the peer's already-committed state. This is NOT an
+ *                  in-transaction race — blocking inside the reservation would
+ *                  hold SQLite's single write lock and deadlock the peer (see
+ *                  the placement note below). Production source is untouched —
+ *                  no production hook exists; the swap is confined to this
+ *                  worker process's own client object.
  *
  * Gate protocol (test-owned private dir): the worker writes
  * `<gateDir>/entered` before blocking; the parent writes `<gateDir>/<release>`

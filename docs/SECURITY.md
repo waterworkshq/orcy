@@ -289,12 +289,21 @@ both cases. Every mutation is CAS-guarded (`scopeIncarnation` +
 `expectedScopeVersion` + object expectations) and audited in one IMMEDIATE
 reservation — an audit fault rolls the mutation back. Assignment issuance and
 revision adoption additionally refuse permission/scope mismatches at command
-input: `review.configure` revisions cannot be granted at Task scope. Custody transitions
-(team/habitat/mission/task/agent deletion) retire ledgers and revoke grants
-before the row cascade in the same reservation, and a reused scope ID can
-never revive retired authority (fresh incarnation required). These are
-managed-seam guarantees; raw database writes and trigger removal remain
-outside them.
+input: `review.configure` revisions cannot be granted at Task scope. Scope
+custody transitions (team/habitat/mission/task deletion) retire ledgers and
+revoke grants before the row cascade in the same reservation, and a reused
+scope ID can never revive retired authority (fresh incarnation required).
+Authorized same-lineage import restoration re-enrolls only the Mission/Task
+IDs actually replaced and restored, with fresh incarnations and old grants
+still revoked; omitted, reset and remapped IDs do not receive that authority.
+Agent deletion is a principal-level transition, not a scope-custody one: it
+revokes only that agent's active grants in the same reservation (a
+re-registered registry ID can never revive them) and performs no ledger or
+namespace retirement. These are managed-seam guarantees; raw database writes
+and trigger removal remain outside them.
+Served deletion/import paths carry the authenticated human or agent into
+custody audit. Legacy internal calls without an authenticated caller retain
+an explicit unknown-attribution marker rather than claiming a named user.
 
 ### Review-Governance Command Service (migration 0083)
 

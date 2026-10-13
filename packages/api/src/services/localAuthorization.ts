@@ -54,9 +54,7 @@ export type LocalPermission = (typeof LOCAL_PERMISSION_CATALOGUE)[number];
 export const LOCAL_PERMISSION_CATALOGUE_VERSION = 1;
 
 /** Typed local principal — persisted local human or local agent identity. */
-export type LocalPrincipal =
-  | { type: "human"; id: string }
-  | { type: "agent"; id: string };
+export type LocalPrincipal = { type: "human"; id: string } | { type: "agent"; id: string };
 
 export type GovernanceScopeKind = "team" | "habitat" | "mission" | "task";
 
@@ -400,7 +398,11 @@ function evaluateAgent(
   target: AuthorizationTarget,
   chain: { scopeKind: GovernanceScopeKind; scopeId: string }[],
 ): AuthorizationDecision {
-  const agentRow = tx.select({ id: agents.id }).from(agents).where(eq(agents.id, principal.id)).get();
+  const agentRow = tx
+    .select({ id: agents.id })
+    .from(agents)
+    .where(eq(agents.id, principal.id))
+    .get();
   if (!agentRow) return { allowed: false, reason: "PRINCIPAL_NOT_FOUND" };
 
   if (permission === "review.assign" && target.scopeKind === "task") {
@@ -478,13 +480,6 @@ function findActiveGrant(
     // strings reach the epoch comparison.
     if (row.expiresAt !== null) {
       if (!isValidCanonicalIsoInstant(row.expiresAt)) continue;
-      // Numeric epoch comparison — lexical ordering of canonical UTC strings
-      // is equivalent, but epochs make the boundary explicit and cannot be
-      // fooled by representation.
-      if (Date.parse(row.expiresAt) <= nowEpochMs) {
-        sawExpiredMatch = true;
-        continue;
-      }
     }
     // Pinned revision must contain the permission with a supported catalogue
     // version and a fully known permission set — a revision carrying unknown
@@ -506,9 +501,7 @@ function findActiveGrant(
     if (row.catalogueVersion !== LOCAL_PERMISSION_CATALOGUE_VERSION) continue;
     if (!permissions.includes(permission)) continue;
     // Ancestor-or-self match against the target chain.
-    const chainMatch = chainKeys.some(
-      (k) => k.kind === row.scopeKind && k.id === row.scopeId,
-    );
+    const chainMatch = chainKeys.some((k) => k.kind === row.scopeKind && k.id === row.scopeId);
     if (!chainMatch) continue;
 
     // History-aware assignment-scope state: the grant's captured incarnation
@@ -536,25 +529,22 @@ function findActiveGrant(
       );
       if (!inTargetChain) continue;
       // The assignment scope's own ancestry must contain the namespace too.
-      const assignmentAncestry = resolveScopeChainWithClient(
-        tx,
-        row.scopeKind,
-        row.scopeId,
-      );
+      const assignmentAncestry = resolveScopeChainWithClient(tx, row.scopeKind, row.scopeId);
       if (!assignmentAncestry) continue;
       const inAssignmentAncestry = assignmentAncestry.some(
         (k) => k.scopeKind === row.namespaceKind && k.scopeId === row.namespaceScopeId,
       );
       if (!inAssignmentAncestry) continue;
-      const namespaceState = getScopeStateWithClient(
-        tx,
-        row.namespaceKind,
-        row.namespaceScopeId!,
-      );
+      const namespaceState = getScopeStateWithClient(tx, row.namespaceKind, row.namespaceScopeId!);
       if (!namespaceState || namespaceState.status !== "active") continue;
       if (row.namespaceIncarnation !== namespaceState.incarnation) continue;
     }
 
+    // Only an otherwise qualifying grant can explain an expired denial.
+    if (row.expiresAt !== null && Date.parse(row.expiresAt) <= nowEpochMs) {
+      sawExpiredMatch = true;
+      continue;
+    }
     return { allowed: true, via: "assignment", matchedAssignmentId: row.assignmentId };
   }
 

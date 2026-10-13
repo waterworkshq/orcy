@@ -340,21 +340,34 @@ export const importManifestSchema = z
 
 export type ImportManifestInput = z.infer<typeof importManifestSchema>;
 
-export const createHabitatSchema = z.object({
-  name: z.string().min(1).max(100),
-  description: z.string().max(500).optional(),
-  defaultColumns: z.boolean().optional().default(true),
-  teamId: z.string().uuid().nullable().optional(),
-  /**
-   * Team-binding governance expectations (administration ticket). MANDATORY
-   * (and only legal) when teamId is nonnull: the UI fetches the authorized
-   * Team ledger expectation and sends it; the create reservation CASes the
-   * Team ledger inside the habitat-create transaction. Agents cannot create
-   * team-bound habitats at all.
-   */
-  expectedTeamVersion: z.number().int().min(1).optional(),
-  teamScopeIncarnation: z.number().int().min(1).optional(),
-});
+export const createHabitatSchema = z
+  .object({
+    name: z.string().min(1).max(100),
+    description: z.string().max(500).optional(),
+    defaultColumns: z.boolean().optional().default(true),
+    teamId: z.string().uuid().nullable().optional(),
+    /**
+     * Team-binding governance expectations (administration ticket). MANDATORY
+     * (and only legal) when teamId is nonnull: the UI fetches the authorized
+     * Team ledger expectation and sends it; the create reservation CASes the
+     * Team ledger inside the habitat-create transaction. Agents cannot create
+     * team-bound habitats at all.
+     */
+    expectedTeamVersion: z.number().int().min(1).optional(),
+    teamScopeIncarnation: z.number().int().min(1).optional(),
+  })
+  .superRefine((input, ctx) => {
+    if (
+      input.teamId == null &&
+      (input.expectedTeamVersion !== undefined || input.teamScopeIncarnation !== undefined)
+    ) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Team expectations require a nonnull teamId",
+        path: ["teamId"],
+      });
+    }
+  });
 
 export const retryPolicySchema = z.object({
   maxRetries: z.number().int().min(0).max(10).optional(),

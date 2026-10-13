@@ -127,7 +127,11 @@ export async function habitatRoutes(fastify: FastifyInstance): Promise<void> {
       config: { authPolicy: "human" },
     },
     async (request, reply) => {
-      habitatService.deleteHabitat(request.params.habitatId);
+      // Real authenticated actor reaches the custody-retirement audit.
+      habitatService.deleteHabitat(request.params.habitatId, {
+        actorType: request.agent ? "agent" : "human",
+        actorId: request.agent?.id ?? request.user?.id ?? "unknown",
+      });
       reply.code(204).send();
     },
   );
