@@ -6,6 +6,11 @@ import * as memberRepo from '../repositories/teamMember.js';
 import { teamAdminOrOwner, teamExists } from '../middleware/team.js';
 import { badRequest, notFound, conflict, unauthorized } from '../errors.js';
 import { applyDeclaredAuthPolicies } from "../authPolicy.js";
+import { getDb } from "../db/index.js";
+import {
+  reenrollTeamDescendantsWithClient,
+  retireTeamCustodyWithClient,
+} from "../services/governanceCustody.js";
 
 const createOrgSchema = z.object({
   name: z.string().min(1).max(100),
@@ -128,7 +133,23 @@ export async function organizationRoutes(fastify: FastifyInstance): Promise<void
     '/teams/:id',
     { preHandler: [teamAdminOrOwner], config: { authPolicy: "human" } },
     async (request: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) => {
-      teamRepo.deleteTeam(request.params.id);
+      // Team custody bundle (administration ticket): retire Team + all
+      // descendant ledgers/namespaces and revoke grants BEFORE the row
+      // delete (SET NULL keeps descendants), then reenroll fresh active
+      // incarnations for still-existing descendants — one reservation.
+      const db = getDb();
+      db.transaction(
+        (tx) => {
+          const { habitatIds } = retireTeamCustodyWithClient(
+            tx,
+            request.params.id,
+            "team deleted",
+          );
+          teamRepo.deleteTeam(request.params.id);
+          reenrollTeamDescendantsWithClient(tx, habitatIds, "team deleted");
+        },
+        { behavior: "immediate" },
+      );
       reply.code(204).send();
     }
   );

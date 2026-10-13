@@ -107,6 +107,11 @@ describe("0082 legacy migration classifier (real production upgrade)", () => {
     const raw = new Database(dbPath);
     raw.pragma("foreign_keys = ON");
     for (const table of [
+      "governance_audit",
+      "role_assignments",
+      "role_revisions",
+      "role_definitions",
+      "governance_scopes",
       "task_review_overrides",
       "task_review_decisions",
       "task_review_snapshots",
@@ -114,11 +119,27 @@ describe("0082 legacy migration classifier (real production upgrade)", () => {
     ]) {
       raw.prepare(`DROP TABLE IF EXISTS ${table}`).run();
     }
-    const marker = raw
-      .prepare(`SELECT id FROM __drizzle_migrations ORDER BY id DESC LIMIT 1`)
-      .get() as { id: number } | undefined;
-    expect(marker).toBeDefined();
-    raw.prepare(`DELETE FROM __drizzle_migrations WHERE id = ?`).run(marker!.id);
+    for (const trigger of [
+      "role_revisions_no_update",
+      "role_revisions_no_delete",
+      "habitats_owner_team_exclusive_chk_insert",
+      "habitats_owner_team_exclusive_chk_update",
+    ]) {
+      raw.prepare(`DROP TRIGGER IF EXISTS ${trigger}`).run();
+    }
+    // Revert 0083's ALTERs so re-running it stays legal (index first —
+    // DROP COLUMN refuses while an index references the column).
+    raw.prepare(`DROP INDEX IF EXISTS idx_habitats_owner`).run();
+    raw.prepare(`ALTER TABLE habitats DROP COLUMN owner_user_id`).run();
+    raw.prepare(`ALTER TABLE review_rules DROP COLUMN version`).run();
+    // Roll back to the pre-0082 journal tail: drop markers for 0083 AND 0082.
+    const markers = raw
+      .prepare(`SELECT id FROM __drizzle_migrations ORDER BY id DESC LIMIT 2`)
+      .all() as { id: number }[];
+    expect(markers.length).toBe(2);
+    for (const marker of markers) {
+      raw.prepare(`DELETE FROM __drizzle_migrations WHERE id = ?`).run(marker.id);
+    }
     seedLegacyShapes(dbPath, missionId, agentId);
     raw.close();
     await initDb(dbPath);

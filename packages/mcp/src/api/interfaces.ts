@@ -632,10 +632,23 @@ export interface ReviewClient {
     ruleId: string,
     input: ReviewRuleUpdateInput,
   ): Promise<{ reviewRule: ReviewRule | null }>;
-  deleteReviewRule(ruleId: string): Promise<void>;
-  listTaskReviewers(taskId: string): Promise<{ reviewers: TaskReviewer[] }>;
-  addTaskReviewer(taskId: string, input: unknown): Promise<{ reviewer: TaskReviewer }>;
-  removeTaskReviewer(taskId: string, reviewerId: string): Promise<void>;
+  deleteReviewRule(ruleId: string, expectedVersion?: number): Promise<void>;
+  listTaskReviewers(taskId: string): Promise<{ reviewers: TaskReviewer[]; reviewersToken?: string }>;
+  addTaskReviewer(
+    taskId: string,
+    input: {
+      reviewerId: string;
+      reviewerType: "human" | "agent";
+      /** Optional roster token from a prior list; stale = 409. */
+      expectedReviewersToken?: string;
+    },
+  ): Promise<{ reviewer: TaskReviewer }>;
+  removeTaskReviewer(
+    taskId: string,
+    reviewerId: string,
+    /** Optional roster token; stale = 409. */
+    expectedReviewersToken?: string,
+  ): Promise<void>;
 }
 
 export interface EffortClient {

@@ -53,6 +53,13 @@ import {
   releaseActivationEpochGroups,
 } from "../db/schema/release.js";
 import {
+  governanceScopes,
+  roleDefinitions,
+  roleRevisions,
+  roleAssignments,
+  governanceAudit,
+} from "../db/schema/roleFoundation.js";
+import {
   ENFORCEMENT_MIGRATION_TAG,
   ADDITIVE_WATERMARK_TAG,
 } from "../db/stagedMigrations.js";
@@ -89,6 +96,11 @@ const SCOPED_TABLES: readonly { table: SQLiteTable; name: string }[] = [
   { table: releaseProjectionDeliveries, name: "release_projection_deliveries" },
   { table: releaseActivationEpochs, name: "release_activation_epochs" },
   { table: releaseActivationEpochGroups, name: "release_activation_epoch_groups" },
+  { table: governanceScopes, name: "governance_scopes" },
+  { table: roleDefinitions, name: "role_definitions" },
+  { table: roleRevisions, name: "role_revisions" },
+  { table: roleAssignments, name: "role_assignments" },
+  { table: governanceAudit, name: "governance_audit" },
 ];
 
 // ---------------------------------------------------------------------------

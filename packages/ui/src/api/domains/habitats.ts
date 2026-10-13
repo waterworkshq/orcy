@@ -29,13 +29,26 @@ export const habitatsApi = {
       columns: PublicHabitat["columns"];
       missions: MissionWithProgress[];
     }>(`/habitats/${id}`, { signal }),
-  create: (data: { name: string; description?: string; teamId?: string | null }) =>
+  create: (data: {
+    name: string;
+    description?: string;
+    teamId?: string | null;
+    /** Team-binding governance expectations (required when teamId is nonnull). */
+    expectedTeamVersion?: number;
+    teamScopeIncarnation?: number;
+  }) =>
     request<{ habitat: PublicHabitat; columns: NonNullable<PublicHabitat["columns"]> }>(
       "/habitats",
       {
         method: "POST",
         body: JSON.stringify(data),
       },
+    ),
+  /** Current governance ledger expectation for a Team (create-binding fetch). */
+  teamGovernanceExpectation: (teamId: string, signal?: AbortSignal) =>
+    request<{ incarnation: number; version: number }>(
+      `/roles?scopeKind=team&scopeId=${encodeURIComponent(teamId)}`,
+      { signal },
     ),
   update: (
     id: string,

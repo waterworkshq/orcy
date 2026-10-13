@@ -51,6 +51,8 @@ Complete reference for the Orcy REST API.
 - [Auth](#auth)
 - [SSE Streaming](#sse-streaming)
 - [Learning Loop Extraction](#learning-loop-extraction)
+- [Local Role Administration](#local-role-administration)
+- [Review-Governance Commands](#review-governance-commands)
 
 ---
 
@@ -1707,7 +1709,7 @@ List the reviewer rows assigned to a task (agent API key or human JWT). Object a
 
 ### POST /tasks/:taskId/reviewers
 
-Assign a reviewer to a task. **Auth:** human JWT only (reviewer management stays human-governed) — agent API keys receive `401`; there is no admin-role distinction (any authenticated human on personal habitats, any team member on team habitats).
+Assign a reviewer to a task. **Auth:** `local_actor` — agent API keys authenticate, then the governance evaluator enforces `review.assign` authority on the target Task (persisted governor adapter or explicit operational grant; viewer ceiling) and answers `403`, never `401`. Human admission is governed the same way (persisted governor adapter or explicit operational grant; viewer ceiling).
 
 **Request:**
 
@@ -1730,7 +1732,7 @@ Validation (both explicit creation paths share this contract): the id must resol
 
 ### DELETE /tasks/:taskId/reviewers/:reviewerId
 
-Remove a task's reviewer row (human JWT only — agent API keys receive `401`; team membership required on team habitats, no admin-role distinction). `(taskId, reviewerId)` is unique, so the untyped wire argument resolves exactly one row; the request shape is unchanged.
+Remove a task's reviewer row (`local_actor` — agent API keys authenticate, then the evaluator enforces `review.assign` on the target Task and answers `403`, never `401`; persisted governor adapter or explicit operational grant; viewer ceiling). `(taskId, reviewerId)` is unique, so the untyped wire argument resolves exactly one row; the request shape is unchanged.
 
 ### GET /tasks/:id/workflow-context
 
@@ -2210,7 +2212,7 @@ to equal the current generation. The signed merge-approval webhook
 (`autoApproveOnMerge`) approves only genuine known-zero tasks — positive,
 override-to-zero, and unknown requirements stay `submitted` with zero writes.
 
-> **Administrative boundary — sprint and review-rule routes.** Sprint and review-rule READS are local-actor for agent keys with one habitat-shape carve-out: the habitat-scoped reads (`GET /habitats/:habitatId/sprints`, `GET /habitats/:habitatId/sprints/active`, `GET /habitats/:habitatId/review-rules`) and `GET /tasks/:taskId/reviewers` admit any agent on any habitat shape (habitat-scoped sprint/review-rule reads have no agent-facing habitat guard), while the four id-keyed sprint reads (`GET /sprints/:id`, `/metrics`, `/burndown`, `/carry-over`) additionally require a non-team (personal) habitat for agents — on team habitats agents receive **403** ("Agents cannot access team habitats"); for human JWTs: personal habitats admit any authenticated human, while on team habitats a nonmember receives **403** on the habitat-scoped sprint/review-rule reads, on the id-keyed sprint reads, on `GET /tasks/:taskId/reviewers` (resolved through the target task's Mission → Habitat; a missing Task or Mission is **404**), and on the batch route (`POST /habitats/:habitatId/tasks/batch`), the human-policy habitat settings surfaces (`PATCH /habitats/:id`, `PUT /habitats/:id/webhook-secrets`), and the six direct Task object operations (`GET`/`DELETE /tasks/:id`, `GET /tasks/:id/details`, `/events`, `/comments`, `GET /tasks/:taskId/code-evidence` — each resolved through the target task's Mission → Habitat; a missing Task or Mission is **404**), and the five scalar adjunct reads (`GET /tasks/:id/quality-checklist`, `/approval-status`, `/effort-report`, `/effort-entries`, `/time-report` — same target-derived resolution), and the four Task dependency operations (`GET /tasks/:id/dependencies`, `GET /tasks/:id/blocked-status`, `POST /tasks/:id/dependencies`, `DELETE /tasks/:id/dependencies/:depId` — target-derived resolution for the source Task; reads additionally authorize every linked edge endpoint from a raw both-direction inventory and deny the whole response `403` when any linked team Task is inaccessible, writes authorize only the selected ordered pair's both actual endpoints before mutating, and an absent DELETE pair is `404` rather than a false success), and the six estimate/watcher/adjunct operations (`PUT /tasks/:id/estimate`, `POST`/`DELETE /tasks/:id/watch`, `GET /tasks/:id/watchers`, `GET /tasks/:id/pull-requests`, `GET /tasks/:id/pipeline-events` — same target-derived resolution; POST watch authorizes outside its `try` so a denial or missing parent keeps its `403`/`404`, DELETE authorizes before its own-pair read, and the estimate write keeps its `local_actor` policy so agents retain broad existing-Habitat admission) — all via the same shared membership predicate. The two Task-context reads (`GET /tasks/:id/failure-context`, `GET /tasks/:id/workflow-context`) are now inside this check, with the same request-time-only limit as the other guarded operations, and their restricted ordinary projection plus the captured/current Habitat 409 refusal are recorded above (ADR-0052) — note that the separate `adminOnly` Mission Workflow GET and the Workflow Failure Context list are not part of this boundary and remain full. Separately inventoried writes without target-derived admission are agent-only metadata `PATCH /tasks/:id`, evidence linking (`POST /tasks/:taskId/code-evidence`), completeness overrides (`POST`/`DELETE /tasks/:taskId/code-evidence/not-applicable`), and gap reporting (`POST /tasks/:taskId/code-evidence/gaps`); the evidence GET, correction and gap-resolution routes already have their own admission checks. This is a bounded inventory, not a claim that all other Task writes lack admission. Every sprint lifecycle mutation (`POST /habitats/:habitatId/sprints`, `PATCH`/`DELETE /sprints/:id`, `POST /sprints/:id/start|complete|cancel|missions`, `DELETE /sprints/:id/missions/:missionId`) and every review-rule mutation (`POST /habitats/:habitatId/review-rules`, `PATCH`/`DELETE /review-rules/:id`) is human-authenticated (JWT) only: agent API keys receive **401** (not 403 — the auth policy rejects non-JWT callers before the handler), with no admin-role distinction — any authenticated human on personal habitats, any team member on team habitats.
+> **Administrative boundary — sprint and review-rule routes.** Sprint and review-rule READS are local-actor for agent keys with one habitat-shape carve-out: the habitat-scoped reads (`GET /habitats/:habitatId/sprints`, `GET /habitats/:habitatId/sprints/active`, `GET /habitats/:habitatId/review-rules`) and `GET /tasks/:taskId/reviewers` admit any agent on any habitat shape (habitat-scoped sprint/review-rule reads have no agent-facing habitat guard), while the four id-keyed sprint reads (`GET /sprints/:id`, `/metrics`, `/burndown`, `/carry-over`) additionally require a non-team (personal) habitat for agents — on team habitats agents receive **403** ("Agents cannot access team habitats"); for human JWTs: personal habitats admit any authenticated human, while on team habitats a nonmember receives **403** on the habitat-scoped sprint/review-rule reads, on the id-keyed sprint reads, on `GET /tasks/:taskId/reviewers` (resolved through the target task's Mission → Habitat; a missing Task or Mission is **404**), and on the batch route (`POST /habitats/:habitatId/tasks/batch`), the human-policy habitat settings surfaces (`PATCH /habitats/:id`, `PUT /habitats/:id/webhook-secrets`), and the six direct Task object operations (`GET`/`DELETE /tasks/:id`, `GET /tasks/:id/details`, `/events`, `/comments`, `GET /tasks/:taskId/code-evidence` — each resolved through the target task's Mission → Habitat; a missing Task or Mission is **404**), and the five scalar adjunct reads (`GET /tasks/:id/quality-checklist`, `/approval-status`, `/effort-report`, `/effort-entries`, `/time-report` — same target-derived resolution), and the four Task dependency operations (`GET /tasks/:id/dependencies`, `GET /tasks/:id/blocked-status`, `POST /tasks/:id/dependencies`, `DELETE /tasks/:id/dependencies/:depId` — target-derived resolution for the source Task; reads additionally authorize every linked edge endpoint from a raw both-direction inventory and deny the whole response `403` when any linked team Task is inaccessible, writes authorize only the selected ordered pair's both actual endpoints before mutating, and an absent DELETE pair is `404` rather than a false success), and the six estimate/watcher/adjunct operations (`PUT /tasks/:id/estimate`, `POST`/`DELETE /tasks/:id/watch`, `GET /tasks/:id/watchers`, `GET /tasks/:id/pull-requests`, `GET /tasks/:id/pipeline-events` — same target-derived resolution; POST watch authorizes outside its `try` so a denial or missing parent keeps its `403`/`404`, DELETE authorizes before its own-pair read, and the estimate write keeps its `local_actor` policy so agents retain broad existing-Habitat admission) — all via the same shared membership predicate. The two Task-context reads (`GET /tasks/:id/failure-context`, `GET /tasks/:id/workflow-context`) are now inside this check, with the same request-time-only limit as the other guarded operations, and their restricted ordinary projection plus the captured/current Habitat 409 refusal are recorded above (ADR-0052) — note that the separate `adminOnly` Mission Workflow GET and the Workflow Failure Context list are not part of this boundary and remain full. Separately inventoried writes without target-derived admission are agent-only metadata `PATCH /tasks/:id`, evidence linking (`POST /tasks/:taskId/code-evidence`), completeness overrides (`POST`/`DELETE /tasks/:taskId/code-evidence/not-applicable`), and gap reporting (`POST /tasks/:taskId/code-evidence/gaps`); the evidence GET, correction and gap-resolution routes already have their own admission checks. This is a bounded inventory, not a claim that all other Task writes lack admission. Every sprint lifecycle mutation (`POST /habitats/:habitatId/sprints`, `PATCH`/`DELETE /sprints/:id`, `POST /sprints/:id/start|complete|cancel|missions`, `DELETE /sprints/:id/missions/:missionId`) remains human-authenticated (JWT) only: agent API keys receive **401** (not 403 — the auth policy rejects non-JWT callers before the handler). Review-rule mutations and task-reviewer management have MOVED to the review-governance command service (`local_actor` transport, evaluator-enforced `review.configure`/`review.assign` authority inside one IMMEDIATE reservation, viewer ceiling, optional CAS — see the Review-Governance section below): agent keys are admitted at the transport and then allowed or denied **403** by the evaluator, never 401.
 
 **Response `200`:** includes completed, carried-over, and incomplete counts plus task-level inferred reasons such as blocked dependencies, missing estimates, overdue work, repeated rejection history, or effort overrun.
 
@@ -7618,3 +7620,193 @@ Per-target scope resets only that target (the parent stays untouched until its
 own requeue). Whole-receipt requeue of a detector receipt resets only its
 dead-lettered children; completed children never re-run. Audited append-only
 (`effect_receipt_admin_actions`).
+
+## Local Role Administration
+
+Governance commands for local role definitions, revisions, and assignments.
+All routes are dual-prefixed (`/api/v1/...` current,
+`/api/...` deprecated twin), require **human auth**, and every mutating body
+carries `scopeIncarnation` + `expectedScopeVersion` (plus object expectations)
+checked inside a single IMMEDIATE reservation — authority, mutation, scope
+bump, and audit are atomic; an audit fault rolls the mutation back.
+
+**Governor authority (who may command):** the *current persisted* governor —
+global admin everywhere; non-viewer team owner/admin for team descendants;
+explicit personal owner of a still-personal habitat. Viewers are an absolute
+ceiling. Operational grants, past issuers, and JWT role claims alone never
+confer administration authority.
+
+**Error contract:** target-missing 404 fires BEFORE governor 403
+`AUTHORIZATION_DENIED` (a missing target still answers 404 while an existing
+but unauthorized one answers 403, so the two remain distinguishable — the
+ordering is a contract, not an existence-hiding mechanism); stale
+expectations 409
+`GOVERNANCE_VERSION_CONFLICT` / `ROLE_REVISION_CONFLICT` /
+`ROLE_ASSIGNMENT_VERSION_CONFLICT`; validation 400; creation 201; object
+mutation 200; revoke/owner-clear 204. The catalogue and built-in definition
+detail reads below are the two authenticated-human exceptions to governor-only
+namespace reads; all other `/roles`, `/role-definitions`, and
+`/role-assignments` reads remain governor-only.
+
+### GET /permissions
+
+The fixed permission catalogue (`review.configure`, `review.assign`,
+catalogueVersion 1). Any authenticated human.
+
+### GET /roles?scopeKind=team|habitat&scopeId=:id
+
+Namespace definitions (built-ins + custom) with ledger state. Requires the current human governor of the requested Team/Habitat namespace. Returns `{ scopeKind, scopeId, incarnation, version, definitions[] }`.
+
+### GET /role-definitions/:id
+
+Definition + revision history + namespace ledger state. Built-ins are
+visible to any authenticated human (namespace `null`).
+
+### GET /role-assignments?scopeKind&scopeId
+
+Exact-scope assignments including retained (revoked) history. Requires the current human governor of that exact scope.
+
+### POST /teams/:id/role-definitions
+
+### POST /habitats/:id/role-definitions
+
+Create a custom definition (201). Governor-only; namespace ledger CAS; the
+definition and its revision-1 are created atomically with the audit.
+
+Body: `{ scopeIncarnation, expectedScopeVersion, name, permissions[] }`.
+
+### POST /role-definitions/:id/revisions
+
+Mint an immutable revision (201). Rejects built-in/retired definitions
+(409 `ROLE_REVISION_CONFLICT`). Body adds `expectedLatestRevision`.
+Existing assignments stay pinned to their revision — minting never
+auto-upgrades.
+
+### POST /role-definitions/:id/retire
+
+Terminal retirement (200); revokes affected assignments in the same bundle.
+Body adds `expectedLatestRevision` + `reason`.
+
+### POST /role-assignments
+
+Create an assignment (201). Typed principal existence is checked (404);
+a custom definition's namespace must sit in the assignment scope's
+ancestry (400 otherwise); the committed revision's permission set must be
+assignable at the requested scope kind — `review.configure` only Team/Habitat,
+`review.assign` Team/Habitat/Mission/Task — or the command refuses with 400
+`VALIDATION_ERROR` before any write. Regrant of an exact active tuple revokes + audits
+the old row and mints a fresh-ID row at version 1.
+
+Body: `{ principalType: "human"|"agent", principalId, revisionId, scopeKind,
+scopeId, scopeIncarnation, expectedScopeVersion, expiresAt? }`.
+`expiresAt` must be a valid ISO 8601 instant **with a timezone** (`Z` or a
+numeric offset) or 400; valid offset forms are normalized to canonical UTC
+before storage (e.g. `2020-01-01T00:00:00+02:00` stores as
+`2019-12-31T22:00:00.000Z`), while date-only values, offset-less local times,
+prose, malformed text and impossible instants (`2020-02-31T00:00:00Z`) are
+refused. Omitted or `null` keeps the grant non-expiring.
+
+### POST /role-assignments/:id/revisions
+
+Re-pin an active assignment to another revision of its definition (200).
+Body adds `expectedAssignmentVersion` (object CAS); the new revision must
+also be assignable at the assignment's scope kind (400 otherwise).
+
+### DELETE /role-assignments/:id
+
+Revoke (204). The row is retained with `state: "revoked"` and the reason.
+Body: `{ reason, scopeIncarnation, expectedScopeVersion,
+expectedAssignmentVersion }`.
+
+### PUT /habitats/:id/owner
+
+### DELETE /habitats/:id/owner
+
+Set/clear the explicit personal owner of a **personal** habitat (200/204).
+Current persisted **global admin only**; target must be a non-viewer;
+team-bound habitats are refused (409); a nonempty `reason` is required.
+
+### Team-bound habitat creation
+
+`POST /habitats` with a nonnull `teamId` additionally requires
+`expectedTeamVersion` + `teamScopeIncarnation` (400 otherwise): the create
+runs in one reservation that authorizes a human team governor, CASes the
+Team ledger, creates + seeds the habitat, and audits. Agents cannot create
+team-bound habitats (403). The UI fetches the expectation from
+`GET /roles?scopeKind=team&scopeId=...` first and surfaces conflicts for an
+explicit retry. Personal creation is unchanged.
+
+## Review-Governance Commands
+
+Review-rule management and task-reviewer management run under the
+transaction-bound command service (`services/reviewGovernance.ts`) — the
+first operational consumer of the local authorization foundation. Transport
+policy is `local_actor` (human JWT **or** agent API key); authority is
+enforced by the evaluator **inside one BEGIN IMMEDIATE reservation** per
+command: target existence → typed-identity persistence check → evaluator
+authorization (`review.configure` on the Habitat for rules, `review.assign`
+on the Task for reviewers) → optional CAS → mutation → audit. An audit fault
+rolls the whole command back. Viewers are an absolute ceiling; operational
+grants of the named permission DO authorize (unlike administration routes);
+agent keys without authority receive **403**, never 401.
+
+**Roster token CAS (reviewer management).** `GET /tasks/:taskId/reviewers`
+(see its own heading above) additionally returns `reviewersToken`: a
+deterministic SHA-256 over the actual reviewer rows (typed identity + raw
+status + projected status) and the requirement fields
+(missing/state/generation/round/version), sorted by typed identity then row
+ID. The view and the token are derived from **one consistent read
+transaction**, so they always describe the same state; the token is an opaque
+concurrency expectation, not parseable state. `POST /tasks/:taskId/reviewers`
+takes an optional body field `expectedReviewersToken` (64-char hex): omitted =
+legacy compatibility including idempotent same-type duplicates (`200` with the
+existing row); supplied and stale = **409** `REVIEWERS_TOKEN_CONFLICT` with no
+write. `DELETE /tasks/:taskId/reviewers/:reviewerId` takes optional query
+`?expectedReviewersToken=<hex>` (same 409 contract); removal never lowers the
+durable review floor or deletes decision history — it removes only the live
+assignment row.
+
+### POST /habitats/:habitatId/review-rules
+
+Create a rule. The new row starts at `version` 1 — there is no prior object,
+so no CAS field exists on create. Authority: `review.configure` on the
+target Habitat. A viewer team member is denied 403 `AUTHORIZATION_DENIED`
+regardless of membership; a persisted governor or an agent holding an
+explicit operational grant of `review.configure` creates successfully.
+Response `201`: `{ reviewRule }`.
+
+### PATCH /review-rules/:id
+
+Optional body field `expectedVersion` (positive integer): omitted = legacy
+last-write-wins; supplied and stale = **409** `REVIEW_RULE_VERSION_CONFLICT`
+with no write. Every update increments the row's `version` via native SQL
+(the single code path all rule writers share). Response `200`:
+`{ reviewRule }`.
+
+### DELETE /review-rules/:id
+
+Optional query `?expectedVersion=N` for empty-body clients (same 409
+contract). Deletion never carries a version bump. Response `204`.
+
+
+Returns the merged roster — raw rows plus each row's current-generation
+projected status — and `reviewersToken`: a deterministic SHA-256 over the
+actual reviewer rows (typed identity + raw status + projected status) and
+the requirement fields (missing/state/generation/round/version), sorted by
+typed identity then row ID. The view and the token are derived from **one
+consistent read transaction**, so they always describe the same state. The
+token is an opaque concurrency expectation for the add/remove mutations,
+not parseable state. Response `200`: `{ reviewers, reviewersToken }`.
+
+
+Optional body field `expectedReviewersToken` (64-char hex): omitted =
+legacy compatibility including idempotent same-type duplicates (200 with
+the existing row); supplied and stale = **409** `REVIEWERS_TOKEN_CONFLICT`
+with no write. Agent-typed reviewer rows must exist in the agent registry
+and must not name the task's current assignee (self-review, 400). Response
+`201` (or `200` for a same-type duplicate): `{ reviewer }`.
+
+
+Optional query `?expectedReviewersToken=<hex>` (same 409 contract).
+Removal never lowers the durable review floor or deletes decision history —
+it only removes the live assignment row. Response `204`.

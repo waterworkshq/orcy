@@ -126,6 +126,10 @@ import {
   type AttemptTerminalResult,
 } from "../../repositories/taskPublication.js";
 import { reserveAttemptWithClient } from "../../repositories/taskCreationAttempts.js";
+import {
+  retireMissionCustodyWithClient,
+  retireTaskCustodyWithClient,
+} from "../governanceCustody.js";
 import { resetRequirementsForImportWithClient } from "../../repositories/reviewSafety.js";
 import { createEventWithClient } from "../../repositories/events/event-crud.js";
 import type { ActorType } from "../../models/index.js";
@@ -1174,6 +1178,11 @@ function scopedDeleteDomain(
         if (missionIds.length > 0) {
           tx.delete(missionComments).where(inArray(missionComments.missionId, missionIds)).run();
         }
+        // Governance custody (administration ticket): retire Mission + child
+        // Task ledgers/grants before the replacement deletes the rows.
+        for (const missionId of missionIds) {
+          retireMissionCustodyWithClient(tx, missionId, "import replacement");
+        }
         tx.delete(missions).where(eq(missions.habitatId, targetHabitatId)).run();
       }
       return;
@@ -1189,6 +1198,15 @@ function scopedDeleteDomain(
           .all()
           .map((r) => r.id);
         if (missionIds.length > 0) {
+          // Governance custody: retire each Task's ledger/grants first.
+          for (const taskId of tx
+            .select({ id: tasksTable.id })
+            .from(tasksTable)
+            .where(inArray(tasksTable.missionId, missionIds))
+            .all()
+            .map((r) => r.id)) {
+            retireTaskCustodyWithClient(tx, taskId, "import replacement");
+          }
           tx.delete(tasksTable).where(inArray(tasksTable.missionId, missionIds)).run();
         }
       }

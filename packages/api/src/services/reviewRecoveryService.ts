@@ -46,7 +46,7 @@ export function authorizeRecoveryWithClient(
     .get();
   if (!taskRow) return false;
   const habitatRow = tx
-    .select({ teamId: habitats.teamId })
+    .select({ teamId: habitats.teamId, ownerUserId: habitats.ownerUserId })
     .from(missions)
     .innerJoin(habitats, eq(missions.habitatId, habitats.id))
     .where(eq(missions.id, taskRow.missionId))
@@ -64,8 +64,12 @@ export function authorizeRecoveryWithClient(
   if (userRow.role === "viewer") return false;
   if (userRow.role === "admin") return true;
 
+  // Personal-habitat owner adapter (migration 0083): the explicit owner of a
+  // still-personal habitat governs recovery there. The ceiling check above
+  // already ran, so a viewer owner is refused.
+  if (!habitatRow.teamId) return habitatRow.ownerUserId === actorUserId;
+
   const teamId = habitatRow.teamId;
-  if (!teamId) return false; // personal habitat: global-admin-only
   const member = tx
     .select({ role: teamMembers.role })
     .from(teamMembers)

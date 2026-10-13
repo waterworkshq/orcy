@@ -308,6 +308,10 @@ export function assignReviewers(
       fixedReviewerIds: (snapshot.ruleFixedReviewerIds ?? []) as string[],
       createdAt: snapshot.capturedAt,
       updatedAt: snapshot.ruleUpdatedAt ?? snapshot.capturedAt,
+      // PRIVATE compatibility placeholder, not a live read: snapshots do not
+      // capture a rule version, so this view carries no real counter. No
+      // consumer reads it; never expose it as a mutation expectation.
+      version: 1,
     };
   } else {
     const matchedRules = matchRules(taskId, habitatId);

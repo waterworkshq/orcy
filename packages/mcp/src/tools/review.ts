@@ -1,5 +1,5 @@
 import type { ReviewClient } from '../api/interfaces.js';
-import type { ReviewRule, TaskReviewer, ReviewRuleStrategy } from '@orcy/shared';
+import type { ReviewRule, TaskReviewer, ReviewRuleStrategy, ReviewRuleUpdateInput } from '@orcy/shared';
 
 const VALID_STRATEGIES: readonly string[] = ['domain_expert', 'round_robin', 'least_loaded', 'random', 'fixed'] as const;
 
@@ -74,9 +74,10 @@ export async function updateReviewRule(
     requiredReviews?: number;
     antiSelfReview?: number;
     fixedReviewerIds?: string[];
+    expectedVersion?: number;
   }
 ): Promise<{ reviewRule: ReviewRule | null }> {
-  return client.updateReviewRule(args.ruleId, {
+  const input: ReviewRuleUpdateInput = {
     name: args.name,
     enabled: args.enabled,
     priority: args.priority,
@@ -87,7 +88,11 @@ export async function updateReviewRule(
     requiredReviews: args.requiredReviews,
     antiSelfReview: args.antiSelfReview,
     fixedReviewerIds: args.fixedReviewerIds,
-  });
+  };
+  if (args.expectedVersion !== undefined) {
+    input.expectedVersion = args.expectedVersion;
+  }
+  return client.updateReviewRule(args.ruleId, input);
 }
 
 /**
@@ -95,9 +100,9 @@ export async function updateReviewRule(
  */
 export async function deleteReviewRule(
   client: ReviewClient,
-  args: { ruleId: string }
+  args: { ruleId: string; expectedVersion?: number }
 ): Promise<Record<string, unknown>> {
-  await client.deleteReviewRule(args.ruleId);
+  await client.deleteReviewRule(args.ruleId, args.expectedVersion);
   return { success: true, ruleId: args.ruleId, message: `Review rule ${args.ruleId} deleted` };
 }
 
@@ -107,7 +112,7 @@ export async function deleteReviewRule(
 export async function listTaskReviewers(
   client: ReviewClient,
   args: { taskId: string }
-): Promise<{ reviewers: TaskReviewer[] }> {
+): Promise<{ reviewers: TaskReviewer[]; reviewersToken?: string }> {
   return client.listTaskReviewers(args.taskId);
 }
 
@@ -116,12 +121,16 @@ export async function listTaskReviewers(
  */
 export async function addTaskReviewer(
   client: ReviewClient,
-  args: { taskId: string; reviewerId: string; reviewerType?: string }
+  args: { taskId: string; reviewerId: string; reviewerType?: string; expectedReviewersToken?: string }
 ): Promise<{ reviewer: TaskReviewer }> {
-  return client.addTaskReviewer(args.taskId, {
+  const input: { reviewerId: string; reviewerType: "human" | "agent"; expectedReviewersToken?: string } = {
     reviewerId: args.reviewerId,
     reviewerType: (args.reviewerType as 'human' | 'agent') ?? 'human',
-  });
+  };
+  if (args.expectedReviewersToken !== undefined) {
+    input.expectedReviewersToken = args.expectedReviewersToken;
+  }
+  return client.addTaskReviewer(args.taskId, input);
 }
 
 /**
@@ -129,8 +138,8 @@ export async function addTaskReviewer(
  */
 export async function removeTaskReviewer(
   client: ReviewClient,
-  args: { taskId: string; reviewerId: string }
+  args: { taskId: string; reviewerId: string; expectedReviewersToken?: string }
 ): Promise<Record<string, unknown>> {
-  await client.removeTaskReviewer(args.taskId, args.reviewerId);
+  await client.removeTaskReviewer(args.taskId, args.reviewerId, args.expectedReviewersToken);
   return { success: true, message: `Reviewer ${args.reviewerId} removed from task ${args.taskId}` };
 }

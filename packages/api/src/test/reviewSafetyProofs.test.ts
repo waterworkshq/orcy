@@ -286,25 +286,31 @@ describe("P3: authentic pre-0082 journal upgraded by the CANDIDATE production in
 
     const up = new Database(dbPath);
     up.pragma("foreign_keys = ON");
-    // Exactly ONE new journal row: 0082, hash = sha256 of the committed SQL,
-    // strictly increasing when.
+    // Exactly the journal tail the fixture lacked: 0082 (plus any LATER
+    // additive migrations appended after it — the count is journal-relative,
+    // not a fixed absolute, so later additive entries don't break this pin).
     const rows = up
       .prepare("SELECT hash, created_at FROM __drizzle_migrations ORDER BY id")
       .all() as Array<{ hash: string; created_at: number }>;
-    expect(rows).toHaveLength(59);
-    const added = rows[58];
+    const journal = JSON.parse(
+      readFileSync(join(DRIZZLE_DIR, "meta", "_journal.json"), "utf-8"),
+    ) as { entries: { tag: string; when: number }[] };
+    const expectedCount = journal.entries.length; // fixture had 58 (…0081)
+    expect(rows).toHaveLength(expectedCount);
+    const idx0082 = journal.entries.findIndex((e) => e.tag === "0082_task_review_safety");
+    const added = rows[idx0082];
     const expectedHash = createHash("sha256")
       .update(readFileSync(join(DRIZZLE_DIR, "0082_task_review_safety.sql")))
       .digest("hex");
     expect(added.hash).toBe(expectedHash);
-    expect(added.created_at).toBeGreaterThan(rows[57].created_at);
+    expect(added.created_at).toBeGreaterThan(rows[idx0082 - 1].created_at);
     // No duplicate application (second boot is a no-op).
     await initDb(dbPath);
     await closeDb();
     const up2 = new Database(dbPath);
     expect(
       (up2.prepare("SELECT COUNT(*) AS n FROM __drizzle_migrations").get() as { n: number }).n,
-    ).toBe(59);
+    ).toBe(expectedCount);
     up2.close();
 
     // Classifier on the seeded legacy shapes.

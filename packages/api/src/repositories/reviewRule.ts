@@ -1,6 +1,6 @@
 import { getDb } from "../db/index.js";
 import { reviewRules } from "../db/schema/index.js";
-import { eq, and, asc } from "drizzle-orm";
+import { eq, and, asc, sql } from "drizzle-orm";
 import type { ReviewRule, ReviewRuleCreateInput, ReviewRuleUpdateInput } from "@orcy/shared";
 import { v4 as uuid } from "uuid";
 import {
@@ -74,7 +74,9 @@ export function update(id: string, input: ReviewRuleUpdateInput): ReviewRule | n
   const existing = getById(id);
   if (!existing) return null;
 
-  const values: Partial<typeof reviewRules.$inferInsert> = { updatedAt: now };
+  const values: Partial<typeof reviewRules.$inferInsert> = {
+    updatedAt: now,
+  };
   if (input.name !== undefined) values.name = input.name;
   if (input.enabled !== undefined) values.enabled = input.enabled;
   if (input.priority !== undefined) values.priority = input.priority;
@@ -87,7 +89,14 @@ export function update(id: string, input: ReviewRuleUpdateInput): ReviewRule | n
   if (input.fixedReviewerIds !== undefined) values.fixedReviewerIds = input.fixedReviewerIds;
 
   try {
-    db.update(reviewRules).set(values).where(eq(reviewRules.id, id)).run();
+    // Binding addendum: every repository rule update increments the version
+    // so optional expectedVersion CAS can compare against a moving counter.
+    // Native SQL increment — a read-derived value would collapse under two
+    // concurrent writers both observing the same prior version.
+    db.update(reviewRules)
+      .set({ ...values, version: sql`${reviewRules.version} + 1` })
+      .where(eq(reviewRules.id, id))
+      .run();
   } catch (err) {
     throw repositoryUpdateError("reviewRule", err as Error, id);
   }

@@ -9,6 +9,8 @@ import * as subtaskRepo from "../../repositories/subtask.js";
 import * as commentRepo from "../../repositories/comment.js";
 import * as pluginManager from "../../plugins/pluginManager.js";
 import { InterceptorVetoError } from "../../errors.js";
+import { getDb } from "../../db/index.js";
+import { retireTaskCustodyWithClient } from "../governanceCustody.js";
 import type { Task, TaskStatus } from "../../models/index.js";
 import { formatClonedTitle } from "./helpers.js";
 import { emitTransition } from "./transition-emitter.js";
@@ -239,7 +241,15 @@ export function deleteTask(taskId: string):
   
 
   if (habitatId) watcherService.notifyWatchers(taskId, habitatId, "task.deleted");
-  taskRepo.deleteTask(taskId);
+  // Governance custody (administration ticket): retire the Task ledger and
+  // revoke its grants atomically with the row delete — one reservation.
+  getDb().transaction(
+    (tx) => {
+      retireTaskCustodyWithClient(tx, taskId, "task deleted");
+      taskRepo.deleteTask(taskId);
+    },
+    { behavior: "immediate" },
+  );
 
   emitTransition(taskId, "deleted", habitatId, {
     actorType: "human",

@@ -83,6 +83,16 @@ export const REVIEW_DISPATCH_TOOL: Tool = createDispatchTool({
       description:
         "Fixed reviewer user IDs for fixed strategy (used with create_rule, update_rule)",
     },
+    expectedVersion: {
+      type: "number",
+      description:
+        "Optional rule version seen by the caller (used with update_rule, delete_rule); omitted = legacy last-write-wins, stale = 409 conflict",
+    },
+    expectedReviewersToken: {
+      type: "string",
+      description:
+        "Optional 64-hex roster token from a prior list_reviewers (used with add_reviewer, remove_reviewer); omitted = legacy compatibility, stale = 409 conflict",
+    },
   },
 });
 

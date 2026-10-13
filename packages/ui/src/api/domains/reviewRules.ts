@@ -18,5 +18,10 @@ export const reviewRulesApi = {
       method: "PATCH",
       body: JSON.stringify(body),
     }),
-  delete: (ruleId: string) => request<void>(`/review-rules/${ruleId}`, { method: "DELETE" }),
+  // Optional CAS expectation for empty-body clients; omitted = legacy LWW.
+  delete: (ruleId: string, expectedVersion?: number) =>
+    request<void>(
+      `/review-rules/${ruleId}${expectedVersion !== undefined ? `?expectedVersion=${expectedVersion}` : ""}`,
+      { method: "DELETE" },
+    ),
 };

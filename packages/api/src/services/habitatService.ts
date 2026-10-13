@@ -7,7 +7,12 @@ import * as templateRepo from "../repositories/template.js";
 import * as eventRepo from "../repositories/event.js";
 import * as savedFilterRepo from "../repositories/savedFilter.js";
 import { getWebhookSubscriptions, createWebhookSubscription } from "./webhookDispatcher.js";
-import { badRequest } from "../errors.js";
+import { AppError, badRequest } from "../errors.js";
+import { v4 as uuid } from "uuid";
+import { getDb } from "../db/index.js";
+import { appendGovernanceAuditWithClient } from "../repositories/roleFoundation.js";
+import { isGovernorWithClient, casAndBumpScope } from "./localRoleAdministration.js";
+import { retireHabitatCustodyWithClient } from "./governanceCustody.js";
 import { sseBroadcaster } from "../sse/broadcaster.js";
 import { rebuildCache as rebuildHabitatSecretCache } from "./habitatSecretCache.js";
 import * as missionService from "./missionService.js";
@@ -92,13 +97,31 @@ export interface CreateHabitatInput {
   description?: string;
   defaultColumns?: boolean;
   teamId?: string | null;
+  /** Governance expectations for a nonnull teamId binding (administration ticket). */
+  actorUserId?: string;
+  expectedTeamVersion?: number;
+  teamScopeIncarnation?: number;
 }
 
-/** Creates a new {@link Habitat}, seeding builtin saved filters and the default skill and (optionally) a default column flow; side effects: publishes `habitat.created` SSE, fires a plugin `habitat.created` event, and rebuilds the board secret cache. Returns the public (masked) shape so the response and SSE payload never carry webhook secrets. */
+/** Creates a new {@link Habitat}, seeding builtin saved filters and the default skill and (optionally) a default column flow; side effects: publishes `habitat.created` SSE, fires a plugin `habitat.created` event, and rebuilds the board secret cache. Returns the public (masked) shape so the response and SSE payload never carry webhook secrets.
+ *
+ * Team binding (administration ticket): a nonnull teamId runs the create in
+ * ONE IMMEDIATE reservation that first authorizes the actor as a persisted
+ * human team governor (global admin or non-viewer team owner/admin — agents
+ * and plain members are refused) and CASes the Team ledger against
+ * (teamScopeIncarnation, expectedTeamVersion); the habitat insert, column
+ * seed and audit share that reservation, so a failed CAS or an unauthorized
+ * actor leaves no partial habitat. Personal creation (null/absent teamId)
+ * is unchanged.
+ */
 export function createHabitat(input: CreateHabitatInput): {
   habitat: PublicHabitat;
   columns: Column[];
 } {
+  if (input.teamId) {
+    return createTeamHabitatGoverned(input as CreateHabitatInput & { teamId: string });
+  }
+
   const habitat = habitatRepo.createHabitat({
     name: input.name,
     description: input.description,
@@ -117,6 +140,70 @@ export function createHabitat(input: CreateHabitatInput): {
   sseBroadcaster.publish(habitat.id, { type: "habitat.created", data: masked });
   rebuildHabitatSecretCache();
   return { habitat: masked, columns };
+}
+
+function createTeamHabitatGoverned(input: CreateHabitatInput & { teamId: string }): {
+  habitat: PublicHabitat;
+  columns: Column[];
+} {
+  if (!input.actorUserId) {
+    throw new AppError(403, "AUTHORIZATION_DENIED", "Team habitat creation requires a human governor");
+  }
+  if (input.expectedTeamVersion === undefined || input.teamScopeIncarnation === undefined) {
+    throw new AppError(
+      400,
+      "VALIDATION_ERROR",
+      "Team-bound habitat creation requires expectedTeamVersion and teamScopeIncarnation",
+    );
+  }
+  const db = getDb();
+  const result = db.transaction(
+    (tx) => {
+      if (!isGovernorWithClient(tx, input.actorUserId!, "team", input.teamId)) {
+        throw new AppError(403, "AUTHORIZATION_DENIED", "Authorization denied");
+      }
+      if (
+        !casAndBumpScope(tx, "team", input.teamId, {
+          incarnation: input.teamScopeIncarnation!,
+          version: input.expectedTeamVersion!,
+        })
+      ) {
+        throw new AppError(409, "GOVERNANCE_VERSION_CONFLICT", "Team ledger expectation failed");
+      }
+      const habitat = habitatRepo.createHabitat({
+        name: input.name,
+        description: input.description,
+        teamId: input.teamId,
+      });
+      let columns: Column[] = [];
+      if (input.defaultColumns) {
+        columns = createDefaultColumns(habitat.id);
+      }
+      savedFilterRepo.seedBuiltinFilters(habitat.id);
+      skillRepo.getOrCreateSkill(habitat.id);
+      appendGovernanceAuditWithClient(tx, {
+        id: uuid(),
+        actorType: "human",
+        actorId: input.actorUserId!,
+        operation: "habitat.team_binding.created",
+        scopeKind: "team",
+        scopeId: input.teamId,
+        scopeIncarnation: input.teamScopeIncarnation!,
+        objectKind: "habitat",
+        objectId: habitat.id,
+        versionBefore: input.expectedTeamVersion!,
+        versionAfter: input.expectedTeamVersion! + 1,
+        details: { habitatId: habitat.id, name: input.name },
+      });
+      return { habitat, columns };
+    },
+    { behavior: "immediate" },
+  );
+
+  const masked = maskSecretSettings(result.habitat);
+  sseBroadcaster.publish(result.habitat.id, { type: "habitat.created", data: masked });
+  rebuildHabitatSecretCache();
+  return { habitat: masked, columns: result.columns };
 }
 
 /** Returns the {@link Habitat}, its {@link Column}s, and its non-archived missions joined with progress, or null when the habitat does not exist. */
@@ -244,7 +331,17 @@ export function updateHabitat(habitatId: string, input: UpdateHabitatInput): Pub
 
 /** Removes a {@link Habitat} and all of its dependents; side effect: rebuilds the board secret cache and publishes `habitat.deleted` SSE. */
 export function deleteHabitat(habitatId: string): void {
-  habitatRepo.deleteHabitat(habitatId);
+  // Governance custody (administration ticket): retire Habitat + descendant
+  // Mission/Task ledgers, namespace definitions and grants BEFORE the row
+  // delete — one reservation, atomic with the deletion.
+  const db = getDb();
+  db.transaction(
+    (tx) => {
+      retireHabitatCustodyWithClient(tx, habitatId, "habitat deleted");
+      habitatRepo.deleteHabitat(habitatId);
+    },
+    { behavior: "immediate" },
+  );
   rebuildHabitatSecretCache();
   sseBroadcaster.publish(habitatId, { type: "habitat.deleted", data: { habitatId } });
 }
@@ -777,7 +874,14 @@ export function importHabitat(
     // ON DELETE CASCADE drops its columns/missions/tasks. Cleanup failures are
     // swallowed because the original error is the one that must surface.
     try {
-      habitatRepo.deleteHabitat(habitatId);
+      const db = getDb();
+      db.transaction(
+        (tx) => {
+          retireHabitatCustodyWithClient(tx, habitatId, "import rebuild failed");
+          habitatRepo.deleteHabitat(habitatId);
+        },
+        { behavior: "immediate" },
+      );
     } catch {
       /* best-effort; original error is rethrown below */
     }
@@ -788,7 +892,14 @@ export function importHabitat(
   // target retired. No prior step could have removed it, so the target can
   // never be left gone by a malformed or partially-importable payload.
   if (existingHabitatId) {
-    habitatRepo.deleteHabitat(existingHabitatId);
+    const db = getDb();
+    db.transaction(
+      (tx) => {
+        retireHabitatCustodyWithClient(tx, existingHabitatId, "import replaced");
+        habitatRepo.deleteHabitat(existingHabitatId);
+      },
+      { behavior: "immediate" },
+    );
   }
 
   sseBroadcaster.publish(habitat.id, {

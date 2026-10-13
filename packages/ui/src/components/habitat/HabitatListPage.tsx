@@ -40,10 +40,24 @@ export function HabitatListPage() {
     if (!newName.trim()) return;
     setCreating(true);
     try {
+      // Team-binding governance (administration ticket): for a nonnull Team
+      // binding, fetch the authorized Team ledger expectation first and send
+      // it with the create; the server CASes it inside the create
+      // reservation. On a stale conflict we surface the error for an
+      // explicit retry (no blind resend).
+      let teamExpectation: { expectedTeamVersion: number; teamScopeIncarnation: number } | undefined;
+      if (newTeamId) {
+        const ledger = await api.habitats.teamGovernanceExpectation(newTeamId);
+        teamExpectation = {
+          expectedTeamVersion: ledger.version,
+          teamScopeIncarnation: ledger.incarnation,
+        };
+      }
       await api.habitats.create({
         name: newName.trim(),
         description: newDesc.trim(),
         teamId: newTeamId || null,
+        ...teamExpectation,
       });
       queryClient.invalidateQueries({ queryKey: queryKeys.habitats.list() });
       queryClient.invalidateQueries({ queryKey: queryKeys.teams.myTeams() });

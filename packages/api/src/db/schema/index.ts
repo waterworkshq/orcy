@@ -73,6 +73,13 @@ export {
   taskReviewOverrides,
 } from "./reviewSafety.js";
 export {
+  governanceScopes,
+  roleDefinitions,
+  roleRevisions,
+  roleAssignments,
+  governanceAudit,
+} from "./roleFoundation.js";
+export {
   integrationConnections,
   externalIntakeCandidates,
   externalIssueLinks,

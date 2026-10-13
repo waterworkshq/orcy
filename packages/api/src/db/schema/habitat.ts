@@ -6,6 +6,7 @@ import {
   index,
   uniqueIndex,
   primaryKey,
+  check,
 } from "drizzle-orm/sqlite-core";
 import { sql } from "drizzle-orm";
 import type {
@@ -69,11 +70,20 @@ export const habitats = sqliteTable(
       mode: "json",
     }).$type<LifecycleSettings | null>(),
     teamId: text("team_id").references(() => teams.id, { onDelete: "set null" }),
+    // Personal ownership (migration 0083): explicit, global-admin-assigned
+    // only, never backfilled from history. CHECK keeps a team Habitat from
+    // carrying a dormant personal owner.
+    ownerUserId: text("owner_user_id").references(() => users.id, { onDelete: "restrict" }),
     carryOverPolicy: text("carry_over_policy").notNull().default("backlog"),
   },
   (table) => [
     index("idx_habitats_name").on(table.name),
     index("idx_habitats_team_id").on(table.teamId),
+    index("idx_habitats_owner").on(table.ownerUserId),
+    check(
+      "habitats_owner_team_exclusive_chk",
+      sql`owner_user_id IS NULL OR team_id IS NULL`,
+    ),
   ],
 );
 

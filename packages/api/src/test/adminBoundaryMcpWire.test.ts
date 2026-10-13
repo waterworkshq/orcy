@@ -19,8 +19,10 @@
  *
  *   NEGATIVE agent mutations (`authPolicy: "human"` — humanAuth accepts only a
  *   Bearer JWT, so an agent API key never reaches the handler):
- *     orcy_review create_rule → 401, add_reviewer → 401;
  *     orcy_sprint create → 401, start → 401
+ *   (`orcy_review create_rule` moved to `local_actor` + the governance
+ *   evaluator: an agent key without `review.configure` now gets 403, not 401;
+ *   `add_reviewer` likewise 403 under `review.assign`)
  *     (exact status preserved through the MCP transport: the dispatch tool
  *     result carries `Error: API 401: …` with the API error body)
  *
@@ -50,7 +52,7 @@ import { spawn, type ChildProcess } from "node:child_process";
 import { join } from "node:path";
 import jwt from "jsonwebtoken";
 import { createHttpApplication, type HttpRuntimeHandle } from "../httpApp.js";
-import { initTestDb, closeDb } from "../db/index.js";
+import { initTestDb, closeDb, getDb } from "../db/index.js";
 import * as habitatRepo from "../repositories/habitat.js";
 import * as columnRepo from "../repositories/column.js";
 import * as missionRepo from "../repositories/mission.js";
@@ -62,6 +64,14 @@ import * as teamRepo from "../repositories/team.js";
 import * as teamMemberRepo from "../repositories/teamMember.js";
 import * as sprintRepo from "../repositories/sprint.js";
 import { getJwtSecret } from "../middleware/jwt-verification.js";
+import {
+  createDefinitionWithClient,
+  insertAssignmentWithClient,
+  materializeScopeWithClient,
+} from "../repositories/roleFoundation.js";
+import { LOCAL_PERMISSION_CATALOGUE_VERSION } from "../services/localAuthorization.js";
+import { governanceAudit, reviewRules, roleAssignments } from "../db/schema/index.js";
+import { eq } from "drizzle-orm";
 import * as pluginManager from "../plugins/pluginManager.js";
 
 const MCP_ENTRY = join(import.meta.dirname, "..", "..", "..", "mcp", "src", "index.ts");
@@ -299,16 +309,14 @@ describe("REC-08 administrative boundaries — served MCP wire", () => {
     }
   }, 60_000);
 
-  it("agent key gets EXACTLY 401 (not 403) on human-policy mutations — status preserved through MCP transport", async () => {
-    const cases: Array<{ tool: string; args: Record<string, unknown> }> = [
-      {
-        tool: "orcy_review",
-        args: { action: "create_rule", habitatId, name: "agent-rule" },
-      },
-      {
-        tool: "orcy_review",
-        args: { action: "add_reviewer", taskId, reviewerId: seededUserId },
-      },
+  // Wire-mixed after review-governance migration:
+  //   create_rule → POST /habitats/:id/review-rules (authPolicy "local_actor"
+  //   + governance evaluator) → 403 AUTHORIZATION_DENIED for un-granted agent keys
+  //   add_reviewer → POST /tasks/:id/reviewers (authPolicy "local_actor") → 403 AUTHORIZATION_DENIED
+  //   orcy_sprint routes remain "human" → 401 for agent keys
+  // All cross the MCP stdio transport inside the tool result.
+  it("agent key: 401 on human-policy sprint routes, 403 on governed create_rule/add_reviewer — status preserved through MCP transport", async () => {
+    const human401Cases: Array<{ tool: string; args: Record<string, unknown> }> = [
       {
         tool: "orcy_sprint",
         args: {
@@ -321,15 +329,25 @@ describe("REC-08 administrative boundaries — served MCP wire", () => {
       },
       { tool: "orcy_sprint", args: { action: "start", sprintId } },
     ];
+    const localActor403Cases: Array<{ tool: string; args: Record<string, unknown> }> = [
+      { tool: "orcy_review", args: { action: "create_rule", habitatId, name: "agent-rule" } },
+      { tool: "orcy_review", args: { action: "add_reviewer", taskId, reviewerId: seededUserId } },
+    ];
 
-    for (const { tool, args } of cases) {
+    for (const { tool, args } of human401Cases) {
       const res = await callTool(tool, args);
       expect(res.isError).toBe(true);
       const text = toolText(res);
-      // ApiClientError message is "API <status>: <body>" — the real HTTP
-      // status crossed the MCP stdio transport inside the tool result.
       expect(text).toContain("API 401:");
       expect(text).not.toContain("API 403:");
+    }
+
+    for (const { tool, args } of localActor403Cases) {
+      const res = await callTool(tool, args);
+      expect(res.isError).toBe(true);
+      const text = toolText(res);
+      expect(text).toContain("API 403:");
+      expect(text).not.toContain("API 401:");
     }
   }, 60_000);
 
@@ -364,15 +382,48 @@ describe("REC-08 administrative boundaries — served MCP wire", () => {
     expect(priorityBody.failureCount).toBe(0);
   }, 60_000);
 
-  it("human-role fact pins (HTTP): editor AND viewer team members create a review rule (no admin-role gate); non-member 403", async () => {
+  it("human-role fact pins (HTTP): viewer team member create → 403 (governed), team owner/governor → 201, non-member 403", async () => {
     const editorId = "rec08-editor-user";
     const viewerMemberId = "rec08-viewer-member-user";
     const teamId = habitatRepo.getHabitatById(teamHabitatId)!.teamId!;
+    // Persist the member users: the governance evaluator re-reads the users
+    // row (role for the viewer ceiling) and team_members FKs users RESTRICT.
+    const memberNow = new Date().toISOString();
+    for (const [uid, urole, uname] of [
+      [editorId, "editor", "rec08-editor"],
+      [viewerMemberId, "viewer", "rec08-viewer-member"],
+    ] as const) {
+      userRepo.createUser({
+        id: uid,
+        username: uname,
+        passwordHash: "x",
+        displayName: uname,
+        role: urole,
+        createdAt: memberNow,
+        updatedAt: memberNow,
+      });
+    }
     teamMemberRepo.addMember({ teamId, userId: editorId, role: "member" });
     teamMemberRepo.addMember({ teamId, userId: viewerMemberId, role: "member" });
+    // A persisted governor for positive control: the team OWNER.
+    // The owner must be a PERSISTED user (the evaluator re-reads the row;
+    // users FK RESTRICTs team_members.user_id, so insert first).
+    const ownerId = "rec08-owner-user";
+    const now = new Date().toISOString();
+    userRepo.createUser({
+      id: ownerId,
+      username: "rec08-owner",
+      passwordHash: "x",
+      displayName: "rec08-owner",
+      role: "editor",
+      createdAt: now,
+      updatedAt: now,
+    });
+    teamMemberRepo.addMember({ teamId, userId: ownerId, role: "owner" });
     const editorJwt = mintHumanJwt(editorId, "editor");
     const viewerMemberJwt = mintHumanJwt(viewerMemberId, "viewer");
     const outsiderJwt = mintHumanJwt("rec08-outsider-user", "viewer");
+    const ownerJwt = mintHumanJwt(ownerId, "editor");
 
     const create = async (token: string): Promise<Response> =>
       fetch(`${baseUrl}/api/habitats/${teamHabitatId}/review-rules`, {
@@ -381,18 +432,66 @@ describe("REC-08 administrative boundaries — served MCP wire", () => {
         body: JSON.stringify({ name: "rec08-rule" }),
       });
 
-    const member = await create(editorJwt);
-    expect(member.status).toBe(201);
-
-    // Weakest role + member: separates the role axis from the membership
-    // axis — pins "no admin-role distinction" (a viewer non-member 403 alone
-    // would leave the 403 attributable to either).
+    // G3: rule CREATE is governed (review.configure on the target Habitat,
+    // viewer ceiling) — the legacy viewer-member 201 is RETIRED. A viewer
+    // team member is now denied regardless of membership.
     const viewerMember = await create(viewerMemberJwt);
-    expect(viewerMember.status).toBe(201);
+    expect(viewerMember.status).toBe(403);
+
+    // Membership alone does not govern either (editor is not owner/admin).
+    const member = await create(editorJwt);
+    expect(member.status).toBe(403);
+
+    // Persisted governor positive: the team owner creates fine.
+    const owner = await create(ownerJwt);
+    expect(owner.status).toBe(201);
 
     const outsider = await create(outsiderJwt);
     expect(outsider.status).toBe(403);
   }, 30_000);
+
+  it("granted AGENT creates a review rule over the MCP wire (positive for the governed path)", async () => {
+    // The MCP-agent-coordinator POSITIVE the denial-only suite lacked: the
+    // wire child authenticates as mcpAgentId; grant it review.configure on
+    // the personal habitat, then create_rule must SUCCEED end-to-end through
+    // stdio → HTTP → evaluator, appending the rule and its audit row.
+    getDb().transaction((tx: unknown) => {
+      const db = tx as never;
+      materializeScopeWithClient(db, "habitat", habitatId);
+      const { revision } = createDefinitionWithClient(db, {
+        name: "wire-grant-configure",
+        namespaceKind: "habitat",
+        namespaceScopeId: habitatId,
+        namespaceIncarnation: 1,
+        permissions: ["review.configure"],
+        catalogueVersion: LOCAL_PERMISSION_CATALOGUE_VERSION,
+      });
+      insertAssignmentWithClient(db, {
+        principalType: "agent",
+        principalId: mcpAgentId,
+        definitionId: revision.definitionId,
+        revisionId: revision.id,
+        scopeKind: "habitat",
+        scopeId: habitatId,
+        scopeIncarnation: 1,
+        issuerUserId: seededUserId,
+      });
+    });
+
+    const res = await callTool("orcy_review", { action: "create_rule", habitatId, name: "wire-granted-rule" });
+    expect(res.isError).toBeFalsy();
+    const created = JSON.parse(toolText(res)) as { reviewRule: { habitatId: string; version: number } };
+    expect(created.reviewRule.habitatId).toBe(habitatId);
+    expect(created.reviewRule.version).toBe(1);
+    // The audit row proves the command (not just the route) ran.
+    expect(
+      getDb()
+        .select()
+        .from(governanceAudit)
+        .where(eq(governanceAudit.operation, "review_rule.create"))
+        .all().length,
+    ).toBeGreaterThanOrEqual(1);
+  }, 60_000);
 
   it("orcy_habitat update-rules / evaluate-rules: agent key gets EXACTLY 401 with persisted rules UNCHANGED; human JWT control mutates the same route", async () => {
     // Prioritization is human-only TODAY (prioritization.ts authPolicy: "human"

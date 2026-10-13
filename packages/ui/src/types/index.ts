@@ -1093,6 +1093,8 @@ export interface ReviewRule {
   fixedReviewerIds: string[];
   createdAt: string;
   updatedAt: string;
+  /** Optimistic-concurrency version; bumped on every rule update (0083). */
+  version: number;
 }
 
 export interface DaemonInfo {
