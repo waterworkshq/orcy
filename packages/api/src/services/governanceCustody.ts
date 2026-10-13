@@ -226,7 +226,6 @@ export function reenrollRestoredScopeWithClient(
     .where(and(eq(governanceScopes.scopeKind, scopeKind), eq(governanceScopes.scopeId, scopeId)))
     .get();
   if (!hasHistory) return; // never materialized — the restore reads virtual 1/1
-  revokeAssignmentsForScopeWithClient(tx, scopeKind, scopeId, reason);
   retireOne(tx, scopeKind, scopeId, reason, actor);
   const fresh = reenrollScopeWithClient(tx, scopeKind, scopeId);
   audit(tx, {

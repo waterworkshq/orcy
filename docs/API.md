@@ -1723,6 +1723,7 @@ Optional body field `expectedReviewersToken` (64-char hex, from a prior GET): om
 |-------|------|----------|-------------|
 | `reviewerId` | string | yes | must resolve in the type's registry |
 | `reviewerType` | enum | no | `human` (default) or `agent` |
+| `expectedReviewersToken` | string | no | 64-character lowercase hex token from a prior reviewer GET; stale supplied token returns 409 |
 
 Validation (both explicit creation paths share this contract): the id must resolve in its **own** registry (agent registry for `agent`, users for `human`) — ids are never coerced between registries; an agent reviewer equal to the task's current assignee is refused (typed anti-self); agent status (e.g. `offline`) is not a validity criterion. Duplicate exact requests are idempotent (`200` with the existing row); the same id under a different type fails explicitly (`409`). Agent-typed targets remain creatable on team habitats — target eligibility is not team-restricted. Management is evaluator-governed (`review.assign` on the target Task, persisted governor adapter or explicit operational grant), not human-only.
 

@@ -37,7 +37,13 @@ import { fork, type ChildProcess } from "node:child_process";
 import { eq, and } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 import { initDb, closeDb, getDb } from "../db/index.js";
-import { governanceAudit, governanceScopes, roleAssignments, habitats, users } from "../db/schema/index.js";
+import {
+  governanceAudit,
+  governanceScopes,
+  roleAssignments,
+  habitats,
+  users,
+} from "../db/schema/index.js";
 import * as habitatRepo from "../repositories/habitat.js";
 import * as teamMemberRepo from "../repositories/teamMember.js";
 import * as agentRepo from "../repositories/agent.js";
@@ -55,9 +61,12 @@ interface WorkerMsg {
   version?: number | null;
   state?: string | null;
   message?: string;
+  statusCode?: number;
+  code?: string;
 }
 
 interface OwnedWorker {
+  ready: Promise<void>;
   next: () => Promise<WorkerMsg>;
   send: (m: { type: string }) => void;
   dispose: () => Promise<void>;
@@ -72,8 +81,17 @@ function forkWorker(dbPath: string, args: string[]): OwnedWorker {
   const waiters: ((m: WorkerMsg | PromiseLike<WorkerMsg>) => void)[] = [];
   let exited = false;
   let exitCode: number | null = null;
+  let resolveReady!: () => void;
+  let rejectReady!: (reason: Error) => void;
+  const ready = new Promise<void>((resolve, reject) => {
+    resolveReady = resolve;
+    rejectReady = reject;
+  });
   child.on("message", (msg: WorkerMsg) => {
-    if (msg.type === "READY") return;
+    if (msg.type === "READY") {
+      resolveReady();
+      return;
+    }
     if (waiters.length > 0) waiters.shift()!(msg);
     else queue.push(msg);
   });
@@ -84,6 +102,7 @@ function forkWorker(dbPath: string, args: string[]): OwnedWorker {
   child.on("exit", (code) => {
     exited = true;
     exitCode = code;
+    rejectReady(new Error(`worker exited before ready (code ${code})`));
     while (waiters.length > 0) {
       waiters.shift()!(
         Promise.reject(
@@ -93,6 +112,7 @@ function forkWorker(dbPath: string, args: string[]): OwnedWorker {
     }
   });
   return {
+    ready,
     next: () =>
       new Promise<WorkerMsg>((resolve, reject) => {
         if (exited && queue.length === 0) {
@@ -125,7 +145,10 @@ function makeUser(role: "admin" | "editor"): string {
 
 function makeTeam(ownerUserId: string): string {
   const orgId = uuid();
-  getDb().insert(organizations).values({ id: orgId, name: `o-${orgId}`, slug: `o-${orgId}` }).run();
+  getDb()
+    .insert(organizations)
+    .values({ id: orgId, name: `o-${orgId}`, slug: `o-${orgId}` })
+    .run();
   const id = uuid();
   getDb()
     .insert(teams)
@@ -216,6 +239,7 @@ describe("R1 — cross-connection serialization of REAL governance commands", ()
       releaseName,
     ]);
     try {
+      await blocked.ready;
       blocked.send({ type: "GO" });
       const deadline = Date.now() + 30_000;
       while (!existsSync(join(gateDir, "entered"))) {
@@ -237,6 +261,7 @@ describe("R1 — cross-connection serialization of REAL governance commands", ()
       ]);
       let competingMsg: WorkerMsg;
       try {
+        await competing.ready;
         competing.send({ type: "GO" });
         competingMsg = await competing.next();
         // The competing command committed first and bumped the ledger.
@@ -265,6 +290,8 @@ describe("R1 — cross-connection serialization of REAL governance commands", ()
       // schedule is impossible to force without holding SQLite's write lock,
       // which is exactly the deadlock the placement note records).
       expect(blockedMsg.kind).toBe("error");
+      expect(blockedMsg.statusCode).toBe(409);
+      expect(blockedMsg.code).toBe("GOVERNANCE_VERSION_CONFLICT");
       expect(String(blockedMsg.message)).toMatch(/Scope version expectation failed/);
 
       // Final persisted truth: exactly ONE grant from this pair, and the
@@ -304,6 +331,7 @@ describe("R1 — cross-connection serialization of REAL governance commands", ()
     const first = forkWorker(dbPath, args(ownerId));
     const second = forkWorker(dbPath, args(otherActorId));
     try {
+      await Promise.all([first.ready, second.ready]);
       first.send({ type: "GO" });
       second.send({ type: "GO" });
       const [m1, m2] = await Promise.all([first.next(), second.next()]);
@@ -317,6 +345,10 @@ describe("R1 — cross-connection serialization of REAL governance commands", ()
       // The loser failed on SERIALIZATION (the version conflict its CAS
       // re-check detected), not on authority and not on some unrelated error.
       const loserMsg = String(results.find((m) => m.kind === "error")!.message);
+      expect(results.find((m) => m.kind === "error")).toMatchObject({
+        statusCode: 409,
+        code: "GOVERNANCE_VERSION_CONFLICT",
+      });
       // The stale-CAS message the command throws; String(AppError) renders the
       // message, not the code, so match the message (code is
       // GOVERNANCE_VERSION_CONFLICT).
@@ -335,11 +367,18 @@ describe("R1 — cross-connection serialization of REAL governance commands", ()
     // Seed a live grant to revoke. Both racing actors are global admins so the
     // loser cannot fail AUTHZ and pass for the wrong reason.
     const seeded = forkWorker(dbPath, [
-      "issue", ownerId, agentIds.get(ownerId)!, revisionId, "habitat", habitatId, "1",
+      "issue",
+      ownerId,
+      agentIds.get(ownerId)!,
+      revisionId,
+      "habitat",
+      habitatId,
+      "1",
       String(scopeVersion("habitat", habitatId)!),
     ]);
     let grantId: string;
     try {
+      await seeded.ready;
       seeded.send({ type: "GO" });
       const m = await seeded.next();
       expect(m.kind).toBe("ok");
@@ -353,14 +392,31 @@ describe("R1 — cross-connection serialization of REAL governance commands", ()
     // seeded one — both pinned to the SAME expected scope version. Only one
     // can win that CAS.
     const issueWorker = forkWorker(dbPath, [
-      "issue", otherActorId, agentIds.get(otherActorId)!, revisionId, "habitat", habitatId, "1", String(preVersion),
+      "issue",
+      otherActorId,
+      agentIds.get(otherActorId)!,
+      revisionId,
+      "habitat",
+      habitatId,
+      "1",
+      String(preVersion),
     ]);
     const revokeWorker = forkWorker(dbPath, [
-      "revoke", ownerId, grantId, "", "habitat", habitatId, "1", String(preVersion), "", "",
+      "revoke",
+      ownerId,
+      grantId,
+      "",
+      "habitat",
+      habitatId,
+      "1",
+      String(preVersion),
+      "",
+      "",
     ]);
     let issueMsg: WorkerMsg;
     let revokeMsg: WorkerMsg;
     try {
+      await Promise.all([issueWorker.ready, revokeWorker.ready]);
       issueWorker.send({ type: "GO" });
       revokeWorker.send({ type: "GO" });
       [issueMsg, revokeMsg] = await Promise.all([issueWorker.next(), revokeWorker.next()]);
@@ -377,6 +433,7 @@ describe("R1 — cross-connection serialization of REAL governance commands", ()
 
     // The loser failed on the scope-version CAS, not on authority.
     const loserMsg = issueWon ? revokeMsg : issueMsg;
+    expect(loserMsg).toMatchObject({ statusCode: 409, code: "GOVERNANCE_VERSION_CONFLICT" });
     expect(String(loserMsg.message)).toMatch(/Scope version expectation failed/);
     expect(String(loserMsg.message)).not.toMatch(/Authorization denied/);
 
@@ -405,14 +462,31 @@ describe("R1 — cross-connection serialization of REAL governance commands", ()
     // against the deleteHabitat custody bundle on the SAME scope.
     const preVersion = scopeVersion("habitat", habitatId)!;
     const issueWorker = forkWorker(dbPath, [
-      "issue", otherActorId, agentIds.get(otherActorId)!, revisionId, "habitat", habitatId, "1", String(preVersion),
+      "issue",
+      otherActorId,
+      agentIds.get(otherActorId)!,
+      revisionId,
+      "habitat",
+      habitatId,
+      "1",
+      String(preVersion),
     ]);
     const custodyWorker = forkWorker(dbPath, [
-      "custody", ownerId, "", "", "habitat", habitatId, "1", "", "", "",
+      "custody",
+      ownerId,
+      "",
+      "",
+      "habitat",
+      habitatId,
+      "1",
+      "",
+      "",
+      "",
     ]);
     let issueMsg: WorkerMsg;
     let custodyMsg: WorkerMsg;
     try {
+      await Promise.all([issueWorker.ready, custodyWorker.ready]);
       issueWorker.send({ type: "GO" });
       custodyWorker.send({ type: "GO" });
       [issueMsg, custodyMsg] = await Promise.all([issueWorker.next(), custodyWorker.next()]);

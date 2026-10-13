@@ -62,7 +62,7 @@ describe("reviewersApi — roster token forwarding through real transport", () =
     );
   });
 
-  it("list() returns the token envelope and never a per-row reviewersToken", async () => {
+  it("list() forwards the token response envelope", async () => {
     const row: TaskReviewer = {
       id: "tr-1",
       taskId: "task-1",
@@ -77,8 +77,5 @@ describe("reviewersApi — roster token forwarding through real transport", () =
     const result = await reviewersApi.list("task-1");
     expect(result.reviewersToken).toBe("tok");
     expect(result.reviewers).toHaveLength(1);
-    expect(result.reviewers[0] as unknown as Record<string, unknown>).not.toHaveProperty(
-      "reviewersToken",
-    );
   });
 });

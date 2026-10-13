@@ -64,18 +64,17 @@ export const roleDefinitions = sqliteTable(
     isBuiltin: integer("is_builtin", { mode: "boolean" }).notNull().default(false),
     latestRevision: integer("latest_revision").notNull(),
     retiredAt: text("retired_at"),
-    createdAt: text("created_at").notNull().default(sql`(datetime('now'))`),
-    updatedAt: text("updated_at").notNull().default(sql`(datetime('now'))`),
+    createdAt: text("created_at")
+      .notNull()
+      .default(sql`(datetime('now'))`),
+    updatedAt: text("updated_at")
+      .notNull()
+      .default(sql`(datetime('now'))`),
   },
   (table) => [
     // Custom active names unique per namespace incarnation.
     uniqueIndex("uq_role_definitions_active_name")
-      .on(
-        table.namespaceKind,
-        table.namespaceScopeId,
-        table.namespaceIncarnation,
-        table.name,
-      )
+      .on(table.namespaceKind, table.namespaceScopeId, table.namespaceIncarnation, table.name)
       .where(sql`retired_at IS NULL AND namespace_kind IN ('team','habitat')`),
     // Built-ins: separate unique-name index (SQLite NULL-uniqueness avoided).
     uniqueIndex("uq_role_definitions_builtin_name")
@@ -108,7 +107,9 @@ export const roleRevisions = sqliteTable(
     ordinal: integer("ordinal").notNull(),
     permissions: text("permissions").notNull(),
     catalogueVersion: integer("catalogue_version").notNull(),
-    createdAt: text("created_at").notNull().default(sql`(datetime('now'))`),
+    createdAt: text("created_at")
+      .notNull()
+      .default(sql`(datetime('now'))`),
   },
   (table) => [
     uniqueIndex("uq_role_revisions_definition_ordinal").on(table.definitionId, table.ordinal),
@@ -116,8 +117,8 @@ export const roleRevisions = sqliteTable(
     check("rr_ordinal_positive", sql`ordinal >= 1`),
     // length > 2 excludes the empty array '[]' only — it does NOT guarantee
     // valid JSON. Nonempty is the storage contract; malformed text is
-    // refused at read time by the bounded managed-side parser (managed
-    // validator in localRoleAdministration), not by this CHECK.
+    // validated by assignment commands and refused by authorization when
+    // malformed; arbitrary administrative reads are not guarded by this CHECK.
     check("rr_permissions_nonempty", sql`length(permissions) > 2`),
     check("rr_catalogue_version_positive", sql`catalogue_version >= 1`),
   ],
@@ -146,7 +147,9 @@ export const roleAssignments = sqliteTable(
     issuerUserId: text("issuer_user_id")
       .notNull()
       .references(() => users.id, { onDelete: "restrict" }),
-    issuedAt: text("issued_at").notNull().default(sql`(datetime('now'))`),
+    issuedAt: text("issued_at")
+      .notNull()
+      .default(sql`(datetime('now'))`),
     expiresAt: text("expires_at"),
     revokedAt: text("revoked_at"),
     revokeReason: text("revoke_reason"),
@@ -199,7 +202,9 @@ export const governanceAudit = sqliteTable(
     versionAfter: integer("version_after"),
     details: text("details", { mode: "json" }).$type<Record<string, unknown>>(),
     reason: text("reason"),
-    createdAt: text("created_at").notNull().default(sql`(datetime('now'))`),
+    createdAt: text("created_at")
+      .notNull()
+      .default(sql`(datetime('now'))`),
   },
   (table) => [
     index("idx_governance_audit_scope").on(table.scopeKind, table.scopeId),

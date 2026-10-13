@@ -314,8 +314,9 @@ Release shipping becomes a first-class automation trigger. When a release is det
 
 Custody namespace retirement applies to Team and Habitat deletion; Mission
 and Task deletion retire their scope ledgers and grants. Authorized same-lineage
-restore imports re-enroll only the Mission/Task IDs actually replaced and
-restored, with fresh incarnations and no old grants reactivated. Legacy internal
+restore imports re-enroll only replaced/restored Mission/Task IDs with prior
+ledger history at fresh incarnations; historyless scopes remain virtual, and
+no old grants are reactivated. Legacy internal
 calls without a caller identity retain an explicit unknown-attribution audit
 marker; served deletion/import commands record the authenticated actor.
 

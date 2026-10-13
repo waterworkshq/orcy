@@ -1123,6 +1123,22 @@ function resetTaskExecutionState(
   }
 }
 
+/** Exact replacement IDs eligible for controlled same-lineage restoration. */
+function buildRestoreContext(prepared: PreparedImport): {
+  missionIds: Set<string>;
+  taskIds: Set<string>;
+} {
+  const missionIds =
+    prepared.manifest.domains.missions?.disposition === "replace"
+      ? new Set((prepared.preparedDomains.missions?.missions ?? []).map((m) => m.missionServerId))
+      : new Set<string>();
+  const taskIds =
+    prepared.manifest.domains.tasks?.disposition === "replace"
+      ? new Set((prepared.preparedDomains.tasks?.tasks ?? []).map((t) => t.taskServerId))
+      : new Set<string>();
+  return { missionIds, taskIds };
+}
+
 /**
  * Scoped-deletes existing rows for a domain in the target habitat. Top-level
  * domains (columns, missions, missionTemplates) delete by `habitatId`;
@@ -1156,28 +1172,6 @@ function resetTaskExecutionState(
  * the common case; standalone subtask reset on preserved tasks is rare and
  * tracked for M3 refinement).
  */
-/**
- * Same-lineage restore context: the exact server-id sets the prepared
- * manifest will re-insert for missions/tasks under `replace` dispositions.
- * The scoped-delete custody seam re-enrolls (instead of retiring) precisely
- * these ids — never a broad rescan. A domain under `reset` re-inserts
- * nothing, so its set stays empty.
- */
-function buildRestoreContext(prepared: PreparedImport): {
-  missionIds: Set<string>;
-  taskIds: Set<string>;
-} {
-  const missionIds =
-    prepared.manifest.domains.missions?.disposition === "replace"
-      ? new Set((prepared.preparedDomains.missions?.missions ?? []).map((m) => m.missionServerId))
-      : new Set<string>();
-  const taskIds =
-    prepared.manifest.domains.tasks?.disposition === "replace"
-      ? new Set((prepared.preparedDomains.tasks?.tasks ?? []).map((t) => t.taskServerId))
-      : new Set<string>();
-  return { missionIds, taskIds };
-}
-
 function scopedDeleteDomain(
   tx: TaskPublicationDbClient,
   domainName: Exclude<ManifestDomainName, "habitatSettings">,
@@ -1235,7 +1229,13 @@ function scopedDeleteDomain(
         }
         for (const missionId of missionIds) {
           if (restoredMissions.has(missionId)) {
-            reenrollRestoredScopeWithClient(tx, "mission", missionId, "import replacement", custodyActor);
+            reenrollRestoredScopeWithClient(
+              tx,
+              "mission",
+              missionId,
+              "import replacement",
+              custodyActor,
+            );
           } else {
             retireMissionCustodyWithClient(tx, missionId, "import replacement", custodyActor);
           }
@@ -1267,7 +1267,13 @@ function scopedDeleteDomain(
             .all()
             .map((r) => r.id)) {
             if (restoredTasks.has(taskId)) {
-              reenrollRestoredScopeWithClient(tx, "task", taskId, "import replacement", custodyActor);
+              reenrollRestoredScopeWithClient(
+                tx,
+                "task",
+                taskId,
+                "import replacement",
+                custodyActor,
+              );
             } else {
               retireTaskCustodyWithClient(tx, taskId, "import replacement", custodyActor);
             }
@@ -1881,7 +1887,8 @@ export function publishImportAggregateWithClient(
               targetHabitatId,
               isRestore ? restoreContext : undefined,
               custodyActor,
-            );          }
+            );
+          }
         }
       }
 

@@ -56,10 +56,7 @@ import { spawnSync } from "node:child_process";
 import { existsSync, writeFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { initDb, closeDb, getDb } from "../../db/index.js";
-import {
-  createAssignment,
-  revokeAssignment,
-} from "../../services/localRoleAdministration.js";
+import { createAssignment, revokeAssignment } from "../../services/localRoleAdministration.js";
 import { deleteHabitat } from "../../services/habitatService.js";
 
 const [
@@ -95,8 +92,6 @@ function blockUntilReleased(): void {
 }
 
 async function go(): Promise<void> {
-  await initDb(dbPath);
-
   if (mode === "issue") {
     const assignment = createAssignment({
       actorUserId,
@@ -180,7 +175,12 @@ async function go(): Promise<void> {
       expectedScopeVersion,
     });
     holder.transaction = originalTransaction;
-    process.send?.({ kind: "ok", op: "issue-seam", id: assignment.id, version: assignment.version });
+    process.send?.({
+      kind: "ok",
+      op: "issue-seam",
+      id: assignment.id,
+      version: assignment.version,
+    });
     await closeDb();
     process.exit(0);
   }
@@ -188,10 +188,16 @@ async function go(): Promise<void> {
   throw new Error(`unknown mode ${mode}`);
 }
 
+await initDb(dbPath);
 process.on("message", (msg: { type: string }) => {
   if (msg.type === "GO") {
     go().catch((err) => {
-      process.send?.({ kind: "error", message: String(err) });
+      process.send?.({
+        kind: "error",
+        message: String(err),
+        statusCode: err.statusCode,
+        code: err.code,
+      });
       process.exit(1);
     });
   }
