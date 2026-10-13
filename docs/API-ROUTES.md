@@ -217,6 +217,8 @@
 | GET | `/habitats/:param/notifications/history` | `local_actor` | current + deprecated twin |
 | GET | `/habitats/:param/notifications/inbox` | `local_actor` | current + deprecated twin |
 | GET | `/habitats/:param/notifications/subscriptions` | `local_actor` | current + deprecated twin |
+| DELETE | `/habitats/:param/owner` | `human` | current + deprecated twin |
+| PUT | `/habitats/:param/owner` | `human` | current + deprecated twin |
 | DELETE | `/habitats/:param/plugins/:param/quarantine` | `local_actor` | current + deprecated twin |
 | GET | `/habitats/:param/plugins/enrollments` | `local_actor` | current + deprecated twin |
 | POST | `/habitats/:param/plugins/enrollments` | `local_actor` | current + deprecated twin |
@@ -271,9 +273,10 @@
 | POST | `/habitats/:param/repository/infer-from-integration` | `human` | current + deprecated twin |
 | POST | `/habitats/:param/repository/infer-from-worktree` | `human` | current + deprecated twin |
 | GET | `/habitats/:param/review-rules` | `local_actor` | current + deprecated twin |
-| POST | `/habitats/:param/review-rules` | `human` | current + deprecated twin |
+| POST | `/habitats/:param/review-rules` | `local_actor` | current + deprecated twin |
 | GET | `/habitats/:param/roadmap` | `local_actor` | current + deprecated twin |
 | PATCH | `/habitats/:param/roadmap-focus` | `local_actor` | current + deprecated twin |
+| POST | `/habitats/:param/role-definitions` | `human` | current + deprecated twin |
 | GET | `/habitats/:param/rules` | `local_actor` | current + deprecated twin |
 | PUT | `/habitats/:param/rules` | `human` | current + deprecated twin |
 | POST | `/habitats/:param/rules/evaluate` | `human` | current + deprecated twin |
@@ -393,6 +396,12 @@
 | GET | `/organizations/:param/teams` | `human` | current + deprecated twin |
 | POST | `/organizations/:param/teams` | `human` | current + deprecated twin |
 
+## permissions
+
+| Method | Path | Auth policy | Surfaces |
+|---|---|---|---|
+| GET | `/permissions` | `human` | current + deprecated twin |
+
 ## platform
 
 | Method | Path | Auth policy | Surfaces |
@@ -461,8 +470,31 @@
 
 | Method | Path | Auth policy | Surfaces |
 |---|---|---|---|
-| DELETE | `/review-rules/:param` | `human` | current + deprecated twin |
-| PATCH | `/review-rules/:param` | `human` | current + deprecated twin |
+| DELETE | `/review-rules/:param` | `local_actor` | current + deprecated twin |
+| PATCH | `/review-rules/:param` | `local_actor` | current + deprecated twin |
+
+## role-assignments
+
+| Method | Path | Auth policy | Surfaces |
+|---|---|---|---|
+| GET | `/role-assignments` | `human` | current + deprecated twin |
+| POST | `/role-assignments` | `human` | current + deprecated twin |
+| DELETE | `/role-assignments/:param` | `human` | current + deprecated twin |
+| POST | `/role-assignments/:param/revisions` | `human` | current + deprecated twin |
+
+## role-definitions
+
+| Method | Path | Auth policy | Surfaces |
+|---|---|---|---|
+| GET | `/role-definitions/:param` | `human` | current + deprecated twin |
+| POST | `/role-definitions/:param/retire` | `human` | current + deprecated twin |
+| POST | `/role-definitions/:param/revisions` | `human` | current + deprecated twin |
+
+## roles
+
+| Method | Path | Auth policy | Surfaces |
+|---|---|---|---|
+| GET | `/roles` | `human` | current + deprecated twin |
 
 ## saved-filters
 
@@ -571,8 +603,8 @@
 | GET | `/tasks/:param/review-requirement` | `human` | current + deprecated twin |
 | POST | `/tasks/:param/review-requirement/resolve` | `human` | current + deprecated twin |
 | GET | `/tasks/:param/reviewers` | `local_actor` | current + deprecated twin |
-| POST | `/tasks/:param/reviewers` | `human` | current + deprecated twin |
-| DELETE | `/tasks/:param/reviewers/:param` | `human` | current + deprecated twin |
+| POST | `/tasks/:param/reviewers` | `local_actor` | current + deprecated twin |
+| DELETE | `/tasks/:param/reviewers/:param` | `local_actor` | current + deprecated twin |
 | POST | `/tasks/:param/start` | `agent` | current + deprecated twin |
 | POST | `/tasks/:param/submit` | `agent` | current + deprecated twin |
 | GET | `/tasks/:param/subtasks` | `agent` | current + deprecated twin |
@@ -597,6 +629,7 @@
 | POST | `/teams/:param/members` | `human` | current + deprecated twin |
 | DELETE | `/teams/:param/members/:param` | `human` | current + deprecated twin |
 | PATCH | `/teams/:param/members/:param` | `human` | current + deprecated twin |
+| POST | `/teams/:param/role-definitions` | `human` | current + deprecated twin |
 
 ## templates
 
@@ -658,4 +691,4 @@
 
 ---
 
-Total operations (generated HEAD and framework preflight excluded; twins deduplicated): 472 across 36 families.
+Total operations (generated HEAD and framework preflight excluded; twins deduplicated): 485 across 40 families.

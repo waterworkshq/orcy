@@ -414,6 +414,13 @@
       "when": 1789021200003,
       "tag": "0082_task_review_safety",
       "breakpoints": true
+    },
+    {
+      "idx": 59,
+      "version": "6",
+      "when": 1789021200004,
+      "tag": "0083_role_foundation_governance",
+      "breakpoints": true
     }
   ]
 }

@@ -244,3 +244,68 @@ describe("resolution semantics + override expiry", () => {
     expect(t.status).toBe("submitted"); // untouched by the resolution
   });
 });
+
+// ---------------------------------------------------------------------------
+// Personal-owner recovery adapter (migration 0083 / binding L17): the explicit
+// owner of a still-personal habitat may resolve review requirements there.
+// The global viewer ceiling still precedes it, and every shipped executor /
+// decider independence refusal and expected-version refusal is unchanged.
+// ---------------------------------------------------------------------------
+
+describe("personal-owner recovery adapter (0083)", () => {
+  function makeOwner(): string {
+    const id = makeUser("editor");
+    getDb().update(habitats).set({ ownerUserId: id }).where(eq(habitats.id, habitatId)).run();
+    return id;
+  }
+
+  it("the explicit personal owner resolves (was global-admin-only before)", () => {
+    seedWorld("owner-adapter");
+    const { taskId } = claimedLegacyUnknown();
+    const owner = makeOwner();
+    // The habitat has no team, so no team branch can grant this.
+    const habitatRow = getDb().select().from(habitats).where(eq(habitats.id, habitatId)).get()!;
+    expect(habitatRow.teamId).toBeNull();
+    expect(resolve(taskId, owner, { count: 1 }).ok).toBe(true);
+  });
+
+  it("a persisted VIEWER owner is still refused (ceiling precedes the adapter)", () => {
+    seedWorld("owner-ceiling");
+    const { taskId } = claimedLegacyUnknown();
+    const id = makeUser("viewer");
+    getDb().update(habitats).set({ ownerUserId: id }).where(eq(habitats.id, habitatId)).run();
+    expect(resolve(taskId, id, { count: 1 }).ok).toBe(false);
+  });
+
+  it("owner of a DIFFERENT habitat (or of none) is refused", () => {
+    seedWorld("owner-scope");
+    const { taskId } = claimedLegacyUnknown();
+    const stranger = makeUser("editor");
+    // Owner of an unrelated habitat — still not the owner of THIS one.
+    const other = habitatRepo.createHabitat({
+      name: `rs-rec-other-${Math.random()}`,
+    } as never);
+    getDb()
+      .update(habitats)
+      .set({ ownerUserId: stranger })
+      .where(eq(habitats.id, other.id))
+      .run();
+    expect(resolve(taskId, stranger, { count: 1 }).ok).toBe(false);
+  });
+
+  it("a TEAM habitat is governed by its team branch only (no personal-owner path)", () => {
+    seedWorld("owner-team");
+    const { taskId } = claimedLegacyUnknown();
+    const teamOwner = makeTeamWithMember("owner");
+    // The habitat now has a teamId, so the team branch governs: the team
+    // owner resolves. A plain non-member does not, and the schema's
+    // owner/team exclusivity CHECK means a team habitat can never even carry
+    // a personal owner — there is no personal-owner escape on this branch.
+    const plain = makeUser("editor");
+    expect(resolve(taskId, teamOwner.userId, { count: 1 }).ok).toBe(true);
+    expect(resolve(taskId, plain, { count: 1 }).ok).toBe(false);
+    expect(
+      getDb().select().from(habitats).where(eq(habitats.id, habitatId)).get()!.ownerUserId,
+    ).toBeNull();
+  });
+});

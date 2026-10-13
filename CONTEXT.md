@@ -201,6 +201,26 @@ _Avoid_: Workflow rule, automation workflow
 A durable record of one Automation Rule evaluation or execution, including trigger context, condition result, skip reason, action results, and audit provenance.
 _Avoid_: Treating automation side effects as invisible background work
 
+**Governance Scope**:
+A local authority boundary for review management, stored as a four-kind ledger row (`team`, `habitat`, `mission`, or `task`) with an immutable incarnation and positive version. At most one incarnation is active (a scope that exists but has never been mutated may be unmaterialized and use a virtual incarnation); retirement history is retained and never reactivated. Authorization reads the current persisted ledger and resource ancestry inside the command reservation — never from JWT role claims alone.
+_Avoid_: Role (reserved for local-vs-remote trust standing); permission (reserved for the two operational grants)
+
+**Operational Permission**:
+One of the two assignable grants in the local authorization catalogue: `review.configure` (manage future-facing review rules) and `review.assign` (manage manual reviewer allocation). Permissions are immutable revision content pinned by assignments; issuance is human-only and must stay inside the current governor's authority.
+_Avoid_: Capability, role name
+
+**Role Revision**:
+An immutable, insert-only row in the role-revision ledger that pins a nonempty subset of the operational permissions to a role definition. Assignment adoption/re-pin uses the same revision check; permission edits never mutate history or auto-upgrade existing assignments.
+_Avoid_: Version bump, mutable role config
+
+**Scope Incarnation**:
+The immutable integer identity of one governed lifetime for a team/habitat/mission/task scope. Team deletion re-enrolls surviving descendants at fresh incarnations; authorized same-lineage import restoration also re-enrolls replaced Mission/Task IDs with ledger history. Other deletions leave scopes retired. Old grants stay revoked across either transition, so a reused ID or stale version cannot revive authority.
+_Avoid_: Version, generation
+
+**Personal Owner**:
+The explicitly assigned non-viewer local human who governs one still-personal Habitat and its descendants. Personal ownership is set, transferred, or cleared by global admins only; it never converts an operational agent grant into administration power and never weakens review independence.
+_Avoid_: Creator, task owner, global viewer
+
 **Notification**:
 A recipient-scoped attention request for a human or agent to notice, acknowledge, defer, or act on something in a habitat.
 _Avoid_: Pulse signal, toast

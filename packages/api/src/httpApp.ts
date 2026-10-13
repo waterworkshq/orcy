@@ -120,6 +120,7 @@ import { taskPublicationRoutes } from "./routes/taskPublication.js";
 import { taskClonePublicationRoutes } from "./routes/taskClonePublication.js";
 import { scheduledOccurrenceRepairRoutes } from "./routes/scheduledOccurrenceRepair.js";
 import { extractionRoutes } from "./routes/extraction.js";
+import { roleAdminRoutes } from "./routes/roleAdmin.js";
 import {
   taskCodeEvidenceRoutes,
   missionCodeEvidenceRoutes,
@@ -450,6 +451,7 @@ async function registerApiRoutes(fastify: HttpAppInstance): Promise<void> {
   await fastify.register(taskPublicationRoutes);
   await fastify.register(scheduledOccurrenceRepairRoutes);
   await fastify.register(extractionRoutes);
+  await fastify.register(roleAdminRoutes);
 }
 
 /**

@@ -15,6 +15,10 @@ export const reviewRules = sqliteTable('review_rules', {
   requiredReviews: integer('required_reviews').notNull().default(1),
   antiSelfReview: integer('anti_self_review').notNull().default(1),
   fixedReviewerIds: text('fixed_reviewer_ids', { mode: 'json' }).$type<string[]>().notNull().$defaultFn(() => []),
+  // Optimistic-concurrency version (migration 0083): starts at 1, incremented
+  // by every repository update; optional CAS via expectedVersion on
+  // PATCH/DELETE preserves legacy last-writer-wins clients (binding addendum).
+  version: integer('version').notNull().default(1),
   createdAt: text('created_at').notNull().default("(datetime('now'))"),
   updatedAt: text('updated_at').notNull().default("(datetime('now'))"),
 }, (table) => [

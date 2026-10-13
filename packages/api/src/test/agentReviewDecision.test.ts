@@ -736,8 +736,18 @@ describe('Reviewer creation — POST /tasks/:taskId/reviewers validation', () =>
     await initTestDb();
     workerId = makeAgent('worker-agent');
     reviewerId = makeAgent('reviewer-agent');
+    // Reviewer management is a GOVERNANCE command: authority is the current
+    // PERSISTED governor, re-read inside the writer reservation — the
+    // `role: 'admin'` on the mock request below is a request claim, not a
+    // grant. This habitat is personal (no teamId), so the explicit personal
+    // owner is the governor adapter that authorizes review.assign here.
     insertUser('human-42', 'h42');
     board = setupSubmittedTask(workerId);
+    getDb()
+      .update(habitats)
+      .set({ ownerUserId: 'human-42' })
+      .where(eq(habitats.id, board.habitatId))
+      .run();
     routes = captureRoutes(reviewRuleRoutes);
   });
 
@@ -824,8 +834,13 @@ describe('Reviewer creation — POST /tasks/:taskId/reviewers validation', () =>
     const db = getDb();
     db.insert(organizations).values({ id: 'org-1', name: 'O', slug: 'org-1' }).run();
     db.insert(teams).values({ id: 'team-1', name: 'T', slug: 'team-1', organizationId: 'org-1' }).run();
-    db.update(habitats).set({ teamId: 'team-1' }).where(eq(habitats.id, board.habitatId)).run();
-    db.insert(teamMembers).values({ id: 'tm-x', teamId: 'team-1', userId: 'human-42' }).run();
+    // Attaching a team makes the TEAM branch govern, and the habitat's
+    // personal owner (set in beforeEach) no longer applies — the schema
+    // CHECK forbids a team habitat carrying a personal owner, so both move in
+    // ONE statement. Make this user a team OWNER so the governor adapter still
+    // authorizes the command.
+    db.update(habitats).set({ teamId: 'team-1', ownerUserId: null }).where(eq(habitats.id, board.habitatId)).run();
+    db.insert(teamMembers).values({ id: 'tm-x', teamId: 'team-1', userId: 'human-42', role: 'owner' }).run();
     const result = await postReviewer({ reviewerId, reviewerType: 'agent' });
     expect(result.code).toBe(201);
     expect(getRow(board.taskId, reviewerId)?.reviewerType).toBe('agent');

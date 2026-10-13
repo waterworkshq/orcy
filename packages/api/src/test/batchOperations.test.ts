@@ -1,6 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { makeTask } from "./factories/task.js";
 import { makeAgent } from "./factories/agent.js";
+vi.mock("../services/governanceCustody.js", () => ({ retireTaskCustodyWithClient: vi.fn() }));
+vi.mock("../db/index.js", () => ({
+  getDb: () => ({ transaction: (run: (tx: object) => unknown) => run({}) }),
+}));
 
 vi.mock("../repositories/task.js", () => ({
   getTaskById: vi.fn(),

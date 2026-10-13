@@ -12,6 +12,7 @@ import {
 import type { Mission, MissionStatus, Task, TaskPriority } from "../models/index.js";
 import { sql } from "drizzle-orm";
 import { getDb } from "../db/index.js";
+import { retireMissionCustodyWithClient } from "./governanceCustody.js";
 import { isSqliteError } from "../errors/sqlite.js";
 
 /** Input payload accepted by {@link createMission} describing the initial fields of a new mission. */
@@ -350,6 +351,19 @@ export function deleteMission(
         },
       });
 
+      // Governance custody (administration ticket): retire Mission + child
+      // Task ledgers/grants inside this same reservation, before the rows go.
+      // The REAL caller (human|agent) is audited; `system` (the historical
+      // default for internal callers) does not exist in the audit enum, so
+      // it maps to unknown attribution rather than a fabricated identity.
+      retireMissionCustodyWithClient(
+        getDb(),
+        missionId,
+        "mission deleted",
+        actorType === "human" || actorType === "agent"
+          ? { actorType, actorId }
+          : { actorType: "human", actorId: "unknown" },
+      );
       missionRepo.deleteMissionWithClient(getDb(), missionId);
       habitatId = mission.habitatId;
       return { success: true as const };

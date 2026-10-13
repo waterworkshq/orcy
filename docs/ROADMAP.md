@@ -146,6 +146,12 @@ Workflow attachment validates all nodes and commits the Workflow/gates atomicall
 
 ## Upcoming
 
+### Implementation complete; release pending
+
+| Candidate | Story | Status |
+|---|---|---|
+| Local role administration and review governance | A bounded local authorization foundation: immutable role revisions, typed assignments with CAS and retained revocation history, personal-habitat ownership, custody-aware deletion, and transaction-bound review-rule/reviewer management with optional CAS. Implemented in this candidate and accepted under bounded source/operational review. **Not shipped** — no release tag or main integration yet. | Implemented; release pending |
+
 ### Architecture Deepening (2026-08-13 Review)
 
 All six candidates now have scoped investigation seeds in [`plans/v5/`](./plans/v5/README.md). This is a gated adoption sequence, not a promise that every candidate will ship or that the table order assigns release numbers.

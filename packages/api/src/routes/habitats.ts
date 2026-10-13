@@ -7,7 +7,7 @@ import { applyDeclaredAuthPolicies } from "../authPolicy.js";
 import { adminOnly } from "../middleware/rbac.js";
 import { requireHabitatAccess } from "../middleware/team.js";
 import { listTeamsByUserId } from "../repositories/team.js";
-import { notFound } from "../errors.js";
+import { notFound, forbidden } from "../errors.js";
 
 const habitatIdParamsSchema = z.object({ habitatId: z.string() });
 
@@ -56,6 +56,7 @@ export async function habitatRoutes(fastify: FastifyInstance): Promise<void> {
           ...request.body,
           defaultColumns: request.body.defaultColumns ?? true,
           teamId: request.body.teamId,
+          actorUserId: request.user?.id,
         });
 
         reply.code(201).send({ habitat, columns });
@@ -69,10 +70,14 @@ export async function habitatRoutes(fastify: FastifyInstance): Promise<void> {
       "/habitats/agent",
       { schema: { body: createHabitatSchema }, config: { authPolicy: "agent" } },
       async (request, reply) => {
+        // Agents can never create team-bound habitats (binding custody register).
+        if (request.body.teamId) {
+          throw forbidden("Agents cannot create team-bound habitats", "AUTHORIZATION_DENIED");
+        }
         const { habitat, columns } = habitatService.createHabitat({
           ...request.body,
           defaultColumns: request.body.defaultColumns ?? true,
-          teamId: request.body.teamId,
+          teamId: null,
         });
 
         reply.code(201).send({ success: true, habitat, columns });
@@ -122,7 +127,11 @@ export async function habitatRoutes(fastify: FastifyInstance): Promise<void> {
       config: { authPolicy: "human" },
     },
     async (request, reply) => {
-      habitatService.deleteHabitat(request.params.habitatId);
+      // Real authenticated actor reaches the custody-retirement audit.
+      habitatService.deleteHabitat(request.params.habitatId, {
+        actorType: request.agent ? "agent" : "human",
+        actorId: request.agent?.id ?? request.user?.id ?? "unknown",
+      });
       reply.code(204).send();
     },
   );

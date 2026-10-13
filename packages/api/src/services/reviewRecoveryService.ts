@@ -9,10 +9,12 @@
  *
  *   persisted users.role !== 'viewer'
  *   && (users.role === 'admin'
+ *       || (habitat is personal AND owner_user_id === actorUserId)
  *       || (habitat has a team AND persisted team_members.role IN
  *           ('owner','admin') for that team))
  *
- * Personal habitats (no team) are global-admin-only by the same predicate.
+ * Personal habitats admit the persisted global admin or their explicit
+ * non-viewer personal owner; unowned personal habitats are global-admin-only.
  * The current typed claimant/executor and any actor who decided review in
  * the current generation are refused. A resolution never approves or
  * completes; a relaxation stays `required` (override-to-zero is never a
@@ -46,7 +48,7 @@ export function authorizeRecoveryWithClient(
     .get();
   if (!taskRow) return false;
   const habitatRow = tx
-    .select({ teamId: habitats.teamId })
+    .select({ teamId: habitats.teamId, ownerUserId: habitats.ownerUserId })
     .from(missions)
     .innerJoin(habitats, eq(missions.habitatId, habitats.id))
     .where(eq(missions.id, taskRow.missionId))
@@ -64,8 +66,12 @@ export function authorizeRecoveryWithClient(
   if (userRow.role === "viewer") return false;
   if (userRow.role === "admin") return true;
 
+  // Personal-habitat owner adapter (migration 0083): the explicit owner of a
+  // still-personal habitat governs recovery there. The ceiling check above
+  // already ran, so a viewer owner is refused.
+  if (!habitatRow.teamId) return habitatRow.ownerUserId === actorUserId;
+
   const teamId = habitatRow.teamId;
-  if (!teamId) return false; // personal habitat: global-admin-only
   const member = tx
     .select({ role: teamMembers.role })
     .from(teamMembers)

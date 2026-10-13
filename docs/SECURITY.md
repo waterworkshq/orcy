@@ -264,9 +264,98 @@ clocks/provenance pointers) loudly. The signed merge-approval webhook may
 approve only genuine known-zero tasks. Independent human recovery
 (`POST /api/tasks/:taskId/review-requirement/resolve`) is the ONLY
 unknown→known exit and the ONLY positive-baseline reduction, authorized from
-persisted roles (global viewer ceiling; personal habitats global-admin-only)
+persisted roles (global viewer ceiling; personal habitats global-admin-only
+or explicitly owned)
 under the command's own transaction, with executor/decider independence
 refusals and append-only evidence.
+
+### Local Role Administration
+
+The 13 governance routes (`/permissions`, `/roles`, `/role-definitions`,
+`/role-assignments`, `/teams|habitats/:id/role-definitions`,
+`/habitats/:id/owner`) are all `human` policy with a single authority rule:
+the **current persisted governor** — global admin everywhere; non-viewer
+team owner/admin for team descendants; explicit personal owner of a
+still-personal habitat. The only authenticated-human read exceptions to
+governor-only namespace reads are the fixed permission catalogue and
+built-in definition detail. Viewers are an absolute ceiling, operational grants
+never confer administration authority, and the JWT role claim alone is not
+sufficient (the persisted row is re-read inside the writer reservation).
+Target-missing 404 always fires before the governor 403 — that ordering is
+the mandated contract, not an anti-probe guarantee: a missing target answers
+404 and an existing-but-forbidden target answers 403, so the pair remains a
+distinguishable existence signal to any authenticated human who can reach
+both cases. Every mutation is CAS-guarded (`scopeIncarnation` +
+`expectedScopeVersion` + object expectations) and audited in one IMMEDIATE
+reservation — an audit fault rolls the mutation back. Assignment issuance and
+revision adoption additionally refuse permission/scope mismatches at command
+input: `review.configure` revisions cannot be granted at Task scope. Scope
+custody transitions (team/habitat/mission/task deletion) retire ledgers and
+revoke grants before the row cascade in the same reservation, and a reused
+scope ID can never revive retired authority (fresh incarnation required).
+Authorized same-lineage import restoration re-enrolls only the Mission/Task
+IDs actually replaced and restored, with fresh incarnations and old grants
+still revoked; omitted, reset and remapped IDs do not receive that authority.
+Agent deletion is a principal-level transition, not a scope-custody one: it
+revokes only that agent's active grants in the same reservation (a
+re-registered registry ID can never revive them) and performs no ledger or
+namespace retirement. These are managed-seam guarantees; raw database writes
+and trigger removal remain outside them.
+Served deletion/import paths carry the authenticated human or agent into
+custody audit. Legacy internal calls without an authenticated caller retain
+an explicit unknown-attribution marker rather than claiming a named user.
+
+### Review-Governance Command Service (migration 0083)
+
+The operational consumer of the local authorization foundation: migrated
+review-rule create/update/delete and task reviewer add/remove onto a
+transaction-bound command service (`services/reviewGovernance.ts`), with
+transaction-time authority enforcement via `authorizeWithClient` (evaluator on
+the writer's own reservation) and optional CAS on legacy mutations (user
+decision: omitted expectations retain last-write-wins; supplied expectations
+conflict 409 with no write).
+
+Migrated routes and their authority surface:
+
+| Operation | Transport policy | Authority (inside reservation) |
+| --- | --- | --- |
+| `POST /habitats/:habitatId/review-rules` | `local_actor` | `review.configure` on the target Habitat (persisted governor adapter or explicit operational grant); typed identity; viewer ceiling; the new row starts at version 1 (no CAS — no prior object) |
+| `PATCH /review-rules/:id` | `local_actor` | Same authority on the rule's Habitat; optional `expectedVersion` CAS |
+| `DELETE /review-rules/:id` | `local_actor` | Same authority; `?expectedVersion` query for empty-body clients |
+| `POST /tasks/:taskId/reviewers` | `local_actor` | `review.assign` on the Task; typed anti-self for agent-typed rows; typed registry existence; optional `expectedReviewersToken` CAS |
+| `DELETE /tasks/:taskId/reviewers/:reviewerId` | `local_actor` | Same as POST; removal never lowers the durable floor or deletes decision history |
+| `GET /tasks/:taskId/reviewers` | `local_actor` | Object-access via target Task→Mission→Habitat; returns `reviewersToken` (SHA-256 over actual rows + projected state + requirement fields, sorted deterministically) alongside the existing projected-status shape |
+
+What is deliberately unchanged:
+
+- Review DECISIONS (approve/reject, finality, recovery, rework) are separate,
+  unchanged, and continue under their own contracts.
+- Internal allocation writers (`reviewAssignmentService` strategy assigners),
+  automation `request_review` (`automationExecutor`), finality/rework status
+  writers (`reviewFinalityService`), and callerless `removeAllForTask` are
+  preserved as trusted internal writers; the roster token is derived from
+  their actual row effects, not from counter increments on those paths.
+- The ABA limitation is disclosed: if the entire recorded state genuinely
+  returns to identical values, the token matches again — authority still
+  reads the current state at the write, so a coincidental token match cannot
+  bypass it.
+
+MCP wire: `orcy_review` action names unchanged. `create_rule`/
+`update_rule`/`delete_rule` forward optional `expectedVersion` (create never
+carries one — there is no prior object to compare against);
+`add_reviewer`/`remove_reviewer` forward optional `expectedReviewersToken`.
+Omitted CAS fields keep legacy compatibility; the Zod schemas accept them
+explicitly (not stripped).
+
+Compatibility note (G3): the old `adminBoundaryMcpWire` viewer-member
+rule-create expectation (authenticated viewer who belongs to the team → 201)
+is retired — rule creation now runs under `review.configure` with the viewer
+ceiling, so a viewer team member who attempts `POST
+/habitats/:habitatId/review-rules` is denied at the evaluator
+(`VIEWER_CEILING`) with 403 `AUTHORIZATION_DENIED`, regardless of team
+membership. A governor (or an agent holding an explicit operational grant of
+`review.configure`) creates successfully; there is no 401 class left on this
+route for agent keys — an agent key without the grant is 403, not 401.
 
 ### Board Access Control
 

@@ -12,6 +12,7 @@ import { guardTransition, guardTransitionTop } from "./tasks/transitionBudget.js
 import type { BudgetActorType } from "./tasks/transitionBudget.js";
 import { habitatIdForTaskWithClient } from "./tasks/transitionBudget.js";
 import { requestEffectDeliveryPass } from "./effects/effectDeliverer.js";
+import { revokeAssignmentsForAgentWithClient } from "../repositories/roleFoundation.js";
 import { getDb } from "../db/index.js";
 import { tasks, agents, taskReviewRequirements } from "../db/schema/index.js";
 import { eq, sql } from "drizzle-orm";
@@ -390,6 +391,10 @@ export function deleteAgent(
       }
 
       // ── 7. PRE-DELETE assert + the agent-row delete (same tx) ───────────
+      // Governance custody (administration ticket): revoke every active
+      // typed-agent assignment in this same reservation BEFORE identity
+      // deletion, so a re-registered registry ID can never revive grants.
+      revokeAssignmentsForAgentWithClient(tx, agentId, "agent deleted");
       agentRepo.deleteAgentWithClient(tx, agentId);
 
       return bundles;

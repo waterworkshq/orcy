@@ -9,6 +9,8 @@ import * as subtaskRepo from "../../repositories/subtask.js";
 import * as commentRepo from "../../repositories/comment.js";
 import * as pluginManager from "../../plugins/pluginManager.js";
 import { InterceptorVetoError } from "../../errors.js";
+import { getDb } from "../../db/index.js";
+import { retireTaskCustodyWithClient, type CustodyActor } from "../governanceCustody.js";
 import type { Task, TaskStatus } from "../../models/index.js";
 import { formatClonedTitle } from "./helpers.js";
 import { emitTransition } from "./transition-emitter.js";
@@ -216,32 +218,52 @@ export function updateTask(
 /**
  * Deletes a {@link Task} after checking it has no dependents and is not in an
  * archived mission, notifying watchers and emitting a `deleted` transition.
+ *
+ * `actor`: the authenticated human/agent driving the delete; reaches the
+ * custody-retirement audit. Omitted only for legacy internal callers with no
+ * authenticated identity — the audit then records unknown attribution.
  */
-export function deleteTask(taskId: string):
+export function deleteTask(taskId: string, actor?: CustodyActor):
   | { success: true }
   | {
       success: false;
       reason: "not_found" | "has_dependents" | "archived";
       dependentCount?: number;
     } {
+  // Resolve the CANONICAL persisted id before every dependent check.
+  // getTaskById normalizes `feat-` aliases, but the raw input used to flow
+  // into the dependency query, custody retire, watcher notify, row delete
+  // and the `deleted` transition. A caller spelling `feat-<id>` got a
+  // normalized lookup that found the row (passing the not-found guard) and
+  // then a delete of the LITERAL `feat-<id>` string — a no-op on the real
+  // row, reported as a false 204. From here on, every write, check and
+  // emission uses the resolved canonical `task.id`.
   const task = taskRepo.getTaskById(taskId);
   if (!task) return { success: false, reason: "not_found" };
+  const canonicalTaskId = task.id;
 
   const mission = missionRepo.getMissionById(task.missionId);
   if (mission?.isArchived) return { success: false, reason: "archived" };
 
-  const dependents = taskRepo.getTasksByDependency(taskId);
+  const dependents = taskRepo.getTasksByDependency(canonicalTaskId);
   if (dependents.length > 0) {
     return { success: false, reason: "has_dependents", dependentCount: dependents.length };
   }
 
-  const habitatId = taskRepo.getHabitatIdForTask(taskId) ?? "";
-  
+  const habitatId = mission?.habitatId ?? "";
 
-  if (habitatId) watcherService.notifyWatchers(taskId, habitatId, "task.deleted");
-  taskRepo.deleteTask(taskId);
+  if (habitatId) watcherService.notifyWatchers(canonicalTaskId, habitatId, "task.deleted");
+  // Governance custody (administration ticket): retire the Task ledger and
+  // revoke its grants atomically with the row delete — one reservation.
+  getDb().transaction(
+    (tx) => {
+      retireTaskCustodyWithClient(tx, canonicalTaskId, "task deleted", actor);
+      taskRepo.deleteTask(canonicalTaskId);
+    },
+    { behavior: "immediate" },
+  );
 
-  emitTransition(taskId, "deleted", habitatId, {
+  emitTransition(canonicalTaskId, "deleted", habitatId, {
     actorType: "human",
     actorId: "system",
   });

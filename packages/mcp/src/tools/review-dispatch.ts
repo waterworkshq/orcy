@@ -83,15 +83,39 @@ export const REVIEW_DISPATCH_TOOL: Tool = createDispatchTool({
       description:
         "Fixed reviewer user IDs for fixed strategy (used with create_rule, update_rule)",
     },
+    expectedVersion: {
+      type: "integer",
+      minimum: 1,
+      description:
+        "Optional rule version seen by the caller (used with update_rule, delete_rule); omitted = legacy last-write-wins, stale = 409 conflict",
+    },
+    expectedReviewersToken: {
+      type: "string",
+      description:
+        "Optional 64-hex roster token from a prior list_reviewers (used with add_reviewer, remove_reviewer); omitted = legacy compatibility, stale = 409 conflict",
+    },
   },
 });
+
+/**
+ * Boundary check: the dispatch framework validates required-param presence
+ * only, so the schema's integer constraint on `expectedVersion` is enforced
+ * here before the value reaches the client.
+ */
+function assertIntegerVersion<T extends Record<string, unknown>>(args: T): T {
+  const v = args.expectedVersion;
+  if (v !== undefined && (typeof v !== "number" || !Number.isSafeInteger(v) || v < 1)) {
+    throw new Error(`expectedVersion must be an integer >= 1 (got ${JSON.stringify(v)})`);
+  }
+  return args;
+}
 
 /** Action-name → {@link Handler} map routing each review operation to its habitat client implementation. */
 export const REVIEW_ACTIONS: Record<string, Handler> = {
   list_rules: (client, args) => listReviewRules(client, args),
   create_rule: (client, args) => createReviewRule(client, args),
-  update_rule: (client, args) => updateReviewRule(client, args),
-  delete_rule: (client, args) => deleteReviewRule(client, args),
+  update_rule: (client, args) => updateReviewRule(client, assertIntegerVersion(args)),
+  delete_rule: (client, args) => deleteReviewRule(client, assertIntegerVersion(args)),
   list_reviewers: (client, args) => listTaskReviewers(client, args),
   add_reviewer: (client, args) => addTaskReviewer(client, args),
   remove_reviewer: (client, args) => removeTaskReviewer(client, args),

@@ -1,24 +1,24 @@
-import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
-import * as reviewRuleRepo from '../repositories/reviewRule.js';
-import * as taskReviewerRepo from '../repositories/taskReviewer.js';
-import { requireHabitatAccess, checkHabitatAccess } from '../middleware/team.js';
-import { badRequest, notFound, forbidden, unauthorized, conflict } from '../errors.js';
-import { isTeamMemberByHabitatId } from '../repositories/teamMember.js';
-import { getHabitatById } from '../repositories/habitat.js';
-import { getTaskById } from '../repositories/task.js';
-import * as agentRepo from '../repositories/agent.js';
-import { getDb } from '../db/index.js';
-import {
-  getRequirementWithClient,
-  projectReviewersWithClient,
-  projectedPendingCountByReviewer,
-} from '../repositories/reviewSafety.js';
-import * as userRepo from '../repositories/user.js';
-import { getMissionById } from '../repositories/mission.js';
-import { z } from 'zod';
+import type { FastifyInstance, FastifyRequest, FastifyReply } from "fastify";
+import * as reviewRuleRepo from "../repositories/reviewRule.js";
+import { requireHabitatAccess, checkHabitatAccess } from "../middleware/team.js";
+import { badRequest, notFound } from "../errors.js";
+import { getTaskById } from "../repositories/task.js";
+import { getDb } from "../db/index.js";
+import { getMissionById } from "../repositories/mission.js";
+import { z } from "zod";
 import { applyDeclaredAuthPolicies } from "../authPolicy.js";
+import {
+  createRuleCommand,
+  updateRuleCommand,
+  deleteRuleCommand,
+  addReviewerCommand,
+  removeReviewerCommand,
+  listReviewersWithToken,
+  resolveCommandActor,
+  type ReviewerAddInput,
+} from "../services/reviewGovernance.js";
 
-const STRATEGIES = ['domain_expert', 'round_robin', 'least_loaded', 'random', 'fixed'] as const;
+const STRATEGIES = ["domain_expert", "round_robin", "least_loaded", "random", "fixed"] as const;
 
 const createRuleSchema = z.object({
   name: z.string().min(1).max(200),
@@ -33,6 +33,9 @@ const createRuleSchema = z.object({
   fixedReviewerIds: z.array(z.string()).optional(),
 });
 
+// Optional CAS fields are EXPLICIT, never stripped: Zod strips unknown
+// keys by default, so each supplied expectation must be a named field or
+// it is silently lost before the command ever sees it.
 const updateRuleSchema = z.object({
   name: z.string().min(1).max(200).optional(),
   enabled: z.number().min(0).max(1).optional(),
@@ -44,36 +47,23 @@ const updateRuleSchema = z.object({
   requiredReviews: z.number().int().min(1).max(10).optional(),
   antiSelfReview: z.number().min(0).max(1).optional(),
   fixedReviewerIds: z.array(z.string()).optional(),
+  expectedVersion: z.number().int().positive().optional(),
 });
 
 const addReviewerSchema = z.object({
   reviewerId: z.string().min(1),
-  reviewerType: z.enum(['human', 'agent']).optional(),
+  reviewerType: z.enum(["human", "agent"]).optional(),
+  expectedReviewersToken: z
+    .string()
+    .regex(/^[0-9a-f]{64}$/)
+    .optional(),
 });
-
-function verifyRuleHabitatAccess(request: FastifyRequest, habitatId: string): void {
-  const habitat = getHabitatById(habitatId);
-  if (!habitat) throw notFound('Habitat not found');
-
-  if (request.agent) {
-    if (!habitat.teamId) return;
-    throw forbidden('Agents cannot access team habitats', 'BOARD_ACCESS_DENIED');
-  }
-
-  if (request.user) {
-    if (!habitat.teamId) return;
-    if (isTeamMemberByHabitatId(habitatId, request.user.id)) return;
-    throw forbidden('You do not have access to this habitat', 'BOARD_ACCESS_DENIED');
-  }
-
-  throw unauthorized('Authentication required');
-}
 
 export function getHabitatIdFromTask(taskId: string): string {
   const task = getTaskById(taskId);
-  if (!task) throw notFound('Task not found');
+  if (!task) throw notFound("Task not found");
   const mission = getMissionById(task.missionId);
-  if (!mission) throw notFound('Mission not found');
+  if (!mission) throw notFound("Mission not found");
   return mission.habitatId;
 }
 
@@ -81,63 +71,88 @@ export async function reviewRuleRoutes(fastify: FastifyInstance): Promise<void> 
   applyDeclaredAuthPolicies(fastify);
 
   fastify.get<{ Params: { habitatId: string } }>(
-    '/habitats/:habitatId/review-rules',
+    "/habitats/:habitatId/review-rules",
     { preHandler: [requireHabitatAccess], config: { authPolicy: "local_actor" } },
     async (request) => {
       const rules = reviewRuleRepo.getByHabitatId(request.params.habitatId);
       return { reviewRules: rules };
-    }
+    },
   );
 
   fastify.post<{ Params: { habitatId: string }; Body: z.infer<typeof createRuleSchema> }>(
-    '/habitats/:habitatId/review-rules',
-    { preHandler: [requireHabitatAccess], config: { authPolicy: "human" } },
+    "/habitats/:habitatId/review-rules",
+    { config: { authPolicy: "local_actor" } },
     async (request, reply) => {
       const parsed = createRuleSchema.safeParse(request.body);
       if (!parsed.success) {
-        throw badRequest('Validation failed', parsed.error.flatten());
+        throw badRequest("Validation failed", parsed.error.flatten());
       }
 
-      const rule = reviewRuleRepo.create(request.params.habitatId, parsed.data);
+      // Creation has no prior object to CAS; the new row starts at version 1.
+      // Authority (review.configure on the target Habitat) is enforced by the
+      // command service inside its own reservation.
+      const rule = createRuleCommand({
+        habitatId: request.params.habitatId,
+        actor: resolveCommandActor(request),
+        fields: parsed.data,
+      });
       reply.code(201).send({ reviewRule: rule });
-    }
+    },
   );
 
   fastify.patch<{ Params: { id: string }; Body: z.infer<typeof updateRuleSchema> }>(
-    '/review-rules/:id',
-    { config: { authPolicy: "human" } },
+    "/review-rules/:id",
+    { config: { authPolicy: "local_actor" } },
     async (request) => {
       const parsed = updateRuleSchema.safeParse(request.body);
       if (!parsed.success) {
-        throw badRequest('Validation failed', parsed.error.flatten());
+        throw badRequest("Validation failed", parsed.error.flatten());
       }
 
-      const existing = reviewRuleRepo.getById(request.params.id);
-      if (!existing) throw notFound('Review rule not found');
-
-      verifyRuleHabitatAccess(request, existing.habitatId);
-
-      const updated = reviewRuleRepo.update(request.params.id, parsed.data);
+      // The service re-checks existence/authority inside its own reservation.
+      const { expectedVersion, ...fields } = parsed.data;
+      const updated = updateRuleCommand({
+        ruleId: request.params.id,
+        actor: resolveCommandActor(request),
+        fields,
+        ...(expectedVersion !== undefined ? { expectedVersion } : {}),
+      });
       return { reviewRule: updated };
-    }
+    },
   );
 
   fastify.delete<{ Params: { id: string } }>(
-    '/review-rules/:id',
-    { config: { authPolicy: "human" } },
+    "/review-rules/:id",
+    { config: { authPolicy: "local_actor" } },
     async (request: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) => {
-      const existing = reviewRuleRepo.getById(request.params.id);
-      if (!existing) throw notFound('Review rule not found');
+      // Optional query CAS for empty-body clients; omitted = legacy LWW.
+      // The COMPLETE raw query value is validated: only absence means LWW.
+      // An explicitly supplied value — empty string, fractional ('1.5'),
+      // trailing junk ('1junk'), or a repeated parameter (Fastify delivers
+      // an array) — is a 400, never silently truncated or treated as absent.
+      const rawVersion = (request.query as { expectedVersion?: unknown })?.expectedVersion;
+      let expectedVersion: number | undefined;
+      if (rawVersion !== undefined) {
+        if (typeof rawVersion !== "string" || !/^[1-9][0-9]*$/.test(rawVersion)) {
+          throw badRequest("expectedVersion must be a positive integer");
+        }
+        expectedVersion = Number(rawVersion);
+        if (!Number.isSafeInteger(expectedVersion)) {
+          throw badRequest("expectedVersion must be a positive safe integer");
+        }
+      }
 
-      verifyRuleHabitatAccess(request, existing.habitatId);
-
-      reviewRuleRepo.remove(request.params.id);
+      deleteRuleCommand({
+        ruleId: request.params.id,
+        actor: resolveCommandActor(request),
+        ...(expectedVersion !== undefined ? { expectedVersion } : {}),
+      });
       reply.code(204).send();
-    }
+    },
   );
 
   fastify.get<{ Params: { taskId: string } }>(
-    '/tasks/:taskId/reviewers',
+    "/tasks/:taskId/reviewers",
     { config: { authPolicy: "local_actor" } },
     async (request) => {
       // Object access resolves through the TARGET task's actual
@@ -147,104 +162,77 @@ export async function reviewRuleRoutes(fastify: FastifyInstance): Promise<void> 
       const habitatId = getHabitatIdFromTask(request.params.taskId);
       await checkHabitatAccess(request, habitatId);
 
-      // Review safety (B3): the reviewer GET exposes the EFFECTIVE
-      // current-generation assignment projection, never raw row status
-      // alone — a stale approved/rejected row projects pending after a new
-      // claim generation.
-      const reviewers = taskReviewerRepo.getByTaskId(request.params.taskId);
-      const requirement = getRequirementWithClient(getDb(), request.params.taskId);
-      const projected = requirement
-        ? projectReviewersWithClient(getDb(), request.params.taskId, requirement)
-        : [];
-      const rows = reviewers.map((row) => {
-        const p = projected.find(
-          (x) => x.reviewerType === row.reviewerType && x.reviewerId === row.reviewerId,
-        );
-        return { ...row, projectedStatus: p?.projected ?? row.status };
-      });
-      return { reviewers: rows };
-    }
+      // Roster token: the GET exposes the effective current-generation
+      // projection plus the deterministic SHA-256 token over the actual rows,
+      // their raw + projected statuses and the requirement fields.
+      const listing = listReviewersWithToken(request.params.taskId, habitatId, getDb() as never);
+      return {
+        reviewers: listing.reviewers,
+        reviewersToken: listing.token,
+      };
+    },
   );
 
   fastify.post<{ Params: { taskId: string }; Body: z.infer<typeof addReviewerSchema> }>(
-    '/tasks/:taskId/reviewers',
-    { config: { authPolicy: "human" } },
+    "/tasks/:taskId/reviewers",
+    { config: { authPolicy: "local_actor" } },
     async (request, reply) => {
-      const habitatId = getHabitatIdFromTask(request.params.taskId);
-      verifyRuleHabitatAccess(request, habitatId);
+      // No membership gate here: the command's evaluator owns authorization
+      // (review.assign grant or governance adapter), so a granted non-member
+      // must reach it. Existence 404s still come from getHabitatIdFromTask;
+      // authority refusal comes from the transaction-bound evaluator.
+      getHabitatIdFromTask(request.params.taskId);
 
       const parsed = addReviewerSchema.safeParse(request.body);
       if (!parsed.success) {
-        throw badRequest('Validation failed', parsed.error.flatten());
+        throw badRequest("Validation failed", parsed.error.flatten());
       }
 
-      // Creation validation (typed identity, no coercion). Management stays
-      // human-only; TARGET eligibility is deliberately not restricted by the
-      // habitat's team membership — agent-typed rows remain creatable on team
-      // habitats (authorized humans/server automation can already produce
-      // them, and the restoration must make such rows resolvable).
-      const reviewerType = parsed.data.reviewerType ?? 'human';
-      const task = getTaskById(request.params.taskId);
-      if (!task) throw notFound('Task not found');
+      const input: ReviewerAddInput = {
+        taskId: request.params.taskId,
+        reviewerId: parsed.data.reviewerId,
+        reviewerType: parsed.data.reviewerType ?? "human",
+        actor: resolveCommandActor(request),
+      };
+      if (parsed.data.expectedReviewersToken !== undefined) {
+        input.expectedReviewersToken = parsed.data.expectedReviewersToken;
+      }
 
-      if (reviewerType === 'agent') {
-        const agent = agentRepo.getAgentById(parsed.data.reviewerId);
-        if (!agent) {
-          throw badRequest(
-            `Reviewer "${parsed.data.reviewerId}" not found in the agent registry`,
-          );
-        }
-        // Typed anti-self: an agent row may not name the task's current
-        // assignee. A human id that merely collides with the assignee's id
-        // string is NOT self-review.
-        if (task.assignedAgentId === parsed.data.reviewerId) {
-          throw badRequest('Agent reviewer cannot be the task\'s current assignee (self-review)');
-        }
+      const { reviewer, duplicate } = addReviewerCommand(input);
+      if (duplicate) {
+        reply.code(200).send({ reviewer });
       } else {
-        const user = userRepo.getUserById(parsed.data.reviewerId);
-        if (!user) {
-          throw badRequest(
-            `Reviewer "${parsed.data.reviewerId}" not found in the user registry`,
-          );
-        }
+        reply.code(201).send({ reviewer });
       }
-
-      const existing = taskReviewerRepo.findByTaskAndReviewer(
-        request.params.taskId,
-        parsed.data.reviewerId
-      );
-      if (existing) {
-        if (existing.reviewerType === reviewerType) {
-          // Idempotent duplicate: return the existing row, create nothing.
-          reply.code(200).send({ reviewer: existing });
-          return;
-        }
-        throw conflict(
-          `Reviewer "${parsed.data.reviewerId}" is already assigned as type "${existing.reviewerType}"`,
-        );
-      }
-
-      const reviewer = taskReviewerRepo.create(
-        request.params.taskId,
-        reviewerType,
-        parsed.data.reviewerId
-      );
-      reply.code(201).send({ reviewer });
-    }
+    },
   );
 
   fastify.delete<{ Params: { taskId: string; reviewerId: string } }>(
-    '/tasks/:taskId/reviewers/:reviewerId',
-    { config: { authPolicy: "human" } },
-    async (request: FastifyRequest<{ Params: { taskId: string; reviewerId: string } }>, reply: FastifyReply) => {
-      const habitatId = getHabitatIdFromTask(request.params.taskId);
-      verifyRuleHabitatAccess(request, habitatId);
+    "/tasks/:taskId/reviewers/:reviewerId",
+    { config: { authPolicy: "local_actor" } },
+    async (
+      request: FastifyRequest<{ Params: { taskId: string; reviewerId: string } }>,
+      reply: FastifyReply,
+    ) => {
+      // Same as POST: the evaluator owns authorization; no membership gate.
+      getHabitatIdFromTask(request.params.taskId);
 
-      const reviewer = taskReviewerRepo.findByTaskAndReviewer(request.params.taskId, request.params.reviewerId);
-      if (!reviewer) throw notFound('Reviewer assignment not found');
+      const rawToken = (request.query as { expectedReviewersToken?: unknown })
+        ?.expectedReviewersToken;
+      if (
+        rawToken !== undefined &&
+        (typeof rawToken !== "string" || !/^[0-9a-f]{64}$/.test(rawToken))
+      ) {
+        throw badRequest("expectedReviewersToken must be a 64-character hex token");
+      }
 
-      taskReviewerRepo.remove(reviewer.id);
+      removeReviewerCommand({
+        taskId: request.params.taskId,
+        reviewerId: request.params.reviewerId,
+        actor: resolveCommandActor(request),
+        ...(typeof rawToken === "string" ? { expectedReviewersToken: rawToken } : {}),
+      });
       reply.code(204).send();
-    }
+    },
   );
 }

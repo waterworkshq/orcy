@@ -2039,19 +2039,23 @@ export class KanbanApiClient
     );
   }
 
-  async deleteReviewRule(ruleId: string): Promise<void> {
-    await this.request<void>("DELETE", `/api/review-rules/${ruleId}`);
+  async deleteReviewRule(ruleId: string, expectedVersion?: number): Promise<void> {
+    const qs = expectedVersion !== undefined ? `?expectedVersion=${expectedVersion}` : "";
+    await this.request<void>("DELETE", `/api/review-rules/${ruleId}${qs}`);
   }
 
   // -- Task Reviewers --
 
-  async listTaskReviewers(taskId: string): Promise<{ reviewers: TaskReviewer[] }> {
-    return this.request<{ reviewers: TaskReviewer[] }>("GET", `/api/tasks/${taskId}/reviewers`);
+  async listTaskReviewers(taskId: string): Promise<{ reviewers: TaskReviewer[]; reviewersToken?: string }> {
+    return this.request<{ reviewers: TaskReviewer[]; reviewersToken?: string }>(
+      "GET",
+      `/api/tasks/${taskId}/reviewers`,
+    );
   }
 
   async addTaskReviewer(
     taskId: string,
-    input: { reviewerId: string; reviewerType: "human" | "agent" },
+    input: { reviewerId: string; reviewerType: "human" | "agent"; expectedReviewersToken?: string },
   ): Promise<{ reviewer: TaskReviewer }> {
     return this.request<{ reviewer: TaskReviewer }>(
       "POST",
@@ -2060,8 +2064,17 @@ export class KanbanApiClient
     );
   }
 
-  async removeTaskReviewer(taskId: string, reviewerId: string): Promise<void> {
-    await this.request<void>("DELETE", `/api/tasks/${taskId}/reviewers/${reviewerId}`);
+  async removeTaskReviewer(
+    taskId: string,
+    reviewerId: string,
+    expectedReviewersToken?: string,
+  ): Promise<void> {
+    // undefined = legacy LWW (param omitted); "" = explicit invalid → server 400.
+    const qs =
+      expectedReviewersToken !== undefined
+        ? `?expectedReviewersToken=${encodeURIComponent(expectedReviewersToken)}`
+        : "";
+    await this.request<void>("DELETE", `/api/tasks/${taskId}/reviewers/${reviewerId}${qs}`);
   }
 
   // -- Sprints --

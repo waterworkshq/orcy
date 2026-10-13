@@ -62,7 +62,11 @@ export async function taskCrudRoutes(fastify: FastifyInstance): Promise<void> {
       { schema: { params: taskParamsSchema }, config: { authPolicy: "local_actor" } },
       async (request, _reply) => {
         await authorizeTaskAccess(request, request.params.id);
-        const result = taskService.deleteTask(request.params.id);
+        // Real authenticated actor reaches the custody-retirement audit.
+        const result = taskService.deleteTask(request.params.id, {
+          actorType: request.agent ? "agent" : "human",
+          actorId: request.agent?.id ?? request.user?.id ?? "unknown",
+        });
         if (!result.success) {
           if (result.reason === "archived") {
             throw forbidden("Cannot delete a task in an archived mission");

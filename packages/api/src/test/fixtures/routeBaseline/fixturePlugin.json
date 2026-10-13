@@ -292,6 +292,18 @@
     },
     {
       "method": "DELETE",
+      "path": "/api/habitats/:id/owner",
+      "surface": "api-deprecated",
+      "guards": [
+        "humanAuth"
+      ],
+      "authKind": "human",
+      "rawBodyEligible": false,
+      "source": "core",
+      "generatedTwin": false
+    },
+    {
+      "method": "DELETE",
       "path": "/api/habitats/:id/remote-access/providers/:providerId",
       "surface": "api-deprecated",
       "guards": [
@@ -393,6 +405,18 @@
     {
       "method": "DELETE",
       "path": "/api/review-rules/:id",
+      "surface": "api-deprecated",
+      "guards": [
+        "agentOrHumanAuth"
+      ],
+      "authKind": "local_actor",
+      "rawBodyEligible": false,
+      "source": "core",
+      "generatedTwin": false
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/role-assignments/:id",
       "surface": "api-deprecated",
       "guards": [
         "humanAuth"
@@ -515,9 +539,9 @@
       "path": "/api/tasks/:taskId/reviewers/:reviewerId",
       "surface": "api-deprecated",
       "guards": [
-        "humanAuth"
+        "agentOrHumanAuth"
       ],
-      "authKind": "human",
+      "authKind": "local_actor",
       "rawBodyEligible": false,
       "source": "core",
       "generatedTwin": false
@@ -804,6 +828,18 @@
     },
     {
       "method": "DELETE",
+      "path": "/api/v1/habitats/:id/owner",
+      "surface": "api-v1",
+      "guards": [
+        "humanAuth"
+      ],
+      "authKind": "human",
+      "rawBodyEligible": false,
+      "source": "core",
+      "generatedTwin": false
+    },
+    {
+      "method": "DELETE",
       "path": "/api/v1/habitats/:id/remote-access/providers/:providerId",
       "surface": "api-v1",
       "guards": [
@@ -905,6 +941,18 @@
     {
       "method": "DELETE",
       "path": "/api/v1/review-rules/:id",
+      "surface": "api-v1",
+      "guards": [
+        "agentOrHumanAuth"
+      ],
+      "authKind": "local_actor",
+      "rawBodyEligible": false,
+      "source": "core",
+      "generatedTwin": false
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/role-assignments/:id",
       "surface": "api-v1",
       "guards": [
         "humanAuth"
@@ -1027,9 +1075,9 @@
       "path": "/api/v1/tasks/:taskId/reviewers/:reviewerId",
       "surface": "api-v1",
       "guards": [
-        "humanAuth"
+        "agentOrHumanAuth"
       ],
-      "authKind": "human",
+      "authKind": "local_actor",
       "rawBodyEligible": false,
       "source": "core",
       "generatedTwin": false
@@ -2822,6 +2870,18 @@
     },
     {
       "method": "GET",
+      "path": "/api/permissions",
+      "surface": "api-deprecated",
+      "guards": [
+        "humanAuth"
+      ],
+      "authKind": "human",
+      "rawBodyEligible": false,
+      "source": "core",
+      "generatedTwin": false
+    },
+    {
+      "method": "GET",
       "path": "/api/plugins",
       "surface": "api-deprecated",
       "guards": [
@@ -2876,6 +2936,42 @@
         "agentOrHumanAuth"
       ],
       "authKind": "local_actor",
+      "rawBodyEligible": false,
+      "source": "core",
+      "generatedTwin": false
+    },
+    {
+      "method": "GET",
+      "path": "/api/role-assignments",
+      "surface": "api-deprecated",
+      "guards": [
+        "humanAuth"
+      ],
+      "authKind": "human",
+      "rawBodyEligible": false,
+      "source": "core",
+      "generatedTwin": false
+    },
+    {
+      "method": "GET",
+      "path": "/api/role-definitions/:id",
+      "surface": "api-deprecated",
+      "guards": [
+        "humanAuth"
+      ],
+      "authKind": "human",
+      "rawBodyEligible": false,
+      "source": "core",
+      "generatedTwin": false
+    },
+    {
+      "method": "GET",
+      "path": "/api/roles",
+      "surface": "api-deprecated",
+      "guards": [
+        "humanAuth"
+      ],
+      "authKind": "human",
       "rawBodyEligible": false,
       "source": "core",
       "generatedTwin": false
@@ -5186,6 +5282,18 @@
     },
     {
       "method": "GET",
+      "path": "/api/v1/permissions",
+      "surface": "api-v1",
+      "guards": [
+        "humanAuth"
+      ],
+      "authKind": "human",
+      "rawBodyEligible": false,
+      "source": "core",
+      "generatedTwin": false
+    },
+    {
+      "method": "GET",
       "path": "/api/v1/plugins",
       "surface": "api-v1",
       "guards": [
@@ -5240,6 +5348,42 @@
         "agentOrHumanAuth"
       ],
       "authKind": "local_actor",
+      "rawBodyEligible": false,
+      "source": "core",
+      "generatedTwin": false
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/role-assignments",
+      "surface": "api-v1",
+      "guards": [
+        "humanAuth"
+      ],
+      "authKind": "human",
+      "rawBodyEligible": false,
+      "source": "core",
+      "generatedTwin": false
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/role-definitions/:id",
+      "surface": "api-v1",
+      "guards": [
+        "humanAuth"
+      ],
+      "authKind": "human",
+      "rawBodyEligible": false,
+      "source": "core",
+      "generatedTwin": false
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/roles",
+      "surface": "api-v1",
+      "guards": [
+        "humanAuth"
+      ],
+      "authKind": "human",
       "rawBodyEligible": false,
       "source": "core",
       "generatedTwin": false
@@ -7550,6 +7694,18 @@
     },
     {
       "method": "HEAD",
+      "path": "/api/permissions",
+      "surface": "api-deprecated",
+      "guards": [
+        "humanAuth"
+      ],
+      "authKind": "human",
+      "rawBodyEligible": false,
+      "source": "framework",
+      "generatedTwin": true
+    },
+    {
+      "method": "HEAD",
       "path": "/api/plugins",
       "surface": "api-deprecated",
       "guards": [
@@ -7604,6 +7760,42 @@
         "agentOrHumanAuth"
       ],
       "authKind": "local_actor",
+      "rawBodyEligible": false,
+      "source": "framework",
+      "generatedTwin": true
+    },
+    {
+      "method": "HEAD",
+      "path": "/api/role-assignments",
+      "surface": "api-deprecated",
+      "guards": [
+        "humanAuth"
+      ],
+      "authKind": "human",
+      "rawBodyEligible": false,
+      "source": "framework",
+      "generatedTwin": true
+    },
+    {
+      "method": "HEAD",
+      "path": "/api/role-definitions/:id",
+      "surface": "api-deprecated",
+      "guards": [
+        "humanAuth"
+      ],
+      "authKind": "human",
+      "rawBodyEligible": false,
+      "source": "framework",
+      "generatedTwin": true
+    },
+    {
+      "method": "HEAD",
+      "path": "/api/roles",
+      "surface": "api-deprecated",
+      "guards": [
+        "humanAuth"
+      ],
+      "authKind": "human",
       "rawBodyEligible": false,
       "source": "framework",
       "generatedTwin": true
@@ -9914,6 +10106,18 @@
     },
     {
       "method": "HEAD",
+      "path": "/api/v1/permissions",
+      "surface": "api-v1",
+      "guards": [
+        "humanAuth"
+      ],
+      "authKind": "human",
+      "rawBodyEligible": false,
+      "source": "framework",
+      "generatedTwin": true
+    },
+    {
+      "method": "HEAD",
       "path": "/api/v1/plugins",
       "surface": "api-v1",
       "guards": [
@@ -9968,6 +10172,42 @@
         "agentOrHumanAuth"
       ],
       "authKind": "local_actor",
+      "rawBodyEligible": false,
+      "source": "framework",
+      "generatedTwin": true
+    },
+    {
+      "method": "HEAD",
+      "path": "/api/v1/role-assignments",
+      "surface": "api-v1",
+      "guards": [
+        "humanAuth"
+      ],
+      "authKind": "human",
+      "rawBodyEligible": false,
+      "source": "framework",
+      "generatedTwin": true
+    },
+    {
+      "method": "HEAD",
+      "path": "/api/v1/role-definitions/:id",
+      "surface": "api-v1",
+      "guards": [
+        "humanAuth"
+      ],
+      "authKind": "human",
+      "rawBodyEligible": false,
+      "source": "framework",
+      "generatedTwin": true
+    },
+    {
+      "method": "HEAD",
+      "path": "/api/v1/roles",
+      "surface": "api-v1",
+      "guards": [
+        "humanAuth"
+      ],
+      "authKind": "human",
       "rawBodyEligible": false,
       "source": "framework",
       "generatedTwin": true
@@ -10815,9 +11055,9 @@
       "path": "/api/review-rules/:id",
       "surface": "api-deprecated",
       "guards": [
-        "humanAuth"
+        "agentOrHumanAuth"
       ],
-      "authKind": "human",
+      "authKind": "local_actor",
       "rawBodyEligible": false,
       "source": "core",
       "generatedTwin": false
@@ -11131,9 +11371,9 @@
       "path": "/api/v1/review-rules/:id",
       "surface": "api-v1",
       "guards": [
-        "humanAuth"
+        "agentOrHumanAuth"
       ],
-      "authKind": "human",
+      "authKind": "local_actor",
       "rawBodyEligible": false,
       "source": "core",
       "generatedTwin": false
@@ -12062,10 +12302,9 @@
       "path": "/api/habitats/:habitatId/review-rules",
       "surface": "api-deprecated",
       "guards": [
-        "humanAuth",
-        "authorizeHabitatAccess"
+        "agentOrHumanAuth"
       ],
-      "authKind": "human",
+      "authKind": "local_actor",
       "rawBodyEligible": false,
       "source": "core",
       "generatedTwin": false
@@ -12524,6 +12763,18 @@
     },
     {
       "method": "POST",
+      "path": "/api/habitats/:id/role-definitions",
+      "surface": "api-deprecated",
+      "guards": [
+        "humanAuth"
+      ],
+      "authKind": "human",
+      "rawBodyEligible": false,
+      "source": "core",
+      "generatedTwin": false
+    },
+    {
+      "method": "POST",
       "path": "/api/habitats/agent",
       "surface": "api-deprecated",
       "guards": [
@@ -12817,6 +13068,54 @@
     {
       "method": "POST",
       "path": "/api/quality/templates",
+      "surface": "api-deprecated",
+      "guards": [
+        "humanAuth"
+      ],
+      "authKind": "human",
+      "rawBodyEligible": false,
+      "source": "core",
+      "generatedTwin": false
+    },
+    {
+      "method": "POST",
+      "path": "/api/role-assignments",
+      "surface": "api-deprecated",
+      "guards": [
+        "humanAuth"
+      ],
+      "authKind": "human",
+      "rawBodyEligible": false,
+      "source": "core",
+      "generatedTwin": false
+    },
+    {
+      "method": "POST",
+      "path": "/api/role-assignments/:id/revisions",
+      "surface": "api-deprecated",
+      "guards": [
+        "humanAuth"
+      ],
+      "authKind": "human",
+      "rawBodyEligible": false,
+      "source": "core",
+      "generatedTwin": false
+    },
+    {
+      "method": "POST",
+      "path": "/api/role-definitions/:id/retire",
+      "surface": "api-deprecated",
+      "guards": [
+        "humanAuth"
+      ],
+      "authKind": "human",
+      "rawBodyEligible": false,
+      "source": "core",
+      "generatedTwin": false
+    },
+    {
+      "method": "POST",
+      "path": "/api/role-definitions/:id/revisions",
       "surface": "api-deprecated",
       "guards": [
         "humanAuth"
@@ -13430,9 +13729,9 @@
       "path": "/api/tasks/:taskId/reviewers",
       "surface": "api-deprecated",
       "guards": [
-        "humanAuth"
+        "agentOrHumanAuth"
       ],
-      "authKind": "human",
+      "authKind": "local_actor",
       "rawBodyEligible": false,
       "source": "core",
       "generatedTwin": false
@@ -13457,6 +13756,18 @@
         "humanAuth",
         "teamExists",
         "teamAdminOrOwner"
+      ],
+      "authKind": "human",
+      "rawBodyEligible": false,
+      "source": "core",
+      "generatedTwin": false
+    },
+    {
+      "method": "POST",
+      "path": "/api/teams/:id/role-definitions",
+      "surface": "api-deprecated",
+      "guards": [
+        "humanAuth"
       ],
       "authKind": "human",
       "rawBodyEligible": false,
@@ -14335,10 +14646,9 @@
       "path": "/api/v1/habitats/:habitatId/review-rules",
       "surface": "api-v1",
       "guards": [
-        "humanAuth",
-        "authorizeHabitatAccess"
+        "agentOrHumanAuth"
       ],
-      "authKind": "human",
+      "authKind": "local_actor",
       "rawBodyEligible": false,
       "source": "core",
       "generatedTwin": false
@@ -14797,6 +15107,18 @@
     },
     {
       "method": "POST",
+      "path": "/api/v1/habitats/:id/role-definitions",
+      "surface": "api-v1",
+      "guards": [
+        "humanAuth"
+      ],
+      "authKind": "human",
+      "rawBodyEligible": false,
+      "source": "core",
+      "generatedTwin": false
+    },
+    {
+      "method": "POST",
       "path": "/api/v1/habitats/agent",
       "surface": "api-v1",
       "guards": [
@@ -15090,6 +15412,54 @@
     {
       "method": "POST",
       "path": "/api/v1/quality/templates",
+      "surface": "api-v1",
+      "guards": [
+        "humanAuth"
+      ],
+      "authKind": "human",
+      "rawBodyEligible": false,
+      "source": "core",
+      "generatedTwin": false
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/role-assignments",
+      "surface": "api-v1",
+      "guards": [
+        "humanAuth"
+      ],
+      "authKind": "human",
+      "rawBodyEligible": false,
+      "source": "core",
+      "generatedTwin": false
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/role-assignments/:id/revisions",
+      "surface": "api-v1",
+      "guards": [
+        "humanAuth"
+      ],
+      "authKind": "human",
+      "rawBodyEligible": false,
+      "source": "core",
+      "generatedTwin": false
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/role-definitions/:id/retire",
+      "surface": "api-v1",
+      "guards": [
+        "humanAuth"
+      ],
+      "authKind": "human",
+      "rawBodyEligible": false,
+      "source": "core",
+      "generatedTwin": false
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/role-definitions/:id/revisions",
       "surface": "api-v1",
       "guards": [
         "humanAuth"
@@ -15549,9 +15919,9 @@
       "path": "/api/v1/tasks/:taskId/reviewers",
       "surface": "api-v1",
       "guards": [
-        "humanAuth"
+        "agentOrHumanAuth"
       ],
-      "authKind": "human",
+      "authKind": "local_actor",
       "rawBodyEligible": false,
       "source": "core",
       "generatedTwin": false
@@ -15576,6 +15946,18 @@
         "humanAuth",
         "teamExists",
         "teamAdminOrOwner"
+      ],
+      "authKind": "human",
+      "rawBodyEligible": false,
+      "source": "core",
+      "generatedTwin": false
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/teams/:id/role-definitions",
+      "surface": "api-v1",
+      "guards": [
+        "humanAuth"
       ],
       "authKind": "human",
       "rawBodyEligible": false,
@@ -16054,6 +16436,18 @@
     },
     {
       "method": "PUT",
+      "path": "/api/habitats/:id/owner",
+      "surface": "api-deprecated",
+      "guards": [
+        "humanAuth"
+      ],
+      "authKind": "human",
+      "rawBodyEligible": false,
+      "source": "core",
+      "generatedTwin": false
+    },
+    {
+      "method": "PUT",
       "path": "/api/saved-filters/:id",
       "surface": "api-deprecated",
       "guards": [
@@ -16246,6 +16640,18 @@
         "authorizeHabitatAccess"
       ],
       "authKind": "local_actor",
+      "rawBodyEligible": false,
+      "source": "core",
+      "generatedTwin": false
+    },
+    {
+      "method": "PUT",
+      "path": "/api/v1/habitats/:id/owner",
+      "surface": "api-v1",
+      "guards": [
+        "humanAuth"
+      ],
+      "authKind": "human",
       "rawBodyEligible": false,
       "source": "core",
       "generatedTwin": false

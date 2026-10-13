@@ -28,6 +28,8 @@ export interface ReviewRule {
   fixedReviewerIds: string[];
   createdAt: string;
   updatedAt: string;
+  /** Optimistic-concurrency version; incremented on every repository update (0083). */
+  version: number;
 }
 
 /** A reviewer assignment record for a specific task, tracked from initial claim through final review. */
@@ -40,6 +42,8 @@ export interface TaskReviewer {
   assignedAt: string;
   reviewedAt: string | null;
   reviewNote: string | null;
+  /** Current-generation projected status (shipped 0082 projection; not a new column). */
+  projectedStatus?: ReviewerStatus | "ineligible";
 }
 
 /** Input payload for creating a new {@link ReviewRule}; only the rule name is required. */
@@ -68,4 +72,22 @@ export interface ReviewRuleUpdateInput {
   requiredReviews?: number;
   antiSelfReview?: number;
   fixedReviewerIds?: string[];
+  /**
+   * Optional optimistic-concurrency expectation (0083): the rule version the
+   * caller last observed. Omitted = legacy last-write-wins; supplied and
+   * stale = 409 REVIEW_RULE_VERSION_CONFLICT with no write.
+   */
+  expectedVersion?: number;
+}
+
+/** Input payload for adding a task reviewer. */
+export interface TaskReviewerAddInput {
+  reviewerId: string;
+  reviewerType?: ReviewerType;
+  /**
+   * Optional deterministic roster token (0083) covering the task's actual
+   * reviewer rows, projected state and requirement fields. Omitted = legacy
+   * compatibility; supplied and stale = 409 REVIEWERS_TOKEN_CONFLICT.
+   */
+  expectedReviewersToken?: string;
 }

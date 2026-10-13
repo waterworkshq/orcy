@@ -2186,6 +2186,11 @@ Every table declared in the Drizzle schema files under `packages/api/src/db/sche
 | `task_review_decisions` | Append-only typed reviewer decisions keyed to (generation, round) (migration 0082) | ✓ |
 | `task_review_overrides` | Append-only human resolution/relaxation evidence (migration 0082) | ✓ |
 | `audit_export_schedules` | Scheduled audit exports (format, filters, destination) | ✗ |
+| `governance_scopes` | Four-kind (team/habitat/mission/task) governance scope ledger with incarnations; at most one materialized active incarnation per scope (a live, never-materialized scope reads as virtual until first mutation), retired history retained (migration 0083) | ✓ |
+| `role_definitions` | Built-in (server-owned, fixed-ID) and custom Team/Habitat-namespaced role definitions (migration 0083) | — see SQL |
+| `role_revisions` | Insert-only immutable permission revisions; assignments pin (definition_id, revision_id) via composite FK (migration 0083) | — see SQL |
+| `role_assignments` | Typed human/agent scoped role assignments with pinned revision, active/revoked state, decision-time expiry, retained history (migration 0083) | — see SQL |
+| `governance_audit` | Append-only governance audit evidence with plain retained citations surviving scope/principal retirement (migration 0083) | — see SQL |
 | `scheduled_tasks` | Recurring mission creation schedules (cron/interval/once) | ✓ |
 | `habitat_health_snapshots` | Point-in-time habitat health scores, dimensions, recommendations | ✗ |
 | `cumulative_flow_snapshots` | Daily cumulative flow metrics per column | ✓ |
@@ -2501,6 +2506,19 @@ Then Drizzle uses PostgreSQL-compatible SQL. Key differences:
 ---
 
 ## Database Administration
+
+### Governance schema (migration 0083)
+
+The local authorization foundation is defined by handwritten SQL in
+`packages/api/drizzle/0083_role_foundation_governance.sql`, with Drizzle
+declarations in `packages/api/src/db/schema/roleFoundation.ts` and parity
+enforced by `schemaConstraintParity.test.ts`. It adds `governance_scopes`,
+`role_definitions`, `role_revisions`, `role_assignments`, and
+`governance_audit`; `habitats.owner_user_id` is a nullable personal-owner
+column with migration triggers enforcing owner/team exclusivity, while the
+Drizzle declaration also carries the ownership CHECK; and `review_rules.version`
+is the integer optimistic-concurrency counter. These five new tables belong to
+the authority foundation, not the habitat schema.
 
 ### Inspecting the Database
 
@@ -2952,6 +2970,7 @@ entries are:
 | `0080` | `0080_task_release_pointer.sql` | Release-provenance pointer: adds nullable `tasks.last_release_event_id` + `idx_tasks_last_release_event`. Written by the release act-tx (`releaseTaskWithEffects`); fenced by the receipt-path gates consumer for release spawn/gate mutation and cleared by the ownership/lifecycle reset paths (claim mints, releases, terminal writes, retry/escalation resets, agent-delete bulk reset, import execution-state reset). Additive only, no legacy row rewrite; independent stream from `last_failure_event_id` (0079). |
 | `0081` | `0081_chat_speaker_mappings.sql` | Chat review decisions through the canonical lifecycle: adds nullable `chat_integrations.provider_workspace_id` (existing NULL rows stay push-only) and the `chat_speaker_mappings` table — explicit workspace-scoped provider-speaker → local-user attribution with UNIQUE(integration, workspace, speaker), habitat FK CASCADE, integration FK CASCADE, local-user FK RESTRICT. Hand SQL + Drizzle parity (`chatSpeakerMappings` in `db/schema/habitat.ts`); FK delete semantics pinned on the production better-sqlite3 driver by `chatSpeakerMappingFk.test.ts`. |
 | `0082` | `0082_task_review_safety.sql` | Durable review safety: creates `task_review_requirements` (one row per Task; complete per-state CHECK matrix across `uncaptured`/`legacy_unknown`/`known_zero`/`required`, typed-claimant pairing, `approved_generation = review_generation` proof equality, override-scoped effective counts), append-only `task_review_snapshots` (UNIQUE `(task_id, review_generation)` — one immutable winning-rule + winning-task evidence row per successful-claim generation), append-only `task_review_decisions` (typed generation/round-tagged reviewer decisions; no FK to `task_reviewers`), and append-only `task_review_overrides` (human resolution/relaxation evidence). In-migration classifier gives EVERY pre-existing Task a legal row without inventing review history: demonstrably never-claimed pending → `uncaptured`; everything else (all approved/done/failed, active assignments, ambiguous pending) → sticky `legacy_unknown` with typed custody only where exactly one assignment column is set, NULL floors, no approval proof. |
+| `0083` | `0083_role_foundation_governance.sql` | Role foundation storage: creates `governance_scopes` (PK `(scope_kind, scope_id, incarnation)`; partial unique keeps at most one materialized active incarnation (a live, never-materialized scope reads as virtual until first mutation); positive incarnation/version CHECKs), `role_definitions` (namespace kind/scope/incarnation with builtin/team/habitat CHECK pairing; custom active-name partial unique per namespace incarnation; built-in separate `is_builtin = 1` unique; retired rows retained, name reuse creates a new id), `role_revisions` (immutable insert-only permission revisions — BEFORE UPDATE/DELETE triggers `role_revisions_no_update`/`role_revisions_no_delete` RAISE(ABORT); UNIQUE `(definition_id, ordinal)` and `(definition_id, id)`), `role_assignments` (typed principal/definition/revision/scope columns, active/revoked state with object version, human issuer FK `users` RESTRICT, optional decision-time expiry; partial unique on the active grant tuple; composite FK `(definition_id, revision_id)` → `role_revisions(definition_id, id)`), and `governance_audit` (append-only through managed writers; no FKs to live resource tables). Adds `habitats.owner_user_id` TEXT NULL FK `users` RESTRICT with insert/update triggers enforcing owner/team exclusivity (no backfill — legacy personal Habitats start unowned), and `review_rules.version` INTEGER NOT NULL DEFAULT 1 (incremented by command-service and repository updates; optional `expectedVersion` on review-rule PATCH/DELETE rejects stale supplied expectations while omission retains legacy last-write-wins). Seeds fixed-ID immutable built-ins: `builtin-role-coordinator` (`Coordinator`, `["review.configure","review.assign"]`) and `builtin-role-review-coordinator` (`Review Coordinator`, `["review.assign"]`) with revision-1 rows, via idempotent INSERT…SELECT WHERE NOT EXISTS. |
 
 The gap `0003`–`0026` is **intentional**. Those migrations were consolidated
 into `0000_schema.sql` at the boundary commit and are deliberately NOT in the

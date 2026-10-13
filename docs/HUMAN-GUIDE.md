@@ -47,14 +47,31 @@ POST /api/tasks/<taskId>/review-requirement/resolve
   "effectiveCount": <0..n>, "reason": "why" }
 ```
 
-You must be a global admin, or an owner/admin of the team that owns the task's
-habitat (global viewers are never eligible; personal habitats are
-global-admin-only). The current executor and anyone who reviewed the task in
-its current generation cannot resolve it. `effectiveCount` is the required
-review count going forward — 0 means the task may complete review-free. If
-versions moved under you, re-read the task and requirement and retry. A
-resolution never approves the task by itself. `GET
-`/api/tasks/<taskId>/review-requirement` shows the current state.
+You must be a global admin, a non-viewer owner/admin of the team that owns the
+task's habitat, or the explicit personal owner of a still-personal habitat
+(global viewers are never eligible). Operational role assignments never grant
+this human-reserved recovery power; assignment/owner authority does not weaken
+the current executor/decider independence refusals. The current executor and
+anyone who reviewed the task in its current generation cannot resolve it.
+`effectiveCount` is the required review count going forward — 0 means the task
+may complete review-free. The same command handles both reduction cases: it
+resolves `legacy_unknown` requirements to a known count, and it can reduce a
+positive `required` baseline (down to, never below, the durable policy floor);
+reviewer removal never lowers the durable requirement floor. If versions moved
+under you, re-read the task and
+requirement and retry. A resolution never approves the task by itself. `GET
+/api/tasks/<taskId>/review-requirement` shows the current state.
+
+## Review Management and Ownership (operators)
+
+Review-rule and reviewer management now runs through the governance command
+service. Human operators act as the current persisted governor (global admin,
+non-viewer team owner/admin, or explicit personal owner); local agents can act
+only through explicit operational grants (`review.configure` for rules,
+`review.assign` for reviewers). Team-bound habitat creation and deletion use
+the same custody-aware governance ledger. New role administration is human-only
+over HTTP — there is no served MCP role-administration tool or graphical role
+editor.
 
 ## Removing an Agent (deletion rules)
 
