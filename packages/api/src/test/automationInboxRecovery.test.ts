@@ -607,6 +607,141 @@ describe("stale-lease proof-aware recovery + operator dispositions", () => {
     expect(renderedTemplates(h.id)).toEqual([]);
   });
 
+  it("DISCRIMINATOR: proved resume bypasses a genuinely tripped cooldown", async () => {
+    const h = setupHabitat();
+    // Same actions as the kill-switch resume case: notify (provable with a
+    // receipt) + mark_risk (resume-safe when unproved).
+    const rule = ruleRepo.createAutomationRule({
+      habitatId: h.id,
+      name: "Recovery Rule",
+      priority: 0,
+      trigger: { type: "event", eventType: "release.shipped" } as never,
+      condition: { type: "always" } as never,
+      actions: [
+        notifyAction("FIRST"),
+        { type: "mark_risk", level: "high", reason: "resume leftover" },
+      ] as never,
+      cooldownSeconds: 3600,
+      maxRunsPerHour: 100,
+      enabled: true,
+      createdBy: "test",
+    });
+    // A prior successful run with the SAME fingerprint the resume delivery's
+    // frozen trigger produces — the cooldown is genuinely tripped for it.
+    // (The fresh-pending leg of this same guard — same fixture, no crash —
+    // is covered by the "cooldown: a recent successful run" test above.)
+    const { run } = runRepo.startRuleRun({
+      ruleId: rule.id,
+      habitatId: h.id,
+      triggerType: "release.shipped",
+      triggerEventId: "rel-cool-resume",
+      targetType: "habitat",
+      targetId: h.id,
+      now: T0,
+    });
+    runRepo.finishRuleRun(run.id, { status: "succeeded", finishedAt: T0 });
+
+    // The resume event's delivery: its crashed worker PROVED the notify
+    // action before dying (durable receipt + its effect landed).
+    admitReleaseShippedEventToInbox({
+      habitatId: h.id,
+      eventId: "rel-cool-resume",
+      payload: { eventId: "rel-cool-resume" },
+    });
+    const resumeId = firstDeliveryId(deliveryRepo.listInboxEntriesForHabitat(h.id)[0].id);
+
+    const lease = crashAfterLease(resumeId, T0, 60_000);
+    crashAfterProving(resumeId, lease.fence, 0, { eventId: "evt-cool-first" }, T0);
+    simulateCrashedNotifyEffect(h.id, "FIRST");
+
+    const report = await drainAutomationInbox({ now: T1 });
+    // The proved delivery resumes PAST the tripped cooldown
+    // (resumeAfterReservation), skipping its already-proved notify and
+    // finishing the remaining mark_risk action (mark_risk fails without a
+    // task/mission context → partial_failed, never a skipped disposition).
+    // (The zero-proof→attention classification is covered by its own
+    // canonical case below.)
+    expect(report.outcomes["stale_resume"]).toBe(1);
+    expect(report.outcomes["executed:partial_failed"]).toBe(1);
+    expect(report.outcomes["skipped"]).toBeUndefined();
+
+    const resumed = deliveryRepo.getDeliveryById(resumeId)!;
+    expect(resumed.state).toBe("terminal");
+    expect(resumed.terminalDisposition).toBe("partial_failed");
+    expect(resumed.terminalDisposition).not.toBe("skipped:cooldown");
+    // The proved notify was never rerun — exactly one FIRST effect.
+    expect(renderedTemplates(h.id)).toEqual(["FIRST"]);
+  });
+
+  it("DISCRIMINATOR: proved resume bypasses a genuinely tripped hourly cap while fresh work is skipped", async () => {
+    const h = setupHabitat();
+    const rule = ruleRepo.createAutomationRule({
+      habitatId: h.id,
+      name: "Recovery Rule",
+      priority: 0,
+      trigger: { type: "event", eventType: "release.shipped" } as never,
+      condition: { type: "always" } as never,
+      actions: [
+        notifyAction("FIRST"),
+        { type: "mark_risk", level: "high", reason: "resume leftover" },
+      ] as never,
+      cooldownSeconds: 0,
+      maxRunsPerHour: 1,
+      enabled: true,
+      createdBy: "test",
+    });
+    // One admitted run in the window with a DIFFERENT triggerEventId → the
+    // rule-scoped cap is genuinely tripped while cooldown stays quiet.
+    const { run } = runRepo.startRuleRun({
+      ruleId: rule.id,
+      habitatId: h.id,
+      triggerType: "release.shipped",
+      triggerEventId: "some-other-release",
+      targetType: "habitat",
+      targetId: h.id,
+      now: T0,
+    });
+    runRepo.finishRuleRun(run.id, { status: "succeeded", finishedAt: T0 });
+
+    // Two events, two deliveries: the proved-resume leg and a fresh PENDING
+    // delivery (never leased) — the cap is rule-scoped, so the fresh leg is
+    // genuinely skipped by it, proving the guard really tripped.
+    for (const eventId of ["rel-rate-resume", "rel-rate-fresh"]) {
+      admitReleaseShippedEventToInbox({ habitatId: h.id, eventId, payload: { eventId } });
+    }
+    const deliveries = deliveryRepo
+      .listInboxEntriesForHabitat(h.id)
+      .flatMap((e) => deliveryRepo.listDeliveriesForInbox(e.id));
+    expect(deliveries).toHaveLength(2);
+    const byEvent = new Map(
+      deliveries.map((d) => [deliveryRepo.getInboxById(d.inboxId)!.eventId, d]),
+    );
+    const resumeId = byEvent.get("rel-rate-resume")!.id;
+    const freshId = byEvent.get("rel-rate-fresh")!.id;
+
+    const lease = crashAfterLease(resumeId, T0, 60_000);
+    crashAfterProving(resumeId, lease.fence, 0, { eventId: "evt-rate-first" }, T0);
+    simulateCrashedNotifyEffect(h.id, "FIRST");
+
+    const report = await drainAutomationInbox({ now: T1 });
+    expect(report.outcomes["stale_resume"]).toBe(1);
+    expect(report.outcomes["executed:partial_failed"]).toBe(1);
+    // The fresh delivery — same guard, no crash, no proof — IS skipped: the
+    // cap is real, and only proved resume bypasses it. (The zero-proof→
+    // attention classification is covered by its own canonical case.)
+    expect(report.outcomes["skipped"]).toBe(1);
+
+    const resumed = deliveryRepo.getDeliveryById(resumeId)!;
+    expect(resumed.state).toBe("terminal");
+    expect(resumed.terminalDisposition).toBe("partial_failed");
+    expect(resumed.terminalDisposition).not.toBe("skipped:rate_limited");
+    expect(renderedTemplates(h.id)).toEqual(["FIRST"]);
+
+    const fresh = deliveryRepo.getDeliveryById(freshId)!;
+    expect(fresh.state).toBe("terminal");
+    expect(fresh.terminalDisposition).toBe("skipped:rate_limited");
+  });
+
   it("DISCRIMINATOR: resume after partial proof ignores a later kill switch and finishes remaining actions", async () => {
     const h = setupHabitat();
     ruleRepo.createAutomationRule({

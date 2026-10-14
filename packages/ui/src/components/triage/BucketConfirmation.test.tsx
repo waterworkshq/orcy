@@ -148,15 +148,21 @@ describe("BucketConfirmation — lifecycle route commands (restored lifecycle T8
     });
   });
 
-  it("resets finding-specific form state when the finding id changes while mounted", () => {
+  it("resets finding-specific form state when the finding id changes while mounted", async () => {
     const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     const { rerender } = render(
       <QueryClientProvider client={qc}>
-        <BucketConfirmation finding={makeFinding({ bucket: "fix_now" })} onClose={vi.fn()} />
+        <BucketConfirmation finding={makeFinding({ bucket: "defer_to_patch" })} onClose={vi.fn()} />
       </QueryClientProvider>,
     );
     fireEvent.change(screen.getByLabelText(/Corrective mission title/i), {
       target: { value: "Stale title from previous finding" },
+    });
+    fireEvent.change(screen.getByLabelText(/Corrective mission description/i), {
+      target: { value: "stale description from finding-1" },
+    });
+    fireEvent.change(screen.getByLabelText(/Gate version/i), {
+      target: { value: "v0.41.0" },
     });
     fireEvent.click(screen.getByText(/Mark as won't fix/i));
     fireEvent.change(screen.getByLabelText(/Won't fix reason/i), {
@@ -181,6 +187,30 @@ describe("BucketConfirmation — lifecycle route commands (restored lifecycle T8
       "Corrective: other-cluster",
     );
     expect(screen.getByLabelText(/Won't fix reason/i)).toHaveValue("");
+    // Edited description and gate version are reset too — a stale
+    // v0.41.0 here would ship finding-1's gate inside finding-2's route.
+    expect(screen.getByLabelText(/Corrective mission description/i)).toHaveValue(
+      "Address the perf finding in cluster other-cluster.",
+    );
+    expect(screen.getByLabelText(/Gate version/i)).toHaveValue("");
+
+    // Submission control: the reset values are what reach the submitted command.
+    // The route mutation is mocked at the hook boundary here, so this proves
+    // the command payload only — the transport tests prove the wire body/path.
+    // Typing a fresh gate version proves v0.41.0 was cleared, not merely
+    // re-rendered away.
+    fireEvent.change(screen.getByLabelText(/Gate version/i), { target: { value: "v0.42.0" } });
+    fireEvent.click(screen.getByRole("button", { name: /Confirm bucket/i }));
+    await waitFor(() => expect(mockRouteMutate).toHaveBeenCalledTimes(1));
+    const call = mockRouteMutate.mock.calls[0][0];
+    expect(call.id).toBe("finding-2");
+    expect(call.route).toEqual({
+      bucket: "defer_to_patch",
+      missionTitle: "Corrective: other-cluster",
+      missionDescription: "Address the perf finding in cluster other-cluster.",
+      releaseGateType: "patch",
+      releaseGateVersion: "v0.42.0",
+    });
   });
 
   it("defer_to_patch only offers the patch gate; defer_to_release never offers patch", () => {

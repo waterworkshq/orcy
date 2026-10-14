@@ -31,13 +31,14 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { fork, type ChildProcess } from "node:child_process";
 import { join } from "node:path";
 import { existsSync, unlinkSync, mkdirSync } from "node:fs";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { closeDb, getDb, initDb } from "../db/index.js";
 import { missions, missionEvents, pulses } from "../db/schema/index.js";
 import * as habitatRepo from "../repositories/habitat.js";
 import * as columnRepo from "../repositories/column.js";
 import * as pulseRepo from "../repositories/pulse.js";
 import * as findingTriageRepo from "../repositories/findingTriage.js";
+import { withImmediateLifecycleTransaction } from "../services/findingTriageLifecycle.js";
 
 const WORKER = join(import.meta.dirname, "fixtures", "lifecycle-route-worker.ts");
 const TEMP_DIR = join(import.meta.dirname, "..", "..", ".test-lifecycle");
@@ -233,4 +234,75 @@ describe("routeFinding — real cross-process concurrency", () => {
       .all();
     expect(events.filter((e) => e.action === "created")).toHaveLength(1);
   }, 60_000);
+
+  it("writer reservation under a REAL held lock: one BEGIN IMMEDIATE attempt, typed busy, command never entered, no rollback", async () => {
+    // Same file-DB + second-connection contention pattern as the
+    // agentDeletionFileDb precedent: the PARENT connection (getDb) owns the
+    // lifecycle code under test; conn2 holds BEGIN IMMEDIATE so the parent's
+    // phase-1 acquisition genuinely collides with a real SQLite write lock.
+    // No domain fixture is needed — the wrapper's command callback is never
+    // entered, so the test exercises initDb + the lock alone.
+    await initDb(dbPath);
+
+    // Bounded wait on the PARENT connection (production uses 5s; the
+    // contention is instantaneous — conn2 already holds the write lock when
+    // the wrapper's BEGIN IMMEDIATE fires).
+    getDb().run(sql`PRAGMA busy_timeout = 250`);
+
+    const conn2 = new (await import("better-sqlite3")).default(dbPath);
+    conn2.pragma("busy_timeout = 100");
+    try {
+      conn2.exec("BEGIN IMMEDIATE"); // REAL externally-held write lock
+
+      // Instrument the SUPPLIED client: capture each statement's SQL text
+      // via the connection's own drizzle dialect encoder (no hand-rolled
+      // queryChunks parsing) and delegate the real run to the locked DB.
+      // The wrapper receives this proxy as its db client, so the count
+      // reflects the statements the wrapper actually issued.
+      const statements: string[] = [];
+      const real = getDb();
+      const dialect = (real as unknown as { dialect: { sqlToQuery: (s: unknown) => { sql: string } } }).dialect;
+      const proxied = new Proxy(real, {
+        get(target, prop, receiver) {
+          if (prop === "run") {
+            const runFn = Reflect.get(target, prop, receiver).bind(target);
+            return (stmt: unknown) => {
+              statements.push(dialect.sqlToQuery(stmt).sql);
+              return runFn(stmt as Parameters<typeof runFn>[0]);
+            };
+          }
+          return Reflect.get(target, prop, receiver);
+        },
+      });
+
+      let fnEntered = false;
+      const outcome = withImmediateLifecycleTransaction(
+        () => {
+          fnEntered = true;
+          return { outcome: "applied" as const, value: null };
+        },
+        proxied as unknown as Parameters<typeof withImmediateLifecycleTransaction>[1],
+      );
+
+      // Phase-1 acquisition failure is TYPED busy with a retry hint — never
+      // an unclassified SQLITE_BUSY throw, and the command callback was
+      // never entered (no phase-2 ran, so nothing to roll back).
+      expect(outcome.outcome).toBe("busy");
+      expect(typeof (outcome as { retryAfterMs?: number }).retryAfterMs).toBe("number");
+      expect(fnEntered).toBe(false);
+
+      // Exactly ONE statement was issued — the BEGIN IMMEDIATE attempt —
+      // delegated to the genuinely locked database. No ROLLBACK (or any
+      // other statement) may fire after an acquisition failure.
+      expect(statements).toHaveLength(1);
+      expect(statements[0]).toContain("BEGIN IMMEDIATE");
+      expect(statements.join(" ")).not.toContain("ROLLBACK");
+    } finally {
+      // Tolerant cleanup: only roll back when the external lock was actually
+      // held (the discriminator's no-lock variant never opens a transaction,
+      // and a cleanup SqliteError would mask the real assertion failure).
+      if (conn2.inTransaction) conn2.exec("ROLLBACK");
+      conn2.close();
+    }
+  });
 });

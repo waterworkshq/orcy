@@ -113,6 +113,41 @@ describe("DeferredBacklog — manual activation of the EXISTING corrective Missi
     expect(screen.queryByRole("button", { name: /^Activate$/i })).not.toBeInTheDocument();
   });
 
+  it("excludes activated (in_progress) findings under defer_to_release — the live triaged release row still renders", async () => {
+    // DISTINCT ids and corrective Mission identities: distinct ids so the rows
+    // are distinct React list keys, distinct missions so group coalescing
+    // cannot merge them into one group and mask a leaked activated row.
+    mockFindings = [
+      makeFinding({
+        id: "finding-live",
+        clusterKey: "cluster-live",
+        bucket: "defer_to_release",
+        status: "triaged",
+        correctiveMissionId: "mission-live",
+      }),
+      makeFinding({
+        id: "finding-activated",
+        clusterKey: "cluster-activated",
+        bucket: "defer_to_release",
+        status: "in_progress",
+        activatedAt: "2026-08-15T00:00:00Z",
+        correctiveMissionId: "mission-activated",
+      }),
+    ];
+    renderWithQC(<DeferredBacklog habitatId="hab-1" />);
+
+    // Positive control first: release-bucket rows really do render here.
+    const btn = await screen.findByRole("button", { name: /^Activate$/i });
+    expect(screen.getByText("cluster-live")).toBeInTheDocument();
+
+    // Discriminator: the activated member kept its defer bucket, so only a
+    // status-scoped release query can hide it.
+    expect(screen.queryByText("cluster-activated")).not.toBeInTheDocument();
+    expect(screen.getAllByRole("button", { name: /^Activate$/i })).toHaveLength(1);
+    // The surviving row is genuinely activatable (its Mission read model resolved).
+    await waitFor(() => expect(btn).toBeEnabled());
+  });
+
   it("Activate supplies the OBSERVED mission version to the lifecycle command", async () => {
     renderWithQC(<DeferredBacklog habitatId="hab-1" />);
 

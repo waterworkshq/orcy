@@ -1369,6 +1369,76 @@ describe("Legacy repair — derived-state validation", () => {
     expect(replay.repairId).toBe(result.repairId);
   });
 
+  it("DISCRIMINATOR: a pre-0072 NULL before_state_digest ledger replays identical input and conflicts a changed file", () => {
+    seedFinding({ id: "ft-null-root", status: "resolved", clusterKey: "nullrep", findingKind: "bug", createdAt: "2026-01-01T00:00:00.000Z" });
+    seedFinding({ id: "ft-null-child", status: "open", clusterKey: "nullrep", findingKind: "bug", legacyRepairRequired: true, createdAt: "2026-06-01T00:00:00.000Z" });
+
+    const input: PredecessorMappingInput = {
+      mode: "predecessor_mapping",
+      habitatId,
+      clusterKey: "nullrep",
+      findingKind: "bug",
+      mapping: { "ft-null-root": null, "ft-null-child": "ft-null-root" },
+      operator: { type: "human", id: "op-1", reason: "Legacy backfill" },
+    };
+
+    // Apply normally — a REAL maintenance session (lock + backup) held
+    // throughout, mutation + ledger in one BEGIN EXCLUSIVE transaction.
+    const preview = previewRepair(input);
+    const result = applyRepair(input, preview.digest, makeSession());
+    expect(result.replayed).toBe(false);
+
+    // Make the ledger row PRE-migration-0072: no recorded before-state
+    // digest. The repair itself stays applied (child now points at the
+    // root, quarantine flag cleared) — exactly the historical state the
+    // NULL-digest fallback must reconstruct from.
+    const db = getDb();
+    db.run(
+      sql`UPDATE finding_triage_lineage_repairs SET before_state_digest = NULL WHERE id = ${result.repairId}`,
+    );
+
+    // Identical input → the NULL branch reconstructs the before-state by
+    // reverting recurrence links through the ledger's beforeMapping and
+    // still verifies the file digest → idempotent replay, same audit row.
+    const replay = applyRepair(input, preview.digest, makeSession());
+    expect(replay.replayed).toBe(true);
+    expect(replay.repairId).toBe(result.repairId);
+
+    // A genuinely changed file (different mapping) presented against the
+    // SAME legacy digest reconstructs a different before-state and must be
+    // refused — an always-accept-NULL stub would silently replay it.
+    const findingRowsBefore = db.all(
+      sql`SELECT id, status, recurrence_of_id, legacy_lineage_repair_required FROM finding_triage WHERE cluster_key = 'nullrep' ORDER BY id`,
+    );
+    const changed: PredecessorMappingInput = {
+      ...input,
+      mapping: { "ft-null-root": null, "ft-null-child": null },
+    };
+    let conflict: unknown;
+    try {
+      applyRepair(changed, preview.digest, makeSession());
+    } catch (err) {
+      conflict = err;
+    }
+    expect(conflict).toBeInstanceOf(RepairValidationError);
+    expect((conflict as RepairValidationError).code).toBe("repair_file_conflict");
+
+    // The refused replay left no partial finding writes: every column the
+    // repair mutates is byte-identical to the post-apply snapshot (ledger
+    // count alone would not pin this).
+    const findingRowsAfter = db.all(
+      sql`SELECT id, status, recurrence_of_id, legacy_lineage_repair_required FROM finding_triage WHERE cluster_key = 'nullrep' ORDER BY id`,
+    );
+    expect(findingRowsAfter).toEqual(findingRowsBefore);
+
+    // No third audit row: both replay and refused conflict left the ledger
+    // at exactly one entry for this cluster.
+    const ledgerCount = db.get(
+      sql`SELECT COUNT(*) AS c FROM finding_triage_lineage_repairs WHERE cluster_key = 'nullrep'`,
+    ) as { c: number };
+    expect(ledgerCount.c).toBe(1);
+  });
+
   function dbUpdateStatus(id: string, status: string): void {
     const db = getDb();
     db.run(sql`UPDATE finding_triage SET status = ${status} WHERE id = ${id}`);
