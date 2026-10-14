@@ -4046,6 +4046,19 @@ Delete a saved filter.
 
 Manage organizations, teams, and team memberships.
 
+Team deletion and membership add, role-change, and removal require the current
+persisted human governor: a live global admin or a non-viewer Team owner/admin.
+JWT role claims and operational grants alone do not authorize these writes.
+Each writer rechecks Team existence and governor authority on its own IMMEDIATE
+reservation before any mutation. Legacy resource APIs remain versionless; no
+scope-version expectations are required. A refusal leaves custody, grants,
+memberships, and governance audit unchanged.
+
+Missing-Team ordering remains route-specific: deletion checks governor admission
+first (403 for a nongovernor, 404 for a current global admin); membership writers
+check Team existence first (404). Removing a missing member remains a 204 no-op;
+changing a missing member's role returns 404.
+
 ### POST /organizations
 
 Create a new organization.
@@ -4222,7 +4235,7 @@ Add a member to a team.
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
 | `userId` | UUID | yes | User ID to add |
-| `role` | enum | yes | `admin`, `member`, `viewer` |
+| `role` | enum | no | `owner`, `admin`, `member`; defaults to `member` |
 
 **Response `201`:**
 
@@ -4286,7 +4299,7 @@ Update a team member's role.
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
-| `role` | enum | yes | `admin`, `member`, `viewer` |
+| `role` | enum | yes | `owner`, `admin`, `member` |
 
 **Response `200`:**
 

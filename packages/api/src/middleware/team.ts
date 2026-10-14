@@ -5,8 +5,11 @@ export {
 } from "./realtimeAuth.js";
 
 import type { FastifyRequest, FastifyReply } from "fastify";
-import { isTeamMemberByHabitatId, getMember } from "../repositories/teamMember.js";
+import { isTeamMemberByHabitatId } from "../repositories/teamMember.js";
 import { getTeamById } from "../repositories/team.js";
+import { getDb } from "../db/index.js";
+import { isGovernorWithClient } from "../services/localRoleAdministration.js";
+import type { LocalAuthorizationDbClient } from "../services/localAuthorization.js";
 import { unauthorized, forbidden, badRequest, notFound } from "../errors.js";
 
 export async function teamHabitatAccess(
@@ -43,10 +46,16 @@ export async function teamAdminOrOwner(
     throw badRequest("Team ID required");
   }
 
-  if (request.user.role === "admin") return;
+  requireTeamGovernorWithClient(getDb(), request.user.id, teamId);
+}
 
-  const member = getMember(teamId, request.user.id);
-  if (!member || (member.role !== "owner" && member.role !== "admin")) {
+/** Current human authority; writers must call on their own reservation. */
+export function requireTeamGovernorWithClient(
+  tx: LocalAuthorizationDbClient,
+  actorUserId: string,
+  teamId: string,
+): void {
+  if (!isGovernorWithClient(tx, actorUserId, "team", teamId)) {
     throw forbidden("Team admin or owner role required");
   }
 }

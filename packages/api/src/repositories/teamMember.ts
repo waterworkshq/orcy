@@ -13,8 +13,7 @@ export interface TeamMember {
   joinedAt: string;
 }
 
-export function addMember(input: { teamId: string; userId: string; role?: TeamMemberRole }): TeamMember {
-  const db = getDb();
+export function addMember(input: { teamId: string; userId: string; role?: TeamMemberRole }, db = getDb()): TeamMember {
   const id = uuid();
   const now = new Date().toISOString();
   const role = input.role ?? 'member';
@@ -30,20 +29,18 @@ export function addMember(input: { teamId: string; userId: string; role?: TeamMe
   return { id, teamId: input.teamId, userId: input.userId, role, joinedAt: now };
 }
 
-export function removeMember(teamId: string, userId: string): void {
-  const db = getDb();
+export function removeMember(teamId: string, userId: string, db = getDb()): void {
   db.delete(teamMembers).where(
     and(eq(teamMembers.teamId, teamId), eq(teamMembers.userId, userId))
   ).run();
 }
 
-export function updateMemberRole(teamId: string, userId: string, role: TeamMemberRole): TeamMember | null {
-  const db = getDb();
+export function updateMemberRole(teamId: string, userId: string, role: TeamMemberRole, db = getDb()): TeamMember | null {
   db.update(teamMembers).set({ role }).where(
     and(eq(teamMembers.teamId, teamId), eq(teamMembers.userId, userId))
   ).run();
 
-  return getMember(teamId, userId);
+  return getMember(teamId, userId, db);
 }
 
 export function listMembers(teamId: string): TeamMember[] {
@@ -54,8 +51,7 @@ export function listMembers(teamId: string): TeamMember[] {
     .all() as TeamMember[];
 }
 
-export function getMember(teamId: string, userId: string): TeamMember | null {
-  const db = getDb();
+export function getMember(teamId: string, userId: string, db = getDb()): TeamMember | null {
   const rows = db.select().from(teamMembers).where(
     and(eq(teamMembers.teamId, teamId), eq(teamMembers.userId, userId))
   ).all();
