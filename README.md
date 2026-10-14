@@ -217,7 +217,7 @@ Orcy pulls external tracker issues into habitat intake, where humans/orcys revie
 | Release | Theme |
 |---------|-------|
 | Shipped: v0.43.0 | Reliable Task authority and scoped context: delivery recovery, claim-token fencing, durable review safety, object-access containment, minimal remote streams and Mission-scoped Workflow integrity. See [release notes](docs/releases/v0.43.0.md). |
-| Release prepared: v0.44.0 | Scoped roles and governed review management: current human governance, typed operational assignments, custody-aware deletion, and transactional review-rule/reviewer writes. Integrated and preflight verified; publication pending. See [release notes](docs/releases/v0.44.0.md). |
+| Shipped: v0.44.0 | Scoped roles and governed review management: current human governance, typed operational assignments, custody-aware deletion, and transactional review-rule/reviewer writes. See [release notes](docs/releases/v0.44.0.md). |
 | Next | Unscheduled seeds (integration OAuth/webhook extraction and similar) wait on demand. See [docs/ROADMAP.md](docs/ROADMAP.md#upcoming). |
 | Architecture Optimization | Ongoing Architecture Work pertaining to investigated codebase opportunities |
 | npm publishing | GO LIVE on npm for the CLI, MCP server, and daemon for one command installer |
