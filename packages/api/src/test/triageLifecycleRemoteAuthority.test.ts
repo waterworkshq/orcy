@@ -5,7 +5,13 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { initTestDb, closeDb, getDb } from "../db/index.js";
 import { eq } from "drizzle-orm";
-import { findingTriage, remoteGrants, remoteGrantTargets, tasks } from "../db/schema/index.js";
+import {
+  findingTriage,
+  remoteCredentials,
+  remoteGrants,
+  remoteGrantTargets,
+  tasks,
+} from "../db/schema/index.js";
 import * as habitatRepo from "../repositories/habitat.js";
 import * as columnRepo from "../repositories/column.js";
 import * as missionRepo from "../repositories/mission.js";
@@ -63,7 +69,9 @@ function seed(): {
     .where(eq(findingTriage.id, finding.id))
     .run();
 
-  const pod = podRepo.activateRemotePod(podRepo.createRemotePod({ habitatId: habitat.id, name: "P" }).id)!;
+  const pod = podRepo.activateRemotePod(
+    podRepo.createRemotePod({ habitatId: habitat.id, name: "P" }).id,
+  )!;
   const participant = participantRepo.activateRemoteParticipant(
     participantRepo.createRemoteParticipant({
       remotePodId: pod.id,
@@ -105,7 +113,12 @@ function seed(): {
   return { findingId: finding.id, taskId: task.id, snapshot, grantId: grant.id };
 }
 
-function check(snapshot: RemoteParticipantContext, findingId: string, taskId: string, withClient: boolean) {
+function check(
+  snapshot: RemoteParticipantContext,
+  findingId: string,
+  taskId: string,
+  withClient: boolean,
+) {
   return checkRemoteRouteAuthority({
     finding: {
       id: findingId,
@@ -135,11 +148,65 @@ describe("checkRemoteRouteAuthority live re-read", () => {
 
   it("denies when the credential is revoked after the snapshot was built", () => {
     const { findingId, taskId, snapshot } = seed();
-    credentialService.revokeCredential(snapshot.credentialId, "test", "revoked for authority proof");
+    credentialService.revokeCredential(
+      snapshot.credentialId,
+      "test",
+      "revoked for authority proof",
+    );
     expect(check(snapshot, findingId, taskId, false).kind).toBe("allow");
     const denied = check(snapshot, findingId, taskId, true);
     expect(denied.kind).toBe("deny");
     if (denied.kind === "deny") expect(denied.code).toBe("CREDENTIAL_INACTIVE");
+  });
+
+  it("denies persisted credential expiry after an allowed snapshot without requiring revocation", () => {
+    vi.useFakeTimers();
+    try {
+      const now = 1_800_000_000_000;
+      vi.setSystemTime(now);
+      const { findingId, taskId, snapshot } = seed();
+      const setExpiry = (expiresAt: string) =>
+        getDb()
+          .update(remoteCredentials)
+          .set({ expiresAt })
+          .where(eq(remoteCredentials.id, snapshot.credentialId))
+          .run();
+      setExpiry(new Date(now + 60_000).toISOString());
+      expect(check(snapshot, findingId, taskId, false).kind).toBe("allow");
+      expect(check(snapshot, findingId, taskId, true).kind).toBe("allow");
+
+      setExpiry(new Date(now - 1).toISOString());
+      expect(
+        getDb()
+          .select()
+          .from(remoteCredentials)
+          .where(eq(remoteCredentials.id, snapshot.credentialId))
+          .get()?.status,
+      ).toBe("active");
+      expect(check(snapshot, findingId, taskId, false).kind).toBe("allow");
+      const denied = check(snapshot, findingId, taskId, true);
+      expect(denied).toMatchObject({ kind: "deny", code: "CREDENTIAL_EXPIRED" });
+
+      setExpiry(new Date(now + 60_000).toISOString());
+      expect(check(snapshot, findingId, taskId, true).kind).toBe("allow");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("denies a hard-revoked grant after an allowed snapshot while retaining its history", () => {
+    const { findingId, taskId, snapshot, grantId } = seed();
+    expect(check(snapshot, findingId, taskId, false).kind).toBe("allow");
+    expect(check(snapshot, findingId, taskId, true).kind).toBe("allow");
+    expect(grantRepo.revokeRemoteGrant(grantId, "hard", "test", "authority control")).toMatchObject(
+      { id: grantId, status: "hard_revoked" },
+    );
+    expect(snapshot.grants[0]?.status).toBe("active");
+    expect(check(snapshot, findingId, taskId, false).kind).toBe("allow");
+    expect(check(snapshot, findingId, taskId, true)).toMatchObject({
+      kind: "deny",
+      code: "NO_SAME_GRANT_WITH_TASK_TARGET",
+    });
   });
 
   it("denies when standing is demoted after the snapshot was built", () => {

@@ -38,7 +38,8 @@ import {
 } from "../services/releaseReconciliationService.js";
 import {
   TEST_ONLY_SKIP_IN_TX_AUTHORITY,
- activateCorrectiveMission } from "../services/findingTriageLifecycle.js";
+  activateCorrectiveMission,
+} from "../services/findingTriageLifecycle.js";
 import { handleGitHubReleaseEvent } from "../services/githubReleaseWebhook.js";
 
 const ACTOR = { type: "human" as const, id: "user-1", authority: TEST_ONLY_SKIP_IN_TX_AUTHORITY };
@@ -289,6 +290,39 @@ describe("T7: reconciliation disposition matrix", () => {
     });
   }
 
+  it("rejects an epoch group paired with another release while accepting its own release", async () => {
+    const first = await bootstrapOnly("0.1.0");
+    const second = await bootstrapOnly("0.2.0");
+    const epoch = epochFor(first.release.id)!;
+    expect(epoch).toBeDefined();
+    expect(releaseRepo.getById(second.release.id)).not.toBeNull();
+
+    const group = {
+      id: "cross-release-group",
+      epochId: epoch.id,
+      releaseId: second.release.id,
+      habitatId,
+      missionId: "constraint-control-mission",
+      missionCreatedAt: "2026-01-01T00:00:00.000Z",
+      position: 0,
+      findingIds: [],
+      membershipDigest: "constraint-control-digest",
+    };
+    const insert = (releaseId: string) =>
+      getDb()
+        .insert(releaseActivationEpochGroups)
+        .values({ ...group, releaseId })
+        .run();
+
+    expect(() => insert(second.release.id)).toThrow(/FOREIGN KEY constraint failed/i);
+    expect(groupsFor(second.release.id)).toEqual([]);
+    expect(groupsFor(first.release.id)).toEqual([]);
+    expect(() => insert(first.release.id)).not.toThrow();
+    expect(groupsFor(first.release.id)).toMatchObject([
+      { id: group.id, epochId: epoch.id, releaseId: first.release.id },
+    ]);
+  });
+
   it("membership drift (a member terminalizes before reconciliation) → deferred_changed", async () => {
     const seeded = seedGatedMissionWithFindings("A");
     const boot = await bootstrapOnly();
@@ -493,13 +527,7 @@ describe("T7: every detector flows through the shared seam", () => {
     });
 
     const rows = getDb().select().from(releasesTable).all();
-    expect(rows.map((r) => r.version)).toEqual([
-      "0.1.0",
-      "0.1.1",
-      "0.3.0",
-      "0.4.0",
-      "0.5.0",
-    ]);
+    expect(rows.map((r) => r.version)).toEqual(["0.1.0", "0.1.1", "0.3.0", "0.4.0", "0.5.0"]);
     // Every detected Release has exactly one epoch and five projections —
     // no detector retains a short-circuit early return.
     for (const row of rows) {

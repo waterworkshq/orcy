@@ -12,7 +12,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { eq } from "drizzle-orm";
 import { closeDb, initTestDb, getDb } from "../db/index.js";
-import { notificationEvents } from "../db/schema/index.js";
+import { notificationEvents, automationDeliveryActionCheckpoints } from "../db/schema/index.js";
 import * as boardRepo from "../repositories/habitat.js";
 import * as columnRepo from "../repositories/column.js";
 import * as ruleRepo from "../repositories/automationRule.js";
@@ -143,6 +143,54 @@ describe("stale-lease proof-aware recovery + operator dispositions", () => {
     vi.unstubAllGlobals();
     closeDb();
   });
+
+  it.each(["receipt", "provedAt"] as const)(
+    "SQL rejects a proved checkpoint without %s while accepting complete proof and unproved states",
+    (missing) => {
+      const h = setupHabitat();
+      createReleaseRule(h.id);
+      admitReleaseShippedEventToInbox({
+        habitatId: h.id,
+        eventId: "checkpoint-constraint",
+        payload: { eventId: "checkpoint-constraint" },
+      });
+      const deliveryId = firstDeliveryId(deliveryRepo.listInboxEntriesForHabitat(h.id)[0].id);
+      expect(deliveryRepo.getDeliveryById(deliveryId)).not.toBeNull();
+      const proof = {
+        id: "checkpoint-constraint-proof",
+        deliveryId,
+        actionIndex: 0,
+        actionKey: "checkpoint-constraint-key",
+        actionType: "notify",
+        state: "proved",
+        receipt: { eventId: "durable-event" },
+        provedAt: T0,
+      };
+      const insert = (row: typeof automationDeliveryActionCheckpoints.$inferInsert) =>
+        getDb().insert(automationDeliveryActionCheckpoints).values(row).run();
+
+      expect(() => insert({ ...proof, [missing]: null })).toThrow(/CHECK constraint failed/i);
+      expect(deliveryRepo.listCheckpointsForDelivery(deliveryId)).toEqual([]);
+      expect(() => insert(proof)).not.toThrow();
+      for (const [index, state] of ["pending", "failed"].entries()) {
+        expect(() =>
+          insert({
+            ...proof,
+            id: `checkpoint-${state}`,
+            actionIndex: index + 1,
+            state,
+            receipt: null,
+            provedAt: null,
+          }),
+        ).not.toThrow();
+      }
+      expect(deliveryRepo.listCheckpointsForDelivery(deliveryId)).toMatchObject([
+        { state: "proved", receipt: proof.receipt, provedAt: T0 },
+        { state: "pending", receipt: null, provedAt: null },
+        { state: "failed", receipt: null, provedAt: null },
+      ]);
+    },
+  );
 
   it("a LIVE lease keeps the delivery pending — the drainer leaves it alone", async () => {
     const h = setupHabitat();
