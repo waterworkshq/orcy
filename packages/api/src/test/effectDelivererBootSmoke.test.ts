@@ -12,8 +12,9 @@
  * index.ts must turn this test RED). SIGTERM must exit 0 (drain-aware stop
  * before DB close).
  */
-import { describe, it, expect, beforeAll } from "vitest";
+import { describe, it, expect } from "vitest";
 import { spawn } from "node:child_process";
+import { useCompiledApi } from "./compiledApiFixture.js";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -31,8 +32,7 @@ import * as taskStateMachine from "../repositories/taskStateMachine.js";
 import { failTask } from "../services/tasks/task-lifecycle.js";
 import { processEffectReceipts } from "../services/effects/effectDeliverer.js";
 
-const PACKAGE_ROOT = join(import.meta.dirname, "..", "..");
-const DIST_ENTRY = join(PACKAGE_ROOT, "dist", "index.js");
+const compiledApi = useCompiledApi();
 const STRONG_JWT = "t2-boot-smoke-only-jwt-secret-0123456789abcdef0123456789abcdef";
 
 function getFreePort(): Promise<number> {
@@ -48,10 +48,6 @@ function getFreePort(): Promise<number> {
 }
 
 describe("Effect deliverer production boot smoke (compiled entry)", () => {
-  beforeAll(() => {
-    expect(DIST_ENTRY).toBeTruthy();
-  });
-
   it("boot owns the pipeline: pending eligible retry receipt reaches its durable outcome without any in-process drain call", async () => {
     const tempDir = await mkdtemp(join(tmpdir(), `orcy-t2-boot-${process.pid}-`));
     const dbPath = join(tempDir, "boot.db");
@@ -136,7 +132,7 @@ describe("Effect deliverer production boot smoke (compiled entry)", () => {
       closeDb();
 
       // ── Launch the REAL compiled production entry ─────────────────────────
-      const child = spawn(process.execPath, [DIST_ENTRY], {
+      const child = spawn(process.execPath, [compiledApi.entrypoint], {
         env: {
           ...process.env,
           NODE_ENV: "production",

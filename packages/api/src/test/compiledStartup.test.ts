@@ -17,8 +17,9 @@
  * `__drizzle_migrations` pre-populated) to isolate module/path correctness from
  * the journal-baseline repair owned by F2.
  */
-import { describe, it, expect, beforeAll } from "vitest";
-import { execSync, spawn } from "node:child_process";
+import { describe, it, expect } from "vitest";
+import { spawn } from "node:child_process";
+import { useCompiledApi } from "./compiledApiFixture.js";
 import { join, resolve, dirname } from "node:path";
 import {
   existsSync,
@@ -43,10 +44,7 @@ import {
 } from "../services/findingTriagePreflight.js";
 
 const PACKAGE_ROOT = resolve(import.meta.dirname, "..", "..");
-const WORKSPACE_ROOT = resolve(PACKAGE_ROOT, "..", "..");
-const DIST_ENTRY = join(PACKAGE_ROOT, "dist", "index.js");
-const DIST_DB_INDEX = join(PACKAGE_ROOT, "dist", "db", "index.js");
-const DIST_DB_DIR = join(PACKAGE_ROOT, "dist", "db");
+const compiledApi = useCompiledApi();
 const DRIZZLE_DIR = join(PACKAGE_ROOT, "drizzle");
 
 const STRONG_JWT = "f1-smoke-test-only-jwt-secret-0123456789abcdef0123456789abcdef";
@@ -413,25 +411,14 @@ function assertNoWorkspaceAncestor(start: string): void {
 // ---------------------------------------------------------------------------
 
 describe("F1 — ESM-safe compiled API startup", () => {
-  beforeAll(() => {
-    // Corepack resolves pnpm from the root packageManager field, so this
-    // follows deliberate pin bumps; the explicit entry avoids the ambient
-    // pnpm that broke this smoke test pre-TG-16.
-    execSync("corepack pnpm --filter @orcy/api build", {
-      cwd: WORKSPACE_ROOT,
-      stdio: "pipe",
-      timeout: 120_000,
-    });
-  }, 120_000);
-
   describe("compiled build output", () => {
     it("emits no CommonJS __dirname reference in the compiled db module", () => {
-      const compiled = readFileSync(DIST_DB_INDEX, "utf-8");
+      const compiled = readFileSync(join(compiledApi.distDir, "db", "index.js"), "utf-8");
       expect(compiled).not.toContain("__dirname");
     });
 
     it("productionMigrationFolder resolves to the existing drizzle/ directory", () => {
-      const resolved = resolve(DIST_DB_DIR, "..", "..", "drizzle");
+      const resolved = resolve(compiledApi.distDir, "..", "drizzle");
       expect(existsSync(resolved)).toBe(true);
       expect(existsSync(join(resolved, "0000_schema.sql"))).toBe(true);
     });
@@ -447,7 +434,7 @@ describe("F1 — ESM-safe compiled API startup", () => {
         const port = await getFreePort();
         prepareCurrentSchemaDatabase(dbPath);
 
-        await launchAndWaitForHealth(DIST_ENTRY, {
+        await launchAndWaitForHealth(compiledApi.entrypoint, {
           ...process.env,
           NODE_ENV: "production",
           DB_PATH: dbPath,
@@ -474,7 +461,7 @@ describe("F1 — ESM-safe compiled API startup", () => {
         // Real copies (not symlinks) for dist/ and drizzle/ — Node ESM
         // resolves symlinks to their real path, so import.meta.dirname must
         // land inside the temp package to force the production fallback.
-        cpSync(join(PACKAGE_ROOT, "dist"), join(pkgDir, "dist"), {
+        cpSync(compiledApi.distDir, join(pkgDir, "dist"), {
           recursive: true,
         });
         cpSync(DRIZZLE_DIR, join(pkgDir, "drizzle"), { recursive: true });
@@ -525,7 +512,7 @@ describe("F1 — ESM-safe compiled API startup", () => {
       mkdirSync(pkgDir, { recursive: true });
 
       try {
-        cpSync(join(PACKAGE_ROOT, "dist"), join(pkgDir, "dist"), { recursive: true });
+        cpSync(compiledApi.distDir, join(pkgDir, "dist"), { recursive: true });
         cpSync(DRIZZLE_DIR, join(pkgDir, "drizzle"), { recursive: true });
         copyFileSync(join(PACKAGE_ROOT, "package.json"), join(pkgDir, "package.json"));
         symlinkSync(join(PACKAGE_ROOT, "node_modules"), join(pkgDir, "node_modules"), "dir");
@@ -605,7 +592,7 @@ describe("F1 — ESM-safe compiled API startup", () => {
       mkdirSync(pkgDir, { recursive: true });
 
       try {
-        cpSync(join(PACKAGE_ROOT, "dist"), join(pkgDir, "dist"), { recursive: true });
+        cpSync(compiledApi.distDir, join(pkgDir, "dist"), { recursive: true });
         cpSync(DRIZZLE_DIR, join(pkgDir, "drizzle"), { recursive: true });
         copyFileSync(join(PACKAGE_ROOT, "package.json"), join(pkgDir, "package.json"));
         symlinkSync(join(PACKAGE_ROOT, "node_modules"), join(pkgDir, "node_modules"), "dir");
@@ -777,7 +764,7 @@ describe("F1 — ESM-safe compiled API startup", () => {
         prepareCurrentSchemaDatabase(dbPath);
 
         await launchAndWaitForHealth(
-          DIST_ENTRY,
+          compiledApi.entrypoint,
           {
             ...process.env,
             NODE_ENV: "production",

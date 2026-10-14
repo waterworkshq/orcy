@@ -17,8 +17,9 @@
  * line from index.ts makes this test fail (no delivery ever fires) — that
  * mutation proof is recorded in the implementation report.
  */
-import { describe, it, expect, beforeAll, afterAll } from "vitest";
-import { execSync, spawn } from "node:child_process";
+import { describe, it, expect } from "vitest";
+import { spawn } from "node:child_process";
+import { useCompiledApi } from "./compiledApiFixture.js";
 import { join, resolve } from "node:path";
 import {
   existsSync,
@@ -40,8 +41,7 @@ import {
 } from "../services/findingTriagePreflight.js";
 
 const PACKAGE_ROOT = resolve(import.meta.dirname, "..", "..");
-const WORKSPACE_ROOT = resolve(PACKAGE_ROOT, "..", "..");
-const DIST_ENTRY = join(PACKAGE_ROOT, "dist", "index.js");
+const compiledApi = useCompiledApi();
 const DRIZZLE_DIR = join(PACKAGE_ROOT, "drizzle");
 
 const STRONG_JWT = "webhook-smoke-jwt-secret-0123456789abcdef0123456789abcdef";
@@ -145,14 +145,6 @@ interface ReceivedRequest {
 }
 
 describe("webhook retry restoration — production boot smoke", () => {
-  beforeAll(() => {
-    execSync("corepack pnpm --filter @orcy/api build", {
-      cwd: WORKSPACE_ROOT,
-      stdio: "pipe",
-      timeout: 120_000,
-    });
-  }, 120_000);
-
   it("the production entrypoint boots the retry worker: a due pending delivery is claimed and delivered within one tick", async () => {
     const tempDir = join(tmpdir(), `orcy-webhook-smoke-${process.pid}-${Date.now()}`);
     mkdirSync(tempDir, { recursive: true });
@@ -209,7 +201,7 @@ describe("webhook retry restoration — production boot smoke", () => {
       db.close();
 
       const apiPort = await getFreePort();
-      const child = spawn(process.execPath, [DIST_ENTRY], {
+      const child = spawn(process.execPath, [compiledApi.entrypoint], {
         env: {
           ...process.env,
           NODE_ENV: "production",

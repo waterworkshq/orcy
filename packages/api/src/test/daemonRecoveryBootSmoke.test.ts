@@ -12,8 +12,9 @@
  * asserted the same way. SIGTERM must exit 0 (bounded embedded drain + sweep
  * interval cleared before closeDb).
  */
-import { describe, it, expect, beforeAll } from "vitest";
+import { describe, it, expect } from "vitest";
 import { spawn } from "node:child_process";
+import { useCompiledApi } from "./compiledApiFixture.js";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -41,8 +42,7 @@ import { releaseTaskWithEffects } from "../services/effects/releaseEffects.js";
 import { DAEMON_STALE_HEARTBEAT_MS } from "../services/daemonSessionRecovery.js";
 import type { Task } from "../models/index.js";
 
-const PACKAGE_ROOT = join(import.meta.dirname, "..", "..");
-const DIST_ENTRY = join(PACKAGE_ROOT, "dist", "index.js");
+const compiledApi = useCompiledApi();
 const STRONG_JWT = "daemon-recovery-boot-smoke-jwt-0123456789abcdef0123456789abcdef";
 
 function getFreePort(): Promise<number> {
@@ -56,10 +56,6 @@ function getFreePort(): Promise<number> {
     });
   });
 }
-
-beforeAll(() => {
-  expect(DIST_ENTRY).toBeTruthy();
-});
 
 describe("daemon recovery boot smoke (compiled entry)", () => {
   it("boot delivers the crashed release's gates/context (receipt-asserted), sweeps ghosts, and SIGTERM exits 0", async () => {
@@ -198,7 +194,7 @@ describe("daemon recovery boot smoke (compiled entry)", () => {
       closeDb();
 
       // ── Launch the REAL compiled production entry ────────────────────────
-      const child = spawn(process.execPath, [DIST_ENTRY], {
+      const child = spawn(process.execPath, [compiledApi.entrypoint], {
         env: {
           ...process.env,
           NODE_ENV: "production",
