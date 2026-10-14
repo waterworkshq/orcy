@@ -34,8 +34,7 @@ export function createTeam(input: { organizationId: string; name: string; slug: 
   return assertFound(getTeamById(id), "team", id);
 }
 
-export function getTeamById(id: string): Team | null {
-  const db = getDb();
+export function getTeamById(id: string, db = getDb()): Team | null {
   const rows = db.select().from(teams).where(eq(teams.id, id)).all();
   return rows.length > 0 ? (rows[0] as Team) : null;
 }
@@ -67,8 +66,7 @@ export function listTeamsByUserId(userId: string): Team[] {
     .all() as Team[];
 }
 
-export function deleteTeam(id: string): void {
-  const db = getDb();
+export function deleteTeam(id: string, db = getDb()): void {
   try {
     db.delete(teams).where(eq(teams.id, id)).run();
   } catch (err) {

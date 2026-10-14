@@ -301,6 +301,14 @@ revokes only that agent's active grants in the same reservation (a
 re-registered registry ID can never revive them) and performs no ledger or
 namespace retirement. These are managed-seam guarantees; raw database writes
 and trigger removal remain outside them.
+Existing Team deletion and membership add/role-change/remove also require a
+live persisted global admin or non-viewer Team owner/admin. Their IMMEDIATE
+writer reservations re-read the user and Team role on the same client before
+mutating; JWT roles, past membership and operational grants cannot authorize
+these writes. Denial rolls back the complete custody or membership bundle.
+These legacy Team resource APIs remain versionless and preserve their existing
+route-specific 403/404 ordering (unlike the governance command matrix above).
+
 Served deletion/import paths carry the authenticated human or agent into
 custody audit. Legacy internal calls without an authenticated caller retain
 an explicit unknown-attribution marker rather than claiming a named user.

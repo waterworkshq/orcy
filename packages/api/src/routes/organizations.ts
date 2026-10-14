@@ -3,7 +3,7 @@ import { z } from "zod";
 import * as orgRepo from "../repositories/organization.js";
 import * as teamRepo from "../repositories/team.js";
 import * as memberRepo from "../repositories/teamMember.js";
-import { teamAdminOrOwner, teamExists } from "../middleware/team.js";
+import { teamAdminOrOwner, teamExists, requireTeamGovernorWithClient } from "../middleware/team.js";
 import { badRequest, notFound, conflict, unauthorized } from "../errors.js";
 import { applyDeclaredAuthPolicies } from "../authPolicy.js";
 import { getDb } from "../db/index.js";
@@ -152,16 +152,17 @@ export async function organizationRoutes(fastify: FastifyInstance): Promise<void
       const db = getDb();
       db.transaction(
         (tx) => {
-          if (!teamRepo.getTeamById(request.params.id)) {
+          if (!teamRepo.getTeamById(request.params.id, tx)) {
             throw notFound("Team not found");
           }
+          requireTeamGovernorWithClient(tx, request.user!.id, request.params.id);
           const { habitatIds } = retireTeamCustodyWithClient(
             tx,
             request.params.id,
             "team deleted",
             custodyActor,
           );
-          teamRepo.deleteTeam(request.params.id);
+          teamRepo.deleteTeam(request.params.id, tx);
           reenrollTeamDescendantsWithClient(tx, habitatIds, "team deleted", custodyActor);
         },
         { behavior: "immediate" },
@@ -182,16 +183,24 @@ export async function organizationRoutes(fastify: FastifyInstance): Promise<void
         throw badRequest("Validation failed", parsed.error.flatten());
       }
 
-      const existing = memberRepo.getMember(request.params.id, parsed.data.userId);
-      if (existing) {
-        throw conflict("User is already a member of this team");
-      }
-
-      const member = memberRepo.addMember({
-        teamId: request.params.id,
-        userId: parsed.data.userId,
-        role: parsed.data.role,
-      });
+      const member = getDb().transaction(
+        (tx) => {
+          if (!teamRepo.getTeamById(request.params.id, tx)) {
+            throw notFound("Team not found");
+          }
+          requireTeamGovernorWithClient(tx, request.user!.id, request.params.id);
+          const existing = memberRepo.getMember(request.params.id, parsed.data.userId, tx);
+          if (existing) {
+            throw conflict("User is already a member of this team");
+          }
+          return memberRepo.addMember({
+            teamId: request.params.id,
+            userId: parsed.data.userId,
+            role: parsed.data.role,
+          }, tx);
+        },
+        { behavior: "immediate" },
+      );
 
       reply.code(201).send({ member });
     },
@@ -212,7 +221,16 @@ export async function organizationRoutes(fastify: FastifyInstance): Promise<void
       request: FastifyRequest<{ Params: { id: string; userId: string } }>,
       reply: FastifyReply,
     ) => {
-      memberRepo.removeMember(request.params.id, request.params.userId);
+      getDb().transaction(
+        (tx) => {
+          if (!teamRepo.getTeamById(request.params.id, tx)) {
+            throw notFound("Team not found");
+          }
+          requireTeamGovernorWithClient(tx, request.user!.id, request.params.id);
+          memberRepo.removeMember(request.params.id, request.params.userId, tx);
+        },
+        { behavior: "immediate" },
+      );
       reply.code(204).send();
     },
   );
@@ -235,14 +253,25 @@ export async function organizationRoutes(fastify: FastifyInstance): Promise<void
         throw badRequest("Validation failed", parsed.error.flatten());
       }
 
-      const member = memberRepo.updateMemberRole(
-        request.params.id,
-        request.params.userId,
-        parsed.data.role,
+      const member = getDb().transaction(
+        (tx) => {
+          if (!teamRepo.getTeamById(request.params.id, tx)) {
+            throw notFound("Team not found");
+          }
+          requireTeamGovernorWithClient(tx, request.user!.id, request.params.id);
+          const updated = memberRepo.updateMemberRole(
+            request.params.id,
+            request.params.userId,
+            parsed.data.role,
+            tx,
+          );
+          if (!updated) {
+            throw notFound("Member not found");
+          }
+          return updated;
+        },
+        { behavior: "immediate" },
       );
-      if (!member) {
-        throw notFound("Member not found");
-      }
       return { member };
     },
   );
