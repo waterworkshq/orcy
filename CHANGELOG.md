@@ -2,6 +2,140 @@
 
 > Older releases: see [git tags](https://github.com/waterworkshq/orcy/tags) and [GitHub Releases](https://github.com/waterworkshq/orcy/releases).
 
+## 0.44.0 — 2026-10-14
+
+### Bug Fixes
+
+#### address scoped governance review findings ([`61ecdb8`](https://github.com/waterworkshq/orcy/commit/61ecdb86e12e0309e7d4a7a572d8c061cf618579))
+
+
+
+
+- Repair restore-mode scope reenrollment, canonical task deletion, custody attribution and ledger versions, reviewer mutation admission, and supplied concurrency validation. Strengthen client forwarding and behavioral test discriminators, update transaction mock seams, and reconcile the managed authorization documentation.
+
+
+
+
+#### recheck persisted Team governance inside writes ([`b2dd5c4`](https://github.com/waterworkshq/orcy/commit/b2dd5c4a796970a36615a3774b2e29ce1ced8f70))
+
+
+
+
+- Use current persisted human governance during Team deletion and membership mutations on the same IMMEDIATE transaction client. Preserve versionless inputs and error ordering, document the authority boundary, and add production SQLite and HTTP acceptance coverage for stale credentials and reservation-time authority loss.
+
+
+
+
+#### enforce persisted Team governance at write boundaries ([`4e0b3c9`](https://github.com/waterworkshq/orcy/commit/4e0b3c9f36c881b2db822a9eea43bf920efee988))
+
+
+
+
+- Merge current persisted human governance checks for Team deletion and membership mutations, with transaction-bound operations, production acceptance coverage, and corrected API documentation.
+
+
+
+
+
+### Documentation
+
+#### record v0.43.0 delivery and release verification ([`5982920`](https://github.com/waterworkshq/orcy/commit/59829208419b52f4399e8ff979bc4eaa5ab3b81d))
+
+
+
+
+- Mark delivered hardening as shipped, update the product roadmap and capability register, and record release-day migration checks and successful CI.
+
+
+
+
+#### clarify optional Team member role default ([`c8de1aa`](https://github.com/waterworkshq/orcy/commit/c8de1aa35a9b325b66a71847435adbeadd6e5d43))
+
+
+
+
+- Document that adding a Team member accepts an omitted role and defaults it to member, matching the existing request schema and repository behavior.
+
+
+
+
+#### add v0.44.0 operator notes ([`8712dfe`](https://github.com/waterworkshq/orcy/commit/8712dfe72b696dfe2847d1498ea0e7efdc8d1b86))
+
+
+
+
+- Prepare convention-compliant minor release notes for scoped roles and governed review management, document upgrade actions and verification, and move the completed delivery out of upcoming work while retaining publication-pending status.
+
+
+
+
+
+### Features
+
+#### add scoped roles and governed review management ([`77368d1`](https://github.com/waterworkshq/orcy/commit/77368d1b815a2efbf979f2f85fae1d99d62b4c4f))
+
+
+
+
+- Introduce immutable role revisions, versioned scoped assignments and retained governance audit with human administration and explicit personal ownership. Apply current transaction-bound authority and optional concurrency expectations to review configuration and reviewer allocation, preserve durable review safety, and retire authority atomically across managed deletion and import paths.
+
+
+
+
+
+### Tests
+
+#### synchronize governance race fixtures and reconcile docs ([`a479b3d`](https://github.com/waterworkshq/orcy/commit/a479b3d617d66560076fb091c7c9a46e28495a1c))
+
+
+
+
+- Wait for worker database initialization before releasing paired commands and assert the actual conflict status and code. Remove a redundant restore revocation scan and correct review-contract documentation, helper comments and client-test claims.
+
+
+
+
+#### isolate compiled startup output per smoke suite ([`2d6743f`](https://github.com/waterworkshq/orcy/commit/2d6743fc9b158cdc31cbded68fcc803679012048))
+
+
+
+
+- Compile boot smoke fixtures directly into private native output directories so parallel builds cannot truncate modules while startup children import them. Preserve workspace and installed migration coverage, default test parallelism, and owned fixture cleanup.
+
+
+
+
+#### isolate compiled startup builds ([`c9f0729`](https://github.com/waterworkshq/orcy/commit/c9f0729298a93efd84b120f5243973adcfbc2e83))
+
+
+
+
+- Merge private compiler output for API boot smoke suites to prevent parallel shared-output truncation during startup. Preserve migration-layout coverage and default test parallelism.
+
+
+
+
+#### match upgrade fixture journal mode to production ([`7687dcd`](https://github.com/waterworkshq/orcy/commit/7687dcd9fe5970fe9ed7aadd9fe38797292fcfaa))
+
+
+
+
+- Use WAL while constructing the pre-upgrade SQLite fixture to avoid rollback-journal fsync overhead under full-suite load. Keep the original five-second bound, per-statement commits, real upgrade execution, and existing assertions unchanged.
+
+
+
+
+#### stabilize pre-upgrade fixture setup ([`a5f73e5`](https://github.com/waterworkshq/orcy/commit/a5f73e5c82468341b03e7632117f6d8fd2c3d6ff))
+
+
+
+
+- Merge production-matching WAL fixture setup to remove rollback-journal overhead without changing upgrade assertions, commit boundaries or test time limits.
+
+
+
+
+
 ## 0.43.0 — 2026-10-05
 
 ### Bug Fixes
@@ -683,113 +817,3 @@
 
 
 - Every invocation of the staged-enforcement suite now allocates its own unique run directory under the checkout-constant parent, with liveness-aware recovery that removes only dead-owner or day-old residue and never touches a live sibling run, so two overlapping invocations in one checkout both pass instead of unlinking each other's live databases. A dedicated two-process overlap gate spawns real concurrent suite runs and accepts only both passing with no residue.
-
-
-
-
-
-## 0.41.4 — 2026-09-03
-
-### Bug Fixes
-
-#### keep recursive build on the pinned pnpm ([`cef8916`](https://github.com/waterworkshq/orcy/commit/cef89161c03adfd80f35ef0e4cd9a1d676a29cbd))
-
-
-
-
-- Run the root recursive build through Corepack so corepack-prefixed and direct pnpm entry points both honor the repository's pnpm 9 pin instead of resolving an ambient child.
-
-
-
-
-#### run root scripts through the pinned pnpm ([`309ea31`](https://github.com/waterworkshq/orcy/commit/309ea31ff909321d073730c0d7d57cd9003d34fc))
-
-
-
-
-- Every root package script that spawns pnpm now prefixes it with corepack, so nested invocations resolve the pnpm version pinned in packageManager instead of an ambient shim. A structural installer test fails if a bare pnpm token reappears in the root scripts.
-
-
-
-
-#### run source builds on the pinned pnpm ([`71393a2`](https://github.com/waterworkshq/orcy/commit/71393a2e66153eebd9a338b62ed568bd2c84d588))
-
-
-
-
-- The installer now derives the exact pnpm version from the source tree's packageManager pin, prefers corepack, falls back to an ephemeral npx invocation of the same pin, and fails closed when neither can run it. The unversioned global pnpm bootstrap is removed, and every installer pnpm invocation is an argument-array execFileSync call threaded through the archive, local, and runtime-dependency paths.
-
-
-
-
-#### run bootstrap builds on the pinned pnpm ([`07c6d5f`](https://github.com/waterworkshq/orcy/commit/07c6d5f4c0b3e026eeec8f0e725bcff502011602))
-
-
-
-
-- The POSIX bootstrap now derives the exact pnpm version from the extracted source's packageManager pin, validates it strictly, and dispatches every install and build command through corepack (or an ephemeral npx run of the same pin) with quoted arguments. The unversioned global pnpm bootstrap is removed, and download, extraction, copy, and installer exec order are unchanged. Hermetic bootstrap tests cover both runner branches, fail-closed behavior, and the bare-pnpm ban.
-
-
-
-
-
-### Chores
-
-#### bump the pnpm pin to 9.15.9 ([`095d49e`](https://github.com/waterworkshq/orcy/commit/095d49ed591059574cbe514e5e1c695cd8f967ef))
-
-
-
-
-- Deliberate bump within major 9: corepack resolves 9.15.9 from the packageManager field everywhere, the lockfile is unchanged (same lockfileVersion), and all canonical gates pass with identical test totals. The compiled-startup build now enters through corepack pnpm instead of a hardcoded npx pnpm@9.0.0, so it follows future pin bumps while keeping the ambient-pnpm protection that motivated the original pinning.
-
-
-
-
-#### close final-review notes on the pnpm boundary work ([`e09fda4`](https://github.com/waterworkshq/orcy/commit/e09fda4cdd436fcd09554549db2e189c526aa1ae))
-
-
-
-
-- Removes an unused test helper, adds a corepack integrity-hash accept case proving the hash suffix is stripped before invocation, and fixes two stale comment literals and the pre-push success wording so it names both gates.
-
-
-
-
-
-### Documentation
-
-#### record v0.41.3 delivery in roadmap ([`ab41e03`](https://github.com/waterworkshq/orcy/commit/ab41e036335426bf5f6bd56095df3ac674a3a31a))
-
-
-
-
-- Mark the repository and test reliability patch as shipped while preserving the existing upcoming themes and README direction.
-
-
-
-
-#### add v0.41.4 operator notes ([`0553d73`](https://github.com/waterworkshq/orcy/commit/0553d739599fabb0effadbe2e0c849053b7c44fb))
-
-
-
-### Tests
-
-#### derive pin literals from the packageManager field ([`c15d459`](https://github.com/waterworkshq/orcy/commit/c15d459fe6c8090167d6aa53528eb37469acc856))
-
-
-
-
-- A deliberate pnpm pin bump now requires no synchronized edits. CI derives the corepack activation version from the root packageManager field instead of a hardcoded literal, and the installer test fixtures and assertions read the same field (harness seed, runner assertions, bootstrap scenarios) so every suite follows the pin automatically. The harness placeholder fails fast if the derivation ever breaks.
-
-
-
-
-
-### ci
-
-#### gate main pushes on the package-manager boundary ([`9712f21`](https://github.com/waterworkshq/orcy/commit/9712f210a3ab7060679cae4b6cbbd1eac7f41ab0))
-
-
-
-
-- The pre-push hook and the production-migration workflow now run the fast hermetic root-script boundary guard, so a bare-pnpm root script fails before a main push instead of after release. The install prerequisites table no longer claims install.sh auto-installs a global pnpm; it states that the installer runs the source-pinned pnpm through corepack or npx.
