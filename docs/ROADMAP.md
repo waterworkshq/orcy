@@ -2,7 +2,7 @@
 - Durable review-safety cutover landed (migration 0082): durable per-task review requirements with CHECK-enforced state matrix, immutable claim snapshots, append-only generation-tagged decisions, one-reservation finality with committed approval proof, guarded terminal primitives, known-zero-only merge auto-approval, and independent human recovery for legacy-unknown tasks.
 
 
-> **Version:** v0.44.0 | **Updated:** 2026-10-14
+> **Version:** v0.44.1 | **Updated:** 2026-10-14
 
 Each minor release tells a story — a coherent set of changes with a clear "why."
 Release boundaries are risk management decisions: breaking changes, fragile features, and big refactors never ship together.
@@ -122,6 +122,7 @@ Release boundaries are risk management decisions: breaking changes, fragile feat
 | v0.41.4 | "Patch: Pinned-pnpm Integrity Across Builds and Installers". **Shipped.** Every path that spawns pnpm now runs the version the repository pins: all seventeen root scripts enter through `corepack pnpm`, and both installers (`install.sh` and the TypeScript installer) derive the exact pnpm version from the installed source's `packageManager` field, prefer Corepack, fall back to an ephemeral pinned `npx` invocation, and fail closed on missing or malformed pins — no unversioned global pnpm is installed or mutated anywhere. A fast structural boundary guard now runs in the local pre-push gate and CI, so a future bare-`pnpm` root script fails before it reaches main. The package-manager pin is deliberately bumped from 9.0.0 to 9.15.9 (latest 9.x) through the new single-field bump workflow — installers, CI, and tests derive the version automatically and `pnpm-lock.yaml` is unchanged. No schema, migration, API, dependency, configuration, or operator action. |
 | v0.43.0 | **Shipped.** "Reliable Task Authority and Scoped Context" — restored delivery recovery, claim-bound execution, durable review finality, provider/chat attribution and object containment. Remote streams emit minimal `remote.entity_changed` notices behind effective-time read authority; grant expiry is evaluated at each decision (grace preserves only heartbeat/submit/release for the current owner). Shared reads, restricted Workflow context and Mission-scoped writes are included. See [operator notes](releases/v0.43.0.md) for migration and compatibility actions. |
 | v0.44.0 | **Shipped.** "Scoped Roles and Governed Review Management" — immutable local role revisions, typed scoped assignments, explicit personal-Habitat ownership, transactional review-rule/reviewer management with optional conflict expectations, and persisted Team governance at custody and membership write boundaries. Startup-build isolation and production-matching upgrade fixtures complete verification. See [operator notes](releases/v0.44.0.md). |
+| v0.44.1 | **Shipped.** "Recovery and Triage Regression Coverage" — test-only controls for database proof constraints, stale remote authority, proved recovery, single-attempt writer contention, legacy replay and triage UI requests/state. No runtime, schema or operator-action change. See [operator notes](releases/v0.44.1.md). |
 
 ---
 

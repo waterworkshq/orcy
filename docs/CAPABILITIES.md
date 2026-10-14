@@ -6,6 +6,8 @@ The delivery-recovery, durable-review, scoped-reader and Workflow-integrity capa
 
 Local role administration, custody-aware deletion, and transactional review management shipped in [v0.44.0](releases/v0.44.0.md). Their bounded contracts and presentation limitations are recorded below.
 
+[v0.44.1](releases/v0.44.1.md) adds regression coverage for existing database-integrity, remote-authority, recovery and triage UI contracts; it introduces no new runtime capability or status change.
+
 ## Capability map
 
 | Section | What lives there |
