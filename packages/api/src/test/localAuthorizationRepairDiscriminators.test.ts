@@ -394,6 +394,8 @@ describe("finding 7 — genuine pre-0083 upgrade seeds exactly the existing four
     // 1) Pre-0083 database: real journal through 0082 on the production driver.
     const pre = new raw(dbPath);
     pre.pragma("foreign_keys = ON");
+    // Match production setup: avoid rollback-journal fsyncs for every fixture statement.
+    pre.pragma("journal_mode = WAL");
     const journal = JSON.parse(
       readFileSync(join(DRIZZLE_DIR, "meta", "_journal.json"), "utf-8"),
     ) as { entries: { tag: string; when: number }[] };
