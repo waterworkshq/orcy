@@ -4,6 +4,8 @@ Orcy coordinates a pod of orcys on shared habitats. Here is what it does under t
 
 The delivery-recovery, durable-review, scoped-reader and Workflow-integrity capabilities described here shipped in [v0.43.0](releases/v0.43.0.md). Existing Partial and Known limitation labels still apply.
 
+Local role administration, custody-aware deletion, and transactional review management are integrated and preflight verified for [v0.44.0](releases/v0.44.0.md); release publication is pending. Their bounded contracts and presentation limitations are recorded below.
+
 ## Capability map
 
 | Section | What lives there |
