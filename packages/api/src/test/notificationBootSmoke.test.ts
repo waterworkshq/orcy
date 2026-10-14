@@ -21,8 +21,9 @@
  * fail (no delivery ever fires) — that mutation proof is recorded in the
  * implementation report.
  */
-import { describe, it, expect, beforeAll } from "vitest";
-import { execSync, spawn } from "node:child_process";
+import { describe, it, expect } from "vitest";
+import { spawn } from "node:child_process";
+import { useCompiledApi } from "./compiledApiFixture.js";
 import { join, resolve } from "node:path";
 import { existsSync, readFileSync, readdirSync, rmSync, mkdirSync } from "node:fs";
 import { createHash, createHmac } from "node:crypto";
@@ -38,8 +39,7 @@ import {
 } from "../services/findingTriagePreflight.js";
 
 const PACKAGE_ROOT = resolve(import.meta.dirname, "..", "..");
-const WORKSPACE_ROOT = resolve(PACKAGE_ROOT, "..", "..");
-const DIST_ENTRY = join(PACKAGE_ROOT, "dist", "index.js");
+const compiledApi = useCompiledApi();
 const DRIZZLE_DIR = join(PACKAGE_ROOT, "drizzle");
 
 const STRONG_JWT = "notification-smoke-jwt-secret-0123456789abcdef0123456789abcdef";
@@ -146,14 +146,6 @@ interface ReceivedRequest {
 }
 
 describe("notification V2 push restoration — production boot smoke", () => {
-  beforeAll(() => {
-    execSync("corepack pnpm --filter @orcy/api build", {
-      cwd: WORKSPACE_ROOT,
-      stdio: "pipe",
-      timeout: 120_000,
-    });
-  }, 120_000);
-
   it("the production entrypoint boots the delivery worker: a due unit is claimed and sent to the authorized destination within one tick", async () => {
     const tempDir = join(tmpdir(), `orcy-notify-smoke-${process.pid}-${Date.now()}`);
     mkdirSync(tempDir, { recursive: true });
@@ -211,10 +203,10 @@ describe("notification V2 push restoration — production boot smoke", () => {
         VALUES ('smoke-unit', '${DELIVERY_ID}', 'webhook:smoke-sub', 'webhook', 'smoke-sub', 'available', '${T0}', '${T0}')`);
       db.close();
 
-      expect(DIST_ENTRY).toBeTruthy();
+      expect(compiledApi.entrypoint).toBeTruthy();
 
       const apiPort = await getFreePort();
-      const child = spawn(process.execPath, [DIST_ENTRY], {
+      const child = spawn(process.execPath, [compiledApi.entrypoint], {
         env: {
           ...process.env,
           NODE_ENV: "production",
