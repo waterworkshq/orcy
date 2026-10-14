@@ -4235,7 +4235,7 @@ Add a member to a team.
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
 | `userId` | UUID | yes | User ID to add |
-| `role` | enum | yes | `owner`, `admin`, `member` |
+| `role` | enum | no | `owner`, `admin`, `member`; defaults to `member` |
 
 **Response `201`:**
 
