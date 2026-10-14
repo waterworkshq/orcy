@@ -2,6 +2,54 @@
 
 > Older releases: see [git tags](https://github.com/waterworkshq/orcy/tags) and [GitHub Releases](https://github.com/waterworkshq/orcy/releases).
 
+## 0.44.1 — 2026-10-14
+
+### Documentation
+
+#### record v0.44.0 delivery and release verification ([`3bbec47`](https://github.com/waterworkshq/orcy/commit/3bbec47a7cff0bf5c824f020284b827411674792))
+
+
+
+
+- Mark scoped roles and governed review management as shipped, update the roadmap version and product next steps, and promote the bounded administration and review capabilities to Available after the managed release completed.
+
+
+
+
+#### add v0.44.1 operator notes ([`2743a0e`](https://github.com/waterworkshq/orcy/commit/2743a0e8864599501a0d3f0c34e2f8d06c932fbb))
+
+
+
+
+- Document test-only regression coverage for database proof constraints, current remote authority, recovery, contention, legacy repair and triage UI contracts, with verification boundaries and no operator action.
+
+
+
+
+
+### Tests
+
+#### cover SQL proof constraints and stale remote authority ([`03e15fd`](https://github.com/waterworkshq/orcy/commit/03e15fde5a95d75c93e57b9cb8a71c01f6f0b385))
+
+
+
+
+- Add direct constraint rejection and valid controls for release epoch pairing and proved checkpoint fields. Verify that persisted credential expiry and hard grant revocation invalidate stale authority snapshots, with five discriminating fault checks and existing fixtures.
+
+
+
+
+#### strengthen recovery, contention and triage UI coverage ([`f47f174`](https://github.com/waterworkshq/orcy/commit/f47f174b8100872f27beac6b181efa2b92f532f1))
+
+
+
+
+- Pin proved-resume exemptions, single-attempt writer contention and legacy repair replay with current fixtures and positive controls. Extend triage request, deferred-backlog and form-reset coverage with discriminating checks while keeping production behavior unchanged.
+
+
+
+
+
 ## 0.44.0 — 2026-10-14
 
 ### Bug Fixes
@@ -730,90 +778,3 @@
 
 
 - Correct review and webhook fixtures, preserve bounded child cleanup and typed race outcomes, and isolate the notification upgrade fixture. Align operator documentation with durable review finality, scoped settings authority and claim-token continuation.
-
-
-
-
-
-## 0.42.0 — 2026-09-04
-
-### Documentation
-
-#### record v0.41.4 delivery in roadmap ([`96a6b87`](https://github.com/waterworkshq/orcy/commit/96a6b87e4ed2d2cf6382d39fe359f005efaf041a))
-
-
-#### settle the task transition budget ([`b362aea`](https://github.com/waterworkshq/orcy/commit/b362aea5e14f18c47ce732fdb3323b9c2117fa9f))
-
-
-
-
-- ADR-0051 records the per-task transition budget: the metered and exempt action sets, the event-trail-derived meter, the lifecycle settings surface with its finite default and explicit opt-out, the refuse-and-escalate breach semantics with the human exemption, and the non-overlap with the retry ladder and recovery caps, alongside the rejected alternatives and the corrected default-ceiling arithmetic that settled on twenty-one. The roadmap and README gain the upcoming v0.42.0 entry, the origin section credits the community design discussion by name, and two comment literals left stale by the ceiling raise are aligned.
-
-
-
-
-#### correct the transition budget's event-less path list ([`fbdedbe`](https://github.com/waterworkshq/orcy/commit/fbdedbef520f60fadd6e4c77899c79df1685cd5b))
-
-
-
-
-- Drops retry scheduling from the event-less examples — it emits the metered retry_scheduled event and pays its row like any other transition — replaces the one internal review-process reference with plain language, and aligns the escalation helper's unresolvable-habitat comment with what actually survives: the escalated event row, not the SSE broadcast.
-
-
-
-
-#### add v0.42.0 operator notes ([`c4321c9`](https://github.com/waterworkshq/orcy/commit/c4321c953a02f6a9d9acf0fa04f12fbd7a598ddf))
-
-
-
-### Features
-
-#### add per-habitat lifecycle settings ([`42cb412`](https://github.com/waterworkshq/orcy/commit/42cb412826f737d9b0eaf1c567af98f22c7e4ff2))
-
-
-
-
-- Introduces the lifecycleSettings habitat blob carrying taskTransitionCeiling: null keeps the default ceiling of twelve metered task transitions, zero is an explicit opt-out, and a positive integer caps the cycle at that value. The type, schema, and shared default constant are exported from the shared package, the habitats table gains a nullable JSON column via migration 0075, partial PATCHes deep-merge through the existing settings-blob machinery, and the UI domain type and fixtures carry the new field. No budget enforcement ships in this change - the guard follows separately.
-
-
-
-
-#### enforce per-task transition budgets ([`8ee66e2`](https://github.com/waterworkshq/orcy/commit/8ee66e27ff43928f72969b2386840b08a6efb337))
-
-
-
-
-- Every metered task-lifecycle transition now consumes from a per-task budget derived from the habitat's lifecycle settings: twelve transitions by default, an explicit zero opting out, and a positive integer capping the execute-review cycle at that value. The meter is the task-events audit trail itself, counting non-human actors only, and the guard refuses the next attempt with a typed transition-budget-exhausted reason at the emission-owning service layer, the claim and progression authority, and the retry executor, without changing any public signature. Human reviewers remain unmetered so the person called in to resolve is never blocked.
-
-
-
-
-#### raise the default transition ceiling to 21 ([`07090a7`](https://github.com/waterworkshq/orcy/commit/07090a737eae2ace590553c046aa820cbac2ab9d))
-
-
-
-
-- Corrects the default per-task transition ceiling from 12 to 21 using the review-verified per-round cost under the contracted metered set: a fix round consumes six transitions with a retry policy and four without, so 21 buys the first pass plus three policy-driven fix rounds, or four no-policy rounds, honoring the three-or-four-round design intent in both regimes. The constant, its derivation note, and the boundary test literals move together.
-
-
-
-
-#### escalate transition budget breaches to humans ([`5395942`](https://github.com/waterworkshq/orcy/commit/5395942594bf885a8705c0060ffdecea42c01594))
-
-
-
-
-- The first refused over-budget transition now records an escalated task event carrying the attempted action, actor, ceiling, and metered count, broadcasts it over SSE, and notifies the habitat's human team members with the count, the ceiling, and both remedies, while every wiring site threads the action it attempted into the guard. The escalation is marker-scoped and emitted at most once per task, distinct from retry-ladder escalations, deferred past the refusing caller's transaction, and fail-open so escalation faults never break the refusal. Human transitions remain unmetered and unaffected.
-
-
-
-
-
-### Tests
-
-#### isolate staged suite temp ownership per invocation ([`f8219d5`](https://github.com/waterworkshq/orcy/commit/f8219d51002777ac6d453b596ff43714ac09ed78))
-
-
-
-
-- Every invocation of the staged-enforcement suite now allocates its own unique run directory under the checkout-constant parent, with liveness-aware recovery that removes only dead-owner or day-old residue and never touches a live sibling run, so two overlapping invocations in one checkout both pass instead of unlinking each other's live databases. A dedicated two-process overlap gate spawns real concurrent suite runs and accepts only both passing with no residue.
