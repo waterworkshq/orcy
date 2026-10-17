@@ -8,6 +8,8 @@ Local role administration, custody-aware deletion, and transactional review mana
 
 [v0.44.1](releases/v0.44.1.md) adds regression coverage for existing database-integrity, remote-authority, recovery and triage UI contracts; it introduces no new runtime capability or status change.
 
+[v0.44.2](releases/v0.44.2.md) hardens role-definition detail reads and MCP reviewer-type validation, defines unknown custody-attribution consumer filters, and improves governance race diagnostics. Existing capability status and presentation limits remain unchanged.
+
 ## Capability map
 
 | Section | What lives there |

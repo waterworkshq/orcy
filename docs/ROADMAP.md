@@ -2,7 +2,7 @@
 - Durable review-safety cutover landed (migration 0082): durable per-task review requirements with CHECK-enforced state matrix, immutable claim snapshots, append-only generation-tagged decisions, one-reservation finality with committed approval proof, guarded terminal primitives, known-zero-only merge auto-approval, and independent human recovery for legacy-unknown tasks.
 
 
-> **Version:** v0.44.1 | **Updated:** 2026-10-14
+> **Version:** v0.44.2 | **Updated:** 2026-10-17
 
 Each minor release tells a story — a coherent set of changes with a clear "why."
 Release boundaries are risk management decisions: breaking changes, fragile features, and big refactors never ship together.
@@ -123,6 +123,7 @@ Release boundaries are risk management decisions: breaking changes, fragile feat
 | v0.43.0 | **Shipped.** "Reliable Task Authority and Scoped Context" — restored delivery recovery, claim-bound execution, durable review finality, provider/chat attribution and object containment. Remote streams emit minimal `remote.entity_changed` notices behind effective-time read authority; grant expiry is evaluated at each decision (grace preserves only heartbeat/submit/release for the current owner). Shared reads, restricted Workflow context and Mission-scoped writes are included. See [operator notes](releases/v0.43.0.md) for migration and compatibility actions. |
 | v0.44.0 | **Shipped.** "Scoped Roles and Governed Review Management" — immutable local role revisions, typed scoped assignments, explicit personal-Habitat ownership, transactional review-rule/reviewer management with optional conflict expectations, and persisted Team governance at custody and membership write boundaries. Startup-build isolation and production-matching upgrade fixtures complete verification. See [operator notes](releases/v0.44.0.md). |
 | v0.44.1 | **Shipped.** "Recovery and Triage Regression Coverage" — test-only controls for database proof constraints, stale remote authority, proved recovery, single-attempt writer contention, legacy replay and triage UI requests/state. No runtime, schema or operator-action change. See [operator notes](releases/v0.44.1.md). |
+| v0.44.2 | **Shipped.** "Governance Read and Review Validation" — controlled refusal of malformed stored permission reads, custom-namespace authorization before parsing, MCP reviewer-type validation, explicit unknown-attribution consumer filters, and prompt race-worker diagnostics. The unused import custody helper is removed. No schema migration or new server configuration. See [operator notes](releases/v0.44.2.md). |
 
 ---
 
