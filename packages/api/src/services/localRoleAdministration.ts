@@ -270,24 +270,8 @@ function governorScopeForScope(
   return habitat ? { kind: "habitat", id: habitat.scopeId } : null;
 }
 
-/**
- * Whole-revision scope compatibility: every permission in the revision must be
- * assignable at the given scope kind (the fixed catalogue). Throws 400 on the
- * first incompatible pair. Callers invoke this AFTER the governor/authority
- * gate (so revision-validation detail never leaks to a forbidden actor) and
- * BEFORE the scope CAS / mutation / audit (so a refused command writes
- * nothing). `permissions` is the committed text column; the CHECK constraint
- * only guarantees nonempty TEXT (length > 2), NOT valid JSON — the parse
- * below is bounded and refuses malformed storage as a 400.
- */
-function assertRevisionAssignableAtScope(
-  permissionsJson: string,
-  scopeKind: GovernanceScopeKind,
-  catalogueVersion: number,
-): void {
-  if (catalogueVersion !== LOCAL_PERMISSION_CATALOGUE_VERSION) {
-    throw new AppError(400, "VALIDATION_ERROR", "Stored revision catalogue version is unsupported");
-  }
+/** Stored revisions must be nonempty string arrays; never repair damaged history on read. */
+function parseStoredPermissions(permissionsJson: string): string[] {
   // Bounded parse: the length>2 CHECK only guarantees nonempty TEXT, not
   // valid JSON — malformed storage must refuse as 400, never throw through
   // the reservation as an unclassified error.
@@ -311,6 +295,28 @@ function assertRevisionAssignableAtScope(
       "Stored revision permissions are malformed (not a nonempty string array)",
     );
   }
+  return perms;
+}
+
+/**
+ * Whole-revision scope compatibility: every permission in the revision must be
+ * assignable at the given scope kind (the fixed catalogue). Throws 400 on the
+ * first incompatible pair. Callers invoke this AFTER the governor/authority
+ * gate (so revision-validation detail never leaks to a forbidden actor) and
+ * BEFORE the scope CAS / mutation / audit (so a refused command writes
+ * nothing). `permissions` is the committed text column; the CHECK constraint
+ * only guarantees nonempty TEXT (length > 2), NOT valid JSON — the parse
+ * below is bounded and refuses malformed storage as a 400.
+ */
+function assertRevisionAssignableAtScope(
+  permissionsJson: string,
+  scopeKind: GovernanceScopeKind,
+  catalogueVersion: number,
+): void {
+  if (catalogueVersion !== LOCAL_PERMISSION_CATALOGUE_VERSION) {
+    throw new AppError(400, "VALIDATION_ERROR", "Stored revision catalogue version is unsupported");
+  }
+  const perms = parseStoredPermissions(permissionsJson);
   for (const perm of perms) {
     if (!ASSIGNABLE_SCOPES[perm as LocalPermission]?.includes(scopeKind)) {
       throw new AppError(
@@ -415,7 +421,7 @@ function revisionView(r: RoleRevisionRow): RevisionView {
   return {
     id: r.id,
     ordinal: r.ordinal,
-    permissions: JSON.parse(r.permissions) as string[],
+    permissions: parseStoredPermissions(r.permissions),
     catalogueVersion: r.catalogueVersion,
     createdAt: r.createdAt,
   };
@@ -437,24 +443,22 @@ export function getRoleDefinition(actorUserId: string, definitionId: string): De
   const db = getDb();
   const def = getDefinitionWithClient(db, definitionId);
   if (!def) throw notFoundError("Role definition");
-  const revisions = listRevisionsForDefinitionWithClient(db, definitionId).map(revisionView);
-
-  if (def.namespaceKind === "builtin" || def.namespaceScopeId === null) {
-    // Built-in catalogue detail: static vocabulary, any authenticated human.
-    return { definition: definitionSummary(def), revisions, namespace: null };
-  }
-  const nsKind = def.namespaceKind as "team" | "habitat";
-  const scope = readNamespaceScope(db, nsKind, def.namespaceScopeId);
-  if (!isGovernorWithClient(db, actorUserId, nsKind, def.namespaceScopeId)) throw deniedError();
-  return {
-    definition: definitionSummary(def),
-    revisions,
-    namespace: {
+  let namespace: DefinitionDetailView["namespace"] = null;
+  if (def.namespaceKind !== "builtin" && def.namespaceScopeId !== null) {
+    const nsKind = def.namespaceKind as "team" | "habitat";
+    const scope = readNamespaceScope(db, nsKind, def.namespaceScopeId);
+    if (!isGovernorWithClient(db, actorUserId, nsKind, def.namespaceScopeId)) throw deniedError();
+    namespace = {
       scopeKind: nsKind,
       scopeId: def.namespaceScopeId,
       incarnation: scope.incarnation,
       version: scope.version,
-    },
+    };
+  }
+  return {
+    definition: definitionSummary(def),
+    revisions: listRevisionsForDefinitionWithClient(db, definitionId).map(revisionView),
+    namespace,
   };
 }
 

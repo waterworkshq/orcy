@@ -22,6 +22,7 @@ import {
   organizations,
   roleAssignments,
   roleDefinitions,
+  roleRevisions,
   teams,
   users,
 } from "../db/schema/index.js";
@@ -192,6 +193,56 @@ describe("GET /permissions", () => {
 // ---------------------------------------------------------------------------
 
 describe("definitions", () => {
+  it.each(["private invalid json", '"private"', "null", "[ ]", '["private", 5]'])("refuses malformed stored revision permissions %s without changing state or disclosing them to outsiders", async (permissions) => {
+    const owner = makeUser("editor");
+    const outsider = makeUser("editor");
+    const teamId = makeTeam(owner);
+    const created = await call("POST", `/api/v1/teams/${teamId}/role-definitions`, owner, {
+      scopeIncarnation: 1,
+      expectedScopeVersion: 1,
+      name: "Storage integrity",
+      permissions: ["review.assign"],
+    });
+    expect(created.statusCode).toBe(201);
+    const definitionId = (created.body.definition as { id: string }).id;
+    const valid = await call("GET", `/api/v1/role-definitions/${definitionId}`, owner);
+    expect(valid.statusCode).toBe(200);
+    expect(valid.body.revisions).toEqual([
+      expect.objectContaining({ permissions: ["review.assign"] }),
+    ]);
+    // Direct inserts simulate damaged restore/future unvalidated writers;
+    // immutable revisions are never updated or triggers removed for the test.
+    const revisionId = uuid();
+    getDb().insert(roleRevisions).values({
+      id: revisionId,
+      definitionId,
+      ordinal: 90,
+      permissions,
+      catalogueVersion: 1,
+      createdAt: new Date().toISOString(),
+    }).run();
+    const before = {
+      revisions: getDb().select().from(roleRevisions).all(),
+      scopes: getDb().select().from(governanceScopes).all(),
+      audits: getDb().select().from(governanceAudit).all(),
+    };
+    for (const prefix of ["/api/v1", "/api"]) {
+      const refused = await call("GET", `${prefix}/role-definitions/${definitionId}`, owner);
+      expect(refused.statusCode).toBe(400);
+      expect(refused.body.code).toBe("VALIDATION_ERROR");
+      expect(JSON.stringify(refused.body)).not.toContain("private");
+      const denied = await call("GET", `${prefix}/role-definitions/${definitionId}`, outsider);
+      expect(denied.statusCode).toBe(403);
+      expect(denied.body.code).toBe("AUTHORIZATION_DENIED");
+      expect(JSON.stringify(denied.body)).not.toContain("private");
+    }
+    expect({
+      revisions: getDb().select().from(roleRevisions).all(),
+      scopes: getDb().select().from(governanceScopes).all(),
+      audits: getDb().select().from(governanceAudit).all(),
+    }).toEqual(before);
+  });
+
   it("governor creates → mints → retires with CAS and audit at each step", async () => {
     const owner = makeUser("editor");
     const teamId = makeTeam(owner);

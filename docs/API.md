@@ -7677,6 +7677,11 @@ Namespace definitions (built-ins + custom) with ledger state. Requires the curre
 
 Definition + revision history + namespace ledger state. Built-ins are
 visible to any authenticated human (namespace `null`).
+Custom namespace authorization runs before stored revision parsing. Malformed
+JSON, non-arrays, empty arrays, or non-string elements in stored permissions
+refuse with 400 `VALIDATION_ERROR`, without returning raw revision content or
+repairing history. Forbidden custom-namespace callers still receive 403
+`AUTHORIZATION_DENIED`.
 
 ### GET /role-assignments?scopeKind&scopeId
 

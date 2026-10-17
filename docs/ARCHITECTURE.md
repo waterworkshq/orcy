@@ -743,7 +743,9 @@ commands (the 13-route governance surface, custody-aware deletion, and
 team-bound habitat creation) are implemented in
 `services/localRoleAdministration.ts` + `routes/roleAdmin.ts` +
 `services/governanceCustody.ts`; review-governance consumers run in
-`services/reviewGovernance.ts`. Managed seams cover the served command
+`services/reviewGovernance.ts`. Definition detail reads authorize custom namespaces before parsing immutable
+revision permissions with the same guarded nonempty-string-array parser as
+assignment writes. Managed seams cover the served command
 and deletion surfaces; raw database writes and trigger removal remain
 outside the guarantee. The governance audit has no SQL UPDATE/DELETE guard;
 append-only describes the managed writer API, not physical database immutability. See
