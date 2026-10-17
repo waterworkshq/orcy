@@ -55,3 +55,6 @@ docs/superpowers/plans/
 packages/api/exports/
 exports/
 archives/
+
+# Ignore dot directories at any depth; already tracked files remain tracked.
+.*/
