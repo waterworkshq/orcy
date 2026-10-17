@@ -62,10 +62,6 @@ function taskIdsForMissions(tx: LocalAuthorizationDbClient, missionIds: string[]
     .map((r) => r.id);
 }
 
-export function taskIdsForHabitat(tx: LocalAuthorizationDbClient, habitatId: string): string[] {
-  return taskIdsForMissions(tx, missionIdsForHabitat(tx, habitatId));
-}
-
 /**
  * Retire the active incarnation of one scope under a truthful actor.
  *
@@ -129,24 +125,6 @@ export function retireMissionCustodyWithClient(
     .map((r) => r.id);
   for (const taskId of childTaskIds) retireTaskCustodyWithClient(tx, taskId, reason, actor);
   retireOne(tx, "mission", missionId, reason, actor);
-}
-
-/** Retire v3-import domain replacement targets inside the publication tx. */
-export function retireImportDomainWithClient(
-  tx: LocalAuthorizationDbClient,
-  domain: "tasks" | "missions",
-  targetHabitatId: string,
-  actor?: CustodyActor,
-): void {
-  if (domain === "tasks") {
-    for (const taskId of taskIdsForHabitat(tx, targetHabitatId)) {
-      retireTaskCustodyWithClient(tx, taskId, "import replacement", actor);
-    }
-    return;
-  }
-  for (const missionId of missionIdsForHabitat(tx, targetHabitatId)) {
-    retireMissionCustodyWithClient(tx, missionId, "import replacement", actor);
-  }
 }
 
 /**
