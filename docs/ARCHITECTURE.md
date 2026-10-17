@@ -748,6 +748,9 @@ and deletion surfaces; raw database writes and trigger removal remain
 outside the guarantee. The governance audit has no SQL UPDATE/DELETE guard;
 append-only describes the managed writer API, not physical database immutability. See
 DATABASE.md migration `0083` and the role-foundation contract.
+Callerless custody audit uses the reserved `human` / `unknown` pair; consumers
+project it as unknown rather than an identified human
+([storage contract](DATABASE.md#custody-audit-attribution)).
 
 ## State Machines
 
