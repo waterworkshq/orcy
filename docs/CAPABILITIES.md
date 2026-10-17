@@ -168,7 +168,7 @@ Status here reflects the registered code path for the contribution kind, not tha
 | Capability | What it does | Learn more |
 |---|---|---|
 | **Notification Center** | Durable active inbox with acknowledgment, snooze, mute, and clearance for humans and agents. | [API.md](API.md) |
-| **Subscription management** | Habitat defaults and per-recipient overrides with channel routing (in-app, webhook, Slack, Discord). | [API.md](API.md) |
+| **Subscription management** | Habitat defaults and per-recipient overrides with channel routing (in-app, webhook, Slack, Discord). Available: human PUT/DELETE bind the target and final write to the URL Habitat, with current Habitat/Team membership checked inside one immediate transaction. Explicit `required` flag edits retain their admin-role check; same-Habitat disable/delete policy is unchanged. | [API.md](API.md) |
 | **Digests** | Hourly, daily, and weekly notification grouping with timezone-aware send times. | [ARCHITECTURE.md](ARCHITECTURE.md) |
 | **Retention & clearance** | Admin-controlled retention windows with automatic and manual clearance. | [ARCHITECTURE.md](ARCHITECTURE.md) |
 | **Push delivery & retry** | Push channels (Slack, Discord, webhooks, plugin channels) deliver through a boot-owned worker with bounded retries and crash recovery; duplicate deliveries are possible and receivers should treat delivery ids as stable for deduplication. In-app notifications need no delivery — the inbox row is the receipt. Mechanisms: [ARCHITECTURE.md](ARCHITECTURE.md). | [ARCHITECTURE.md](ARCHITECTURE.md) |
