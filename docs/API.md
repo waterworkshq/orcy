@@ -6793,7 +6793,7 @@ Durable notification system with subscriptions, channel routing, digests, acknow
 
 **Agent vs human `getDelivery` response contract:** humans receive `{ delivery, event }` with the full raw event row (including `payload`, `createdByType`/`createdById`, `historySummary`). Agents receive the same `delivery` row but the `event` is a bounded projection: the canonical row fields `eventType`, `severity`, `title`, `body` (the rendered fan-out content — taken from the stored row itself, so a payload key named `title`/`body`/`eventType`/`severity` can never override them) plus a fixed allowlist of string-valued context keys from the payload — `taskId`, `missionId`, `actorId`, `reason`, `mentionedUserId`, `mentionedByName`, `commentContent`, `oldPriority`, `newPriority`, `reviewerId` — a context key appears only when the stored payload carries a string value for it (missing or non-string values are simply omitted), and a delivery whose event row is absent projects to `null`. These context keys are opaque passthrough: the API does not semantically validate their content. The raw payload object, creator fields, and history summary never reach the agent path. Inbox/history/subscriptions return delivery rows and subscription config only (identical shape for both principal types).
 
-Remote participants are not admitted on recipient routes (`local_actor` accepts only the two local credential models); `/api/shared/*` notification endpoints are unchanged. Subscription writes remain admin-only (see Admin Routes).
+Remote participants are not admitted on recipient routes (`local_actor` accepts only the two local credential models); `/api/shared/*` notification endpoints are unchanged. Subscription writes use the human-JWT-only Admin Routes below.
 
 | Method | Route | Purpose |
 |--------|-------|---------|
@@ -6818,6 +6818,11 @@ Remote participants are not admitted on recipient routes (`local_actor` accepts 
 | POST | `/habitats/:hid/notifications/admin/clear` | Admin clearance `{deliveryIds}` |
 | POST | `/habitats/:hid/notifications/admin/migrate-legacy` | Migrate legacy prefs |
 | GET | `/habitats/:hid/notifications/admin/delivery-monitor` | Channel attempt monitor |
+
+**Subscription PUT/DELETE authority:** both `/api` and `/api/v1` require a human JWT and URL-Habitat access. These two writes recheck current Habitat existence and Team membership in the same immediate transaction as the target lookup, mutation and response read. Any current Team member (including a viewer) may use them on that Team's Habitat; authenticated humans may use them on personal Habitats. Target lookup, final mutation and result lookup all bind subscription ID **and** URL Habitat. A foreign or absent subscription returns generic `404` `Subscription not found` for PUT, or `200 {"deleted":false}` for DELETE, with no subscription fields. Missing PUT deliberately changes from the previous repository-error `500` to `404`. An inaccessible URL Habitat remains `403`; a missing Habitat is `404`.
+
+PUT retains body-validation-before-target-lookup ordering and requires the authenticated user's `admin` role for an explicitly supplied `required` field (including `false`). This does not add a stored-required-row policy: same-Habitat callers retain the existing ability to disable a required row or delete it without editing its `required` flag. The trusted legacy preference migration continues to use its existing internal updater.
+
 
 ---
 

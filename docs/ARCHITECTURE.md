@@ -1190,6 +1190,12 @@ In-app is availability, not a push: the inbox row exists at enqueue and is satis
 
 The migration 0077 **epoch boundary** is the upgrade policy: `push_epoch` defaults to `'restored'` for every insert while all pre-existing rows are backfilled to `'legacy'` in the same migration — the upgrade sends **only new** notifications. Legacy rows are never sent and never relabeled (statuses, timestamps, attempt history preserved); non-terminal legacy deliveries carry one terminal `backlog_not_attempted` unit recording that push was deliberately not attempted.
 
+### Subscription Administration
+
+`notificationSubscriptionAdministration.ts` owns the synchronous `BEGIN IMMEDIATE` reservation for human subscription PUT/DELETE. Within that reservation it reads the current Habitat and, for Team Habitats, current membership using the same transaction client. It then resolves the subscription by `(id, habitat_id)` and invokes scoped supplied-client repository primitives whose final SQL predicates and update result reads retain both keys. Membership revocation, Habitat reparenting and subscription movement committed before reservation are observed before mutation; another SQLite writer cannot interleave changes within that reservation. This guarantee covers these two HTTP writes on both API prefixes.
+
+The human policy remains the existing one: any authenticated human on a personal Habitat, any current Team member on a Team Habitat, plus the route's existing admin-role check for explicit `required` flag edits. It introduces no stored-required-row disable/delete restriction. Foreign and absent subscription IDs have the same bounded response (PUT 404, DELETE `{deleted:false}`), and refused writes return no subscription content. The ID-only internal updater remains available to trusted legacy preference migration; it is outside this HTTP administration boundary.
+
 ### Subscription Resolution
 
 1. Load habitat defaults matching event type
