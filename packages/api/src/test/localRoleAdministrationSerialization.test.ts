@@ -66,6 +66,10 @@ interface WorkerMsg {
 }
 
 interface OwnedWorker {
+  child: ChildProcess;
+  closed: Promise<void>;
+  diagnostics: () => string;
+  error: () => Error | undefined;
   ready: Promise<void>;
   next: () => Promise<WorkerMsg>;
   send: (m: { type: string }) => void;
@@ -81,6 +85,11 @@ function forkWorker(dbPath: string, args: string[]): OwnedWorker {
   const waiters: ((m: WorkerMsg | PromiseLike<WorkerMsg>) => void)[] = [];
   let exited = false;
   let exitCode: number | null = null;
+  let stderr = "";
+  let workerError: Error | undefined;
+  child.stdout?.resume();
+  child.stderr?.setEncoding("utf8");
+  child.stderr?.on("data", (chunk: string) => { stderr = (stderr + chunk).slice(-8192); });
   let resolveReady!: () => void;
   let rejectReady!: (reason: Error) => void;
   const ready = new Promise<void>((resolve, reject) => {
@@ -97,7 +106,12 @@ function forkWorker(dbPath: string, args: string[]): OwnedWorker {
   });
   const exitedPromise = new Promise<void>((resolve) => {
     if (exited) resolve();
-    else child.on("exit", () => resolve());
+    else child.on("close", () => resolve());
+  });
+  child.on("error", (error) => {
+    workerError = error;
+    rejectReady(error);
+    while (waiters.length > 0) waiters.shift()!(Promise.reject(error));
   });
   child.on("exit", (code) => {
     exited = true;
@@ -112,9 +126,17 @@ function forkWorker(dbPath: string, args: string[]): OwnedWorker {
     }
   });
   return {
+    child,
+    closed: exitedPromise,
+    diagnostics: () => stderr,
+    error: () => workerError,
     ready,
     next: () =>
       new Promise<WorkerMsg>((resolve, reject) => {
+        if (workerError) {
+          reject(workerError);
+          return;
+        }
         if (exited && queue.length === 0) {
           reject(new Error(`worker already exited (code ${exitCode})`));
           return;
@@ -132,6 +154,21 @@ function forkWorker(dbPath: string, args: string[]): OwnedWorker {
       await exitedPromise;
     },
   };
+}
+
+async function waitForMarker(worker: OwnedWorker, marker: string, timeoutMs = 30_000): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (!existsSync(marker)) {
+    const workerError = worker.error();
+    if (workerError) throw workerError;
+    const { exitCode, signalCode } = worker.child;
+    if (exitCode !== null || signalCode !== null) {
+      await worker.closed; // close follows exit and drains the stderr pipe
+      throw new Error(`worker exited before marker (code ${exitCode}, signal ${signalCode}): ${worker.diagnostics()}`);
+    }
+    if (Date.now() > deadline) throw new Error("blocked writer never reached its ledger seam");
+    await new Promise((r) => setTimeout(r, 25));
+  }
 }
 
 function makeUser(role: "admin" | "editor"): string {
@@ -219,6 +256,22 @@ describe("R1 — cross-connection serialization of REAL governance commands", ()
     rmSync(dir, { recursive: true, force: true });
   });
 
+  it.each([
+    ["exit-code", /code 17.*forced worker failure/s],
+    ["exit-signal", /SIGTERM.*forced worker failure/s],
+  ])("reports %s promptly while waiting for a marker and reaps the worker", async (mode, message) => {
+    const worker = forkWorker(dbPath, [mode as string]);
+    const pid = worker.child.pid!;
+    try {
+      await worker.ready;
+      worker.send({ type: "GO" });
+      await expect(waitForMarker(worker, join(dir, `absent-${uuid()}`), 1500)).rejects.toThrow(message);
+    } finally {
+      await worker.dispose();
+    }
+    expect(() => process.kill(pid, 0)).toThrow(expect.objectContaining({ code: "ESRCH" }));
+  });
+
   it("stale-expectation under cross-process visibility: a command whose expected scope version predates a peer's committed bump refuses with 409 GOVERNANCE_VERSION_CONFLICT and never double-applies", async () => {
     // Actor A runs the REAL createAssignment command and blocks at its own
     // ledger-version write seam, holding its reservation.
@@ -241,11 +294,7 @@ describe("R1 — cross-connection serialization of REAL governance commands", ()
     try {
       await blocked.ready;
       blocked.send({ type: "GO" });
-      const deadline = Date.now() + 30_000;
-      while (!existsSync(join(gateDir, "entered"))) {
-        if (Date.now() > deadline) throw new Error("blocked writer never reached its ledger seam");
-        await new Promise((r) => setTimeout(r, 25));
-      }
+      await waitForMarker(blocked, join(gateDir, "entered"));
 
       // Competing real command on its OWN connection, committing while the
       // first command is blocked between its reads and its write.
