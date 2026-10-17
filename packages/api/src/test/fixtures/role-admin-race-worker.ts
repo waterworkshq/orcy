@@ -53,7 +53,7 @@
  * between waits still observes the parent's release promptly.
  */
 import { spawnSync } from "node:child_process";
-import { existsSync, writeFileSync, mkdirSync } from "node:fs";
+import { existsSync, writeFileSync, mkdirSync, writeSync } from "node:fs";
 import { join } from "node:path";
 import { initDb, closeDb, getDb } from "../../db/index.js";
 import { createAssignment, revokeAssignment } from "../../services/localRoleAdministration.js";
@@ -92,6 +92,13 @@ function blockUntilReleased(): void {
 }
 
 async function go(): Promise<void> {
+  if (mode === "exit-code" || mode === "exit-signal") {
+    writeSync(2, "forced worker failure\n");
+    await closeDb();
+    if (mode === "exit-signal") process.kill(process.pid, "SIGTERM");
+    else process.exit(17);
+    return;
+  }
   if (mode === "issue") {
     const assignment = createAssignment({
       actorUserId,
