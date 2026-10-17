@@ -28,7 +28,7 @@ import { rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { randomUUID } from "node:crypto";
-import { and, eq, isNotNull } from "drizzle-orm";
+import { and, eq, isNotNull, sql } from "drizzle-orm";
 
 import { closeDb, getDb, initDb, initTestDb } from "../db/index.js";
 import {
@@ -354,6 +354,36 @@ describe("custody restore re-enrollment + canonical delete (sql.js snapshot)", (
   });
   afterEach(async () => {
     await closeDb();
+  });
+
+  it("projects callerless custody as unknown and excludes it from identified human counts without rewriting history", () => {
+    const internal = seedFull("unknown-attribution");
+    const human = seedFull("human-attribution");
+    const agent = seedFull("agent-attribution");
+    expect(deleteTask(internal.taskId).success).toBe(true);
+    expect(deleteTask(human.taskId, { actorType: "human", actorId: "user-del" }).success).toBe(true);
+    expect(deleteTask(agent.taskId, { actorType: "agent", actorId: "agent-del" }).success).toBe(true);
+    const before = getDb().select().from(governanceAudit).all();
+    expect(auditRows(internal.taskId)).toEqual([
+      expect.objectContaining({ actorType: "human", actorId: "unknown" }),
+    ]);
+    // Consumer SQL from DATABASE.md: the retained sentinel is a separate
+    // attribution category; it is never counted as an identified human.
+    const projection = getDb().select({
+      actorType: sql<string>`CASE WHEN actor_type = 'human' AND actor_id = 'unknown'
+        THEN 'unknown' ELSE actor_type END`,
+      actorId: governanceAudit.actorId,
+    }).from(governanceAudit).all();
+    expect(projection).toEqual(expect.arrayContaining([
+      { actorType: "unknown", actorId: "unknown" },
+      { actorType: "human", actorId: "user-del" },
+      { actorType: "agent", actorId: "agent-del" },
+    ]));
+    const count = getDb().select({ count: sql<number>`COUNT(*)` })
+      .from(governanceAudit)
+      .where(sql`actor_type = 'human' AND actor_id <> 'unknown'`).get();
+    expect(count?.count).toBe(1);
+    expect(getDb().select().from(governanceAudit).all()).toEqual(before);
   });
 
   it("same-id restore re-enrolls retired scopes: inc2 active, old grant revoked, new grant authorizes", () => {

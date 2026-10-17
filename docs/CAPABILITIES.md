@@ -322,7 +322,10 @@ restore imports re-enroll only replaced/restored Mission/Task IDs with prior
 ledger history at fresh incarnations; historyless scopes remain virtual, and
 no old grants are reactivated. Legacy internal
 calls without a caller identity retain an explicit unknown-attribution audit
-marker; served deletion/import commands record the authenticated actor.
+marker (`actor_type='human', actor_id='unknown'`); consumers project it as
+unknown and exclude it from identified human counts
+([filter contract](DATABASE.md#custody-audit-attribution)). Served
+deletion/import commands record the authenticated actor.
 
 | Capability | What it does | Learn more |
 |---|---|---|

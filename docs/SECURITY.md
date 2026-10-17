@@ -312,6 +312,11 @@ route-specific 403/404 ordering (unlike the governance command matrix above).
 Served deletion/import paths carry the authenticated human or agent into
 custody audit. Legacy internal calls without an authenticated caller retain
 an explicit unknown-attribution marker rather than claiming a named user.
+The reserved storage pair is `actor_type='human', actor_id='unknown'`:
+audit consumers must display it as unknown and exclude it from identified
+human counts. It does not identify a system actor either. The canonical
+[projection and count filters](DATABASE.md#custody-audit-attribution) apply
+to both retained and new rows; no identity is inferred or backfilled.
 
 ### Review-Governance Command Service (migration 0083)
 

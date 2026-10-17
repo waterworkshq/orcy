@@ -2520,6 +2520,30 @@ Drizzle declaration also carries the ownership CHECK; and `review_rules.version`
 is the integer optimistic-concurrency counter. These five new tables belong to
 the authority foundation, not the habitat schema.
 
+#### Custody audit attribution
+
+The pair `actor_type = 'human' AND actor_id = 'unknown'` is the reserved
+**unknown-attribution sentinel**, retained for callerless internal/legacy
+custody transitions. It identifies neither a human nor a system principal.
+Consumers must project this pair as `unknown` and exclude it from identified
+human activity counts. Authenticated served commands retain their real human
+or agent identity. Existing rows stay readable and are never backfilled with
+an inferred identity; the storage enum remains `human` / `agent`.
+
+```sql
+-- Display/export attribution without changing retained history.
+SELECT id,
+       CASE WHEN actor_type = 'human' AND actor_id = 'unknown'
+            THEN 'unknown' ELSE actor_type END AS attributed_actor_type,
+       actor_id, operation
+FROM governance_audit;
+
+-- Count identified human actions only.
+SELECT COUNT(*) AS identified_human_actions
+FROM governance_audit
+WHERE actor_type = 'human' AND actor_id <> 'unknown';
+```
+
 ### Inspecting the Database
 
 ```bash
