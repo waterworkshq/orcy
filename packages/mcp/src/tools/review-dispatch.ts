@@ -40,6 +40,7 @@ export const REVIEW_DISPATCH_TOOL: Tool = createDispatchTool({
     },
     reviewerType: {
       type: "string",
+      enum: ["human", "agent"],
       description: "Reviewer type: human or agent (used with add_reviewer, default: human)",
     },
     name: { type: "string", description: "Rule name (used with create_rule, update_rule)" },
