@@ -123,9 +123,13 @@ export async function addTaskReviewer(
   client: ReviewClient,
   args: { taskId: string; reviewerId: string; reviewerType?: string; expectedReviewersToken?: string }
 ): Promise<{ reviewer: TaskReviewer }> {
+  const reviewerType = args.reviewerType === undefined ? 'human' : args.reviewerType;
+  if (reviewerType !== 'human' && reviewerType !== 'agent') {
+    throw new Error('reviewerType must be human or agent');
+  }
   const input: { reviewerId: string; reviewerType: "human" | "agent"; expectedReviewersToken?: string } = {
     reviewerId: args.reviewerId,
-    reviewerType: (args.reviewerType as 'human' | 'agent') ?? 'human',
+    reviewerType,
   };
   if (args.expectedReviewersToken !== undefined) {
     input.expectedReviewersToken = args.expectedReviewersToken;

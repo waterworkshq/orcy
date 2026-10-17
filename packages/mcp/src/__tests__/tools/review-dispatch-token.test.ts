@@ -3,6 +3,48 @@ import { REVIEW_DISPATCH_HANDLER, REVIEW_DISPATCH_TOOL } from "../../tools/revie
 import { createMockClient } from "../__fixtures__/mock-client.js";
 import { KanbanApiClient } from "../../api.js";
 
+describe("orcy_review reviewerType boundary", () => {
+  it("advertises the supported reviewer types", () => {
+    expect(REVIEW_DISPATCH_TOOL.inputSchema.properties?.reviewerType).toEqual(
+      expect.objectContaining({ type: "string", enum: ["human", "agent"] }),
+    );
+  });
+
+  it.each([undefined, "human", "agent"])("forwards reviewerType %s with the legacy default and CAS token", async (reviewerType) => {
+    const client = createMockClient();
+    client.addTaskReviewer.mockResolvedValue({ reviewer: { id: "reviewer-row" } });
+    const result = await REVIEW_DISPATCH_HANDLER(client, {
+      action: "add_reviewer",
+      taskId: "task-1",
+      reviewerId: "reviewer-1",
+      reviewerType,
+      expectedReviewersToken: "a".repeat(64),
+    });
+    expect(result.isError).toBeFalsy();
+    expect(client.addTaskReviewer).toHaveBeenCalledWith("task-1", {
+      reviewerId: "reviewer-1",
+      reviewerType: reviewerType ?? "human",
+      expectedReviewersToken: "a".repeat(64),
+    });
+  });
+
+  it.each(["robot", "Human", "", null, 1, {}, ["human"]])(
+    "rejects invalid reviewerType %j before calling the client",
+    async (reviewerType) => {
+      const client = createMockClient();
+      const result = await REVIEW_DISPATCH_HANDLER(client, {
+        action: "add_reviewer",
+        taskId: "task-1",
+        reviewerId: "reviewer-1",
+        reviewerType,
+      });
+      expect(result.isError).toBe(true);
+      expect(result.content[0].text).toContain("reviewerType must be human or agent");
+      expect(client.addTaskReviewer).not.toHaveBeenCalled();
+    },
+  );
+});
+
 // Client contract: every SUPPLIED expectedReviewersToken reaches the
 // server query (empty string included — only undefined omits the param), and
 // expectedVersion must be an integer >= 1 at the MCP boundary (the dispatch
