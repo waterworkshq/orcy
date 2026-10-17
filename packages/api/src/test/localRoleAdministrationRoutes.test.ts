@@ -193,7 +193,13 @@ describe("GET /permissions", () => {
 // ---------------------------------------------------------------------------
 
 describe("definitions", () => {
-  it.each(["private invalid json", '"private"', "null", "[ ]", '["private", 5]'])("refuses malformed stored revision permissions %s without changing state or disclosing them to outsiders", async (permissions) => {
+  it.each([
+    ["private invalid json", "invalid JSON"],
+    ['"private"', "not a nonempty string array"],
+    ["null", "not a nonempty string array"],
+    ["[ ]", "not a nonempty string array"],
+    ['["private", 5]', "not a nonempty string array"],
+  ])("refuses malformed stored revision permissions %s without changing state or disclosing them to outsiders", async (permissions, reason) => {
     const owner = makeUser("editor");
     const outsider = makeUser("editor");
     const teamId = makeTeam(owner);
@@ -229,12 +235,18 @@ describe("definitions", () => {
     for (const prefix of ["/api/v1", "/api"]) {
       const refused = await call("GET", `${prefix}/role-definitions/${definitionId}`, owner);
       expect(refused.statusCode).toBe(400);
-      expect(refused.body.code).toBe("VALIDATION_ERROR");
-      expect(JSON.stringify(refused.body)).not.toContain("private");
+      // Exact envelopes reject raw or decoded fixture leaks in any field,
+      // including null/empty-array values with no "private" marker.
+      expect(refused.body).toEqual({
+        error: `Stored revision permissions are malformed (${reason})`,
+        code: "VALIDATION_ERROR",
+      });
       const denied = await call("GET", `${prefix}/role-definitions/${definitionId}`, outsider);
       expect(denied.statusCode).toBe(403);
-      expect(denied.body.code).toBe("AUTHORIZATION_DENIED");
-      expect(JSON.stringify(denied.body)).not.toContain("private");
+      expect(denied.body).toEqual({
+        error: "Authorization denied",
+        code: "AUTHORIZATION_DENIED",
+      });
     }
     expect({
       revisions: getDb().select().from(roleRevisions).all(),
