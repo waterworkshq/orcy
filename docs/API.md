@@ -5346,7 +5346,7 @@ For interval schedules the next run is one interval after `max(real request time
 
 | Persisted state | Result |
 | --- | --- |
-| `published` | `success: true`; the prior or new `missionId`, including an ID returned by a successful handler; completion without a Mission has no fabricated ID. |
+| `published` | `success: true`; the prior or new `missionId`. A successful handler reference is included only when it resolves to an actual Mission; other completions have no fabricated ID. |
 | `reserved` / `publishing` | `success: true, skipped: true`; pending, not completion. Replay does not resume publication. |
 | `rejected` | `success: false` with the original failure; a separate successful repair in `retryHistory` does not turn the original occurrence into a published result. |
 

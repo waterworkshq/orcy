@@ -7,6 +7,7 @@ import { getDb } from "../db/index.js";
 import { auditExportSchedules } from "../db/schema/index.js";
 import { eq, and, lte, sql } from "drizzle-orm";
 import type { ScheduledTask } from "../models/index.js";
+import { getMissionById } from "../repositories/mission.js";
 import type { ScheduledTaskRunResult } from "@orcy/shared";
 import type { AuditExportQuery } from "./auditExportService.js";
 import { writeFileSync, mkdirSync } from "fs";
@@ -127,7 +128,9 @@ function manualOccurrenceResult(occurrence: ScheduledOccurrenceRow, replayed: bo
     const handlerMissionId = handlerResult && typeof handlerResult === "object" &&
       "success" in handlerResult && handlerResult.success === true &&
       "missionId" in handlerResult && typeof handlerResult.missionId === "string" ? handlerResult.missionId : undefined;
-    const missionId = occurrence.createdMissionId ?? handlerMissionId;
+    // Handler metadata can contain a child schedule id (wiki cadence), so
+    // expose a handler reference only after resolving an actual Mission.
+    const missionId = occurrence.createdMissionId ?? (handlerMissionId ? getMissionById(handlerMissionId)?.id : undefined);
     return { ...identity, success: true, ...(missionId ? { missionId } : {}) };
   }
   if (occurrence.state === "rejected") return { ...identity, success: false,

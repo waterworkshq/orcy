@@ -9,8 +9,9 @@ import { createOrganization } from "../repositories/organization.js";
 import { createTeam } from "../repositories/team.js";
 import { addMember, removeMember } from "../repositories/teamMember.js";
 import { createUser } from "../repositories/user.js";
-import { habitats, pluginEnrollments } from "../db/schema/index.js";
+import { habitats, pluginEnrollments, pulses } from "../db/schema/index.js";
 import { createTemplate } from "../repositories/template.js";
+import { initWikiScheduler, setCadence } from "../services/wikiSchedulerService.js";
 import * as pluginManager from "../plugins/pluginManager.js";
 import * as enrollmentRepo from "../repositories/pluginEnrollment.js";
 import { executeScheduledTask, processDueTasks, registerScheduledTaskHandler } from "../services/scheduledTaskService.js";
@@ -303,6 +304,9 @@ describe.each(["/api/v1", "/api"])("manual admission and replay controls at %s",
     const legacy = await run(saved.id, undefined, prefix);
     expect(legacy.statusCode).toBe(200);
     expect(legacy.json()).toMatchObject({ success: false });
+    const emptyBody = await app.inject({ method: "POST", url: `${prefix}/scheduled-tasks/${saved.id}/run`, headers, payload: {} });
+    expect(emptyBody.statusCode).toBe(200);
+    expect(emptyBody.json()).toMatchObject({ success: false });
     expect(durableState()).toEqual(before);
   });
   it.each(["", " ", null, false, 0, "not-a-date", "2026-02-30T00:00:00Z"])("rejects a supplied invalid coordinate %j without treating it as bodyless", async (coordinate) => {
@@ -432,6 +436,32 @@ describe("manual publication dispatch and post-commit faults", () => {
     expect(calls).toBe(1);
     expect(durableState()).toEqual(before);
     expect(durableState().missions).toHaveLength(1);
+  });
+  it("keeps a real wiki cadence child schedule out of the Mission field on fresh run and replay", async () => {
+    getDb().insert(pulses).values({
+      id: "manual-wiki-gap", habitatId, scope: "habitat", fromType: "human", fromId: "manual-run-user",
+      signalType: "context", subject: "Wiki gap", body: "Author this context", metadata: {},
+      createdAt: "2026-10-15T12:00:00.000Z", pinned: 0, isAuto: false,
+    }).run();
+    initWikiScheduler();
+    const settings = setCadence(habitatId, { enabled: true, scheduleType: "interval", intervalMinutes: 60, timezone: "UTC" }, "manual-run-user");
+    const schedule = scheduledTaskRepo.getScheduledTaskById(settings.scheduledTaskId!)!;
+    const first = await run(schedule.id, schedule.nextRunAt);
+    expect(first.statusCode, first.body).toBe(200);
+    expect(first.json()).toMatchObject({ success: true, occurrenceState: "published", replayed: false });
+    expect.soft(first.json().missionId).toBeUndefined();
+    const occurrence = getOccurrenceWithClient(getDb(), first.json().occurrenceId)!;
+    const handlerResult = occurrence.result?.handlerResult as { success: boolean; missionId: string };
+    expect(handlerResult.success).toBe(true);
+    expect(typeof handlerResult.missionId).toBe("string");
+    expect(scheduledTaskRepo.getScheduledTaskById(handlerResult.missionId)).not.toBeNull();
+    expect(durableState().missions).toEqual([]);
+    const before = durableState();
+    const replay = await run(schedule.id, schedule.nextRunAt);
+    expect(replay.statusCode, replay.body).toBe(200);
+    expect(replay.json()).toMatchObject({ success: true, occurrenceState: "published", replayed: true });
+    expect.soft(replay.json().missionId).toBeUndefined();
+    expect(durableState()).toEqual(before);
   });
   it("replays a committed result after a late SSE subscriber fault loses the first response", async () => {
     const saved = await create();
