@@ -46,10 +46,12 @@ beforeAll(() => {
   const journal = JSON.parse(
     readFileSync(join(DRIZZLE_DIR, "meta", "_journal.json"), "utf-8"),
   ) as { entries: { tag: string }[] };
-  const last = journal.entries.at(-1)!.tag;
-  expect(last).toBe("0083_role_foundation_governance");
+  const target = journal.entries.findIndex(entry => entry.tag === "0083_role_foundation_governance");
+  expect(target, "The migration under test must exist in the real journal").toBeGreaterThanOrEqual(0);
+  const throughTarget = journal.entries.slice(0, target + 1);
+  expect(throughTarget.at(-1)!.tag).toBe("0083_role_foundation_governance");
 
-  for (const entry of journal.entries) {
+  for (const entry of throughTarget) {
     if (entry.tag === ENFORCEMENT_TAG) {
       db.prepare(
         `INSERT OR REPLACE INTO migration_preflight_attestations

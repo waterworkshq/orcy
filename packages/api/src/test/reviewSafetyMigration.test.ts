@@ -1,38 +1,35 @@
 /**
  * Review-safety legacy migration classifier — REAL production upgrade proof.
  *
- * Builds a legacy database through the full Drizzle journal on the production
- * better-sqlite3 driver (initDb), seeds pre-migration task shapes, re-applies
+ * Builds a legacy database through the journal preceding migration 0082 on the
+ * production better-sqlite3 driver (initDb), seeds task shapes, then applies
  * migration 0082 against them, and asserts the classifier gives EVERY task a
  * legal row without inventing review history — plus direct CHECK-matrix
  * enforcement and immediate baseline restoration proofs.
  */
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { join } from "node:path";
-import { existsSync, mkdirSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { execFileSync } from "node:child_process";
+import { createHash, randomBytes } from "node:crypto";
+import { cpSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import Database from "better-sqlite3";
 import { eq } from "drizzle-orm";
 import { closeDb, initDb, getDb } from "../db/index.js";
 import * as schema from "../db/schema/index.js";
-import * as habitatRepo from "../repositories/habitat.js";
-import * as missionRepo from "../repositories/mission.js";
+import { useCompiledApi } from "./compiledApiFixture.js";
 import { getRequirementWithClient, endOwnershipWithClient } from "../repositories/reviewSafety.js";
 
 const PACKAGE_ROOT = join(import.meta.dirname, "..", "..");
-const TEMP_DIR = join(PACKAGE_ROOT, ".test-rs-migration");
+const compiled = useCompiledApi();
+const DRIZZLE_DIR = join(PACKAGE_ROOT, "drizzle");
+const TARGET_TAG = "0082_task_review_safety";
+const journal = JSON.parse(readFileSync(join(DRIZZLE_DIR, "meta", "_journal.json"), "utf8")) as {
+  entries: { tag: string; when: number }[];
+};
+const targetIndex = journal.entries.findIndex(entry => entry.tag === TARGET_TAG);
 
-function tempDbPath(name: string): string {
-  if (!existsSync(TEMP_DIR)) mkdirSync(TEMP_DIR, { recursive: true });
-  return join(TEMP_DIR, `${name}.db`);
-}
-
-function cleanup(dbPath: string): void {
-  for (const suffix of ["", "-wal", "-shm"]) {
-    if (existsSync(`${dbPath}${suffix}`)) rmSync(`${dbPath}${suffix}`, { force: true });
-  }
-}
-
-/** Seeds legacy task shapes through repositories + direct task-row writes. */
+/** Seeds legacy task shapes directly before the classifier migration. */
 function seedLegacyShapes(dbPath: string, missionId: string, agentId: string | null): void {
   const raw = new Database(dbPath);
   const now = new Date().toISOString();
@@ -67,82 +64,60 @@ describe("0082 legacy migration classifier (real production upgrade)", () => {
   let missionId: string;
   let agentId: string;
 
+  let ownedDirectory: string;
   beforeEach(async () => {
-    await closeDb();
-    dbPath = tempDbPath("legacy-upgrade");
-    cleanup(dbPath);
-    await initDb(dbPath);
-    const habitat = habitatRepo.createHabitat({ name: `rs-legacy-${Math.random()}` });
-    const column = (await import("../repositories/column.js")).createColumn({
-      habitatId: habitat.id,
-      name: "To Do",
-    });
-    const mission = missionRepo.createMission({
-      habitatId: habitat.id,
-      columnId: column.id,
-      title: "rs-legacy-mission",
-      createdBy: "u",
-    });
-    missionId = mission.id;
-    const { agent } = (await import("../repositories/agent.js")).createAgent({
-      name: `rs-legacy-agent-${Math.random()}`,
-      type: "claude-code",
-      domain: "backend",
-    });
-    agentId = agent.id;
-  });
-
-  afterEach(async () => {
-    await closeDb();
-    cleanup(dbPath);
-  });
-
-  /**
-   * Rolls the database back to a pre-0082 shape (drop the empty review-safety
-   * tables + the migration marker, seed the legacy rows), then boots so
-   * migration 0082 runs FOR REAL against them — the classifier under test.
-   */
-  async function reapply0082(): Promise<void> {
-    await closeDb();
+    closeDb();
+    expect(targetIndex).toBeGreaterThan(0);
+    ownedDirectory = mkdtempSync(join(tmpdir(), "orcy-review-safety-upgrade-"));
+    dbPath = join(ownedDirectory, "legacy.db");
+    const installed = join(ownedDirectory, "installed");
+    // Real copies outside workspace lookup select this owned legacy journal.
+    // No current-schema DDL is dropped and no migration ledger is rewound.
+    cpSync(compiled.distDir, join(installed, "dist"), { recursive: true });
+    cpSync(DRIZZLE_DIR, join(installed, "drizzle"), { recursive: true });
+    cpSync(join(PACKAGE_ROOT, "package.json"), join(installed, "package.json"));
+    symlinkSync(join(PACKAGE_ROOT, "node_modules"), join(installed, "node_modules"), "dir");
+    writeFileSync(join(installed, "drizzle/meta/_journal.json"), JSON.stringify({
+      ...journal, entries: journal.entries.slice(0, targetIndex),
+    }));
+    execFileSync(process.execPath, [join(import.meta.dirname, "fixtures/review-safety-legacy-bootstrap.mjs"),
+      installed, dbPath], { cwd: ownedDirectory, timeout: 10_000, stdio: "pipe", env: { ...process.env, JWT_SECRET: randomBytes(32).toString("hex") } });
     const raw = new Database(dbPath);
-    raw.pragma("foreign_keys = ON");
-    for (const table of [
-      "governance_audit",
-      "role_assignments",
-      "role_revisions",
-      "role_definitions",
-      "governance_scopes",
-      "task_review_overrides",
-      "task_review_decisions",
-      "task_review_snapshots",
-      "task_review_requirements",
-    ]) {
-      raw.prepare(`DROP TABLE IF EXISTS ${table}`).run();
-    }
-    for (const trigger of [
-      "role_revisions_no_update",
-      "role_revisions_no_delete",
-      "habitats_owner_team_exclusive_chk_insert",
-      "habitats_owner_team_exclusive_chk_update",
-    ]) {
-      raw.prepare(`DROP TRIGGER IF EXISTS ${trigger}`).run();
-    }
-    // Revert 0083's ALTERs so re-running it stays legal (index first —
-    // DROP COLUMN refuses while an index references the column).
-    raw.prepare(`DROP INDEX IF EXISTS idx_habitats_owner`).run();
-    raw.prepare(`ALTER TABLE habitats DROP COLUMN owner_user_id`).run();
-    raw.prepare(`ALTER TABLE review_rules DROP COLUMN version`).run();
-    // Roll back to the pre-0082 journal tail: drop markers for 0083 AND 0082.
-    const markers = raw
-      .prepare(`SELECT id FROM __drizzle_migrations ORDER BY id DESC LIMIT 2`)
-      .all() as { id: number }[];
-    expect(markers.length).toBe(2);
-    for (const marker of markers) {
-      raw.prepare(`DELETE FROM __drizzle_migrations WHERE id = ?`).run(marker.id);
-    }
+    try {
+      raw.pragma("foreign_keys = ON");
+      raw.pragma("busy_timeout = 5000");
+      const prior = journal.entries[targetIndex - 1];
+      expect(raw.prepare("SELECT hash,created_at FROM __drizzle_migrations ORDER BY created_at DESC LIMIT 1").get()).toEqual({
+        hash: createHash("sha256").update(readFileSync(join(DRIZZLE_DIR, `${prior.tag}.sql`))).digest("hex"), created_at: prior.when,
+      });
+      expect(raw.prepare("SELECT name FROM sqlite_master WHERE name='task_review_requirements'").get()).toBeUndefined();
+      const now = new Date().toISOString();
+      raw.prepare("INSERT INTO habitats(id,name,created_at,updated_at) VALUES ('rs-habitat','Review migration',?,?)").run(now, now);
+      raw.prepare(`INSERT INTO columns(id,habitat_id,name,"order") VALUES ('rs-column','rs-habitat','To Do',0)`).run();
+      missionId = "rs-mission";
+      agentId = "rs-agent";
+      raw.prepare(`INSERT INTO missions(id,habitat_id,column_id,title,labels,depends_on,blocks,created_by)
+        VALUES (?,'rs-habitat','rs-column','Legacy mission','[]','[]','[]','u')`).run(missionId);
+      raw.prepare(`INSERT INTO agents(id,name,type,domain,capabilities,api_key,metadata,created_at,last_heartbeat)
+        VALUES (?,'Legacy agent','claude-code','backend','[]',?,'{}',?,?)`).run(agentId, randomBytes(32).toString("hex"), now, now);
+    } finally { raw.close(); }
+  });
+
+  afterEach(() => {
+    closeDb();
+    if (ownedDirectory) rmSync(ownedDirectory, { recursive: true, force: true });
+  });
+
+  /** Upgrade a genuine pre-0082 database through the actual full production journal. */
+  async function reapply0082(): Promise<void> {
     seedLegacyShapes(dbPath, missionId, agentId);
-    raw.close();
     await initDb(dbPath);
+    const raw = new Database(dbPath, { readonly: true });
+    try {
+      const target = journal.entries[targetIndex];
+      const hash = createHash("sha256").update(readFileSync(join(DRIZZLE_DIR, `${target.tag}.sql`))).digest("hex");
+      expect(raw.prepare("SELECT count(*) AS n FROM __drizzle_migrations WHERE hash=? AND created_at=?").get(hash, target.when)).toEqual({ n: 1 });
+    } finally { raw.close(); }
   }
 
   it("classifies every legacy shape without inventing review history", async () => {

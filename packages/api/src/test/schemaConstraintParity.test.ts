@@ -1,7 +1,7 @@
 /**
  * Drizzle-declaration ↔ physical-schema constraint parity.
  *
- * The hand-written migration SQL (0064–0083) is the migration source of
+ * The hand-written migration SQL (0064–0084) is the migration source of
  * truth, but the Drizzle exports are the `drizzle-kit generate` baseline —
  * any constraint that exists in one and not the other is drift: generate
  * would either drop it or emit a spurious diff for it. This test builds a
@@ -59,6 +59,7 @@ import {
   roleAssignments,
   governanceAudit,
 } from "../db/schema/roleFoundation.js";
+import { scheduledOccurrences, scheduledOccurrenceHistory } from "../db/schema/taskPublication.js";
 import {
   ENFORCEMENT_MIGRATION_TAG,
   ADDITIVE_WATERMARK_TAG,
@@ -72,7 +73,7 @@ import {
 const PACKAGE_ROOT = join(import.meta.dirname, "..", "..");
 const DRIZZLE_DIR = join(PACKAGE_ROOT, "drizzle");
 
-/** Tables created or rebuilt by migrations 0064–0083, with their exports. */
+/** Tables created, rebuilt, or indexed by migrations 0064–0084, with their exports. */
 const SCOPED_TABLES: readonly { table: SQLiteTable; name: string }[] = [
   { table: findingTriage, name: "finding_triage" },
   { table: triageResolutions, name: "triage_resolutions" },
@@ -101,6 +102,8 @@ const SCOPED_TABLES: readonly { table: SQLiteTable; name: string }[] = [
   { table: roleRevisions, name: "role_revisions" },
   { table: roleAssignments, name: "role_assignments" },
   { table: governanceAudit, name: "governance_audit" },
+  { table: scheduledOccurrences, name: "scheduled_occurrences" },
+  { table: scheduledOccurrenceHistory, name: "scheduled_occurrence_history" },
 ];
 
 // ---------------------------------------------------------------------------
@@ -381,7 +384,7 @@ function drizzleCheckBodies(table: SQLiteTable): string[] {
 // The parity assertions
 // ---------------------------------------------------------------------------
 
-describe("Drizzle ↔ migration SQL constraint parity (0064–0083 tables)", () => {
+describe("Drizzle ↔ migration SQL constraint parity", () => {
   const db = buildProductionShapeDb();
 
   it("built a production-shaped database with enforcement applied", () => {
