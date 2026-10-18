@@ -54,8 +54,11 @@ function validateRequired(
   args: Record<string, unknown>,
   requiredFor: Record<string, string[]>,
 ): string | null {
+  if (!Object.hasOwn(requiredFor, action)) return null;
   const required = requiredFor[action];
-  if (!required) return null;
+  if (!Array.isArray(required) || !Array.from(required).every((param) => typeof param === "string")) {
+    throw new Error(`Invalid required parameters for action: ${action}`);
+  }
   const missing = required.filter(
     (param) => {
       if (param === "habitatId" && args["boardId"] !== undefined && args["boardId"] !== null && args["boardId"] !== "") {
@@ -88,29 +91,39 @@ export function createDispatchHandler(
   requiredFor?: Record<string, string[]>,
 ): ToolHandler {
   return async (client, args) => {
-    const action = args.action as string;
-    const handler = actions[action];
-    if (!handler) {
-      return {
-        content: [
-          {
-            type: "text" as const,
-            text: `Unknown action: ${action}. Valid actions: ${Object.keys(actions).join(", ")}`,
-          },
-        ],
-        isError: true,
-      };
-    }
-    if (requiredFor) {
-      const validationError = validateRequired(action, args, requiredFor);
-      if (validationError) {
+    try {
+      if (args === null || typeof args !== "object" || Array.isArray(args)) {
+        return { content: [{ type: "text", text: "Arguments must be an object." }], isError: true };
+      }
+      const action = args.action;
+      if (typeof action !== "string") {
+        const message = action === undefined ? "Unknown action: undefined." : "Action must be a string.";
         return {
-          content: [{ type: "text" as const, text: validationError }],
+          content: [{ type: "text", text: `${message} Valid actions: ${Object.keys(actions).join(", ")}` }],
           isError: true,
         };
       }
-    }
-    try {
+      const handler = Object.hasOwn(actions, action) ? actions[action] : undefined;
+      if (typeof handler !== "function") {
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text: `Unknown action: ${action}. Valid actions: ${Object.keys(actions).join(", ")}`,
+            },
+          ],
+          isError: true,
+        };
+      }
+      if (requiredFor) {
+        const validationError = validateRequired(action, args, requiredFor);
+        if (validationError) {
+          return {
+            content: [{ type: "text" as const, text: validationError }],
+            isError: true,
+          };
+        }
+      }
       const result = await handler(client, args);
       return formatResult(result);
     } catch (err) {

@@ -118,8 +118,8 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
 server.setRequestHandler(CallToolRequestSchema, async (request) => {
   const { name, arguments: args = {} } = request.params;
 
-  const handler = TOOL_HANDLERS[name];
-  if (!handler) {
+  const handler = Object.hasOwn(TOOL_HANDLERS, name) ? TOOL_HANDLERS[name] : undefined;
+  if (typeof handler !== "function") {
     return {
       content: [{ type: "text" as const, text: `Unknown tool: ${name}` }],
       isError: true,
