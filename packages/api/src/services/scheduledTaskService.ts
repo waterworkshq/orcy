@@ -53,7 +53,7 @@ export {
 import { getOnceEntitlementWithClient } from "../repositories/scheduledTaskEntitlement.js";
 import { getOccurrenceByScheduleAndDueWithClient, getOccurrenceWithClient, type ScheduledOccurrenceRow } from "../repositories/scheduledOccurrences.js";
 import { parseScheduledAt, validateScheduleConfiguration } from "./scheduledTaskConfiguration.js";
-import { notFound, conflictWithCode, badRequest, AppError, isAppError, internalError } from "../errors.js";
+import { notFound, conflictWithCode, AppError, isAppError, internalError } from "../errors.js";
 import { substituteTokens } from "@orcy/shared";
 export { substituteTokens };
 
@@ -122,8 +122,14 @@ export interface ManualScheduledTaskResult extends ScheduledTaskRunResult {
 function manualOccurrenceResult(occurrence: ScheduledOccurrenceRow, replayed: boolean): ManualScheduledTaskResult {
   const identity = { occurrenceId: occurrence.id, scheduledFor: occurrence.scheduledFor,
     occurrenceState: occurrence.state, replayed };
-  if (occurrence.state === "published") return { ...identity, success: true,
-    ...(occurrence.createdMissionId ? { missionId: occurrence.createdMissionId } : {}) };
+  if (occurrence.state === "published") {
+    const handlerResult = occurrence.result?.kind === "handler_dispatched" ? occurrence.result.handlerResult : undefined;
+    const handlerMissionId = handlerResult && typeof handlerResult === "object" &&
+      "success" in handlerResult && handlerResult.success === true &&
+      "missionId" in handlerResult && typeof handlerResult.missionId === "string" ? handlerResult.missionId : undefined;
+    const missionId = occurrence.createdMissionId ?? handlerMissionId;
+    return { ...identity, success: true, ...(missionId ? { missionId } : {}) };
+  }
   if (occurrence.state === "rejected") return { ...identity, success: false,
     error: `Scheduled occurrence rejected (${typeof occurrence.result?.reason === "string" ? occurrence.result.reason : "publication failed"})` };
   return { ...identity, success: true, skipped: true };
@@ -151,25 +157,25 @@ export function runScheduledTaskNow(
     if (scheduledFor !== schedule.nextRunAt) throw conflictWithCode("SCHEDULE_RUN_STALE", "The requested occurrence is no longer the current schedule slot");
     if (!schedule.enabled) throw conflictWithCode("SCHEDULE_DISABLED", "Scheduled task is disabled");
     const scheduleError = validateScheduleConfiguration(schedule);
-    if (scheduleError) throw badRequest("Invalid schedule configuration", scheduleError);
+    if (scheduleError) throw new AppError(400, "SCHEDULE_RUN_INVALID", "Invalid schedule configuration", scheduleError);
     if (schedule.scheduleType === "once") {
       const entitlement = getOnceEntitlementWithClient(db, schedule);
       if (entitlement === "consumed") throw conflictWithCode("ONCE_SCHEDULE_CONSUMED", "This one-time schedule was already reserved; create a new schedule");
       if (entitlement === "unknown") throw conflictWithCode("ONCE_SCHEDULE_HISTORY_UNKNOWN", "One-time consumption cannot be established from legacy history; create a new schedule");
     }
     const dueInstant = parseScheduledAt(scheduledFor).getTime();
-    if (!Number.isFinite(dueInstant)) throw badRequest("Invalid scheduled occurrence timestamp");
+    if (!Number.isFinite(dueInstant)) throw new AppError(400, "SCHEDULE_RUN_INVALID", "Invalid scheduled occurrence timestamp");
     const requestedAt = new Date().toISOString();
     let nextRunAt: string;
     try {
       nextRunAt = calculateNextRun(schedule.scheduleType, schedule.cronExpression, schedule.intervalMinutes, schedule.timezone,
         new Date(Math.max(Date.now(), dueInstant)));
     } catch {
-      throw badRequest("The next schedule run is outside the supported date range");
+      throw new AppError(400, "SCHEDULE_RUN_INVALID", "The next schedule run is outside the supported date range");
     }
     if (schedule.scheduleType !== "once" &&
         (!Number.isFinite(Date.parse(nextRunAt)) || Date.parse(nextRunAt) <= Math.max(Date.now(), dueInstant))) {
-      throw badRequest("The next schedule run must be representable and later than the consumed slot");
+      throw new AppError(400, "SCHEDULE_RUN_INVALID", "The next schedule run must be representable and later than the consumed slot");
     }
     reservation = reserveScheduledOccurrenceWithClient(db, {
       scheduleId: id, admission: "manual", scheduledFor, now: requestedAt,

@@ -123,7 +123,7 @@ it("clears a definitively stale request so a later deliberate Run can select B",
   await waitFor(() => expect(run).toHaveBeenNthCalledWith(2, "schedule-1", B));
 });
 
-it.each([[401, "UNAUTHORIZED"], [403, "BOARD_ACCESS_DENIED"], [409, "CONFLICT"]] as const)("retains uncertain A across refetch B and an unresolved %s retry denial", async (status, code) => {
+it.each([[400, "VALIDATION_ERROR"], [401, "UNAUTHORIZED"], [403, "BOARD_ACCESS_DENIED"], [409, "CONFLICT"]] as const)("retains uncertain A across refetch B and an unresolved %s retry denial", async (status, code) => {
   run.mockRejectedValueOnce(new TypeError("Response lost"));
   const { qc } = setup();
   fireEvent.click(await screen.findByRole("button", { name: "Run" }));
@@ -150,4 +150,93 @@ it("does not resolve A from an unmatched rejected occurrence response", async ()
   run.mockResolvedValueOnce(published());
   fireEvent.click(retry);
   await waitFor(() => expect(run).toHaveBeenNthCalledWith(2, "schedule-1", A));
+});
+
+it.each([[400, "SCHEDULE_RUN_INVALID"], [409, "SCHEDULE_RUN_REJECTED"], [409, "SCHEDULE_RUN_CONFLICT"]] as const)("resolves known rolled-back admission %s/%s rather than retaining an impossible retry", async (status, code) => {
+  run.mockRejectedValueOnce(new ApiError("Fresh admission rejected", status, { code }));
+  setup();
+  fireEvent.click(await screen.findByRole("button", { name: "Run" }));
+  await waitFor(() => expect(error).toHaveBeenCalledWith("Fresh admission rejected"));
+  await waitFor(() => expect(screen.getByRole("button", { name: "Run" })).toHaveProperty("disabled", false));
+  expect(screen.queryByRole("button", { name: "Retry Run" })).toBeNull();
+});
+
+it("refreshes a definitively stale slot and keeps Run blocked until the returned row B is ready", async () => {
+  let finishRefresh!: (value: unknown) => void;
+  const refresh = new Promise((resolve) => { finishRefresh = resolve; });
+  let reads = 0;
+  list.mockImplementation(() => {
+    reads += 1;
+    if (reads === 2) return refresh;
+    return Promise.resolve({ scheduledTasks: [row] });
+  });
+  run.mockImplementationOnce(async () => {
+    row = { ...row, nextRunAt: B };
+    throw new ApiError("Slot changed", 409, { code: "SCHEDULE_RUN_STALE" });
+  });
+  setup();
+  fireEvent.click(await screen.findByRole("button", { name: "Run" }));
+  await waitFor(() => expect(list).toHaveBeenCalledTimes(2));
+  expect(screen.getByTestId("run-btn-schedule-1")).toHaveProperty("disabled", true);
+  fireEvent.click(screen.getByTestId("run-btn-schedule-1"));
+  expect(run).toHaveBeenCalledTimes(1);
+  await act(async () => { finishRefresh({ scheduledTasks: [row] }); });
+  await screen.findByText(`Next: ${new Date(B).toLocaleString()}`);
+  await waitFor(() => expect(screen.getByRole("button", { name: "Run" })).toHaveProperty("disabled", false));
+  run.mockResolvedValueOnce(published(B, false));
+  fireEvent.click(screen.getByRole("button", { name: "Run" }));
+  await waitFor(() => expect(run).toHaveBeenNthCalledWith(2, "schedule-1", B));
+});
+
+it("keeps the rejected slot pinned if the required refresh fails, without calling its publication uncertain", async () => {
+  let reads = 0;
+  list.mockImplementation(async () => {
+    reads += 1;
+    if (reads === 2) throw new Error("Schedule refresh offline");
+    return { scheduledTasks: [row] };
+  });
+  run.mockImplementationOnce(async () => {
+    row = { ...row, nextRunAt: B };
+    throw new ApiError("Slot changed", 409, { code: "SCHEDULE_RUN_STALE" });
+  });
+  setup();
+  fireEvent.click(await screen.findByRole("button", { name: "Run" }));
+  const retry = await screen.findByRole("button", { name: "Retry Run" });
+  expect(error.mock.calls.at(-1)?.[0]).toContain("Schedule refresh failed");
+  expect(error.mock.calls.at(-1)?.[0]).not.toContain("Result unconfirmed");
+  run.mockRejectedValueOnce(new ApiError("Slot changed", 409, { code: "SCHEDULE_RUN_STALE" }));
+  fireEvent.click(retry);
+  await waitFor(() => expect(run).toHaveBeenNthCalledWith(2, "schedule-1", A));
+  await screen.findByText(`Next: ${new Date(B).toLocaleString()}`);
+  await waitFor(() => expect(screen.getByRole("button", { name: "Run" })).toHaveProperty("disabled", false));
+  run.mockResolvedValueOnce(published(B, false));
+  fireEvent.click(screen.getByRole("button", { name: "Run" }));
+  await waitFor(() => expect(run).toHaveBeenNthCalledWith(3, "schedule-1", B));
+});
+
+it("ignores definitive refresh settlement after retirement without releasing the new view's Run", async () => {
+  let finishRefresh!: (value: unknown) => void;
+  let finishNewRun!: (value: unknown) => void;
+  const refresh = new Promise((resolve) => { finishRefresh = resolve; });
+  let reads = 0;
+  list.mockImplementation(async (habitatId) => {
+    reads += 1;
+    if (reads === 2) return refresh;
+    return { scheduledTasks: [{ ...row, habitatId }] };
+  });
+  run.mockImplementationOnce(async () => {
+    row = { ...row, nextRunAt: B };
+    throw new ApiError("Slot changed", 409, { code: "SCHEDULE_RUN_STALE" });
+  }).mockImplementationOnce(() => new Promise((resolve) => { finishNewRun = resolve; }));
+  const view = setup();
+  fireEvent.click(await screen.findByRole("button", { name: "Run" }));
+  await waitFor(() => expect(list).toHaveBeenCalledTimes(2));
+  view.rerender(view.tree("h2"));
+  fireEvent.click(await screen.findByRole("button", { name: "Run" }));
+  await waitFor(() => expect(run).toHaveBeenNthCalledWith(2, "schedule-1", B));
+  await act(async () => { finishRefresh({ scheduledTasks: [row] }); });
+  expect(success).not.toHaveBeenCalled(); expect(error).not.toHaveBeenCalled();
+  expect(screen.getByRole("button", { name: "Run" })).toHaveProperty("disabled", true);
+  await act(async () => { finishNewRun(published(B, false)); });
+  await waitFor(() => expect(success).toHaveBeenCalledWith("Scheduled task completed — mission available"));
 });

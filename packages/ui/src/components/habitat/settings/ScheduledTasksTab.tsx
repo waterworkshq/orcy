@@ -40,8 +40,10 @@ function ScheduledTasksView({ habitatId, credential }: ScheduledTasksTabProps & 
   const inFlight = useRef(new Set<string>());
   const requests = useRef<Record<string, string>>({});
 
-  const invalidateScheduledTasks = () =>
-    qc.invalidateQueries({ queryKey: queryKeys.scheduledTasks.list(habitatId) });
+  const invalidateScheduledTasks = (throwOnError = false) =>
+    throwOnError
+      ? qc.invalidateQueries({ queryKey: queryKeys.scheduledTasks.list(habitatId) }, { throwOnError: true })
+      : qc.invalidateQueries({ queryKey: queryKeys.scheduledTasks.list(habitatId) });
 
   function openForm(existing?: ScheduledTask) {
     setEditTask(existing ?? null);
@@ -58,16 +60,20 @@ function ScheduledTasksView({ habitatId, credential }: ScheduledTasksTabProps & 
     try {
       if (editTask) {
         await api.scheduledTasks.update(editTask.id, data);
+        if (!isCurrentView()) return;
         notify.success('Scheduled task updated');
       } else {
         await api.scheduledTasks.create(habitatId, data);
+        if (!isCurrentView()) return;
         notify.success('Scheduled task created');
       }
       closeForm();
       invalidateScheduledTasks();
     } catch (err) {
+      if (!isCurrentView()) return;
       notify.error((err as Error).message);
     } finally {
+      if (!isCurrentView()) return;
       setSaving(false);
     }
   }
@@ -75,9 +81,11 @@ function ScheduledTasksView({ habitatId, credential }: ScheduledTasksTabProps & 
   async function handleDelete(id: string) {
     try {
       await api.scheduledTasks.delete(id);
+      if (!isCurrentView()) return;
       notify.success('Scheduled task deleted');
       invalidateScheduledTasks();
     } catch (err) {
+      if (!isCurrentView()) return;
       notify.error((err as Error).message);
     }
   }
@@ -108,7 +116,7 @@ function ScheduledTasksView({ habitatId, credential }: ScheduledTasksTabProps & 
         } else if (result.replayed) {
           notify.success(result.missionId ? 'Previous run completed — mission available' : 'Previous run completed');
         } else {
-          notify.success(result.missionId ? 'Scheduled task executed — mission created' : 'Scheduled task completed');
+          notify.success(result.missionId ? 'Scheduled task completed — mission available' : 'Scheduled task completed');
         }
       }
       invalidateScheduledTasks();
@@ -118,9 +126,20 @@ function ScheduledTasksView({ habitatId, credential }: ScheduledTasksTabProps & 
         ? (err.body as { code?: unknown }).code : undefined;
       // These decisions follow authorized pair lookup and prove this exact
       // request was not reserved. Auth/unknown errors cannot resolve old work.
-      const definitive = err instanceof ApiError && err.status === 409 && typeof code === 'string' &&
-        ['SCHEDULE_RUN_STALE', 'SCHEDULE_DISABLED', 'ONCE_SCHEDULE_CONSUMED', 'ONCE_SCHEDULE_HISTORY_UNKNOWN'].includes(code);
+      const definitive = err instanceof ApiError && typeof code === 'string' &&
+        ((err.status === 400 && code === 'SCHEDULE_RUN_INVALID') ||
+          (err.status === 409 && ['SCHEDULE_RUN_STALE', 'SCHEDULE_DISABLED', 'ONCE_SCHEDULE_CONSUMED',
+            'ONCE_SCHEDULE_HISTORY_UNKNOWN', 'SCHEDULE_RUN_REJECTED', 'SCHEDULE_RUN_CONFLICT'].includes(code)));
       if (definitive) {
+        try {
+          await invalidateScheduledTasks(true);
+        } catch {
+          if (!isCurrentView()) return;
+          setRetryIds((previous) => new Set(previous).add(id));
+          notify.error(`${(err as Error).message}. Schedule refresh failed; Retry Run will recheck this slot.`);
+          return;
+        }
+        if (!isCurrentView()) return;
         delete requests.current[id];
         setRetryIds((previous) => { const next = new Set(previous); next.delete(id); return next; });
       } else {
@@ -141,8 +160,10 @@ function ScheduledTasksView({ habitatId, credential }: ScheduledTasksTabProps & 
       } else {
         await api.scheduledTasks.enable(task.id);
       }
+      if (!isCurrentView()) return;
       invalidateScheduledTasks();
     } catch (err) {
+      if (!isCurrentView()) return;
       notify.error((err as Error).message);
     }
   }

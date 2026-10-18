@@ -244,7 +244,7 @@ describe("manual advance representation boundaries", () => {
     const before = durableState();
     const result = await run(saved.id, extremeDue);
     expect(result.statusCode, result.body).toBe(400);
-    expect(result.json().code).toBe("VALIDATION_ERROR");
+    expect(result.json().code).toBe("SCHEDULE_RUN_INVALID");
     expect(durableState()).toEqual(before);
   });
   it("rejects a bodyless fresh run whose legacy due pointer is invalid without writes", async () => {
@@ -288,6 +288,22 @@ describe.each(["/api/v1", "/api"])("manual admission and replay controls at %s",
     expect((await run(saved.id, undefined, prefix)).json()).toMatchObject({ scheduledFor: "2026-10-18T13:05:00.000Z", replayed: false });
     expect(durableState().occurrences).toHaveLength(2);
     expect(scheduledTaskRepo.getScheduledTaskById(saved.id)?.runCount).toBe(2);
+  });
+  it("distinguishes known no-pair configuration rejection from schema errors and legacy admission envelopes", async () => {
+    const saved = await create({ scheduleType: "interval", intervalMinutes: 5 }, prefix);
+    getDb().run(sql`UPDATE scheduled_tasks SET interval_minutes = NULL WHERE id = ${saved.id}`);
+    const before = durableState();
+    const rejected = await run(saved.id, scheduledFor, prefix);
+    expect(rejected.statusCode, rejected.body).toBe(400);
+    expect(rejected.json().code).toBe("SCHEDULE_RUN_INVALID");
+    const invalidPayload = await app.inject({ method: "POST", url: `${prefix}/scheduled-tasks/${saved.id}/run`, headers,
+      payload: { expectedScheduledFor: scheduledFor, actorId: "spoofed" } });
+    expect(invalidPayload.statusCode).toBe(400);
+    expect(invalidPayload.json().code).toBe("VALIDATION_ERROR");
+    const legacy = await run(saved.id, undefined, prefix);
+    expect(legacy.statusCode).toBe(200);
+    expect(legacy.json()).toMatchObject({ success: false });
+    expect(durableState()).toEqual(before);
   });
   it.each(["", " ", null, false, 0, "not-a-date", "2026-02-30T00:00:00Z"])("rejects a supplied invalid coordinate %j without treating it as bodyless", async (coordinate) => {
     const saved = await create({}, prefix);
@@ -389,6 +405,33 @@ describe("manual publication dispatch and post-commit faults", () => {
     expect((await run(saved.id, scheduledFor)).json().replayed).toBe(true);
     expect(calls).toBe(1);
     expect(durableState()).toEqual(before);
+  });
+  it("returns the persisted handler Mission on fresh execution and replay without another dispatch", async () => {
+    const seed = await create({ name: "Handler Mission source" });
+    const seeded = await run(seed.id, scheduledFor);
+    expect(seeded.statusCode, seeded.body).toBe(200);
+    const missionId = seeded.json().missionId;
+    expect(typeof missionId).toBe("string");
+    let calls = 0;
+    registerScheduledTaskHandler("manual-mission-handler", () => {
+      calls += 1;
+      return { success: true, missionId };
+    });
+    const saved = await create();
+    getDb().run(sql`UPDATE scheduled_tasks SET handler_key = 'manual-mission-handler' WHERE id = ${saved.id}`);
+    const first = await run(saved.id, scheduledFor);
+    expect(first.statusCode, first.body).toBe(200);
+    expect.soft(first.json()).toMatchObject({ success: true, missionId, occurrenceState: "published", replayed: false });
+    const occurrence = getOccurrenceWithClient(getDb(), first.json().occurrenceId)!;
+    expect(occurrence.createdMissionId).toBeNull();
+    expect(occurrence.result).toMatchObject({ kind: "handler_dispatched", handlerResult: { success: true, missionId } });
+    const before = durableState();
+    const replay = await run(saved.id, scheduledFor);
+    expect(replay.statusCode, replay.body).toBe(200);
+    expect.soft(replay.json()).toMatchObject({ success: true, missionId, occurrenceState: "published", replayed: true });
+    expect(calls).toBe(1);
+    expect(durableState()).toEqual(before);
+    expect(durableState().missions).toHaveLength(1);
   });
   it("replays a committed result after a late SSE subscriber fault loses the first response", async () => {
     const saved = await create();
