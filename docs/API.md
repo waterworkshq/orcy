@@ -6857,6 +6857,10 @@ Remote participants are not admitted on recipient routes (`local_actor` accepts 
 
 PUT retains body-validation-before-target-lookup ordering and requires the authenticated user's `admin` role for an explicitly supplied `required` field (including `false`). This does not add a stored-required-row policy: same-Habitat callers retain the existing ability to disable a required row or delete it without editing its `required` flag. The trusted legacy preference migration continues to use its existing internal updater.
 
+**Delivery monitor:** requires a human admin JWT and access to the requested Habitat (including current membership for a team-owned Habitat). Returns `{ attempts: NotificationDeliveryAttempt[] }` across all recipient types and IDs in that Habitat only. Attempts are ordered globally by `createdAt` descending, then `id` descending for ties; the limit applies to attempts, including multiple attempts for a single delivery. An empty Habitat or unmatched channel returns `{ attempts: [] }`.
+
+The optional `channel` query parameter is a nonempty, single exact base-channel name, such as `slack`, `webhook`, or a plugin channel; historical plugin names remain queryable. The optional `limit` is a single decimal integer from 1 through 100, defaulting to 50. Empty or repeated values for either parameter, and malformed or out-of-range `limit` values, return 400 `VALIDATION_ERROR` after authentication and authorization. This administrative projection does not broaden recipient inbox/history access.
+
 
 ---
 

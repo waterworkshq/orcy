@@ -1186,6 +1186,8 @@ Notification V2 replaces the legacy email-only `notification_preferences` with a
 | `notificationClearanceService.ts` | Clears acknowledged/failed deliveries past retention windows |
 | `notification-channels/` | Per-channel PURE senders (in-app, webhook, Slack, Discord) — no attempt writes, redaction retained at the boundary |
 
+The admin delivery monitor uses a dedicated attempt-to-delivery JOIN scoped by the delivery's Habitat. It filters an optional exact base channel, orders by attempt creation time and ID descending, and limits the attempt rows in SQL. It does not reuse recipient history: that read retains exact Habitat, recipient type, and recipient ID predicates.
+
 ### Data Model
 
 7 tables: `notification_events`, `notification_deliveries` (with the `push_epoch` upgrade marker), `notification_delivery_attempts` (with `destination_id` unit linkage), `notification_delivery_channel_states`, `notification_subscriptions`, `notification_digest_items`, `notification_retention_policies`
