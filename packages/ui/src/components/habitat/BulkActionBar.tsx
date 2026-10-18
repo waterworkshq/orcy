@@ -1,3 +1,4 @@
+import { useSessionLiveness } from "../../lib/sessionState.js";
 import { useState, useMemo } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useHabitatStore } from "../../store/habitatStore.js";
@@ -20,6 +21,7 @@ interface BulkActionBarProps {
 type BulkOperation = "priority" | "move" | "delete";
 
 export function BulkActionBar({ habitatId }: BulkActionBarProps) {
+  const isActive = useSessionLiveness();
   const selectedMissionIds = useHabitatStore((s) => s.selectedMissionIds);
   const selectionHabitatId = useHabitatStore((s) => s.selectionHabitatId);
   const setBulkSelectMode = useHabitatStore((s) => s.setBulkSelectMode);
@@ -66,6 +68,7 @@ export function BulkActionBar({ habitatId }: BulkActionBarProps) {
         const results = await Promise.allSettled(
           scopedMissionIds.map((id) => api.missions.delete(id)),
         );
+        if (!isActive()) return;
         results.forEach((result) => {
           if (result.status === "fulfilled") {
             successCount++;
@@ -94,6 +97,7 @@ export function BulkActionBar({ habitatId }: BulkActionBarProps) {
         });
 
         const results = await Promise.allSettled(updatePromises);
+        if (!isActive()) return;
         results.forEach((result) => {
           if (result.status === "fulfilled") {
             successCount++;
@@ -122,6 +126,7 @@ export function BulkActionBar({ habitatId }: BulkActionBarProps) {
       clearMissionSelection();
       setBulkSelectMode(false);
     } catch (err) {
+      if (!isActive()) return;
       notify.error((err as Error).message);
     } finally {
       setIsApplying(false);

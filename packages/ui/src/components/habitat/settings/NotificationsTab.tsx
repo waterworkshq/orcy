@@ -5,6 +5,7 @@ import { api } from '../../../api/index.js';
 import { notify } from '../../../lib/toast.js';
 import { useNotificationPrefs } from '../../../lib/useHabitatData.js';
 import { queryKeys } from '../../../lib/queryKeys.js';
+import { useSessionLiveness } from '../../../lib/sessionState.js';
 import type { NotificationPreferences } from '../../../types/index.js';
 
 const PREF_LABELS: Array<{ key: keyof NotificationPreferences; label: string; description: string }> = [
@@ -32,6 +33,7 @@ export const NotificationsTab = forwardRef<NotificationsTabHandle, Notifications
   habitatId,
   onSavingChange,
 }, ref) {
+  const isSessionActive = useSessionLiveness();
   const { data: prefsData, isLoading: prefsLoading } = useNotificationPrefs(habitatId);
   const qc = useQueryClient();
 
@@ -71,6 +73,7 @@ export const NotificationsTab = forwardRef<NotificationsTabHandle, Notifications
       if (email !== undefined) {
         await api.notifications.updateEmail(email || null);
       }
+      if (!isSessionActive()) return;
       if (useBoardPrefs && boardPrefs) {
         const result = await api.notifications.updateHabitatPrefs(habitatId, boardPrefs);
         setBoardPrefs(result.preferences);
@@ -78,14 +81,16 @@ export const NotificationsTab = forwardRef<NotificationsTabHandle, Notifications
         const result = await api.notifications.updateGlobalPrefs(globalPrefs);
         setGlobalPrefs(result.preferences);
       }
+      if (!isSessionActive()) return;
       notify.success('Notification settings saved');
       qc.invalidateQueries({ queryKey: queryKeys.notificationPrefs.habitat(habitatId) });
     } catch (err) {
+      if (!isSessionActive()) return;
       notify.error((err as Error).message);
     } finally {
       setPrefsSaving(false);
     }
-  }, [email, useBoardPrefs, boardPrefs, habitatId, globalPrefs, qc]);
+  }, [email, useBoardPrefs, boardPrefs, habitatId, globalPrefs, qc, isSessionActive]);
 
   useImperativeHandle(ref, () => ({ save: handleSave }), [handleSave]);
 

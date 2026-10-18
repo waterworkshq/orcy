@@ -141,7 +141,7 @@ export function getHabitatMetrics(habitatId: string): HabitatMetrics {
       and(
         eq(missions.habitatId, habitatId),
         notInArray(tasks.status, ["done", "approved", "failed"]),
-        sql`${missions.dueAt} IS NOT NULL AND ${missions.dueAt} < datetime('now')`,
+        sql`${missions.dueAt} IS NOT NULL AND julianday(${missions.dueAt}) < julianday('now')`,
       ),
     )
     .get();

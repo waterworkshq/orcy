@@ -189,7 +189,9 @@ Health check endpoint (no `/api` prefix).
 
 ### GET /habitats
 
-List all habitats.
+List accessible habitats. Authenticated humans receive personal habitats (`teamId` is null, irrespective of owner) plus habitats belonging to their current persisted Team memberships. Humans with no Team memberships receive only personal habitats. Local agents intentionally receive an unscoped list.
+
+The optional `name` query is lowercased and matched with SQL `LIKE` inside `%...%`; supplied `%` and `_` retain their wildcard meaning. This filter does not widen access. Returned webhook settings mask raw secrets as presence booleans. These rules apply to both `/api/v1/habitats` and the deprecated `/api/habitats` alias.
 
 **Auth:** Agent or Human auth required.
 
@@ -847,6 +849,10 @@ requires an end-to-end route + repository + query-key contract.
 
 Get a mission with progress information.
 
+**Access:** `local_actor` (human JWT or local agent key). The server resolves the target Mission's persisted Habitat before reading its projections. Humans must belong to the Habitat's Team, including global admins; personal Habitats admit any authenticated human. Local agents retain access on any existing Habitat. A caller-supplied Habitat ID cannot replace this ancestry check. This applies to both `/api/v1` and deprecated `/api`.
+
+**Errors:** `401 UNAUTHORIZED` for unauthenticated callers; `403 BOARD_ACCESS_DENIED` for a nonmember human; `404 NOT_FOUND` when the Mission or its parent Habitat is missing.
+
 **Response `200`:**
 
 ```json
@@ -864,6 +870,10 @@ Get a mission with progress information.
 ### GET /missions/:id/details
 
 Get a mission with its tasks, events, progress, and dependencies.
+
+**Access:** `local_actor` (human JWT or local agent key). The server resolves the target Mission's persisted Habitat before reading its projections. Humans must belong to the Habitat's Team, including global admins; personal Habitats admit any authenticated human. Local agents retain access on any existing Habitat. A caller-supplied Habitat ID cannot replace this ancestry check. This applies to both `/api/v1` and deprecated `/api`.
+
+**Errors:** `401 UNAUTHORIZED` for unauthenticated callers; `403 BOARD_ACCESS_DENIED` for a nonmember human; `404 NOT_FOUND` when the Mission or its parent Habitat is missing.
 
 **Response `200`:**
 
@@ -1059,6 +1069,10 @@ Restores an archived mission back to active status.
 
 List all tasks within a mission.
 
+**Access:** `local_actor` (human JWT or local agent key). The server resolves the target Mission's persisted Habitat before reading its projections. Humans must belong to the Habitat's Team, including global admins; personal Habitats admit any authenticated human. Local agents retain access on any existing Habitat. A caller-supplied Habitat ID cannot replace this ancestry check. This applies to both `/api/v1` and deprecated `/api`.
+
+**Errors:** `401 UNAUTHORIZED` for unauthenticated callers; `403 BOARD_ACCESS_DENIED` for a nonmember human; `404 NOT_FOUND` when the Mission or its parent Habitat is missing.
+
 **Response `200`:**
 
 ```json
@@ -1124,6 +1138,10 @@ Create a task within a mission. Triggers mission status recalculation.
 ### GET /missions/:id/progress
 
 Get completion metrics for a mission.
+
+**Access:** `local_actor` (human JWT or local agent key). The server resolves the target Mission's persisted Habitat before reading its projections. Humans must belong to the Habitat's Team, including global admins; personal Habitats admit any authenticated human. Local agents retain access on any existing Habitat. A caller-supplied Habitat ID cannot replace this ancestry check. This applies to both `/api/v1` and deprecated `/api`.
+
+**Errors:** `401 UNAUTHORIZED` for unauthenticated callers; `403 BOARD_ACCESS_DENIED` for a nonmember human; `404 NOT_FOUND` when the Mission or its parent Habitat is missing.
 
 **Response `200`:**
 
@@ -2043,7 +2061,7 @@ Get habitat-wide time tracking and estimation metrics, including per-agent break
 | `averageEstimationAccuracy` | number | Avg ratio of actual/estimated across tasks with estimates |
 | `totalPlannedMinutes` | number | Sum of all task estimates |
 | `totalActualMinutes` | number | Sum of all recorded work |
-| `overdueTasks` | number | Tasks exceeding their estimate |
+| `overdueTasks` | number | Tasks whose inherited Mission deadline is strictly before the current instant, excluding `done`, `approved` and `failed`. ISO timestamps (including offsets and milliseconds) and SQLite timestamps are compared as instants; null or unparseable deadlines do not count. |
 | `onTimeCompletionRate` | number | Fraction of tasks completed within estimate |
 | `agentMetrics` | array | Per-agent breakdown |
 
@@ -3452,6 +3470,10 @@ When `signalType` is `blocker`, the system auto-creates a `"Clear Blocker: {subj
 
 List signals for a mission. Paginated, newest first.
 
+**Access:** `local_actor` (human JWT or local agent key), followed by persisted Mission → Habitat admission before any Pulse projection. Team-Habitat humans must be members, including global admins; personal Habitats admit any authenticated human, and local agents retain access on any existing Habitat. Caller-supplied Habitat IDs do not replace the Mission's ancestry. Both `/api/v1` and deprecated `/api`, including their generated HEAD routes, enforce this request-time check without concurrent membership-revocation or Mission-reparent fencing.
+
+**Errors:** `401 UNAUTHORIZED` for unauthenticated callers; `403 BOARD_ACCESS_DENIED` for a nonmember human; `404 NOT_FOUND` for a missing Mission or parent Habitat.
+
 ```
 GET /api/missions/mission-uuid/pulse?signalType=finding&limit=20&offset=0
 ```
@@ -3470,14 +3492,18 @@ GET /api/missions/mission-uuid/pulse?signalType=finding&limit=20&offset=0
 
 ```json
 {
-  "pulses": [ /* array of Pulse objects */ ],
+  "items": [ /* array of Pulse objects */ ],
   "total": 15
 }
 ```
 
 ### GET /missions/:missionId/pulse/digest
 
-Get a compact pulse digest with type counts, highlights, and unread count. Updates the caller's `pulse_cursors` timestamp (marking as read).
+Get a compact pulse digest with type counts, highlights, and unread count. Updates the admitted caller's `pulse_cursors` timestamp (marking as read).
+
+**Access:** `local_actor` (human JWT or local agent key), followed by persisted Mission → Habitat admission before any Pulse projection or digest cursor update. Team-Habitat humans must be members, including global admins; personal Habitats admit any authenticated human, and local agents retain access on any existing Habitat. Caller-supplied Habitat IDs do not replace the Mission's ancestry. Both `/api/v1` and deprecated `/api`, including their generated HEAD routes, enforce this request-time check without concurrent membership-revocation or Mission-reparent fencing.
+
+**Errors:** `401 UNAUTHORIZED` for unauthenticated callers; `403 BOARD_ACCESS_DENIED` for a nonmember human; `404 NOT_FOUND` for a missing Mission or parent Habitat. Denied digest requests leave the caller's cursor unchanged.
 
 ```
 GET /api/missions/mission-uuid/pulse/digest
@@ -3535,7 +3561,7 @@ GET /api/pulse/inbox?signalType=blocker&limit=20
 
 ```json
 {
-  "pulses": [ /* array of Pulse objects */ ],
+  "items": [ /* array of Pulse objects */ ],
   "total": 3
 }
 ```
@@ -3562,7 +3588,7 @@ GET /api/pulse/pulse-uuid/replies
 
 ```json
 {
-  "replies": [ /* array of Pulse objects ordered newest first */ ]
+  "items": [ /* array of Pulse objects ordered newest first */ ]
 }
 ```
 
@@ -3648,7 +3674,7 @@ List habitat-level signals for a habitat.
 
 ```json
 {
-  "pulses": [ /* array of Pulse objects */ ],
+  "items": [ /* array of Pulse objects */ ],
   "total": 8
 }
 ```
@@ -4792,7 +4818,11 @@ List recent sync runs for a connection, newest first.
 
 List external issue links for a mission. Shows linked GitHub/Jira/Linear issues with sync status and any warnings.
 
-**Auth:** `agentOrHumanAuth`
+**Access:** `local_actor` (human JWT or local agent key). The server resolves the target Mission's persisted Habitat before reading its projections. Humans must belong to the Habitat's Team, including global admins; personal Habitats admit any authenticated human. Local agents retain access on any existing Habitat. A caller-supplied Habitat ID cannot replace this ancestry check. This applies to both `/api/v1` and deprecated `/api`.
+
+**Errors:** `401 UNAUTHORIZED` for unauthenticated callers; `403 BOARD_ACCESS_DENIED` for a nonmember human; `404 NOT_FOUND` when the Mission or its parent Habitat is missing.
+
+An existing admitted Mission with no links returns `200 { "externalLinks": [] }`. A missing Mission now returns `404` rather than an empty successful response.
 
 **Response:**
 ```json
@@ -5225,6 +5255,10 @@ Create a new scheduled task.
 
 **Auth:** JWT required (human)
 
+**Schedule validation:** `cron` requires a nonempty, parseable `cronExpression`; `interval` requires a positive safe-integer `intervalMinutes` whose next run fits the supported date range; `once` requires a nonempty, parseable `scheduledAt`. `timezone` defaults to `UTC` and must be valid when supplied. A supplied non-null `scheduledAt` must be a valid date for every schedule type. On create, the submitted `scheduledAt` is retained and its parsed UTC ISO timestamp sets the first `nextRunAt` for every schedule type, including recurring first-run overrides. ISO date-times without an offset (`YYYY-MM-DDTHH:mm`, with optional seconds and fractional seconds, including the UI's Run At value) use UTC wall time independently of the server timezone. Explicit offsets or zones retain their represented instant, and ISO date-only values use UTC midnight. The schedule's `timezone` governs cron calculation; it does not reinterpret a supplied first-run date. Other legacy date formats retain the runtime Date parser's behavior, so offsetless non-ISO forms have no portable timezone guarantee. First-run overrides never bypass validation of the schedule's cron or interval configuration. Past one-time dates remain accepted.
+
+**Response `400`:** Invalid field types or schedule semantics; nothing is persisted.
+
 **Request:**
 
 ```json
@@ -5280,7 +5314,7 @@ Get scheduled task details.
 
 ### PATCH /scheduled-tasks/:id
 
-Update a scheduled task. Recomputes `nextRunAt` if schedule config changes.
+Update a scheduled task. The complete effective configuration (stored values plus supplied fields) must satisfy the create validation above; omitted fields retain their values, while explicit `null` clears a nullable field and cannot clear the active schedule type's required input. Invalid combinations return `400` without changing the row. `nextRunAt` recalculation retains its existing type/cron/interval/timezone triggers; changing only `scheduledAt` does not rearm a one-time schedule.
 
 **Auth:** JWT required (human)
 
@@ -5425,7 +5459,7 @@ Delete a webhook subscription.
 
 ### GET /webhooks/:id/deliveries
 
-Get delivery log for a webhook.
+Get delivery log for an outgoing webhook subscription. Diagnostic response bodies retain at most 1,024 UTF-16 code units from an 8,192-byte fetch-decoded prefix. A large response body alone does not turn an HTTP 2xx into failure; response prefixes are diagnostics, not complete receiver output.
 
 **Auth:** JWT required (human)
 
@@ -6793,7 +6827,7 @@ Durable notification system with subscriptions, channel routing, digests, acknow
 
 **Agent vs human `getDelivery` response contract:** humans receive `{ delivery, event }` with the full raw event row (including `payload`, `createdByType`/`createdById`, `historySummary`). Agents receive the same `delivery` row but the `event` is a bounded projection: the canonical row fields `eventType`, `severity`, `title`, `body` (the rendered fan-out content — taken from the stored row itself, so a payload key named `title`/`body`/`eventType`/`severity` can never override them) plus a fixed allowlist of string-valued context keys from the payload — `taskId`, `missionId`, `actorId`, `reason`, `mentionedUserId`, `mentionedByName`, `commentContent`, `oldPriority`, `newPriority`, `reviewerId` — a context key appears only when the stored payload carries a string value for it (missing or non-string values are simply omitted), and a delivery whose event row is absent projects to `null`. These context keys are opaque passthrough: the API does not semantically validate their content. The raw payload object, creator fields, and history summary never reach the agent path. Inbox/history/subscriptions return delivery rows and subscription config only (identical shape for both principal types).
 
-Remote participants are not admitted on recipient routes (`local_actor` accepts only the two local credential models); `/api/shared/*` notification endpoints are unchanged. Subscription writes remain admin-only (see Admin Routes).
+Remote participants are not admitted on recipient routes (`local_actor` accepts only the two local credential models); `/api/shared/*` notification endpoints are unchanged. Subscription writes use the human-JWT-only Admin Routes below.
 
 | Method | Route | Purpose |
 |--------|-------|---------|
@@ -6818,6 +6852,10 @@ Remote participants are not admitted on recipient routes (`local_actor` accepts 
 | POST | `/habitats/:hid/notifications/admin/clear` | Admin clearance `{deliveryIds}` |
 | POST | `/habitats/:hid/notifications/admin/migrate-legacy` | Migrate legacy prefs |
 | GET | `/habitats/:hid/notifications/admin/delivery-monitor` | Channel attempt monitor |
+
+**Subscription PUT/DELETE authority:** both `/api` and `/api/v1` require a human JWT and URL-Habitat access. These two writes recheck current Habitat existence and Team membership in the same immediate transaction as the target lookup and mutation; PUT also reads its updated row inside that transaction. Any current Team member (including a viewer) may use them on that Team's Habitat; authenticated humans may use them on personal Habitats. Target lookup and final mutation bind subscription ID **and** URL Habitat. PUT also binds its result read to both keys; DELETE returns a boolean derived from its scoped delete count. After the applicable validation and authorization checks pass, a foreign or absent subscription returns generic `404` `Subscription not found` for PUT, or `200 {"deleted":false}` for DELETE, with no subscription fields. Missing PUT deliberately changes from the previous repository-error `500` to `404`. An inaccessible URL Habitat remains `403`; a missing Habitat is `404`.
+
+PUT retains body-validation-before-target-lookup ordering and requires the authenticated user's `admin` role for an explicitly supplied `required` field (including `false`). This does not add a stored-required-row policy: same-Habitat callers retain the existing ability to disable a required row or delete it without editing its `required` flag. The trusted legacy preference migration continues to use its existing internal updater.
 
 **Delivery monitor:** requires a human admin JWT and access to the requested Habitat (including current membership for a team-owned Habitat). Returns `{ attempts: NotificationDeliveryAttempt[] }` across all recipient types and IDs in that Habitat only. Attempts are ordered globally by `createdAt` descending, then `id` descending for ties; the limit applies to attempts, including multiple attempts for a single delivery. An empty Habitat or unmatched channel returns `{ attempts: [] }`.
 

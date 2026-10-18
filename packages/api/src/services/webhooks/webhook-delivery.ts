@@ -1,4 +1,5 @@
 import { v4 as uuid } from "uuid";
+import { readBoundedResponseText } from "../../utils/readBoundedResponseText.js";
 import { signPayload } from "../../utils/webhookSigning.js";
 import { fetchValidated, filterUnsafeHeaders, UrlRejectedError } from "../../config/integrationSecurity.js";
 import { logger } from "../../lib/logger.js";
@@ -96,7 +97,7 @@ export async function executeHttpRequest(
       body: payloadString,
     });
 
-    const body = await response.text();
+    const body = await readBoundedResponseText(response);
     return {
       success: response.ok,
       statusCode: response.status,

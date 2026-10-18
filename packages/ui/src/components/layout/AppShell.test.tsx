@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import React from "react";
 import { render, screen, cleanup, fireEvent } from "@testing-library/react";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { SessionStateProvider } from "../../lib/sessionState.js";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import "@testing-library/jest-dom/vitest";
 import { AppShell } from "./AppShell.js";
@@ -38,9 +38,8 @@ describe("AppShell", () => {
   });
 
   it("renders SideNavBar, TopAppBar, and child route outlet", () => {
-    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     render(
-      <QueryClientProvider client={qc}>
+      <SessionStateProvider>
         <MemoryRouter initialEntries={["/"]}>
           <Routes>
             <Route element={<AppShell />}>
@@ -48,7 +47,7 @@ describe("AppShell", () => {
             </Route>
           </Routes>
         </MemoryRouter>
-      </QueryClientProvider>,
+      </SessionStateProvider>,
     );
 
     expect(screen.getByTestId("side-nav-bar")).toBeInTheDocument();
@@ -59,10 +58,9 @@ describe("AppShell", () => {
 
   it("passes registered drawer callbacks to SideNavBar", () => {
     const onOpenStats = vi.fn();
-    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
 
     render(
-      <QueryClientProvider client={qc}>
+      <SessionStateProvider>
         <MemoryRouter initialEntries={["/habitats/board-1"]}>
           <Routes>
             <Route element={<AppShell />}>
@@ -73,7 +71,7 @@ describe("AppShell", () => {
             </Route>
           </Routes>
         </MemoryRouter>
-      </QueryClientProvider>,
+      </SessionStateProvider>,
     );
 
     fireEvent.click(screen.getByTestId("tool-item-stats"));

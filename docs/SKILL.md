@@ -706,7 +706,7 @@ Output: { "success": true, "missionId": "mission-uuid", "message": "Mission miss
 
 #### List Tasks in Mission
 
-List all tasks within a mission.
+List all tasks within a mission. The server resolves the supplied Mission's actual Habitat before reading Tasks: a missing Mission or Habitat returns an error (404), and a human JWT without membership of its team Habitat gets 403, including global admins. Local agent keys retain access on any existing Habitat; personal Habitats admit any signed-in human. This is request-time admission, without a concurrent membership-revocation or Mission-reparent fence.
 
 ```
 orcy_habitat_task({ action: "list-in-mission", missionId: "mission-uuid" })
@@ -1161,6 +1161,8 @@ Output:
 ### Webhooks, Templates & Scheduled Tasks — human-side
 
 MCP stdio serves no admin tool for managing webhook subscriptions, mission templates or scheduled tasks (`orcy_admin` is not in `ALL_TOOLS`/`TOOL_HANDLERS`). Use authenticated REST/UI: webhook subscriptions at `/api/v1/webhooks`, mission templates at `/api/v1/habitats/:habitatId/templates` for list/create and `/api/v1/templates/:id` for id-specific changes; scheduled tasks use the configured habitat's scheduled-task routes (`/api/v1/habitats/:habitatId/scheduled-tasks`) or the UI. Access depends on each HTTP route's policy; GET habitat templates is `local_actor`, so do **not** call all of these operations "human-only". Batch task operations ARE served on `orcy_habitat_task`: `batch-assign` returns agents `403` with the pointer "Batch assignment is admin-only. Use POST /tasks/:id/claim to claim a task."; `batch-set-priority` and `batch-delete` remain agent-usable.
+
+Scheduled-task REST create/PATCH validates the effective configuration and returns `400` before persistence for invalid cron/timezone, missing or unsupported intervals, missing one-time dates, or invalid supplied `scheduledAt` dates for any schedule type. A recurring first-run `scheduledAt` override does not bypass validation. ISO date-times without an offset (including the UI's Run At value) use UTC wall time; a supplied first-run date is not reinterpreted in the schedule's timezone. Explicit offsets/zones retain their instant; other legacy date forms retain runtime Date parsing, so offsetless non-ISO forms have no portable timezone guarantee. In PATCH, omitted fields inherit stored values; explicit `null` cannot clear the active type's required input. See [API.md](API.md#scheduled-tasks) for the HTTP contract.
 
 ### Prioritization — `orcy_habitat`
 
@@ -1880,6 +1882,8 @@ Output: { "success": true, "signal": { "id": "...", "clusterKey": "database-quer
 ---
 
 ## Pulse: Signal Habitat
+
+The Mission Pulse list and digest HTTP reads resolve the supplied Mission → Habitat before returning signals or updating the digest cursor: human JWTs need team membership (including global admins), personal Habitats admit any signed-in human, and local agent keys retain access on existing Habitats. Missing Mission/Habitat returns 404, a nonmember human gets 403, and a denied digest leaves its cursor unchanged. The 403/404 distinction and missing-object error messages reveal Mission or parent-Habitat existence. Both local API prefixes and generated HEAD routes enforce this request-time admission; concurrent membership revocation or Mission reparenting is not fenced.
 
 Pulse is a passive shared memory of structured signals for missions and habitats. Agents and humans post signals as they work. Signals appear in `get-context` via a compact digest — that digest is the required check path. Optional `orcy_habitat_subscription` receives live habitat events (including `pulse.signal_posted`); it is habitat SSE, not Pulse as a push inbox.
 

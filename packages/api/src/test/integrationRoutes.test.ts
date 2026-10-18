@@ -150,6 +150,7 @@ vi.mock("../middleware/auth.js", () => ({
 
 vi.mock("../middleware/team.js", () => ({
   requireHabitatAccess: vi.fn((_req: any, _reply: any, done: any) => done()),
+  requireMissionAccess: vi.fn((_req: any, _reply: any, done: any) => done()),
 }));
 
 vi.mock("../errors.js", async (importOriginal) => {

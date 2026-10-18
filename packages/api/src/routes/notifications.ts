@@ -9,6 +9,7 @@ import {
   migrateLegacyPreferences,
   isLegacyMigrationComplete,
 } from "../services/notificationMigrationService.js";
+import { updateHabitatSubscription, deleteHabitatSubscription } from "../services/notificationSubscriptionAdministration.js";
 import { adminClearDeliveries } from "../services/notificationClearanceService.js";
 import { projectNotificationEventData } from "../services/notificationService.js";
 import { requireHabitatAccess } from "../middleware/team.js";
@@ -261,7 +262,7 @@ export async function notificationRoutes(fastify: FastifyInstance): Promise<void
     "/habitats/:habitatId/notifications/admin/subscriptions/:subscriptionId",
     { preHandler: [requireHabitatAccess], config: { authPolicy: "human" } },
     async (request, _reply) => {
-      const { subscriptionId } = request.params;
+      const { habitatId, subscriptionId } = request.params;
       const parsed = updateSubscriptionSchema.safeParse(request.body);
       if (!parsed.success) {
         throw badRequest("Validation failed", parsed.error.flatten());
@@ -269,7 +270,7 @@ export async function notificationRoutes(fastify: FastifyInstance): Promise<void
       if (parsed.data.required !== undefined && request.user!.role !== "admin") {
         throw forbidden("Only admins can change required flag");
       }
-      return subscriptionRepo.updateSubscription(subscriptionId, parsed.data);
+      return updateHabitatSubscription(habitatId, subscriptionId, request.user!.id, parsed.data);
     },
   );
 
@@ -278,8 +279,8 @@ export async function notificationRoutes(fastify: FastifyInstance): Promise<void
     "/habitats/:habitatId/notifications/admin/subscriptions/:subscriptionId",
     { preHandler: [requireHabitatAccess], config: { authPolicy: "human" } },
     async (request, _reply) => {
-      const { subscriptionId } = request.params;
-      const deleted = subscriptionRepo.deleteSubscription(subscriptionId);
+      const { habitatId, subscriptionId } = request.params;
+      const deleted = deleteHabitatSubscription(habitatId, subscriptionId, request.user!.id);
       return { deleted };
     },
   );

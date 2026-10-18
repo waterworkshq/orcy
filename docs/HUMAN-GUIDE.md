@@ -35,6 +35,16 @@ When reviewers are assigned, their approvals are required for completion; review
 6. **Configure MCP** — Add the Orcy MCP server to your project's `.mcp.json`
 7. **Monitor and review** — Watch real-time updates, approve or reject submissions with feedback
 
+## Switching accounts
+
+Choose **Logout** from the user menu to return to sign-in. Logout immediately removes the local credential and clears cached account data, selections, notifications and the open task modal, even if the server logout request fails. Signing in or creating an account starts a fresh account view in the same tab; your theme preference is retained. Pending exports and attachment downloads from the retired account will not start a browser download, and its pending settings deletion will not redirect the new account. Completion and error notices from Habitat creation/deletion, Task creation/cloning/assignment/recovery, preference saves, integration changes and attachment/export actions are emitted only while their originating session remains active; later notices are suppressed after logout or account replacement. An action the server already accepted may still complete after logout.
+
+## Scheduled missions
+
+Use the habitat's scheduled-task settings or the authenticated [scheduled-task API](API.md#scheduled-tasks) to create recurring or one-time missions. Cron schedules need a valid expression and timezone (default `UTC`); interval schedules need a positive whole number of minutes within the supported date range; one-time schedules need a valid date. Past one-time dates are accepted. The form's Run At value is UTC wall time; selecting a different timezone does not shift that supplied first run. The selected timezone still controls cron recurrence. API dates with an explicit offset or zone preserve their instant; prefer those or ISO dates over ambiguous legacy date formats. Invalid create or edit combinations return `400` and leave stored data unchanged; when switching schedule types, supply the new type's required input in the same edit.
+
+If an older schedule is malformed, the processor logs its schedule ID and a bounded error while continuing other due tasks and audit exports. A failure before occurrence reservation leaves that row enabled and due; it is retried on later polls. Disable it through the schedule's disable action while investigating, then repair the configuration. A task-scan failure is reported separately from failed-row counts and still allows the audit-export stage to run. Work already reserved remains under the existing occurrence and lease-recovery rules.
+
 ## Resolving Review Requirements (operators)
 
 Tasks migrated from earlier versions carry a `legacy_unknown` review
@@ -508,6 +518,22 @@ The UI updates automatically via Server-Sent Events (SSE). You don't need to ref
 - Status badges update in real-time
 - Agent panel shows live heartbeat status
 
+### Access to Mission Details and Linked Issues
+
+Reading a Mission, its details (including Tasks and activity), its task list, progress, linked external issues,
+Pulse signal list or Pulse digest requires
+membership of the Mission's Team Habitat. A global Orcy admin also needs that membership. Personal
+Habitats admit any signed-in human, and local agent keys retain access on existing Habitats. The
+server uses the Mission's saved Habitat; supplying another Habitat ID does not grant access.
+
+A human who is not a member gets `403` for an existing Mission; a missing Mission or parent Habitat
+returns `404` (“not found”), including the external-links read. This distinction lets a caller probe
+whether a Mission ID exists, without returning its contents. An accessible Mission with no linked
+external issues still returns an empty list. Admission is checked when the request begins; it does not
+fence a membership revocation or Mission reparenting that happens while the request is running.
+A refused Pulse digest does not mark signals as read. These seven reads have the same admission on both
+local API prefixes and their generated HEAD routes; other Mission adjuncts retain their own policies.
+
 ### Access to Task Details, Estimates and Watchers
 
 On a **team** Habitat, opening a Task's details, setting its estimate, watching or unwatching it, and
@@ -550,6 +576,10 @@ stored chain has been checked. See the API documentation for each route's exact 
 
 For these guarded operations, a missing Task and an inaccessible team Task answer differently ("not found"
 versus "no access"). A caller can therefore probe whether a supplied Task ID exists. This is a known limit.
+
+### Webhook Delivery Diagnostics
+
+Webhook response summaries may be shortened. Outgoing board/notification webhook summaries keep at most 1,024 characters, compact remote webhooks 2,000, and plugin webhook calls 1,000 (JavaScript UTF-16 code units), drawn from at most an 8,192-byte decoded-body prefix. A large diagnostic response alone does not make an HTTP 2xx delivery fail or trigger another send. Use the receiver's logs when you need its complete response.
 
 ### Orcy Status
 
@@ -627,6 +657,14 @@ Sessions are isolated per task. Each session gets:
 - The CLI's native task prompt (task title + description)
 
 Sessions exit on task completion (exit code 0), failure (non-zero), or timeout. The daemon reports the outcome to the API and moves on to the next task.
+
+## Editing Wiki Pages
+
+Wiki text and metadata have separate save buttons. **Save version** saves the title, markdown content, and edit summary; **Save metadata** saves the parent page, tags, and draft/published status. Saving one group or adding/removing a citation preserves unsaved changes in the other fields. Changes you type while a save is pending remain in the editor after that request finishes. Failed saves retain your draft so you can correct the problem and retry. After either a successful or failed save, the editor also checks server changes observed while that field group was pending.
+
+Outside a pending save, background refreshes update fields you have not edited. When a refresh or a completed save reveals an observed conflicting server value, the editor keeps your draft and asks you to **Keep my** value or **Use server** value before saving that group. This choice handles changes the editor has already observed; it does not lock the page or prevent a later concurrent write.
+
+Drafts live only in the current editor. Opening another page or Habitat, switching between create and edit, cancelling, or leaving the editor discards that local draft. An old create response cannot navigate an editor that has since changed identity.
 
 ## Plugin Enrollment
 
