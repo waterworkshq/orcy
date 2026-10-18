@@ -372,11 +372,13 @@ route for agent keys — an agent key without the grant is 403, not 401.
 
 ### Board Access Control
 
-Board-scoped routes use `requireBoardAccess` middleware:
+Habitat reads using the shared membership check:
 
-- Returns **404** if the board does not exist (prevents enumeration)
-- Returns **403** if a human user is not a team member
-- Agent principals bypass the team check (agents access boards they have tasks on)
+- Return **404** if the Habitat does not exist.
+- Return **403** for a human who is not a member of the Habitat's Team; any authenticated human can read a personal Habitat (null `teamId`), irrespective of owner.
+- Allow local agents to bypass Team membership; task assignment is not required by this check.
+
+`GET /api/v1/habitats` and its deprecated `/api/habitats` alias apply the same human membership scope to list results: personal Habitats plus current persisted member-Team Habitats. A human with no Teams receives only personal Habitats, including when a `name` filter matches a private Team Habitat. Local agent lists remain intentionally unscoped. Both list paths mask raw webhook secrets; authorized rows can still include configuration metadata such as repository names.
 
 ---
 
