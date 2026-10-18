@@ -32,6 +32,9 @@
  * path (unchanged as outer dispatcher).
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import { mkdtemp, writeFile, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { eq, sql } from "drizzle-orm";
 import { closeDb, getDb, initTestDb } from "../db/index.js";
 import {
@@ -51,6 +54,9 @@ import * as columnRepo from "../repositories/column.js";
 import * as scheduledTaskRepo from "../repositories/scheduledTask.js";
 import * as templateRepo from "../repositories/template.js";
 import * as pluginManager from "../plugins/pluginManager.js";
+import * as enrollmentRepo from "../repositories/pluginEnrollment.js";
+import * as occurrenceRepo from "../repositories/scheduledOccurrences.js";
+import { registerScheduledTaskHandler } from "../repositories/scheduledHandlerRegistry.js";
 import {
   reserveScheduledOccurrence,
   type ReserveScheduledOccurrenceInput,
@@ -62,6 +68,7 @@ import {
   reclaimAndStampOccurrenceWithClient,
   getOccurrenceWithClient,
   listOccurrencesWithExpiredLeasesWithClient,
+  listClaimableReservedOccurrencesWithClient,
 } from "../repositories/scheduledOccurrences.js";
 import {
   listPendingTaskCreationAttemptsForScopeWithClient,
@@ -75,6 +82,7 @@ import {
 import {
   createRecoveryWorkerId,
   recoverExpiredOccurrenceLeases,
+  recoverReservedOccurrences,
   startOccurrenceLeaseRecoveryWorker,
 } from "../services/scheduledOccurrenceRecovery.js";
 import type { TaskPriority, TaskTemplateEntry } from "@orcy/shared";
@@ -746,6 +754,304 @@ describe("startOccurrenceLeaseRecoveryWorker — boot-registration (live since v
       clearInterval(handle);
     } finally {
       vi.useRealTimers();
+    }
+  });
+
+  it("completes a reserved inline one-shot on a worker tick without consuming its slot again", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(NOW_ISO));
+    let handle: ReturnType<typeof startOccurrenceLeaseRecoveryWorker> | undefined;
+    try {
+      const db = getDb();
+      const schedule = scheduledTaskRepo.createScheduledTask({
+        habitatId,
+        name: "Reserved inline one-shot",
+        scheduleType: "once",
+        scheduledAt: NOW_ISO,
+        nextRunAt: NOW_ISO,
+        missionTitle: "Recovered reserved mission",
+        tasksTemplate: [{ title: "Recovered reserved task", order: 0 }],
+        createdBy: "test",
+      });
+      const { id: occurrenceId } = reserveOccurrenceForSchedule(schedule.id, {
+        nextRunAt: "9999-12-31T23:59:59.000Z",
+      });
+      const reserved = readOccurrence(occurrenceId);
+      const consumed = scheduledTaskRepo.getScheduledTaskById(schedule.id)!;
+      expect(reserved.state).toBe("reserved");
+      expect(reserved.leaseOwner).toBeNull();
+      expect(reserved.attemptId).not.toBeNull();
+      expect(consumed).toMatchObject({ enabled: false, runCount: 1 });
+      expect(db.select().from(missions).all()).toHaveLength(0);
+
+      handle = startOccurrenceLeaseRecoveryWorker(1_000, { leaseOwner: "reserved-recovery-worker" });
+      vi.advanceTimersByTime(1_000);
+
+      const completed = readOccurrence(occurrenceId);
+      expect(completed.state).toBe("published");
+      expect(completed).toMatchObject({
+        id: reserved.id,
+        scheduledTaskId: reserved.scheduledTaskId,
+        scheduledFor: reserved.scheduledFor,
+        ordinal: reserved.ordinal,
+        attemptId: reserved.attemptId,
+        scheduleRevision: reserved.scheduleRevision,
+      });
+      const createdMissions = db.select().from(missions).all();
+      expect(createdMissions).toHaveLength(1);
+      expect(completed.createdMissionId).toBe(createdMissions[0].id);
+      expect(db.select().from(tasks).all()).toHaveLength(1);
+      expect(db.select().from(scheduledOccurrences).all()).toHaveLength(1);
+      expect(scheduledTaskRepo.getScheduledTaskById(schedule.id)).toMatchObject({
+        enabled: consumed.enabled,
+        runCount: consumed.runCount,
+        nextRunAt: consumed.nextRunAt,
+        lastRunAt: consumed.lastRunAt,
+      });
+    } finally {
+      if (handle !== undefined) clearInterval(handle);
+      vi.useRealTimers();
+    }
+  });
+});
+
+describe("reserved occurrence automatic recovery", () => {
+  it("publishes a template reservation with the original coordination attempt and no second advance", () => {
+    const { id: scheduleId } = createSchedule();
+    const { id } = reserveOccurrenceForSchedule(scheduleId);
+    const reserved = readOccurrence(id);
+    const consumed = scheduledTaskRepo.getScheduledTaskById(scheduleId)!;
+    const result = recoverReservedOccurrences({ leaseOwner: "template-recovery" });
+    expect(result).toMatchObject({ scanned: 1, terminalized: 1, resumable: 0, skipped: 0 });
+    expect(result.details).toEqual([{ occurrenceId: id, publication: "published" }]);
+    expect(readOccurrence(id)).toMatchObject({ state: "published", attemptId: reserved.attemptId,
+      scheduledFor: reserved.scheduledFor, ordinal: reserved.ordinal, scheduleRevision: reserved.scheduleRevision });
+    expect(getDb().select().from(missions).all()).toHaveLength(1);
+    expect(getDb().select().from(tasks).all()).toHaveLength(2);
+    expect(scheduledTaskRepo.getScheduledTaskById(scheduleId)).toMatchObject({
+      runCount: consumed.runCount, nextRunAt: consumed.nextRunAt, enabled: consumed.enabled,
+    });
+    expect(recoverReservedOccurrences({ leaseOwner: "second-worker" }).scanned).toBe(0);
+  });
+
+  it("honors handler precedence over template and inline work and dispatches only once", () => {
+    const handlerKey = "reserved-recovery-precedence";
+    const handler = vi.fn(() => ({ success: true }));
+    registerScheduledTaskHandler(handlerKey, handler);
+    try {
+      const { id: scheduleId } = createSchedule({ handlerKey, tasksTemplate: [{ title: "Inline fallback", order: 0 }] });
+      const { id } = reserveOccurrenceForSchedule(scheduleId);
+      const attemptId = readOccurrence(id).attemptId;
+      const result = recoverReservedOccurrences({ leaseOwner: "handler-recovery" });
+      expect(result.details).toEqual([{ occurrenceId: id, publication: "dispatched" }]);
+      expect(handler).toHaveBeenCalledTimes(1);
+      expect(readOccurrence(id)).toMatchObject({ state: "published", attemptId, createdMissionId: null,
+        result: { kind: "handler_dispatched", handlerKey } });
+      expect(getDb().select().from(taskCreationAttempts).where(eq(taskCreationAttempts.id, attemptId!)).get())
+        .toMatchObject({ state: "created" });
+      expect(getDb().select().from(missions).all()).toHaveLength(0);
+      recoverReservedOccurrences({ leaseOwner: "second-handler-worker" });
+      expect(handler).toHaveBeenCalledTimes(1);
+    } finally {
+      registerScheduledTaskHandler(handlerKey, () => ({ success: true }));
+    }
+  });
+
+  it("completes an early manual future slot while retaining its original actor and consumption", () => {
+    const future = "2090-01-01T00:00:00.000Z";
+    const trigger = { actorId: "original-manual-actor", requestedAt: NOW_ISO, scheduledFor: future };
+    const { id: scheduleId } = createSchedule({ templateId: null, scheduleType: "once", intervalMinutes: null,
+      scheduledAt: future, nextRunAt: future, tasksTemplate: [{ title: "Future manual task", order: 0 }] });
+    const { id } = reserveOccurrenceForSchedule(scheduleId, { admission: "manual", scheduledFor: future,
+      manualTrigger: trigger, nextRunAt: "9999-12-31T23:59:59.000Z" });
+    const reserved = readOccurrence(id);
+    expect(recoverReservedOccurrences({ leaseOwner: "future-slot-worker", now: NOW_ISO }).terminalized).toBe(1);
+    expect(readOccurrence(id)).toMatchObject({ state: "published", scheduledFor: future, ordinal: reserved.ordinal,
+      attemptId: reserved.attemptId, scheduleRevision: { _manualTrigger: trigger } });
+    expect(scheduledTaskRepo.getScheduledTaskById(scheduleId)).toMatchObject({ enabled: false, runCount: 1,
+      nextRunAt: "9999-12-31T23:59:59.000Z" });
+  });
+
+  it("retains snapshot guards and hands resumable work to the existing durable reclaim budget", () => {
+    const { id: scheduleId } = createSchedule();
+    const { id } = reserveOccurrenceForSchedule(scheduleId);
+    const frozen = readOccurrence(id).scheduleRevision;
+    scheduledTaskRepo.updateScheduledTask(scheduleId, { missionTitle: "Changed after reservation" });
+    const result = recoverReservedOccurrences({ leaseOwner: "initial-recovery", now: RECOVERY_NOW });
+    expect(result.details).toEqual([{ occurrenceId: id, publication: "schedule_guard_mismatch" }]);
+    expect(result.resumable).toBe(1);
+    expect(readOccurrence(id)).toMatchObject({ state: "publishing", leaseOwner: "initial-recovery", scheduleRevision: frozen });
+    expect(readOccurrence(id).result?.reclaimCount).toBeUndefined();
+    expect(getDb().select().from(missions).all()).toHaveLength(0);
+    const reclaimed = recoverExpiredOccurrenceLeases({ leaseOwner: "expired-recovery", maxReclaims: 0,
+      now: new Date(Date.parse(RECOVERY_NOW) + 60_000).toISOString() });
+    expect(reclaimed).toMatchObject({ reclaimed: 1, exhausted: 1, terminalized: 1 });
+    expect(readOccurrence(id)).toMatchObject({ state: "rejected", result: { reason: "recovery_exhausted", reclaimCount: 1 } });
+  });
+
+  it("rejects a deleted schedule through the existing publisher and terminalizes its original coordination", () => {
+    const { id: scheduleId } = createSchedule({ templateId: null, tasksTemplate: [{ title: "Lost schedule task", order: 0 }] });
+    const { id } = reserveOccurrenceForSchedule(scheduleId);
+    const attemptId = readOccurrence(id).attemptId!;
+    getDb().delete(scheduledTasks).where(eq(scheduledTasks.id, scheduleId)).run();
+    const result = recoverReservedOccurrences({ leaseOwner: "missing-schedule-recovery" });
+    expect(result.details).toEqual([{ occurrenceId: id, publication: "schedule_missing" }]);
+    expect(readOccurrence(id)).toMatchObject({ state: "rejected", attemptId, result: { reason: "schedule_missing" } });
+    expect(getDb().select().from(taskCreationAttempts).where(eq(taskCreationAttempts.id, attemptId)).get())
+      .toMatchObject({ state: "batch_rejected" });
+  });
+
+  it("handles an absent snapshot through existing typed validation instead of throwing before the claim", () => {
+    const { id: scheduleId } = createSchedule();
+    const { id } = reserveOccurrenceForSchedule(scheduleId);
+    getDb().update(scheduledOccurrences).set({ scheduleRevision: null }).where(eq(scheduledOccurrences.id, id)).run();
+    const result = recoverReservedOccurrences({ leaseOwner: "legacy-snapshot-worker" });
+    expect(result.details).toEqual([{ occurrenceId: id, publication: "rejected_validation" }]);
+    expect(readOccurrence(id).state).toBe("rejected");
+    expect(getDb().select().from(missions).all()).toHaveLength(0);
+  });
+
+  it("applies governance vetoes during automatic completion without creating a Mission", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "reserved-recovery-veto-"));
+    try {
+      await writeFile(join(directory, "reserved-veto.mjs"), `export default {
+        manifest: { id: 'reserved-veto', version: '1.0.0', description: 'recovery veto', contributions: [
+          { kind: 'lifecycleInterceptor', scope: 'habitat', interceptorId: 'deny', phase: 'pre', event: 'taskCreated', priority: 1, requires: [] }
+        ] }, interceptors: { deny: () => ({ allow: false, reason: 'automatic completion denied' }) }
+      };`);
+      pluginManager.setPluginDirectory(directory);
+      await pluginManager.loadPlugins();
+      enrollmentRepo.create({ habitatId, pluginId: "reserved-veto", contributionId: "deny",
+        contributionKind: "lifecycleInterceptor", enrolledBy: "test", enabled: 1 });
+      pluginManager.invalidateEnrollmentCache(habitatId);
+      const { id: scheduleId } = createSchedule();
+      const { id } = reserveOccurrenceForSchedule(scheduleId);
+      const result = recoverReservedOccurrences({ leaseOwner: "governance-recovery" });
+      expect(result.details).toEqual([{ occurrenceId: id, publication: "vetoed" }]);
+      expect(readOccurrence(id)).toMatchObject({ state: "rejected", result: { reason: "vetoed" } });
+      expect(getDb().select().from(missions).all()).toHaveLength(0);
+      expect(getDb().select().from(tasks).all()).toHaveLength(0);
+    } finally {
+      pluginManager.resetPlugins();
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
+  it("filters more than a full page of active and non-expiring reserved leases before limiting", () => {
+    const db = getDb();
+    const { id: scheduleId } = createSchedule();
+    const { id } = reserveOccurrenceForSchedule(scheduleId);
+    const row = readOccurrence(id);
+    db.update(scheduledOccurrences).set({ createdAt: "2001-01-01T00:00:00.000Z" })
+      .where(eq(scheduledOccurrences.id, id)).run();
+    db.insert(scheduledOccurrences).values(Array.from({ length: 101 }, (_, index) => ({
+      ...row, id: `blocked-reserved-${index}`, scheduledFor: `blocked-slot-${index}`, attemptId: null,
+      createdAt: "2000-01-01T00:00:00.000Z", leaseOwner: "active-owner",
+      leaseExpiresAt: index % 2 === 0 ? LEASE_FUTURE : null,
+    }))).run();
+    const unfilteredOldest = db.select().from(scheduledOccurrences)
+      .orderBy(scheduledOccurrences.createdAt, scheduledOccurrences.id).limit(1).get()!;
+    expect(unfilteredOldest.id).toMatch(/^blocked-reserved-/);
+    expect(unfilteredOldest.leaseOwner).toBe("active-owner");
+    expect(listClaimableReservedOccurrencesWithClient(db, NOW_ISO, { limit: 1 }).map((entry) => entry.id)).toEqual([id]);
+    expect(recoverReservedOccurrences({ leaseOwner: "backlog-recovery", limit: 1 }).terminalized).toBe(1);
+    expect(readOccurrence(id).state).toBe("published");
+    expect(db.select().from(scheduledOccurrences).where(eq(scheduledOccurrences.state, "reserved")).all()).toHaveLength(101);
+  });
+
+  it("matches the first-claim lease predicate and orders tied candidates by ID", () => {
+    const db = getDb();
+    const { id: scheduleId } = createSchedule();
+    const { id } = reserveOccurrenceForSchedule(scheduleId);
+    const row = readOccurrence(id);
+    db.update(scheduledOccurrences).set({ leaseOwner: "active-owner", leaseExpiresAt: LEASE_FUTURE })
+      .where(eq(scheduledOccurrences.id, id)).run();
+    db.insert(scheduledOccurrences).values([
+      { ...row, id: "claimable-b", scheduledFor: "slot-b", attemptId: null, leaseOwner: null, leaseExpiresAt: LEASE_FUTURE },
+      { ...row, id: "claimable-a", scheduledFor: "slot-a", attemptId: null, leaseOwner: "expired-owner", leaseExpiresAt: LEASE_PAST },
+    ]).run();
+    expect(listClaimableReservedOccurrencesWithClient(db, NOW_ISO, { limit: 2 }).map((entry) => entry.id))
+      .toEqual(["claimable-a", "claimable-b"]);
+    expect(() => listClaimableReservedOccurrencesWithClient(db, NOW_ISO, { limit: -1 })).toThrow(RangeError);
+  });
+
+  it("drains a bounded backlog over multiple passes without creating replacement reservations", () => {
+    const ids = Array.from({ length: 3 }, (_, index) =>
+      reserveOccurrenceForSchedule(createSchedule({ name: `Bounded backlog ${index}` }).id).id);
+    const first = recoverReservedOccurrences({ leaseOwner: "bounded-worker", limit: 2 });
+    expect(first).toMatchObject({ scanned: 2, terminalized: 2 });
+    const second = recoverReservedOccurrences({ leaseOwner: "bounded-worker", limit: 2 });
+    expect(second).toMatchObject({ scanned: 1, terminalized: 1 });
+    expect(getDb().select().from(scheduledOccurrences).all()).toHaveLength(3);
+    expect(ids.map((id) => readOccurrence(id).state)).toEqual(["published", "published", "published"]);
+    expect(getDb().select().from(missions).all()).toHaveLength(3);
+  });
+
+  it("leaves expired-lease recovery's reserved admission unchanged and skips a claimed publication", () => {
+    const { id: scheduleId } = createSchedule();
+    const { id } = reserveOccurrenceForSchedule(scheduleId);
+    const reserved = readOccurrence(id);
+    expect(recoverExpiredOccurrenceLeases({ leaseOwner: "expired-only", now: LEASE_FUTURE }).scanned).toBe(0);
+    expect(readOccurrence(id)).toEqual(reserved);
+    simulateCrashedWorker(id, "original-publisher", LEASE_FUTURE);
+    expect(recoverReservedOccurrences({ leaseOwner: "reserved-only" }).scanned).toBe(0);
+    expect(readOccurrence(id)).toMatchObject({ state: "publishing", leaseOwner: "original-publisher" });
+    expect(getDb().select().from(missions).all()).toHaveLength(0);
+  });
+
+  it.each(["before claim", "after claim"] as const)("isolates a row infrastructure failure %s and continues with later work", (phase) => {
+    const db = getDb();
+    const { id: failed } = reserveOccurrenceForSchedule(createSchedule({ name: "Failing row schedule" }).id);
+    const { id: healthy } = reserveOccurrenceForSchedule(createSchedule({ name: "Healthy row schedule" }).id);
+    db.update(scheduledOccurrences).set({ createdAt: "2000-01-01T00:00:00.000Z" }).where(eq(scheduledOccurrences.id, failed)).run();
+    db.update(scheduledOccurrences).set({ createdAt: "2001-01-01T00:00:00.000Z" }).where(eq(scheduledOccurrences.id, healthy)).run();
+    expect(listClaimableReservedOccurrencesWithClient(db, RECOVERY_NOW).map((row) => row.id)).toEqual([failed, healthy]);
+    const targetState = phase === "before claim" ? "publishing" : "published";
+    db.run(sql.raw(`CREATE TRIGGER reserved_recovery_row_failure BEFORE UPDATE OF state ON scheduled_occurrences
+      WHEN OLD.id = '${failed}' AND NEW.state = '${targetState}' BEGIN SELECT RAISE(ABORT, 'reserved recovery row fault'); END`));
+    try {
+      const result = recoverReservedOccurrences({ leaseOwner: "row-failure-worker", now: RECOVERY_NOW });
+      expect(result).toMatchObject({ scanned: 2, skipped: 1, terminalized: 1 });
+      expect(result.details).toEqual([
+        { occurrenceId: failed, publication: "infrastructure_error" },
+        { occurrenceId: healthy, publication: "published" },
+      ]);
+      expect(readOccurrence(failed).state).toBe(phase === "before claim" ? "reserved" : "publishing");
+      expect(readOccurrence(healthy).state).toBe("published");
+      expect(db.select().from(missions).all()).toHaveLength(1);
+    } finally {
+      db.run(sql`DROP TRIGGER reserved_recovery_row_failure`);
+    }
+    if (phase === "after claim") {
+      expect(recoverExpiredOccurrenceLeases({ leaseOwner: "after-failure-recovery",
+        now: new Date(Date.parse(RECOVERY_NOW) + 60_000).toISOString() }).reclaimed).toBe(1);
+      expect(readOccurrence(failed)).toMatchObject({ state: "published" });
+      expect(db.select().from(missions).all()).toHaveLength(2);
+    }
+  });
+
+  it.each(["expired", "reserved"] as const)("a failed %s scan does not prevent the other worker pass", (failedPass) => {
+    const { id: expiredId } = reserveOccurrenceForSchedule(createSchedule({ name: "Expired scan schedule" }).id);
+    simulateCrashedWorker(expiredId, "crashed-worker", LEASE_PAST);
+    const { id: reservedId } = reserveOccurrenceForSchedule(createSchedule({ name: "Reserved scan schedule" }).id);
+    // Deliberate read-boundary fault injection: a real DB cannot selectively
+    // fail one of these scans without an artificial infrastructure seam.
+    const scan = failedPass === "expired" ? "listOccurrencesWithExpiredLeasesWithClient" : "listClaimableReservedOccurrencesWithClient";
+    const spy = vi.spyOn(occurrenceRepo, scan).mockImplementationOnce(() => { throw new Error("scan unavailable"); });
+    vi.useFakeTimers();
+    let handle: ReturnType<typeof startOccurrenceLeaseRecoveryWorker> | undefined;
+    try {
+      handle = startOccurrenceLeaseRecoveryWorker(1_000);
+      vi.advanceTimersByTime(1_000);
+      expect(readOccurrence(failedPass === "expired" ? reservedId : expiredId).state).toBe("published");
+      expect(readOccurrence(failedPass === "expired" ? expiredId : reservedId).state)
+        .toBe(failedPass === "expired" ? "publishing" : "reserved");
+      vi.advanceTimersByTime(1_000);
+      expect([readOccurrence(expiredId).state, readOccurrence(reservedId).state]).toEqual(["published", "published"]);
+    } finally {
+      if (handle !== undefined) clearInterval(handle);
+      vi.useRealTimers();
+      spy.mockRestore();
     }
   });
 });
