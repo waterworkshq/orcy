@@ -1,6 +1,7 @@
 import React, { useState, useRef, useCallback } from 'react';
 import { api } from '../../api/index.js';
 import { notify } from '../../lib/toast.js';
+import { useSessionLiveness } from '../../lib/sessionState.js';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/Card.js';
 import { ConfirmDialog } from '../ui/ConfirmDialog.js';
 import type { TaskAttachment } from '../../types/index.js';
@@ -24,6 +25,7 @@ export function AttachmentSection({ taskId, attachments: initialAttachments }: {
   taskId: string;
   attachments: TaskAttachment[];
 }) {
+  const isSessionActive = useSessionLiveness();
   const [attachments, setAttachments] = useState<TaskAttachment[]>(initialAttachments);
   const [uploading, setUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
@@ -52,6 +54,7 @@ export function AttachmentSection({ taskId, attachments: initialAttachments }: {
   async function handleDownload(attachment: TaskAttachment) {
     try {
       const { blob, filename } = await api.attachments.download(attachment.id);
+      if (!isSessionActive()) return;
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;

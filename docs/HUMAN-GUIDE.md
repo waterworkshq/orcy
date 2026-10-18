@@ -35,6 +35,10 @@ When reviewers are assigned, their approvals are required for completion; review
 6. **Configure MCP** — Add the Orcy MCP server to your project's `.mcp.json`
 7. **Monitor and review** — Watch real-time updates, approve or reject submissions with feedback
 
+## Switching accounts
+
+Choose **Logout** from the user menu to return to sign-in. Logout immediately removes the local credential and clears cached account data, selections, notifications and the open task modal, even if the server logout request fails. Signing in or creating an account starts a fresh account view in the same tab; your theme preference is retained. Pending exports and attachment downloads from the retired account will not start a browser download, and its pending settings deletion will not redirect the new account. An action the server already accepted may still complete after logout.
+
 ## Resolving Review Requirements (operators)
 
 Tasks migrated from earlier versions carry a `legacy_unknown` review

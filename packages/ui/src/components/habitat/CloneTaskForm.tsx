@@ -24,6 +24,7 @@ import {
 } from "../../lib/habitatMutations.js";
 import { queryKeys } from "../../lib/queryKeys.js";
 import { notify } from "../../lib/toast.js";
+import { useSessionLiveness } from "../../lib/sessionState.js";
 import type {
   ClonePreparationView,
   ClonePreparationSubtaskView,
@@ -83,6 +84,7 @@ function generateAttemptKey(): string {
  * for the rationale).
  */
 export function CloneTaskForm({ open, onClose, sourceTask, habitatId }: CloneTaskFormProps) {
+  const isSessionActive = useSessionLiveness();
   const qc = useQueryClient();
   const { data: agents = [] } = useAgents();
 
@@ -297,6 +299,7 @@ export function CloneTaskForm({ open, onClose, sourceTask, habitatId }: CloneTas
   }
 
   async function runPoll(attemptId: string) {
+    if (!isSessionActive()) return;
     if (pollDeadlineRef.current !== null && Date.now() > pollDeadlineRef.current) {
       stopPolling();
       setPolling(false);
@@ -305,6 +308,7 @@ export function CloneTaskForm({ open, onClose, sourceTask, habitatId }: CloneTas
     }
     try {
       const status = await taskPublicationsApi.getTaskCreationAttempt(attemptId);
+      if (!isSessionActive()) return;
       if (status.state === "created_unassigned") {
         const failure = readAssignmentFailure(status) ?? {
           reason: status.terminalOutcome ?? "assignment_failed",
@@ -361,6 +365,7 @@ export function CloneTaskForm({ open, onClose, sourceTask, habitatId }: CloneTas
   }
 
   function handlePublicationOutcome(parsed: TaskPublicationOutcomeView, finalMissionId: string) {
+    if (!isSessionActive()) return;
     switch (parsed.outcome) {
       case "created": {
         if ("recovering" in parsed && parsed.recovering) {
@@ -464,6 +469,7 @@ export function CloneTaskForm({ open, onClose, sourceTask, habitatId }: CloneTas
   }
 
   async function fallbackToLegacyClone() {
+    if (!isSessionActive()) return;
     // The cutover flag is off → fall back to the immediate-copy legacy
     // `POST /tasks/:id/clone`. This bypasses the edit step (the user
     // cannot edit before clone when the flag is off).

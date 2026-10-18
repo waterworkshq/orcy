@@ -9,8 +9,10 @@ import { Plus, LayoutGrid, Users } from "lucide-react";
 import { useHabitats, useMyTeams } from "../../lib/useHabitatData.js";
 import { useQueryClient } from "@tanstack/react-query";
 import { queryKeys } from "../../lib/queryKeys.js";
+import { useSessionLiveness } from "../../lib/sessionState.js";
 
 export function HabitatListPage() {
+  const isSessionActive = useSessionLiveness();
   const { data: boardsData, isLoading: loading } = useHabitats();
   const { data: teamsData } = useMyTeams();
   const queryClient = useQueryClient();
@@ -53,6 +55,7 @@ export function HabitatListPage() {
           teamScopeIncarnation: ledger.incarnation,
         };
       }
+      if (!isSessionActive()) return;
       await api.habitats.create({
         name: newName.trim(),
         description: newDesc.trim(),

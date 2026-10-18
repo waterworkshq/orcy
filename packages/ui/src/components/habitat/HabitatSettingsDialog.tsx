@@ -29,6 +29,7 @@ import { ExportHabitatDialog } from "./ExportHabitatDialog.js";
 import { ImportHabitatManifestDialog } from "./ImportHabitatManifestDialog.js";
 import { api } from "../../api/index.js";
 import { notify } from "../../lib/toast.js";
+import { useSessionLiveness } from "../../lib/sessionState.js";
 import type { PublicHabitat } from "../../types/index.js";
 
 type SettingsTab =
@@ -98,6 +99,7 @@ export function HabitatSettingsDialog({
   onUpdate,
   onDelete,
 }: HabitatSettingsDialogProps) {
+  const isSessionActive = useSessionLiveness();
   const [activeTab, setActiveTab] = useState<SettingsTab>("general");
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [exportOpen, setExportOpen] = useState(false);
@@ -322,6 +324,7 @@ export function HabitatSettingsDialog({
           setDeleteOpen(false);
           try {
             await api.habitats.delete(habitat.id);
+            if (!isSessionActive()) return;
             notify.success("Habitat deleted");
             onDelete();
             onClose();

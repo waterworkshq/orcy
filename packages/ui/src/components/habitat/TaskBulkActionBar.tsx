@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useSessionLiveness } from '../../lib/sessionState.js';
 import { useHabitatStore } from '../../store/habitatStore.js';
 import { api } from '../../api/index.js';
 import { notify } from '../../lib/toast.js';
@@ -13,6 +14,7 @@ interface TaskBulkActionBarProps {
 type TaskBulkOperation = 'priority' | 'delete';
 
 export function TaskBulkActionBar({ habitatId }: TaskBulkActionBarProps) {
+  const isActive = useSessionLiveness();
   const { selectedTaskIds, setTaskBulkSelectMode, clearTaskSelection } = useHabitatStore();
   const [operation, setOperation] = useState<TaskBulkOperation>('priority');
   const [priority, setPriority] = useState<TaskPriority>('medium');
@@ -29,6 +31,7 @@ export function TaskBulkActionBar({ habitatId }: TaskBulkActionBarProps) {
         operation: 'delete',
         payload: {},
       });
+      if (!isActive()) return;
       notify.success(
         `${result.successCount} task${result.successCount !== 1 ? 's' : ''} deleted`
       );
@@ -39,6 +42,7 @@ export function TaskBulkActionBar({ habitatId }: TaskBulkActionBarProps) {
       clearTaskSelection();
       setTaskBulkSelectMode(false);
     } catch (err) {
+      if (!isActive()) return;
       notify.error((err as Error).message);
     } finally {
       setIsApplying(false);
@@ -52,6 +56,7 @@ export function TaskBulkActionBar({ habitatId }: TaskBulkActionBarProps) {
         operation: 'priority',
         payload: { priority },
       });
+      if (!isActive()) return;
       notify.success(
         `${result.successCount} task${result.successCount !== 1 ? 's' : ''} updated`
       );
@@ -62,6 +67,7 @@ export function TaskBulkActionBar({ habitatId }: TaskBulkActionBarProps) {
       clearTaskSelection();
       setTaskBulkSelectMode(false);
     } catch (err) {
+      if (!isActive()) return;
       notify.error((err as Error).message);
     } finally {
       setIsApplying(false);

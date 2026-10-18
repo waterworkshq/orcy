@@ -1,5 +1,6 @@
 import React, { useEffect, useCallback } from "react";
 import { createPortal } from "react-dom";
+import { useSessionLiveness } from "../../lib/sessionState.js";
 import { X, Calendar, User, CheckSquare, Share2, Archive, Save } from "lucide-react";
 import { useModalStore } from "../../store/modalStore.js";
 import { useTaskDetails } from "../../lib/useTaskData.js";
@@ -136,6 +137,7 @@ function mapTaskEventToActivityEvent(event: TaskEvent, agents: Agent[]): Activit
 }
 
 export function TaskDetailModal() {
+  const isSessionActive = useSessionLiveness();
   const { isOpen, selectedTaskId, closeModal } = useModalStore();
   const { data: agentsData } = useAgents();
   const agents = agentsData ?? [];
@@ -159,9 +161,10 @@ export function TaskDetailModal() {
   const handleClose = useCallback(() => {
     setVisible(false);
     setTimeout(() => {
+      if (!isSessionActive()) return;
       closeModal();
     }, 200);
-  }, [closeModal]);
+  }, [closeModal, isSessionActive]);
 
   useEffect(() => {
     if (!isOpen) return;

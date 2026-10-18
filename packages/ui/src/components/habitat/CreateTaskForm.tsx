@@ -24,6 +24,7 @@ import {
 } from "../../lib/habitatMutations.js";
 import { queryKeys } from "../../lib/queryKeys.js";
 import { notify } from "../../lib/toast.js";
+import { useSessionLiveness } from "../../lib/sessionState.js";
 import type {
   TaskAssignmentWarningView,
   TaskPublicationErrorView,
@@ -84,6 +85,7 @@ function generateAttemptKey(): string {
  * rationale.
  */
 export function CreateTaskForm({ open, onClose, habitatId, missionId }: CreateTaskFormProps) {
+  const isSessionActive = useSessionLiveness();
   const qc = useQueryClient();
   const { data: templatesData } = useTemplates(habitatId);
   const templates = templatesData?.templates ?? [];
@@ -201,7 +203,7 @@ export function CreateTaskForm({ open, onClose, habitatId, missionId }: CreateTa
   }
 
   function recordTemplateUsage(templateId: string | undefined) {
-    if (templateId) {
+    if (templateId && isSessionActive()) {
       api.templates.recordUsage(templateId).catch(() => {});
     }
   }
@@ -295,6 +297,7 @@ export function CreateTaskForm({ open, onClose, habitatId, missionId }: CreateTa
    *     surface the refusal and let the user retry manually.
    */
   function handlePublicationOutcome(parsed: TaskPublicationOutcomeView) {
+    if (!isSessionActive()) return;
     switch (parsed.outcome) {
       case "created": {
         if ("recovering" in parsed && parsed.recovering) {
@@ -391,6 +394,7 @@ export function CreateTaskForm({ open, onClose, habitatId, missionId }: CreateTa
   }
 
   async function runPoll(attemptId: string) {
+    if (!isSessionActive()) return;
     if (pollDeadlineRef.current !== null && Date.now() > pollDeadlineRef.current) {
       stopPolling();
       setPolling(false);
@@ -399,6 +403,7 @@ export function CreateTaskForm({ open, onClose, habitatId, missionId }: CreateTa
     }
     try {
       const status = await taskPublicationsApi.getTaskCreationAttempt(attemptId);
+      if (!isSessionActive()) return;
       if (status.state === "created_unassigned") {
         const failure = readAssignmentFailure(status) ?? {
           reason: status.terminalOutcome ?? "assignment_failed",
@@ -479,6 +484,7 @@ export function CreateTaskForm({ open, onClose, habitatId, missionId }: CreateTa
   }
 
   async function publishViaLegacyFallback() {
+    if (!isSessionActive()) return;
     const result = await createTaskMutation.mutateAsync({
       title: title.trim(),
       description: description.trim() || undefined,

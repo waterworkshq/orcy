@@ -3,6 +3,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '
 import { api } from '../../api/index.js';
 import { Button } from '../ui/Button.js';
 import { notify } from '../../lib/toast.js';
+import { useSessionLiveness } from '../../lib/sessionState.js';
 
 interface ExportHabitatDialogProps {
   habitatId: string;
@@ -12,6 +13,7 @@ interface ExportHabitatDialogProps {
 }
 
 export function ExportHabitatDialog({ habitatId, boardName, open, onClose }: ExportHabitatDialogProps) {
+  const isSessionActive = useSessionLiveness();
   const [includeColumns, setIncludeColumns] = useState(true);
   const [includeTasks, setIncludeTasks] = useState(true);
   const [includeComments, setIncludeComments] = useState(true);
@@ -31,6 +33,7 @@ export function ExportHabitatDialog({ habitatId, boardName, open, onClose }: Exp
     setExporting(true);
     try {
       const data = await api.habitats.export(habitatId, { include: includes });
+      if (!isSessionActive()) return;
       const json = JSON.stringify(data, null, 2);
       const blob = new Blob([json], { type: 'application/json' });
       const url = URL.createObjectURL(blob);

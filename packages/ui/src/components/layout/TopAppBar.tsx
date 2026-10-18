@@ -4,6 +4,7 @@ import { OrcyMark } from "../ui/icons/OrcyMark.js";
 import { NavLink, useLocation, useNavigate } from "react-router-dom";
 import { useHabitatStore } from "../../store/habitatStore.js";
 import { api } from "../../api/index.js";
+import { useAccountSession } from "../../lib/sessionState.js";
 import { useAgents } from "../../lib/useHabitatData.js";
 import { NotificationDropdown } from "../ui/NotificationDropdown.js";
 
@@ -209,6 +210,7 @@ function UserMenu() {
   const [open, setOpen] = React.useState(false);
   const containerRef = React.useRef<HTMLDivElement>(null);
   const navigate = useNavigate();
+  const session = useAccountSession();
 
   const username = getUsername();
 
@@ -223,13 +225,13 @@ function UserMenu() {
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, [open]);
 
-  const handleLogout = async () => {
-    try {
-      await api.auth.logout();
-    } catch {
+  const handleLogout = () => {
+    // Start while the old credential is still installed: transport captures it
+    // synchronously. Server completion must never change a newer local session.
+    void api.auth.logout().catch(() => {
       // server logout is best-effort per ADR-002
-    }
-    localStorage.removeItem("orcy_token");
+    });
+    session.logout();
     navigate("/login");
   };
 

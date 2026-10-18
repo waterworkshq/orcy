@@ -4,6 +4,7 @@ import { GitHubIntegrationPanel } from './GitHubIntegrationPanel.js';
 import { ProviderIntegrationPanel } from './ProviderIntegrationPanel.js';
 import { useIntegrations } from '../../../lib/useHabitatData.js';
 import { queryKeys } from '../../../lib/queryKeys.js';
+import { useSessionLiveness } from '../../../lib/sessionState.js';
 import { api } from '../../../api/index.js';
 import { notify } from '../../../lib/toast.js';
 import { Button } from '../../ui/Button.js';
@@ -14,6 +15,7 @@ interface IntegrationsTabProps {
 }
 
 export function IntegrationsTab({ habitatId }: IntegrationsTabProps) {
+  const isSessionActive = useSessionLiveness();
   const { data, isLoading } = useIntegrations(habitatId);
   const [syncingId, setSyncingId] = useState<string | null>(null);
   const [showPatForm, setShowPatForm] = useState(false);
@@ -121,6 +123,7 @@ export function IntegrationsTab({ habitatId }: IntegrationsTabProps) {
     setOauthStep('showing-code');
     try {
       const flow = await api.integrations.startGitHubDeviceFlow(habitatId);
+      if (!isSessionActive()) return;
       setOauthUserCode(flow.userCode);
       setOauthVerificationUri(flow.verificationUri);
       setOauthDeviceCode(flow.deviceCode);
@@ -136,8 +139,10 @@ export function IntegrationsTab({ habitatId }: IntegrationsTabProps) {
   function startPolling(deviceCode: string, interval: number) {
     setOauthStep('polling');
     const poll = async () => {
+      if (!isSessionActive()) return;
       try {
         const result = await api.integrations.pollGitHubDeviceFlow(habitatId, { deviceCode });
+        if (!isSessionActive()) return;
         if (result.status === 'pending') {
           pollTimerRef.current = setTimeout(poll, interval * 1000);
           return;
