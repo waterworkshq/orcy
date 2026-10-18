@@ -1067,6 +1067,10 @@ Restores an archived mission back to active status.
 
 List all tasks within a mission.
 
+**Access:** `local_actor` (human JWT or local agent key). The server resolves the target Mission's persisted Habitat before reading its projections. Humans must belong to the Habitat's Team, including global admins; personal Habitats admit any authenticated human. Local agents retain access on any existing Habitat. A caller-supplied Habitat ID cannot replace this ancestry check. This applies to both `/api/v1` and deprecated `/api`.
+
+**Errors:** `401 UNAUTHORIZED` for unauthenticated callers; `403 BOARD_ACCESS_DENIED` for a nonmember human; `404 NOT_FOUND` when the Mission or its parent Habitat is missing.
+
 **Response `200`:**
 
 ```json
@@ -1132,6 +1136,10 @@ Create a task within a mission. Triggers mission status recalculation.
 ### GET /missions/:id/progress
 
 Get completion metrics for a mission.
+
+**Access:** `local_actor` (human JWT or local agent key). The server resolves the target Mission's persisted Habitat before reading its projections. Humans must belong to the Habitat's Team, including global admins; personal Habitats admit any authenticated human. Local agents retain access on any existing Habitat. A caller-supplied Habitat ID cannot replace this ancestry check. This applies to both `/api/v1` and deprecated `/api`.
+
+**Errors:** `401 UNAUTHORIZED` for unauthenticated callers; `403 BOARD_ACCESS_DENIED` for a nonmember human; `404 NOT_FOUND` when the Mission or its parent Habitat is missing.
 
 **Response `200`:**
 

@@ -2775,7 +2775,8 @@
       "path": "/api/missions/:missionId/progress",
       "surface": "api-deprecated",
       "guards": [
-        "agentOrHumanAuth"
+        "agentOrHumanAuth",
+        "authorizeMissionAccess"
       ],
       "authKind": "local_actor",
       "rawBodyEligible": false,
@@ -2811,7 +2812,8 @@
       "path": "/api/missions/:missionId/tasks",
       "surface": "api-deprecated",
       "guards": [
-        "agentOrHumanAuth"
+        "agentOrHumanAuth",
+        "authorizeMissionAccess"
       ],
       "authKind": "local_actor",
       "rawBodyEligible": false,
@@ -5178,7 +5180,8 @@
       "path": "/api/v1/missions/:missionId/progress",
       "surface": "api-v1",
       "guards": [
-        "agentOrHumanAuth"
+        "agentOrHumanAuth",
+        "authorizeMissionAccess"
       ],
       "authKind": "local_actor",
       "rawBodyEligible": false,
@@ -5214,7 +5217,8 @@
       "path": "/api/v1/missions/:missionId/tasks",
       "surface": "api-v1",
       "guards": [
-        "agentOrHumanAuth"
+        "agentOrHumanAuth",
+        "authorizeMissionAccess"
       ],
       "authKind": "local_actor",
       "rawBodyEligible": false,
@@ -7581,7 +7585,8 @@
       "path": "/api/missions/:missionId/progress",
       "surface": "api-deprecated",
       "guards": [
-        "agentOrHumanAuth"
+        "agentOrHumanAuth",
+        "authorizeMissionAccess"
       ],
       "authKind": "local_actor",
       "rawBodyEligible": false,
@@ -7617,7 +7622,8 @@
       "path": "/api/missions/:missionId/tasks",
       "surface": "api-deprecated",
       "guards": [
-        "agentOrHumanAuth"
+        "agentOrHumanAuth",
+        "authorizeMissionAccess"
       ],
       "authKind": "local_actor",
       "rawBodyEligible": false,
@@ -9984,7 +9990,8 @@
       "path": "/api/v1/missions/:missionId/progress",
       "surface": "api-v1",
       "guards": [
-        "agentOrHumanAuth"
+        "agentOrHumanAuth",
+        "authorizeMissionAccess"
       ],
       "authKind": "local_actor",
       "rawBodyEligible": false,
@@ -10020,7 +10027,8 @@
       "path": "/api/v1/missions/:missionId/tasks",
       "surface": "api-v1",
       "guards": [
-        "agentOrHumanAuth"
+        "agentOrHumanAuth",
+        "authorizeMissionAccess"
       ],
       "authKind": "local_actor",
       "rawBodyEligible": false,

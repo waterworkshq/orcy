@@ -289,7 +289,7 @@ export async function missionRoutes(fastify: FastifyInstance): Promise<void> {
     .withTypeProvider<ZodTypeProvider>()
     .get(
       "/missions/:missionId/tasks",
-      { schema: { params: missionIdParamsSchema }, config: { authPolicy: "local_actor" } },
+      { schema: { params: missionIdParamsSchema }, preHandler: [requireMissionAccess], config: { authPolicy: "local_actor" } },
       async (request, _reply) => {
         const mission = missionRepo.getMissionById(request.params.missionId);
         if (!mission) {
@@ -305,7 +305,7 @@ export async function missionRoutes(fastify: FastifyInstance): Promise<void> {
     .withTypeProvider<ZodTypeProvider>()
     .get(
       "/missions/:missionId/progress",
-      { schema: { params: missionIdParamsSchema }, config: { authPolicy: "local_actor" } },
+      { schema: { params: missionIdParamsSchema }, preHandler: [requireMissionAccess], config: { authPolicy: "local_actor" } },
       async (request, _reply) => {
         const mission = missionRepo.getMissionById(request.params.missionId);
         if (!mission) {

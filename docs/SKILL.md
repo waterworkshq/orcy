@@ -706,7 +706,7 @@ Output: { "success": true, "missionId": "mission-uuid", "message": "Mission miss
 
 #### List Tasks in Mission
 
-List all tasks within a mission.
+List all tasks within a mission. The server resolves the supplied Mission's actual Habitat before reading Tasks: a missing Mission or Habitat returns an error (404), and a human JWT without membership of its team Habitat gets 403, including global admins. Local agent keys retain access on any existing Habitat; personal Habitats admit any signed-in human. This is request-time admission, without a concurrent membership-revocation or Mission-reparent fence.
 
 ```
 orcy_habitat_task({ action: "list-in-mission", missionId: "mission-uuid" })
