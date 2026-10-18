@@ -849,6 +849,10 @@ requires an end-to-end route + repository + query-key contract.
 
 Get a mission with progress information.
 
+**Access:** `local_actor` (human JWT or local agent key). The server resolves the target Mission's persisted Habitat before reading its projections. Humans must belong to the Habitat's Team, including global admins; personal Habitats admit any authenticated human. Local agents retain access on any existing Habitat. A caller-supplied Habitat ID cannot replace this ancestry check. This applies to both `/api/v1` and deprecated `/api`.
+
+**Errors:** `401 UNAUTHORIZED` for unauthenticated callers; `403 BOARD_ACCESS_DENIED` for a nonmember human; `404 NOT_FOUND` when the Mission or its parent Habitat is missing.
+
 **Response `200`:**
 
 ```json
@@ -866,6 +870,10 @@ Get a mission with progress information.
 ### GET /missions/:id/details
 
 Get a mission with its tasks, events, progress, and dependencies.
+
+**Access:** `local_actor` (human JWT or local agent key). The server resolves the target Mission's persisted Habitat before reading its projections. Humans must belong to the Habitat's Team, including global admins; personal Habitats admit any authenticated human. Local agents retain access on any existing Habitat. A caller-supplied Habitat ID cannot replace this ancestry check. This applies to both `/api/v1` and deprecated `/api`.
+
+**Errors:** `401 UNAUTHORIZED` for unauthenticated callers; `403 BOARD_ACCESS_DENIED` for a nonmember human; `404 NOT_FOUND` when the Mission or its parent Habitat is missing.
 
 **Response `200`:**
 
@@ -1061,6 +1069,10 @@ Restores an archived mission back to active status.
 
 List all tasks within a mission.
 
+**Access:** `local_actor` (human JWT or local agent key). The server resolves the target Mission's persisted Habitat before reading its projections. Humans must belong to the Habitat's Team, including global admins; personal Habitats admit any authenticated human. Local agents retain access on any existing Habitat. A caller-supplied Habitat ID cannot replace this ancestry check. This applies to both `/api/v1` and deprecated `/api`.
+
+**Errors:** `401 UNAUTHORIZED` for unauthenticated callers; `403 BOARD_ACCESS_DENIED` for a nonmember human; `404 NOT_FOUND` when the Mission or its parent Habitat is missing.
+
 **Response `200`:**
 
 ```json
@@ -1126,6 +1138,10 @@ Create a task within a mission. Triggers mission status recalculation.
 ### GET /missions/:id/progress
 
 Get completion metrics for a mission.
+
+**Access:** `local_actor` (human JWT or local agent key). The server resolves the target Mission's persisted Habitat before reading its projections. Humans must belong to the Habitat's Team, including global admins; personal Habitats admit any authenticated human. Local agents retain access on any existing Habitat. A caller-supplied Habitat ID cannot replace this ancestry check. This applies to both `/api/v1` and deprecated `/api`.
+
+**Errors:** `401 UNAUTHORIZED` for unauthenticated callers; `403 BOARD_ACCESS_DENIED` for a nonmember human; `404 NOT_FOUND` when the Mission or its parent Habitat is missing.
 
 **Response `200`:**
 
@@ -3454,6 +3470,10 @@ When `signalType` is `blocker`, the system auto-creates a `"Clear Blocker: {subj
 
 List signals for a mission. Paginated, newest first.
 
+**Access:** `local_actor` (human JWT or local agent key), followed by persisted Mission → Habitat admission before any Pulse projection. Team-Habitat humans must be members, including global admins; personal Habitats admit any authenticated human, and local agents retain access on any existing Habitat. Caller-supplied Habitat IDs do not replace the Mission's ancestry. Both `/api/v1` and deprecated `/api`, including their generated HEAD routes, enforce this request-time check without concurrent membership-revocation or Mission-reparent fencing.
+
+**Errors:** `401 UNAUTHORIZED` for unauthenticated callers; `403 BOARD_ACCESS_DENIED` for a nonmember human; `404 NOT_FOUND` for a missing Mission or parent Habitat.
+
 ```
 GET /api/missions/mission-uuid/pulse?signalType=finding&limit=20&offset=0
 ```
@@ -3472,14 +3492,18 @@ GET /api/missions/mission-uuid/pulse?signalType=finding&limit=20&offset=0
 
 ```json
 {
-  "pulses": [ /* array of Pulse objects */ ],
+  "items": [ /* array of Pulse objects */ ],
   "total": 15
 }
 ```
 
 ### GET /missions/:missionId/pulse/digest
 
-Get a compact pulse digest with type counts, highlights, and unread count. Updates the caller's `pulse_cursors` timestamp (marking as read).
+Get a compact pulse digest with type counts, highlights, and unread count. Updates the admitted caller's `pulse_cursors` timestamp (marking as read).
+
+**Access:** `local_actor` (human JWT or local agent key), followed by persisted Mission → Habitat admission before any Pulse projection or digest cursor update. Team-Habitat humans must be members, including global admins; personal Habitats admit any authenticated human, and local agents retain access on any existing Habitat. Caller-supplied Habitat IDs do not replace the Mission's ancestry. Both `/api/v1` and deprecated `/api`, including their generated HEAD routes, enforce this request-time check without concurrent membership-revocation or Mission-reparent fencing.
+
+**Errors:** `401 UNAUTHORIZED` for unauthenticated callers; `403 BOARD_ACCESS_DENIED` for a nonmember human; `404 NOT_FOUND` for a missing Mission or parent Habitat. Denied digest requests leave the caller's cursor unchanged.
 
 ```
 GET /api/missions/mission-uuid/pulse/digest
@@ -3537,7 +3561,7 @@ GET /api/pulse/inbox?signalType=blocker&limit=20
 
 ```json
 {
-  "pulses": [ /* array of Pulse objects */ ],
+  "items": [ /* array of Pulse objects */ ],
   "total": 3
 }
 ```
@@ -3564,7 +3588,7 @@ GET /api/pulse/pulse-uuid/replies
 
 ```json
 {
-  "replies": [ /* array of Pulse objects ordered newest first */ ]
+  "items": [ /* array of Pulse objects ordered newest first */ ]
 }
 ```
 
@@ -3650,7 +3674,7 @@ List habitat-level signals for a habitat.
 
 ```json
 {
-  "pulses": [ /* array of Pulse objects */ ],
+  "items": [ /* array of Pulse objects */ ],
   "total": 8
 }
 ```
@@ -4794,7 +4818,11 @@ List recent sync runs for a connection, newest first.
 
 List external issue links for a mission. Shows linked GitHub/Jira/Linear issues with sync status and any warnings.
 
-**Auth:** `agentOrHumanAuth`
+**Access:** `local_actor` (human JWT or local agent key). The server resolves the target Mission's persisted Habitat before reading its projections. Humans must belong to the Habitat's Team, including global admins; personal Habitats admit any authenticated human. Local agents retain access on any existing Habitat. A caller-supplied Habitat ID cannot replace this ancestry check. This applies to both `/api/v1` and deprecated `/api`.
+
+**Errors:** `401 UNAUTHORIZED` for unauthenticated callers; `403 BOARD_ACCESS_DENIED` for a nonmember human; `404 NOT_FOUND` when the Mission or its parent Habitat is missing.
+
+An existing admitted Mission with no links returns `200 { "externalLinks": [] }`. A missing Mission now returns `404` rather than an empty successful response.
 
 **Response:**
 ```json

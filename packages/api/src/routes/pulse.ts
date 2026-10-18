@@ -21,6 +21,7 @@ function isBusyError(err: unknown): boolean {
 }
 import { getCallerInfo } from "./pulse-shared.js";
 import { applyDeclaredAuthPolicies } from "../authPolicy.js";
+import { requireMissionAccess } from "../middleware/team.js";
 
 const MAX_PAGINATION_LIMIT = 200;
 
@@ -69,7 +70,7 @@ export async function pulseRoutes(fastify: FastifyInstance): Promise<void> {
 
   fastify.get(
     "/missions/:missionId/pulse",
-    { config: { authPolicy: "local_actor" } },
+    { preHandler: [requireMissionAccess], config: { authPolicy: "local_actor" } },
     async (request, _reply) => {
       const { missionId } = request.params as { missionId: string };
       const query = request.query as {
@@ -109,7 +110,7 @@ export async function pulseRoutes(fastify: FastifyInstance): Promise<void> {
 
   fastify.get(
     "/missions/:missionId/pulse/digest",
-    { config: { authPolicy: "local_actor" } },
+    { preHandler: [requireMissionAccess], config: { authPolicy: "local_actor" } },
     async (request, _reply) => {
       const { missionId } = request.params as { missionId: string };
 

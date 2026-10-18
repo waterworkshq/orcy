@@ -25,7 +25,7 @@ import {
   storeCodeVerifier,
   consumeState,
 } from "../services/integrations/oauthState.js";
-import { requireHabitatAccess } from "../middleware/team.js";
+import { requireHabitatAccess, requireMissionAccess } from "../middleware/team.js";
 import { badRequest, notFound, forbidden, unauthorized } from "../errors.js";
 import { isTeamMemberByHabitatId } from "../repositories/teamMember.js";
 import { getHabitatById } from "../repositories/habitat.js";
@@ -290,7 +290,7 @@ export async function integrationRoutes(fastify: FastifyInstance): Promise<void>
 
   fastify.get<{ Params: { missionId: string } }>(
     "/missions/:missionId/external-links",
-    { config: { authPolicy: "local_actor" } },
+    { preHandler: [requireMissionAccess], config: { authPolicy: "local_actor" } },
     async (request) => {
       const links = linkRepo.listByMissionId(request.params.missionId);
       return { externalLinks: links };
