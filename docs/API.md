@@ -6819,6 +6819,11 @@ Remote participants are not admitted on recipient routes (`local_actor` accepts 
 | POST | `/habitats/:hid/notifications/admin/migrate-legacy` | Migrate legacy prefs |
 | GET | `/habitats/:hid/notifications/admin/delivery-monitor` | Channel attempt monitor |
 
+**Delivery monitor:** requires a human admin JWT and access to the requested Habitat (including current membership for a team-owned Habitat). Returns `{ attempts: NotificationDeliveryAttempt[] }` across all recipient types and IDs in that Habitat only. Attempts are ordered globally by `createdAt` descending, then `id` descending for ties; the limit applies to attempts, including multiple attempts for a single delivery. An empty Habitat or unmatched channel returns `{ attempts: [] }`.
+
+The optional `channel` query parameter is a nonempty, single exact base-channel name, such as `slack`, `webhook`, or a plugin channel; historical plugin names remain queryable. The optional `limit` is a single decimal integer from 1 through 100, defaulting to 50. Empty, malformed, out-of-range, or repeated values for either parameter return 400 `VALIDATION_ERROR` after authentication and authorization. This administrative projection does not broaden recipient inbox/history access.
+
+
 ---
 
 ## Automation (v0.18)

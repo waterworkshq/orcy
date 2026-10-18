@@ -1,6 +1,6 @@
 import { getDb } from "../db/index.js";
-import { notificationDeliveryAttempts } from "../db/schema/index.js";
-import { eq, and, sql } from "drizzle-orm";
+import { notificationDeliveryAttempts, notificationDeliveries } from "../db/schema/index.js";
+import { eq, and, sql, getTableColumns, desc } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 import {
   repositoryCreateError,
@@ -77,6 +77,24 @@ export function getDeliveryAttemptsByDelivery(deliveryId: string): NotificationD
     .select()
     .from(notificationDeliveryAttempts)
     .where(eq(notificationDeliveryAttempts.deliveryId, deliveryId))
+    .all() as unknown as NotificationDeliveryAttempt[];
+}
+
+/** Administrative projection only; recipient history keeps its exact identity scope. */
+export function getDeliveryAttemptsByHabitat(
+  habitatId: string,
+  options: { channel?: NotificationChannel; limit?: number } = {},
+): NotificationDeliveryAttempt[] {
+  return getDb()
+    .select(getTableColumns(notificationDeliveryAttempts))
+    .from(notificationDeliveryAttempts)
+    .innerJoin(notificationDeliveries, eq(notificationDeliveryAttempts.deliveryId, notificationDeliveries.id))
+    .where(and(
+      eq(notificationDeliveries.habitatId, habitatId),
+      options.channel === undefined ? undefined : eq(notificationDeliveryAttempts.channel, options.channel),
+    ))
+    .orderBy(desc(notificationDeliveryAttempts.createdAt), desc(notificationDeliveryAttempts.id))
+    .limit(options.limit ?? 50)
     .all() as unknown as NotificationDeliveryAttempt[];
 }
 

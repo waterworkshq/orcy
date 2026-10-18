@@ -13,7 +13,6 @@ import { adminClearDeliveries } from "../services/notificationClearanceService.j
 import { projectNotificationEventData } from "../services/notificationService.js";
 import { requireHabitatAccess } from "../middleware/team.js";
 import { notFound, badRequest, forbidden } from "../errors.js";
-import type { NotificationChannel } from "@orcy/shared";
 import { applyDeclaredAuthPolicies } from "../authPolicy.js";
 
 const recipientTypeSchema = z.enum(["human", "agent", "remote_human", "remote_orcy"]);
@@ -57,6 +56,13 @@ const snoozeSchema = z.object({
 
 const adminClearSchema = z.object({
   deliveryIds: z.array(z.string()).min(1),
+});
+
+// Channel names stay open for plugin and historical attempts. Arrays from
+// repeated query keys must fail rather than coercing to a different value.
+const deliveryMonitorQuerySchema = z.object({
+  channel: z.string().min(1).optional(),
+  limit: z.string().regex(/^\d+$/).transform(Number).pipe(z.number().int().min(1).max(100)).optional(),
 });
 
 export async function notificationRoutes(fastify: FastifyInstance): Promise<void> {
@@ -351,20 +357,16 @@ export async function notificationRoutes(fastify: FastifyInstance): Promise<void
       if (request.user!.role !== "admin") {
         throw forbidden("Only admins can view delivery monitor");
       }
-      const channel = request.query.channel as NotificationChannel | undefined;
-      const limit = request.query.limit ? Number(request.query.limit) : 50;
-      // For now, return all attempts across all deliveries in the habitat.
-      const { deliveries } = deliveryRepo.getDeliveryHistory(
-        request.params.habitatId,
-        "human",
-        "",
-        { limit, offset: 0 },
-      );
-      void channel;
-      const allAttempts = deliveries.flatMap((d) =>
-        attemptRepo.getDeliveryAttemptsByDelivery(d.id),
-      );
-      return { attempts: allAttempts.slice(0, limit) };
+      const parsed = deliveryMonitorQuerySchema.safeParse(request.query);
+      if (!parsed.success) {
+        throw badRequest("Validation failed", parsed.error.flatten());
+      }
+      return {
+        attempts: attemptRepo.getDeliveryAttemptsByHabitat(request.params.habitatId, {
+          channel: parsed.data.channel,
+          limit: parsed.data.limit ?? 50,
+        }),
+      };
     },
   );
 }
