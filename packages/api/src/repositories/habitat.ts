@@ -89,8 +89,12 @@ export function listHabitats(name?: string, teamIds?: string[]): Habitat[] {
 
   const conditions = [];
 
-  if (teamIds && teamIds.length > 0) {
-    conditions.push(or(inArray(habitats.teamId, teamIds), isNull(habitats.teamId)));
+  if (teamIds !== undefined) {
+    conditions.push(
+      teamIds.length > 0
+        ? or(inArray(habitats.teamId, teamIds), isNull(habitats.teamId))
+        : isNull(habitats.teamId),
+    );
   }
   if (name) {
     conditions.push(like(sql`LOWER(${habitats.name})`, `%${name.toLowerCase()}%`));
