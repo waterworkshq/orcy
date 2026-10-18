@@ -415,6 +415,53 @@ describe("Phase E — Compact remote webhook dispatcher", () => {
     process.env = ORIGINAL_ENV;
   });
 
+  it.each([200, 202, 400, 401, 500].flatMap(status => ["small", "large", "read-error"].map(kind => ({ status, kind }))))("bounds $kind response diagnostics while preserving HTTP $status", async ({ status, kind }) => {
+    const habitat = setupHabitat();
+    const pod = setupActivePod(habitat.id);
+    const endpoint = endpointRepo.createRemoteWebhookEndpoint({
+      remotePodId: pod.id, habitatId: habitat.id, url: "https://example.com/webhook", events: ["task.assigned"],
+    });
+    endpointRepo.approveRemoteWebhookEndpoint(endpoint.id, "admin-1");
+    endpointRepo.enableRemoteWebhookEndpoint(endpoint.id, "admin-1");
+    registerEndpointPlaintextSecret(endpoint.id, "orcy_secret_bounded");
+    const totalBytes = kind === "large" ? 65536 : 8;
+    let pulledBytes = 0;
+    const cancel = vi.fn();
+    const body = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        if (kind === "read-error") { controller.error(new Error("body reset")); return; }
+        if (pulledBytes >= totalBytes) { controller.close(); return; }
+        const size = Math.min(1024, totalBytes - pulledBytes);
+        pulledBytes += size;
+        controller.enqueue(new Uint8Array(size).fill(120));
+      },
+      cancel,
+    }, { highWaterMark: 0 });
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(body, { status })));
+    try {
+      const result = await dispatchCompactRemoteEvent({
+        habitatId: habitat.id, eventType: "task.assigned", apiBase: "https://orcy.example.com/api/shared",
+        payload: {
+          eventType: "task.assigned", occurredAt: new Date().toISOString(), habitatId: habitat.id,
+          actor: { type: "remote_orcy", id: "p-1", displayName: "W", podId: pod.id, podName: "P" },
+          standing: "remote_contributor", actionKind: "advisory", title: "T",
+          apiBase: "https://orcy.example.com/api/shared", followUpPath: "/api/shared/me", followUpDescription: "Fetch",
+        },
+      });
+      const success = status < 300;
+      expect(result).toEqual({ dispatched: success ? 1 : 0, failed: success ? 0 : 1, skipped: 0 });
+      const deliveries = deliveryRepo.listRemoteWebhookDeliveriesForEndpoint(endpoint.id);
+      expect(deliveries).toHaveLength(1);
+      expect(deliveries[0]).toMatchObject({ status: success ? "success" : "failed", statusCode: status, responseBody: kind === "read-error" ? "" : "x".repeat(Math.min(totalBytes, 2000)) });
+      expect(pulledBytes).toBe(kind === "read-error" ? 0 : Math.min(totalBytes, 8192));
+      expect(cancel).toHaveBeenCalledTimes(kind === "large" ? 1 : 0);
+      expect(body.locked).toBe(false);
+    } finally {
+      vi.unstubAllGlobals();
+      forgetEndpointPlaintextSecret(endpoint.id);
+    }
+  });
+
   it("publishes webhook.delivery_failed SSE + notifies admins on dispatch failure", async () => {
     const habitat = setupHabitat();
     const pod = setupActivePod(habitat.id);

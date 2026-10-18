@@ -25,6 +25,8 @@ Mission status is **auto-derived** from child task states — no manual status m
 
 All MCP tools use a **dispatch pattern** — each consolidated tool accepts an `action` parameter:
 
+Use the documented tools and, for dispatch tools, send a documented `action` string with its required parameters. Unregistered tool or action names return an `isError: true` result. This admission check does not enforce every constraint in a tool’s input schema.
+
 | Consolidated Tool | Actions | Replaces |
 |---|---|---|
 | `orcy_habitat` | `list`, `find`, `get-settings`, `summary`, `metrics`, `get-health`, `get-health-history`, `predictions`, `bottlenecks`, `agent-quality`, `get-rules`, `update-rules`, `evaluate-rules` | Habitat discovery, settings, summaries, health, analytics, and prioritization rules |

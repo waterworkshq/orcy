@@ -2061,7 +2061,7 @@ Get habitat-wide time tracking and estimation metrics, including per-agent break
 | `averageEstimationAccuracy` | number | Avg ratio of actual/estimated across tasks with estimates |
 | `totalPlannedMinutes` | number | Sum of all task estimates |
 | `totalActualMinutes` | number | Sum of all recorded work |
-| `overdueTasks` | number | Tasks exceeding their estimate |
+| `overdueTasks` | number | Tasks whose inherited Mission deadline is strictly before the current instant, excluding `done`, `approved` and `failed`. ISO timestamps (including offsets and milliseconds) and SQLite timestamps are compared as instants; null or unparseable deadlines do not count. |
 | `onTimeCompletionRate` | number | Fraction of tasks completed within estimate |
 | `agentMetrics` | array | Per-agent breakdown |
 
@@ -5461,7 +5461,7 @@ Delete a webhook subscription.
 
 ### GET /webhooks/:id/deliveries
 
-Get delivery log for a webhook.
+Get delivery log for an outgoing webhook subscription. Diagnostic response bodies retain at most 1,024 UTF-16 code units from an 8,192-byte fetch-decoded prefix. A large response body alone does not turn an HTTP 2xx into failure; response prefixes are diagnostics, not complete receiver output.
 
 **Auth:** JWT required (human)
 
@@ -6858,6 +6858,10 @@ Remote participants are not admitted on recipient routes (`local_actor` accepts 
 **Subscription PUT/DELETE authority:** both `/api` and `/api/v1` require a human JWT and URL-Habitat access. These two writes recheck current Habitat existence and Team membership in the same immediate transaction as the target lookup and mutation; PUT also reads its updated row inside that transaction. Any current Team member (including a viewer) may use them on that Team's Habitat; authenticated humans may use them on personal Habitats. Target lookup and final mutation bind subscription ID **and** URL Habitat. PUT also binds its result read to both keys; DELETE returns a boolean derived from its scoped delete count. After the applicable validation and authorization checks pass, a foreign or absent subscription returns generic `404` `Subscription not found` for PUT, or `200 {"deleted":false}` for DELETE, with no subscription fields. Missing PUT deliberately changes from the previous repository-error `500` to `404`. An inaccessible URL Habitat remains `403`; a missing Habitat is `404`.
 
 PUT retains body-validation-before-target-lookup ordering and requires the authenticated user's `admin` role for an explicitly supplied `required` field (including `false`). This does not add a stored-required-row policy: same-Habitat callers retain the existing ability to disable a required row or delete it without editing its `required` flag. The trusted legacy preference migration continues to use its existing internal updater.
+
+**Delivery monitor:** requires a human admin JWT and access to the requested Habitat (including current membership for a team-owned Habitat). Returns `{ attempts: NotificationDeliveryAttempt[] }` across all recipient types and IDs in that Habitat only. Attempts are ordered globally by `createdAt` descending, then `id` descending for ties; the limit applies to attempts, including multiple attempts for a single delivery. An empty Habitat or unmatched channel returns `{ attempts: [] }`.
+
+The optional `channel` query parameter is a nonempty, single exact base-channel name, such as `slack`, `webhook`, or a plugin channel; historical plugin names remain queryable. The optional `limit` is a single decimal integer from 1 through 100, defaulting to 50. Empty or repeated values for either parameter, and malformed or out-of-range `limit` values, return 400 `VALIDATION_ERROR` after authentication and authorization. This administrative projection does not broaden recipient inbox/history access.
 
 
 ---

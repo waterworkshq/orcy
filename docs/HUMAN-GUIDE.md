@@ -577,6 +577,10 @@ stored chain has been checked. See the API documentation for each route's exact 
 For these guarded operations, a missing Task and an inaccessible team Task answer differently ("not found"
 versus "no access"). A caller can therefore probe whether a supplied Task ID exists. This is a known limit.
 
+### Webhook Delivery Diagnostics
+
+Webhook response summaries may be shortened. Outgoing board/notification webhook summaries keep at most 1,024 characters, compact remote webhooks 2,000, and plugin webhook calls 1,000 (JavaScript UTF-16 code units), drawn from at most an 8,192-byte decoded-body prefix. A large diagnostic response alone does not make an HTTP 2xx delivery fail or trigger another send. Use the receiver's logs when you need its complete response.
+
 ### Orcy Status
 
 | Status | Meaning |
@@ -653,6 +657,14 @@ Sessions are isolated per task. Each session gets:
 - The CLI's native task prompt (task title + description)
 
 Sessions exit on task completion (exit code 0), failure (non-zero), or timeout. The daemon reports the outcome to the API and moves on to the next task.
+
+## Editing Wiki Pages
+
+Wiki text and metadata have separate save buttons. **Save version** saves the title, markdown content, and edit summary; **Save metadata** saves the parent page, tags, and draft/published status. Saving one group or adding/removing a citation preserves unsaved changes in the other fields. Changes you type while a save is pending remain in the editor after that request finishes. Failed saves retain your draft so you can correct the problem and retry. After either a successful or failed save, the editor also checks server changes observed while that field group was pending.
+
+Outside a pending save, background refreshes update fields you have not edited. When a refresh or a completed save reveals an observed conflicting server value, the editor keeps your draft and asks you to **Keep my** value or **Use server** value before saving that group. This choice handles changes the editor has already observed; it does not lock the page or prevent a later concurrent write.
+
+Drafts live only in the current editor. Opening another page or Habitat, switching between create and edit, cancelling, or leaving the editor discards that local draft. An old create response cannot navigate an editor that has since changed identity.
 
 ## Plugin Enrollment
 
