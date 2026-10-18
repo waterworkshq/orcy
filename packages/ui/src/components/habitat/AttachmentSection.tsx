@@ -41,15 +41,17 @@ export function AttachmentSection({ taskId, attachments: initialAttachments }: {
       const result = await api.attachments.upload(taskId, file, (percent) => {
         setUploadProgress(percent);
       });
+      if (!isSessionActive()) return;
       setAttachments((prev) => [result.attachment, ...prev]);
       notify.success(`Uploaded ${file.name}`);
     } catch (err) {
+      if (!isSessionActive()) return;
       notify.error((err as Error).message);
     } finally {
       setUploading(false);
       setUploadProgress(0);
     }
-  }, [taskId]);
+  }, [taskId, isSessionActive]);
 
   async function handleDownload(attachment: TaskAttachment) {
     try {
@@ -64,6 +66,7 @@ export function AttachmentSection({ taskId, attachments: initialAttachments }: {
       document.body.removeChild(a);
       URL.revokeObjectURL(url);
     } catch (err) {
+      if (!isSessionActive()) return;
       notify.error((err as Error).message);
     }
   }
@@ -71,9 +74,11 @@ export function AttachmentSection({ taskId, attachments: initialAttachments }: {
   async function handleDelete(attachment: TaskAttachment) {
     try {
       await api.attachments.delete(attachment.id);
+      if (!isSessionActive()) return;
       setAttachments((prev) => prev.filter((a) => a.id !== attachment.id));
       notify.success('Attachment deleted');
     } catch (err) {
+      if (!isSessionActive()) return;
       notify.error((err as Error).message);
     }
     setDeleteTarget(null);

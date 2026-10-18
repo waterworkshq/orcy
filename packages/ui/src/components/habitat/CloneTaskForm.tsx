@@ -276,6 +276,7 @@ export function CloneTaskForm({ open, onClose, sourceTask, habitatId }: CloneTas
         assignmentWarning.taskId,
         retryAgentId,
       );
+      if (!isSessionActive()) return;
       invalidateAfterSuccess(targetMissionId);
       notify.success(
         result.outcome === "assigned"
@@ -285,6 +286,7 @@ export function CloneTaskForm({ open, onClose, sourceTask, habitatId }: CloneTas
       resetDialog();
       onClose();
     } catch (err) {
+      if (!isSessionActive()) return;
       const message = err instanceof Error ? err.message : "Failed to retry assignment";
       setSubmitError(message);
       notify.error(message);
@@ -347,6 +349,7 @@ export function CloneTaskForm({ open, onClose, sourceTask, habitatId }: CloneTas
       // Still non-terminal — keep polling.
       schedulePoll(attemptId);
     } catch (err) {
+      if (!isSessionActive()) return;
       stopPolling();
       setPolling(false);
       const message = err instanceof Error ? err.message : "Failed to check publication status";
@@ -475,10 +478,12 @@ export function CloneTaskForm({ open, onClose, sourceTask, habitatId }: CloneTas
     // cannot edit before clone when the flag is off).
     try {
       await api.tasks.clone(sourceTask.id);
+      if (!isSessionActive()) return;
       notify.success("Task cloned");
       resetDialog();
       onClose();
     } catch (err) {
+      if (!isSessionActive()) return;
       const message = err instanceof Error ? err.message : "Failed to clone task";
       setSubmitError(message);
       notify.error(message);
@@ -505,6 +510,7 @@ export function CloneTaskForm({ open, onClose, sourceTask, habitatId }: CloneTas
         await publishCloneViaNewRoute(key);
         return;
       } catch (err) {
+        if (!isSessionActive()) return;
         if (err instanceof ApiError && err.status === 404) {
           // Flag-off fallback — the POST publication route is gated and
           // 404s when the cutover flag is off. Fire the legacy immediate

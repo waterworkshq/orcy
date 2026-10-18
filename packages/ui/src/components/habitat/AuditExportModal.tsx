@@ -44,6 +44,7 @@ export function AuditExportModal({ habitatId, open, onClose }: AuditExportModalP
       notify.success("Audit log exported");
       onClose();
     } catch (err) {
+      if (!isSessionActive()) return;
       notify.error((err as Error).message);
     } finally {
       setExporting(false);

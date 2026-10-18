@@ -62,6 +62,7 @@ export function HabitatListPage() {
         teamId: newTeamId || null,
         ...teamExpectation,
       });
+      if (!isSessionActive()) return;
       queryClient.invalidateQueries({ queryKey: queryKeys.habitats.list() });
       queryClient.invalidateQueries({ queryKey: queryKeys.teams.myTeams() });
       setNewName("");
@@ -70,6 +71,7 @@ export function HabitatListPage() {
       setShowCreate(false);
       notify.success(`Habitat "${newName.trim()}" created`);
     } catch (err) {
+      if (!isSessionActive()) return;
       notify.error((err as Error).message);
     } finally {
       setCreating(false);

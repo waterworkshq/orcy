@@ -55,9 +55,11 @@ export function IntegrationsTab({ habitatId }: IntegrationsTabProps) {
     setSyncingId(connectionId);
     try {
       const result = await api.integrations.sync(connectionId);
+      if (!isSessionActive()) return;
       notify.success(`Synced: ${result.created} created, ${result.updated} updated, ${result.skipped} skipped`);
       invalidate();
     } catch (err) {
+      if (!isSessionActive()) return;
       notify.error((err as Error).message);
     } finally {
       setSyncingId(null);
@@ -69,6 +71,7 @@ export function IntegrationsTab({ habitatId }: IntegrationsTabProps) {
       await api.integrations.update(connectionId, { enabled });
       invalidate();
     } catch (err) {
+      if (!isSessionActive()) return;
       notify.error((err as Error).message);
     }
   }
@@ -78,6 +81,7 @@ export function IntegrationsTab({ habitatId }: IntegrationsTabProps) {
       await api.integrations.update(connectionId, { autoImport });
       invalidate();
     } catch (err) {
+      if (!isSessionActive()) return;
       notify.error((err as Error).message);
     }
   }
@@ -85,9 +89,11 @@ export function IntegrationsTab({ habitatId }: IntegrationsTabProps) {
   async function handleDisconnect(connectionId: string) {
     try {
       await api.integrations.disable(connectionId);
+      if (!isSessionActive()) return;
       notify.success('Connection disconnected');
       invalidate();
     } catch (err) {
+      if (!isSessionActive()) return;
       notify.error((err as Error).message);
     }
   }
@@ -103,6 +109,7 @@ export function IntegrationsTab({ habitatId }: IntegrationsTabProps) {
         repositoryName: patRepo,
         autoImport: patAutoImport,
       });
+      if (!isSessionActive()) return;
       notify.success('GitHub connection created');
       setShowPatForm(false);
       setPatName('');
@@ -112,6 +119,7 @@ export function IntegrationsTab({ habitatId }: IntegrationsTabProps) {
       setPatAutoImport(false);
       invalidate();
     } catch (err) {
+      if (!isSessionActive()) return;
       notify.error((err as Error).message);
     } finally {
       setCreating(false);
@@ -384,11 +392,13 @@ export function IntegrationsTab({ habitatId }: IntegrationsTabProps) {
               setProviderCreating(true);
               try {
                 await api.integrations.createJiraApiKey(habitatId, jiraForm);
+                if (!isSessionActive()) return;
                 notify.success('Jira connection created');
                 setShowJiraForm(false);
                 setJiraForm({ name: '', email: '', token: '', siteUrl: '', projectKey: '', autoImport: false, pullEnabled: true });
                 invalidate();
               } catch (err) {
+                if (!isSessionActive()) return;
                 notify.error((err as Error).message);
               } finally {
                 setProviderCreating(false);
@@ -487,11 +497,13 @@ export function IntegrationsTab({ habitatId }: IntegrationsTabProps) {
               setProviderCreating(true);
               try {
                 await api.integrations.createLinearApiKey(habitatId, linearForm);
+                if (!isSessionActive()) return;
                 notify.success('Linear connection created');
                 setShowLinearForm(false);
                 setLinearForm({ name: '', token: '', teamId: '', autoImport: false, pullEnabled: true });
                 invalidate();
               } catch (err) {
+                if (!isSessionActive()) return;
                 notify.error((err as Error).message);
               } finally {
                 setProviderCreating(false);

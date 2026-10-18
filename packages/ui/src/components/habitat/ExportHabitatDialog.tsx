@@ -47,6 +47,7 @@ export function ExportHabitatDialog({ habitatId, boardName, open, onClose }: Exp
       notify.success('Habitat exported successfully');
       onClose();
     } catch (err) {
+      if (!isSessionActive()) return;
       notify.error((err as Error).message);
     } finally {
       setExporting(false);

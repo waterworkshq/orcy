@@ -265,6 +265,7 @@ export function CreateTaskForm({ open, onClose, habitatId, missionId }: CreateTa
         assignmentWarning.taskId,
         retryAgentId,
       );
+      if (!isSessionActive()) return;
       invalidateAfterSuccess();
       notify.success(
         result.outcome === "assigned"
@@ -274,6 +275,7 @@ export function CreateTaskForm({ open, onClose, habitatId, missionId }: CreateTa
       resetForm();
       onClose();
     } catch (err) {
+      if (!isSessionActive()) return;
       const message = err instanceof Error ? err.message : "Failed to retry assignment";
       setSubmitError(message);
       notify.error(message);
@@ -444,6 +446,7 @@ export function CreateTaskForm({ open, onClose, habitatId, missionId }: CreateTa
       // Still non-terminal — keep polling.
       schedulePoll(attemptId, status.committedTaskId ?? "");
     } catch (err) {
+      if (!isSessionActive()) return;
       stopPolling();
       setPolling(false);
       const message = err instanceof Error ? err.message : "Failed to check publication status";
@@ -493,6 +496,7 @@ export function CreateTaskForm({ open, onClose, habitatId, missionId }: CreateTa
       requiredCapabilities: requiredCapabilities.length > 0 ? requiredCapabilities : undefined,
       estimatedMinutes: estimatedMinutes ? parseInt(estimatedMinutes, 10) : undefined,
     });
+    if (!isSessionActive()) return;
     recordTemplateUsage(selectedTemplateId);
     notify.success(`Task "${title.trim()}" created`);
     resetForm();
@@ -523,6 +527,7 @@ export function CreateTaskForm({ open, onClose, habitatId, missionId }: CreateTa
         await publishViaNewRoute(key);
         return;
       } catch (err) {
+        if (!isSessionActive()) return;
         // The cutover flag is HTTP-404 detected — the route is not
         // registered while the flag is off. Fall back to the legacy
         // `POST /missions/:missionId/tasks` so the form keeps working.

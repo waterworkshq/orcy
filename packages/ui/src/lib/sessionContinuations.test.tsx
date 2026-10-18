@@ -1,4 +1,5 @@
 import React, { useState, useRef } from "react";
+import { toast as sonnerToast } from "sonner";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { Link, MemoryRouter, Route, Routes, useNavigate } from "react-router-dom";
@@ -369,4 +370,249 @@ it.each([false, true])("continues publication recovery while its account is acti
   await act(async () => { await vi.advanceTimersByTimeAsync(3000); });
   expect(credentials).toEqual(["Bearer alice-token", "Bearer alice-token"]);
   expect(screen.queryByRole("dialog")).toBeNull();
+});
+
+
+it.each([[true, false], [true, true], [false, false], [false, true]] as const)(
+  "keeps Habitat create completion notifications in their originating account (retire=%s, fail=%s)", async (retire, fail) => {
+  const creation = deferred<Response>();
+  const success = vi.spyOn(sonnerToast, "success");
+  const error = vi.spyOn(sonnerToast, "error");
+  const fetchMock = vi.fn(async (path: string, init?: RequestInit) => {
+    if (path === "/api/habitats" && init?.method === "POST") return creation.promise;
+    if (path === "/api/habitats") return json({ habitats: [] });
+    if (path === "/api/users/me/teams") return json({ teams: [] });
+    throw new Error(`Unexpected request ${path}`);
+  });
+  vi.stubGlobal("fetch", fetchMock);
+  renderWorkspace();
+  fireEvent.click(screen.getByRole("button", { name: "New Habitat" }));
+  fireEvent.change(screen.getByPlaceholderText("Sprint 24"), { target: { value: "Alice private draft" } });
+  fireEvent.click(screen.getByRole("button", { name: "Create" }));
+  await waitFor(() => expect(fetchMock.mock.calls.some(([path, init]) => path === "/api/habitats" && init?.method === "POST")).toBe(true));
+  if (retire) {
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    fireEvent.click(screen.getByRole("button", { name: "Sign in as Bob" }));
+    await screen.findByText("Bob workspace");
+  }
+  await act(async () => { creation.resolve(fail
+    ? new Response(JSON.stringify({ error: "Alice private create refusal" }), { status: 409 })
+    : json({ habitat: { id: "created", name: "Alice private draft" }, columns: [] })); });
+  expect(success).toHaveBeenCalledTimes(!retire && !fail ? 1 : 0);
+  expect(error).toHaveBeenCalledTimes(!retire && fail ? 1 : 0);
+  if (!retire && fail) expect(error.mock.calls[0][0]).toBe("Alice private create refusal");
+  if (!retire && !fail) expect(success.mock.calls[0][0]).toBe('Habitat "Alice private draft" created');
+  sonnerToast.dismiss();
+});
+
+
+it.each([[true, false], [true, true], [false, false], [false, true]] as const)(
+  "keeps preference completion notifications in their originating account (retire=%s, fail=%s)", async (retire, fail) => {
+  const preference = deferred<Response>();
+  const success = vi.spyOn(sonnerToast, "success");
+  const error = vi.spyOn(sonnerToast, "error");
+  const writes: string[] = [];
+  vi.stubGlobal("fetch", vi.fn(async (path: string, init?: RequestInit) => {
+    if (path === "/api/users/me/email" && init?.method === "PUT") return json({ email: "alice@example.test", success: true });
+    if (init?.method === "PUT") {
+      writes.push(new Headers(init.headers).get("Authorization") ?? "");
+      return preference.promise;
+    }
+    return json({ email: "alice@example.test", preferences: { taskAssigned: true } });
+  }));
+  renderWorkspace("/preferences");
+  await screen.findByDisplayValue("alice@example.test");
+  fireEvent.click(screen.getByRole("button", { name: "Save preferences" }));
+  await waitFor(() => expect(writes).toEqual(["Bearer alice-token"]));
+  if (retire) {
+    fireEvent.click(screen.getByRole("button", { name: "Sign in as Bob" }));
+    await screen.findByText("Bob workspace");
+  }
+  await act(async () => { preference.resolve(fail
+    ? new Response(JSON.stringify({ error: "Alice private preference refusal" }), { status: 409 })
+    : json({ preferences: { taskAssigned: true } })); });
+  expect(writes).toEqual(["Bearer alice-token"]);
+  expect(success).toHaveBeenCalledTimes(!retire && !fail ? 1 : 0);
+  expect(error).toHaveBeenCalledTimes(!retire && fail ? 1 : 0);
+  if (!retire && fail) expect(error.mock.calls[0][0]).toBe("Alice private preference refusal");
+  if (!retire && !fail) expect(success.mock.calls[0][0]).toBe("Notification settings saved");
+  sonnerToast.dismiss();
+});
+
+const publicationNotificationCases = [false, true].flatMap((clone) => ["legacy", "submit", "poll", "retry"].flatMap((phase) =>
+  [true, false].flatMap((retire) => (phase === "legacy" || phase === "retry" ? [true, false] : [true]).map((fail) => ({ clone, phase, retire, fail })))))
+  .filter(({ clone, phase, fail }) => clone || phase !== "legacy" || !fail);
+it.each(publicationNotificationCases)("keeps publication notifications account-bound ($phase clone=$clone retire=$retire fail=$fail)", async ({ clone, phase, retire, fail }) => {
+  const publication = deferred<Response>();
+  const completion = deferred<Response>();
+  const success = vi.spyOn(sonnerToast, "success");
+  const error = vi.spyOn(sonnerToast, "error");
+  const writes: string[] = [];
+  const baseFetch = publicationFetch(publication.promise, writes);
+  const fetchMock = vi.fn(async (path: string, init?: RequestInit) => {
+    if (path.endsWith("/assignment-attempts") || path.includes("/task-creation-attempts/") ||
+      ((path === "/api/missions/m/tasks" || path === "/api/tasks/source/clone") && init?.method === "POST")) return completion.promise;
+    if (path === "/api/agents") return json({ agents: [{ id: "alice-agent", name: "Alice Agent" }] });
+    return baseFetch(path, init);
+  });
+  vi.stubGlobal("fetch", fetchMock);
+  await submitPublication(clone);
+  if (phase === "legacy") {
+    await act(async () => { publication.resolve(new Response(JSON.stringify({ error: "Not found" }), { status: 404 })); });
+  } else if (phase === "poll") {
+    vi.useFakeTimers();
+    await act(async () => { publication.resolve(json({ outcome: "created", recovering: true, attemptId: "alice-attempt", taskId: "created" })); });
+    await act(async () => { await vi.advanceTimersByTimeAsync(1500); });
+  } else if (phase === "retry") {
+    await act(async () => { publication.resolve(json({ outcome: "replayed", taskId: "created", assignmentFailure: { reason: "capacity" } })); });
+    fireEvent.change(screen.getByLabelText("Agent for assignment retry"), { target: { value: "alice-agent" } });
+    fireEvent.click(screen.getByRole("button", { name: "Retry assignment" }));
+  }
+  success.mockClear(); error.mockClear(); sonnerToast.dismiss();
+  if (retire) {
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    fireEvent.click(screen.getByRole("button", { name: "Sign in as Bob" }));
+    expect(screen.getByText("Bob workspace")).toBeTruthy();
+  }
+  const refusal = new Response(JSON.stringify({ error: `Alice private ${phase} refusal` }), { status: 409 });
+  await act(async () => {
+    if (phase === "submit") publication.resolve(refusal);
+    else completion.resolve(fail ? refusal : json(phase === "retry" ? { outcome: "assigned", taskId: "created", assigneeId: "alice-agent" } : { task: { id: "created", missionId: "m", title: "Alice draft" } }));
+  });
+  expect(success).toHaveBeenCalledTimes(!retire && !fail ? 1 : 0);
+  expect(error).toHaveBeenCalledTimes(!retire && fail ? 1 : 0);
+  if (!retire && fail) expect(error.mock.calls[0][0]).toBe(`Alice private ${phase} refusal`);
+  if (!retire && !fail && phase === "retry") expect(success.mock.calls[0][0]).toBe('Task "Alice draft" assigned');
+  if (!retire && !fail && phase === "legacy") expect(success.mock.calls[0][0]).toBe(clone ? "Task cloned" : 'Task "Alice draft" created');
+  sonnerToast.dismiss();
+});
+
+it.each(["audit", "habitat", "attachment", "delete"] .flatMap((kind) => [true, false].map((retire) => ({ kind, retire }))))(
+  "keeps private settings/download errors account-bound ($kind retire=$retire)", async ({ kind, retire }) => {
+  const completion = deferred<Response>();
+  const error = vi.spyOn(sonnerToast, "error");
+  const fetchMock = vi.fn(async (path: string, init?: RequestInit) => {
+    if (kind !== "delete" || (path === "/api/habitats/h" && init?.method === "DELETE")) return completion.promise;
+    return new Response(JSON.stringify({ error: "Unavailable in fixture" }), { status: 503 });
+  });
+  vi.stubGlobal("fetch", fetchMock);
+  renderWorkspace(kind === "delete" ? "/settings" : `/download-${kind}`);
+  if (kind === "delete") {
+    fireEvent.click(screen.getByRole("button", { name: "Delete Habitat" }));
+    fireEvent.click(within(screen.getByRole("dialog", { name: "Delete Habitat" })).getByRole("button", { name: "Delete" }));
+  } else {
+    fireEvent.click(kind === "attachment" ? within(screen.getByText("Alice-private.txt").parentElement!).getAllByRole("button")[0]
+      : screen.getByRole("button", { name: kind === "audit" ? "Export" : "Download JSON" }));
+  }
+  expect(fetchMock.mock.calls.some(([, init]) => new Headers(init?.headers).get("Authorization") === "Bearer alice-token")).toBe(true);
+  error.mockClear();
+  if (retire) {
+    fireEvent.keyDown(document, { key: "Escape" });
+    fireEvent.click(screen.getByRole("button", { name: "Sign in as Bob" }));
+    await screen.findByText("Bob workspace");
+  }
+  await act(async () => { completion.resolve(new Response(JSON.stringify({ error: `Alice private ${kind} refusal` }), { status: 409 })); });
+  expect(error).toHaveBeenCalledTimes(retire ? 0 : 1);
+  if (!retire) expect(error.mock.calls[0][0]).toBe(`Alice private ${kind} refusal`);
+  sonnerToast.dismiss();
+});
+
+const integrationNotificationCases = ["sync", "enabled", "autoImport", "disconnect", "pat", "jira", "linear"].flatMap((action) =>
+  [true, false].flatMap((retire) => (action === "enabled" || action === "autoImport" ? [true] : [true, false]).map((fail) => ({ action, retire, fail }))));
+it.each(integrationNotificationCases)("keeps integration notifications account-bound ($action retire=$retire fail=$fail)", async ({ action, retire, fail }) => {
+  const completion = deferred<Response>();
+  const success = vi.spyOn(sonnerToast, "success");
+  const error = vi.spyOn(sonnerToast, "error");
+  const mutations: string[] = [];
+  vi.stubGlobal("fetch", vi.fn(async (_path: string, init?: RequestInit) => {
+    if (init?.method && init.method !== "GET") {
+      mutations.push(new Headers(init.headers).get("Authorization") ?? "");
+      return completion.promise;
+    }
+    return json({ integrations: [{
+      id: "conn", habitatId: "h", provider: "github", name: "Alice private integration", authMethod: "pat",
+      hasAccessToken: true, hasRefreshToken: false, hasWebhookSecret: true, repositoryOwner: "alice", repositoryName: "private",
+      enabled: true, pullEnabled: true, autoImport: false, lastSyncAt: null, lastSyncStatus: null, lastSyncError: null,
+    }] });
+  }));
+  renderWorkspace("/integrations");
+  const card = (await screen.findByText("Alice private integration")).closest(".border")! as HTMLElement;
+  if (action === "sync") fireEvent.click(within(card).getByRole("button", { name: "Sync Now" }));
+  else if (action === "enabled" || action === "autoImport") fireEvent.click(within(card).getAllByRole("switch")[action === "enabled" ? 0 : 1]);
+  else if (action === "disconnect") {
+    fireEvent.click(within(card).getByRole("button", { name: "Disconnect" }));
+    fireEvent.click(within(card).getByRole("button", { name: "Confirm" }));
+  } else {
+    fireEvent.click(screen.getByRole("button", { name: action === "pat" ? "Use a personal access token instead" : action === "jira" ? "Connect Jira via API Token" : "Connect Linear via API Key" }));
+    const form = document.querySelector("form")!;
+    for (const input of form.querySelectorAll<HTMLInputElement>("input[required]")) {
+      fireEvent.change(input, { target: { value: input.type === "email" ? "alice@example.test" : input.type === "url" ? "https://example.test" : "Alice-private-fixture" } });
+    }
+    fireEvent.submit(form);
+  }
+  expect(mutations).toEqual(["Bearer alice-token"]);
+  if (retire) {
+    fireEvent.click(screen.getByRole("button", { name: "Sign in as Bob" }));
+    await screen.findByText("Bob workspace");
+  }
+  await act(async () => { completion.resolve(fail
+    ? new Response(JSON.stringify({ error: `Alice private ${action} integration refusal` }), { status: 409 })
+    : json({ created: 17, updated: 23, skipped: 2, failed: 0, integration: { id: "new" } })); });
+  expect(success).toHaveBeenCalledTimes(!retire && !fail ? 1 : 0);
+  expect(error).toHaveBeenCalledTimes(!retire && fail ? 1 : 0);
+  if (!retire && fail) expect(error.mock.calls[0][0]).toBe(`Alice private ${action} integration refusal`);
+  if (!retire && !fail && action === "sync") expect(success.mock.calls[0][0]).toBe("Synced: 17 created, 23 updated, 2 skipped");
+  sonnerToast.dismiss();
+});
+
+it.each(["upload", "delete"].flatMap((action) => [true, false].flatMap((retire) => [true, false].map((fail) => ({ action, retire, fail }))))) (
+  "keeps attachment mutation notifications account-bound ($action retire=$retire fail=$fail)", async ({ action, retire, fail }) => {
+  const response = deferred<Response>();
+  const success = vi.spyOn(sonnerToast, "success");
+  const error = vi.spyOn(sonnerToast, "error");
+  let finishUpload: (fail: boolean) => void = (_fail) => { throw new Error("Upload was not sent"); };
+  let uploadCredential = "";
+  // XMLHttpRequest is the external upload boundary; exercise the real uploadFile transport and FormData.
+  vi.stubGlobal("XMLHttpRequest", class {
+    status = 0;
+    responseText = "";
+    upload = { addEventListener: () => {} };
+    handlers: Record<string, () => void> = {};
+    open() {}
+    setRequestHeader(name: string, value: string) { if (name === "Authorization") uploadCredential = value; }
+    addEventListener(name: string, callback: () => void) { this.handlers[name] = callback; }
+    send(body: FormData) {
+      expect(body.get("file")).toBeInstanceOf(File);
+      finishUpload = (failed) => {
+        this.status = failed ? 409 : 200;
+        this.responseText = JSON.stringify(failed ? { error: "Alice private upload refusal" } : { attachment: { id: "uploaded", originalName: "Alice-private.txt", mimeType: "text/plain", sizeBytes: 7 } });
+        this.handlers.load();
+      };
+    }
+  });
+  const fetchMock = vi.fn((_path: string, _init?: RequestInit) => response.promise);
+  vi.stubGlobal("fetch", fetchMock);
+  const view = renderWorkspace("/download-attachment");
+  if (action === "upload") {
+    fireEvent.change(view.container.querySelector('input[type="file"]')!, { target: { files: [new File(["private"], "Alice-private.txt", { type: "text/plain" })] } });
+    expect(uploadCredential).toBe("Bearer alice-token");
+  } else {
+    fireEvent.click(within(screen.getByText("Alice-private.txt").parentElement!).getAllByRole("button")[1]);
+    fireEvent.click(within(screen.getByRole("dialog", { name: "Delete Attachment?" })).getByRole("button", { name: "Delete" }));
+    expect(new Headers(fetchMock.mock.calls[0][1]?.headers).get("Authorization")).toBe("Bearer alice-token");
+  }
+  if (retire) {
+    fireEvent.keyDown(document, { key: "Escape" });
+    fireEvent.click(screen.getByRole("button", { name: "Sign in as Bob" }));
+    await screen.findByText("Bob workspace");
+  }
+  await act(async () => {
+    if (action === "upload") finishUpload(fail);
+    else response.resolve(fail ? new Response(JSON.stringify({ error: "Alice private delete refusal" }), { status: 409 }) : json({ success: true }));
+  });
+  expect(success).toHaveBeenCalledTimes(!retire && !fail ? 1 : 0);
+  expect(error).toHaveBeenCalledTimes(!retire && fail ? 1 : 0);
+  if (!retire && fail) expect(error.mock.calls[0][0]).toBe(`Alice private ${action} refusal`);
+  if (!retire && !fail) expect(success.mock.calls[0][0]).toBe(action === "upload" ? "Uploaded Alice-private.txt" : "Attachment deleted");
+  sonnerToast.dismiss();
 });

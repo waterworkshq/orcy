@@ -81,9 +81,11 @@ export const NotificationsTab = forwardRef<NotificationsTabHandle, Notifications
         const result = await api.notifications.updateGlobalPrefs(globalPrefs);
         setGlobalPrefs(result.preferences);
       }
+      if (!isSessionActive()) return;
       notify.success('Notification settings saved');
       qc.invalidateQueries({ queryKey: queryKeys.notificationPrefs.habitat(habitatId) });
     } catch (err) {
+      if (!isSessionActive()) return;
       notify.error((err as Error).message);
     } finally {
       setPrefsSaving(false);

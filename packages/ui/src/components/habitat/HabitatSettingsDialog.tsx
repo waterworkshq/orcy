@@ -329,6 +329,7 @@ export function HabitatSettingsDialog({
             onDelete();
             onClose();
           } catch (err) {
+            if (!isSessionActive()) return;
             notify.error((err as Error).message);
           }
         }}

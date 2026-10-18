@@ -37,7 +37,7 @@ When reviewers are assigned, their approvals are required for completion; review
 
 ## Switching accounts
 
-Choose **Logout** from the user menu to return to sign-in. Logout immediately removes the local credential and clears cached account data, selections, notifications and the open task modal, even if the server logout request fails. Signing in or creating an account starts a fresh account view in the same tab; your theme preference is retained. Pending exports and attachment downloads from the retired account will not start a browser download, and its pending settings deletion will not redirect the new account. An action the server already accepted may still complete after logout.
+Choose **Logout** from the user menu to return to sign-in. Logout immediately removes the local credential and clears cached account data, selections, notifications and the open task modal, even if the server logout request fails. Signing in or creating an account starts a fresh account view in the same tab; your theme preference is retained. Pending exports and attachment downloads from the retired account will not start a browser download, and its pending settings deletion will not redirect the new account. Late completion and error notices from Habitat creation/deletion, Task creation/cloning/assignment/recovery, preference saves, integration changes and attachment/export actions stay with their originating account. An action the server already accepted may still complete after logout.
 
 ## Resolving Review Requirements (operators)
 
