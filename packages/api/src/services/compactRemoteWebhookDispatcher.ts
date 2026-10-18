@@ -157,6 +157,7 @@ export async function dispatchCompactRemoteEvent(
         );
         result.dispatched += 1;
       } else {
+        failureReason = `HTTP ${res.status}`;
         deliveryRepo.updateRemoteWebhookDeliveryStatus(
           delivery.id,
           "failed",
@@ -165,13 +166,12 @@ export async function dispatchCompactRemoteEvent(
           1,
         );
         result.failed += 1;
-        failureReason = `HTTP ${res.status}`;
       }
     } catch (err) {
       const errorMsg = (err as Error).message;
       deliveryRepo.updateRemoteWebhookDeliveryStatus(delivery.id, "failed", null, errorMsg, 1);
       result.failed += 1;
-      failureReason = errorMsg;
+      failureReason ??= errorMsg;
     }
 
     if (failureReason !== undefined) {
@@ -218,7 +218,7 @@ function reportDeliveryFailure(
         {
           sourceId: endpoint.id,
           targetType: "habitat",
-          targetId: endpoint.id,
+          targetId: habitatId,
           payload: { endpointUrl: endpoint.url, error },
         },
       );
