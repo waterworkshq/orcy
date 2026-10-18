@@ -2043,7 +2043,7 @@ Get habitat-wide time tracking and estimation metrics, including per-agent break
 | `averageEstimationAccuracy` | number | Avg ratio of actual/estimated across tasks with estimates |
 | `totalPlannedMinutes` | number | Sum of all task estimates |
 | `totalActualMinutes` | number | Sum of all recorded work |
-| `overdueTasks` | number | Tasks exceeding their estimate |
+| `overdueTasks` | number | Tasks whose inherited Mission deadline is strictly before the current instant, excluding `done`, `approved` and `failed`. ISO timestamps (including offsets and milliseconds) and SQLite timestamps are compared as instants; null or unparseable deadlines do not count. |
 | `onTimeCompletionRate` | number | Fraction of tasks completed within estimate |
 | `agentMetrics` | array | Per-agent breakdown |
 
