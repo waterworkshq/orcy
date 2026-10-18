@@ -1,6 +1,7 @@
 import React, { useState, useRef, useCallback } from 'react';
 import { api } from '../../api/index.js';
 import { notify } from '../../lib/toast.js';
+import { useSessionLiveness } from '../../lib/sessionState.js';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/Card.js';
 import { ConfirmDialog } from '../ui/ConfirmDialog.js';
 import type { TaskAttachment } from '../../types/index.js';
@@ -24,6 +25,7 @@ export function AttachmentSection({ taskId, attachments: initialAttachments }: {
   taskId: string;
   attachments: TaskAttachment[];
 }) {
+  const isSessionActive = useSessionLiveness();
   const [attachments, setAttachments] = useState<TaskAttachment[]>(initialAttachments);
   const [uploading, setUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
@@ -39,19 +41,22 @@ export function AttachmentSection({ taskId, attachments: initialAttachments }: {
       const result = await api.attachments.upload(taskId, file, (percent) => {
         setUploadProgress(percent);
       });
+      if (!isSessionActive()) return;
       setAttachments((prev) => [result.attachment, ...prev]);
       notify.success(`Uploaded ${file.name}`);
     } catch (err) {
+      if (!isSessionActive()) return;
       notify.error((err as Error).message);
     } finally {
       setUploading(false);
       setUploadProgress(0);
     }
-  }, [taskId]);
+  }, [taskId, isSessionActive]);
 
   async function handleDownload(attachment: TaskAttachment) {
     try {
       const { blob, filename } = await api.attachments.download(attachment.id);
+      if (!isSessionActive()) return;
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
@@ -61,6 +66,7 @@ export function AttachmentSection({ taskId, attachments: initialAttachments }: {
       document.body.removeChild(a);
       URL.revokeObjectURL(url);
     } catch (err) {
+      if (!isSessionActive()) return;
       notify.error((err as Error).message);
     }
   }
@@ -68,9 +74,11 @@ export function AttachmentSection({ taskId, attachments: initialAttachments }: {
   async function handleDelete(attachment: TaskAttachment) {
     try {
       await api.attachments.delete(attachment.id);
+      if (!isSessionActive()) return;
       setAttachments((prev) => prev.filter((a) => a.id !== attachment.id));
       notify.success('Attachment deleted');
     } catch (err) {
+      if (!isSessionActive()) return;
       notify.error((err as Error).message);
     }
     setDeleteTarget(null);

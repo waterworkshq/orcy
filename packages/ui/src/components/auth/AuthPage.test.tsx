@@ -5,6 +5,7 @@ import { render, screen, cleanup, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import '@testing-library/jest-dom/vitest';
 import { AuthPage } from './AuthPage.js';
+import { SessionStateProvider } from '../../lib/sessionState.js';
 
 const mockSetupStatus = vi.hoisted(() => vi.fn());
 const mockLogin = vi.hoisted(() => vi.fn());
@@ -46,9 +47,9 @@ describe('AuthPage', () => {
   it('shows loading state while setup-status API is in-flight', () => {
     mockSetupStatus.mockReturnValue(new Promise(() => {}));
     render(
-      <MemoryRouter>
+      <MemoryRouter><SessionStateProvider>
         <AuthPage />
-      </MemoryRouter>
+      </SessionStateProvider></MemoryRouter>
     );
 
     expect(screen.getByText('ORCY POD')).toBeInTheDocument();
@@ -58,9 +59,9 @@ describe('AuthPage', () => {
   it('renders LoginForm when needsSetup is false', async () => {
     mockSetupStatus.mockResolvedValue({ needsSetup: false });
     render(
-      <MemoryRouter>
+      <MemoryRouter><SessionStateProvider>
         <AuthPage />
-      </MemoryRouter>
+      </SessionStateProvider></MemoryRouter>
     );
 
     await waitFor(() => {
@@ -74,9 +75,9 @@ describe('AuthPage', () => {
   it('renders SetupForm when needsSetup is true', async () => {
     mockSetupStatus.mockResolvedValue({ needsSetup: true });
     render(
-      <MemoryRouter>
+      <MemoryRouter><SessionStateProvider>
         <AuthPage />
-      </MemoryRouter>
+      </SessionStateProvider></MemoryRouter>
     );
 
     await waitFor(() => {
@@ -90,9 +91,9 @@ describe('AuthPage', () => {
   it('shows error state with retry button when setup-status API fails', async () => {
     mockSetupStatus.mockRejectedValue(new Error('Network error'));
     render(
-      <MemoryRouter>
+      <MemoryRouter><SessionStateProvider>
         <AuthPage />
-      </MemoryRouter>
+      </SessionStateProvider></MemoryRouter>
     );
 
     await waitFor(() => {
@@ -104,9 +105,9 @@ describe('AuthPage', () => {
   it('retry button re-calls setup-status', async () => {
     mockSetupStatus.mockRejectedValueOnce(new Error('Network error'));
     render(
-      <MemoryRouter>
+      <MemoryRouter><SessionStateProvider>
         <AuthPage />
-      </MemoryRouter>
+      </SessionStateProvider></MemoryRouter>
     );
 
     await waitFor(() => {
@@ -125,9 +126,9 @@ describe('AuthPage', () => {
   it('shows ORCY POD branding with Orcy mark icon', async () => {
     mockSetupStatus.mockResolvedValue({ needsSetup: false });
     render(
-      <MemoryRouter>
+      <MemoryRouter><SessionStateProvider>
         <AuthPage />
-      </MemoryRouter>
+      </SessionStateProvider></MemoryRouter>
     );
 
     await waitFor(() => {
@@ -139,9 +140,9 @@ describe('AuthPage', () => {
   it('renders in glass-card on bg-surface surface', async () => {
     mockSetupStatus.mockResolvedValue({ needsSetup: false });
     const { container } = render(
-      <MemoryRouter>
+      <MemoryRouter><SessionStateProvider>
         <AuthPage />
-      </MemoryRouter>
+      </SessionStateProvider></MemoryRouter>
     );
 
     await waitFor(() => {

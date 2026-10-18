@@ -3,6 +3,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { Button } from "../ui/Button.js";
 import { api } from "../../api/index.js";
 import { notify } from "../../lib/toast.js";
+import { useSessionLiveness } from "../../lib/sessionState.js";
 import { Download } from "lucide-react";
 
 interface AuditExportModalProps {
@@ -12,6 +13,7 @@ interface AuditExportModalProps {
 }
 
 export function AuditExportModal({ habitatId, open, onClose }: AuditExportModalProps) {
+  const isSessionActive = useSessionLiveness();
   const [format, setFormat] = useState<"csv" | "json" | "jsonl">("csv");
   const [since, setSince] = useState("");
   const [until, setUntil] = useState("");
@@ -29,6 +31,7 @@ export function AuditExportModal({ habitatId, open, onClose }: AuditExportModalP
       if (actorType) params.actorType = actorType;
 
       const data = await api.audit.export(habitatId, params);
+      if (!isSessionActive()) return;
       const blob = new Blob([data], { type: format === "csv" ? "text/csv" : "application/json" });
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
@@ -41,6 +44,7 @@ export function AuditExportModal({ habitatId, open, onClose }: AuditExportModalP
       notify.success("Audit log exported");
       onClose();
     } catch (err) {
+      if (!isSessionActive()) return;
       notify.error((err as Error).message);
     } finally {
       setExporting(false);

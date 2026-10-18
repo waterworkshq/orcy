@@ -24,6 +24,7 @@ import {
 } from "../../lib/habitatMutations.js";
 import { queryKeys } from "../../lib/queryKeys.js";
 import { notify } from "../../lib/toast.js";
+import { useSessionLiveness } from "../../lib/sessionState.js";
 import type {
   TaskAssignmentWarningView,
   TaskPublicationErrorView,
@@ -84,6 +85,7 @@ function generateAttemptKey(): string {
  * rationale.
  */
 export function CreateTaskForm({ open, onClose, habitatId, missionId }: CreateTaskFormProps) {
+  const isSessionActive = useSessionLiveness();
   const qc = useQueryClient();
   const { data: templatesData } = useTemplates(habitatId);
   const templates = templatesData?.templates ?? [];
@@ -201,7 +203,7 @@ export function CreateTaskForm({ open, onClose, habitatId, missionId }: CreateTa
   }
 
   function recordTemplateUsage(templateId: string | undefined) {
-    if (templateId) {
+    if (templateId && isSessionActive()) {
       api.templates.recordUsage(templateId).catch(() => {});
     }
   }
@@ -263,6 +265,7 @@ export function CreateTaskForm({ open, onClose, habitatId, missionId }: CreateTa
         assignmentWarning.taskId,
         retryAgentId,
       );
+      if (!isSessionActive()) return;
       invalidateAfterSuccess();
       notify.success(
         result.outcome === "assigned"
@@ -272,6 +275,7 @@ export function CreateTaskForm({ open, onClose, habitatId, missionId }: CreateTa
       resetForm();
       onClose();
     } catch (err) {
+      if (!isSessionActive()) return;
       const message = err instanceof Error ? err.message : "Failed to retry assignment";
       setSubmitError(message);
       notify.error(message);
@@ -295,6 +299,7 @@ export function CreateTaskForm({ open, onClose, habitatId, missionId }: CreateTa
    *     surface the refusal and let the user retry manually.
    */
   function handlePublicationOutcome(parsed: TaskPublicationOutcomeView) {
+    if (!isSessionActive()) return;
     switch (parsed.outcome) {
       case "created": {
         if ("recovering" in parsed && parsed.recovering) {
@@ -391,6 +396,7 @@ export function CreateTaskForm({ open, onClose, habitatId, missionId }: CreateTa
   }
 
   async function runPoll(attemptId: string) {
+    if (!isSessionActive()) return;
     if (pollDeadlineRef.current !== null && Date.now() > pollDeadlineRef.current) {
       stopPolling();
       setPolling(false);
@@ -399,6 +405,7 @@ export function CreateTaskForm({ open, onClose, habitatId, missionId }: CreateTa
     }
     try {
       const status = await taskPublicationsApi.getTaskCreationAttempt(attemptId);
+      if (!isSessionActive()) return;
       if (status.state === "created_unassigned") {
         const failure = readAssignmentFailure(status) ?? {
           reason: status.terminalOutcome ?? "assignment_failed",
@@ -439,6 +446,7 @@ export function CreateTaskForm({ open, onClose, habitatId, missionId }: CreateTa
       // Still non-terminal — keep polling.
       schedulePoll(attemptId, status.committedTaskId ?? "");
     } catch (err) {
+      if (!isSessionActive()) return;
       stopPolling();
       setPolling(false);
       const message = err instanceof Error ? err.message : "Failed to check publication status";
@@ -479,6 +487,7 @@ export function CreateTaskForm({ open, onClose, habitatId, missionId }: CreateTa
   }
 
   async function publishViaLegacyFallback() {
+    if (!isSessionActive()) return;
     const result = await createTaskMutation.mutateAsync({
       title: title.trim(),
       description: description.trim() || undefined,
@@ -487,6 +496,7 @@ export function CreateTaskForm({ open, onClose, habitatId, missionId }: CreateTa
       requiredCapabilities: requiredCapabilities.length > 0 ? requiredCapabilities : undefined,
       estimatedMinutes: estimatedMinutes ? parseInt(estimatedMinutes, 10) : undefined,
     });
+    if (!isSessionActive()) return;
     recordTemplateUsage(selectedTemplateId);
     notify.success(`Task "${title.trim()}" created`);
     resetForm();
@@ -517,6 +527,7 @@ export function CreateTaskForm({ open, onClose, habitatId, missionId }: CreateTa
         await publishViaNewRoute(key);
         return;
       } catch (err) {
+        if (!isSessionActive()) return;
         // The cutover flag is HTTP-404 detected — the route is not
         // registered while the flag is off. Fall back to the legacy
         // `POST /missions/:missionId/tasks` so the form keeps working.
