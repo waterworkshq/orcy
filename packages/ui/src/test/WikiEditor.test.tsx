@@ -2,6 +2,7 @@ import "@testing-library/jest-dom/vitest";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { startTransition, useLayoutEffect, useState } from "react";
 import { WikiEditor } from "../components/wiki/WikiEditor.js";
 import { queryKeys } from "../lib/queryKeys.js";
 import { wikiApi } from "../api/domains/wiki.js";
@@ -353,6 +354,203 @@ describe("WikiEditor draft lifecycle", () => {
     fireEvent.click(screen.getByRole("button", { name: "Save metadata" }));
     await waitFor(() => expect(wikiApi.updatePageMetadata).toHaveBeenCalledTimes(2));
     expect(wikiApi.updatePageMetadata).toHaveBeenLastCalledWith("h", "p", { parentId: null, tags: ["remote"], status: "published" });
+  });
+
+  it.each(["text", "metadata"] as const)("keeps acknowledged %s when the other save fails before its refetch completes", async (acknowledged) => {
+    let acknowledge!: (value: Page) => void;
+    let reject!: (error: Error) => void;
+    let finishRead!: (value: Page) => void;
+    if (acknowledged === "text") {
+      vi.mocked(wikiApi.saveVersion).mockImplementationOnce(() => new Promise((resolve) => { acknowledge = resolve; }));
+      vi.mocked(wikiApi.updatePageMetadata).mockImplementationOnce(() => new Promise((_resolve, fail) => { reject = fail; }));
+    } else {
+      vi.mocked(wikiApi.updatePageMetadata).mockImplementationOnce(() => new Promise((resolve) => { acknowledge = resolve; }));
+      vi.mocked(wikiApi.saveVersion).mockImplementationOnce(() => new Promise((_resolve, fail) => { reject = fail; }));
+    }
+    render(editor());
+    await screen.findByDisplayValue("Server body");
+    change(body(), "Acknowledged body");
+    change(screen.getByRole("combobox", { name: "Status" }), "published");
+    fireEvent.click(screen.getByRole("button", { name: "Save metadata" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save version" }));
+    await waitFor(() => expect(wikiApi.saveVersion).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(wikiApi.updatePageMetadata).toHaveBeenCalledTimes(1));
+    vi.mocked(wikiApi.getPage).mockImplementationOnce(() => new Promise((resolve) => { finishRead = resolve; }));
+    page = acknowledged === "text" ? { ...page, content: "Acknowledged body" } : { ...page, status: "published" };
+    await act(async () => acknowledge(structuredClone(page)));
+    await waitFor(() => expect(wikiApi.getPage).toHaveBeenCalledTimes(2));
+    await act(async () => reject(new Error("Other write refused")));
+    await waitFor(() => expect(screen.getByRole("button", { name: acknowledged === "text" ? "Save metadata" : "Save version" })).toBeEnabled());
+    expect(body()).toHaveValue("Acknowledged body");
+    expect(screen.getByRole("combobox", { name: "Status" })).toHaveValue("published");
+    if (acknowledged === "text") expect(screen.getByRole("button", { name: "Save version" })).toBeDisabled();
+    else expect(screen.queryByRole("button", { name: "Save metadata" })).not.toBeInTheDocument();
+    await act(async () => finishRead(structuredClone(page)));
+    expect(body()).toHaveValue("Acknowledged body");
+    expect(screen.getByRole("combobox", { name: "Status" })).toHaveValue("published");
+  });
+
+  it.each([
+    ["text", false], ["text", true], ["metadata", false], ["metadata", true],
+  ] as const)("reconciles an observed remote %s change after success while retaining later edits: %s", async (group, laterEdit) => {
+    let finish!: (value: Page) => void;
+    if (group === "text") vi.mocked(wikiApi.saveVersion).mockImplementationOnce(() => new Promise((resolve) => { finish = resolve; }));
+    else vi.mocked(wikiApi.updatePageMetadata).mockImplementationOnce(() => new Promise((resolve) => { finish = resolve; }));
+    render(editor());
+    await screen.findByDisplayValue("Server body");
+    let acknowledged: Page;
+    if (group === "text") {
+      change(title(), "  Saved title  ");
+      change(body(), "Submitted body");
+      fireEvent.click(screen.getByRole("button", { name: "Save version" }));
+      await waitFor(() => expect(wikiApi.saveVersion).toHaveBeenCalledTimes(1));
+      acknowledged = { ...page, title: "Saved title", content: "Submitted body", currentVersionNumber: 2 };
+      if (laterEdit) change(body(), "Later body");
+      page = { ...acknowledged, content: "Remote body", currentVersionNumber: 3, status: "published" };
+    } else {
+      change(screen.getByPlaceholderText("Add tag…"), "submitted");
+      fireEvent.keyDown(screen.getByPlaceholderText("Add tag…"), { key: "Enter" });
+      change(screen.getByRole("combobox", { name: "Status" }), "published");
+      fireEvent.click(screen.getByRole("button", { name: "Save metadata" }));
+      await waitFor(() => expect(wikiApi.updatePageMetadata).toHaveBeenCalledTimes(1));
+      acknowledged = { ...page, tags: ["submitted"], status: "published" };
+      if (laterEdit) {
+        change(screen.getByPlaceholderText("Add tag…"), "later");
+        fireEvent.keyDown(screen.getByPlaceholderText("Add tag…"), { key: "Enter" });
+      }
+      page = { ...acknowledged, tags: ["remote"], content: "Observed remote body" };
+    }
+    await act(async () => { await client.invalidateQueries({ queryKey: queryKeys.wiki.page("h", "p"), exact: true }); });
+    if (group === "text") await waitFor(() => expect(screen.getByRole("combobox", { name: "Status" })).toHaveValue("published"));
+    else await screen.findByDisplayValue("Observed remote body");
+    const observed = client.getQueryData(queryKeys.wiki.page("h", "p"));
+    expect(observed).toEqual(page);
+    await act(async () => finish(structuredClone(acknowledged)));
+    await screen.findByText(group === "text" ? "Content changed on the server." : "Tags changed on the server.");
+    if (group === "text") {
+      expect(title()).toHaveValue("Saved title");
+      expect(body()).toHaveValue(laterEdit ? "Later body" : "Submitted body");
+    } else {
+      expect(screen.getByText("#submitted")).toBeInTheDocument();
+      if (laterEdit) expect(screen.getByText("#later")).toBeInTheDocument();
+      expect(screen.getByRole("combobox", { name: "Status" })).toHaveValue("published");
+    }
+    expect(screen.getByRole("button", { name: group === "text" ? "Save version" : "Save metadata" })).toBeDisabled();
+    await act(async () => { await client.invalidateQueries({ queryKey: queryKeys.wiki.page("h", "p"), exact: true }); });
+    expect(client.getQueryData(queryKeys.wiki.page("h", "p"))).toBe(observed);
+    fireEvent.click(screen.getByRole("button", { name: group === "text" ? "Keep my Content" : "Keep my Tags" }));
+    expect(screen.getByRole("button", { name: group === "text" ? "Save version" : "Save metadata" })).toBeEnabled();
+  });
+
+  it.each(["text", "metadata"] as const)("does not replace acknowledged %s with an unchanged pre-write cache", async (group) => {
+    let finish!: (value: Page) => void;
+    let finishRead!: (value: Page) => void;
+    if (group === "text") vi.mocked(wikiApi.saveVersion).mockImplementationOnce(() => new Promise((resolve) => { finish = resolve; }));
+    else vi.mocked(wikiApi.updatePageMetadata).mockImplementationOnce(() => new Promise((resolve) => { finish = resolve; }));
+    render(editor());
+    await screen.findByDisplayValue("Server body");
+    if (group === "text") {
+      change(body(), "Acknowledged body");
+      fireEvent.click(screen.getByRole("button", { name: "Save version" }));
+      await waitFor(() => expect(wikiApi.saveVersion).toHaveBeenCalledTimes(1));
+    } else {
+      change(screen.getByRole("combobox", { name: "Status" }), "published");
+      fireEvent.click(screen.getByRole("button", { name: "Save metadata" }));
+      await waitFor(() => expect(wikiApi.updatePageMetadata).toHaveBeenCalledTimes(1));
+    }
+    const oldCache = client.getQueryData(queryKeys.wiki.page("h", "p"));
+    await act(async () => { await client.invalidateQueries({ queryKey: queryKeys.wiki.page("h", "p"), exact: true }); });
+    expect(client.getQueryData(queryKeys.wiki.page("h", "p"))).toBe(oldCache);
+    vi.mocked(wikiApi.getPage).mockImplementationOnce(() => new Promise((resolve) => { finishRead = resolve; }));
+    page = group === "text" ? { ...page, content: "Acknowledged body", currentVersionNumber: 2 } : { ...page, status: "published" };
+    await act(async () => finish(structuredClone(page)));
+    await waitFor(() => expect(wikiApi.getPage).toHaveBeenCalledTimes(3));
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    if (group === "text") {
+      expect(body()).toHaveValue("Acknowledged body");
+      expect(screen.getByRole("button", { name: "Save version" })).toBeDisabled();
+    } else {
+      expect(screen.getByRole("combobox", { name: "Status" })).toHaveValue("published");
+      expect(screen.queryByRole("button", { name: "Save metadata" })).not.toBeInTheDocument();
+    }
+    await act(async () => finishRead(structuredClone(page)));
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it.each(["text", "metadata"] as const)("reconciles an observably newer %s write that restores the pre-write value", async (group) => {
+    let finish!: (value: Page) => void;
+    if (group === "text") vi.mocked(wikiApi.saveVersion).mockImplementationOnce(() => new Promise((resolve) => { finish = resolve; }));
+    else vi.mocked(wikiApi.updatePageMetadata).mockImplementationOnce(() => new Promise((resolve) => { finish = resolve; }));
+    render(editor());
+    await screen.findByDisplayValue("Server body");
+    let acknowledged: Page;
+    if (group === "text") {
+      change(body(), "Submitted body");
+      fireEvent.click(screen.getByRole("button", { name: "Save version" }));
+      await waitFor(() => expect(wikiApi.saveVersion).toHaveBeenCalledTimes(1));
+      acknowledged = { ...page, content: "Submitted body", currentVersionNumber: 2, updatedAt: "2026-10-17T00:00:01Z" };
+      page = { ...page, currentVersionNumber: 3, updatedAt: "2026-10-17T00:00:02Z", status: "published" };
+    } else {
+      change(screen.getByRole("combobox", { name: "Status" }), "published");
+      fireEvent.click(screen.getByRole("button", { name: "Save metadata" }));
+      await waitFor(() => expect(wikiApi.updatePageMetadata).toHaveBeenCalledTimes(1));
+      acknowledged = { ...page, status: "published", updatedAt: "2026-10-17T00:00:01Z" };
+      page = { ...page, updatedAt: "2026-10-17T00:00:02Z", content: "Observed remote body" };
+    }
+    await act(async () => { await client.invalidateQueries({ queryKey: queryKeys.wiki.page("h", "p"), exact: true }); });
+    if (group === "text") await waitFor(() => expect(screen.getByRole("combobox", { name: "Status" })).toHaveValue("published"));
+    else await screen.findByDisplayValue("Observed remote body");
+    await act(async () => finish(structuredClone(acknowledged)));
+    await screen.findByText(group === "text" ? "Content changed on the server." : "Status changed on the server.");
+    if (group === "text") expect(body()).toHaveValue("Submitted body");
+    else expect(screen.getByRole("combobox", { name: "Status" })).toHaveValue("published");
+  });
+
+  it("retires the old editor during an identity commit before a pending create completes", async () => {
+    let finish!: (value: Page) => void;
+    let switchIdentity!: () => void;
+    let committed!: () => void;
+    const replacementCommitted = new Promise<void>((resolve) => { committed = resolve; });
+    const onDone = vi.fn();
+    vi.mocked(wikiApi.createPage).mockImplementationOnce(() => new Promise((resolve) => { finish = resolve; }));
+    function CommitProbe({ editing }: { editing: boolean }) {
+      useLayoutEffect(() => {
+        if (!editing) return;
+        finish({ ...page, id: "created" });
+        // A real replacement commit can consume a scheduler slice before passive cleanup.
+        // Resolve the HTTP boundary in that window without invoking private editor callbacks.
+        const end = performance.now() + 20;
+        while (performance.now() < end) { /* simulate other layout work in the same commit */ }
+        committed();
+      }, [editing]);
+      return null;
+    }
+    function Host() {
+      const [editing, setEditing] = useState(false);
+      switchIdentity = () => startTransition(() => setEditing(true));
+      return <QueryClientProvider client={client}>
+        <WikiEditor habitatId="h" mode={editing ? "edit" : "create"} pageId={editing ? "p" : undefined}
+          onDone={onDone} onCancel={() => {}} />
+        <CommitProbe editing={editing} />
+      </QueryClientProvider>;
+    }
+    render(<Host />);
+    change(title(), "New page");
+    change(body(), "New body");
+    fireEvent.click(screen.getByRole("button", { name: "Create page" }));
+    await waitFor(() => expect(wikiApi.createPage).toHaveBeenCalledTimes(1));
+    // act intentionally flushes passive effects and would hide the browser commit window.
+    const globals = globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean };
+    const environment = globals.IS_REACT_ACT_ENVIRONMENT;
+    try {
+      globals.IS_REACT_ACT_ENVIRONMENT = false;
+      switchIdentity();
+      await replacementCommitted;
+      await new Promise<void>((resolve) => setTimeout(resolve, 0));
+      expect(onDone).not.toHaveBeenCalled();
+    } finally {
+      globals.IS_REACT_ACT_ENVIRONMENT = environment;
+    }
   });
 
 });

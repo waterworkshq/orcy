@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useLayoutEffect, useRef } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft, Loader2, Save, Eye, Pencil, AlertTriangle, Tag, X } from "lucide-react";
 import { wikiApi } from "../../api/domains/wiki.js";
@@ -33,7 +33,7 @@ function WikiEditorSession({ habitatId, mode, pageId, onDone, onCancel }: WikiEd
   const queryClient = useQueryClient();
   const isEdit = mode === "edit" && !!pageId;
   const active = useRef(true);
-  useEffect(() => {
+  useLayoutEffect(() => {
     active.current = true;
     return () => { active.current = false; };
   }, []);
@@ -42,9 +42,8 @@ function WikiEditorSession({ habitatId, mode, pageId, onDone, onCancel }: WikiEd
     const values: DraftValues = { title: "", content: "", parentId: "", tags: [], status: "draft" };
     return { values, saved: values, conflicts: {} as Partial<Record<keyof DraftValues, boolean>> };
   });
-  const pendingMetadata = useRef(false);
-  const pendingText = useRef(false);
-  const [failedWriteRevision, setFailedWriteRevision] = useState(0);
+  const pendingMetadata = useRef<DraftValues | null>(null);
+  const pendingText = useRef<DraftValues | null>(null);
   const { title, content, parentId, tags, status } = draft.values;
   function setField<K extends keyof DraftValues>(field: K, value: DraftValues[K]) {
     setDraft((current) => ({
@@ -72,31 +71,54 @@ function WikiEditorSession({ habitatId, mode, pageId, onDone, onCancel }: WikiEd
     staleTime: 30 * 1000,
   });
 
-  useEffect(() => {
-    if (isEdit && pageData) {
-      const saved: DraftValues = {
-        title: pageData.title, content: pageData.content, parentId: pageData.parentId ?? "",
-        tags: pageData.tags, status: pageData.status,
+  function reconcilePage(page: WikiPage, fields: (keyof DraftValues)[]) {
+    const saved: DraftValues = {
+      title: page.title, content: page.content, parentId: page.parentId ?? "",
+      tags: page.tags, status: page.status,
+    };
+    setDraft((current) => {
+      const next = {
+        values: { ...current.values }, saved: { ...current.saved }, conflicts: { ...current.conflicts },
       };
-      setDraft((current) => {
-        const next = {
-          values: { ...current.values }, saved: { ...current.saved }, conflicts: { ...current.conflicts },
-        };
-        for (const field of Object.keys(saved) as (keyof DraftValues)[]) {
-          // A refetch may observe our write before the mutation acknowledges its submitted fields.
-          const pending = field === "title" || field === "content" ? pendingText.current : pendingMetadata.current;
-          if (pending) continue;
-          const clean = JSON.stringify(current.values[field]) === JSON.stringify(current.saved[field]);
-          const matchesServer = JSON.stringify(current.values[field]) === JSON.stringify(saved[field]);
-          if (clean) Object.assign(next.values, { [field]: saved[field] });
-          if (clean || matchesServer) next.conflicts[field] = false;
-          else if (JSON.stringify(current.saved[field]) !== JSON.stringify(saved[field])) next.conflicts[field] = true;
-          Object.assign(next.saved, { [field]: saved[field] });
-        }
-        return next;
-      });
+      for (const field of fields) {
+        // A refetch may observe our write before the mutation acknowledges its submitted fields.
+        const pending = field === "title" || field === "content" ? pendingText.current : pendingMetadata.current;
+        if (pending) continue;
+        const clean = JSON.stringify(current.values[field]) === JSON.stringify(current.saved[field]);
+        const matchesServer = JSON.stringify(current.values[field]) === JSON.stringify(saved[field]);
+        if (clean) Object.assign(next.values, { [field]: saved[field] });
+        if (clean || matchesServer) next.conflicts[field] = false;
+        else if (JSON.stringify(current.saved[field]) !== JSON.stringify(saved[field])) next.conflicts[field] = true;
+        Object.assign(next.saved, { [field]: saved[field] });
+      }
+      return next;
+    });
+  }
+
+  useEffect(() => {
+    if (isEdit && pageData) reconcilePage(pageData, ["title", "content", "parentId", "tags", "status"]);
+  }, [isEdit, pageData]);
+
+  function reconcileAcknowledgement(
+    acknowledged: typeof draft, baseline: DraftValues | null, observed: WikiPage | undefined,
+    written: WikiPage, fields: (keyof DraftValues)[],
+  ) {
+    if (!baseline || !observed) return acknowledged;
+    const values: DraftValues = {
+      title: observed.title, content: observed.content, parentId: observed.parentId ?? "",
+      tags: observed.tags, status: observed.status,
+    };
+    const newerObservation = observed.currentVersionNumber > written.currentVersionNumber ||
+      Date.parse(observed.updatedAt) > Date.parse(written.updatedAt);
+    for (const field of fields) {
+      // A newer observed write can also restore a field to its pre-request value.
+      if ((!newerObservation && JSON.stringify(values[field]) === JSON.stringify(baseline[field])) ||
+        JSON.stringify(values[field]) === JSON.stringify(acknowledged.saved[field])) continue;
+      Object.assign(acknowledged.saved, { [field]: values[field] });
+      acknowledged.conflicts[field] = JSON.stringify(acknowledged.values[field]) !== JSON.stringify(values[field]);
     }
-  }, [isEdit, pageData, failedWriteRevision]);
+    return acknowledged;
+  }
 
   const contentChanged = isEdit
     ? title !== draft.saved.title || content !== draft.saved.content
@@ -133,7 +155,9 @@ function WikiEditorSession({ habitatId, mode, pageId, onDone, onCancel }: WikiEd
       }),
     onSuccess: (page, submitted) => {
       if (!active.current) return;
-      setDraft((current) => ({
+      const baseline = pendingText.current;
+      const observed = queryClient.getQueryData<WikiPage>(queryKeys.wiki.page(habitatId, pageId!));
+      setDraft((current) => reconcileAcknowledgement({
         conflicts: { ...current.conflicts, title: false, content: false },
         saved: { ...current.saved, title: page.title, content: page.content },
         values: {
@@ -141,8 +165,8 @@ function WikiEditorSession({ habitatId, mode, pageId, onDone, onCancel }: WikiEd
           title: current.values.title === submitted.title ? page.title : current.values.title,
           content: current.values.content === submitted.content ? page.content : current.values.content,
         },
-      }));
-      pendingText.current = false;
+      }, baseline, observed, page, ["title", "content"]));
+      pendingText.current = null;
       queryClient.invalidateQueries({ queryKey: queryKeys.wiki.page(habitatId, pageId!) });
       queryClient.invalidateQueries({ queryKey: queryKeys.wiki.versions(habitatId, pageId!) });
       queryClient.invalidateQueries({ queryKey: queryKeys.wiki.pages(habitatId) });
@@ -151,9 +175,9 @@ function WikiEditorSession({ habitatId, mode, pageId, onDone, onCancel }: WikiEd
     },
     onError: (err) => {
       if (!active.current) return;
-      pendingText.current = false;
-      // Replay any GET skipped while saving, even if a later GET is structurally identical.
-      setFailedWriteRevision((revision) => revision + 1);
+      pendingText.current = null;
+      const observed = queryClient.getQueryData<WikiPage>(queryKeys.wiki.page(habitatId, pageId!));
+      if (observed) reconcilePage(observed, ["title", "content"]);
       notify.error((err as Error).message);
     },
   });
@@ -163,7 +187,9 @@ function WikiEditorSession({ habitatId, mode, pageId, onDone, onCancel }: WikiEd
       wikiApi.updatePageMetadata(habitatId, pageId!, { ...submitted, parentId: submitted.parentId || null }),
     onSuccess: (page, submitted) => {
       if (!active.current) return;
-      setDraft((current) => ({
+      const baseline = pendingMetadata.current;
+      const observed = queryClient.getQueryData<WikiPage>(queryKeys.wiki.page(habitatId, pageId!));
+      setDraft((current) => reconcileAcknowledgement({
         conflicts: { ...current.conflicts, parentId: false, tags: false, status: false },
         saved: { ...current.saved, parentId: page.parentId ?? "", tags: page.tags, status: page.status },
         values: {
@@ -172,16 +198,17 @@ function WikiEditorSession({ habitatId, mode, pageId, onDone, onCancel }: WikiEd
           tags: JSON.stringify(current.values.tags) === JSON.stringify(submitted.tags) ? page.tags : current.values.tags,
           status: current.values.status === submitted.status ? page.status : current.values.status,
         },
-      }));
-      pendingMetadata.current = false;
+      }, baseline, observed, page, ["parentId", "tags", "status"]));
+      pendingMetadata.current = null;
       queryClient.invalidateQueries({ queryKey: queryKeys.wiki.page(habitatId, pageId!) });
       queryClient.invalidateQueries({ queryKey: queryKeys.wiki.pages(habitatId) });
       notify.success("Metadata updated");
     },
     onError: (err) => {
       if (!active.current) return;
-      pendingMetadata.current = false;
-      setFailedWriteRevision((revision) => revision + 1);
+      pendingMetadata.current = null;
+      const observed = queryClient.getQueryData<WikiPage>(queryKeys.wiki.page(habitatId, pageId!));
+      if (observed) reconcilePage(observed, ["parentId", "tags", "status"]);
       notify.error((err as Error).message);
     },
   });
@@ -194,7 +221,7 @@ function WikiEditorSession({ habitatId, mode, pageId, onDone, onCancel }: WikiEd
   function handleSave() {
     if (!canSave) return;
     if (isEdit) {
-      pendingText.current = true;
+      pendingText.current = draft.saved;
       saveMutation.mutate({ title, content, editSummary });
     } else {
       createMutation.mutate();
@@ -412,7 +439,7 @@ function WikiEditorSession({ habitatId, mode, pageId, onDone, onCancel }: WikiEd
               <button
                 type="button"
                 onClick={() => {
-                  pendingMetadata.current = true;
+                  pendingMetadata.current = draft.saved;
                   metadataMutation.mutate({ parentId, tags: [...tags], status });
                 }}
                 disabled={metadataMutation.isPending || !!metadataConflict}
