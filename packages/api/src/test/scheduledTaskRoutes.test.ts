@@ -51,6 +51,13 @@ const mockScheduledTask = {
   updatedAt: '2026-01-01T00:00:00.000Z',
 };
 
+// This legacy route-wiring suite keeps its internal fakes. Native timing and
+// validation suites exercise the real writer transaction and history queries.
+const { editDb } = vi.hoisted(() => ({ editDb: { run: vi.fn(), select: vi.fn(() => ({
+  from: () => ({ where: () => ({ get: () => ({ count: 0, ordinals: 0, first: null, last: null, once: 0, unknown: 0 }) }) }),
+})) } }));
+vi.mock('../db/index.js', () => ({ getDb: () => editDb }));
+
 vi.mock('../repositories/scheduledTask.js', () => ({
   getScheduledTaskById: mockGetScheduledTaskById,
   getScheduledTasksByHabitatId: mockGetScheduledTasksByHabitatId,
@@ -517,7 +524,7 @@ describe('POST /scheduled-tasks/:id/enable handler', () => {
     const enable = routes.find(r => r.method === 'POST' && r.path === '/scheduled-tasks/:id/enable');
 
     const result = await enable!.handler({ params: { id: 'st-1' }, user: { id: 'user-1' } } as any, {} as any);
-    expect(mockUpdateScheduledTask).toHaveBeenCalledWith('st-1', expect.objectContaining({ enabled: true }));
+    expect(mockUpdateScheduledTask).toHaveBeenCalledWith('st-1', expect.objectContaining({ enabled: true }), editDb);
     expect(result).toHaveProperty('scheduledTask');
   });
 

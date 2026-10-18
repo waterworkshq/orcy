@@ -1,6 +1,7 @@
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { z } from 'zod';
-import { CronExpressionParser } from 'cron-parser';
+import { parseScheduledAt, validateScheduleConfiguration } from '../services/scheduledTaskConfiguration.js';
+import { editScheduledTask } from '../services/scheduledTaskEditing.js';
 import { requireHabitatAccess } from '../middleware/team.js';
 import * as scheduledTaskRepo from '../repositories/scheduledTask.js';
 import * as scheduledTaskService from '../services/scheduledTaskService.js';
@@ -58,47 +59,6 @@ const updateScheduledTaskSchema = z.object({
   })).optional(),
   enabled: z.boolean().optional(),
 });
-
-type ScheduleConfiguration = Pick<scheduledTaskRepo.CreateScheduledTaskInput,
-  'scheduleType' | 'cronExpression' | 'intervalMinutes' | 'scheduledAt' | 'timezone'>;
-
-/** Keep ISO wall times from datetime-local inputs on their existing UTC due-time basis. */
-function parseScheduledAt(value: string): Date {
-  const isoWallTime = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?$/i.test(value);
-  return new Date(isoWallTime ? `${value}Z` : value);
-}
-
-/** Validate schedule semantics independently of a first-run override. */
-function validateScheduleConfiguration(schedule: ScheduleConfiguration): string | null {
-  try {
-    new Intl.DateTimeFormat('en', { timeZone: schedule.timezone ?? 'UTC' });
-  } catch {
-    return 'Invalid timezone';
-  }
-  if (schedule.scheduleType === 'once' && schedule.scheduledAt == null) {
-    return 'scheduledAt is required for one-time schedules';
-  }
-  if (schedule.scheduledAt != null &&
-      (!schedule.scheduledAt.trim() || !Number.isFinite(parseScheduledAt(schedule.scheduledAt).getTime()))) {
-    return 'scheduledAt must be a valid nonempty date';
-  }
-  if (schedule.scheduleType === 'interval') {
-    const minutes = schedule.intervalMinutes;
-    if (minutes == null || !Number.isSafeInteger(minutes) || minutes < 1 ||
-        !Number.isFinite(new Date(Date.now() + minutes * 60_000).getTime())) {
-      return 'intervalMinutes must be a positive safe integer with a representable next run';
-    }
-  }
-  if (schedule.scheduleType === 'cron') {
-    if (!schedule.cronExpression?.trim()) return 'cronExpression is required for cron schedules';
-    try {
-      CronExpressionParser.parse(schedule.cronExpression, { tz: schedule.timezone ?? 'UTC' }).next();
-    } catch {
-      return 'Invalid cronExpression or timezone';
-    }
-  }
-  return null;
-}
 
 function getUserId(request: FastifyRequest): string {
   if (request.user) return request.user.id;
@@ -219,30 +179,8 @@ export async function scheduledTaskRoutes(fastify: FastifyInstance): Promise<voi
         return reply.status(400).send({ error: 'Invalid payload', details: parsed.error.flatten() });
       }
 
-      // Spread only supplied fields: explicit null clears, absent fields inherit.
-      const effective = { ...existing, ...parsed.data };
-      const scheduleError = validateScheduleConfiguration(effective);
-      if (scheduleError) {
-        return reply.status(400).send({ error: 'Invalid schedule configuration', details: scheduleError });
-      }
-
-      const updated = scheduledTaskRepo.updateScheduledTask(params.id, {
-        ...parsed.data,
-        ...(parsed.data.scheduleType || parsed.data.cronExpression || parsed.data.intervalMinutes || parsed.data.timezone
-          ? {
-              nextRunAt: scheduledTaskService.calculateNextRun(
-                effective.scheduleType,
-                effective.cronExpression,
-                effective.intervalMinutes,
-                effective.timezone,
-              ),
-            }
-          : {}),
-      });
-
-      if (!updated) {
-        throw notFound('Scheduled task not found', 'SCHEDULED_TASK_NOT_FOUND');
-      }
+      const updated = editScheduledTask(params.id, parsed.data,
+        (schedule) => verifyTaskHabitatAccess(request, schedule.habitatId));
       return { scheduledTask: updated };
     }
   );
@@ -286,24 +224,8 @@ export async function scheduledTaskRoutes(fastify: FastifyInstance): Promise<voi
     { config: { authPolicy: "human" } },
     async (request: FastifyRequest) => {
       const params = request.params as { id: string };
-      const existing = scheduledTaskRepo.getScheduledTaskById(params.id);
-      if (!existing) {
-        throw notFound('Scheduled task not found', 'SCHEDULED_TASK_NOT_FOUND');
-      }
-      verifyTaskHabitatAccess(request, existing.habitatId);
-
-      const updated = scheduledTaskRepo.updateScheduledTask(params.id, {
-        enabled: true,
-        nextRunAt: scheduledTaskService.calculateNextRun(
-          existing.scheduleType,
-          existing.cronExpression,
-          existing.intervalMinutes,
-          existing.timezone,
-        ),
-      });
-      if (!updated) {
-        throw notFound('Scheduled task not found', 'SCHEDULED_TASK_NOT_FOUND');
-      }
+      const updated = editScheduledTask(params.id, { enabled: true },
+        (schedule) => verifyTaskHabitatAccess(request, schedule.habitatId));
       return { scheduledTask: updated };
     }
   );

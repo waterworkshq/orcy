@@ -328,11 +328,11 @@ describe("scheduled task effective PATCH configuration", () => {
     expect(scheduledTaskRepo.getScheduledTaskById(existing.id)?.cronExpression).toBe("0 8 * * *");
   });
 
-  it("preserves one-time edit pointer behavior while accepting a valid date", async () => {
+  it("aligns the one-time edit pointer with its valid date", async () => {
     const existing = seed("once");
     const scheduledAt = "2091-01-01T00:00:00.000Z";
     const response = await app.inject({ method: "PATCH", url: `/scheduled-tasks/${existing.id}`, headers, payload: { scheduledAt } });
     expect(response.statusCode).toBe(200);
-    expect(scheduledTaskRepo.getScheduledTaskById(existing.id)).toMatchObject({ scheduledAt, nextRunAt: existing.nextRunAt });
+    expect(scheduledTaskRepo.getScheduledTaskById(existing.id)).toMatchObject({ scheduledAt, nextRunAt: scheduledAt });
   });
 });
