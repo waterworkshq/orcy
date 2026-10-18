@@ -1,14 +1,17 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type Database from "better-sqlite3";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
+import { drizzle } from "drizzle-orm/better-sqlite3";
 import { closeDb, getDb, initDb } from "../db/index.js";
-import { scheduledOccurrences, scheduledTasks } from "../db/schema/index.js";
+import * as schema from "../db/schema/index.js";
 import { createHabitat } from "../repositories/habitat.js";
 import * as schedules from "../repositories/scheduledTask.js";
 import { listOccurrencesForScheduleWithClient } from "../repositories/scheduledOccurrences.js";
 import { getOnceEntitlementWithClient } from "../repositories/scheduledTaskEntitlement.js";
 import { editScheduledTask } from "../services/scheduledTaskEditing.js";
 import { originalOnceEntitlement } from "./fixtures/scheduled-task-entitlement-original.js";
+
+const { scheduledOccurrences, scheduledTasks } = schema;
 
 beforeEach(async () => { await initDb(":memory:"); });
 afterEach(() => { closeDb(); });
@@ -34,15 +37,17 @@ describe("scheduled task history read cost", () => {
     const history = listOccurrencesForScheduleWithClient(db, schedule.id);
     expect(originalOnceEntitlement(db, before)).toBe("consumed");
 
-    // Real SQLite boundary: fail deterministically if this edit revisits old
-    // snapshot JSON. Install after migration/seeding; no internal helper mock
-    // or wall-clock threshold substitutes for executing the public edit path.
+    // Native classifier sentinel plus a public driver SQL trace: the latter
+    // catches JSON scans that bypass json_valid and plain snapshot reads.
+    // Install after migration/seeding; exercise the public edit on this client.
     const native = (db as typeof db & { $client: Database.Database }).$client;
     let snapshotParses = 0;
     native.function("json_valid", { deterministic: true }, (_snapshot: unknown) => {
       snapshotParses++;
       throw new Error("metadata edit reparsed a historical snapshot");
     });
+    const queries: string[] = [];
+    const traced = drizzle(native, { schema, logger: { logQuery(query) { queries.push(query); } } });
 
     const denied = new Error("current authority denied");
     expect(() => editScheduledTask(schedule.id, { name: "Denied" }, () => { throw denied; }))
@@ -52,9 +57,15 @@ describe("scheduled task history read cost", () => {
     expect(snapshotParses).toBe(0);
     expect(schedules.getScheduledTaskById(schedule.id)).toEqual(before);
 
+    // Counterexample: this real historical JSON scan evades the old sentinel,
+    // while the driver trace sees it. Clear the control before the public edit.
+    traced.all(sql`SELECT json_extract(${scheduledOccurrences.scheduleRevision}, '$.scheduleType') FROM ${scheduledOccurrences}`);
+    expect(snapshotParses).toBe(0);
+    expect(queries.some(query => /\bjsonb?(?:_\w+)?\s*\(/iu.test(query))).toBe(true);
+    queries.length = 0;
     const authorize = vi.fn();
     let saved: ReturnType<typeof editScheduledTask> | undefined;
-    expect(() => { saved = editScheduledTask(schedule.id, { name: "After" }, authorize); })
+    expect(() => { saved = editScheduledTask(schedule.id, { name: "After" }, authorize, traced); })
       .not.toThrow();
     expect(authorize).toHaveBeenCalledExactlyOnceWith(before);
     expect(saved).toMatchObject({
@@ -64,6 +75,8 @@ describe("scheduled task history read cost", () => {
     expect(schedules.getScheduledTaskById(schedule.id)).toEqual(saved);
     expect(listOccurrencesForScheduleWithClient(db, schedule.id)).toEqual(history);
     expect(snapshotParses).toBe(0);
+    expect(queries.filter(query => /\bjsonb?(?:_\w+)?\s*\(/iu.test(query))).toEqual([]);
+    expect(queries.some(query => /scheduled_occurrences|scheduled_occurrence_history/iu.test(query))).toBe(false);
   });
 
   it("retains consumed one-shot evidence without reparsing historical snapshots", () => {
@@ -89,10 +102,14 @@ describe("scheduled task history read cost", () => {
       snapshotParses++;
       throw new Error("entitlement read reparsed a historical snapshot");
     });
+    const queries: string[] = [];
+    const traced = drizzle(native, { schema, logger: { logQuery(query) { queries.push(query); } } });
 
     let entitlement: ReturnType<typeof getOnceEntitlementWithClient> | undefined;
-    expect(() => { entitlement = getOnceEntitlementWithClient(db, current); }).not.toThrow();
+    expect(() => { entitlement = getOnceEntitlementWithClient(traced, current); }).not.toThrow();
     expect(entitlement).toBe("consumed");
     expect(snapshotParses).toBe(0);
+    expect(queries.filter(query => /\bjsonb?(?:_\w+)?\s*\(/iu.test(query))).toEqual([]);
+    expect(queries.some(query => /\bschedule_revision\b/iu.test(query))).toBe(false);
   });
 });
