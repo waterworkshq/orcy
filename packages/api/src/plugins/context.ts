@@ -43,6 +43,7 @@ import {
 } from "../services/pluginTaskPublication.js";
 import { badRequest } from "../errors.js";
 import { logger as rootLogger } from "../lib/logger.js";
+import { readBoundedResponseText } from "../utils/readBoundedResponseText.js";
 import { fetchValidated, UrlRejectedError } from "../config/integrationSecurity.js";
 
 /**
@@ -542,7 +543,7 @@ function buildWebhookCaller(
           },
           body: body ?? undefined,
         });
-        const responseText = await response.text().catch(() => "");
+        const responseText = await readBoundedResponseText(response).catch(() => "");
         rootLogger.info(
           { pluginId, runId, url, statusCode: response.status, action: "webhook.call" },
           "plugin.webhookCaller: call",

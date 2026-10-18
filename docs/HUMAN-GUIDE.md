@@ -577,6 +577,10 @@ stored chain has been checked. See the API documentation for each route's exact 
 For these guarded operations, a missing Task and an inaccessible team Task answer differently ("not found"
 versus "no access"). A caller can therefore probe whether a supplied Task ID exists. This is a known limit.
 
+### Webhook Delivery Diagnostics
+
+Webhook response summaries may be shortened. Outgoing board/notification webhook summaries keep at most 1,024 characters, compact remote webhooks 2,000, and plugin webhook calls 1,000 (JavaScript UTF-16 code units), drawn from at most an 8,192-byte decoded-body prefix. A large diagnostic response alone does not make an HTTP 2xx delivery fail or trigger another send. Use the receiver's logs when you need its complete response.
+
 ### Orcy Status
 
 | Status | Meaning |

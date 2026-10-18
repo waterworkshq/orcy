@@ -1,3 +1,4 @@
+import { readBoundedResponseText } from "../utils/readBoundedResponseText.js";
 import * as endpointRepo from "../repositories/remoteWebhookEndpoint.js";
 import * as deliveryRepo from "../repositories/remoteWebhookDelivery.js";
 import * as podRepo from "../repositories/remotePod.js";
@@ -143,7 +144,7 @@ export async function dispatchCompactRemoteEvent(
         },
         body: JSON.stringify(payload),
       });
-      const responseBody = await res.text().catch(() => "");
+      const responseBody = await readBoundedResponseText(res).catch(() => "");
 
       if (res.ok) {
         deliveryRepo.updateRemoteWebhookDeliveryStatus(

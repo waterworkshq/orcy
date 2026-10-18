@@ -221,6 +221,35 @@ describe("webhookCaller: canonical SSRF validation", () => {
     dnsState.v6 = [];
   });
 
+  it.each([200, 202, 400, 401, 500].flatMap(status => ["small", "large", "read-error"].map(kind => ({ status, kind }))))("bounds $kind diagnostic bodies while preserving HTTP $status", async ({ status, kind }) => {
+    const ctx = buildPluginContext({
+      pluginId: "p", contributionId: "c", habitatId: "hab-1", runId: "run-1", requires: ["webhookCaller"],
+    });
+    const totalBytes = kind === "large" ? 65536 : 8;
+    let pulledBytes = 0;
+    const cancel = vi.fn();
+    const body = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        if (kind === "read-error") { controller.error(new Error("body reset")); return; }
+        if (pulledBytes >= totalBytes) { controller.close(); return; }
+        const size = Math.min(1024, totalBytes - pulledBytes);
+        pulledBytes += size;
+        controller.enqueue(new Uint8Array(size).fill(120));
+      },
+      cancel,
+    }, { highWaterMark: 0 });
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(body, { status })));
+    try {
+      await expect(ctx.webhookCaller!.call("https://example.com/hook", "{}"))
+        .resolves.toEqual({ statusCode: status, ok: status < 300, body: kind === "read-error" ? "" : "x".repeat(Math.min(totalBytes, 1000)) });
+      expect(pulledBytes).toBe(kind === "read-error" ? 0 : Math.min(totalBytes, 8192));
+      expect(cancel).toHaveBeenCalledTimes(kind === "large" ? 1 : 0);
+      expect(body.locked).toBe(false);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it("rejects URLs whose hostname DNS-resolves to private space", async () => {
     dnsState.v4 = ["10.0.0.5"];
     const ctx = buildPluginContext({

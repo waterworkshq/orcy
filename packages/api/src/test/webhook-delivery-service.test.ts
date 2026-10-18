@@ -77,7 +77,7 @@ describe("webhook delivery service", () => {
     });
     vi.stubGlobal(
       "fetch",
-      vi.fn(async () => ({ ok: true, status: 202, text: async () => "accepted" })),
+      vi.fn(async () => new Response("accepted", { status: 202 })),
     );
   });
 
@@ -111,7 +111,7 @@ describe("webhook delivery service", () => {
     });
     vi.stubGlobal(
       "fetch",
-      vi.fn(async () => ({ ok: false, status: 500, text: async () => "x".repeat(1100) })),
+      vi.fn(async () => new Response("x".repeat(1100), { status: 500 })),
     );
 
     const result = await executeHttpRequest(
@@ -142,6 +142,40 @@ describe("webhook delivery service", () => {
         }),
       }),
     );
+  });
+
+  it.each([200, 202, 400, 401, 500])("cancels oversized diagnostics while preserving HTTP %i", async (status) => {
+    let pulledBytes = 0;
+    const cancel = vi.fn();
+    const body = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        if (pulledBytes >= 65536) { controller.close(); return; }
+        pulledBytes += 1024;
+        controller.enqueue(new Uint8Array(1024).fill(120));
+      },
+      cancel,
+    }, { highWaterMark: 0 });
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(body, { status })));
+
+    await expect(executeHttpRequest("https://example.com/hook", "{}", "sig", {}, "d1", "task.updated"))
+      .resolves.toEqual({ success: status < 300, statusCode: status, responseBody: "x".repeat(1024) });
+    expect(pulledBytes).toBe(8192);
+    expect(cancel).toHaveBeenCalledOnce();
+    expect(body.locked).toBe(false);
+  });
+
+  it.each([200, 202, 400, 401, 500])("preserves a small HTTP %i diagnostic", async (status) => {
+    vi.stubGlobal("fetch", vi.fn(async () => new Response("small é🙂", { status })));
+    await expect(executeHttpRequest("https://example.com/hook", "{}", null, {}, "d1", "task.updated"))
+      .resolves.toEqual({ success: status < 300, statusCode: status, responseBody: "small é🙂" });
+  });
+
+  it("keeps a genuine response read failure as a failed status-zero send", async () => {
+    const body = new ReadableStream<Uint8Array>({ start(controller) { controller.error(new Error("body reset")); } });
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(body, { status: 202 })));
+    await expect(executeHttpRequest("https://example.com/hook", "{}", null, {}, "d1", "task.updated"))
+      .resolves.toEqual({ success: false, statusCode: 0, responseBody: "body reset" });
+    expect(body.locked).toBe(false);
   });
 
   it("converts fetch failures into failed delivery results", async () => {
