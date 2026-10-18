@@ -139,12 +139,15 @@ export async function scheduledTaskRoutes(fastify: FastifyInstance): Promise<voi
       if (scheduleError) {
         return reply.status(400).send({ error: 'Invalid schedule configuration', details: scheduleError });
       }
-      const nextRunAt = body.scheduledAt ?? scheduledTaskService.calculateNextRun(
-        body.scheduleType,
-        body.cronExpression ?? null,
-        body.intervalMinutes ?? null,
-        body.timezone,
-      );
+      // Due pointers are compared as UTC ISO text; retain the submitted scheduledAt separately.
+      const nextRunAt = body.scheduledAt != null
+        ? new Date(body.scheduledAt).toISOString()
+        : scheduledTaskService.calculateNextRun(
+            body.scheduleType,
+            body.cronExpression ?? null,
+            body.intervalMinutes ?? null,
+            body.timezone,
+          );
 
       const schedule = scheduledTaskRepo.createScheduledTask({
         habitatId: params.habitatId,

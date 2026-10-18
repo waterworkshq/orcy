@@ -5225,7 +5225,7 @@ Create a new scheduled task.
 
 **Auth:** JWT required (human)
 
-**Schedule validation:** `cron` requires a nonempty, parseable `cronExpression`; `interval` requires a positive safe-integer `intervalMinutes` whose next run fits the supported date range; `once` requires a nonempty, parseable `scheduledAt`. `timezone` defaults to `UTC` and must be valid when supplied. A supplied non-null `scheduledAt` must be a valid date for every schedule type. On create it still sets the first `nextRunAt` for a recurring schedule, but never bypasses validation of that schedule's cron or interval configuration. Past one-time dates remain accepted.
+**Schedule validation:** `cron` requires a nonempty, parseable `cronExpression`; `interval` requires a positive safe-integer `intervalMinutes` whose next run fits the supported date range; `once` requires a nonempty, parseable `scheduledAt`. `timezone` defaults to `UTC` and must be valid when supplied. A supplied non-null `scheduledAt` must be a valid date for every schedule type. On create, the submitted `scheduledAt` is retained and its parsed UTC ISO timestamp sets the first `nextRunAt` for every schedule type, including recurring first-run overrides. This keeps due-time comparisons based on the represented instant even for accepted non-ISO or offset dates, and never bypasses validation of the schedule's cron or interval configuration. Past one-time dates remain accepted.
 
 **Response `400`:** Invalid field types or schedule semantics; nothing is persisted.
 

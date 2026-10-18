@@ -1,8 +1,10 @@
-import { beforeEach, afterEach, describe, expect, it } from "vitest";
+import { beforeEach, afterEach, describe, expect, it, vi } from "vitest";
 import Fastify, { type FastifyInstance } from "fastify";
 import jwt from "jsonwebtoken";
 import { initTestDb, closeDb } from "../db/index.js";
 import * as habitatRepo from "../repositories/habitat.js";
+import * as columnRepo from "../repositories/column.js";
+import { processDueTasks } from "../services/scheduledTaskService.js";
 import * as scheduledTaskRepo from "../repositories/scheduledTask.js";
 import { scheduledTaskRoutes } from "../routes/scheduledTasks.js";
 import { setJwtSecret } from "../middleware/jwt-verification.js";
@@ -29,6 +31,7 @@ beforeEach(async () => {
 afterEach(async () => {
   await app.close();
   closeDb();
+  vi.useRealTimers();
 });
 
 function create(payload: Record<string, unknown>) {
@@ -39,6 +42,53 @@ function create(payload: Record<string, unknown>) {
 }
 
 describe("scheduled task semantic admission", () => {
+  it("executes a past noncanonical first run created through HTTP", async () => {
+    // Clock boundary only: HTTP, due scan and occurrence publication use real code and DB.
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-10-18T12:00:00.000Z"));
+    columnRepo.createColumn({ habitatId, name: "Backlog", order: 0, requiresClaim: false });
+    const scheduledAt = "Jan 2 2020 UTC";
+    const response = await create({ scheduleType: "once", scheduledAt, tasksTemplate: [{ title: "Actual scheduled task" }] });
+    expect(response.statusCode).toBe(201);
+    const [saved] = scheduledTaskRepo.getScheduledTasksByHabitatId(habitatId);
+    expect(saved.scheduledAt).toBe(scheduledAt);
+
+    expect(processDueTasks()).toEqual({ executed: 1, failed: 0 });
+    expect(scheduledTaskRepo.getScheduledTaskById(saved.id)).toMatchObject({
+      runCount: 1, enabled: false,
+    });
+  });
+
+  describe.each([
+    { scheduleType: "once" },
+    { scheduleType: "interval", intervalMinutes: 5 },
+    { scheduleType: "cron", cronExpression: "0 9 * * *" },
+  ] as const)("first-run instant for $scheduleType", (configuration) => {
+    it.each([
+      ["Jan 2 2020 UTC", true],
+      ["2026-10-18T13:00:00+02:00", true],
+      ["2026-10-18T11:00:00-02:00", false],
+      ["2026-10-18T11:00:00.000Z", true],
+      ["2026-10-18T13:00:00.000Z", false],
+    ] as const)("preserves input and polls by its UTC instant (%s)", async (scheduledAt, isDue) => {
+      vi.useFakeTimers({ toFake: ["Date"] });
+      vi.setSystemTime(new Date("2026-10-18T12:00:00.000Z"));
+      columnRepo.createColumn({ habitatId, name: "Backlog", order: 0, requiresClaim: false });
+      const response = await create({
+        ...configuration, scheduledAt, tasksTemplate: [{ title: "Actual scheduled task" }],
+      });
+      expect(response.statusCode).toBe(201);
+      const [saved] = scheduledTaskRepo.getScheduledTasksByHabitatId(habitatId);
+      expect(saved).toMatchObject({ scheduledAt, nextRunAt: new Date(scheduledAt).toISOString() });
+
+      expect(processDueTasks()).toEqual({ executed: isDue ? 1 : 0, failed: 0 });
+      expect(scheduledTaskRepo.getScheduledTaskById(saved.id)).toMatchObject({
+        runCount: isDue ? 1 : 0,
+        enabled: !(isDue && configuration.scheduleType === "once"),
+      });
+    });
+  });
+
   it.each([undefined, null, 0, -1, 1.5, Number.MAX_SAFE_INTEGER + 1, 144_000_000_000])(
     "rejects missing or unsupported intervals (%s) before persistence", async (intervalMinutes) => {
       const response = await create({ scheduleType: "interval", intervalMinutes });
@@ -88,7 +138,7 @@ describe("scheduled task semantic admission", () => {
     expect(saved[0]).toMatchObject({ scheduleType: payload.scheduleType, runCount: 0 });
     if (payload.scheduledAt !== undefined) {
       expect(saved[0].scheduledAt).toBe(payload.scheduledAt);
-      expect(saved[0].nextRunAt).toBe(payload.scheduledAt);
+      expect(saved[0].nextRunAt).toBe(new Date(payload.scheduledAt).toISOString());
     } else {
       expect(new Date(saved[0].nextRunAt).getTime()).toBeGreaterThan(Date.now());
     }
