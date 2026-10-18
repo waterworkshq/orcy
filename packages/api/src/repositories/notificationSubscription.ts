@@ -199,3 +199,44 @@ export function getAllSubscriptionsByHabitat(habitatId: string): NotificationSub
     .where(eq(notificationSubscriptions.habitatId, habitatId))
     .all() as unknown as NotificationSubscription[];
 }
+
+/** Scoped primitives participate in the administration service's reservation. */
+export function getSubscriptionInHabitat(
+  id: string,
+  habitatId: string,
+  db = getDb(),
+): NotificationSubscription | null {
+  const row = db.select().from(notificationSubscriptions).where(and(
+    eq(notificationSubscriptions.id, id),
+    eq(notificationSubscriptions.habitatId, habitatId),
+  )).get();
+  return row ? (row as unknown as NotificationSubscription) : null;
+}
+
+export function updateSubscriptionInHabitat(
+  id: string,
+  habitatId: string,
+  updates: Parameters<typeof updateSubscription>[1],
+  db = getDb(),
+): NotificationSubscription | null {
+  try {
+    db.update(notificationSubscriptions)
+      .set({ ...updates, updatedAt: new Date().toISOString() })
+      .where(and(eq(notificationSubscriptions.id, id), eq(notificationSubscriptions.habitatId, habitatId)))
+      .run();
+  } catch (err) {
+    throw repositoryUpdateError("notificationSubscription", err as Error, id);
+  }
+  return getSubscriptionInHabitat(id, habitatId, db);
+}
+
+export function deleteSubscriptionInHabitat(id: string, habitatId: string, db = getDb()): boolean {
+  try {
+    const result = db.delete(notificationSubscriptions).where(and(
+      eq(notificationSubscriptions.id, id), eq(notificationSubscriptions.habitatId, habitatId),
+    )).run();
+    return result.changes === undefined || result.changes > 0;
+  } catch (err) {
+    throw repositoryDeleteError("notificationSubscription", err as Error, id);
+  }
+}
