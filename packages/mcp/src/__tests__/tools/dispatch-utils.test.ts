@@ -310,6 +310,61 @@ describe("dispatch validation failures", () => {
   });
 });
 
+
+describe("required metadata entry types", () => {
+  it.each([
+    { label: "numeric", required: [1] },
+    { label: "boolean", required: [true] },
+    { label: "null", required: [null] },
+    { label: "undefined", required: [undefined] },
+    { label: "symbol", required: [Symbol.for("invalid-required-entry")] },
+    { label: "mixed", required: ["taskId", 1] },
+    { label: "sparse", required: new Array(1) },
+  ])("rejects $label metadata even when coerced argument keys are present", async ({ required }) => {
+    const registered = vi.fn().mockResolvedValue({ ok: true });
+    const dispatch = createDispatchHandler(
+      { registered },
+      { registered: required } as unknown as Record<string, string[]>,
+    );
+    const result = await dispatch(createMockClient(), {
+      action: "registered", taskId: "task-1", "1": "unrelated", true: "unrelated",
+      null: "unrelated", undefined: "unrelated", [Symbol.for("invalid-required-entry")]: "unrelated",
+    });
+    expect(result).toEqual({
+      content: [{ type: "text", text: "Error: Invalid required parameters for action: registered" }],
+      isError: true,
+    });
+    expect(registered).not.toHaveBeenCalled();
+  });
+
+  it("does not coerce an object requirement into a supplied argument key", async () => {
+    const registered = vi.fn().mockResolvedValue({ ok: true });
+    const coerce = vi.fn(() => "unrelated");
+    const required = [{ [Symbol.toPrimitive]: coerce }];
+    const dispatch = createDispatchHandler(
+      { registered },
+      { registered: required } as unknown as Record<string, string[]>,
+    );
+    expect(await dispatch(createMockClient(), { action: "registered", unrelated: "present" })).toEqual({
+      content: [{ type: "text", text: "Error: Invalid required parameters for action: registered" }],
+      isError: true,
+    });
+    expect(coerce).not.toHaveBeenCalled();
+    expect(registered).not.toHaveBeenCalled();
+  });
+
+  it("preserves valid string requirements with false and zero argument values", async () => {
+    const registered = vi.fn().mockResolvedValue({ ok: true });
+    const client = createMockClient();
+    const dispatch = createDispatchHandler({ registered }, { registered: ["enabled", "count"] });
+    const args = { action: "registered", enabled: false, count: 0 };
+    expect(await dispatch(client, args)).toEqual({
+      content: [{ type: "text", text: JSON.stringify({ ok: true }, null, 2) }],
+    });
+    expect(registered).toHaveBeenCalledExactlyOnceWith(client, args);
+  });
+});
+
 it("does not coerce object actions or invoke non-function own entries", async () => {
   const registered = vi.fn();
   const coercion = vi.fn(() => "registered");

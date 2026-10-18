@@ -56,7 +56,7 @@ function validateRequired(
 ): string | null {
   if (!Object.hasOwn(requiredFor, action)) return null;
   const required = requiredFor[action];
-  if (!Array.isArray(required)) {
+  if (!Array.isArray(required) || !Array.from(required).every((param) => typeof param === "string")) {
     throw new Error(`Invalid required parameters for action: ${action}`);
   }
   const missing = required.filter(
