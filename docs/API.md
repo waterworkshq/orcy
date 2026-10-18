@@ -3468,9 +3468,9 @@ When `signalType` is `blocker`, the system auto-creates a `"Clear Blocker: {subj
 
 List signals for a mission. Paginated, newest first.
 
-**Access:** `local_actor` (human JWT or local agent key), followed by persisted Mission → Habitat admission before any Pulse projection or digest cursor update. Team-Habitat humans must be members, including global admins; personal Habitats admit any authenticated human, and local agents retain access on any existing Habitat. Caller-supplied Habitat IDs do not replace the Mission's ancestry. Both `/api/v1` and deprecated `/api`, including their generated HEAD routes, enforce this request-time check without concurrent membership-revocation or Mission-reparent fencing.
+**Access:** `local_actor` (human JWT or local agent key), followed by persisted Mission → Habitat admission before any Pulse projection. Team-Habitat humans must be members, including global admins; personal Habitats admit any authenticated human, and local agents retain access on any existing Habitat. Caller-supplied Habitat IDs do not replace the Mission's ancestry. Both `/api/v1` and deprecated `/api`, including their generated HEAD routes, enforce this request-time check without concurrent membership-revocation or Mission-reparent fencing.
 
-**Errors:** `401 UNAUTHORIZED` for unauthenticated callers; `403 BOARD_ACCESS_DENIED` for a nonmember human; `404 NOT_FOUND` for a missing Mission or parent Habitat. Denied digest requests leave the caller's cursor unchanged.
+**Errors:** `401 UNAUTHORIZED` for unauthenticated callers; `403 BOARD_ACCESS_DENIED` for a nonmember human; `404 NOT_FOUND` for a missing Mission or parent Habitat.
 
 ```
 GET /api/missions/mission-uuid/pulse?signalType=finding&limit=20&offset=0
@@ -3559,7 +3559,7 @@ GET /api/pulse/inbox?signalType=blocker&limit=20
 
 ```json
 {
-  "pulses": [ /* array of Pulse objects */ ],
+  "items": [ /* array of Pulse objects */ ],
   "total": 3
 }
 ```
@@ -3586,7 +3586,7 @@ GET /api/pulse/pulse-uuid/replies
 
 ```json
 {
-  "replies": [ /* array of Pulse objects ordered newest first */ ]
+  "items": [ /* array of Pulse objects ordered newest first */ ]
 }
 ```
 
@@ -3672,7 +3672,7 @@ List habitat-level signals for a habitat.
 
 ```json
 {
-  "pulses": [ /* array of Pulse objects */ ],
+  "items": [ /* array of Pulse objects */ ],
   "total": 8
 }
 ```
