@@ -5284,7 +5284,7 @@ Create a new scheduled task.
 
 ```json
 {
-  "schedule": {
+  "scheduledTask": {
     "id": "schedule-uuid",
     "name": "Weekly Security Audit",
     "scheduleType": "cron",
@@ -5302,7 +5302,7 @@ List all scheduled tasks on a habitat.
 
 **Auth:** Agent API key OR JWT
 
-**Response `200`:** `{ "schedules": ScheduledTask[] }`
+**Response `200`:** `{ "scheduledTasks": ScheduledTask[] }`
 
 ### GET /scheduled-tasks/:id
 
@@ -5310,15 +5310,17 @@ Get scheduled task details.
 
 **Auth:** Agent API key OR JWT
 
-**Response `200`:** `{ "schedule": ScheduledTask }`
+**Response `200`:** `{ "scheduledTask": ScheduledTask }`
 
 ### PATCH /scheduled-tasks/:id
 
-Update a scheduled task. The complete effective configuration (stored values plus supplied fields) must satisfy the create validation above; omitted fields retain their values, while explicit `null` clears a nullable field and cannot clear the active schedule type's required input. Invalid combinations return `400` without changing the row. `nextRunAt` recalculation retains its existing type/cron/interval/timezone triggers; changing only `scheduledAt` does not rearm a one-time schedule.
+Update a scheduled task. The complete effective configuration (stored values plus supplied fields) must satisfy the create validation above; omitted fields retain their values, while explicit `null` clears a nullable field and cannot clear the active schedule type's required input. Invalid combinations return `400` without changing the row. For an unconsumed `once`, a supplied timing configuration (including `scheduledAt` alone or a full form save) aligns `nextRunAt` with the effective date's canonical UTC instant. An unrelated metadata edit preserves the due pointer. Past unconsumed dates stay eligible for the next scheduler poll. Recurring `scheduledAt` remains a create-time first-run override: editing that field alone does not reset recurring cadence; existing cron/interval/timezone edit triggers remain in effect.
+
+One-time consumption occurs at durable occurrence reservation, including `reserved`, `publishing`, `rejected`, and `published` outcomes. Timing changes, schedule-type changes, or enabling a schedule with any prior one-time reservation return `409 ONCE_SCHEDULE_CONSUMED`; create a new schedule for another firing. Changing to recurring and back cannot restore the entitlement. Metadata edits on a consumed disabled schedule can keep its timing fields unchanged; an equivalent representation of the same instant preserves the stored date and consumed pointer. A recurring schedule with complete recurring-only occurrence history may transition to its first `once`, keeping its run count. Choosing an instant already reserved by that recurring schedule returns `409 SCHEDULE_DUE_ALREADY_RESERVED`. Incomplete legacy history (missing snapshots/occurrences or inconsistent ordinals/counts) cannot establish an unconsumed one-shot and returns `409 ONCE_SCHEDULE_HISTORY_UNKNOWN` for once timing changes, type changes from once, or enabling once; create a new schedule. Existing history and run counts are never reset. These checks and the edit run in one writer transaction serialized with reservation; intentional save/enable can repair an unconsumed due pointer, with no automatic historical repair.
 
 **Auth:** JWT required (human)
 
-**Response `200`:** `{ "schedule": ScheduledTask }`
+**Response `200`:** `{ "scheduledTask": ScheduledTask }`
 
 ### DELETE /scheduled-tasks/:id
 
@@ -5338,11 +5340,11 @@ Manually trigger immediate execution.
 
 ### POST /scheduled-tasks/:id/enable
 
-Enable a disabled scheduled task.
+Enable a scheduled task. For an unconsumed one-time schedule, both this route and PATCH `{ "enabled": true }` use its effective `scheduledAt`, including past instants. For recurring schedules both operations reset the next run from the current time using the configured cadence, including when already enabled; a stored first-run override is not reapplied. Enable validates the effective configuration and follows the `400`/`409` admission rules above.
 
 **Auth:** JWT required (human)
 
-**Response `200`:** `{ "schedule": ScheduledTask }`
+**Response `200`:** `{ "scheduledTask": ScheduledTask }`
 
 ### POST /scheduled-tasks/:id/disable
 
@@ -5350,7 +5352,7 @@ Disable a scheduled task.
 
 **Auth:** JWT required (human)
 
-**Response `200`:** `{ "schedule": ScheduledTask }`
+**Response `200`:** `{ "scheduledTask": ScheduledTask }`
 
 ---
 

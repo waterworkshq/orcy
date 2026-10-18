@@ -99,8 +99,7 @@ export function createScheduledTask(input: CreateScheduledTaskInput): ScheduledT
   return task;
 }
 
-export function getScheduledTaskById(id: string): ScheduledTask | null {
-  const db = getDb();
+export function getScheduledTaskById(id: string, db = getDb()): ScheduledTask | null {
   const row = db.select().from(scheduledTasks).where(eq(scheduledTasks.id, id)).get();
   return (row as ScheduledTask) ?? null;
 }
@@ -149,9 +148,9 @@ export function getDueScheduledTasks(): ScheduledTask[] {
 export function updateScheduledTask(
   id: string,
   input: UpdateScheduledTaskInput,
+  db = getDb(),
 ): ScheduledTask | null {
-  const db = getDb();
-  const existing = getScheduledTaskById(id);
+  const existing = getScheduledTaskById(id, db);
   if (!existing) return null;
 
   const set: Record<string, unknown> = {};
@@ -181,7 +180,7 @@ export function updateScheduledTask(
   } catch (err) {
     throw repositoryUpdateError("scheduledTask", err as Error, id);
   }
-  return getScheduledTaskById(id);
+  return getScheduledTaskById(id, db);
 }
 
 export function claimExecution(id: string, nextRunAt: string): boolean {
