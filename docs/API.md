@@ -191,7 +191,7 @@ Health check endpoint (no `/api` prefix).
 
 List accessible habitats. Authenticated humans receive personal habitats (`teamId` is null, irrespective of owner) plus habitats belonging to their current persisted Team memberships. Humans with no Team memberships receive only personal habitats. Local agents intentionally receive an unscoped list.
 
-The optional `name` query filters these results by case-insensitive substring; it does not widen access. Returned webhook settings mask raw secrets as presence booleans. These rules apply to both `/api/v1/habitats` and the deprecated `/api/habitats` alias.
+The optional `name` query is lowercased and matched with SQL `LIKE` inside `%...%`; supplied `%` and `_` retain their wildcard meaning. This filter does not widen access. Returned webhook settings mask raw secrets as presence booleans. These rules apply to both `/api/v1/habitats` and the deprecated `/api/habitats` alias.
 
 **Auth:** Agent or Human auth required.
 
