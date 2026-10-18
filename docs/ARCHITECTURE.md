@@ -1562,6 +1562,12 @@ The Habitat Wiki adds an authored, versioned, searchable knowledge layer above t
 - **Layered finding-metadata opt-in** — free-form findings always accepted; structured fields trigger Zod validation (ADR-0010)
 - **Privacy boundary** — experience signals aggregated-only in wiki UI/MCP; system-internal consumers (v0.23 triage) access individual signals via service layer
 
+### Editor Draft Lifecycle
+
+`WikiEditor` keys its local draft lifecycle by Habitat, create/edit mode, and page identity. The editor holds draft values and acknowledged field baselines separately. Query refreshes merge clean fields; dirty fields retain local values. A changed server baseline that diverges from a dirty field creates a per-field reconciliation choice and blocks only the corresponding text or metadata save group until resolved.
+
+Version and metadata mutations submit field snapshots and acknowledge only their own fields from the response. Values changed after submission remain dirty; fields being saved are protected from a query refresh that observes the write before its acknowledgement. The edit summary clears only if it still matches the submitted summary. Failed writes replay the latest observed page through the merge path, including a GET whose cache object identity stays unchanged on subsequent refetches. Citation invalidations use the same merge path. Retired editor mutation callbacks cannot navigate the newly selected editor. These are in-memory UI guarantees: there is no draft persistence, backend version fence, or multi-author merge protocol.
+
 ### Data Model
 
 4 base tables (`wiki_pages`, `wiki_page_versions`, `wiki_page_links`, `wiki_coverage_markers`) + 1 FTS5 virtual table (`wiki_pages_fts`) + `habitats.wiki_settings` JSON column. See [DATABASE.md](DATABASE.md) for column details.

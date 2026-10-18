@@ -628,6 +628,14 @@ Sessions are isolated per task. Each session gets:
 
 Sessions exit on task completion (exit code 0), failure (non-zero), or timeout. The daemon reports the outcome to the API and moves on to the next task.
 
+## Editing Wiki Pages
+
+Wiki text and metadata have separate save buttons. **Save version** saves the title, markdown content, and edit summary; **Save metadata** saves the parent page, tags, and draft/published status. Saving one group or adding/removing a citation preserves unsaved changes in the other fields. Changes you type while a save is pending remain in the editor after that request finishes. Failed saves retain your draft so you can correct the problem and retry. Server changes observed during a pending save are reconciled after a failure, too.
+
+Background refreshes update fields you have not edited. When a refresh reports a different server value for a field you are editing, the editor keeps your draft and asks you to **Keep my** value or **Use server** value before saving that group. This choice handles changes the editor has already observed; it does not lock the page or prevent a later concurrent write.
+
+Drafts live only in the current editor. Opening another page or Habitat, switching between create and edit, cancelling, or leaving the editor discards that local draft. An old create response cannot navigate an editor that has since changed identity.
+
 ## Plugin Enrollment
 
 Habitat admins can enroll habitat-scoped plugin contributions (detectors, lifecycle interceptors) via Habitat Settings → Plugins tab. Server operators control which detectors can be enrolled via the `ORCY_DETECTOR_ALLOWLIST` environment variable.

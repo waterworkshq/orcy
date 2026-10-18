@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft, Loader2, Save, Eye, Pencil, AlertTriangle, Tag, X } from "lucide-react";
 import { wikiApi } from "../../api/domains/wiki.js";
@@ -17,17 +17,47 @@ interface WikiEditorProps {
   onCancel: () => void;
 }
 
-export function WikiEditor({ habitatId, mode, pageId, onDone, onCancel }: WikiEditorProps) {
+interface DraftValues {
+  title: string;
+  content: string;
+  parentId: string;
+  tags: string[];
+  status: WikiPageStatus;
+}
+
+export function WikiEditor(props: WikiEditorProps) {
+  return <WikiEditorSession key={JSON.stringify([props.habitatId, props.mode, props.pageId])} {...props} />;
+}
+
+function WikiEditorSession({ habitatId, mode, pageId, onDone, onCancel }: WikiEditorProps) {
   const queryClient = useQueryClient();
   const isEdit = mode === "edit" && !!pageId;
+  const active = useRef(true);
+  useEffect(() => {
+    active.current = true;
+    return () => { active.current = false; };
+  }, []);
 
-  const [title, setTitle] = useState("");
-  const [content, setContent] = useState("");
+  const [draft, setDraft] = useState(() => {
+    const values: DraftValues = { title: "", content: "", parentId: "", tags: [], status: "draft" };
+    return { values, saved: values, conflicts: {} as Partial<Record<keyof DraftValues, boolean>> };
+  });
+  const pendingMetadata = useRef(false);
+  const pendingText = useRef(false);
+  const [failedWriteRevision, setFailedWriteRevision] = useState(0);
+  const { title, content, parentId, tags, status } = draft.values;
+  function setField<K extends keyof DraftValues>(field: K, value: DraftValues[K]) {
+    setDraft((current) => ({
+      ...current,
+      values: { ...current.values, [field]: value },
+      conflicts: {
+        ...current.conflicts,
+        [field]: JSON.stringify(value) === JSON.stringify(current.saved[field]) ? false : current.conflicts[field],
+      },
+    }));
+  }
   const [editSummary, setEditSummary] = useState("");
-  const [parentId, setParentId] = useState<string>("");
-  const [tags, setTags] = useState<string[]>([]);
   const [tagInput, setTagInput] = useState("");
-  const [status, setStatus] = useState<WikiPageStatus>("draft");
   const [preview, setPreview] = useState(false);
 
   const { data: pageData, isLoading: pageLoading } = useQuery({
@@ -44,24 +74,38 @@ export function WikiEditor({ habitatId, mode, pageId, onDone, onCancel }: WikiEd
 
   useEffect(() => {
     if (isEdit && pageData) {
-      setTitle(pageData.title);
-      setContent(pageData.content);
-      setParentId(pageData.parentId ?? "");
-      setTags(pageData.tags);
-      setStatus(pageData.status);
+      const saved: DraftValues = {
+        title: pageData.title, content: pageData.content, parentId: pageData.parentId ?? "",
+        tags: pageData.tags, status: pageData.status,
+      };
+      setDraft((current) => {
+        const next = {
+          values: { ...current.values }, saved: { ...current.saved }, conflicts: { ...current.conflicts },
+        };
+        for (const field of Object.keys(saved) as (keyof DraftValues)[]) {
+          // A refetch may observe our write before the mutation acknowledges its submitted fields.
+          const pending = field === "title" || field === "content" ? pendingText.current : pendingMetadata.current;
+          if (pending) continue;
+          const clean = JSON.stringify(current.values[field]) === JSON.stringify(current.saved[field]);
+          const matchesServer = JSON.stringify(current.values[field]) === JSON.stringify(saved[field]);
+          if (clean) Object.assign(next.values, { [field]: saved[field] });
+          if (clean || matchesServer) next.conflicts[field] = false;
+          else if (JSON.stringify(current.saved[field]) !== JSON.stringify(saved[field])) next.conflicts[field] = true;
+          Object.assign(next.saved, { [field]: saved[field] });
+        }
+        return next;
+      });
     }
-  }, [isEdit, pageData]);
+  }, [isEdit, pageData, failedWriteRevision]);
 
-  const originalTitle = pageData?.title ?? "";
-  const originalContent = pageData?.content ?? "";
   const contentChanged = isEdit
-    ? title !== originalTitle || content !== originalContent
+    ? title !== draft.saved.title || content !== draft.saved.content
     : title.trim().length > 0 && content.trim().length > 0;
   const metadataChanged =
     isEdit &&
-    (parentId !== (pageData?.parentId ?? "") ||
-      JSON.stringify(tags) !== JSON.stringify(pageData?.tags ?? []) ||
-      status !== pageData?.status);
+    (parentId !== draft.saved.parentId ||
+      JSON.stringify(tags) !== JSON.stringify(draft.saved.tags) ||
+      status !== draft.saved.status);
 
   const createMutation = useMutation({
     mutationFn: () =>
@@ -73,52 +117,85 @@ export function WikiEditor({ habitatId, mode, pageId, onDone, onCancel }: WikiEd
         status,
       }),
     onSuccess: (page: WikiPage) => {
+      if (!active.current) return;
       queryClient.invalidateQueries({ queryKey: queryKeys.wiki.pages(habitatId) });
       notify.success("Page created");
       onDone(page.id);
     },
-    onError: (err) => notify.error((err as Error).message),
+    onError: (err) => { if (active.current) notify.error((err as Error).message); },
   });
 
   const saveMutation = useMutation({
-    mutationFn: () =>
+    mutationFn: (submitted: { title: string; content: string; editSummary: string }) =>
       wikiApi.saveVersion(habitatId, pageId!, {
-        title: title.trim(),
-        content,
-        editSummary: editSummary.trim() || undefined,
+        title: submitted.title.trim(), content: submitted.content,
+        editSummary: submitted.editSummary.trim() || undefined,
       }),
-    onSuccess: () => {
+    onSuccess: (page, submitted) => {
+      if (!active.current) return;
+      setDraft((current) => ({
+        conflicts: { ...current.conflicts, title: false, content: false },
+        saved: { ...current.saved, title: page.title, content: page.content },
+        values: {
+          ...current.values,
+          title: current.values.title === submitted.title ? page.title : current.values.title,
+          content: current.values.content === submitted.content ? page.content : current.values.content,
+        },
+      }));
+      pendingText.current = false;
       queryClient.invalidateQueries({ queryKey: queryKeys.wiki.page(habitatId, pageId!) });
       queryClient.invalidateQueries({ queryKey: queryKeys.wiki.versions(habitatId, pageId!) });
       queryClient.invalidateQueries({ queryKey: queryKeys.wiki.pages(habitatId) });
-      setEditSummary("");
+      setEditSummary((current) => current === submitted.editSummary ? "" : current);
       notify.success("New version saved");
     },
-    onError: (err) => notify.error((err as Error).message),
+    onError: (err) => {
+      if (!active.current) return;
+      pendingText.current = false;
+      // Replay any GET skipped while saving, even if a later GET is structurally identical.
+      setFailedWriteRevision((revision) => revision + 1);
+      notify.error((err as Error).message);
+    },
   });
 
   const metadataMutation = useMutation({
-    mutationFn: () =>
-      wikiApi.updatePageMetadata(habitatId, pageId!, {
-        parentId: parentId || null,
-        tags,
-        status,
-      }),
-    onSuccess: () => {
+    mutationFn: (submitted: Pick<DraftValues, "parentId" | "tags" | "status">) =>
+      wikiApi.updatePageMetadata(habitatId, pageId!, { ...submitted, parentId: submitted.parentId || null }),
+    onSuccess: (page, submitted) => {
+      if (!active.current) return;
+      setDraft((current) => ({
+        conflicts: { ...current.conflicts, parentId: false, tags: false, status: false },
+        saved: { ...current.saved, parentId: page.parentId ?? "", tags: page.tags, status: page.status },
+        values: {
+          ...current.values,
+          parentId: current.values.parentId === submitted.parentId ? page.parentId ?? "" : current.values.parentId,
+          tags: JSON.stringify(current.values.tags) === JSON.stringify(submitted.tags) ? page.tags : current.values.tags,
+          status: current.values.status === submitted.status ? page.status : current.values.status,
+        },
+      }));
+      pendingMetadata.current = false;
       queryClient.invalidateQueries({ queryKey: queryKeys.wiki.page(habitatId, pageId!) });
       queryClient.invalidateQueries({ queryKey: queryKeys.wiki.pages(habitatId) });
       notify.success("Metadata updated");
     },
-    onError: (err) => notify.error((err as Error).message),
+    onError: (err) => {
+      if (!active.current) return;
+      pendingMetadata.current = false;
+      setFailedWriteRevision((revision) => revision + 1);
+      notify.error((err as Error).message);
+    },
   });
 
   const saving = createMutation.isPending || saveMutation.isPending;
-  const canSave = contentChanged && !saving;
+  const textConflict = draft.conflicts.title || draft.conflicts.content;
+  const metadataConflict = draft.conflicts.parentId || draft.conflicts.tags || draft.conflicts.status;
+  const canSave = contentChanged && !saving && !textConflict;
 
   function handleSave() {
     if (!canSave) return;
     if (isEdit) {
-      saveMutation.mutate();
+      pendingText.current = true;
+      saveMutation.mutate({ title, content, editSummary });
     } else {
       createMutation.mutate();
     }
@@ -127,13 +204,13 @@ export function WikiEditor({ habitatId, mode, pageId, onDone, onCancel }: WikiEd
   function addTag() {
     const t = tagInput.trim().toLowerCase();
     if (t && !tags.includes(t)) {
-      setTags([...tags, t]);
+      setField("tags", [...tags, t]);
     }
     setTagInput("");
   }
 
   function removeTag(t: string) {
-    setTags(tags.filter((x) => x !== t));
+    setField("tags", tags.filter((x) => x !== t));
   }
 
   if (isEdit && pageLoading) {
@@ -161,12 +238,26 @@ export function WikiEditor({ habitatId, mode, pageId, onDone, onCancel }: WikiEd
         </span>
       </div>
 
+      {(Object.keys(draft.conflicts) as (keyof DraftValues)[]).filter((field) => draft.conflicts[field]).map((field) => {
+        const label = { title: "Title", content: "Content", parentId: "Parent page", tags: "Tags", status: "Status" }[field];
+        return <div key={field} role="alert" className="rounded-md border border-[var(--outline-variant)] p-3 text-xs space-x-3">
+          <span>{label} changed on the server.</span>
+          <button type="button" onClick={() => setDraft((current) => ({
+            ...current, conflicts: { ...current.conflicts, [field]: false },
+          }))}>Keep my {label}</button>
+          <button type="button" onClick={() => setDraft((current) => ({
+            ...current,
+            values: { ...current.values, [field]: current.saved[field] },
+            conflicts: { ...current.conflicts, [field]: false },
+          }))}>Use server {label}</button>
+        </div>;
+      })}
       <div className="grid grid-cols-1 lg:grid-cols-[1fr_300px] gap-3">
         <div className="space-y-3 min-w-0">
           <input
             type="text"
             value={title}
-            onChange={(e) => setTitle(e.target.value)}
+            onChange={(e) => setField("title", e.target.value)}
             placeholder="Page title…"
             className="w-full rounded-md border border-[var(--outline-variant)] bg-[var(--surface-container-low)] px-3 py-2 text-base font-semibold text-[var(--on-surface)] placeholder:text-[var(--on-surface-variant)] focus:outline-none focus:ring-1 focus:ring-[var(--primary)]"
           />
@@ -209,7 +300,7 @@ export function WikiEditor({ habitatId, mode, pageId, onDone, onCancel }: WikiEd
           ) : (
             <textarea
               value={content}
-              onChange={(e) => setContent(e.target.value)}
+              onChange={(e) => setField("content", e.target.value)}
               placeholder="Write page content in markdown…"
               className="w-full rounded-md border border-[var(--outline-variant)] bg-[var(--surface-container-low)] px-3 py-2 text-sm text-[var(--on-surface)] placeholder:text-[var(--on-surface-variant)] focus:outline-none focus:ring-1 focus:ring-[var(--primary)] min-h-[300px] max-h-[60vh] resize-y font-mono"
             />
@@ -222,7 +313,7 @@ export function WikiEditor({ habitatId, mode, pageId, onDone, onCancel }: WikiEd
               </span>
               <select
                 value={parentId}
-                onChange={(e) => setParentId(e.target.value)}
+                onChange={(e) => setField("parentId", e.target.value)}
                 className="mt-1 w-full rounded-md border border-[var(--outline-variant)] bg-[var(--surface)] px-2 py-1.5 text-xs text-[var(--on-surface)] focus:outline-none focus:ring-1 focus:ring-[var(--primary)]"
               >
                 <option value="">— Root page (no parent) —</option>
@@ -240,7 +331,7 @@ export function WikiEditor({ habitatId, mode, pageId, onDone, onCancel }: WikiEd
               </span>
               <select
                 value={status}
-                onChange={(e) => setStatus(e.target.value as WikiPageStatus)}
+                onChange={(e) => setField("status", e.target.value as WikiPageStatus)}
                 className="mt-1 w-full rounded-md border border-[var(--outline-variant)] bg-[var(--surface)] px-2 py-1.5 text-xs text-[var(--on-surface)] focus:outline-none focus:ring-1 focus:ring-[var(--primary)]"
               >
                 <option value="draft">Draft</option>
@@ -320,8 +411,11 @@ export function WikiEditor({ habitatId, mode, pageId, onDone, onCancel }: WikiEd
             {isEdit && metadataChanged && !saveMutation.isPending && (
               <button
                 type="button"
-                onClick={() => metadataMutation.mutate()}
-                disabled={metadataMutation.isPending}
+                onClick={() => {
+                  pendingMetadata.current = true;
+                  metadataMutation.mutate({ parentId, tags: [...tags], status });
+                }}
+                disabled={metadataMutation.isPending || !!metadataConflict}
                 className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold border border-[var(--outline-variant)] text-[var(--on-surface)] hover:bg-[var(--surface-container-high)] transition-colors disabled:opacity-50"
               >
                 {metadataMutation.isPending ? (
