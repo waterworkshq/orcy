@@ -984,6 +984,8 @@ Recurring scheduled creation of missions and tasks from templates. Supports cron
 
 **Indexes:** `idx_scheduled_tasks_habitat(habitat_id)`, `idx_scheduled_tasks_next(next_run_at)`, `idx_scheduled_tasks_enabled(enabled)`
 
+Occurrence snapshot JSON (`scheduled_occurrences.schedule_revision`) retains the reservation-time row and expected post-reservation operational values. Manual creation adds typed `_manualTrigger: { actorId: string, requestedAt: string, scheduledFor: string }`: the actual authenticated human, UTC request timestamp, and exact consumed due coordinate. This is immutable creation provenance, not a replacement for scheduler/system publication attribution. Replay does not restamp it; publication, expired-lease recovery, and separate repair preserve it. Repair may append `result.retryHistory` while the original row remains `rejected`. The unique `(scheduledTaskId, scheduledFor)` occurrence pair remains the durable replay identity; no column/index migration or history rewrite is introduced.
+
 #### `daemon_instances`
 
 Tracks autonomous daemon runtimes, including both standalone CLI daemons and API in-process daemon engines.
@@ -2328,7 +2330,7 @@ Relationship declarations only — no tables.
 | `task_creation_dispatch_targets` | Dispatch/sink targets for creation events | ✗ |
 | `task_creation_assignment_reservations` | Leased assignment reservations during creation | ✗ |
 | `mission_recalculation_markers` | Leased markers scheduling mission recalculation | ✗ |
-| `scheduled_occurrences` | Materialized occurrences of a scheduled task (ordinal, revision, result) | ✗ |
+| `scheduled_occurrences` | Materialized occurrences (ordinal, revision, result); manual trigger JSON contract under `scheduled_tasks` above | ✗ |
 
 #### `triage.ts`
 

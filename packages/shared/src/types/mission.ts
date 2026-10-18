@@ -197,3 +197,15 @@ export interface ScheduledTask {
   createdAt: string;
   updatedAt: string;
 }
+
+/** HTTP manual-run outcome. Bodyless legacy admission failures have no occurrence. */
+export interface ScheduledTaskRunResult {
+  success: boolean;
+  missionId?: string;
+  error?: string;
+  skipped?: boolean;
+  occurrenceId?: string;
+  scheduledFor?: string;
+  occurrenceState?: "reserved" | "publishing" | "published" | "rejected";
+  replayed?: boolean;
+}

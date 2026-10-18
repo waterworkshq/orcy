@@ -76,8 +76,9 @@ import {
   getOccurrenceByScheduleAndDueWithClient,
   type ScheduledOccurrenceRow,
   type ScheduleRevisionJson,
+  type ManualScheduledTrigger,
 } from "./scheduledOccurrences.js";
-import { advanceScheduleOnceWithClient, disableScheduleWithClient } from "./scheduledTask.js";
+import { advanceScheduleOnceWithClient, advanceScheduleManuallyWithClient, disableScheduleWithClient } from "./scheduledTask.js";
 import { reserveAttemptWithClient } from "./taskCreationAttempts.js";
 import { stableStringify, stableHash } from "@orcy/shared";
 
@@ -204,6 +205,10 @@ export class ScheduledOccurrenceAdvanceLostRace extends Error {
  * `uuid()` — override for backfill or deterministic testing.
  */
 export interface ReserveScheduledOccurrenceInput {
+  /** Server-only explicit early admission; polling defaults stay due-only. */
+  admission?: "manual";
+  /** Server-only creation provenance, used only by explicit manual admission. */
+  manualTrigger?: ManualScheduledTrigger;
   /** The schedule to reserve an occurrence for. */
   scheduleId: string;
   /**
@@ -310,8 +315,10 @@ export type ReserveScheduledOccurrenceResult =
  *      same-key retry against a schedule whose `nextRunAt` has already
  *      advanced (the winner moved it forward) still resolves as
  *      `already_exists`, not as `rejected: schedule_not_due`.
- *   4. For a FRESH pair: reject if the schedule is disabled or not currently
- *      due (`nextRunAt > now`).
+ *   4. For a FRESH pair: require an enabled schedule. Polling requires the
+ *      slot to be due (`nextRunAt <= now`); manual admission instead requires
+ *      the exact current coordinate (`nextRunAt === scheduledFor`), even if
+ *      that slot is in the future.
  *   5. Compute `ordinal` (= `schedule.runCount`, zero-based: the Nth firing
  *      where N is the count BEFORE this firing), `scheduleRevision`
  *      (full-row snapshot), and allocate the occurrence `id`.
@@ -325,8 +332,10 @@ export type ReserveScheduledOccurrenceResult =
  *      `attemptKey:"occurrence"`). Stamp its id onto the occurrence row via
  *      `setOccurrenceAttemptIdWithClient`. The attempt + link commit IN THIS
  *      TX — atomic with the occurrence insert.
- *   8. `advanceScheduleOnceWithClient` — CAS the schedule forward exactly
- *      once (conditioned on `enabled = true AND nextRunAt <= now`).
+ *   8. CAS the schedule forward exactly once: polling uses
+ *      `advanceScheduleOnceWithClient` (`enabled = true AND nextRunAt <= now`);
+ *      manual admission uses `advanceScheduleManuallyWithClient`
+ *      (`enabled = true AND nextRunAt = scheduledFor`).
  *   9. T9A-02: if the advance CAS LOST (`advanced:false`) on a fresh insert,
  *      THROW {@link ScheduledOccurrenceAdvanceLostRace} → the whole tx rolls
  *      back (occurrence + attempt + link + one-shot disable). No dangling
@@ -373,14 +382,14 @@ export function reserveScheduledOccurrenceWithClient(
     return { outcome: "already_exists", occurrence: existing, advanced: false };
   }
 
-  // 3. For a FRESH pair: reservation-time validation. The schedule must be
-  //    enabled and currently due.
+  // 3. For a FRESH pair: require an enabled schedule and validate the slot
+  //    using the polling or manual admission condition below.
   if (!schedule.enabled) return { outcome: "rejected", reason: "schedule_disabled" };
-  // schedule_not_due: the schedule's current nextRunAt is in the future
-  // relative to this reservation's reference time. A stale scheduler tick
-  // (queued before the schedule was advanced by a concurrent reservation)
-  // surfaces here without creating an occurrence.
-  if (schedule.nextRunAt > now) {
+  // Polling rejects a future nextRunAt, including a stale tick queued before
+  // another reservation advanced the schedule. Manual admission instead
+  // requires nextRunAt === scheduledFor and permits a future current slot.
+  // Either mismatch returns schedule_not_due without creating an occurrence.
+  if (input.admission === "manual" ? schedule.nextRunAt !== scheduledFor : schedule.nextRunAt > now) {
     return { outcome: "rejected", reason: "schedule_not_due" };
   }
 
@@ -430,6 +439,7 @@ export function reserveScheduledOccurrenceWithClient(
   const expectedRunCount = ordinal + 1;
   const scheduleRevision: ScheduleRevisionJson = {
     ...schedule,
+    ...(input.admission === "manual" && input.manualTrigger ? { _manualTrigger: input.manualTrigger } : {}),
     _expectedPostReservation: {
       nextRunAt: input.nextRunAt,
       enabled: expectedEnabled,
@@ -522,12 +532,14 @@ export function reserveScheduledOccurrenceWithClient(
     );
   }
 
-  // 6. `created` → advance the schedule exactly once (CAS). The CAS predicate
-  //    `enabled = true AND nextRunAt <= now` is the race-safe authority: a
-  //    concurrent different-`scheduledFor` reservation that already advanced
-  //    surfaces as `advanced: false` here (the schedule's nextRunAt moved
-  //    past `now`).
-  const advanceResult = advanceScheduleOnceWithClient(db, input.scheduleId, input.nextRunAt, now);
+  // 6. `created` → advance the schedule exactly once (CAS). Polling requires
+  //    enabled = true AND nextRunAt <= now; manual admission requires
+  //    enabled = true AND nextRunAt = scheduledFor. A schedule changed by a
+  //    concurrent reservation fails the applicable predicate and returns
+  //    advanced: false; the lost-race path below rolls back this reservation.
+  const advanceResult = input.admission === "manual"
+    ? advanceScheduleManuallyWithClient(db, input.scheduleId, input.nextRunAt, scheduledFor, now)
+    : advanceScheduleOnceWithClient(db, input.scheduleId, input.nextRunAt, now);
 
   // 7. T9A-02: lost-race handling. If the occurrence was freshly inserted
   //    (step 4 `created`) + the coordination attempt was reserved (step 5)

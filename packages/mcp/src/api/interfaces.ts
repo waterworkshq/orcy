@@ -609,6 +609,10 @@ export interface SprintClient {
   removeMissionFromSprint(sprintId: string, missionId: string): Promise<{ sprint: Sprint }>;
 }
 
+/** HTTP manual-run result; bodyless legacy failures contain only success/error. */
+export type { ScheduledTaskRunResult } from "@orcy/shared";
+import type { ScheduledTaskRunResult } from "@orcy/shared";
+
 export interface ScheduledTaskClient {
   listScheduledTasks(habitatId: string): Promise<{ scheduledTasks: ScheduledTask[] }>;
   createScheduledTask(habitatId: string, input: unknown): Promise<{ scheduledTask: ScheduledTask }>;
@@ -617,7 +621,8 @@ export interface ScheduledTaskClient {
   deleteScheduledTask(id: string): Promise<void>;
   runScheduledTask(
     scheduledTaskId: string,
-  ): Promise<{ success: boolean; missionId?: string; error?: string }>;
+    expectedScheduledFor?: string,
+  ): Promise<ScheduledTaskRunResult>;
   enableScheduledTask(id: string): Promise<{ scheduledTask: ScheduledTask }>;
   disableScheduledTask(id: string): Promise<{ scheduledTask: ScheduledTask }>;
 }

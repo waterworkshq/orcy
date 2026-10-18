@@ -277,18 +277,16 @@ export function deleteScheduledTask(id: string): boolean {
 // ---------------------------------------------------------------------------
 
 /**
- * Result of {@link advanceScheduleOnceWithClient}. Closed union — never
- * throws for an expected advance decision; only infrastructure failures
- * (retryable transport) throw.
+ * Result of the due-only and manual schedule-advance primitives. Expected
+ * CAS decisions return this closed union; unexpected database failures throw.
  *
  * - `advanced: true`  — this call's CAS UPDATE matched exactly one row: the
  *                       schedule moved forward (`runCount + 1`, `lastRunAt`
  *                       stamped, `nextRunAt` set to the advance target).
- * - `advanced: false` — the CAS predicate (`enabled = true AND
- *                       nextRunAt <= now`) matched zero rows: a concurrent
- *                       reservation already advanced the schedule, OR the
- *                       schedule was disabled / no longer due between the
- *                       caller's pre-read and this UPDATE. No mutation.
+ * - `advanced: false` — the function's CAS predicate matched zero rows:
+ *                       the schedule is missing, disabled, or no longer
+ *                       satisfies that function's due/coordinate condition.
+ *                       No mutation.
  */
 export type ScheduleAdvanceResult = { advanced: true } | { advanced: false };
 
@@ -334,6 +332,45 @@ export function advanceScheduleOnceWithClient(
           eq(scheduledTasks.id, id),
           eq(scheduledTasks.enabled, true),
           lte(scheduledTasks.nextRunAt, now),
+        ),
+      )
+      .run();
+    affected = db.get<{ n: number }>(sql`SELECT changes() AS n`)?.n ?? 0;
+  } catch (err) {
+    throw repositoryUpdateError("scheduledTask", err as Error, id);
+  }
+  return affected === 1 ? { advanced: true } : { advanced: false };
+}
+
+/**
+ * Atomically advances an enabled schedule only when its current `nextRunAt`
+ * equals `expectedScheduledFor`; the slot may be in the future. Increments
+ * `runCount`, stamps `lastRunAt`, and sets the supplied advance target on the
+ * caller's client. Returns `advanced: false` without mutation for a missing
+ * or disabled schedule or a coordinate mismatch. Never opens a transaction
+ * or emits external effects; infrastructure failures throw.
+ */
+export function advanceScheduleManuallyWithClient(
+  db: ReturnType<typeof getDb>,
+  id: string,
+  nextRunAt: string,
+  expectedScheduledFor: string,
+  now: string = new Date().toISOString(),
+): ScheduleAdvanceResult {
+  let affected: number;
+  try {
+    db.update(scheduledTasks)
+      .set({
+        lastRunAt: now,
+        nextRunAt,
+        runCount: sql`${scheduledTasks.runCount} + 1`,
+        updatedAt: now,
+      })
+      .where(
+        and(
+          eq(scheduledTasks.id, id),
+          eq(scheduledTasks.enabled, true),
+          eq(scheduledTasks.nextRunAt, expectedScheduledFor),
         ),
       )
       .run();

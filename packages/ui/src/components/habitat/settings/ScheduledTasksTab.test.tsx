@@ -213,7 +213,7 @@ describe('ScheduledTasksTab', () => {
 
   it('calls run API and invalidates cache', async () => {
     mockListScheduledTasks.mockResolvedValue({ scheduledTasks: [mockTask] });
-    mockRunScheduledTask.mockResolvedValue({ success: true, missionId: 'f1' });
+    mockRunScheduledTask.mockResolvedValue({ success: true, missionId: 'f1', occurrenceId: 'o1', scheduledFor: mockTask.nextRunAt, occurrenceState: 'published', replayed: false });
 
     renderWithQC(<ScheduledTasksTab habitatId="b1" />);
 
@@ -224,7 +224,7 @@ describe('ScheduledTasksTab', () => {
     fireEvent.click(screen.getByText('RunBtn'));
 
     await waitFor(() => {
-      expect(mockRunScheduledTask).toHaveBeenCalledWith('st-1');
+      expect(mockRunScheduledTask).toHaveBeenCalledWith('st-1', mockTask.nextRunAt);
       expect(mockNotifySuccess).toHaveBeenCalled();
     });
   });

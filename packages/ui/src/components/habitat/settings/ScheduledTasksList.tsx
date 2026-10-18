@@ -8,6 +8,8 @@ interface ScheduledTasksListProps {
   scheduledTasks: ScheduledTask[];
   loading: boolean;
   runningId: string | null;
+  runningIds?: ReadonlySet<string>;
+  retryIds?: ReadonlySet<string>;
   onToggle: (task: ScheduledTask) => void;
   onRun: (id: string) => void;
   onDelete: (id: string) => void;
@@ -41,6 +43,8 @@ export function ScheduledTasksList({
   scheduledTasks,
   loading,
   runningId,
+  runningIds,
+  retryIds,
   onToggle,
   onRun,
   onDelete,
@@ -137,11 +141,11 @@ export function ScheduledTasksList({
                 variant="outline"
                 size="sm"
                 onClick={() => onRun(task.id)}
-                disabled={runningId === task.id}
-                loading={runningId === task.id}
+                disabled={(runningIds?.has(task.id) ?? runningId === task.id) || (!task.enabled && !retryIds?.has(task.id))}
+                loading={runningIds?.has(task.id) ?? runningId === task.id}
                 data-testid={`run-btn-${task.id}`}
               >
-                Run
+                {retryIds?.has(task.id) ? "Retry Run" : "Run"}
               </Button>
               <Button
                 variant="ghost"

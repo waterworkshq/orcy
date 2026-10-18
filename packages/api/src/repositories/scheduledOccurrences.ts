@@ -95,7 +95,16 @@ export type ScheduledOccurrenceState = "reserved" | "publishing" | "published" |
  * Re-derived here (the schema's `ScheduleRevisionJson` is not exported) —
  * mirrors how `taskCreationAttempts.ts` re-derives `AttemptTerminalResult`.
  */
-export type ScheduleRevisionJson = Record<string, unknown>;
+export interface ManualScheduledTrigger {
+  actorId: string;
+  requestedAt: string;
+  scheduledFor: string;
+}
+
+export type ScheduleRevisionJson = Record<string, unknown> & {
+  /** Server-authenticated creation provenance; immutable through replay/recovery/repair. */
+  _manualTrigger?: ManualScheduledTrigger;
+};
 
 /**
  * Compact occurrence terminal result (success or failure detail). Re-derived

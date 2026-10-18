@@ -1,6 +1,10 @@
 import { request } from "../transport.js";
 import type { ScheduledTask, TaskTemplateEntry } from "../../types/index.js";
 
+/** Persisted manual Run outcome; legacy admission failures carry success/error only. */
+export type { ScheduledTaskRunResult } from "@orcy/shared";
+import type { ScheduledTaskRunResult } from "@orcy/shared";
+
 export const scheduledTasksApi = {
   list: (habitatId: string) =>
     request<{ scheduledTasks: ScheduledTask[] }>(`/habitats/${habitatId}/scheduled-tasks`),
@@ -52,11 +56,12 @@ export const scheduledTasksApi = {
       body: JSON.stringify(data),
     }),
   delete: (id: string) => request<void>(`/scheduled-tasks/${id}`, { method: "DELETE" }),
-  run: (id: string) =>
-    request<{ success: boolean; missionId?: string; error?: string }>(
+  run: (id: string, expectedScheduledFor?: string) =>
+    request<ScheduledTaskRunResult>(
       `/scheduled-tasks/${id}/run`,
       {
         method: "POST",
+        ...(expectedScheduledFor !== undefined ? { body: JSON.stringify({ expectedScheduledFor }) } : {}),
       },
     ),
   enable: (id: string) =>
