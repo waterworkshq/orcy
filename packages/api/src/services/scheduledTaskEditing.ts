@@ -1,6 +1,6 @@
-import { eq, sql } from "drizzle-orm";
+import { sql } from "drizzle-orm";
 import { getDb } from "../db/index.js";
-import { scheduledOccurrences } from "../db/schema/index.js";
+import { getOnceEntitlementWithClient } from "../repositories/scheduledTaskEntitlement.js";
 import type { ScheduledTask } from "../models/index.js";
 import * as scheduledTaskRepo from "../repositories/scheduledTask.js";
 import { getOccurrenceByScheduleAndDueWithClient } from "../repositories/scheduledOccurrences.js";
@@ -31,24 +31,9 @@ export function editScheduledTask(
 
     // Snapshot identity, rather than runCount, distinguishes prior recurring
     // runs from consumption of this schedule's one-shot entitlement.
-    const history = db.select({
-      count: sql<number>`count(*)`,
-      ordinals: sql<number>`count(distinct ${scheduledOccurrences.ordinal})`,
-      first: sql<number | null>`min(${scheduledOccurrences.ordinal})`,
-      last: sql<number | null>`max(${scheduledOccurrences.ordinal})`,
-      once: sql<number>`coalesce(sum(CASE WHEN json_valid(${scheduledOccurrences.scheduleRevision})
-        THEN CASE WHEN json_extract(${scheduledOccurrences.scheduleRevision}, '$.scheduleType') = 'once' THEN 1 ELSE 0 END
-        ELSE 0 END), 0)`,
-      unknown: sql<number>`coalesce(sum(CASE WHEN json_valid(${scheduledOccurrences.scheduleRevision})
-        THEN CASE WHEN json_extract(${scheduledOccurrences.scheduleRevision}, '$.scheduleType') IN ('once', 'interval', 'cron') THEN 0 ELSE 1 END
-        ELSE 1 END), 0)`,
-    }).from(scheduledOccurrences).where(eq(scheduledOccurrences.scheduledTaskId, id)).get();
-    const consumed = (history?.once ?? 0) > 0;
-    // No pagination: an older once snapshot must never disappear behind the
-    // history UI's page size. Counts/ordinal coverage catch missing legacy rows.
-    const completeHistory = history?.count === existing.runCount && history.ordinals === existing.runCount &&
-      (existing.runCount === 0 || history.first === 0 && history.last === existing.runCount - 1);
-    const historyUnknown = !consumed && (!completeHistory || (history?.unknown ?? 0) > 0) &&
+    const entitlement = getOnceEntitlementWithClient(db, existing);
+    const consumed = entitlement === "consumed";
+    const historyUnknown = entitlement === "unknown" &&
       (existing.scheduleType === "once" || effective.scheduleType === "once");
     const sameInstant = input.scheduledAt != null && existing.scheduledAt != null &&
       parseScheduledAt(input.scheduledAt).getTime() === parseScheduledAt(existing.scheduledAt).getTime();

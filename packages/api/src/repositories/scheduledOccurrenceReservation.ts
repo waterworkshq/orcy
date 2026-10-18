@@ -76,8 +76,9 @@ import {
   getOccurrenceByScheduleAndDueWithClient,
   type ScheduledOccurrenceRow,
   type ScheduleRevisionJson,
+  type ManualScheduledTrigger,
 } from "./scheduledOccurrences.js";
-import { advanceScheduleOnceWithClient, disableScheduleWithClient } from "./scheduledTask.js";
+import { advanceScheduleOnceWithClient, advanceScheduleManuallyWithClient, disableScheduleWithClient } from "./scheduledTask.js";
 import { reserveAttemptWithClient } from "./taskCreationAttempts.js";
 import { stableStringify, stableHash } from "@orcy/shared";
 
@@ -204,6 +205,10 @@ export class ScheduledOccurrenceAdvanceLostRace extends Error {
  * `uuid()` — override for backfill or deterministic testing.
  */
 export interface ReserveScheduledOccurrenceInput {
+  /** Server-only explicit early admission; polling defaults stay due-only. */
+  admission?: "manual";
+  /** Server-only creation provenance, used only by explicit manual admission. */
+  manualTrigger?: ManualScheduledTrigger;
   /** The schedule to reserve an occurrence for. */
   scheduleId: string;
   /**
@@ -380,7 +385,7 @@ export function reserveScheduledOccurrenceWithClient(
   // relative to this reservation's reference time. A stale scheduler tick
   // (queued before the schedule was advanced by a concurrent reservation)
   // surfaces here without creating an occurrence.
-  if (schedule.nextRunAt > now) {
+  if (input.admission === "manual" ? schedule.nextRunAt !== scheduledFor : schedule.nextRunAt > now) {
     return { outcome: "rejected", reason: "schedule_not_due" };
   }
 
@@ -430,6 +435,7 @@ export function reserveScheduledOccurrenceWithClient(
   const expectedRunCount = ordinal + 1;
   const scheduleRevision: ScheduleRevisionJson = {
     ...schedule,
+    ...(input.admission === "manual" && input.manualTrigger ? { _manualTrigger: input.manualTrigger } : {}),
     _expectedPostReservation: {
       nextRunAt: input.nextRunAt,
       enabled: expectedEnabled,
@@ -527,7 +533,9 @@ export function reserveScheduledOccurrenceWithClient(
   //    concurrent different-`scheduledFor` reservation that already advanced
   //    surfaces as `advanced: false` here (the schedule's nextRunAt moved
   //    past `now`).
-  const advanceResult = advanceScheduleOnceWithClient(db, input.scheduleId, input.nextRunAt, now);
+  const advanceResult = input.admission === "manual"
+    ? advanceScheduleManuallyWithClient(db, input.scheduleId, input.nextRunAt, scheduledFor, now)
+    : advanceScheduleOnceWithClient(db, input.scheduleId, input.nextRunAt, now);
 
   // 7. T9A-02: lost-race handling. If the occurrence was freshly inserted
   //    (step 4 `created`) + the coordination attempt was reserved (step 5)

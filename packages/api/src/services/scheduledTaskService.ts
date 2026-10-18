@@ -5,13 +5,14 @@ import { sseBroadcaster } from "../sse/broadcaster.js";
 import { logger } from "../lib/logger.js";
 import { getDb } from "../db/index.js";
 import { auditExportSchedules } from "../db/schema/index.js";
-import { eq, and, lte } from "drizzle-orm";
+import { eq, and, lte, sql } from "drizzle-orm";
 import type { ScheduledTask } from "../models/index.js";
+import type { ScheduledTaskRunResult } from "@orcy/shared";
 import type { AuditExportQuery } from "./auditExportService.js";
 import { writeFileSync, mkdirSync } from "fs";
 import { join } from "path";
 import { sanitizeFilename } from "./fileStorage.js";
-import { reserveScheduledOccurrence } from "../repositories/scheduledOccurrenceReservation.js";
+import { reserveScheduledOccurrence, reserveScheduledOccurrenceWithClient, ScheduledOccurrenceAdvanceLostRace } from "../repositories/scheduledOccurrenceReservation.js";
 import {
   publishScheduledOccurrence,
   type PublishScheduledOccurrenceOutcome,
@@ -49,6 +50,10 @@ export {
   type ScheduledTaskHandlerResult,
   type ScheduledTaskHandler,
 } from "../repositories/scheduledHandlerRegistry.js";
+import { getOnceEntitlementWithClient } from "../repositories/scheduledTaskEntitlement.js";
+import { getOccurrenceByScheduleAndDueWithClient, getOccurrenceWithClient, type ScheduledOccurrenceRow } from "../repositories/scheduledOccurrences.js";
+import { parseScheduledAt, validateScheduleConfiguration } from "./scheduledTaskConfiguration.js";
+import { notFound, conflictWithCode, badRequest, AppError, isAppError, internalError } from "../errors.js";
 import { substituteTokens } from "@orcy/shared";
 export { substituteTokens };
 
@@ -58,24 +63,26 @@ export function calculateNextRun(
   cronExpression: string | null,
   intervalMinutes: number | null,
   timezone: string = "UTC",
+  referenceDate?: Date,
 ): string {
   if (scheduleType === "cron" && cronExpression) {
     const interval = CronExpressionParser.parse(cronExpression, {
       tz: timezone,
+      ...(referenceDate ? { currentDate: referenceDate } : {}),
     });
     const next = interval.next();
-    return next.toISOString() ?? new Date(Date.now() + 60_000).toISOString();
+    return next.toISOString() ?? new Date((referenceDate?.getTime() ?? Date.now()) + 60_000).toISOString();
   }
 
   if (scheduleType === "interval" && intervalMinutes) {
-    return new Date(Date.now() + intervalMinutes * 60_000).toISOString();
+    return new Date((referenceDate?.getTime() ?? Date.now()) + intervalMinutes * 60_000).toISOString();
   }
 
   if (scheduleType === "once") {
     return new Date("9999-12-31T23:59:59Z").toISOString();
   }
 
-  return new Date(Date.now() + 60_000).toISOString();
+  return new Date((referenceDate?.getTime() ?? Date.now()) + 60_000).toISOString();
 }
 
 /** Atomically claims and runs a scheduled task, creating a mission (and its tasks) from the stored template, then publishes an SSE event. Returns `skipped` when another worker already claimed the run. */
@@ -95,6 +102,103 @@ export function executeScheduledTask(id: string): {
   }
 
   return executeScheduledTaskViaPublication(schedule);
+}
+
+/** Immutable class identity confines legacy envelopes to pre-commit admission. */
+export class ManualScheduleAdmissionError extends AppError {
+  constructor(error: AppError) {
+    super(error.statusCode, error.code, error.message, error.details);
+    this.name = "ManualScheduleAdmissionError";
+  }
+}
+
+export interface ManualScheduledTaskResult extends ScheduledTaskRunResult {
+  occurrenceId: string;
+  scheduledFor: string;
+  occurrenceState: ScheduledOccurrenceRow["state"];
+  replayed: boolean;
+}
+
+function manualOccurrenceResult(occurrence: ScheduledOccurrenceRow, replayed: boolean): ManualScheduledTaskResult {
+  const identity = { occurrenceId: occurrence.id, scheduledFor: occurrence.scheduledFor,
+    occurrenceState: occurrence.state, replayed };
+  if (occurrence.state === "published") return { ...identity, success: true,
+    ...(occurrence.createdMissionId ? { missionId: occurrence.createdMissionId } : {}) };
+  if (occurrence.state === "rejected") return { ...identity, success: false,
+    error: `Scheduled occurrence rejected (${typeof occurrence.result?.reason === "string" ? occurrence.result.reason : "publication failed"})` };
+  return { ...identity, success: true, skipped: true };
+}
+
+/** Current authorization and pair selection happen under the same writer lock. */
+export function runScheduledTaskNow(
+  id: string,
+  authorize: (schedule: ScheduledTask) => void,
+  request: { expectedScheduledFor?: string; actorId: string },
+): ManualScheduledTaskResult {
+  const db = getDb();
+  db.run(sql`BEGIN IMMEDIATE`);
+  let reservation;
+  try {
+    const schedule = scheduledTaskRepo.getScheduledTaskById(id, db);
+    if (!schedule) throw notFound("Scheduled task not found");
+    authorize(schedule);
+    const scheduledFor = request.expectedScheduledFor ?? schedule.nextRunAt;
+    const prior = getOccurrenceByScheduleAndDueWithClient(db, id, scheduledFor);
+    if (prior) {
+      db.run(sql`COMMIT`);
+      return manualOccurrenceResult(prior, true);
+    }
+    if (scheduledFor !== schedule.nextRunAt) throw conflictWithCode("SCHEDULE_RUN_STALE", "The requested occurrence is no longer the current schedule slot");
+    if (!schedule.enabled) throw conflictWithCode("SCHEDULE_DISABLED", "Scheduled task is disabled");
+    const scheduleError = validateScheduleConfiguration(schedule);
+    if (scheduleError) throw badRequest("Invalid schedule configuration", scheduleError);
+    if (schedule.scheduleType === "once") {
+      const entitlement = getOnceEntitlementWithClient(db, schedule);
+      if (entitlement === "consumed") throw conflictWithCode("ONCE_SCHEDULE_CONSUMED", "This one-time schedule was already reserved; create a new schedule");
+      if (entitlement === "unknown") throw conflictWithCode("ONCE_SCHEDULE_HISTORY_UNKNOWN", "One-time consumption cannot be established from legacy history; create a new schedule");
+    }
+    const dueInstant = parseScheduledAt(scheduledFor).getTime();
+    if (!Number.isFinite(dueInstant)) throw badRequest("Invalid scheduled occurrence timestamp");
+    const requestedAt = new Date().toISOString();
+    let nextRunAt: string;
+    try {
+      nextRunAt = calculateNextRun(schedule.scheduleType, schedule.cronExpression, schedule.intervalMinutes, schedule.timezone,
+        new Date(Math.max(Date.now(), dueInstant)));
+    } catch {
+      throw badRequest("The next schedule run is outside the supported date range");
+    }
+    if (schedule.scheduleType !== "once" &&
+        (!Number.isFinite(Date.parse(nextRunAt)) || Date.parse(nextRunAt) <= Math.max(Date.now(), dueInstant))) {
+      throw badRequest("The next schedule run must be representable and later than the consumed slot");
+    }
+    reservation = reserveScheduledOccurrenceWithClient(db, {
+      scheduleId: id, admission: "manual", scheduledFor, now: requestedAt,
+      manualTrigger: { actorId: request.actorId, requestedAt, scheduledFor },
+      nextRunAt,
+    });
+    if (reservation.outcome === "rejected") throw conflictWithCode("SCHEDULE_RUN_REJECTED", `Scheduled task reservation rejected (${reservation.reason})`);
+    if (reservation.outcome === "lost_race") throw conflictWithCode("SCHEDULE_RUN_CONFLICT", "Another reservation changed the schedule slot");
+    db.run(sql`COMMIT`);
+  } catch (error) {
+    try { db.run(sql`ROLLBACK`); } catch { /* Preserve original error. */ }
+    if (error instanceof ScheduledOccurrenceAdvanceLostRace) throw new ManualScheduleAdmissionError(conflictWithCode("SCHEDULE_RUN_CONFLICT", "Another reservation changed the schedule slot"));
+    if (isAppError(error) && (error.statusCode === 400 || error.statusCode === 409)) throw new ManualScheduleAdmissionError(error);
+    throw error;
+  }
+  try {
+    if (reservation.outcome === "created") {
+      publishReservedScheduledTask(reservation.occurrence.scheduleRevision as unknown as ScheduledTask, reservation.occurrence.id);
+    }
+    const occurrence = getOccurrenceWithClient(db, reservation.occurrence.id);
+    if (!occurrence) throw new Error("Committed scheduled occurrence disappeared");
+    return manualOccurrenceResult(occurrence, reservation.outcome !== "created");
+  } catch (error) {
+    const failure = internalError("The occurrence was committed but its result was not confirmed; retry the same occurrence", {
+      occurrenceId: reservation.occurrence.id, scheduledFor: reservation.occurrence.scheduledFor,
+    });
+    failure.cause = error;
+    throw failure;
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -173,12 +277,18 @@ function executeScheduledTaskViaPublication(schedule: ScheduledTask): ExecuteSch
     return { success: true, skipped: true };
   }
 
+  return publishReservedScheduledTask(schedule, reservation.occurrence.id);
+}
+
+/** Publish a newly committed reservation through the established dispatch precedence. */
+function publishReservedScheduledTask(schedule: ScheduledTask, occurrenceId: string): ExecuteScheduledTaskResult {
+  const id = schedule.id;
   // 3. Route by schedule shape. The publication adapter owns the occurrence's
   //    `reserved → publishing → published | rejected` transition. Routing
   //    precedence matches the legacy path: `handlerKey` first (legacy
   //    executeScheduledTask:165), then `templateId` (:208), then inline.
   const publicationInput = {
-    occurrenceId: reservation.occurrence.id,
+    occurrenceId,
     leaseOwner: SCHEDULER_PUBLICATION_LEASE_OWNER,
     leaseExpiresAt: new Date(Date.now() + SCHEDULER_PUBLICATION_LEASE_MS).toISOString(),
   };

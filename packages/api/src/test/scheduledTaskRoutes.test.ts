@@ -16,7 +16,7 @@ const { mockGetScheduledTaskById, mockGetScheduledTasksByHabitatId, mockCreateSc
   mockUpdateScheduledTask: vi.fn<() => any>(() => null),
   mockDeleteScheduledTask: vi.fn<() => any>(() => false),
   mockCalculateNextRun: vi.fn<() => string>(() => '2026-01-01T01:00:00.000Z'),
-  mockExecuteScheduledTask: vi.fn<() => any>(() => ({ success: false, error: 'not found' })),
+  mockExecuteScheduledTask: vi.fn<(id: string) => any>(() => ({ success: false, error: 'not found' })),
 }));
 
 const { mockGetHabitatById, mockIsTeamMemberByHabitatId } = vi.hoisted(() => ({
@@ -69,6 +69,14 @@ vi.mock('../repositories/scheduledTask.js', () => ({
 vi.mock('../services/scheduledTaskService.js', () => ({
   calculateNextRun: mockCalculateNextRun,
   executeScheduledTask: mockExecuteScheduledTask,
+  // Wiring-only fake of the manual service's current-row authorization seam.
+  // scheduledTaskManualRun.test uses real HTTP, SQL.js and the actual writer.
+  runScheduledTaskNow: (id: string, authorize: (row: any) => void) => {
+    const row = mockGetScheduledTaskById();
+    if (!row) throw new Error('Scheduled task not found');
+    authorize(row);
+    return mockExecuteScheduledTask(id);
+  },
 }));
 
 vi.mock('../repositories/habitat.js', () => ({
@@ -97,6 +105,7 @@ vi.mock('../middleware/team.js', () => ({
 }));
 
 vi.mock('../errors.js', () => ({
+  isAppError: (error: unknown) => Boolean(error && typeof error === 'object' && 'statusCode' in error),
   notFound: (msg: string) => new Error(msg),
   forbidden: (msg: string) => new Error(msg),
   unauthorized: (msg: string) => new Error(msg),

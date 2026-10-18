@@ -5332,11 +5332,27 @@ Delete a scheduled task.
 
 ### POST /scheduled-tasks/:id/run
 
-Manually trigger immediate execution.
+Consume the schedule's next automatic occurrence immediately, including a future occurrence. This advances that schedule; it does not add independent work alongside the same automatic slot. A one-time schedule is consumed and disabled at reservation, even when publication later fails. Fresh execution requires an enabled, valid schedule. A fresh one-time run also requires history proving its entitlement is unconsumed.
 
-**Auth:** JWT required (human)
+**Auth:** JWT required (human), with current Habitat access checked under the reservation's writer lock for both fresh requests and replay.
 
-**Response `200`:** `{ "mission": Mission, "message": "..." }`
+**Optional request:** `{ "expectedScheduledFor": "2090-01-01T13:00:00.000Z" }`. Send the exact persisted `nextRunAt` returned for the intended slot. The only allowed field is `expectedScheduledFor`, a nonempty valid date string; do not normalize a legacy coordinate or supply actor metadata. The authenticated human and request time are stamped by the server on creation. Supplied empty, null, or non-string coordinates are rejected rather than treated as omitted.
+
+An identified request for an existing `(scheduleId, expectedScheduledFor)` returns that occurrence's persisted outcome before current enabled/configuration/one-time-consumption checks, without republishing, advancing, or changing its trigger metadata. Current authentication, Habitat access, and existence still apply. An unmatched coordinate that is no longer current returns `409 SCHEDULE_RUN_STALE` without writes. Fresh disabled requests return `409 SCHEDULE_DISABLED`; fresh once consumption/uncertainty uses `ONCE_SCHEDULE_CONSUMED` / `ONCE_SCHEDULE_HISTORY_UNKNOWN`. Invalid fresh configuration or an unrepresentable next run returns `400`; reservation conflicts return `409`.
+
+For interval schedules the next run is one interval after `max(real request time, consumed slot)`. Cron calculation uses that same reference and the configured timezone and advances strictly past it. Legacy offsetless ISO coordinates use UTC wall time. Ordinary polling keeps its due-only checks. A complete recurring-only history may precede the first once firing; a prior once reservation remains consumed.
+
+**Response `200`:** `ScheduledTaskRunResult` from `@orcy/shared`: `success`, optional `missionId`/`error`/`skipped`, and for an occurrence result `occurrenceId`, `scheduledFor`, `occurrenceState`, `replayed`.
+
+| Persisted state | Result |
+| --- | --- |
+| `published` | `success: true`; actual prior/new `missionId` when a Mission exists; handler-only completion has no invented Mission. |
+| `reserved` / `publishing` | `success: true, skipped: true`; pending, not completion. Replay does not resume publication. |
+| `rejected` | `success: false` with the original failure; a separate successful repair in `retryHistory` does not turn the original occurrence into a published result. |
+
+Without a body or coordinate, legacy clients choose the current slot inside the writer transaction. Ordinary pre-commit admission failures retain HTTP `200` with `{ "success": false, "error": "..." }`; schema errors, `401`/`403`/`404`, and infrastructure failures retain HTTP errors. Bodyless requests have no durable retry identity: a retry can consume a following recurring slot. Prefer an identified request.
+
+A failure after commit can return infrastructure `500` with occurrence identity while work is already reserved or published; retry the same coordinate to inspect the original result. Unexpected publication/notification exceptions keep their cause server-side and are never converted into legacy admission failures. The UI retains an uncertain or pending coordinate in the active view across list refetches and offers **Retry Run**, including after a one-time schedule becomes disabled. Only a matching terminal occurrence result or a known no-pair manual admission decision resolves that action; authorization denials and unclassified errors retain the earlier identity; a later deliberate **Run** selects the newly displayed slot. No automatic retry, reload persistence, or eventual completion guarantee is added. In particular, a crash leaving bare `reserved` is outside expired-`publishing` lease recovery.
 
 ### POST /scheduled-tasks/:id/enable
 

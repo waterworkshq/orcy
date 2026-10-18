@@ -344,6 +344,38 @@ export function advanceScheduleOnceWithClient(
   return affected === 1 ? { advanced: true } : { advanced: false };
 }
 
+/** Explicit manual admission: enabled plus the exact current occurrence coordinate. */
+export function advanceScheduleManuallyWithClient(
+  db: ReturnType<typeof getDb>,
+  id: string,
+  nextRunAt: string,
+  expectedScheduledFor: string,
+  now: string = new Date().toISOString(),
+): ScheduleAdvanceResult {
+  let affected: number;
+  try {
+    db.update(scheduledTasks)
+      .set({
+        lastRunAt: now,
+        nextRunAt,
+        runCount: sql`${scheduledTasks.runCount} + 1`,
+        updatedAt: now,
+      })
+      .where(
+        and(
+          eq(scheduledTasks.id, id),
+          eq(scheduledTasks.enabled, true),
+          eq(scheduledTasks.nextRunAt, expectedScheduledFor),
+        ),
+      )
+      .run();
+    affected = db.get<{ n: number }>(sql`SELECT changes() AS n`)?.n ?? 0;
+  } catch (err) {
+    throw repositoryUpdateError("scheduledTask", err as Error, id);
+  }
+  return affected === 1 ? { advanced: true } : { advanced: false };
+}
+
 /**
  * Sets `enabled = false` on a schedule, conditioned on `enabled = true`
  * (idempotent: a no-op if already disabled — `updatedAt` is NOT bumped on

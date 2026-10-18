@@ -59,6 +59,7 @@ import type {
   AgentClient as AgentClientIface,
   SprintClient as SprintClientIface,
   ScheduledTaskClient as ScheduledTaskClientIface,
+  ScheduledTaskRunResult,
   ReviewClient as ReviewClientIface,
   EffortClient as EffortClientIface,
   MessageClient as MessageClientIface,
@@ -1987,10 +1988,12 @@ export class KanbanApiClient
 
   async runScheduledTask(
     scheduledTaskId: string,
-  ): Promise<{ success: boolean; missionId?: string; error?: string }> {
-    return this.request<{ success: boolean; missionId?: string; error?: string }>(
+    expectedScheduledFor?: string,
+  ): Promise<ScheduledTaskRunResult> {
+    return this.request<ScheduledTaskRunResult>(
       "POST",
       `/api/scheduled-tasks/${scheduledTaskId}/run`,
+      expectedScheduledFor !== undefined ? { expectedScheduledFor } : undefined,
     );
   }
 

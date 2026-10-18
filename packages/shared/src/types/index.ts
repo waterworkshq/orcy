@@ -46,6 +46,7 @@ export type {
   MissionCommentMention,
   TaskTemplateEntry,
   ScheduledTask,
+  ScheduledTaskRunResult,
   ScheduleType,
 } from "./mission.js";
 

@@ -5,7 +5,7 @@ import { editScheduledTask } from '../services/scheduledTaskEditing.js';
 import { requireHabitatAccess } from '../middleware/team.js';
 import * as scheduledTaskRepo from '../repositories/scheduledTask.js';
 import * as scheduledTaskService from '../services/scheduledTaskService.js';
-import { notFound, forbidden, unauthorized } from '../errors.js';
+import { notFound, forbidden, unauthorized, badRequest, isAppError } from '../errors.js';
 import { getHabitatById } from '../repositories/habitat.js';
 import { isTeamMemberByHabitatId } from '../repositories/teamMember.js';
 import { applyDeclaredAuthPolicies } from "../authPolicy.js";
@@ -34,6 +34,10 @@ const createScheduledTaskSchema = z.object({
     order: z.number().optional(),
   })).optional(),
 });
+
+const manualRunSchema = z.object({
+  expectedScheduledFor: z.string().min(1).refine((value) => value.trim().length > 0 && Number.isFinite(parseScheduledAt(value).getTime()), "Invalid occurrence timestamp").optional(),
+}).strict();
 
 const updateScheduledTaskSchema = z.object({
   name: z.string().min(1).optional(),
@@ -209,13 +213,20 @@ export async function scheduledTaskRoutes(fastify: FastifyInstance): Promise<voi
     { config: { authPolicy: "human" } },
     async (request: FastifyRequest) => {
       const params = request.params as { id: string };
-      const schedule = scheduledTaskRepo.getScheduledTaskById(params.id);
-      if (!schedule) {
-        throw notFound('Scheduled task not found', 'SCHEDULED_TASK_NOT_FOUND');
+      const parsed = manualRunSchema.safeParse(request.body === undefined ? {} : request.body);
+      if (!parsed.success) throw badRequest("Invalid manual run payload", parsed.error.flatten());
+      try {
+        return scheduledTaskService.runScheduledTaskNow(params.id,
+          (schedule) => verifyTaskHabitatAccess(request, schedule.habitatId), { ...parsed.data, actorId: request.user!.id });
+      } catch (error) {
+        // Bodyless legacy clients retain their admission failure envelope.
+        // Schema, authority, missing resources and infrastructure keep HTTP errors.
+        if (parsed.data.expectedScheduledFor === undefined && isAppError(error) &&
+            error instanceof scheduledTaskService.ManualScheduleAdmissionError) {
+          return { success: false, error: error.message };
+        }
+        throw error;
       }
-      verifyTaskHabitatAccess(request, schedule.habitatId);
-      const result = scheduledTaskService.executeScheduledTask(params.id);
-      return result;
     }
   );
 
