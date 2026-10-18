@@ -104,12 +104,18 @@ function WikiEditorSession({ habitatId, mode, pageId, onDone, onCancel }: WikiEd
     written: WikiPage, fields: (keyof DraftValues)[],
   ) {
     if (!baseline || !observed) return acknowledged;
+    // Version order takes precedence over server clock changes; timestamps only compare peers.
+    const sameVersion = observed.currentVersionNumber === written.currentVersionNumber;
+    const observedTime = Date.parse(observed.updatedAt);
+    const writtenTime = Date.parse(written.updatedAt);
+    if (observed.currentVersionNumber < written.currentVersionNumber ||
+      (sameVersion && observedTime < writtenTime)) return acknowledged;
     const values: DraftValues = {
       title: observed.title, content: observed.content, parentId: observed.parentId ?? "",
       tags: observed.tags, status: observed.status,
     };
     const newerObservation = observed.currentVersionNumber > written.currentVersionNumber ||
-      Date.parse(observed.updatedAt) > Date.parse(written.updatedAt);
+      (sameVersion && observedTime > writtenTime);
     for (const field of fields) {
       // A newer observed write can also restore a field to its pre-request value.
       if ((!newerObservation && JSON.stringify(values[field]) === JSON.stringify(baseline[field])) ||
