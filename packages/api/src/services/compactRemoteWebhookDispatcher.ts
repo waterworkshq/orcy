@@ -13,6 +13,7 @@ import { fetchValidated } from "../config/integrationSecurity.js";
 import { enqueueNotificationForRecipients } from "./notificationCommandService.js";
 import { sseBroadcaster } from "../sse/broadcaster.js";
 import { getAdmins } from "../repositories/user.js";
+import { logger } from "../lib/logger.js";
 
 /**
  * v0.19 Phase E — Compact remote webhook dispatcher.
@@ -133,6 +134,7 @@ export async function dispatchCompactRemoteEvent(
       signature,
     });
 
+    let failureReason: string | undefined;
     try {
       const res = await fetchValidated(endpoint.url, {
         method: "POST",
@@ -156,6 +158,7 @@ export async function dispatchCompactRemoteEvent(
         );
         result.dispatched += 1;
       } else {
+        failureReason = `HTTP ${res.status}`;
         deliveryRepo.updateRemoteWebhookDeliveryStatus(
           delivery.id,
           "failed",
@@ -169,38 +172,64 @@ export async function dispatchCompactRemoteEvent(
       const errorMsg = (err as Error).message;
       deliveryRepo.updateRemoteWebhookDeliveryStatus(delivery.id, "failed", null, errorMsg, 1);
       result.failed += 1;
+      failureReason ??= errorMsg;
+    }
 
-      // Operator visibility: SSE + notification so a silently-broken webhook
-      // surfaces without manual inspection of delivery rows.
-      sseBroadcaster.publish(input.habitatId, {
-        type: "webhook.delivery_failed",
-        data: {
-          habitatId: input.habitatId,
-          endpointId: endpoint.id,
-          endpointUrl: endpoint.url,
-          error: errorMsg,
-        },
-      });
-      const admins = getAdmins();
-      if (admins.length > 0) {
-        enqueueNotificationForRecipients(
-          input.habitatId,
-          "webhook.delivery_failed",
-          "system",
-          "warning",
-          admins.map((a) => ({ recipientType: "human" as const, recipientId: a.id })),
-          {
-            sourceId: endpoint.id,
-            targetType: "habitat",
-            targetId: endpoint.id,
-            payload: { endpointUrl: endpoint.url, error: errorMsg },
-          },
-        );
-      }
+    if (failureReason !== undefined) {
+      reportDeliveryFailure(input.habitatId, endpoint, failureReason);
     }
   }
 
   return result;
+}
+
+function reportDeliveryFailure(
+  habitatId: string,
+  endpoint: { id: string; url: string },
+  error: string,
+): void {
+  // Delivery settlement is authoritative; visibility channels are independent
+  // best-effort effects and must never trigger a second delivery outcome.
+  try {
+    sseBroadcaster.publish(habitatId, {
+      type: "webhook.delivery_failed",
+      data: {
+        habitatId,
+        endpointId: endpoint.id,
+        endpointUrl: endpoint.url,
+        error,
+      },
+    });
+  } catch (err) {
+    logger.warn(
+      { err, habitatId, endpointId: endpoint.id },
+      "Remote webhook failure SSE reporting failed",
+    );
+  }
+
+  try {
+    const admins = getAdmins();
+    if (admins.length > 0) {
+      enqueueNotificationForRecipients(
+        habitatId,
+        "webhook.delivery_failed",
+        "system",
+        "warning",
+        admins.map((a) => ({ recipientType: "human" as const, recipientId: a.id })),
+        {
+          sourceId: endpoint.id,
+          targetType: "habitat",
+          targetId: habitatId,
+          payload: { endpointUrl: endpoint.url, error },
+        },
+      );
+    }
+  } catch (err) {
+    logger.warn(
+      { err, habitatId, endpointId: endpoint.id },
+      "Remote webhook failure notification reporting failed",
+    );
+  }
 }
 
 /**
