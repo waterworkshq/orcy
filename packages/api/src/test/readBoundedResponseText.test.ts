@@ -93,6 +93,7 @@ describe("webhook diagnostic response prefix", () => {
   it("observes cancellation rejection without losing the response prefix", async () => {
     const stream = chunks([encode("x".repeat(8193))], vi.fn().mockRejectedValue(new Error("cancel failed")));
     await expect(readBoundedResponseText(stream.response)).resolves.toBe("x".repeat(8192));
+    expect(stream.cancel).toHaveBeenCalledOnce();
     expect(stream.body.locked).toBe(false);
     await Promise.resolve(); // Any unhandled rejection fails Vitest.
   });
@@ -100,6 +101,7 @@ describe("webhook diagnostic response prefix", () => {
   it("does not wait for underlying cancellation to settle", async () => {
     const stream = chunks([encode("x".repeat(8193))], vi.fn(() => new Promise<void>(() => undefined)));
     await expect(readBoundedResponseText(stream.response)).resolves.toBe("x".repeat(8192));
+    expect(stream.cancel).toHaveBeenCalledOnce();
     expect(stream.body.locked).toBe(false);
   });
 });

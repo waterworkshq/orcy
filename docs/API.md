@@ -5425,7 +5425,7 @@ Delete a webhook subscription.
 
 ### GET /webhooks/:id/deliveries
 
-Get delivery log for a webhook. Diagnostic response bodies are shortened: outgoing board/notification webhooks retain at most 1,024 UTF-16 code units from an 8,192-byte fetch-decoded prefix (compact remote webhook summaries retain 2,000). A large response body alone does not turn an HTTP 2xx into failure; response prefixes are diagnostics, not complete receiver output.
+Get delivery log for an outgoing webhook subscription. Diagnostic response bodies retain at most 1,024 UTF-16 code units from an 8,192-byte fetch-decoded prefix. A large response body alone does not turn an HTTP 2xx into failure; response prefixes are diagnostics, not complete receiver output.
 
 **Auth:** JWT required (human)
 
