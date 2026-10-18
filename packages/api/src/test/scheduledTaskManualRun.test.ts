@@ -11,6 +11,7 @@ import { addMember, removeMember } from "../repositories/teamMember.js";
 import { createUser } from "../repositories/user.js";
 import { habitats, pluginEnrollments, pulses } from "../db/schema/index.js";
 import { createTemplate } from "../repositories/template.js";
+import * as missionRepo from "../repositories/mission.js";
 import { initWikiScheduler, setCadence } from "../services/wikiSchedulerService.js";
 import * as pluginManager from "../plugins/pluginManager.js";
 import * as enrollmentRepo from "../repositories/pluginEnrollment.js";
@@ -436,6 +437,42 @@ describe("manual publication dispatch and post-commit faults", () => {
     expect(calls).toBe(1);
     expect(durableState()).toEqual(before);
     expect(durableState().missions).toHaveLength(1);
+  });
+  it.each(["database", "app-error"])("keeps retry identity on a committed replay lookup failure (%s)", async (fault) => {
+    const seed = await create({ name: "Replay fault Mission source" });
+    const seeded = await run(seed.id, scheduledFor);
+    expect(seeded.statusCode).toBe(200);
+    const missionId = seeded.json().missionId;
+    let calls = 0;
+    registerScheduledTaskHandler("manual-replay-fault-handler", () => { calls += 1; return { success: true, missionId }; });
+    const saved = await create();
+    getDb().run(sql`UPDATE scheduled_tasks SET handler_key = 'manual-replay-fault-handler' WHERE id = ${saved.id}`);
+    const first = await run(saved.id, scheduledFor);
+    expect(first.statusCode, first.body).toBe(200);
+    expect(first.json().missionId).toBe(missionId);
+    const before = durableState();
+    // Fault only the repository read added to response projection. The real
+    // authorization, persisted pair lookup and COMMIT still execute.
+    const lookup = vi.spyOn(missionRepo, "getMissionById").mockImplementation(() => {
+      throw fault === "database" ? new Error("injected Mission read failure") : badRequest("injected dependency failure");
+    });
+    try {
+      const failed = await run(saved.id, scheduledFor);
+      expect.soft(failed.statusCode, failed.body).toBe(500);
+      expect.soft(failed.json()).toMatchObject({ code: "INTERNAL_ERROR", details: {
+        occurrenceId: first.json().occurrenceId, scheduledFor,
+      } });
+      expect(lookup).toHaveBeenCalledTimes(1);
+      expect(calls).toBe(1);
+      expect(durableState()).toEqual(before);
+    } finally {
+      lookup.mockRestore();
+    }
+    const replay = await run(saved.id, scheduledFor);
+    expect(replay.statusCode, replay.body).toBe(200);
+    expect(replay.json()).toMatchObject({ success: true, replayed: true, missionId });
+    expect(calls).toBe(1);
+    expect(durableState()).toEqual(before);
   });
   it("keeps a real wiki cadence child schedule out of the Mission field on fresh run and replay", async () => {
     getDb().insert(pulses).values({

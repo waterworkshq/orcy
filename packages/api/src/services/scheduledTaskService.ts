@@ -120,6 +120,15 @@ export interface ManualScheduledTaskResult extends ScheduledTaskRunResult {
   replayed: boolean;
 }
 
+/** Retry guidance for any failure after an occurrence reservation commits. */
+function committedManualRunFailure(occurrence: Pick<ScheduledOccurrenceRow, "id" | "scheduledFor">, cause: unknown): AppError {
+  const failure = internalError("The occurrence was committed but its result was not confirmed; retry the same occurrence", {
+    occurrenceId: occurrence.id, scheduledFor: occurrence.scheduledFor,
+  });
+  failure.cause = cause;
+  return failure;
+}
+
 function manualOccurrenceResult(occurrence: ScheduledOccurrenceRow, replayed: boolean): ManualScheduledTaskResult {
   const identity = { occurrenceId: occurrence.id, scheduledFor: occurrence.scheduledFor,
     occurrenceState: occurrence.state, replayed };
@@ -155,7 +164,11 @@ export function runScheduledTaskNow(
     const prior = getOccurrenceByScheduleAndDueWithClient(db, id, scheduledFor);
     if (prior) {
       db.run(sql`COMMIT`);
-      return manualOccurrenceResult(prior, true);
+      try {
+        return manualOccurrenceResult(prior, true);
+      } catch (error) {
+        throw committedManualRunFailure(prior, error);
+      }
     }
     if (scheduledFor !== schedule.nextRunAt) throw conflictWithCode("SCHEDULE_RUN_STALE", "The requested occurrence is no longer the current schedule slot");
     if (!schedule.enabled) throw conflictWithCode("SCHEDULE_DISABLED", "Scheduled task is disabled");
@@ -202,11 +215,7 @@ export function runScheduledTaskNow(
     if (!occurrence) throw new Error("Committed scheduled occurrence disappeared");
     return manualOccurrenceResult(occurrence, reservation.outcome !== "created");
   } catch (error) {
-    const failure = internalError("The occurrence was committed but its result was not confirmed; retry the same occurrence", {
-      occurrenceId: reservation.occurrence.id, scheduledFor: reservation.occurrence.scheduledFor,
-    });
-    failure.cause = error;
-    throw failure;
+    throw committedManualRunFailure(reservation.occurrence, error);
   }
 }
 
