@@ -4,6 +4,7 @@ import { useNavigate } from 'react-router-dom';
 import { api } from '../../api/index.js';
 import { LoginForm } from './LoginForm.js';
 import { SetupForm } from './SetupForm.js';
+import { useAccountSession } from '../../lib/sessionState.js';
 
 type AuthState = 'loading' | 'error' | 'ready';
 
@@ -12,6 +13,7 @@ export function AuthPage() {
   const [needsSetup, setNeedsSetup] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   const navigate = useNavigate();
+  const session = useAccountSession();
 
   const checkSetupStatus = useCallback(async () => {
     setAuthState('loading');
@@ -31,23 +33,27 @@ export function AuthPage() {
 
   async function handleLogin(username: string, password: string) {
     setFormError(null);
+    const attempt = session.beginAuthentication();
     try {
       const result = await api.auth.login({ username, password });
-      localStorage.setItem('orcy_token', result.token);
-      navigate('/');
+      if (session.completeAuthentication(attempt, result.token)) navigate('/');
     } catch (err) {
-      setFormError((err as Error).message || 'Invalid credentials');
+      if (session.isCurrentAuthentication(attempt)) {
+        setFormError((err as Error).message || 'Invalid credentials');
+      }
     }
   }
 
   async function handleRegister(username: string, password: string, displayName?: string) {
     setFormError(null);
+    const attempt = session.beginAuthentication();
     try {
       const result = await api.auth.register({ username, password, displayName });
-      localStorage.setItem('orcy_token', result.token);
-      navigate('/');
+      if (session.completeAuthentication(attempt, result.token)) navigate('/');
     } catch (err) {
-      setFormError((err as Error).message || 'Registration failed');
+      if (session.isCurrentAuthentication(attempt)) {
+        setFormError((err as Error).message || 'Registration failed');
+      }
     }
   }
 

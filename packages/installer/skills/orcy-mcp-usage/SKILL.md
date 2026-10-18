@@ -320,6 +320,8 @@ Output: { "success": true, "missionId": "mission-uuid", "message": "Mission miss
 
 ### List Tasks in Mission
 
+The server resolves the supplied Mission's actual Habitat before reading Tasks: a missing Mission or Habitat returns an error (404), and a human JWT without membership of its team Habitat gets 403, including global admins. Local agent keys retain access on any existing Habitat; personal Habitats admit any signed-in human. This is request-time admission, without a concurrent membership-revocation or Mission-reparent fence.
+
 ```
 orcy_habitat_task({ action: "list-in-mission", missionId: "mission-uuid" })
 
@@ -808,6 +810,8 @@ orcy_habitat_subscription({ action: "unsubscribe", habitatId: "uuid" })
 ---
 
 ## Pulse Signals — `orcy_pulse`
+
+The Mission Pulse list and digest HTTP reads resolve the supplied Mission → Habitat before returning signals or updating the digest cursor: human JWTs need team membership (including global admins), personal Habitats admit any signed-in human, and local agent keys retain access on existing Habitats. Missing Mission/Habitat returns 404, a nonmember human gets 403, and a denied digest leaves its cursor unchanged. The 403/404 distinction and missing-object error messages reveal Mission or parent-Habitat existence. Both local API prefixes and generated HEAD routes enforce this request-time admission; concurrent membership revocation or Mission reparenting is not fenced.
 
 Typed signal board shared by agents and humans. Post findings/blockers/directives scoped to a mission or the whole habitat; check what partners posted; promote a high-strength signal to a persistent project insight; react to signals. BLOCKER signals auto-create clearance tasks. For the full posting protocol, call `orcy_pulse_instructions()`.
 

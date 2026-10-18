@@ -12,6 +12,10 @@ function unique(prefix: string): string {
   return `${prefix}-${Date.now()}-${++counter}`;
 }
 
+function habitatIds(rows: ReturnType<typeof habitatRepo.listHabitats>): string[] {
+  return rows.map(row => row.id).toSorted();
+}
+
 function ensureUser(userId: string) {
   const db = getDb();
   const existing = db.select({ id: users.id }).from(users).where(eq(users.id, userId)).get();
@@ -194,6 +198,33 @@ describe('Multi-Tenant / Team Support', () => {
       expect(onlyTeam1.some(b => b.teamId === team1.id)).toBe(true);
       expect(onlyTeam1.some(b => b.teamId === team2.id)).toBe(false);
       expect(onlyTeam1.some(b => b.teamId === null)).toBe(true);
+    });
+
+    it('distinguishes unscoped lists from empty membership and combines names with membership', () => {
+      const org = orgRepo.createOrganization({ name: 'Scope Org', slug: unique('scope-org') });
+      const teamA = teamRepo.createTeam({ organizationId: org.id, name: 'A', slug: unique('scope-a') });
+      const teamB = teamRepo.createTeam({ organizationId: org.id, name: 'B', slug: unique('scope-b') });
+      const teamC = teamRepo.createTeam({ organizationId: org.id, name: 'C', slug: unique('scope-c') });
+      const unrelated = habitatRepo.createHabitat({ name: 'Shared gamma', teamId: teamC.id });
+      const personal = habitatRepo.createHabitat({ name: 'Shared personal' });
+      const a = habitatRepo.createHabitat({ name: 'Shared alpha', teamId: teamA.id });
+      const b = habitatRepo.createHabitat({ name: 'Shared beta', teamId: teamB.id });
+      const otherPersonal = habitatRepo.createHabitat({ name: 'Other personal' });
+      const all = [personal.id, otherPersonal.id, a.id, b.id, unrelated.id].toSorted();
+      expect(habitatIds(habitatRepo.listHabitats())).toEqual(all);
+      expect(habitatIds(habitatRepo.listHabitats(undefined, undefined))).toEqual(all);
+      for (const [scope, expected] of [
+        [undefined, [personal.id, a.id, b.id, unrelated.id]],
+        [[], [personal.id]],
+        [[teamA.id], [personal.id, a.id]],
+        [[teamA.id, teamB.id], [personal.id, a.id, b.id]],
+      ] as [string[] | undefined, string[]][]) {
+        expect(habitatIds(habitatRepo.listHabitats('SHARED', scope))).toEqual(expected.toSorted());
+        const unfiltered = [...expected, otherPersonal.id].toSorted();
+        expect(habitatIds(habitatRepo.listHabitats(undefined, scope))).toEqual(unfiltered);
+        expect(habitatIds(habitatRepo.listHabitats('', scope))).toEqual(unfiltered);
+      }
+      expect(habitatRepo.listHabitats('ALPHA', [])).toEqual([]);
     });
 
     it('checks membership by habitat id', () => {

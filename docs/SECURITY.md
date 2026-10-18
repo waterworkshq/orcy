@@ -111,6 +111,8 @@ POST /api/auth/login { username, password }
 3. Check `exp` claim — reject if expired
 4. Attach decoded payload to `request.user`
 
+**Same-tab account state:** The browser retires its QueryClient on logout and successful login/registration, clears account-sensitive ephemeral state and the task modal, and preserves theme. Pending queries are cancelled and pending mutation cache callbacks remain attached to the retired client. Authentication epochs reject stale credential installations; server logout is best-effort and cannot remove a newer local credential when its response arrives. SSE effects and shared bulk selections check account liveness. Originating-account checks also prevent deferred Habitat creation, preference saves, OAuth polling and Task/clone publication continuations from issuing follow-up requests with a replacement account’s credential; late settings deletion cannot navigate the replacement account, and pending audit, Habitat and attachment responses cannot start browser downloads after retirement. Completion and error notifications from the guarded Habitat, Task publication/recovery/assignment, preference, integration and attachment/export operations are also suppressed after retirement, so their titles, result counts and private server error text do not reach the next account’s global notification surface. This boundary does not undo accepted server writes or synchronize logout across tabs; server authorization remains authoritative for each request.
+
 **Default admin user (development only):**
 
 - Username: `admin`, Password: `admin123`
@@ -186,6 +188,7 @@ Inbound webhook routes (the `webhooks/github*`, `webhooks/gitlab*` families and 
 | **Board reads** (`GET /boards/:id`, stats, events, anomalies, etc.) | `agentOrHumanAuth` + `requireBoardAccess` | Board existence + team membership for humans; agents pass through |
 | **Board writes** (create, update, delete) | `humanAuth` (delete requires `adminOnly`) | — |
 | **Feature CRUD** | `agentOrHumanAuth` | Feature reads/writes available to both |
+| **Mission object reads** (`GET /missions/:missionId`, `/details`, `/tasks`, `/progress`, `/external-links`, `/pulse`, `/pulse/digest`) | `local_actor` + `requireMissionAccess` | Resolve persisted Mission → Habitat before Mission/progress/Task/event, external-link or Pulse projections, including the standalone task list and progress reads. Denied Pulse digests do not create or advance the caller's cursor. Team humans require actual membership, including global admins (403 `BOARD_ACCESS_DENIED`); any authenticated human on personal Habitats and local agents on existing Habitats pass. Missing Mission/parent is 404, including external-links (formerly 200 empty for a missing Mission); an admitted existing Mission with no links stays 200 empty. Both local API prefixes and generated HEAD twins share this admission for these seven named reads. This is a request-time check, without concurrent membership-revocation or Mission-reparent fencing; other Mission adjuncts keep their own policies. |
 | **Feature decompose** | `humanAuth` | AI decomposition restricted to humans |
 | **Task lifecycle** (claim, start, submit, complete, fail, release) | `agentAuth` | Agent identity derived from `request.agent.id` |
 | **Task approve/reject** | `local_actor` | A human, or an agent holding a pending agent-typed assigned reviewer row (identity from the authenticated principal, typed anti-self vs current assignee; human semantics unchanged) |
@@ -372,11 +375,13 @@ route for agent keys — an agent key without the grant is 403, not 401.
 
 ### Board Access Control
 
-Board-scoped routes use `requireBoardAccess` middleware:
+Habitat reads using the shared membership check:
 
-- Returns **404** if the board does not exist (prevents enumeration)
-- Returns **403** if a human user is not a team member
-- Agent principals bypass the team check (agents access boards they have tasks on)
+- Return **404** if the Habitat does not exist.
+- Return **403** for a human who is not a member of the Habitat's Team; any authenticated human can read a personal Habitat (null `teamId`), irrespective of owner.
+- Allow local agents to bypass Team membership; task assignment is not required by this check.
+
+`GET /api/v1/habitats` and its deprecated `/api/habitats` alias apply the same human membership scope to list results: personal Habitats plus current persisted member-Team Habitats. A human with no Teams receives only personal Habitats, including when a `name` filter matches a private Team Habitat. Local agent lists remain intentionally unscoped. Both list paths mask raw webhook secrets; authorized rows can still include configuration metadata such as repository names.
 
 ---
 

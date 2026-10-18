@@ -2,6 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useCallback } from "react";
 import { useHabitatStore } from "../store/habitatStore.js";
 import { useQueryClient } from "@tanstack/react-query";
 import { projectSSEServerEvent } from "../sse/registry.js";
+import { useSessionLiveness } from "../lib/sessionState.js";
 import type { SSEEvent } from "../types/index.js";
 
 /**
@@ -30,6 +31,7 @@ import type { SSEEvent } from "../types/index.js";
  */
 export function useSSE(habitatId: string) {
   const queryClient = useQueryClient();
+  const isSessionActive = useSessionLiveness();
   const generationRef = useRef(0);
   const esRef = useRef<EventSource | null>(null);
   const reconnectTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -53,6 +55,7 @@ export function useSSE(habitatId: string) {
     const generation = ++generationRef.current;
     const subscriptionHabitatId = habitatId;
     const isActive = () =>
+      isSessionActive() &&
       generation === generationRef.current && subscriptionHabitatId === committedHabitatRef.current;
 
     tokenAbortRef.current?.abort();
@@ -128,7 +131,7 @@ export function useSSE(habitatId: string) {
         void connect();
       }, retryDelayRef.current);
     });
-  }, [habitatId, queryClient]);
+  }, [habitatId, queryClient, isSessionActive]);
 
   useLayoutEffect(() => {
     committedHabitatRef.current = habitatId;

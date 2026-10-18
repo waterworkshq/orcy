@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, cleanup, fireEvent, act } from "@testing-library/react";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { SessionStateProvider } from "../../lib/sessionState.js";
 import { MemoryRouter } from "react-router-dom";
 import React from "react";
 import "@testing-library/jest-dom/vitest";
@@ -8,20 +8,18 @@ import { TopAppBar } from "./TopAppBar.js";
 import type { Notification } from "../../types/index.js";
 
 function createWrapper() {
-  const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return ({ children }: { children: React.ReactNode }) => (
-    <QueryClientProvider client={qc}>
+    <SessionStateProvider>
       <MemoryRouter>{children}</MemoryRouter>
-    </QueryClientProvider>
+    </SessionStateProvider>
   );
 }
 
 function createWrapperWithPath(path: string) {
-  const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return ({ children }: { children: React.ReactNode }) => (
-    <QueryClientProvider client={qc}>
+    <SessionStateProvider>
       <MemoryRouter initialEntries={[path]}>{children}</MemoryRouter>
-    </QueryClientProvider>
+    </SessionStateProvider>
   );
 }
 
@@ -68,7 +66,11 @@ const useHabitatStoreMock = vi.fn((selector?: any) => {
 });
 
 vi.mock("../../store/habitatStore.js", () => ({
-  useHabitatStore: (...args: any[]) => useHabitatStoreMock(...args),
+  useHabitatStore: Object.assign((...args: any[]) => useHabitatStoreMock(...args), {
+    getState: () => ({ theme: "dark" }),
+    getInitialState: () => ({}),
+    setState: vi.fn(),
+  }),
 }));
 
 const makeNotification = (overrides: Partial<Notification> = {}): Notification => ({
@@ -391,11 +393,11 @@ describe("TopAppBar", () => {
 
     it("closes dropdown when clicking outside", () => {
       render(
-        <MemoryRouter>
+        <MemoryRouter><SessionStateProvider>
           <div data-testid="outside">
             <TopAppBar />
           </div>
-        </MemoryRouter>,
+        </SessionStateProvider></MemoryRouter>,
       );
       fireEvent.click(screen.getByTestId("user-avatar-btn"));
       expect(screen.getByTestId("user-menu-dropdown")).toBeInTheDocument();
