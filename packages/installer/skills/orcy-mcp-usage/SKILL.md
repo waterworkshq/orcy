@@ -897,6 +897,8 @@ orcy_learning({ action: "get", habitatId: "uuid", taskId: "uuid", findingId: "uu
 
 Webhook subscriptions, mission templates, and scheduled tasks are managed through authenticated REST/UI, not MCP (there is no `orcy_admin` dispatch tool). Webhook subscriptions live at `/api/v1/webhooks`; mission templates at `/api/v1/habitats/:habitatId/templates` (list/create) and `/api/v1/templates/:id` (id-specific changes); scheduled tasks at `/api/v1/habitats/:habitatId/scheduled-tasks`. Access follows each HTTP route's policy — GET habitat templates is `local_actor`, so agents can read it; do not call all of these operations human-only. For code provenance use `orcy_habitat_task({ action: "link-code", taskId })` and surface findings via `orcy_pulse`.
 
+Scheduled-task REST create/PATCH validates the effective configuration and returns `400` before persistence for invalid cron/timezone, missing or unsupported intervals, or invalid one-time dates. A recurring first-run `scheduledAt` override does not bypass validation. In PATCH, omitted fields inherit stored values; explicit `null` cannot clear the active type's required input.
+
 ## Worktree — `orcy_worktree`
 
 ### Get Worktree
