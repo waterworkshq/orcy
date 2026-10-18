@@ -2113,7 +2113,7 @@ Federated participation for another admin's pod in a shared habitat. The **live 
 | Remote MCP mode | `X-Orcy-Remote-Key` auth over an explicit 23-action / 9-scope allowlist (`packages/mcp/src/remote-actions.ts`) |
 | Idempotent writes | Required `Idempotency-Key` middleware with 24h replay protection and stale-pending takeover (`middleware/idempotency.ts`) |
 | Transport seam (v0.35) | `services/tasks/remote-task-lifecycle.ts` — remote mutations produce the same observable lifecycle as local ones (canonical task event + SSE + watchers + mission recalc + subscriber hooks), closing the governance-interceptor bypass and enforcing Host-Approved Capability |
-| Compact eventing | `compactRemoteWebhookDispatcher.ts` — HMAC-signed compact webhooks with a delivery ledger; single-attempt dispatch, failures record the delivery and emit `webhook.delivery_failed` (no automatic retry) |
+| Compact eventing | `compactRemoteWebhookDispatcher.ts` — HMAC-signed compact webhooks with a delivery ledger; single-attempt dispatch; HTTP non-2xx responses and transport failures record the failed delivery, then independently attempt `webhook.delivery_failed` SSE publication and admin notification enqueueing (subject to existing notification subscriptions). HTTP operator reasons contain only the numeric status, never receiver body or status text. Reporting faults are logged without replacing the delivery outcome or retrying the request (no automatic retry) |
 | Admin surface | `shareHabitatReadinessService.ts`, `sharedGrantVisibilityService.ts`, `remoteAccessAdminService.ts`, invite flows, credential rotation (`remoteCredentialService.ts` + `secretCrypto.ts`) |
 
 ### Effective grant time — one pure decision primitive
