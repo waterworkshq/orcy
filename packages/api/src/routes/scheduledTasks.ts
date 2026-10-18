@@ -62,6 +62,12 @@ const updateScheduledTaskSchema = z.object({
 type ScheduleConfiguration = Pick<scheduledTaskRepo.CreateScheduledTaskInput,
   'scheduleType' | 'cronExpression' | 'intervalMinutes' | 'scheduledAt' | 'timezone'>;
 
+/** Keep ISO wall times from datetime-local inputs on their existing UTC due-time basis. */
+function parseScheduledAt(value: string): Date {
+  const isoWallTime = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?$/i.test(value);
+  return new Date(isoWallTime ? `${value}Z` : value);
+}
+
 /** Validate schedule semantics independently of a first-run override. */
 function validateScheduleConfiguration(schedule: ScheduleConfiguration): string | null {
   try {
@@ -73,7 +79,7 @@ function validateScheduleConfiguration(schedule: ScheduleConfiguration): string 
     return 'scheduledAt is required for one-time schedules';
   }
   if (schedule.scheduledAt != null &&
-      (!schedule.scheduledAt.trim() || !Number.isFinite(new Date(schedule.scheduledAt).getTime()))) {
+      (!schedule.scheduledAt.trim() || !Number.isFinite(parseScheduledAt(schedule.scheduledAt).getTime()))) {
     return 'scheduledAt must be a valid nonempty date';
   }
   if (schedule.scheduleType === 'interval') {
@@ -141,7 +147,7 @@ export async function scheduledTaskRoutes(fastify: FastifyInstance): Promise<voi
       }
       // Due pointers are compared as UTC ISO text; retain the submitted scheduledAt separately.
       const nextRunAt = body.scheduledAt != null
-        ? new Date(body.scheduledAt).toISOString()
+        ? parseScheduledAt(body.scheduledAt).toISOString()
         : scheduledTaskService.calculateNextRun(
             body.scheduleType,
             body.cronExpression ?? null,

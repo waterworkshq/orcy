@@ -42,6 +42,90 @@ function create(payload: Record<string, unknown>) {
 }
 
 describe("scheduled task semantic admission", () => {
+  it("preserves UTC wall time for an offsetless UI first run regardless of server timezone", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-10-18T12:00:00.000Z"));
+    columnRepo.createColumn({ habitatId, name: "Backlog", order: 0, requiresClaim: false });
+    const scheduledAt = "2026-10-18T13:00";
+    const response = await create({ scheduleType: "once", scheduledAt, tasksTemplate: [{ title: "Actual scheduled task" }] });
+    expect(response.statusCode).toBe(201);
+    const [saved] = scheduledTaskRepo.getScheduledTasksByHabitatId(habitatId);
+
+    // The UI's offsetless wall time historically compares against UTC due pointers.
+    // Poll before and at the independently specified instant, not a host-local Date parse.
+    expect(processDueTasks()).toEqual({ executed: 0, failed: 0 });
+    expect(saved).toMatchObject({ scheduledAt, timezone: "UTC", nextRunAt: "2026-10-18T13:00:00.000Z" });
+    vi.setSystemTime(new Date("2026-10-18T13:00:00.000Z"));
+    expect(processDueTasks()).toEqual({ executed: 1, failed: 0 });
+    expect(scheduledTaskRepo.getScheduledTaskById(saved.id)).toMatchObject({ runCount: 1, enabled: false });
+  });
+
+  it.each([
+    ["2026-10-18T13:00:00", "2026-10-18T13:00:00.000Z"],
+    ["2026-10-18t13:00:00.125", "2026-10-18T13:00:00.125Z"],
+    ["2026-10-18T15:00:00+02:00", "2026-10-18T13:00:00.000Z"],
+    ["2026-10-18T11:00:00-02:00", "2026-10-18T13:00:00.000Z"],
+    ["2026-10-18T13:00:00.000Z", "2026-10-18T13:00:00.000Z"],
+    ["Oct 18 2026 13:00 UTC", "2026-10-18T13:00:00.000Z"],
+    ["2026-10-19", "2026-10-19T00:00:00.000Z"],
+  ])("keeps first-run input %s on its UTC instant independently of the selected timezone", async (scheduledAt, expectedInstant) => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-10-18T12:00:00.000Z"));
+    columnRepo.createColumn({ habitatId, name: "Backlog", order: 0, requiresClaim: false });
+    const response = await create({
+      scheduleType: "once", scheduledAt, timezone: "America/New_York",
+      tasksTemplate: [{ title: "Actual scheduled task" }],
+    });
+    expect(response.statusCode).toBe(201);
+    const [saved] = scheduledTaskRepo.getScheduledTasksByHabitatId(habitatId);
+    expect(processDueTasks()).toEqual({ executed: 0, failed: 0 });
+    expect(saved).toMatchObject({ scheduledAt, timezone: "America/New_York", nextRunAt: expectedInstant });
+    vi.setSystemTime(new Date(expectedInstant));
+    expect(processDueTasks()).toEqual({ executed: 1, failed: 0 });
+    expect(scheduledTaskRepo.getScheduledTaskById(saved.id)).toMatchObject({ runCount: 1, enabled: false });
+  });
+
+  it.each([
+    [{ scheduleType: "interval", intervalMinutes: 5 }, "2026-10-18T12:35:00.000Z"],
+    [{ scheduleType: "cron", cronExpression: "0 9 * * *" }, "2026-10-18T13:00:00.000Z"],
+  ] as const)("keeps an offsetless recurring first-run override separate from its later cadence (%j)", async (configuration, nextCadence) => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-10-18T12:00:00.000Z"));
+    columnRepo.createColumn({ habitatId, name: "Backlog", order: 0, requiresClaim: false });
+    const response = await create({
+      ...configuration, scheduledAt: "2026-10-18T12:30", timezone: "America/New_York",
+      tasksTemplate: [{ title: "Actual scheduled task" }],
+    });
+    expect(response.statusCode).toBe(201);
+    const [saved] = scheduledTaskRepo.getScheduledTasksByHabitatId(habitatId);
+    expect(processDueTasks()).toEqual({ executed: 0, failed: 0 });
+    expect(saved.nextRunAt).toBe("2026-10-18T12:30:00.000Z");
+    vi.setSystemTime(new Date("2026-10-18T12:30:00.000Z"));
+    expect(processDueTasks()).toEqual({ executed: 1, failed: 0 });
+    expect(scheduledTaskRepo.getScheduledTaskById(saved.id)).toMatchObject({
+      scheduledAt: "2026-10-18T12:30", runCount: 1, enabled: true, nextRunAt: nextCadence,
+    });
+  });
+
+  it("continues applying the selected timezone to cron when no first-run override is supplied", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-10-18T12:00:00.000Z"));
+    columnRepo.createColumn({ habitatId, name: "Backlog", order: 0, requiresClaim: false });
+    const response = await create({
+      scheduleType: "cron", cronExpression: "0 9 * * *", timezone: "America/New_York",
+      tasksTemplate: [{ title: "Actual scheduled task" }],
+    });
+    expect(response.statusCode).toBe(201);
+    const [saved] = scheduledTaskRepo.getScheduledTasksByHabitatId(habitatId);
+    expect(saved).toMatchObject({ scheduledAt: null, nextRunAt: "2026-10-18T13:00:00.000Z" });
+    expect(processDueTasks()).toEqual({ executed: 0, failed: 0 });
+    vi.setSystemTime(new Date("2026-10-18T13:00:00.000Z"));
+    expect(processDueTasks()).toEqual({ executed: 1, failed: 0 });
+    expect(scheduledTaskRepo.getScheduledTaskById(saved.id)).toMatchObject({
+      runCount: 1, enabled: true, nextRunAt: "2026-10-19T13:00:00.000Z",
+    });
+  });
+
   it("executes a past noncanonical first run created through HTTP", async () => {
     // Clock boundary only: HTTP, due scan and occurrence publication use real code and DB.
     vi.useFakeTimers({ toFake: ["Date"] });
