@@ -2664,7 +2664,8 @@
       "path": "/api/missions/:missionId",
       "surface": "api-deprecated",
       "guards": [
-        "agentOrHumanAuth"
+        "agentOrHumanAuth",
+        "authorizeMissionAccess"
       ],
       "authKind": "local_actor",
       "rawBodyEligible": false,
@@ -2748,7 +2749,8 @@
       "path": "/api/missions/:missionId/details",
       "surface": "api-deprecated",
       "guards": [
-        "agentOrHumanAuth"
+        "agentOrHumanAuth",
+        "authorizeMissionAccess"
       ],
       "authKind": "local_actor",
       "rawBodyEligible": false,
@@ -2760,7 +2762,8 @@
       "path": "/api/missions/:missionId/external-links",
       "surface": "api-deprecated",
       "guards": [
-        "agentOrHumanAuth"
+        "agentOrHumanAuth",
+        "authorizeMissionAccess"
       ],
       "authKind": "local_actor",
       "rawBodyEligible": false,
@@ -5064,7 +5067,8 @@
       "path": "/api/v1/missions/:missionId",
       "surface": "api-v1",
       "guards": [
-        "agentOrHumanAuth"
+        "agentOrHumanAuth",
+        "authorizeMissionAccess"
       ],
       "authKind": "local_actor",
       "rawBodyEligible": false,
@@ -5148,7 +5152,8 @@
       "path": "/api/v1/missions/:missionId/details",
       "surface": "api-v1",
       "guards": [
-        "agentOrHumanAuth"
+        "agentOrHumanAuth",
+        "authorizeMissionAccess"
       ],
       "authKind": "local_actor",
       "rawBodyEligible": false,
@@ -5160,7 +5165,8 @@
       "path": "/api/v1/missions/:missionId/external-links",
       "surface": "api-v1",
       "guards": [
-        "agentOrHumanAuth"
+        "agentOrHumanAuth",
+        "authorizeMissionAccess"
       ],
       "authKind": "local_actor",
       "rawBodyEligible": false,
@@ -7416,7 +7422,8 @@
       "path": "/api/missions/:missionId",
       "surface": "api-deprecated",
       "guards": [
-        "agentOrHumanAuth"
+        "agentOrHumanAuth",
+        "authorizeMissionAccess"
       ],
       "authKind": "local_actor",
       "rawBodyEligible": false,
@@ -7500,7 +7507,8 @@
       "path": "/api/missions/:missionId/details",
       "surface": "api-deprecated",
       "guards": [
-        "agentOrHumanAuth"
+        "agentOrHumanAuth",
+        "authorizeMissionAccess"
       ],
       "authKind": "local_actor",
       "rawBodyEligible": false,
@@ -7512,7 +7520,8 @@
       "path": "/api/missions/:missionId/external-links",
       "surface": "api-deprecated",
       "guards": [
-        "agentOrHumanAuth"
+        "agentOrHumanAuth",
+        "authorizeMissionAccess"
       ],
       "authKind": "local_actor",
       "rawBodyEligible": false,
@@ -9816,7 +9825,8 @@
       "path": "/api/v1/missions/:missionId",
       "surface": "api-v1",
       "guards": [
-        "agentOrHumanAuth"
+        "agentOrHumanAuth",
+        "authorizeMissionAccess"
       ],
       "authKind": "local_actor",
       "rawBodyEligible": false,
@@ -9900,7 +9910,8 @@
       "path": "/api/v1/missions/:missionId/details",
       "surface": "api-v1",
       "guards": [
-        "agentOrHumanAuth"
+        "agentOrHumanAuth",
+        "authorizeMissionAccess"
       ],
       "authKind": "local_actor",
       "rawBodyEligible": false,
@@ -9912,7 +9923,8 @@
       "path": "/api/v1/missions/:missionId/external-links",
       "surface": "api-v1",
       "guards": [
-        "agentOrHumanAuth"
+        "agentOrHumanAuth",
+        "authorizeMissionAccess"
       ],
       "authKind": "local_actor",
       "rawBodyEligible": false,

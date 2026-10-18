@@ -508,6 +508,16 @@ The UI updates automatically via Server-Sent Events (SSE). You don't need to ref
 - Status badges update in real-time
 - Agent panel shows live heartbeat status
 
+### Access to Mission Details and Linked Issues
+
+Reading a Mission, its details (including Tasks and activity), or its linked external issues requires
+membership of the Mission's Team Habitat. A global Orcy admin also needs that membership. Personal
+Habitats admit any signed-in human, and local agent keys retain access on existing Habitats. The
+server uses the Mission's saved Habitat; supplying another Habitat ID does not grant access.
+
+A missing Mission or parent Habitat returns “not found,” including the external-links read. An
+accessible Mission with no linked external issues still returns an empty list.
+
 ### Access to Task Details, Estimates and Watchers
 
 On a **team** Habitat, opening a Task's details, setting its estimate, watching or unwatching it, and
