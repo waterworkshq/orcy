@@ -5255,6 +5255,10 @@ Create a new scheduled task.
 
 **Auth:** JWT required (human)
 
+**Schedule validation:** `cron` requires a nonempty, parseable `cronExpression`; `interval` requires a positive safe-integer `intervalMinutes` whose next run fits the supported date range; `once` requires a nonempty, parseable `scheduledAt`. `timezone` defaults to `UTC` and must be valid when supplied. A supplied non-null `scheduledAt` must be a valid date for every schedule type. On create, the submitted `scheduledAt` is retained and its parsed UTC ISO timestamp sets the first `nextRunAt` for every schedule type, including recurring first-run overrides. ISO date-times without an offset (`YYYY-MM-DDTHH:mm`, with optional seconds and fractional seconds, including the UI's Run At value) use UTC wall time independently of the server timezone. Explicit offsets or zones retain their represented instant, and ISO date-only values use UTC midnight. The schedule's `timezone` governs cron calculation; it does not reinterpret a supplied first-run date. Other legacy date formats retain the runtime Date parser's behavior, so offsetless non-ISO forms have no portable timezone guarantee. First-run overrides never bypass validation of the schedule's cron or interval configuration. Past one-time dates remain accepted.
+
+**Response `400`:** Invalid field types or schedule semantics; nothing is persisted.
+
 **Request:**
 
 ```json
@@ -5310,7 +5314,7 @@ Get scheduled task details.
 
 ### PATCH /scheduled-tasks/:id
 
-Update a scheduled task. Recomputes `nextRunAt` if schedule config changes.
+Update a scheduled task. The complete effective configuration (stored values plus supplied fields) must satisfy the create validation above; omitted fields retain their values, while explicit `null` clears a nullable field and cannot clear the active schedule type's required input. Invalid combinations return `400` without changing the row. `nextRunAt` recalculation retains its existing type/cron/interval/timezone triggers; changing only `scheduledAt` does not rearm a one-time schedule.
 
 **Auth:** JWT required (human)
 

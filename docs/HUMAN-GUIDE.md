@@ -39,6 +39,12 @@ When reviewers are assigned, their approvals are required for completion; review
 
 Choose **Logout** from the user menu to return to sign-in. Logout immediately removes the local credential and clears cached account data, selections, notifications and the open task modal, even if the server logout request fails. Signing in or creating an account starts a fresh account view in the same tab; your theme preference is retained. Pending exports and attachment downloads from the retired account will not start a browser download, and its pending settings deletion will not redirect the new account. Completion and error notices from Habitat creation/deletion, Task creation/cloning/assignment/recovery, preference saves, integration changes and attachment/export actions are emitted only while their originating session remains active; later notices are suppressed after logout or account replacement. An action the server already accepted may still complete after logout.
 
+## Scheduled missions
+
+Use the habitat's scheduled-task settings or the authenticated [scheduled-task API](API.md#scheduled-tasks) to create recurring or one-time missions. Cron schedules need a valid expression and timezone (default `UTC`); interval schedules need a positive whole number of minutes within the supported date range; one-time schedules need a valid date. Past one-time dates are accepted. The form's Run At value is UTC wall time; selecting a different timezone does not shift that supplied first run. The selected timezone still controls cron recurrence. API dates with an explicit offset or zone preserve their instant; prefer those or ISO dates over ambiguous legacy date formats. Invalid create or edit combinations return `400` and leave stored data unchanged; when switching schedule types, supply the new type's required input in the same edit.
+
+If an older schedule is malformed, the processor logs its schedule ID and a bounded error while continuing other due tasks and audit exports. A failure before occurrence reservation leaves that row enabled and due; it is retried on later polls. Disable it through the schedule's disable action while investigating, then repair the configuration. A task-scan failure is reported separately from failed-row counts and still allows the audit-export stage to run. Work already reserved remains under the existing occurrence and lease-recovery rules.
+
 ## Resolving Review Requirements (operators)
 
 Tasks migrated from earlier versions carry a `legacy_unknown` review

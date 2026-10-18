@@ -389,6 +389,11 @@ function failScheduledTaskPublication(
   return { success: false, error };
 }
 
+/** Keep per-pass operator diagnostics bounded; publication state stays authoritative. */
+function schedulerErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message.slice(0, 512) : "Unknown scheduler failure";
+}
+
 /** Runs every due scheduled task in a single pass and returns the count of executed and failed runs. */
 export function processDueTasks(): { executed: number; failed: number } {
   const dueTasks = scheduledTaskRepo.getDueScheduledTasks();
@@ -396,12 +401,17 @@ export function processDueTasks(): { executed: number; failed: number } {
   let failed = 0;
 
   for (const task of dueTasks) {
-    const result = executeScheduledTask(task.id);
-    if (result.skipped) continue;
-    if (result.success) {
-      executed++;
-    } else {
+    try {
+      const result = executeScheduledTask(task.id);
+      if (result.skipped) continue;
+      if (result.success) {
+        executed++;
+      } else {
+        failed++;
+      }
+    } catch (error) {
       failed++;
+      logger.error({ scheduleId: task.id, error: schedulerErrorMessage(error) }, "Error executing scheduled task");
     }
   }
 
@@ -524,10 +534,18 @@ function buildAuditExportQuery(
 
 /** Convenience wrapper that runs both due scheduled tasks and due audit exports in a single pass. */
 export function processDueScheduledTasks(): {
-  tasks: { executed: number; failed: number };
+  tasks: { executed: number; failed: number; error?: string };
   audit: { executed: number; failed: number };
 } {
-  const tasks = processDueTasks();
+  let tasks: { executed: number; failed: number; error?: string };
+  try {
+    tasks = processDueTasks();
+  } catch (error) {
+    const message = schedulerErrorMessage(error);
+    // The scan did not yield a per-row result; do not invent a failed row.
+    tasks = { executed: 0, failed: 0, error: message };
+    logger.error({ error: message }, "Error processing scheduled task stage");
+  }
   const audit = processDueAuditExports();
   return { tasks, audit };
 }

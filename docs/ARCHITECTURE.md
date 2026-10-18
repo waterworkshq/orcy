@@ -1073,6 +1073,12 @@ Scheduled tasks are polled every 60 seconds via `scheduler.ts`:
 - Catches up on due occurrences after restart (polls all due, not just the current tick); occurrences whose window passed entirely during downtime are not backfilled — see Scheduled Occurrence Reservation and Repair below
 - Wired to also process audit export schedules in the same polling loop
 
+Create and PATCH validate the complete effective schedule before persistence, independently of any first-run `scheduledAt` override. Admission and the initial UTC ISO due pointer share a date parser: ISO date-times without an offset use UTC wall time, preserving the UI's existing UTC due-time basis independently of the server timezone. The raw `scheduledAt` remains stored; explicit offsets/zones and ISO date-only values keep their represented UTC instant, while other legacy forms retain runtime Date parsing. The schedule's timezone does not reinterpret a supplied first-run date. The shared `calculateNextRun` behavior used by wiki cadence and audit exports is unchanged.
+
+`processDueTasks` catches execution exceptions per row, counts one failed task per failing row, and logs its schedule ID with an error message capped at 512 characters. It continues later rows. A malformed cron that fails before reservation keeps its due pointer, enabled state and run count; no occurrence is created. There is no automatic disable or quarantine. An exception after reservation does not undo committed work: the occurrence's existing publication state and lease-recovery rules remain authoritative, as do atomic reservation/advance, one-shot disablement, and handler → template → inline dispatch precedence.
+
+The shared poller also catches a task-stage exception (for example a failed due-row scan) and runs audit exports. It returns a bounded `tasks.error` alongside zero known task counts when the task stage cannot return counts, rather than inventing a failed row. Audit-export scan/setup exceptions still reach the outer timer catch; failures within an individual export are logged and counted in `audit.failed` while later exports continue; this containment does not promise progress through unavailable infrastructure or a blocking synchronous execution.
+
 ### SSE Events
 
 | Event | Trigger | Payload |
