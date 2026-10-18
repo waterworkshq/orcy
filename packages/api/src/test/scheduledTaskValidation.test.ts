@@ -43,21 +43,28 @@ function create(payload: Record<string, unknown>) {
 
 describe("scheduled task semantic admission", () => {
   it("preserves UTC wall time for an offsetless UI first run regardless of server timezone", async () => {
-    vi.useFakeTimers({ toFake: ["Date"] });
-    vi.setSystemTime(new Date("2026-10-18T12:00:00.000Z"));
-    columnRepo.createColumn({ habitatId, name: "Backlog", order: 0, requiresClaim: false });
-    const scheduledAt = "2026-10-18T13:00";
-    const response = await create({ scheduleType: "once", scheduledAt, tasksTemplate: [{ title: "Actual scheduled task" }] });
-    expect(response.statusCode).toBe(201);
-    const [saved] = scheduledTaskRepo.getScheduledTasksByHabitatId(habitatId);
+    vi.stubEnv("TZ", "Asia/Kolkata");
+    try {
+      // Pin the boundary in the committed test, even on UTC CI workers.
+      expect(new Date("2026-10-18T12:00:00.000Z").getTimezoneOffset()).toBe(-330);
+      vi.useFakeTimers({ toFake: ["Date"] });
+      vi.setSystemTime(new Date("2026-10-18T12:00:00.000Z"));
+      columnRepo.createColumn({ habitatId, name: "Backlog", order: 0, requiresClaim: false });
+      const scheduledAt = "2026-10-18T13:00";
+      const response = await create({ scheduleType: "once", scheduledAt, tasksTemplate: [{ title: "Actual scheduled task" }] });
+      expect(response.statusCode).toBe(201);
+      const [saved] = scheduledTaskRepo.getScheduledTasksByHabitatId(habitatId);
 
-    // The UI's offsetless wall time historically compares against UTC due pointers.
-    // Poll before and at the independently specified instant, not a host-local Date parse.
-    expect(processDueTasks()).toEqual({ executed: 0, failed: 0 });
-    expect(saved).toMatchObject({ scheduledAt, timezone: "UTC", nextRunAt: "2026-10-18T13:00:00.000Z" });
-    vi.setSystemTime(new Date("2026-10-18T13:00:00.000Z"));
-    expect(processDueTasks()).toEqual({ executed: 1, failed: 0 });
-    expect(scheduledTaskRepo.getScheduledTaskById(saved.id)).toMatchObject({ runCount: 1, enabled: false });
+      // The UI's offsetless wall time historically compares against UTC due pointers.
+      // Poll before and at the independently specified instant, not a host-local Date parse.
+      expect(processDueTasks()).toEqual({ executed: 0, failed: 0 });
+      expect(saved).toMatchObject({ scheduledAt, timezone: "UTC", nextRunAt: "2026-10-18T13:00:00.000Z" });
+      vi.setSystemTime(new Date("2026-10-18T13:00:00.000Z"));
+      expect(processDueTasks()).toEqual({ executed: 1, failed: 0 });
+      expect(scheduledTaskRepo.getScheduledTaskById(saved.id)).toMatchObject({ runCount: 1, enabled: false });
+    } finally {
+      vi.unstubAllEnvs();
+    }
   });
 
   it.each([
