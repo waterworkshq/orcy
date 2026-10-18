@@ -217,3 +217,109 @@ describe("createDispatchHandler", () => {
     });
   });
 });
+
+describe("dispatch registration boundaries", () => {
+  it.each(["constructor", "toString", "__proto__", "hasOwnProperty"])(
+    "rejects inherited action %s without invoking it",
+    async (action) => {
+      const registered = vi.fn().mockResolvedValue({ ok: true });
+      const dispatch = createDispatchHandler({ registered });
+      const result = await dispatch(createMockClient(), { action });
+      expect(result).toEqual({
+        content: [{ type: "text", text: `Unknown action: ${action}. Valid actions: registered` }],
+        isError: true,
+      });
+      expect(registered).not.toHaveBeenCalled();
+    },
+  );
+});
+
+describe("malformed dispatch input", () => {
+  it.each([undefined, null, 12, false, [], { toString: "registered" }, ["registered"]])(
+    "rejects non-string action %# without property-key coercion",
+    async (action) => {
+      const registered = vi.fn().mockResolvedValue({ ok: true });
+      const dispatch = createDispatchHandler({ registered });
+      await expect(dispatch(createMockClient(), { action })).resolves.toEqual({
+        content: [{ type: "text", text: action === undefined ? "Unknown action: undefined. Valid actions: registered" : "Action must be a string. Valid actions: registered" }],
+        isError: true,
+      });
+      expect(registered).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each([null, undefined, "registered", 12, false, []])(
+    "rejects non-object arguments %# as a tool error",
+    async (args) => {
+      const registered = vi.fn();
+      const dispatch = createDispatchHandler({ registered });
+      await expect(dispatch(createMockClient(), args)).resolves.toEqual({
+        content: [{ type: "text", text: "Arguments must be an object." }],
+        isError: true,
+      });
+      expect(registered).not.toHaveBeenCalled();
+    },
+  );
+});
+
+describe("required parameter registration boundaries", () => {
+  it.each(["constructor", "toString", "__proto__", "hasOwnProperty"])(
+    "allows an explicitly registered %s action without inherited requirements",
+    async (action) => {
+      const registered = vi.fn().mockResolvedValue({ ok: true });
+      const dispatch = createDispatchHandler({ [action]: registered }, {});
+      await expect(dispatch(createMockClient(), { action })).resolves.toEqual({
+        content: [{ type: "text", text: JSON.stringify({ ok: true }, null, 2) }],
+      });
+      expect(registered).toHaveBeenCalledTimes(1);
+    },
+  );
+
+  it("ignores inherited requirement lists while preserving own lists", async () => {
+    const registered = vi.fn().mockResolvedValue({ ok: true });
+    const requirements = Object.create({ registered: ["unrelated"] });
+    const dispatch = createDispatchHandler({ registered }, requirements);
+    expect((await dispatch(createMockClient(), { action: "registered" })).isError).toBeUndefined();
+    const own = createDispatchHandler({ registered }, { registered: ["habitatId", "taskId"] });
+    expect(await own(createMockClient(), { action: "registered" })).toEqual({
+      content: [{ type: "text", text: 'Action "registered" is missing required parameters: habitatId, taskId' }],
+      isError: true,
+    });
+    expect((await own(createMockClient(), { action: "registered", boardId: "legacy", taskId: "task" })).isError).toBeUndefined();
+  });
+});
+
+describe("dispatch validation failures", () => {
+  it("keeps action access failures inside the tool error result", async () => {
+    const registered = vi.fn();
+    const dispatch = createDispatchHandler({ registered });
+    const args = { get action() { throw new Error("Unreadable action"); } };
+    await expect(dispatch(createMockClient(), args)).resolves.toEqual({
+      content: [{ type: "text", text: "Error: Unreadable action" }], isError: true,
+    });
+    expect(registered).not.toHaveBeenCalled();
+  });
+
+  it.each(["not-a-list", {}, null])("rejects invalid own requirement metadata %# without calling the action", async (required) => {
+    const registered = vi.fn();
+    const dispatch = createDispatchHandler({ registered }, { registered: required } as unknown as Record<string, string[]>);
+    await expect(dispatch(createMockClient(), { action: "registered" })).resolves.toEqual({
+      content: [{ type: "text", text: "Error: Invalid required parameters for action: registered" }], isError: true,
+    });
+    expect(registered).not.toHaveBeenCalled();
+  });
+});
+
+it("does not coerce object actions or invoke non-function own entries", async () => {
+  const registered = vi.fn();
+  const coercion = vi.fn(() => "registered");
+  const dispatch = createDispatchHandler({ registered, invalid: true as unknown as Handler });
+  const result = await dispatch(createMockClient(), { action: { [Symbol.toPrimitive]: coercion } });
+  expect(result.isError).toBe(true);
+  expect(coercion).not.toHaveBeenCalled();
+  expect(registered).not.toHaveBeenCalled();
+  expect(await dispatch(createMockClient(), { action: "invalid" })).toEqual({
+    content: [{ type: "text", text: "Unknown action: invalid. Valid actions: registered, invalid" }],
+    isError: true,
+  });
+});

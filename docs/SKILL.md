@@ -25,6 +25,8 @@ Mission status is **auto-derived** from child task states — no manual status m
 
 All MCP tools use a **dispatch pattern** — each consolidated tool accepts an `action` parameter:
 
+Tool and action names must be explicitly registered string keys. Unregistered names (including inherited object names such as `constructor` and `toString`) return an `isError: true` tool result. Dispatch tools reject a missing or non-string `action` without coercing it; malformed outer request shapes are rejected by the MCP protocol. Required-parameter checks use only the action’s own declared entry and preserve the existing missing-parameter messages. This admission check does not enforce every constraint in a tool’s input schema.
+
 | Consolidated Tool | Actions | Replaces |
 |---|---|---|
 | `orcy_habitat` | `list`, `find`, `get-settings`, `summary`, `metrics`, `get-health`, `get-health-history`, `predictions`, `bottlenecks`, `agent-quality`, `get-rules`, `update-rules`, `evaluate-rules` | Habitat discovery, settings, summaries, health, analytics, and prioritization rules |

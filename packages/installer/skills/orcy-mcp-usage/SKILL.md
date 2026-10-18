@@ -14,6 +14,8 @@ If you also have the CLI installed, **prefer MCP for intra-session tool use** �
 
 ## Consolidated Dispatch Tools
 
+Tool and action names must be explicitly registered string keys. Unregistered names (including inherited object names such as `constructor` and `toString`) return an `isError: true` tool result. Dispatch tools reject a missing or non-string `action` without coercing it; malformed outer request shapes are rejected by the MCP protocol. Required-parameter checks use only the action’s own declared entry and preserve the existing missing-parameter messages. This admission check does not enforce every constraint in a tool’s input schema.
+
 | Tool | Actions | Covers |
 |------|---------|--------|
 | `orcy_habitat` | `list`, `find`, `get-settings`, `summary`, `metrics`, `get-health`, `get-health-history`, `predictions`, `bottlenecks`, `agent-quality`, `get-rules`, `update-rules`, `evaluate-rules` | Habitat discovery, settings, summaries, health, analytics, and prioritization rules |
