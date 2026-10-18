@@ -2805,7 +2805,8 @@
       "path": "/api/missions/:missionId/pulse",
       "surface": "api-deprecated",
       "guards": [
-        "agentOrHumanAuth"
+        "agentOrHumanAuth",
+        "authorizeMissionAccess"
       ],
       "authKind": "local_actor",
       "rawBodyEligible": false,
@@ -2817,7 +2818,8 @@
       "path": "/api/missions/:missionId/pulse/digest",
       "surface": "api-deprecated",
       "guards": [
-        "agentOrHumanAuth"
+        "agentOrHumanAuth",
+        "authorizeMissionAccess"
       ],
       "authKind": "local_actor",
       "rawBodyEligible": false,
@@ -5222,7 +5224,8 @@
       "path": "/api/v1/missions/:missionId/pulse",
       "surface": "api-v1",
       "guards": [
-        "agentOrHumanAuth"
+        "agentOrHumanAuth",
+        "authorizeMissionAccess"
       ],
       "authKind": "local_actor",
       "rawBodyEligible": false,
@@ -5234,7 +5237,8 @@
       "path": "/api/v1/missions/:missionId/pulse/digest",
       "surface": "api-v1",
       "guards": [
-        "agentOrHumanAuth"
+        "agentOrHumanAuth",
+        "authorizeMissionAccess"
       ],
       "authKind": "local_actor",
       "rawBodyEligible": false,
@@ -7639,7 +7643,8 @@
       "path": "/api/missions/:missionId/pulse",
       "surface": "api-deprecated",
       "guards": [
-        "agentOrHumanAuth"
+        "agentOrHumanAuth",
+        "authorizeMissionAccess"
       ],
       "authKind": "local_actor",
       "rawBodyEligible": false,
@@ -7651,7 +7656,8 @@
       "path": "/api/missions/:missionId/pulse/digest",
       "surface": "api-deprecated",
       "guards": [
-        "agentOrHumanAuth"
+        "agentOrHumanAuth",
+        "authorizeMissionAccess"
       ],
       "authKind": "local_actor",
       "rawBodyEligible": false,
@@ -10056,7 +10062,8 @@
       "path": "/api/v1/missions/:missionId/pulse",
       "surface": "api-v1",
       "guards": [
-        "agentOrHumanAuth"
+        "agentOrHumanAuth",
+        "authorizeMissionAccess"
       ],
       "authKind": "local_actor",
       "rawBodyEligible": false,
@@ -10068,7 +10075,8 @@
       "path": "/api/v1/missions/:missionId/pulse/digest",
       "surface": "api-v1",
       "guards": [
-        "agentOrHumanAuth"
+        "agentOrHumanAuth",
+        "authorizeMissionAccess"
       ],
       "authKind": "local_actor",
       "rawBodyEligible": false,

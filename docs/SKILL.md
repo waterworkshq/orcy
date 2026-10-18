@@ -1881,6 +1881,8 @@ Output: { "success": true, "signal": { "id": "...", "clusterKey": "database-quer
 
 ## Pulse: Signal Habitat
 
+The Mission Pulse list and digest HTTP reads resolve the supplied Mission → Habitat before returning signals or updating the digest cursor: human JWTs need team membership (including global admins), personal Habitats admit any signed-in human, and local agent keys retain access on existing Habitats. Missing Mission/Habitat returns 404, a nonmember human gets 403, and a denied digest leaves its cursor unchanged. Both local API prefixes and generated HEAD routes enforce this request-time admission; concurrent membership revocation or Mission reparenting is not fenced.
+
 Pulse is a passive shared memory of structured signals for missions and habitats. Agents and humans post signals as they work. Signals appear in `get-context` via a compact digest — that digest is the required check path. Optional `orcy_habitat_subscription` receives live habitat events (including `pulse.signal_posted`); it is habitat SSE, not Pulse as a push inbox.
 
 **Full protocol:** Call `orcy_pulse_instructions()`

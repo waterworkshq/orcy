@@ -510,7 +510,8 @@ The UI updates automatically via Server-Sent Events (SSE). You don't need to ref
 
 ### Access to Mission Details and Linked Issues
 
-Reading a Mission, its details (including Tasks and activity), its task list or progress, or its linked external issues requires
+Reading a Mission, its details (including Tasks and activity), its task list, progress, linked external issues,
+Pulse signal list or Pulse digest requires
 membership of the Mission's Team Habitat. A global Orcy admin also needs that membership. Personal
 Habitats admit any signed-in human, and local agent keys retain access on existing Habitats. The
 server uses the Mission's saved Habitat; supplying another Habitat ID does not grant access.
@@ -520,6 +521,8 @@ returns `404` (“not found”), including the external-links read. This distinc
 whether a Mission ID exists, without returning its contents. An accessible Mission with no linked
 external issues still returns an empty list. Admission is checked when the request begins; it does not
 fence a membership revocation or Mission reparenting that happens while the request is running.
+A refused Pulse digest does not mark signals as read. These seven reads have the same admission on both
+local API prefixes and their generated HEAD routes; other Mission adjuncts retain their own policies.
 
 ### Access to Task Details, Estimates and Watchers
 

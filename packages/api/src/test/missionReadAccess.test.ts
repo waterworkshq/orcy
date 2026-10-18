@@ -1,6 +1,6 @@
 /** Mission reads cross the production HTTP/auth chain on both served prefixes. */
-import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
-import { eq, sql } from "drizzle-orm";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { and, eq, sql } from "drizzle-orm";
 import * as missionService from "../services/missionService.js";
 import net from "node:net";
 import bcrypt from "bcryptjs";
@@ -15,10 +15,11 @@ import * as eventRepo from "../repositories/events/event-feature.js";
 import * as connectionRepo from "../repositories/integrationConnection.js";
 import * as linkRepo from "../repositories/externalIssueLink.js";
 import * as agentRepo from "../repositories/agent.js";
+import * as pulseRepo from "../repositories/pulse.js";
 
 const PREFIXES = ["/api/v1", "/api"] as const;
-const READ_SUFFIXES = ["", "/details", "/tasks", "/progress", "/external-links"] as const;
-const PRIVATE_MARKERS = ["private-mission-marker", "private-task-marker", "private-event-marker", "private-link-marker"];
+const READ_SUFFIXES = ["", "/details", "/tasks", "/progress", "/external-links", "/pulse", "/pulse/digest"] as const;
+const PRIVATE_MARKERS = ["private-mission-marker", "private-task-marker", "private-event-marker", "private-link-marker", "private-pulse-subject", "private-pulse-body"];
 let app: HttpRuntimeHandle;
 let baseUrl: string;
 let missionId: string;
@@ -28,6 +29,7 @@ let personalHabitatId: string;
 let taskId: string;
 let eventId: string;
 let linkId: string;
+let pulseId: string;
 const headers: Record<string, Record<string, string>> = { anonymous: {} };
 
 async function freePort(): Promise<number> {
@@ -85,6 +87,7 @@ beforeAll(async () => {
   eventId = eventRepo.createMissionEvent({ missionId, actorType: "human", actorId: "mission-read-member", action: "created", metadata: { secret: PRIVATE_MARKERS[2] } }).id;
   const connection = connectionRepo.create({ habitatId: habitat.id, provider: "github", name: "private github", authMethod: "pat", createdBy: "system" });
   linkId = linkRepo.create({ habitatId: habitat.id, missionId, connectionId: connection.id, provider: "github", externalId: "789", externalKey: "private-org/private-repo#789", externalUrl: "https://github.com/private-org/private-repo/issues/789", externalStatus: "open", providerLabels: [PRIVATE_MARKERS[3]!] }).id;
+  pulseId = pulseRepo.createPulse({ missionId, habitatId: habitat.id, fromType: "human", fromId: "mission-read-member", signalType: "blocker", subject: "private-pulse-subject", body: "private-pulse-body", taskId }).id;
   personalHabitatId = habitatRepo.createHabitat({ name: "personal" }).id;
   personalMissionId = makeMission(personalHabitatId, "personal mission").id;
   orphanMissionId = makeMission(personalHabitatId, "orphan mission").id;
@@ -99,12 +102,75 @@ beforeAll(async () => {
   }
 });
 
+// Keep each native HTTP case in its own rate-limit window. The real limiter,
+// credential verification and network transport remain installed; only its
+// clock advances so this matrix does not exhaust a reused credential's budget.
+let requestWindow = Date.now();
+beforeEach(() => {
+  requestWindow += 61_000;
+  vi.spyOn(Date, "now").mockReturnValue(requestWindow);
+});
+afterEach(() => vi.restoreAllMocks());
+
 afterAll(async () => {
   await app?.close();
   await closeDb();
 });
 
 describe.each(PREFIXES)("Mission read access at %s", (prefix) => {
+  it("refuses a nonmember human before returning private Mission pulse signals", async () => {
+    const response = await read(prefix, missionId, "/pulse", "outsider");
+    expect(response.status).toBe(403);
+    expect(response.body).toEqual({ error: "You do not have access to this habitat", code: "BOARD_ACCESS_DENIED" });
+    for (const marker of [pulseId, "private-pulse-subject", "private-pulse-body"]) expect(response.text).not.toContain(marker);
+  });
+
+  it("refuses a nonmember human before returning a private Mission pulse digest or creating its cursor", async () => {
+    getDb().delete(schema.pulseCursors).where(and(eq(schema.pulseCursors.scopeKey, missionId), eq(schema.pulseCursors.readerType, "human"), eq(schema.pulseCursors.readerId, "mission-read-outsider"))).run();
+    const before = pulseRepo.getCursor(missionId, "human", "mission-read-outsider");
+    const response = await read(prefix, missionId, "/pulse/digest", "outsider");
+    expect(response.status).toBe(403);
+    expect(response.body).toEqual({ error: "You do not have access to this habitat", code: "BOARD_ACCESS_DENIED" });
+    for (const marker of [pulseId, "private-pulse-subject", "private-pulse-body"]) expect(response.text).not.toContain(marker);
+    expect(before).toBeNull();
+    expect(pulseRepo.getCursor(missionId, "human", "mission-read-outsider")).toBeNull();
+  });
+
+  it("keeps an existing denied reader's Pulse cursor unchanged", async () => {
+    const baseline = "2001-01-01T00:00:00.000Z";
+    for (const actor of ["outsider", "admin"]) {
+      const readerId = `mission-read-${actor}`;
+      getDb().insert(schema.pulseCursors).values({ scopeKey: missionId, scope: "mission", readerType: "human", readerId, lastCheckedAt: baseline })
+        .onConflictDoUpdate({ target: [schema.pulseCursors.scopeKey, schema.pulseCursors.readerType, schema.pulseCursors.readerId], set: { lastCheckedAt: baseline } }).run();
+      for (const method of ["GET", "HEAD"]) {
+        const response = await fetch(`${baseUrl}${prefix}/missions/${missionId}/pulse/digest?habitatId=${personalHabitatId}`, { method, headers: headers[actor] });
+        expect(response.status).toBe(403);
+        const text = await response.text();
+        if (method === "HEAD") expect(text).toBe("");
+        else expect(JSON.parse(text)).toEqual({ error: "You do not have access to this habitat", code: "BOARD_ACCESS_DENIED" });
+        expect(pulseRepo.getCursor(missionId, "human", readerId)).toBe(baseline);
+      }
+    }
+  });
+
+  it("enforces Mission Pulse admission on generated HEAD routes", async () => {
+    const cases: Array<{ id: string; actor: string; status: number }> = [
+      ...["outsider", "admin"].map((actor) => ({ id: missionId, actor, status: 403 })),
+      ...["member", "agent"].map((actor) => ({ id: missionId, actor, status: 200 })),
+      ...["outsider", "member", "admin", "agent"].map((actor) => ({ id: personalMissionId, actor, status: 200 })),
+      ...["outsider", "member", "admin", "agent"].map((actor) => ({ id: "missing-mission", actor, status: 404 })),
+      ...["outsider", "member", "admin", "agent"].map((actor) => ({ id: orphanMissionId, actor, status: 404 })),
+      ...[missionId, "missing-mission"].map((id) => ({ id, actor: "anonymous", status: 401 })),
+    ];
+    for (const suffix of ["/pulse", "/pulse/digest"]) {
+      for (const { id, actor, status } of cases) {
+        const response = await fetch(`${baseUrl}${prefix}/missions/${id}${suffix}?habitatId=${personalHabitatId}`, { method: "HEAD", headers: headers[actor] });
+        expect(response.status, `${actor} HEAD ${id}${suffix}`).toBe(status);
+        expect(await response.text()).toBe("");
+      }
+    }
+  });
+
   it("refuses a nonmember human before returning private Mission progress", async () => {
     const response = await read(prefix, missionId, "/progress", "outsider");
     expect(response.status).toBe(403);
@@ -161,6 +227,14 @@ describe.each(PREFIXES)("Mission read access at %s", (prefix) => {
       const progress = await read(prefix, missionId, "/progress", actor);
       expect(progress.status).toBe(200);
       expect(progress.body.total).toBe(1);
+      const signals = await read(prefix, missionId, "/pulse", actor);
+      expect(signals.status).toBe(200);
+      expect(signals.body.items).toEqual([expect.objectContaining({ id: pulseId, subject: "private-pulse-subject", body: "private-pulse-body", taskId })]);
+      expect(signals.body.total).toBe(1);
+      const digest = await read(prefix, missionId, "/pulse/digest", actor);
+      expect(digest.status).toBe(200);
+      expect(digest.body.counts.blocker).toBe(1);
+      expect(digest.body.highlights).toEqual([expect.objectContaining({ id: pulseId, subject: "private-pulse-subject", signalType: "blocker" })]);
       const links = await read(prefix, missionId, "/external-links", actor);
       expect(links.status).toBe(200);
       expect(links.body.externalLinks).toEqual(expect.arrayContaining([expect.objectContaining({ id: linkId, providerLabels: [PRIVATE_MARKERS[3]], externalKey: "private-org/private-repo#789" })]));
@@ -175,6 +249,8 @@ describe.each(PREFIXES)("Mission read access at %s", (prefix) => {
         if (suffix === "/external-links") expect(response.body).toEqual({ externalLinks: [] });
         else if (suffix === "/tasks") expect(response.body).toEqual({ tasks: [], total: 0 });
         else if (suffix === "/progress") expect(response.body.total).toBe(0);
+        else if (suffix === "/pulse") expect(response.body).toEqual({ items: [], total: 0 });
+        else if (suffix === "/pulse/digest") expect(response.body).toMatchObject({ newSinceLastCheck: 0, highlights: [] });
         else expect(response.body.mission.id).toBe(personalMissionId);
       }
     }
@@ -212,6 +288,8 @@ describe.each(PREFIXES)("Mission read access at %s", (prefix) => {
       vi.spyOn(taskRepo, "getTasksByMissionId"),
       vi.spyOn(eventRepo, "getMissionEventsByMissionId"),
       vi.spyOn(linkRepo, "listByMissionId"),
+      vi.spyOn(pulseRepo, "getPulsesByMission"),
+      vi.spyOn(pulseRepo, "getPulseDigest"),
     ];
     try {
       for (const actor of ["outsider", "admin"]) {
