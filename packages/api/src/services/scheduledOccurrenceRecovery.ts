@@ -1,7 +1,8 @@
 /**
  * Scheduled Occurrence Lease Recovery — T9B Phase 2.
  *
- * The recovery worker that reclaims expired `publishing` occurrence leases +
+ * The recovery worker that starts claimable `reserved` occurrences and
+ * reclaims expired `publishing` occurrence leases +
  * re-drives the publication under the reclaimed lease (same-attempt
  * resumption — NO schedule advance; the schedule already advanced at
  * reservation). This is the deterministic-takeover primitive the plan
@@ -63,8 +64,8 @@
  * `(scheduledTaskId, scheduledFor)` — each schedule firing gets its own
  * occurrence row. A rejected occurrence is terminal (`rejected`); the next
  * tick's reservation creates a NEW row for the next `scheduledFor` instant.
- * The recovery worker never touches the next tick's reservation (it only
- * scans `publishing` occurrences). The structural guarantee is verified by
+ * The recovery worker never reserves or advances the next tick: its scans
+ * process existing `reserved` and expired `publishing` rows. The guarantee is verified by
  * test (a rejected occurrence + a subsequent reservation → both rows exist).
  *
  * # Boot-registration (boot wiring)
@@ -73,8 +74,7 @@
  * `scheduledTaskService.startScheduledTaskProcessor` (the established
  * setInterval + try/catch + logger pattern). T11 registers it at boot
  * alongside `registerCreationDispatchAdapters` + the scheduler processor.
- * NO production caller wires it now — the worker + the recovery function
- * are exported + tested but wire NO production boot-registration.
+ * Production boot registers the worker in `index.ts`.
  *
  * See: the T9B ticket (Phase 2 — active scope); the phase-1 primitives
  * (`scheduledOccurrences.ts` — reclaim + stamp); the resume entry point
@@ -87,6 +87,7 @@ import { getDb } from "../db/index.js";
 import { scheduledTasks } from "../db/schema/index.js";
 import { logger } from "../lib/logger.js";
 import {
+  listClaimableReservedOccurrencesWithClient,
   listOccurrencesWithExpiredLeasesWithClient,
   reclaimAndStampOccurrenceWithClient,
   type OccurrenceResultJson,
@@ -94,17 +95,23 @@ import {
 } from "../repositories/scheduledOccurrences.js";
 import { listPendingTaskCreationAttemptsForScopeWithClient } from "../repositories/taskCreationAttempts.js";
 import {
+  publishScheduledOccurrence,
   resumeScheduledOccurrencePublication,
   terminalRejectOccurrenceWithCoordination,
   type ResumeScheduledOccurrenceOutcome,
+  type PublishScheduledOccurrenceOutcome,
 } from "./scheduledOccurrencePublication.js";
 import {
+  publishInlineScheduledOccurrence,
   resumeInlineScheduledOccurrencePublication,
   type ResumeInlineScheduledOccurrenceOutcome,
+  type PublishInlineScheduledOccurrenceOutcome,
 } from "./inlineScheduledOccurrencePublication.js";
 import {
+  dispatchHandlerScheduledOccurrence,
   resumeHandlerScheduledOccurrenceDispatch,
   type ResumeHandlerDispatchOutcome,
+  type PublishHandlerDispatchOutcome,
 } from "./scheduledHandlerDispatch.js";
 import { v4 as uuid } from "uuid";
 
@@ -553,6 +560,83 @@ export function recoverExpiredOccurrenceLeases(
   return result;
 }
 
+type InitialOccurrenceOutcome =
+  | PublishScheduledOccurrenceOutcome
+  | PublishInlineScheduledOccurrenceOutcome
+  | PublishHandlerDispatchOutcome;
+
+export type RecoverReservedOccurrencesOptions = Omit<RecoverExpiredOccurrenceLeasesOptions, "maxReclaims">;
+
+/** First-publication outcomes; these counts do not assert a lease was acquired. */
+export interface RecoverReservedOccurrencesResult {
+  scanned: number;
+  terminalized: number;
+  resumable: number;
+  skipped: number;
+  details: {
+    occurrenceId: string;
+    publication: InitialOccurrenceOutcome["outcome"] | "infrastructure_error";
+  }[];
+}
+
+/**
+ * Complete already-committed reservations through the initial publication CAS.
+ * A paused original publisher and recovery cannot both win that claim. Route
+ * from the frozen snapshot; each existing adapter still checks the live
+ * schedule and governance. No reservation, cadence advance or new coordination
+ * attempt occurs here. Postclaim failures belong to expired-lease recovery.
+ */
+export function recoverReservedOccurrences(
+  opts: RecoverReservedOccurrencesOptions,
+): RecoverReservedOccurrencesResult {
+  const db = getDb();
+  const now = opts.now ?? new Date().toISOString();
+  const reserved = listClaimableReservedOccurrencesWithClient(db, now, { limit: opts.limit });
+  const result: RecoverReservedOccurrencesResult = {
+    scanned: reserved.length,
+    terminalized: 0,
+    resumable: 0,
+    skipped: 0,
+    details: [],
+  };
+  for (const row of reserved) {
+    try {
+      const claimNow = opts.now ?? new Date().toISOString();
+      const input = {
+        occurrenceId: row.id,
+        leaseOwner: opts.leaseOwner,
+        leaseExpiresAt: new Date(Date.parse(claimNow) + (opts.leaseDurationMs ?? 30_000)).toISOString(),
+      };
+      const snapshot = row.scheduleRevision;
+      // Missing snapshots use the existing inline adapter's typed validation
+      // and missing-schedule handling, rather than throwing before the claim.
+      const publication = snapshot?.handlerKey
+        ? dispatchHandlerScheduledOccurrence(input)
+        : snapshot?.templateId
+          ? publishScheduledOccurrence(input)
+          : publishInlineScheduledOccurrence(input);
+      const outcome = publication.outcome;
+      if (outcome === "already_publishing") {
+        result.skipped++;
+      } else if (TERMINAL_RESUME_OUTCOMES.has(outcome)) {
+        result.terminalized++;
+      } else if (RESUMABLE_RESUME_OUTCOMES.has(outcome)) {
+        result.resumable++;
+      } else {
+        result.skipped++;
+      }
+      result.details.push({ occurrenceId: row.id, publication: outcome });
+    } catch (err) {
+      // A throw may precede or follow the CAS. Do not infer ownership or reset
+      // state/counters; a claimed row remains publishing for lease recovery.
+      logger.error({ err, occurrenceId: row.id }, "Reserved occurrence recovery failed");
+      result.skipped++;
+      result.details.push({ occurrenceId: row.id, publication: "infrastructure_error" });
+    }
+  }
+  return result;
+}
+
 // ---------------------------------------------------------------------------
 // Boot-registration (boot wiring — mirrors scheduledTaskService)
 // ---------------------------------------------------------------------------
@@ -592,12 +676,12 @@ export function createRecoveryWorkerId(): string {
 
 /**
  * T9B Phase 2 — starts a recurring interval that polls for + recovers
- * expired-lease `publishing` occurrences. Returns the handle so the caller
+ * expired-lease `publishing` and claimable `reserved` occurrences. Returns the handle so the caller
  * can stop it. Mirrors `scheduledTaskService.startScheduledTaskProcessor`
  * (the established setInterval + try/catch + logger pattern).
  *
- * `registerCreationDispatchAdapters` + `startScheduledTaskProcessor`. NO
- * production caller wires it now.
+ * Boot registers this alongside `registerCreationDispatchAdapters` and the
+ * scheduled task processor.
  *
  * # Worker identity (T9B-01 — the unique-per-process fencing fix)
  *
@@ -627,19 +711,27 @@ export function startOccurrenceLeaseRecoveryWorker(
   // distinct id (distinct pid/uuid) so the fenced CAS can distinguish them.
   const workerId = opts.leaseOwner ?? createRecoveryWorkerId();
   return setInterval(() => {
+    const recoveryOpts: RecoverExpiredOccurrenceLeasesOptions = {
+      leaseOwner: workerId,
+      leaseDurationMs: opts.leaseDurationMs,
+      maxReclaims: opts.maxReclaims,
+      limit: opts.limit,
+    };
     try {
-      const recoveryOpts: RecoverExpiredOccurrenceLeasesOptions = {
-        leaseOwner: workerId,
-        leaseDurationMs: opts.leaseDurationMs,
-        maxReclaims: opts.maxReclaims,
-        limit: opts.limit,
-      };
       const result = recoverExpiredOccurrenceLeases(recoveryOpts);
       if (result.scanned > 0) {
         logger.info(result, "Occurrence lease recovery worker completed a pass");
       }
     } catch (err) {
       logger.error({ err }, "Error recovering expired occurrence leases");
+    }
+    try {
+      const result = recoverReservedOccurrences(recoveryOpts);
+      if (result.scanned > 0) {
+        logger.info(result, "Reserved occurrence recovery worker completed a pass");
+      }
+    } catch (err) {
+      logger.error({ err }, "Error recovering reserved occurrences");
     }
   }, intervalMs);
 }

@@ -1519,6 +1519,35 @@ export function listOccurrencesInStateWithClient(
 }
 
 /**
+ * First-publication recovery candidates. Match the publishing CAS's free-lease
+ * predicate BEFORE limiting, so unclaimable reserved rows cannot hide work.
+ * The adapter's CAS arbitrates a race with the original publisher or another
+ * worker; this read neither claims nor changes an occurrence.
+ */
+export function listClaimableReservedOccurrencesWithClient(
+  db: TaskPublicationDbClient,
+  now: string,
+  opts: Pick<OccurrenceListOptions, "limit"> = {},
+): ScheduledOccurrenceRow[] {
+  const limit = opts.limit ?? 100;
+  if (!Number.isSafeInteger(limit) || limit < 0) {
+    throw new RangeError("Reserved occurrence recovery limit must be a non-negative safe integer");
+  }
+  return db
+    .select()
+    .from(scheduledOccurrences)
+    .where(
+      and(
+        eq(scheduledOccurrences.state, "reserved"),
+        or(isNull(scheduledOccurrences.leaseOwner), lt(scheduledOccurrences.leaseExpiresAt, now)),
+      ),
+    )
+    .orderBy(scheduledOccurrences.createdAt, scheduledOccurrences.id)
+    .limit(limit)
+    .all();
+}
+
+/**
  * Lists `publishing` occurrences whose lease has observably expired
  * (`leaseExpiresAt < now`) — T9B Phase 2's recovery-worker scan. Ordered by
  * `createdAt` ascending (oldest first — the natural recovery order: the
