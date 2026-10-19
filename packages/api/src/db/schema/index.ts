@@ -37,6 +37,7 @@ export {
   taskCreationAssignmentReservations,
   missionRecalculationMarkers,
   scheduledOccurrences,
+  scheduledOccurrenceHistory,
   TASK_CREATION_INTEGRITY_VERSION,
   type TaskCreationIntegrityVersion,
   isLegacyPartialHistory,

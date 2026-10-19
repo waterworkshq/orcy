@@ -8,6 +8,12 @@ import { badRequest, conflictWithCode, notFound } from "../errors.js";
 import { calculateNextRun } from "./scheduledTaskService.js";
 import { parseScheduledAt, validateScheduleConfiguration } from "./scheduledTaskConfiguration.js";
 
+// Timing, operational, and future fields retain the entitlement evidence path.
+const METADATA_EDIT_FIELDS = new Set<PropertyKey>([
+  "name", "description", "missionTitle", "missionDescription", "missionPriority",
+  "missionLabels", "missionDomain", "tasksTemplate", "templateId",
+] satisfies (keyof scheduledTaskRepo.UpdateScheduledTaskInput)[]);
+
 /**
  * Edit against current persisted state, serialized with occurrence reservation.
  * BEGIN IMMEDIATE takes the writer lock before the history/configuration reads;
@@ -28,6 +34,16 @@ export function editScheduledTask(
     const effective = { ...existing, ...input };
     const scheduleError = validateScheduleConfiguration(effective);
     if (scheduleError) throw badRequest("Invalid schedule configuration", scheduleError);
+
+    const inputPrototype = Object.getPrototypeOf(input);
+    const metadataOnly = (inputPrototype === Object.prototype || inputPrototype === null) &&
+      Reflect.ownKeys(input).every((key) => METADATA_EDIT_FIELDS.has(key));
+    if (metadataOnly) {
+      const updated = scheduledTaskRepo.updateScheduledTask(id, input, db);
+      if (!updated) throw notFound("Scheduled task not found", "SCHEDULED_TASK_NOT_FOUND");
+      db.run(sql`COMMIT`);
+      return updated;
+    }
 
     // Snapshot identity, rather than runCount, distinguishes prior recurring
     // runs from consumption of this schedule's one-shot entitlement.

@@ -18,7 +18,7 @@
  * target) DO use FKs because they live entirely inside this module and are
  * never reached by a Habitat cascade.
  */
-import { sqliteTable, text, integer, index, uniqueIndex } from "drizzle-orm/sqlite-core";
+import { sqliteTable, text, integer, index, uniqueIndex, check } from "drizzle-orm/sqlite-core";
 import { sql } from "drizzle-orm";
 import type { CausalContext } from "@orcy/shared";
 
@@ -464,5 +464,28 @@ export const scheduledOccurrences = sqliteTable(
     ),
     index("idx_scheduled_occurrences_state").on(table.state),
     index("idx_scheduled_occurrences_state_lease").on(table.state, table.leaseExpiresAt),
+    index("idx_scheduled_occurrences_schedule_ordinal").on(table.scheduledTaskId, table.ordinal),
+  ],
+);
+
+/**
+ * SQLite-maintained whole-history evidence. Plain schedule IDs retain orphan
+ * audit history. An untrusted row is a sticky tombstone: its counters cannot
+ * authorize a one-shot run until an explicit full-history rebuild restores it.
+ */
+export const scheduledOccurrenceHistory = sqliteTable(
+  "scheduled_occurrence_history",
+  {
+    scheduledTaskId: text("scheduled_task_id").primaryKey().notNull(),
+    totalCount: integer("total_count").notNull().default(0),
+    duplicateOrdinalRows: integer("duplicate_ordinal_rows").notNull().default(0),
+    onceCount: integer("once_count").notNull().default(0),
+    unknownCount: integer("unknown_count").notNull().default(0),
+    trusted: integer("trusted", { mode: "boolean" }).notNull().default(true),
+  },
+  () => [
+    check("scheduled_occurrence_history_counts_nonnegative", sql`total_count >= 0 AND
+      duplicate_ordinal_rows >= 0 AND once_count >= 0 AND unknown_count >= 0`),
+    check("scheduled_occurrence_history_trusted_boolean", sql`trusted IN (0, 1)`),
   ],
 );
