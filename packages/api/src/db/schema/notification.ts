@@ -75,6 +75,7 @@ export const notificationDeliveries = sqliteTable(
       table.createdAt,
     ),
     index("idx_notification_deliveries_event").on(table.eventId),
+    index("idx_notification_deliveries_scope_lookup").on(table.id, table.habitatId),
     index("idx_notification_deliveries_clearance").on(
       table.habitatId,
       table.clearAfter,
@@ -146,6 +147,13 @@ export const notificationDeliveryAttempts = sqliteTable(
   (table) => [
     index("idx_notification_attempts_delivery").on(table.deliveryId),
     index("idx_notification_attempts_retry").on(table.channel, table.status, table.nextRetryAt),
+    index("idx_notification_attempts_created_order").on(table.createdAt, table.id, table.deliveryId),
+    index("idx_notification_attempts_channel_created_order").on(
+      table.channel,
+      table.createdAt,
+      table.id,
+      table.deliveryId,
+    ),
   ],
 );
 

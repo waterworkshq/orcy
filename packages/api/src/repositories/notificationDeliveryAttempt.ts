@@ -85,7 +85,70 @@ export function getDeliveryAttemptsByHabitat(
   habitatId: string,
   options: { channel?: NotificationChannel; limit?: number } = {},
 ): NotificationDeliveryAttempt[] {
-  return getDb()
+  const db = getDb();
+  const limit = options.limit ?? 50;
+  if (Number.isSafeInteger(limit) && limit >= 1 && limit <= 100) {
+    // Deferred migrations may leave the original reader usable without these
+    // additive indexes. Check current schema metadata without caching failure;
+    // query/read errors remain visible rather than triggering a silent retry.
+    const indexes = db.get<{ ready: number }>(sql`
+      SELECT COUNT(*) AS ready FROM sqlite_master WHERE type = 'index' AND (
+        (name = 'idx_notification_attempts_created_order' AND tbl_name = 'notification_delivery_attempts') OR
+        (name = 'idx_notification_attempts_channel_created_order' AND tbl_name = 'notification_delivery_attempts') OR
+        (name = 'idx_notification_deliveries_scope_lookup' AND tbl_name = 'notification_deliveries')
+      )
+    `);
+    if (indexes?.ready === 3) {
+      const prefixLimit = Math.max(256, 4 * limit);
+      const chronologyIndex = options.channel === undefined
+        ? sql.raw("idx_notification_attempts_created_order")
+        : sql.raw("idx_notification_attempts_channel_created_order");
+      const channelPredicate = options.channel === undefined
+        ? sql``
+        : sql`WHERE channel = ${options.channel}`;
+      // Only lightweight recent rows enter this relation. CROSS JOIN keeps
+      // those rows outermost, so Habitat filtering uses at most prefixLimit
+      // covered parent lookups rather than scanning the Habitat's deliveries.
+      const prefix = sql`(
+        WITH recent AS MATERIALIZED (
+          SELECT id, delivery_id, created_at
+          FROM notification_delivery_attempts INDEXED BY ${chronologyIndex}
+          ${channelPredicate}
+          ORDER BY created_at DESC, id DESC
+          LIMIT ${prefixLimit}
+        ), matches AS MATERIALIZED (
+          SELECT r.id, r.created_at
+          FROM recent r
+          CROSS JOIN notification_deliveries d INDEXED BY idx_notification_deliveries_scope_lookup
+          WHERE d.id = r.delivery_id AND d.habitat_id = ${habitatId}
+          ORDER BY r.created_at DESC, r.id DESC
+          LIMIT ${limit}
+        )
+        SELECT counts.prefix_count, m.id, m.created_at
+        FROM (SELECT COUNT(*) AS prefix_count FROM recent) counts
+        LEFT JOIN matches m ON 1
+      ) scoped_prefix`;
+      const prefixRows = db
+        .select({
+          prefixCount: sql<number>`scoped_prefix.prefix_count`.mapWith(Number),
+          attempt: getTableColumns(notificationDeliveryAttempts),
+        })
+        .from(prefix)
+        .leftJoin(notificationDeliveryAttempts, eq(notificationDeliveryAttempts.id, sql`scoped_prefix.id`))
+        .orderBy(sql`scoped_prefix.created_at DESC`, sql`scoped_prefix.id DESC`)
+        .all();
+      // Fetch payloads in the same statement as the scope check and preserve
+      // Drizzle's column decoding. The singleton count also represents zero
+      // matches, where the left-joined attempt is null.
+      const attempts = prefixRows.flatMap(row => row.attempt === null ? [] : [row.attempt]);
+      if (attempts.length >= limit || prefixRows[0]!.prefixCount < prefixLimit) {
+        return attempts as unknown as NotificationDeliveryAttempt[];
+      }
+      // A partial prefix cannot answer the query. Discard it and return one
+      // complete fallback statement's snapshot; never merge the two answers.
+    }
+  }
+  return db
     .select(getTableColumns(notificationDeliveryAttempts))
     .from(notificationDeliveryAttempts)
     .innerJoin(notificationDeliveries, eq(notificationDeliveryAttempts.deliveryId, notificationDeliveries.id))
@@ -94,7 +157,7 @@ export function getDeliveryAttemptsByHabitat(
       options.channel === undefined ? undefined : eq(notificationDeliveryAttempts.channel, options.channel),
     ))
     .orderBy(desc(notificationDeliveryAttempts.createdAt), desc(notificationDeliveryAttempts.id))
-    .limit(options.limit ?? 50)
+    .limit(limit)
     .all() as unknown as NotificationDeliveryAttempt[];
 }
 
