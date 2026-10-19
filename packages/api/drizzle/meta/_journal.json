@@ -428,6 +428,13 @@
       "when": 1789021200005,
       "tag": "0084_scheduled_occurrence_history",
       "breakpoints": true
+    },
+    {
+      "idx": 61,
+      "version": "6",
+      "when": 1789021200006,
+      "tag": "0085_notification_monitor_query_indexes",
+      "breakpoints": true
     }
   ]
 }

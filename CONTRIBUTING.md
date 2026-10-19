@@ -48,6 +48,12 @@ This creates a sample board (`Sprint 24`), 11 tasks (10 in Todo + 1 in In Progre
 
 ---
 
+## Optional notification query work check
+
+Run `corepack pnpm --filter @orcy/api test:notification-query-work` to exercise the actual monitor reader against growing native SQLite history. This optional test requires a Unix C compiler (`cc`) and the SQLite headers bundled with `better-sqlite3`; it compiles an owned temporary observer extension and removes it afterward. The extension observes the existing host SQLite connection through its extension API, without linking a second SQLite library. The test checks exact results and SQLite VM-work growth rather than wall-clock thresholds. It is excluded from the default API suite and adds no runtime dependency.
+
+---
+
 ## Project Structure
 
 ```
