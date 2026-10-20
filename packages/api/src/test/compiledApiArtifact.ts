@@ -368,7 +368,17 @@ interface OwnedCompiler {
 
 let activeCompiler: OwnedCompiler | undefined;
 
+/**
+ * A process group may only be signalled when this process actually owns it.
+ * A group id that was never handed out by a successful spawn is refused —
+ * `kill(-1, …)` would signal every process, `kill(1, …)` would signal init.
+ */
+function isOwnedGroup(pgid: number): boolean {
+  return Number.isInteger(pgid) && pgid > 1;
+}
+
 function signalGroup(pgid: number, signal: NodeJS.Signals): void {
+  if (!isOwnedGroup(pgid)) return;
   try {
     // The compiler runs in its own process group, so the whole tree (pnpm →
     // tsc → tsgo) is signalled at once.
@@ -379,6 +389,7 @@ function signalGroup(pgid: number, signal: NodeJS.Signals): void {
 }
 
 function isGroupAlive(pgid: number): boolean {
+  if (!isOwnedGroup(pgid)) return false;
   try {
     process.kill(-pgid, 0);
     return true;
@@ -488,7 +499,16 @@ export async function runOwnedCompiler(invocation: CompilerInvocation): Promise<
     detached: true,
     env: invocation.env ?? process.env,
   });
-  const pgid = child.pid ?? -1;
+  const spawnError = new Promise<Error>((accept) => child.once("error", accept));
+  if (child.pid === undefined) {
+    // The compiler could not be started: no process was created, so there is
+    // NO process group to own and nothing may be signalled.
+    const error = await spawnError;
+    throw new Error(
+      `compiled api build could not be started (${invocation.command}): ${error.message}`,
+    );
+  }
+  const pgid = child.pid;
   const killGraceMs = invocation.killGraceMs ?? KILL_GRACE_MS;
   const owned: OwnedCompiler = { pgid, child, cancelled: false, timedOut: false, killGraceMs };
   activeCompiler = owned;

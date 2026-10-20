@@ -119,87 +119,191 @@ describe("owned compiler tree termination", () => {
 
 describe("cancellation signal during the initial build", () => {
   it("leaves no owned compiler descendant behind", async () => {
-    const vitestBin = join(PACKAGE_ROOT, "node_modules", "vitest", "vitest.mjs");
-    const child = spawn(
+    await expectCancelledRunToLeaveNoCompiler();
+  });
+
+  it("ignores a concurrent foreign process that only looks like a compiler", async () => {
+    // A foreign process that merely carries a staging-shaped path must never
+    // be mistaken for this run's compiler.
+    const foreign = spawn(
       process.execPath,
-      [
-        vitestBin,
-        "run",
-        "src/test/webhookRetryBootSmoke.test.ts",
-        "--maxWorkers=1",
-        "--no-file-parallelism",
-      ],
-      { cwd: PACKAGE_ROOT, stdio: ["ignore", "pipe", "pipe"], detached: true },
+      ["-e", "setInterval(() => {}, 1000)", "--", "/tmp/.compiled-api/.staging-foreign/run-foreign/dist"],
+      { stdio: "ignore" },
     );
-    let output = "";
-    child.stdout?.on("data", (chunk: Buffer) => {
-      output += chunk.toString();
-    });
-    child.stderr?.on("data", (chunk: Buffer) => {
-      output += chunk.toString();
-    });
-
-    const exited = new Promise<{ code: number | null; signal: NodeJS.Signals | null }>((accept) => {
-      child.once("exit", (code, signal) => accept({ code, signal }));
-    });
-
     try {
-      // Wait for the build to be under way: the compiler's command line
-      // carries the staging directory of the run that owns it.
-      const compilerStarted = await waitFor(
-        () => compilerProcesses().length > 0,
-        60_000,
-      );
-      expect(compilerStarted, `no compiler process was observed\n${output}`).toBe(true);
-
-      // Signal the run the way an operator (or CI) would.
-      child.kill("SIGTERM");
-      const exit = await exited;
-
-      // The owned compiler tree must be gone WHEN the run ends, not merely
-      // moments later.
-      const survivors = compilerProcesses();
-      expect(survivors, `compiler tree survived the cancelled run:\n${describeProcesses(survivors)}`).toEqual([]);
-      expect(await waitFor(() => compilerProcesses().length === 0, 5_000)).toBe(true);
-      expect(exit.code ?? exit.signal).toBeTruthy();
+      await expectCancelledRunToLeaveNoCompiler(foreign.pid);
     } finally {
-      if (child.exitCode === null && child.signalCode === null) {
-        try {
-          process.kill(-(child.pid ?? -1), "SIGKILL");
-        } catch {
-          child.kill("SIGKILL");
-        }
-      }
+      foreign.kill("SIGKILL");
     }
-  }, 120_000);
+  }, 180_000);
 });
 
 /**
- * Compiler processes of this repository's shared-build staging directories.
+ * Run a nested Vitest run, cancel it while its build is under way, and
+ * assert that the compiler tree OWNED by that run does not survive it.
  *
- * The staging directory is what distinguishes a compiler from the consumer
- * workers: a consumer's command line carries its LAYOUT path, a compiler's
- * carries the staging directory it is writing into.
+ * Ownership is established by the nested run's own run root (its name carries
+ * the nested run's pid) and by the process ancestry: a foreign process that
+ * looks like a compiler is never part of the ownership set.
  */
-function compilerProcesses(): number[] {
+async function expectCancelledRunToLeaveNoCompiler(foreignPid?: number): Promise<void> {
+  const vitestBin = join(PACKAGE_ROOT, "node_modules", "vitest", "vitest.mjs");
+  const child = spawn(
+    process.execPath,
+    [
+      vitestBin,
+      "run",
+      "src/test/webhookRetryBootSmoke.test.ts",
+      "--maxWorkers=1",
+      "--no-file-parallelism",
+    ],
+    { cwd: PACKAGE_ROOT, stdio: ["ignore", "pipe", "pipe"], detached: true },
+  );
+  let output = "";
+  child.stdout?.on("data", (chunk: Buffer) => {
+    output += chunk.toString();
+  });
+  child.stderr?.on("data", (chunk: Buffer) => {
+    output += chunk.toString();
+  });
+
+  const exited = new Promise<{ code: number | null; signal: NodeJS.Signals | null }>((accept) => {
+    child.once("exit", (code, signal) => accept({ code, signal }));
+  });
+
+  try {
+    const nestedPid = child.pid ?? 0;
+    // The nested run's OWN run root — its name carries the nested run's pid.
+    const runRoot = await waitForRunRoot(nestedPid, 30_000);
+    expect(runRoot, `the nested run created no run root\n${output}`).not.toBe("");
+
+    // Wait for the build to be under way: the compiler is a descendant of the
+    // nested run and writes into the nested run's own staging directory.
+    const owned = await waitForOwnedCompiler(nestedPid, runRoot, 60_000);
+    expect(owned.length, `no owned compiler process was observed\n${output}`).toBeGreaterThan(0);
+    if (foreignPid !== undefined) {
+      expect(owned).not.toContain(foreignPid);
+    }
+
+    // Signal the run the way an operator (or CI) would.
+    child.kill("SIGTERM");
+    const exit = await exited;
+
+    // The owned compiler tree must be gone WHEN the run ends, not merely
+    // moments later. The identity captured above is preserved even though the
+    // nested run's death reparents its descendants.
+    const survivors = [...new Set([...owned, ...processesInRunRoot(runRoot)])].filter(isSurviving);
+    expect(survivors, `compiler tree survived the cancelled run:\n${describeProcesses(survivors)}`).toEqual([]);
+    expect(await waitFor(() => survivorsOf(owned, runRoot).length === 0, 5_000)).toBe(true);
+    expect(exit.code ?? exit.signal).toBeTruthy();
+  } finally {
+    if (child.exitCode === null && child.signalCode === null) {
+      try {
+        process.kill(-(child.pid ?? -1), "SIGKILL");
+      } catch {
+        child.kill("SIGKILL");
+      }
+    }
+  }
+}
+
+/** The run root of the run owned by `pid` (its name carries the owner's pid). */
+function ownedRunRoot(pid: number): string {
+  const runsDir = join(PACKAGE_ROOT, ".compiled-api", "runs");
+  let entries: string[] = [];
+  try {
+    entries = readdirSync(runsDir);
+  } catch {
+    return "";
+  }
+  const entry = entries.find((name) => name.startsWith(`run-${pid}-`));
+  return entry ? join(runsDir, entry) : "";
+}
+
+async function waitForRunRoot(pid: number, timeoutMs: number): Promise<string> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const runRoot = ownedRunRoot(pid);
+    if (runRoot) return runRoot;
+    await new Promise((accept) => setTimeout(accept, 25));
+  }
+  return "";
+}
+
+/**
+ * The compiler processes OWNED by the nested run: descendants of the nested
+ * run that write into the nested run's own run root.
+ */
+function ownedCompilerProcesses(rootPid: number, runRoot: string): number[] {
+  const descendants = descendantsOf(rootPid);
+  return processesInRunRoot(runRoot).filter((pid) => descendants.has(pid));
+}
+
+async function waitForOwnedCompiler(
+  rootPid: number,
+  runRoot: string,
+  timeoutMs: number,
+): Promise<number[]> {
+  const deadline = Date.now() + timeoutMs;
+  let owned: number[] = [];
+  while (Date.now() < deadline) {
+    owned = ownedCompilerProcesses(rootPid, runRoot);
+    if (owned.length > 0) return owned;
+    await new Promise((accept) => setTimeout(accept, 25));
+  }
+  return owned;
+}
+
+/** Every process that writes into the given run root. */
+function processesInRunRoot(runRoot: string): number[] {
   const found: number[] = [];
-  const mine = ancestorPids();
   for (const name of readdirSync("/proc")) {
     if (!/^\d+$/.test(name)) continue;
     const pid = Number(name);
-    // This process and its ancestors are never the compiler tree.
-    if (mine.has(pid)) continue;
-    let cmdline = "";
-    try {
-      cmdline = readFileSync(`/proc/${pid}/cmdline`, "utf8");
-    } catch {
-      continue;
-    }
-    if (!cmdline.includes(".compiled-api")) continue;
-    if (!cmdline.includes(".staging-")) continue;
+    const cmdline = readCmdline(pid);
+    if (!cmdline) continue;
+    if (!cmdline.includes(runRoot)) continue;
     found.push(pid);
   }
   return found;
+}
+
+function survivorsOf(owned: number[], runRoot: string): number[] {
+  return [...new Set([...owned, ...processesInRunRoot(runRoot)])].filter(isSurviving);
+}
+
+/** A process that is still running (a reaped-but-unwaited zombie is not). */
+function isSurviving(pid: number): boolean {
+  try {
+    const state = readFileSync(`/proc/${pid}/stat`, "utf8").split(") ")[1]?.split(" ")[0];
+    return state !== undefined && state !== "Z";
+  } catch {
+    return false;
+  }
+}
+
+/** The descendants of a process, by the parent chain. */
+function descendantsOf(rootPid: number): Set<number> {
+  const parents = new Map<number, number>();
+  for (const name of readdirSync("/proc")) {
+    if (!/^\d+$/.test(name)) continue;
+    const pid = Number(name);
+    parents.set(pid, parentPid(pid));
+  }
+  const descendants = new Set<number>();
+  for (const pid of parents.keys()) {
+    let current = pid;
+    const seen = new Set<number>();
+    while (current > 1 && !seen.has(current)) {
+      seen.add(current);
+      if (current === rootPid) {
+        descendants.add(pid);
+        break;
+      }
+      current = parents.get(current) ?? 0;
+    }
+  }
+  return descendants;
 }
 
 /** Human-readable description of the given processes, for failure output. */
@@ -209,7 +313,7 @@ function describeProcesses(pids: number[]): string {
       let cmdline = "";
       let state = "?";
       try {
-        cmdline = readFileSync(`/proc/${pid}/cmdline`, "utf8").replace(/\0/g, " ");
+        cmdline = readFileSync(`/proc/${pid}/cmdline`, "utf8").split("\0").join(" ");
         state = readFileSync(`/proc/${pid}/stat`, "utf8").split(") ")[1]?.split(" ")[0] ?? "?";
       } catch {
         // The process is gone.
@@ -219,13 +323,12 @@ function describeProcesses(pids: number[]): string {
     .join("\n");
 }
 
-function ancestorPids(): Set<number> {  const ancestors = new Set<number>();
-  let pid = process.pid;
-  while (pid > 1) {
-    ancestors.add(pid);
-    pid = parentPid(pid);
+function readCmdline(pid: number): string {
+  try {
+    return readFileSync(`/proc/${pid}/cmdline`, "utf8");
+  } catch {
+    return "";
   }
-  return ancestors;
 }
 
 function parentPid(pid: number): number {

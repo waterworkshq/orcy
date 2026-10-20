@@ -28,6 +28,7 @@ import {
   publishStagedArtifact,
   reclaimAbandonedCompiledApiRuns,
   resolveCompiledApiArtifact,
+  runOwnedCompiler,
   type CompiledApiRun,
 } from "./compiledApiArtifact.js";
 
@@ -135,6 +136,36 @@ describe("compiled artifact publication", () => {
   it("refuses to resolve without the environment channel", () => {
     delete process.env[COMPILED_API_ARTIFACT_ENV];
     expect(() => resolveCompiledApiArtifact()).toThrow(/was not published/);
+  });
+});
+
+describe("compiler process-group ownership", () => {
+  it("never signals a process group when the compiler cannot be started", async () => {
+    const signals: { pid: number; signal: unknown }[] = [];
+    const originalKill = process.kill;
+    process.kill = ((pid: number, signal?: string | number) => {
+      signals.push({ pid, signal });
+      return true;
+    }) as typeof process.kill;
+    let failure: unknown;
+    try {
+      await runOwnedCompiler({
+        command: "/nonexistent-orcy-review-compiler",
+        args: [],
+        timeoutMs: 5_000,
+        killGraceMs: 1,
+      });
+    } catch (error) {
+      failure = error;
+    } finally {
+      process.kill = originalKill;
+    }
+
+    // A failed spawn registers no process group: PID 1 (init) and PID 0
+    // ("every process this user may signal") must never be signalled.
+    expect(signals.filter((entry) => entry.pid <= 1)).toEqual([]);
+    expect(signals).toEqual([]);
+    expect(String((failure as Error)?.message ?? failure)).toMatch(/could not be started/);
   });
 });
 
