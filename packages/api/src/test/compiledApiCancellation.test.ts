@@ -158,7 +158,8 @@ describe("cancellation signal during the initial build", () => {
 
       // The owned compiler tree must be gone WHEN the run ends, not merely
       // moments later.
-      expect(compilerProcesses()).toEqual([]);
+      const survivors = compilerProcesses();
+      expect(survivors, `compiler tree survived the cancelled run:\n${describeProcesses(survivors)}`).toEqual([]);
       expect(await waitFor(() => compilerProcesses().length === 0, 5_000)).toBe(true);
       expect(exit.code ?? exit.signal).toBeTruthy();
     } finally {
@@ -173,7 +174,13 @@ describe("cancellation signal during the initial build", () => {
   }, 120_000);
 });
 
-/** Compiler processes of this repository's shared-build staging directories. */
+/**
+ * Compiler processes of this repository's shared-build staging directories.
+ *
+ * The staging directory is what distinguishes a compiler from the consumer
+ * workers: a consumer's command line carries its LAYOUT path, a compiler's
+ * carries the staging directory it is writing into.
+ */
 function compilerProcesses(): number[] {
   const found: number[] = [];
   const mine = ancestorPids();
@@ -189,13 +196,30 @@ function compilerProcesses(): number[] {
       continue;
     }
     if (!cmdline.includes(".compiled-api")) continue;
+    if (!cmdline.includes(".staging-")) continue;
     found.push(pid);
   }
   return found;
 }
 
-function ancestorPids(): Set<number> {
-  const ancestors = new Set<number>();
+/** Human-readable description of the given processes, for failure output. */
+function describeProcesses(pids: number[]): string {
+  return pids
+    .map((pid) => {
+      let cmdline = "";
+      let state = "?";
+      try {
+        cmdline = readFileSync(`/proc/${pid}/cmdline`, "utf8").replace(/\0/g, " ");
+        state = readFileSync(`/proc/${pid}/stat`, "utf8").split(") ")[1]?.split(" ")[0] ?? "?";
+      } catch {
+        // The process is gone.
+      }
+      return `  ${pid} [${state}] ${cmdline}`;
+    })
+    .join("\n");
+}
+
+function ancestorPids(): Set<number> {  const ancestors = new Set<number>();
   let pid = process.pid;
   while (pid > 1) {
     ancestors.add(pid);
