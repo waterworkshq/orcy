@@ -11,21 +11,27 @@
  *  3. when a consumer is selected it compiles ONCE into a private staging
  *     directory and publishes it atomically, then hands the published path to
  *     the workers through the environment channel;
- *  4. on a watch rerun it republishes only when the production inputs
- *     changed — a test-only edit never rebuilds.
+ *  4. it registers the production-input watch trigger for the selected
+ *     consumers, so a watch cycle republishes only when a production input
+ *     changed — a test-only edit never rebuilds;
+ *  5. it installs the cancellation handlers BEFORE any compile starts, so a
+ *     signal during the initial build terminates and awaits the owned
+ *     compiler tree instead of leaking it.
  */
 import { readFileSync } from "node:fs";
 import { relative } from "node:path";
 import { parseCLI, type TestProject } from "vitest/node";
 import {
   COMPILED_API_ARTIFACT_ENV,
+  CompiledApiCancelledError,
   computeCompiledApiInputHash,
   createCompiledApiRun,
   finalizeCompiledApiRun,
-  killActiveApiCompiler,
   publishCompiledApiArtifact,
   reclaimAbandonedCompiledApiRuns,
   startCompiledApiHeartbeat,
+  terminateActiveApiCompilerTree,
+  compiledApiProductionInputPattern,
   type CompiledApiArtifact,
 } from "./compiledApiArtifact.js";
 
@@ -61,11 +67,27 @@ export default async function setup(project: TestProject): Promise<() => void> {
   const run = createCompiledApiRun();
   const stopHeartbeat = startCompiledApiHeartbeat(run);
 
+  // Cancellation handlers are installed BEFORE the first compile: a signal
+  // during the initial build must terminate and await the owned compiler
+  // tree. `prependListener` puts them ahead of Vitest's own handler, which
+  // exits the process a millisecond after the signal.
+  const onSigint = (): void => {
+    process.exitCode = 130;
+    terminateActiveApiCompilerTree();
+  };
+  const onSigterm = (): void => {
+    process.exitCode = 143;
+    terminateActiveApiCompilerTree();
+  };
+  process.prependListener("SIGINT", onSigint);
+  process.prependListener("SIGTERM", onSigterm);
+
   const { testFiles } = await project.globTestFiles(cliFilters());
   const consumers = testFiles
     .filter(isCompiledConsumer)
     .map((file) => relative(project.config.root, file))
     .toSorted();
+  const consumerFiles = testFiles.filter(isCompiledConsumer);
 
   let artifact: CompiledApiArtifact | undefined;
   if (consumers.length > 0) {
@@ -76,6 +98,12 @@ export default async function setup(project: TestProject): Promise<() => void> {
       // surface the failure before any test executes.
       stopHeartbeat();
       finalizeCompiledApiRun(run, consumers, startedAt);
+      if (error instanceof CompiledApiCancelledError) {
+        // The run was cancelled by a signal: end it the way the signal means
+        // instead of reporting a failed build.
+        console.error(`[compiled-api] ${error.message}`);
+        process.exit(process.exitCode ?? 143);
+      }
       throw error;
     }
     process.env[COMPILED_API_ARTIFACT_ENV] = artifact.publishedPath;
@@ -86,7 +114,32 @@ export default async function setup(project: TestProject): Promise<() => void> {
     console.log("[compiled-api] no compiled consumer selected — nothing was compiled");
   }
 
-  // Watch contract: a rerun republishes only when a production input changed.
+  // Watch contract — two halves:
+  //
+  //  a) Vitest's own source-import graph does not know that a compiled
+  //     consumer depends on the COMPILED output, so a change to a
+  //     compiled-only production file schedules no rerun at all. The trigger
+  //     below connects the production inputs to the selected consumers.
+  //  b) The rebuild happens in `onTestsRerun`, which Vitest awaits before it
+  //     dispatches the rerun — so a consumer never executes against a stale
+  //     artifact.
+  const productionInputPattern = compiledApiProductionInputPattern();
+  project.vitest.config.watchTriggerPatterns = [
+    ...(project.vitest.config.watchTriggerPatterns ?? []),
+    {
+      pattern: productionInputPattern,
+      testsToRun: () => consumerFiles,
+    },
+  ];
+
+  // A DELETED input is not routed through Vitest's trigger machinery, so it
+  // is routed explicitly to schedule the consumer rerun.
+  const onProductionInputRemoved = (file: string): void => {
+    if (!productionInputPattern.test(file)) return;
+    project.vitest.watcher.onFileChange(file);
+  };
+  project.vite.watcher.on("unlink", onProductionInputRemoved);
+
   project.onTestsRerun(async () => {
     if (!artifact) return;
     const inputHash = computeCompiledApiInputHash();
@@ -96,17 +149,12 @@ export default async function setup(project: TestProject): Promise<() => void> {
     console.log(`[compiled-api] republished for changed production inputs (${inputHash.slice(0, 12)})`);
   });
 
-  // Graceful cancellation terminates the owned compiler tree.
-  const onSignal = (): void => {
-    killActiveApiCompiler("SIGTERM");
-    setTimeout(() => killActiveApiCompiler("SIGKILL"), 5_000).unref?.();
-  };
-  process.on("SIGINT", onSignal);
-  process.on("SIGTERM", onSignal);
-
   return () => {
-    process.off("SIGINT", onSignal);
-    process.off("SIGTERM", onSignal);
+    project.vite.watcher.off("unlink", onProductionInputRemoved);
+    process.off("SIGINT", onSigint);
+    process.off("SIGTERM", onSigterm);
+    // Nothing this process owns may outlive the run.
+    terminateActiveApiCompilerTree();
     stopHeartbeat();
     const proof = finalizeCompiledApiRun(run, consumers, startedAt);
     console.log(

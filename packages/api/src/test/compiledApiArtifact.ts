@@ -75,6 +75,17 @@ const HEARTBEAT_INTERVAL_MS = 5_000;
 const HEARTBEAT_STALE_MS = 120_000;
 /** Grace period between SIGTERM and SIGKILL for the owned compiler tree. */
 const KILL_GRACE_MS = 5_000;
+/** Grace period used when a cancellation signal has to end the run. */
+const SIGNAL_TERM_GRACE_MS = 1_500;
+const SIGNAL_KILL_GRACE_MS = 2_000;
+
+/** Raised when the owner cancelled a build. */
+export class CompiledApiCancelledError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "CompiledApiCancelledError";
+  }
+}
 
 export interface CompiledApiArtifact {
   /** The published path carried by the environment channel. */
@@ -200,6 +211,33 @@ export function computeCompiledApiInputHash(): string {
   return hash.digest("hex");
 }
 
+/** Escape a path for use inside a regular expression. */
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/**
+ * Pattern matching every production input of the api build: the compiled
+ * sources and the effective tsconfig chain.
+ *
+ * It is a PREFIX pattern, not an enumeration, so a newly added source file
+ * matches as well. Test-only sources (`src/test/**`) never match — a
+ * test-only edit must not invalidate the published artifact.
+ */
+export function compiledApiProductionInputPattern(): RegExp {
+  const packageRoot = escapeRegExp(PACKAGE_ROOT);
+  const workspaceRoot = escapeRegExp(WORKSPACE_ROOT);
+  return new RegExp(
+    [
+      // Compiled sources (everything under src/ except the test tree).
+      `^${packageRoot}/src/(?!test/)(?!.*\\.test\\.ts$)`,
+      // The effective tsconfig chain.
+      `^${packageRoot}/tsconfig[^/]*\\.json$`,
+      `^${workspaceRoot}/tsconfig[^/]*\\.json$`,
+    ].join("|"),
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Run roots, ownership and reclamation
 // ---------------------------------------------------------------------------
@@ -311,54 +349,149 @@ interface CompileOutcome {
   stdout: string;
   stderr: string;
   durationMs: number;
+  /** The build was cancelled by the owner. */
+  cancelled: boolean;
+  /** The build exceeded its time budget and was terminated. */
+  timedOut: boolean;
 }
 
-let activeCompiler: ChildProcess | undefined;
-
-/**
- * Terminate the compiler tree this process owns. Used by graceful
- * cancellation so an interrupted run leaves no compiler behind.
- */
-export function killActiveApiCompiler(signal: NodeJS.Signals = "SIGTERM"): void {
-  if (!activeCompiler) return;
-  signalProcessTree(activeCompiler, signal);
+/** The compiler tree this process owns while a compile is in flight. */
+interface OwnedCompiler {
+  /** Process-group id of the compiler tree (the detached child's pid). */
+  pgid: number;
+  child: ChildProcess;
+  cancelled: boolean;
+  timedOut: boolean;
+  /** Grace period between SIGTERM and SIGKILL for this tree. */
+  killGraceMs: number;
 }
 
-function signalProcessTree(child: ChildProcess, signal: NodeJS.Signals): void {
-  if (child.pid === undefined) return;
+let activeCompiler: OwnedCompiler | undefined;
+
+function signalGroup(pgid: number, signal: NodeJS.Signals): void {
   try {
     // The compiler runs in its own process group, so the whole tree (pnpm →
     // tsc → tsgo) is signalled at once.
-    process.kill(-child.pid, signal);
+    process.kill(-pgid, signal);
   } catch {
-    try {
-      child.kill(signal);
-    } catch {
-      // Already gone.
-    }
+    // The group is already gone.
   }
 }
 
+function isGroupAlive(pgid: number): boolean {
+  try {
+    process.kill(-pgid, 0);
+    return true;
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code !== "ESRCH";
+  }
+}
+
+const sleepBuffer = new Int32Array(new SharedArrayBuffer(4));
+
+function sleepSync(ms: number): void {
+  Atomics.wait(sleepBuffer, 0, 0, ms);
+}
+
+/** Wait (without blocking the event loop) until the compiler group is empty. */
+async function waitForGroupExit(pgid: number, timeoutMs: number): Promise<boolean> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (!isGroupAlive(pgid)) return true;
+    await new Promise((accept) => setTimeout(accept, 25));
+  }
+  return !isGroupAlive(pgid);
+}
+
+/** Wait (blocking the event loop) until the compiler group is empty. */
+function waitForGroupExitSync(pgid: number, timeoutMs: number): boolean {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (!isGroupAlive(pgid)) return true;
+    sleepSync(25);
+  }
+  return !isGroupAlive(pgid);
+}
+
 /**
- * Compile the api package into `stagingDist` and await the compiler tree.
- * A build timeout or a graceful cancellation terminates AND awaits the owned
- * compiler processes instead of leaving them behind.
+ * Terminate the compiler group and make sure nothing survives it.
+ *
+ * The group is signalled, then escalated to SIGKILL, and the group is only
+ * released once it is empty — a descendant that ignores SIGTERM must not
+ * outlive the build it belongs to.
  */
-export async function compileApiInto(stagingDist: string): Promise<CompileOutcome> {
+async function terminateGroup(pgid: number, graceMs: number): Promise<void> {
+  if (!isGroupAlive(pgid)) return;
+  signalGroup(pgid, "SIGTERM");
+  if (await waitForGroupExit(pgid, graceMs)) return;
+  signalGroup(pgid, "SIGKILL");
+  await waitForGroupExit(pgid, graceMs);
+}
+
+/**
+ * Ask the compiler tree this process owns to stop. Used by graceful
+ * cancellation so an interrupted run leaves no compiler behind.
+ */
+export function cancelActiveApiCompiler(signal: NodeJS.Signals = "SIGTERM"): void {
+  if (!activeCompiler) return;
+  activeCompiler.cancelled = true;
+  const pgid = activeCompiler.pgid;
+  const grace = activeCompiler.killGraceMs;
+  signalGroup(pgid, signal);
+  // Escalate if the tree does not go away on its own.
+  setTimeout(() => signalGroup(pgid, "SIGKILL"), grace).unref?.();
+}
+
+/**
+ * Terminate the owned compiler tree and WAIT for it, without blocking the
+ * event loop for longer than the escalation budget. This is the path a
+ * cancellation signal takes: the process must not be able to exit while a
+ * compiler descendant is still alive.
+ */
+export function terminateActiveApiCompilerTree(graceMs?: number): void {
+  if (!activeCompiler) return;
+  const pgid = activeCompiler.pgid;
+  activeCompiler.cancelled = true;
+  signalGroup(pgid, "SIGTERM");
+  if (waitForGroupExitSync(pgid, graceMs ?? SIGNAL_TERM_GRACE_MS)) return;
+  signalGroup(pgid, "SIGKILL");
+  waitForGroupExitSync(pgid, SIGNAL_KILL_GRACE_MS);
+}
+
+/** A compiler invocation owned by this process. */
+export interface CompilerInvocation {
+  command: string;
+  args: string[];
+  cwd?: string;
+  env?: NodeJS.ProcessEnv;
+  /** Time budget for the whole compiler tree. */
+  timeoutMs?: number;
+  /** Grace period between SIGTERM and SIGKILL for this tree. */
+  killGraceMs?: number;
+}
+
+/**
+ * Run an owned compiler tree and await its COMPLETE termination.
+ *
+ * The compiler is spawned detached, so it leads its own process group and the
+ * group can be terminated as a unit. The tree is only released once the
+ * group is empty: a descendant that survives the direct child's exit (for
+ * example because it ignores SIGTERM) is escalated to SIGKILL and awaited
+ * before this call settles.
+ */
+export async function runOwnedCompiler(invocation: CompilerInvocation): Promise<CompileOutcome> {
   const startedAt = Date.now();
-  const child = spawn(
-    "corepack",
-    ["pnpm", "--filter", "@orcy/api", "build", "--outDir", stagingDist],
-    {
-      cwd: WORKSPACE_ROOT,
-      stdio: ["ignore", "pipe", "pipe"],
-      detached: true,
-      env: {
-        ...process.env,
-        NODE_OPTIONS: `${process.env.NODE_OPTIONS ?? ""} --max-old-space-size=2048`.trim(),
-      },
-    },
-  );
+  const timeoutMs = invocation.timeoutMs ?? BUILD_TIMEOUT_MS;
+  const child = spawn(invocation.command, invocation.args, {
+    cwd: invocation.cwd ?? WORKSPACE_ROOT,
+    stdio: ["ignore", "pipe", "pipe"],
+    detached: true,
+    env: invocation.env ?? process.env,
+  });
+  const pgid = child.pid ?? -1;
+  const killGraceMs = invocation.killGraceMs ?? KILL_GRACE_MS;
+  const owned: OwnedCompiler = { pgid, child, cancelled: false, timedOut: false, killGraceMs };
+  activeCompiler = owned;
 
   let stdout = "";
   let stderr = "";
@@ -369,13 +502,11 @@ export async function compileApiInto(stagingDist: string): Promise<CompileOutcom
     stderr = (stderr + chunk.toString()).slice(-16_384);
   });
 
-  activeCompiler = child;
-  let timedOut = false;
   const timer = setTimeout(() => {
-    timedOut = true;
-    signalProcessTree(child, "SIGTERM");
-    setTimeout(() => signalProcessTree(child, "SIGKILL"), KILL_GRACE_MS).unref?.();
-  }, BUILD_TIMEOUT_MS);
+    owned.timedOut = true;
+    signalGroup(pgid, "SIGTERM");
+    setTimeout(() => signalGroup(pgid, "SIGKILL"), killGraceMs).unref?.();
+  }, timeoutMs);
   timer.unref?.();
 
   const exit = await new Promise<{ code: number | null; signal: NodeJS.Signals | null }>(
@@ -385,11 +516,28 @@ export async function compileApiInto(stagingDist: string): Promise<CompileOutcom
     },
   );
   clearTimeout(timer);
-  activeCompiler = undefined;
 
-  if (timedOut) {
+  // The direct child is gone; the group may still hold descendants.
+  await terminateGroup(pgid, killGraceMs);
+  if (activeCompiler === owned) activeCompiler = undefined;
+
+  const outcome: CompileOutcome = {
+    code: exit.code,
+    signal: exit.signal,
+    stdout,
+    stderr,
+    durationMs: Date.now() - startedAt,
+    cancelled: owned.cancelled,
+    timedOut: owned.timedOut,
+  };
+  if (outcome.timedOut) {
     throw new Error(
-      `compiled api build exceeded ${BUILD_TIMEOUT_MS}ms and was terminated\nstdout:\n${stdout}\nstderr:\n${stderr}`,
+      `compiled api build exceeded ${timeoutMs}ms and was terminated\nstdout:\n${stdout}\nstderr:\n${stderr}`,
+    );
+  }
+  if (outcome.cancelled) {
+    throw new CompiledApiCancelledError(
+      `compiled api build was cancelled and its compiler tree was terminated\nstdout:\n${stdout}\nstderr:\n${stderr}`,
     );
   }
   if (exit.code !== 0) {
@@ -397,7 +545,24 @@ export async function compileApiInto(stagingDist: string): Promise<CompileOutcom
       `compiled api build failed (code=${exit.code} signal=${exit.signal})\nstdout:\n${stdout}\nstderr:\n${stderr}`,
     );
   }
-  return { code: exit.code, signal: exit.signal, stdout, stderr, durationMs: Date.now() - startedAt };
+  return outcome;
+}
+
+/**
+ * Compile the api package into `stagingDist` and await the compiler tree.
+ * A build timeout or a graceful cancellation terminates AND awaits the owned
+ * compiler processes instead of leaving them behind.
+ */
+export async function compileApiInto(stagingDist: string): Promise<CompileOutcome> {
+  return runOwnedCompiler({
+    command: "corepack",
+    args: ["pnpm", "--filter", "@orcy/api", "build", "--outDir", stagingDist],
+    cwd: WORKSPACE_ROOT,
+    env: {
+      ...process.env,
+      NODE_OPTIONS: `${process.env.NODE_OPTIONS ?? ""} --max-old-space-size=2048`.trim(),
+    },
+  });
 }
 
 /**
