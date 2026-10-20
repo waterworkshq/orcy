@@ -1,12 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { execFileSync } from "node:child_process";
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
-import { useCompiledApi } from "./compiledApiFixture.js";
+import { join } from "node:path";
+import { createInstalledApiLayout } from "./compiledApiLayout.js";
 
-const compiled = useCompiledApi();
-const packageRoot = resolve(import.meta.dirname, "..", "..");
 let ownedDirectory = "";
 beforeEach(() => { ownedDirectory = mkdtempSync(join(tmpdir(), "orcy-notification-startup-")); });
 afterEach(() => { if (ownedDirectory) rmSync(ownedDirectory, { recursive: true, force: true }); });
@@ -30,14 +28,9 @@ interface StartupReport {
   };
 }
 function runInstalled(mode: "post-push-before-indexes" | "dirty-additive-startup" | "upgrade-indexes"): StartupReport {
-  const installed = join(ownedDirectory, "installed");
-  mkdirSync(installed, { recursive: true });
   // Real copies are required: a symlink resolves back into the workspace and
   // would select its current journal instead of this installed-layout fixture.
-  cpSync(compiled.distDir, join(installed, "dist"), { recursive: true });
-  cpSync(join(packageRoot, "drizzle"), join(installed, "drizzle"), { recursive: true });
-  cpSync(join(packageRoot, "package.json"), join(installed, "package.json"));
-  symlinkSync(join(packageRoot, "node_modules"), join(installed, "node_modules"), "dir");
+  const installed = createInstalledApiLayout({ root: ownedDirectory }).packageDir;
   const reportPath = join(ownedDirectory, "report.json");
   try {
     execFileSync(process.execPath, [join(import.meta.dirname, "fixtures", "notification-query-startup.mjs"),

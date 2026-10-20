@@ -1,42 +1,28 @@
 import { beforeAll, afterAll } from "vitest";
-import { execFileSync } from "node:child_process";
-import { copyFileSync, mkdirSync, mkdtempSync, rmSync, symlinkSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { createWorkspaceApiLayout, type CompiledApiLayout } from "./compiledApiLayout.js";
 
-const PACKAGE_ROOT = resolve(import.meta.dirname, "..", "..");
-const WORKSPACE_ROOT = resolve(PACKAGE_ROOT, "..", "..");
-
-/** One native compiler output per suite, kept intact until its children exit. */
+/**
+ * Fixture façade over the compiled-artifact seam.
+ *
+ * The fixture used to compile the api package once per consuming test file —
+ * eleven concurrent compilers in a default-parallelism run. It now arranges
+ * the run's single shared compiled artifact into a private workspace layout.
+ *
+ * The seam contract holds: publishing lives in the artifact module, layout
+ * lives in the layout module, and this façade never compiles anything.
+ */
 export function useCompiledApi(): { distDir: string; entrypoint: string } {
   const fixture = { distDir: "", entrypoint: "" };
-  let packageDir: string | undefined;
+  let layout: CompiledApiLayout | undefined;
 
   beforeAll(() => {
-    // Stay inside the workspace for the workspace migration branch, and
-    // inside ignored dist/ so the fixture never becomes a source input.
-    mkdirSync(join(PACKAGE_ROOT, "dist"), { recursive: true });
-    packageDir = mkdtempSync(join(PACKAGE_ROOT, "dist", ".startup-"));
-    fixture.distDir = join(packageDir, "dist");
-    fixture.entrypoint = join(fixture.distDir, "index.js");
-    try {
-      // Compile directly here: copying shared dist/ can snapshot a concurrent
-      // emitter's truncated file. Corepack follows the root packageManager pin.
-      execFileSync("corepack", ["pnpm", "--filter", "@orcy/api", "build", "--outDir", fixture.distDir], {
-        cwd: WORKSPACE_ROOT,
-        stdio: "pipe",
-        timeout: 120_000,
-      });
-      copyFileSync(join(PACKAGE_ROOT, "package.json"), join(packageDir, "package.json"));
-      symlinkSync(join(PACKAGE_ROOT, "drizzle"), join(packageDir, "drizzle"), "dir");
-      symlinkSync(join(PACKAGE_ROOT, "node_modules"), join(packageDir, "node_modules"), "dir");
-    } catch (error) {
-      rmSync(packageDir, { recursive: true, force: true });
-      throw error;
-    }
+    layout = createWorkspaceApiLayout();
+    fixture.distDir = layout.distDir;
+    fixture.entrypoint = layout.entrypoint;
   }, 120_000);
 
   afterAll(() => {
-    if (packageDir) rmSync(packageDir, { recursive: true, force: true });
+    layout?.cleanup();
   });
 
   return fixture;

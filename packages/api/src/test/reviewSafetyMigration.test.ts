@@ -12,16 +12,15 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { execFileSync } from "node:child_process";
 import { createHash, randomBytes } from "node:crypto";
-import { cpSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import Database from "better-sqlite3";
 import { eq } from "drizzle-orm";
 import { closeDb, initDb, getDb } from "../db/index.js";
 import * as schema from "../db/schema/index.js";
-import { useCompiledApi } from "./compiledApiFixture.js";
+import { createInstalledApiLayout } from "./compiledApiLayout.js";
 import { getRequirementWithClient, endOwnershipWithClient } from "../repositories/reviewSafety.js";
 
 const PACKAGE_ROOT = join(import.meta.dirname, "..", "..");
-const compiled = useCompiledApi();
 const DRIZZLE_DIR = join(PACKAGE_ROOT, "drizzle");
 const TARGET_TAG = "0082_task_review_safety";
 const journal = JSON.parse(readFileSync(join(DRIZZLE_DIR, "meta", "_journal.json"), "utf8")) as {
@@ -70,13 +69,9 @@ describe("0082 legacy migration classifier (real production upgrade)", () => {
     expect(targetIndex).toBeGreaterThan(0);
     ownedDirectory = mkdtempSync(join(tmpdir(), "orcy-review-safety-upgrade-"));
     dbPath = join(ownedDirectory, "legacy.db");
-    const installed = join(ownedDirectory, "installed");
+    const installed = createInstalledApiLayout({ root: ownedDirectory }).packageDir;
     // Real copies outside workspace lookup select this owned legacy journal.
     // No current-schema DDL is dropped and no migration ledger is rewound.
-    cpSync(compiled.distDir, join(installed, "dist"), { recursive: true });
-    cpSync(DRIZZLE_DIR, join(installed, "drizzle"), { recursive: true });
-    cpSync(join(PACKAGE_ROOT, "package.json"), join(installed, "package.json"));
-    symlinkSync(join(PACKAGE_ROOT, "node_modules"), join(installed, "node_modules"), "dir");
     writeFileSync(join(installed, "drizzle/meta/_journal.json"), JSON.stringify({
       ...journal, entries: journal.entries.slice(0, targetIndex),
     }));
