@@ -3,6 +3,7 @@ import { readBoundedResponseText } from "../../utils/readBoundedResponseText.js"
 import { signPayload } from "../../utils/webhookSigning.js";
 import { fetchValidated, filterUnsafeHeaders, UrlRejectedError } from "../../config/integrationSecurity.js";
 import { logger } from "../../lib/logger.js";
+import { workerTickMs } from "../../lib/workerTick.js";
 import type { WebhookSubscription } from "./webhook-subscriptions.js";
 import {
   claimWebhookDeliveryForRetry,
@@ -400,18 +401,22 @@ export async function processWebhookRetryQueue(
 }
 
 /**
- * Starts the background interval that processes pending webhook retries.
+ * Starts the background interval that processes pending webhook retries
+ * (default 60 s tick, shrunk by the test-only `ORCY_TEST_TICK_MS` override).
  * The first pass fires one tick after start (never synchronously — the boot
- * callback may run before the DB is initialized).
+ * callback may run before the DB is initialized). At the production cadence
+ * initDb() has completed by the first pass; a shrunk test tick may fire one
+ * pre-init pass, whose rejection is swallowed by the tick's catch and
+ * recovered by the next tick.
  */
-export function startRetryProcessor(intervalMs: number = WEBHOOK_RETRY_TICK_MS): void {
+export function startRetryProcessor(intervalMs?: number): void {
   if (retryInterval) return;
   generation += 1;
   retryInterval = setInterval(() => {
     void processWebhookRetryQueue().catch((err) => {
       logger.error({ err }, "Webhook retry tick failed");
     });
-  }, intervalMs);
+  }, intervalMs ?? workerTickMs(WEBHOOK_RETRY_TICK_MS));
 }
 
 /**
