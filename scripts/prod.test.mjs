@@ -17,12 +17,34 @@ function stub(logPath, line, exitCode = 0) {
   return `node -e "require('fs').appendFileSync('${logPath}','${line}\\n');process.exit(${exitCode})"`;
 }
 
-async function runProd(logPath, buildExitCode) {
+// A stub that waits for a sentinel line before logging its own: the runner
+// kills the sibling's process group as soon as ONE service exits, so without
+// the chain the first stub to exit can terminate the other before it logs.
+function stubAfter(logPath, waitFor, line, exitAfter = null) {
+  const tail =
+    exitAfter === null
+      ? ""
+      : ` while (!fs.readFileSync(log, "utf8").includes(${JSON.stringify(exitAfter)})) { ` +
+        `if (Date.now() > deadline) process.exit(1); ` +
+        `Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 25); }`;
+  return (
+    `node -e 'const fs = require("fs"); const log = ${JSON.stringify(logPath)}; ` +
+    `const deadline = Date.now() + 10_000; ` +
+    `while (!fs.readFileSync(log, "utf8").includes(${JSON.stringify(waitFor)})) { ` +
+    `if (Date.now() > deadline) process.exit(1); ` +
+    `Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 25); } ` +
+    `fs.appendFileSync(log, ${JSON.stringify(line + "\n")});${tail}'`
+  );
+}
+
+async function runProd(logPath, buildExitCode, overrides = {}) {
   const env = {
     ...process.env,
     ORCY_PROD_BUILD: stub(logPath, "build", buildExitCode),
-    ORCY_PROD_API: stub(logPath, "api_started"),
-    ORCY_PROD_UI: stub(logPath, "ui_started"),
+    // The API stub stays up until the UI has logged, so the first service
+    // exit (UI's) can never kill the API group before both lines exist.
+    ORCY_PROD_API: overrides.api ?? stubAfter(logPath, "build", "api_started", "ui_started"),
+    ORCY_PROD_UI: overrides.ui ?? stubAfter(logPath, "api_started", "ui_started"),
   };
   try {
     await execFileAsync("node", [prodScript], { env });
@@ -68,13 +90,7 @@ test("a service exit terminates the sibling's whole process group, grandchildren
     `const grandchild = spawn(process.execPath, ["-e", "setInterval(() => {}, 1 << 30)"], { stdio: "ignore" }); ` +
     `require("fs").appendFileSync(${JSON.stringify(logPath)}, "api_started grandchild " + grandchild.pid + "\\n"); ` +
     `setInterval(() => {}, 1 << 30);'`;
-  const uiStub =
-    `node -e 'const fs = require("fs"); const log = ${JSON.stringify(logPath)}; ` +
-    `const deadline = Date.now() + 10_000; ` +
-    `while (!fs.readFileSync(log, "utf8").includes("api_started")) { ` +
-    `if (Date.now() > deadline) process.exit(1); ` +
-    `Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 25); } ` +
-    `fs.appendFileSync(log, "ui_started\\n");'`;
+  const uiStub = stubAfter(logPath, "api_started", "ui_started");
   const env = {
     ...process.env,
     ORCY_PROD_BUILD: stub(logPath, "build"),
