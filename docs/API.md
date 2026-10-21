@@ -725,6 +725,8 @@ returned.
 
 Missions are the habitat-level cards. They represent goals that flow through columns. Each mission contains tasks that orcys work on. Mission status is auto-derived from child task states.
 
+> **Administrative boundary — Mission dependency routes.** The five Mission dependency operations (`GET/POST /missions/:missionId/dependencies`, `DELETE /missions/:missionId/dependencies/:depId`, `GET /missions/:missionId/blocked-status`, `GET /missions/:missionId/dependency-graph`) resolve the **target Mission's** actual Habitat (a missing Mission is `404`) and run the shared habitat-membership check before any projection or write: agents pass on any existing habitat (broad local-agent admission is intentional), personal habitats admit any authenticated human, and on team habitats a nonmember human receives **`403`** with no linked Mission metadata disclosed. Reads additionally authorize **every linked Mission** the response would disclose — both dependency directions from a raw both-direction inventory (an inaccessible linked Mission denies the whole read `403`), each `blockedBy` Mission of a blocked-status response, and every traversed node of the dependency graph. Writes authorize only the selected ordered pair's both actual endpoints; a duplicate `POST` is `409` `already_exists` (exactly one edge remains) and an absent `DELETE` pair is `404`. Admission is at request time only — the same request-time model as the Task dependency boundary above (no membership-revocation or ABA fencing).
+
 ### Mission Status Values
 
 | Status | Condition |

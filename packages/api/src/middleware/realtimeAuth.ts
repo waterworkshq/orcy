@@ -152,6 +152,18 @@ export async function authorizeMissionAccess(
 ): Promise<void> {
   const missionId = (request.params as { missionId?: string }).missionId;
   if (!missionId) return;
+  return authorizeMissionAccessById(request, missionId);
+}
+
+/**
+ * Parameterized form of {@link authorizeMissionAccess} for handlers that
+ * authorize a mission id they hold in hand — the target of the request or a
+ * linked mission surfaced by a read — rather than the path param.
+ */
+export async function authorizeMissionAccessById(
+  request: FastifyRequest,
+  missionId: string,
+): Promise<void> {
   const mission = getMissionById(missionId);
   if (!mission) {
     throw notFound("Mission not found");

@@ -4,7 +4,7 @@ import * as dependencyRepo from '../repositories/dependency.js';
 import * as taskRepo from '../repositories/task.js';
 import { badRequest, notFound, conflict, serviceUnavailable } from '../errors.js';
 import { applyDeclaredAuthPolicies } from "../authPolicy.js";
-import { authorizeTaskAccess } from '../middleware/realtimeAuth.js';
+import { authorizeTaskAccess, authorizeMissionAccessById } from '../middleware/realtimeAuth.js';
 
 function sameEndpointIds(projected: string[], inventoried: string[]): boolean {
   if (projected.length !== inventoried.length) return false;
@@ -39,6 +39,38 @@ async function authorizeTaskEdgesAndProject(
       ) &&
       sameEndpointIds(
         projection.blocking.map((row) => row.taskId),
+        edges.incoming,
+      )
+    ) {
+      return projection;
+    }
+  }
+  throw serviceUnavailable('Dependency state changed during read; retry');
+}
+
+/**
+ * Mission analogue of {@link authorizeTaskEdgesAndProject}: authorizes every
+ * raw linked mission of `missionId` (both directions, dangling edges
+ * included), then returns the joined projection, revalidating once if the two
+ * reads disagree and otherwise failing closed.
+ */
+async function authorizeMissionEdgesAndProject(
+  request: FastifyRequest,
+  missionId: string,
+): Promise<dependencyRepo.MissionDependencyDetails> {
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const edges = dependencyRepo.getMissionDependencyEdgeIds(missionId);
+    for (const linkedId of new Set([...edges.outgoing, ...edges.incoming])) {
+      await authorizeMissionAccessById(request, linkedId);
+    }
+    const projection = dependencyService.getMissionDependencies(missionId);
+    if (
+      sameEndpointIds(
+        projection.dependsOn.map((row) => row.missionId),
+        edges.outgoing,
+      ) &&
+      sameEndpointIds(
+        projection.blocking.map((row) => row.missionId),
         edges.incoming,
       )
     ) {
@@ -140,6 +172,9 @@ export async function dependencyRoutes(fastify: FastifyInstance): Promise<void> 
         throw badRequest('dependsOnMissionId is required');
       }
 
+      await authorizeMissionAccessById(request, request.params.missionId);
+      await authorizeMissionAccessById(request, dependsOnMissionId);
+
       const result = dependencyService.addMissionDependency(request.params.missionId, dependsOnMissionId);
       if (!result.success) {
         throw conflict(result.reason ?? 'Conflict');
@@ -152,6 +187,15 @@ export async function dependencyRoutes(fastify: FastifyInstance): Promise<void> 
     '/missions/:missionId/dependencies/:depId',
     { config: { authPolicy: "local_actor" } },
     async (request: FastifyRequest<{ Params: { missionId: string; depId: string } }>, _reply: FastifyReply) => {
+      await authorizeMissionAccessById(request, request.params.missionId);
+
+      const edges = dependencyRepo.getMissionDependencyEdgeIds(request.params.missionId);
+      if (!edges.outgoing.includes(request.params.depId)) {
+        throw notFound('Dependency not found');
+      }
+
+      await authorizeMissionAccessById(request, request.params.depId);
+
       const removed = dependencyService.removeMissionDependency(request.params.missionId, request.params.depId);
       if (!removed) {
         throw notFound('Dependency not found');
@@ -164,7 +208,8 @@ export async function dependencyRoutes(fastify: FastifyInstance): Promise<void> 
     '/missions/:missionId/dependencies',
     { config: { authPolicy: "local_actor" } },
     async (request: FastifyRequest<{ Params: { missionId: string } }>, _reply: FastifyReply) => {
-      return dependencyService.getMissionDependencies(request.params.missionId);
+      await authorizeMissionAccessById(request, request.params.missionId);
+      return authorizeMissionEdgesAndProject(request, request.params.missionId);
     }
   );
 
@@ -172,7 +217,17 @@ export async function dependencyRoutes(fastify: FastifyInstance): Promise<void> 
     '/missions/:missionId/blocked-status',
     { config: { authPolicy: "local_actor" } },
     async (request: FastifyRequest<{ Params: { missionId: string } }>, _reply: FastifyReply) => {
-      return dependencyService.validateMissionCompletion(request.params.missionId);
+      await authorizeMissionAccessById(request, request.params.missionId);
+
+      const validation = dependencyService.validateMissionCompletion(request.params.missionId);
+
+      // blockedBy entries carry dependency MISSION ids in their `taskId`
+      // field; authorize every linked mission the read discloses.
+      for (const blocker of validation.blockedBy ?? []) {
+        await authorizeMissionAccessById(request, blocker.taskId);
+      }
+
+      return validation;
     }
   );
 
@@ -180,7 +235,17 @@ export async function dependencyRoutes(fastify: FastifyInstance): Promise<void> 
     '/missions/:missionId/dependency-graph',
     { config: { authPolicy: "local_actor" } },
     async (request: FastifyRequest<{ Params: { missionId: string } }>, _reply: FastifyReply) => {
-      return dependencyService.getDependencyGraph(request.params.missionId);
+      await authorizeMissionAccessById(request, request.params.missionId);
+
+      const graph = dependencyService.getDependencyGraph(request.params.missionId);
+
+      // An accessible root must not disclose inaccessible linked missions'
+      // nodes: authorize every traversed node before returning the graph.
+      for (const node of graph.nodes) {
+        await authorizeMissionAccessById(request, node.id);
+      }
+
+      return graph;
     }
   );
 }
