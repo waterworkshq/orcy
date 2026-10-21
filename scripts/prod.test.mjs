@@ -2,7 +2,7 @@
 // (successfully) before either service starts, and a failed build must start
 // neither service and exit nonzero. Run: node --test scripts/prod.test.mjs
 import assert from "node:assert/strict";
-import { execFile } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -128,5 +128,60 @@ test("a service exit terminates the sibling's whole process group, grandchildren
     }
   }
   assert.equal(alive, false, "grandchild survived the sibling-exit shutdown — process group not signaled");
+  await rm(dir, { recursive: true, force: true });
+});
+
+test("a terminal hangup (SIGHUP) reaches the service groups too", async () => {
+  // The detached children deliberately left the terminal's foreground
+  // process group, so a hangup that bypasses shutdown() would orphan them.
+  // Without the SIGHUP handler the runner dies instantly and the API stub's
+  // grandchild survives.
+  const dir = await mkdtemp(path.join(tmpdir(), "orcy-prod-log-"));
+  const logPath = path.join(dir, "events");
+  await writeFile(logPath, "");
+  const apiStub =
+    `node -e 'const { spawn } = require("child_process"); ` +
+    `const grandchild = spawn(process.execPath, ["-e", "setInterval(() => {}, 1 << 30)"], { stdio: "ignore" }); ` +
+    `require("fs").appendFileSync(${JSON.stringify(logPath)}, "api_started grandchild " + grandchild.pid + "\\n"); ` +
+    `setInterval(() => {}, 1 << 30);'`;
+  const uiStub = `node -e 'setInterval(() => {}, 1 << 30);'`;
+  const env = {
+    ...process.env,
+    ORCY_PROD_BUILD: stub(logPath, "build"),
+    ORCY_PROD_API: apiStub,
+    ORCY_PROD_UI: uiStub,
+  };
+  const child = spawn("node", [prodScript], { env, stdio: ["ignore", "pipe", "pipe"] });
+  const exited = new Promise((resolve) => child.on("exit", (code) => resolve(code)));
+
+  const waitDeadline = Date.now() + 10_000;
+  let apiLine = null;
+  while (Date.now() < waitDeadline && !apiLine) {
+    const text = await readFile(logPath, "utf8");
+    apiLine = text.split("\n").find((entry) => entry.startsWith("api_started grandchild ")) ?? null;
+    if (!apiLine) await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+  assert.ok(apiLine, "api stub never logged its grandchild");
+  const grandchildPid = Number(apiLine.split(" ")[2]);
+
+  child.kill("SIGHUP");
+  const hangupExit = await Promise.race([
+    exited,
+    new Promise((resolve) => setTimeout(() => resolve("timeout"), 10_000)),
+  ]);
+  assert.notEqual(hangupExit, "timeout", "runner did not exit after SIGHUP");
+
+  const deadline = Date.now() + 2_000;
+  let alive = true;
+  while (Date.now() < deadline) {
+    try {
+      process.kill(grandchildPid, 0);
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    } catch {
+      alive = false;
+      break;
+    }
+  }
+  assert.equal(alive, false, "grandchild survived the SIGHUP shutdown — hangup bypassed the service groups");
   await rm(dir, { recursive: true, force: true });
 });

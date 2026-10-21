@@ -36,8 +36,12 @@ function shutdown() {
   }
 }
 
+// SIGINT/SIGTERM propagate to the child groups; SIGHUP (terminal hangup)
+// must too — the detached children deliberately left the terminal's
+// foreground process group and would otherwise survive the runner's death.
 process.on("SIGINT", shutdown);
 process.on("SIGTERM", shutdown);
+process.on("SIGHUP", shutdown);
 
 const build = run(buildCommand);
 build.on("exit", (code) => {
