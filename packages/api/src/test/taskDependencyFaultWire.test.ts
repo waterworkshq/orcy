@@ -320,7 +320,12 @@ describe("task dependency service — production driver (better-sqlite3 file DB)
     expect(second).toEqual({ success: false, reason: "already_exists" });
   }, 30_000);
 
-  it("duplicate mission dependency insert maps to already_exists via the composite PRIMARY KEY code path", () => {
+  it("duplicate mission dependency insert maps to already_exists on the production driver", () => {
+    // Outcome-level pin: better-sqlite3 raises a constraint error for the
+    // composite PRIMARY KEY duplicate and the classifier maps it to the
+    // conflict outcome (whether the driver error arrives directly or
+    // drizzle-wrapped on `.cause`, both paths collapse here). The sql.js
+    // message-path variant is covered by the wire test above.
     const [missionA, missionB] = createMissionPair("tdf-prod-md");
 
     const first = dependencyService.addMissionDependency(missionA.id, missionB.id);

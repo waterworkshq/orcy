@@ -2,6 +2,7 @@ import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import * as dependencyService from '../services/dependencyService.js';
 import * as dependencyRepo from '../repositories/dependency.js';
 import * as taskRepo from '../repositories/task.js';
+import { getMissionById } from '../repositories/mission.js';
 import { badRequest, notFound, conflict, serviceUnavailable } from '../errors.js';
 import { applyDeclaredAuthPolicies } from "../authPolicy.js";
 import { authorizeTaskAccess, authorizeMissionAccessById } from '../middleware/realtimeAuth.js';
@@ -60,18 +61,31 @@ async function authorizeMissionEdgesAndProject(
 ): Promise<dependencyRepo.MissionDependencyDetails> {
   for (let attempt = 0; attempt < 2; attempt++) {
     const edges = dependencyRepo.getMissionDependencyEdgeIds(missionId);
+    // `mission_dependencies.mission_id` carries no FK (only `depends_on_id`
+    // does), so deleting a SOURCE mission — allowed by deleteMission, which
+    // only blocks missions that others depend on — leaves a dangling edge
+    // that normal API use reaches. Unlike task_dependencies (FKs on both
+    // columns, where a dangling endpoint means corruption and fails closed),
+    // a dangling mission endpoint carries no disclosable metadata and the
+    // joined projection drops it too: skip it rather than 404, and exclude
+    // it from the comparison so projection and inventory agree.
+    const dangling = new Set(
+      [...edges.outgoing, ...edges.incoming].filter((id) => !getMissionById(id)),
+    );
     for (const linkedId of new Set([...edges.outgoing, ...edges.incoming])) {
+      if (dangling.has(linkedId)) continue;
       await authorizeMissionAccessById(request, linkedId);
     }
+    const withoutDangling = (ids: string[]) => ids.filter((id) => !dangling.has(id));
     const projection = dependencyService.getMissionDependencies(missionId);
     if (
       sameEndpointIds(
         projection.dependsOn.map((row) => row.missionId),
-        edges.outgoing,
+        withoutDangling(edges.outgoing),
       ) &&
       sameEndpointIds(
         projection.blocking.map((row) => row.missionId),
-        edges.incoming,
+        withoutDangling(edges.incoming),
       )
     ) {
       return projection;
@@ -244,6 +258,16 @@ export async function dependencyRoutes(fastify: FastifyInstance): Promise<void> 
       for (const node of graph.nodes) {
         await authorizeMissionAccessById(request, node.id);
       }
+
+      // getDependencyGraph pushes an edge BEFORE traversing its target, so a
+      // dangling endpoint (target mission row deleted — `mission_id` has no
+      // FK) can yield an edge whose endpoint id appears in no node: an
+      // authorization-free disclosure with no metadata. Drop those edges,
+      // mirroring the joined projections' inner-join semantics.
+      const nodeIds = new Set(graph.nodes.map((node) => node.id));
+      graph.edges = graph.edges.filter(
+        (edge) => nodeIds.has(edge.from) && nodeIds.has(edge.to),
+      );
 
       return graph;
     }

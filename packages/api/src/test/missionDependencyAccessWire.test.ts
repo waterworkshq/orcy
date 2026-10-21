@@ -37,6 +37,7 @@ import * as organizationRepo from "../repositories/organization.js";
 import * as teamRepo from "../repositories/team.js";
 import * as teamMemberRepo from "../repositories/teamMember.js";
 import { missions, missionDependencies } from "../db/schema/index.js";
+import * as missionService from "../services/missionService.js";
 import { getJwtSecret } from "../middleware/jwt-verification.js";
 import * as pluginManager from "../plugins/pluginManager.js";
 
@@ -220,8 +221,10 @@ describe("mission dependency endpoints — authentication and root authorization
         expect(res.body.nodes).toBeUndefined();
       }
 
-      // Denied writes: insert (dep in the nonmember's personal habitat is
-      // still a write against the private root) and delete.
+      // Denied writes: an insert pairing the private root with a mission in
+      // the teamless personal habitat (any authenticated human may access
+      // that habitat) is still a write against the PRIVATE ROOT — the 403
+      // comes from the root, not the dependency. Same for the delete.
       const posted = await wire(prefix, "POST", `/missions/${root}/dependencies`, {
         token: nonmemberAdminJwt,
         body: { dependsOnMissionId: makeMission(personalHabitatId, "mda-priv-write-dep") },
@@ -374,5 +377,41 @@ describe("mission dependency reads — linked mission authorization", () => {
     });
     expect(dual.status).toBe(200);
     expect(dual.body.nodes).toHaveLength(3);
+  }, 30_000);
+
+  it("dangling source-side edge after a real mission deletion no longer bricks the read or leaks the id", async () => {
+    // mission_id has no FK and deleteMission only blocks missions that
+    // OTHERS depend on, so deleting a SOURCE mission (real service path)
+    // strands its outgoing rows. The surviving destination's reads must
+    // still work: the dangling endpoint is skipped (dependencies) and its
+    // edge is dropped (graph), never disclosed.
+    const root = makeMission(teamAHabitatId, "mda-dangle-root");
+    const source = makeMission(teamAHabitatId, "mda-dangle-source-marker");
+    dependencyRepo.addMissionDependency(source, root);
+    const deleted = missionService.deleteMission(source);
+    expect(deleted).toEqual({ success: true });
+
+    for (const prefix of PREFIXES) {
+      const deps = await wire(prefix, "GET", `/missions/${root}/dependencies`, {
+        token: memberJwt,
+      });
+      expect(deps.status, `${prefix} deps`).toBe(200);
+      expect(deps.body.dependsOn).toHaveLength(0);
+      expect(deps.body.blocking).toHaveLength(0);
+      expect(deps.text).not.toContain(source);
+
+      const blocked = await wire(prefix, "GET", `/missions/${root}/blocked-status`, {
+        token: memberJwt,
+      });
+      expect(blocked.status, `${prefix} blocked`).toBe(200);
+
+      const graph = await wire(prefix, "GET", `/missions/${root}/dependency-graph`, {
+        token: memberJwt,
+      });
+      expect(graph.status, `${prefix} graph`).toBe(200);
+      expect(graph.body.nodes.map((n: any) => n.id)).toEqual([root]);
+      expect(graph.body.edges).toEqual([]);
+      expect(graph.text).not.toContain(source);
+    }
   }, 30_000);
 });

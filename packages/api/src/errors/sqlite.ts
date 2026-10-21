@@ -29,6 +29,40 @@ export function isSqliteError(err: unknown): err is SqliteErrorLike {
   );
 }
 
+const UNIQUE_CONSTRAINT_RE = /UNIQUE constraint failed/i;
+
+/**
+ * Cross-backend duplicate-insert detector for composite-key rows.
+ * better-sqlite3 (production) throws a `SqliteError` with
+ * `code === "SQLITE_CONSTRAINT_UNIQUE"` or `"SQLITE_CONSTRAINT_PRIMARYKEY"`
+ * (a composite PRIMARY KEY duplicate reports the PRIMARYKEY code);
+ * drizzle-orm may wrap it, putting the real error on `.cause`. sql.js
+ * (tests) throws a plain `Error` whose `message` contains
+ * "UNIQUE constraint failed". Anything else is NOT a duplicate — callers
+ * keep unrelated failures on their 5xx path.
+ */
+export function isSqliteDuplicateInsert(err: unknown): boolean {
+  if (
+    isSqliteError(err) &&
+    (err.code === "SQLITE_CONSTRAINT_UNIQUE" || err.code === "SQLITE_CONSTRAINT_PRIMARYKEY")
+  ) {
+    return true;
+  }
+  if (err instanceof Error && UNIQUE_CONSTRAINT_RE.test(err.message)) return true;
+  const cause = (err as { cause?: unknown } | null)?.cause;
+  if (cause instanceof Error) {
+    if (
+      isSqliteError(cause) &&
+      (cause.code === "SQLITE_CONSTRAINT_UNIQUE" ||
+        cause.code === "SQLITE_CONSTRAINT_PRIMARYKEY")
+    ) {
+      return true;
+    }
+    if (UNIQUE_CONSTRAINT_RE.test(cause.message)) return true;
+  }
+  return false;
+}
+
 /**
  * Maps a SqliteError to a structured HTTP response shape.
  *
