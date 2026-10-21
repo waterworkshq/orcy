@@ -413,10 +413,14 @@ function isGroupAlive(pgid: number): boolean {
     } catch {
       continue;
     }
-    // stat is "pid (comm) state ppid pgrp …" and comm may contain spaces.
-    const fields = /\)\s+(\S+)\s+\d+\s+(\d+)\s/.exec(stat);
-    if (!fields) continue;
-    if (fields[2] === String(pgid) && fields[1] !== "Z") return true;
+    // stat is "pid (comm) state ppid pgrp …"; comm may contain spaces and
+    // parentheses, so the fields start after the LAST ") " — an earlier
+    // match inside comm would misread the state and pgrp fields.
+    const boundary = stat.lastIndexOf(") ");
+    if (boundary < 0) continue;
+    const fields = stat.slice(boundary + 2).split(/\s+/);
+    if (fields.length < 3) continue;
+    if (fields[2] === String(pgid) && fields[0] !== "Z") return true;
   }
   return false;
 }

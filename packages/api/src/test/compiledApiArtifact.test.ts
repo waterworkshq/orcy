@@ -200,9 +200,12 @@ describe("ownership-based reclamation", () => {
     // process, so the same-pid early return does not apply) and its heartbeat
     // is stale — only `process.kill(pid, 0)` keeps the root alive. Removing
     // the probe (treating any stale heartbeat as dead) fails this test.
-    const foreign = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], { stdio: "ignore" });
     const live = createCompiledApiRun();
+    let foreign: ReturnType<typeof spawn> | undefined;
     try {
+      // Spawned inside the try so the child is only started once its cleanup
+      // is guaranteed to run.
+      foreign = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], { stdio: "ignore" });
       writeFileSync(
         live.ownerPath,
         JSON.stringify({
@@ -217,7 +220,7 @@ describe("ownership-based reclamation", () => {
       expect(existsSync(live.runRoot)).toBe(true);
     } finally {
       rmSync(live.runRoot, { recursive: true, force: true });
-      foreign.kill("SIGKILL");
+      foreign?.kill("SIGKILL");
     }
   });
 
