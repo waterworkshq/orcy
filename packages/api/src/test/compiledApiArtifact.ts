@@ -127,8 +127,12 @@ export interface PublishMarker {
 // ---------------------------------------------------------------------------
 
 function isExcludedSource(relativePath: string): boolean {
+  // Anchored to match compiledApiProductionInputPattern() exactly: only the
+  // top-level test tree and *.test.ts files are excluded. A production module
+  // under a directory merely NAMED test must stay in the input hash, or the
+  // hash and the watch trigger would disagree — a rerun with no republish,
+  // running consumers against a stale generation.
   if (relativePath.startsWith(`test${sep}`)) return true;
-  if (relativePath.split(sep).includes("test")) return true;
   return relativePath.endsWith(".test.ts");
 }
 

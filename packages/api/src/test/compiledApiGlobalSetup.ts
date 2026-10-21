@@ -37,15 +37,18 @@ import {
 
 /**
  * A test file is a compiled consumer when it imports the layout seam (or the
- * fixture façade that sits on top of it). The check is a static import scan of
- * the selected files — no consumer reaches around the artifact module.
+ * fixture façade that sits on top of it). The check is anchored to actual
+ * import statements — a file that merely MENTIONS those module names in a
+ * comment or string is not a consumer, and no consumer reaches around the
+ * artifact module.
  */
-const CONSUMER_MODULES = ["compiledApiLayout", "compiledApiFixture"];
+const CONSUMER_IMPORT =
+  /(?:from\s*["'][^"']*compiledApi(?:Layout|Fixture)\.js["']|import\(["'][^"']*compiledApi(?:Layout|Fixture)\.js["']\))/;
 
 function isCompiledConsumer(file: string): boolean {
   try {
     const source = readFileSync(file, "utf8");
-    return CONSUMER_MODULES.some((module) => source.includes(module));
+    return CONSUMER_IMPORT.test(source);
   } catch {
     return false;
   }
