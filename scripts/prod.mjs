@@ -94,6 +94,16 @@ const build = run(buildCommand, () => {
   process.exitCode = 1;
 });
 build.on("exit", (code) => {
+  // Retire the build's group once it is confirmed empty: a group id that
+  // outlives its build can be REUSED by an unrelated process group and would
+  // then be signaled at shutdown. A group with draining descendants stays.
+  if (typeof build.pid === "number") {
+    try {
+      process.kill(-build.pid, 0);
+    } catch {
+      groupPids.delete(build.pid);
+    }
+  }
   // A stop signal that arrived while the build was still running has already
   // run shutdown, and a build spawn failure has already set the exit code —
   // never start services after either.
