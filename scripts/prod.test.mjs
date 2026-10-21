@@ -142,9 +142,11 @@ test("a terminal hangup (SIGHUP) reaches the service groups too", async () => {
   const apiStub =
     `node -e 'const { spawn } = require("child_process"); ` +
     `const grandchild = spawn(process.execPath, ["-e", "setInterval(() => {}, 1 << 30)"], { stdio: "ignore" }); ` +
-    `require("fs").appendFileSync(${JSON.stringify(logPath)}, "api_started grandchild " + grandchild.pid + "\\n"); ` +
+    `require("fs").appendFileSync(${JSON.stringify(logPath)}, "api_pid " + process.pid + "\\n" + "api_started grandchild " + grandchild.pid + "\\n"); ` +
     `setInterval(() => {}, 1 << 30);'`;
-  const uiStub = `node -e 'setInterval(() => {}, 1 << 30);'`;
+  const uiStub =
+    `node -e 'require("fs").appendFileSync(${JSON.stringify(logPath)}, "ui_pid " + process.pid + "\\n"); ` +
+    `setInterval(() => {}, 1 << 30);'`;
   const env = {
     ...process.env,
     ORCY_PROD_BUILD: stub(logPath, "build"),
@@ -154,17 +156,28 @@ test("a terminal hangup (SIGHUP) reaches the service groups too", async () => {
   const child = spawn("node", [prodScript], { env, stdio: ["ignore", "pipe", "pipe"] });
   const exited = new Promise((resolve) => child.on("exit", (code) => resolve(code)));
 
+  // Every process the finally block may have to kill, captured as the stubs
+  // report them (the detached service groups are NOT owned by the runner).
+  const killPids = [];
   let grandchildPid = null;
   try {
     const waitDeadline = Date.now() + 10_000;
     let apiLine = null;
     while (Date.now() < waitDeadline && !apiLine) {
       const text = await readFile(logPath, "utf8");
+      const pidLine = text.split("\n").find((entry) => entry.startsWith("api_pid "));
+      if (pidLine && !killPids.includes(Number(pidLine.split(" ")[1]))) {
+        killPids.push(Number(pidLine.split(" ")[1]));
+      }
       apiLine = text.split("\n").find((entry) => entry.startsWith("api_started grandchild ")) ?? null;
       if (!apiLine) await new Promise((resolve) => setTimeout(resolve, 50));
     }
     assert.ok(apiLine, "api stub never logged its grandchild");
     grandchildPid = Number(apiLine.split(" ")[2]);
+    killPids.push(grandchildPid);
+    const text = await readFile(logPath, "utf8");
+    const uiPidLine = text.split("\n").find((entry) => entry.startsWith("ui_pid "));
+    if (uiPidLine) killPids.push(Number(uiPidLine.split(" ")[1]));
 
     child.kill("SIGHUP");
     let hangupTimer;
@@ -190,16 +203,23 @@ test("a terminal hangup (SIGHUP) reaches the service groups too", async () => {
     }
     assert.equal(alive, false, "grandchild survived the SIGHUP shutdown — hangup bypassed the service groups");
   } finally {
-    // A failed assertion must not leak the runner or the stub processes (the
-    // orphaned, pipe-inheriting stubs would hang the harness).
+    // A failed assertion must not leak the runner or the DETACHED service
+    // groups (they are not owned by the runner; the orphaned,
+    // pipe-inheriting stubs would hang the harness).
     child.kill("SIGKILL");
-    if (grandchildPid !== null) {
+    for (const pid of killPids) {
       try {
-        process.kill(grandchildPid, "SIGKILL");
+        process.kill(pid, "SIGKILL");
       } catch {
         /* already dead */
       }
+      try {
+        process.kill(-pid, "SIGKILL");
+      } catch {
+        /* group already gone */
+      }
     }
+    await Promise.race([exited, new Promise((resolve) => setTimeout(resolve, 2_000))]);
     await rm(dir, { recursive: true, force: true });
   }
 });
@@ -216,16 +236,24 @@ test("a service that ignores SIGTERM is force-killed after the grace window", as
     `const fs = require("fs"); ` +
     `fs.appendFileSync(${JSON.stringify(logPath)}, "api_started " + process.pid + "\\n"); ` +
     `setInterval(() => {}, 1 << 30);'`;
+  const uiStub =
+    `node -e 'const fs = require("fs"); const log = ${JSON.stringify(logPath)}; ` +
+    `const deadline = Date.now() + 10_000; ` +
+    `while (!fs.readFileSync(log, "utf8").includes("api_started")) { ` +
+    `if (Date.now() > deadline) process.exit(1); ` +
+    `Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 25); } ` +
+    `fs.appendFileSync(log, "ui_pid " + process.pid + "\\n" + "ui_started\\n");'`;
   const env = {
     ...process.env,
     ORCY_PROD_BUILD: stub(logPath, "build"),
     ORCY_PROD_API: apiStub,
-    ORCY_PROD_UI: stubAfter(logPath, "api_started", "ui_started"),
+    ORCY_PROD_UI: uiStub,
   };
   const startedAt = Date.now();
   const child = spawn("node", [prodScript], { env, stdio: ["ignore", "pipe", "pipe"] });
   const exited = new Promise((resolve) => child.on("exit", (code) => resolve(code)));
 
+  const killPids = [];
   let stubbornPid = null;
   try {
     const waitDeadline = Date.now() + 10_000;
@@ -237,6 +265,10 @@ test("a service that ignores SIGTERM is force-killed after the grace window", as
     }
     assert.ok(apiLine, "api stub never logged");
     stubbornPid = Number(apiLine.split(" ")[1]);
+    killPids.push(stubbornPid);
+    const text = await readFile(logPath, "utf8");
+    const uiPidLine = text.split("\n").find((entry) => entry.startsWith("ui_pid "));
+    if (uiPidLine) killPids.push(Number(uiPidLine.split(" ")[1]));
 
     let exitTimer;
     const exitCode = await Promise.race([
@@ -261,15 +293,82 @@ test("a service that ignores SIGTERM is force-killed after the grace window", as
     assert.ok(Date.now() - startedAt >= 5_000, "runner exited before the grace window elapsed");
   } finally {
     // A failed assertion must not leak the runner or the SIGTERM-trapping
-    // stub (which ignores shutdown signals by construction).
+    // stub and its sibling (both ignore shutdown signals by construction).
     child.kill("SIGKILL");
-    if (stubbornPid !== null) {
+    for (const pid of killPids) {
       try {
-        process.kill(stubbornPid, "SIGKILL");
+        process.kill(pid, "SIGKILL");
       } catch {
         /* already dead */
       }
+      try {
+        process.kill(-pid, "SIGKILL");
+      } catch {
+        /* group already gone */
+      }
     }
+    await Promise.race([exited, new Promise((resolve) => setTimeout(resolve, 2_000))]);
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("a stop signal during the build exits nonzero and starts no services", async () => {
+  // An interrupted startup must not read as success: the signal handler
+  // suppresses Node's default signal exit, so the runner itself must record
+  // a failure status when no service outcome exists yet.
+  const dir = await mkdtemp(path.join(tmpdir(), "orcy-prod-log-"));
+  const logPath = path.join(dir, "events");
+  await writeFile(logPath, "");
+  const buildStub =
+    `node -e 'require("fs").appendFileSync(${JSON.stringify(logPath)}, "build_pid " + process.pid + "\\n"); ` +
+    `setInterval(() => {}, 1 << 30);'`;
+  const env = {
+    ...process.env,
+    ORCY_PROD_BUILD: buildStub,
+    ORCY_PROD_API: stub(logPath, "api_started"),
+    ORCY_PROD_UI: stub(logPath, "ui_started"),
+  };
+  const child = spawn("node", [prodScript], { env, stdio: ["ignore", "pipe", "pipe"] });
+  const exited = new Promise((resolve) => child.on("exit", (code) => resolve(code)));
+
+  const killPids = [];
+  try {
+    const waitDeadline = Date.now() + 10_000;
+    let buildLine = null;
+    while (Date.now() < waitDeadline && !buildLine) {
+      const text = await readFile(logPath, "utf8");
+      buildLine = text.split("\n").find((entry) => entry.startsWith("build_pid ")) ?? null;
+      if (!buildLine) await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+    assert.ok(buildLine, "build stub never started");
+    killPids.push(Number(buildLine.split(" ")[1]));
+
+    child.kill("SIGTERM");
+    let exitTimer;
+    const exitCode = await Promise.race([
+      exited,
+      new Promise((resolve) => {
+        exitTimer = setTimeout(() => resolve("timeout"), 10_000);
+      }),
+    ]);
+    clearTimeout(exitTimer);
+    assert.notEqual(exitCode, "timeout", "runner never exited after the stop signal");
+    assert.notEqual(exitCode, 0, "interrupted build must exit nonzero");
+    const events = (await readFile(logPath, "utf8")).trim().split("\n");
+    assert.ok(
+      !events.some((entry) => entry === "api_started" || entry === "ui_started"),
+      `services started despite the stop signal: ${events.join(" | ")}`,
+    );
+  } finally {
+    child.kill("SIGKILL");
+    for (const pid of killPids) {
+      try {
+        process.kill(-pid, "SIGKILL");
+      } catch {
+        /* group already gone */
+      }
+    }
+    await Promise.race([exited, new Promise((resolve) => setTimeout(resolve, 2_000))]);
     await rm(dir, { recursive: true, force: true });
   }
 });

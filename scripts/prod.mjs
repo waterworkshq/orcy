@@ -52,6 +52,11 @@ let shutdownStarted = false;
 function shutdown() {
   if (shutdownStarted) return;
   shutdownStarted = true;
+  // An interrupted run must not read as success: when no status is recorded
+  // yet (signal during the build, or before any service exited), record a
+  // failure. A first service exit has already recorded ITS code (0 included
+  // — `exitCode = 0` is set, not undefined) before calling shutdown.
+  if (process.exitCode === undefined) process.exitCode = 1;
   signalGroups("SIGTERM");
   // Poll the groups themselves: exit promptly once every group is gone, and
   // escalate to SIGKILL for any group still alive after the grace window.
