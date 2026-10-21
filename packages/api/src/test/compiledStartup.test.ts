@@ -453,12 +453,12 @@ describe("F1 — ESM-safe compiled API startup", () => {
     it("launches from a copied package outside the workspace and reaches /health via productionMigrationFolder", async () => {
       const tempRoot = join(tmpdir(), `orcy-f1-inst-${process.pid}-${Date.now()}`);
       mkdirSync(tempRoot, { recursive: true });
-      // Real copies (not symlinks) for dist/ and drizzle/ — Node ESM
-      // resolves symlinks to their real path, so import.meta.dirname must
-      // land inside the temp package to force the production fallback.
-      const installed = createInstalledApiLayout({ root: tempRoot });
 
       try {
+        // Assemble inside the try so a failed copy still reaches the
+        // finally's tempRoot cleanup.
+        const installed = createInstalledApiLayout({ root: tempRoot });
+
         // Prove the workspace migration branch cannot fire from here.
         assertNoWorkspaceAncestor(tempRoot);
 
@@ -497,9 +497,9 @@ describe("F1 — ESM-safe compiled API startup", () => {
     it("migrates an empty DB to readiness via the compiled binary, seeds templates, and leaves current schema", async () => {
       const tempRoot = join(tmpdir(), `orcy-f2a-empty-${process.pid}-${Date.now()}`);
       mkdirSync(tempRoot, { recursive: true });
-      const installed = createInstalledApiLayout({ root: tempRoot });
 
       try {
+        const installed = createInstalledApiLayout({ root: tempRoot });
         assertNoWorkspaceAncestor(tempRoot);
 
         const dbPath = join(tempRoot, "empty.db");
@@ -572,9 +572,10 @@ describe("F1 — ESM-safe compiled API startup", () => {
     it("upgrades a legacy __migrations database via the compiled binary, preserves sentinel data, records the bridged baseline, and is idempotent on reboot", async () => {
       const tempRoot = join(tmpdir(), `orcy-f6-legacy-${process.pid}-${Date.now()}`);
       mkdirSync(tempRoot, { recursive: true });
-      const installed = createInstalledApiLayout({ root: tempRoot });
 
       try {
+        const installed = createInstalledApiLayout({ root: tempRoot });
+
         // The copied package must be physically outside any pnpm workspace so
         // the workspace migration branch cannot fire.
         assertNoWorkspaceAncestor(tempRoot);

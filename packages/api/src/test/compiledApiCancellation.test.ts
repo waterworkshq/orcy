@@ -132,6 +132,9 @@ describe("cancellation signal during the initial build", () => {
     );
     try {
       await expectCancelledRunToLeaveNoCompiler(foreign.pid);
+      // A cancellation that swept by path shape would have taken the foreign
+      // process with it — ownership-based termination leaves it alive.
+      expect(isSurviving(foreign.pid!)).toBe(true);
     } finally {
       foreign.kill("SIGKILL");
     }
@@ -171,10 +174,11 @@ async function expectCancelledRunToLeaveNoCompiler(foreignPid?: number): Promise
     child.once("exit", (code, signal) => accept({ code, signal }));
   });
 
+  let runRoot = "";
   try {
     const nestedPid = child.pid ?? 0;
     // The nested run's OWN run root — its name carries the nested run's pid.
-    const runRoot = await waitForRunRoot(nestedPid, 30_000);
+    runRoot = await waitForRunRoot(nestedPid, 30_000);
     expect(runRoot, `the nested run created no run root\n${output}`).not.toBe("");
 
     // Wait for the build to be under way: the compiler is a descendant of the
@@ -194,7 +198,6 @@ async function expectCancelledRunToLeaveNoCompiler(foreignPid?: number): Promise
     // nested run's death reparents its descendants.
     const survivors = [...new Set([...owned, ...processesInRunRoot(runRoot)])].filter(isSurviving);
     expect(survivors, `compiler tree survived the cancelled run:\n${describeProcesses(survivors)}`).toEqual([]);
-    expect(await waitFor(() => survivorsOf(owned, runRoot).length === 0, 5_000)).toBe(true);
     expect(exit.code ?? exit.signal).toBeTruthy();
   } finally {
     if (child.exitCode === null && child.signalCode === null) {
@@ -202,6 +205,18 @@ async function expectCancelledRunToLeaveNoCompiler(foreignPid?: number): Promise
         process.kill(-(child.pid ?? -1), "SIGKILL");
       } catch {
         child.kill("SIGKILL");
+      }
+    }
+    // The compiler tree runs in its OWN process group, which the nested
+    // vitest group kill above cannot reach — a failed assertion before the
+    // cancellation must not leave it running.
+    if (runRoot !== "") {
+      for (const pid of processesInRunRoot(runRoot)) {
+        try {
+          process.kill(pid, "SIGKILL");
+        } catch {
+          // Already gone.
+        }
       }
     }
   }
@@ -266,10 +281,6 @@ function processesInRunRoot(runRoot: string): number[] {
     found.push(pid);
   }
   return found;
-}
-
-function survivorsOf(owned: number[], runRoot: string): number[] {
-  return [...new Set([...owned, ...processesInRunRoot(runRoot)])].filter(isSurviving);
 }
 
 /** A process that is still running (a reaped-but-unwaited zombie is not). */

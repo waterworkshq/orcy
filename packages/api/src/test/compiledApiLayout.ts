@@ -94,8 +94,8 @@ export function createWorkspaceApiLayout(options: CompiledApiLayoutOptions = {})
   rmSync(layoutRoot, { recursive: true, force: true });
   mkdirSync(layoutRoot, { recursive: true });
 
-  const distDir = join(layoutRoot, "dist");
-  symlinkSync(join(artifact.publishedPath, "dist"), distDir, "dir");
+  const distDir = join(layoutRoot, basename(artifact.distDir));
+  symlinkSync(artifact.distDir, distDir, "dir");
   const drizzleDir = join(layoutRoot, "drizzle");
   symlinkSync(join(PACKAGE_ROOT, "drizzle"), drizzleDir, "dir");
   copyPackageManifest(layoutRoot);
@@ -106,7 +106,7 @@ export function createWorkspaceApiLayout(options: CompiledApiLayoutOptions = {})
     layoutRoot,
     packageDir: layoutRoot,
     distDir,
-    entrypoint: join(distDir, "index.js"),
+    entrypoint: artifact.entrypoint,
     drizzleDir,
     artifact,
     cleanup: () => rmSync(layoutRoot, { recursive: true, force: true }),
@@ -130,11 +130,18 @@ function createCopiedLayout(
   // Real copies: a symlink would resolve back into the workspace and select
   // the workspace migration branch instead of the package's own folder.
   const distDir = join(packageDir, "dist");
-  cpSync(artifact.realDistDir, distDir, { recursive: true });
   const drizzleDir = join(packageDir, "drizzle");
-  cpSync(join(PACKAGE_ROOT, "drizzle"), drizzleDir, { recursive: true, dereference: true });
-  copyPackageManifest(packageDir);
-  linkNodeModules(packageDir);
+  try {
+    cpSync(artifact.realDistDir, distDir, { recursive: true });
+    cpSync(join(PACKAGE_ROOT, "drizzle"), drizzleDir, { recursive: true, dereference: true });
+    copyPackageManifest(packageDir);
+    linkNodeModules(packageDir);
+  } catch (error) {
+    // A failed assembly must not leak a layout the caller never received.
+    rmSync(packageDir, { recursive: true, force: true });
+    if (ownsRoot) rmSync(layoutRoot, { recursive: true, force: true });
+    throw error;
+  }
 
   recordCompiledApiConsumption(artifact, { name: consumer, layout: kind });
   return {

@@ -98,6 +98,11 @@ export default async function setup(project: TestProject): Promise<() => void> {
       // surface the failure before any test executes.
       stopHeartbeat();
       finalizeCompiledApiRun(run, consumers, startedAt);
+      // A failed build must not leave the signal handlers registered — the
+      // teardown removes them, and so does this path (meaningful in a
+      // long-lived watch process).
+      process.off("SIGINT", onSigint);
+      process.off("SIGTERM", onSigterm);
       if (error instanceof CompiledApiCancelledError) {
         // The run was cancelled by a signal: end it the way the signal means
         // instead of reporting a failed build.

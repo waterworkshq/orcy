@@ -390,12 +390,35 @@ function signalGroup(pgid: number, signal: NodeJS.Signals): void {
 
 function isGroupAlive(pgid: number): boolean {
   if (!isOwnedGroup(pgid)) return false;
+  // A zombie group leader keeps `kill(-pgid, 0)` succeeding although it is
+  // dead and merely awaits reaping — which cannot happen while a synchronous
+  // wait blocks the event loop. Enumerate the real members and count only
+  // non-zombie ones; fall back to the signal probe where /proc is absent.
+  let entries: string[];
   try {
-    process.kill(-pgid, 0);
-    return true;
-  } catch (error) {
-    return (error as NodeJS.ErrnoException).code !== "ESRCH";
+    entries = readdirSync("/proc");
+  } catch {
+    try {
+      process.kill(-pgid, 0);
+      return true;
+    } catch (error) {
+      return (error as NodeJS.ErrnoException).code !== "ESRCH";
+    }
   }
+  for (const entry of entries) {
+    if (!/^\d+$/.test(entry)) continue;
+    let stat: string;
+    try {
+      stat = readFileSync(`/proc/${entry}/stat`, "utf8");
+    } catch {
+      continue;
+    }
+    // stat is "pid (comm) state ppid pgrp …" and comm may contain spaces.
+    const fields = /\)\s+(\S+)\s+\d+\s+(\d+)\s/.exec(stat);
+    if (!fields) continue;
+    if (fields[2] === String(pgid) && fields[1] !== "Z") return true;
+  }
+  return false;
 }
 
 const sleepBuffer = new Int32Array(new SharedArrayBuffer(4));

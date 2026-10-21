@@ -12,6 +12,7 @@
  *    replaced by a copy-based fallback.
  */
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { spawn } from "node:child_process";
 import {
   existsSync,
   mkdirSync,
@@ -172,21 +173,52 @@ describe("compiler process-group ownership", () => {
 describe("ownership-based reclamation", () => {
   it("reclaims a run root whose owner is provably dead", () => {
     const abandoned = createCompiledApiRun();
-    // An owner that cannot be alive: a pid above the kernel's pid maximum and
-    // a heartbeat far in the past.
-    writeFileSync(
-      abandoned.ownerPath,
-      JSON.stringify({
-        pid: 4_194_303,
-        hostname: hostname(),
-        startedAt: new Date(0).toISOString(),
-        heartbeatAt: new Date(0).toISOString(),
-      }),
-    );
+    try {
+      // An owner that cannot be alive: a pid above the kernel's pid maximum and
+      // a heartbeat far in the past.
+      writeFileSync(
+        abandoned.ownerPath,
+        JSON.stringify({
+          pid: 4_194_303,
+          hostname: hostname(),
+          startedAt: new Date(0).toISOString(),
+          heartbeatAt: new Date(0).toISOString(),
+        }),
+      );
 
-    const reclaimed = reclaimAbandonedCompiledApiRuns();
-    expect(reclaimed).toContain(abandoned.runRoot);
-    expect(existsSync(abandoned.runRoot)).toBe(false);
+      const reclaimed = reclaimAbandonedCompiledApiRuns();
+      expect(reclaimed).toContain(abandoned.runRoot);
+      expect(existsSync(abandoned.runRoot)).toBe(false);
+    } finally {
+      // A failed assertion must not leak the abandoned root.
+      rmSync(abandoned.runRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("never sweeps a run root whose owner is a live foreign process with a stale heartbeat", () => {
+    // Discriminates the liveness probe: the owner pid is foreign (not this
+    // process, so the same-pid early return does not apply) and its heartbeat
+    // is stale — only `process.kill(pid, 0)` keeps the root alive. Removing
+    // the probe (treating any stale heartbeat as dead) fails this test.
+    const foreign = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], { stdio: "ignore" });
+    const live = createCompiledApiRun();
+    try {
+      writeFileSync(
+        live.ownerPath,
+        JSON.stringify({
+          pid: foreign.pid,
+          hostname: hostname(),
+          startedAt: new Date(0).toISOString(),
+          heartbeatAt: new Date(0).toISOString(),
+        }),
+      );
+
+      expect(reclaimAbandonedCompiledApiRuns()).not.toContain(live.runRoot);
+      expect(existsSync(live.runRoot)).toBe(true);
+    } finally {
+      rmSync(live.runRoot, { recursive: true, force: true });
+      foreign.kill("SIGKILL");
+    }
   });
 
   it("never sweeps a run root whose owner is alive", () => {
