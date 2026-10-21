@@ -20,15 +20,23 @@ function lockedVersions(text, pkg) {
   return [...text.matchAll(re)].map((match) => match[1]);
 }
 
-/** `version` satisfies a `^major.minor.patch` floor. */
+/** `version` satisfies a `^major.minor.patch` floor, with npm caret
+ * semantics: `^1.x`/`^4.x` allow anything within the major; `^0.x` (x > 0)
+ * allows only patch-level bumps within the minor; `^0.0.x` is exact. */
 function satisfiesFloor(version, floor) {
+  const caret = floor.startsWith("^");
   const base = floor.replace(/^\^/, "").split(".").map(Number);
   const value = version.split(".").map(Number);
-  if (value[0] !== base[0]) return false;
-  for (let i = 1; i < base.length; i++) {
-    if (value[i] !== base[i]) return value[i] > base[i] || value[i - 1] > base[i - 1];
-  }
-  return true;
+  const ge = (a, b) => {
+    for (let i = 0; i < a.length; i++) {
+      if (a[i] !== b[i]) return a[i] > b[i];
+    }
+    return true;
+  };
+  if (!caret) return ge(value, base);
+  if (base[0] > 0) return value[0] === base[0] && ge(value.slice(1), base.slice(1));
+  if (base[1] > 0) return value[0] === 0 && value[1] === base[1] && value[2] >= base[2];
+  return value[0] === 0 && value[1] === 0 && value[2] === base[2];
 }
 
 test("the resolution policy is declared under pnpm.overrides, not the ineffective top-level field", async () => {
@@ -63,4 +71,9 @@ test("the floor checker detects the historical drift it exists to catch", () => 
   assert.equal(satisfiesFloor("4.12.10", "^4.12.16"), false);
   assert.equal(satisfiesFloor("4.13.13", "^4.12.16"), true);
   assert.equal(satisfiesFloor("8.5.13", "^8.5.13"), true);
+  // ^0.x floors are patch-bounded: a minor drift above the floor's minor is
+  // a violation even though the major matches (npm caret semantics).
+  assert.equal(satisfiesFloor("0.28.0", "^0.27.7"), false);
+  assert.equal(satisfiesFloor("0.27.9", "^0.27.7"), true);
+  assert.equal(satisfiesFloor("0.27.6", "^0.27.7"), false);
 });

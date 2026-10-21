@@ -22,7 +22,7 @@
     "dev:cli": "corepack pnpm --filter @orcy/cli dev",
     "setup": "tsx scripts/setup.ts",
     "deploy:ui": "corepack pnpm build:ui && cp -r packages/ui/dist/* ~/.orcy/ui/",
-    "test": "corepack pnpm -r test",
+    "test": "corepack pnpm test:scripts && corepack pnpm -r test",
     "test:scripts": "node --test scripts/*.test.mjs",
     "test:api": "corepack pnpm --filter @orcy/api test",
     "typecheck": "corepack pnpm -r typecheck",
