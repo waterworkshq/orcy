@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
-import { execFileSync, spawn, type ChildProcess } from "node:child_process";
+import { spawn, type ChildProcess } from "node:child_process";
 import { createHash, randomBytes } from "node:crypto";
-import { copyFileSync, cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, isAbsolute, join, relative, resolve } from "node:path";
 import type { Readable } from "node:stream";
@@ -9,6 +9,7 @@ import Database from "better-sqlite3";
 import { drizzle } from "drizzle-orm/better-sqlite3";
 import * as schema from "../db/schema/index.js";
 import { originalOnceEntitlement } from "./fixtures/scheduled-task-entitlement-original.js";
+import { createOutsideWorkspaceApiLayout, type CompiledApiLayout } from "./compiledApiLayout.js";
 
 vi.setConfig({ testTimeout: 60_000, hookTimeout: 120_000 });
 const PACKAGE_ROOT = resolve(import.meta.dirname, "..", "..");
@@ -38,6 +39,7 @@ interface Running {
 let ownedRoot = "";
 let packageDir = "";
 let ownedDrizzle = "";
+let ownedLayout: CompiledApiLayout | undefined;
 let sourceBefore: Record<string, string> | undefined;
 let fullJournal: Buffer;
 let journal: { entries: { tag: string; when: number }[]; [key: string]: unknown };
@@ -229,19 +231,13 @@ beforeAll(() => {
       "native evidence must survive owned fixture cleanup").toBe(true);
   }
   evidence("source-before", { source: sourceBefore, ownedRoot, journal });
-  packageDir = join(ownedRoot, "package");
-  mkdirSync(packageDir);
-  ownedDrizzle = join(packageDir, "drizzle");
-  cpSync(SOURCE_DRIZZLE, ownedDrizzle, { recursive: true, dereference: true });
+  // The run's shared compiled artifact is copied into an owned package outside
+  // the workspace: a workspace build would select the source migrations, this
+  // dedicated layout selects the owned package branch.
+  ownedLayout = createOutsideWorkspaceApiLayout({ root: ownedRoot });
+  packageDir = ownedLayout.packageDir;
+  ownedDrizzle = ownedLayout.drizzleDir;
   expect(lstatSync(ownedDrizzle).isSymbolicLink()).toBe(false);
-  copyFileSync(join(PACKAGE_ROOT, "package.json"), join(packageDir, "package.json"));
-  symlinkSync(join(PACKAGE_ROOT, "node_modules"), join(packageDir, "node_modules"), "dir");
-  // Existing useCompiledApi builds under the workspace and would select the
-  // source migrations. This dedicated output selects the owned package branch.
-  execFileSync("corepack", ["pnpm", "--filter", "@orcy/api", "build", "--outDir", join(packageDir, "dist")], {
-    cwd: WORKSPACE_ROOT, stdio: "pipe", timeout: 120_000, maxBuffer: 1_048_576,
-    env: { ...process.env, NODE_OPTIONS: "--max-old-space-size=2048" },
-  });
 });
 afterAll(async () => {
   try {
@@ -255,6 +251,7 @@ afterAll(async () => {
       expect(sourceAfter, "source migrations must never be mutated through fixture links").toEqual(sourceBefore);
     }
   } finally {
+    ownedLayout?.cleanup();
     if (ownedRoot) rmSync(ownedRoot, { recursive: true, force: true });
   }
 });

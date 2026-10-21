@@ -20,6 +20,7 @@
 import { describe, it, expect } from "vitest";
 import { spawn } from "node:child_process";
 import { useCompiledApi } from "./compiledApiFixture.js";
+import { createInstalledApiLayout } from "./compiledApiLayout.js";
 import { join, resolve, dirname } from "node:path";
 import {
   existsSync,
@@ -28,9 +29,6 @@ import {
   rmSync,
   mkdirSync,
   writeFileSync,
-  cpSync,
-  copyFileSync,
-  symlinkSync,
 } from "node:fs";
 import { createHash } from "node:crypto";
 import net from "node:net";
@@ -454,28 +452,18 @@ describe("F1 — ESM-safe compiled API startup", () => {
   describe("installed-package migration fallback", () => {
     it("launches from a copied package outside the workspace and reaches /health via productionMigrationFolder", async () => {
       const tempRoot = join(tmpdir(), `orcy-f1-inst-${process.pid}-${Date.now()}`);
-      const pkgDir = join(tempRoot, "package");
-      mkdirSync(pkgDir, { recursive: true });
+      mkdirSync(tempRoot, { recursive: true });
 
       try {
-        // Real copies (not symlinks) for dist/ and drizzle/ — Node ESM
-        // resolves symlinks to their real path, so import.meta.dirname must
-        // land inside the temp package to force the production fallback.
-        cpSync(compiledApi.distDir, join(pkgDir, "dist"), {
-          recursive: true,
-        });
-        cpSync(DRIZZLE_DIR, join(pkgDir, "drizzle"), { recursive: true });
-        copyFileSync(join(PACKAGE_ROOT, "package.json"), join(pkgDir, "package.json"));
-
-        // Symlink node_modules so runtime dependencies resolve without
-        // copying the entire pnpm store.
-        symlinkSync(join(PACKAGE_ROOT, "node_modules"), join(pkgDir, "node_modules"), "dir");
+        // Assemble inside the try so a failed copy still reaches the
+        // finally's tempRoot cleanup.
+        const installed = createInstalledApiLayout({ root: tempRoot });
 
         // Prove the workspace migration branch cannot fire from here.
         assertNoWorkspaceAncestor(tempRoot);
 
         // Prove the production drizzle folder exists in the copied layout.
-        const installedDrizzle = join(pkgDir, "drizzle");
+        const installedDrizzle = installed.drizzleDir;
         expect(existsSync(installedDrizzle)).toBe(true);
         expect(existsSync(join(installedDrizzle, "0000_schema.sql"))).toBe(true);
 
@@ -483,7 +471,7 @@ describe("F1 — ESM-safe compiled API startup", () => {
         const port = await getFreePort();
         prepareCurrentSchemaDatabase(dbPath);
 
-        await launchAndWaitForHealth(join(pkgDir, "dist", "index.js"), {
+        await launchAndWaitForHealth(installed.entrypoint, {
           ...process.env,
           NODE_ENV: "production",
           DB_PATH: dbPath,
@@ -508,15 +496,10 @@ describe("F1 — ESM-safe compiled API startup", () => {
   describe("compiled installed-package empty-database migration", () => {
     it("migrates an empty DB to readiness via the compiled binary, seeds templates, and leaves current schema", async () => {
       const tempRoot = join(tmpdir(), `orcy-f2a-empty-${process.pid}-${Date.now()}`);
-      const pkgDir = join(tempRoot, "package");
-      mkdirSync(pkgDir, { recursive: true });
+      mkdirSync(tempRoot, { recursive: true });
 
       try {
-        cpSync(compiledApi.distDir, join(pkgDir, "dist"), { recursive: true });
-        cpSync(DRIZZLE_DIR, join(pkgDir, "drizzle"), { recursive: true });
-        copyFileSync(join(PACKAGE_ROOT, "package.json"), join(pkgDir, "package.json"));
-        symlinkSync(join(PACKAGE_ROOT, "node_modules"), join(pkgDir, "node_modules"), "dir");
-
+        const installed = createInstalledApiLayout({ root: tempRoot });
         assertNoWorkspaceAncestor(tempRoot);
 
         const dbPath = join(tempRoot, "empty.db");
@@ -524,7 +507,7 @@ describe("F1 — ESM-safe compiled API startup", () => {
         expect(existsSync(dbPath)).toBe(false);
 
         const port = await getFreePort();
-        await launchAndWaitForHealth(join(pkgDir, "dist", "index.js"), {
+        await launchAndWaitForHealth(installed.entrypoint, {
           ...process.env,
           NODE_ENV: "production",
           DB_PATH: dbPath,
@@ -542,7 +525,7 @@ describe("F1 — ESM-safe compiled API startup", () => {
 
         // All journal entries recorded.
         const journal = JSON.parse(
-          readFileSync(join(pkgDir, "drizzle", "meta", "_journal.json"), "utf-8"),
+          readFileSync(join(installed.drizzleDir, "meta", "_journal.json"), "utf-8"),
         );
         const migrationCount = (
           db.prepare("SELECT COUNT(*) as n FROM __drizzle_migrations").get() as { n: number }
@@ -588,20 +571,16 @@ describe("F1 — ESM-safe compiled API startup", () => {
   describe("compiled installed-package legacy-ledger upgrade", () => {
     it("upgrades a legacy __migrations database via the compiled binary, preserves sentinel data, records the bridged baseline, and is idempotent on reboot", async () => {
       const tempRoot = join(tmpdir(), `orcy-f6-legacy-${process.pid}-${Date.now()}`);
-      const pkgDir = join(tempRoot, "package");
-      mkdirSync(pkgDir, { recursive: true });
+      mkdirSync(tempRoot, { recursive: true });
 
       try {
-        cpSync(compiledApi.distDir, join(pkgDir, "dist"), { recursive: true });
-        cpSync(DRIZZLE_DIR, join(pkgDir, "drizzle"), { recursive: true });
-        copyFileSync(join(PACKAGE_ROOT, "package.json"), join(pkgDir, "package.json"));
-        symlinkSync(join(PACKAGE_ROOT, "node_modules"), join(pkgDir, "node_modules"), "dir");
+        const installed = createInstalledApiLayout({ root: tempRoot });
 
         // The copied package must be physically outside any pnpm workspace so
         // the workspace migration branch cannot fire.
         assertNoWorkspaceAncestor(tempRoot);
 
-        const installedDrizzle = join(pkgDir, "drizzle");
+        const installedDrizzle = installed.drizzleDir;
         expect(existsSync(join(installedDrizzle, "0000_schema.sql"))).toBe(true);
 
         const journal = JSON.parse(
@@ -632,7 +611,7 @@ describe("F1 — ESM-safe compiled API startup", () => {
         // without the bridge, migrate() re-runs 0000_schema.sql and throws on
         // the first already-existing table before the server becomes ready.
         const port1 = await getFreePort();
-        await launchAndWaitForHealth(join(pkgDir, "dist", "index.js"), {
+        await launchAndWaitForHealth(installed.entrypoint, {
           ...baseEnv,
           PORT: String(port1),
         });
@@ -686,7 +665,7 @@ describe("F1 — ESM-safe compiled API startup", () => {
 
         // --- Boot 2: idempotent reboot ----------------------------------
         const port2 = await getFreePort();
-        await launchAndWaitForHealth(join(pkgDir, "dist", "index.js"), {
+        await launchAndWaitForHealth(installed.entrypoint, {
           ...baseEnv,
           PORT: String(port2),
         });
