@@ -154,36 +154,54 @@ test("a terminal hangup (SIGHUP) reaches the service groups too", async () => {
   const child = spawn("node", [prodScript], { env, stdio: ["ignore", "pipe", "pipe"] });
   const exited = new Promise((resolve) => child.on("exit", (code) => resolve(code)));
 
-  const waitDeadline = Date.now() + 10_000;
-  let apiLine = null;
-  while (Date.now() < waitDeadline && !apiLine) {
-    const text = await readFile(logPath, "utf8");
-    apiLine = text.split("\n").find((entry) => entry.startsWith("api_started grandchild ")) ?? null;
-    if (!apiLine) await new Promise((resolve) => setTimeout(resolve, 50));
-  }
-  assert.ok(apiLine, "api stub never logged its grandchild");
-  const grandchildPid = Number(apiLine.split(" ")[2]);
-
-  child.kill("SIGHUP");
-  const hangupExit = await Promise.race([
-    exited,
-    new Promise((resolve) => setTimeout(() => resolve("timeout"), 10_000)),
-  ]);
-  assert.notEqual(hangupExit, "timeout", "runner did not exit after SIGHUP");
-
-  const deadline = Date.now() + 2_000;
-  let alive = true;
-  while (Date.now() < deadline) {
-    try {
-      process.kill(grandchildPid, 0);
-      await new Promise((resolve) => setTimeout(resolve, 50));
-    } catch {
-      alive = false;
-      break;
+  let grandchildPid = null;
+  try {
+    const waitDeadline = Date.now() + 10_000;
+    let apiLine = null;
+    while (Date.now() < waitDeadline && !apiLine) {
+      const text = await readFile(logPath, "utf8");
+      apiLine = text.split("\n").find((entry) => entry.startsWith("api_started grandchild ")) ?? null;
+      if (!apiLine) await new Promise((resolve) => setTimeout(resolve, 50));
     }
+    assert.ok(apiLine, "api stub never logged its grandchild");
+    grandchildPid = Number(apiLine.split(" ")[2]);
+
+    child.kill("SIGHUP");
+    let hangupTimer;
+    const hangupExit = await Promise.race([
+      exited,
+      new Promise((resolve) => {
+        hangupTimer = setTimeout(() => resolve("timeout"), 10_000);
+      }),
+    ]);
+    clearTimeout(hangupTimer);
+    assert.notEqual(hangupExit, "timeout", "runner did not exit after SIGHUP");
+
+    const deadline = Date.now() + 2_000;
+    let alive = true;
+    while (Date.now() < deadline) {
+      try {
+        process.kill(grandchildPid, 0);
+        await new Promise((resolve) => setTimeout(resolve, 50));
+      } catch {
+        alive = false;
+        break;
+      }
+    }
+    assert.equal(alive, false, "grandchild survived the SIGHUP shutdown — hangup bypassed the service groups");
+  } finally {
+    // A failed assertion must not leak the runner or the stub processes (the
+    // orphaned, pipe-inheriting stubs would hang the harness).
+    child.kill("SIGKILL");
+    if (grandchildPid !== null) {
+      try {
+        process.kill(grandchildPid, "SIGKILL");
+      } catch {
+        /* already dead */
+      }
+    }
+    await rm(dir, { recursive: true, force: true });
   }
-  assert.equal(alive, false, "grandchild survived the SIGHUP shutdown — hangup bypassed the service groups");
-  await rm(dir, { recursive: true, force: true });
 });
 
 test("a service that ignores SIGTERM is force-killed after the grace window", async () => {
@@ -208,32 +226,50 @@ test("a service that ignores SIGTERM is force-killed after the grace window", as
   const child = spawn("node", [prodScript], { env, stdio: ["ignore", "pipe", "pipe"] });
   const exited = new Promise((resolve) => child.on("exit", (code) => resolve(code)));
 
-  const waitDeadline = Date.now() + 10_000;
-  let apiLine = null;
-  while (Date.now() < waitDeadline && !apiLine) {
-    const text = await readFile(logPath, "utf8");
-    apiLine = text.split("\n").find((entry) => entry.startsWith("api_started ")) ?? null;
-    if (!apiLine) await new Promise((resolve) => setTimeout(resolve, 50));
-  }
-  assert.ok(apiLine, "api stub never logged");
-  const stubbornPid = Number(apiLine.split(" ")[1]);
-
-  const exitCode = await Promise.race([
-    exited,
-    new Promise((resolve) => setTimeout(() => resolve("timeout"), 15_000)),
-  ]);
-  assert.notEqual(exitCode, "timeout", "runner never exited");
-  assert.equal(exitCode, 0);
-
-  // The stubborn group must be dead by now (SIGKILL after the 5 s grace) and
-  // the runner must not have exited before the grace window elapsed.
-  let dead = false;
+  let stubbornPid = null;
   try {
-    process.kill(stubbornPid, 0);
-  } catch {
-    dead = true;
+    const waitDeadline = Date.now() + 10_000;
+    let apiLine = null;
+    while (Date.now() < waitDeadline && !apiLine) {
+      const text = await readFile(logPath, "utf8");
+      apiLine = text.split("\n").find((entry) => entry.startsWith("api_started ")) ?? null;
+      if (!apiLine) await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+    assert.ok(apiLine, "api stub never logged");
+    stubbornPid = Number(apiLine.split(" ")[1]);
+
+    let exitTimer;
+    const exitCode = await Promise.race([
+      exited,
+      new Promise((resolve) => {
+        exitTimer = setTimeout(() => resolve("timeout"), 15_000);
+      }),
+    ]);
+    clearTimeout(exitTimer);
+    assert.notEqual(exitCode, "timeout", "runner never exited");
+    assert.equal(exitCode, 0);
+
+    // The stubborn group must be dead by now (SIGKILL after the 5 s grace) and
+    // the runner must not have exited before the grace window elapsed.
+    let dead = false;
+    try {
+      process.kill(stubbornPid, 0);
+    } catch {
+      dead = true;
+    }
+    assert.equal(dead, true, "stubborn service still alive after grace — no SIGKILL escalation");
+    assert.ok(Date.now() - startedAt >= 5_000, "runner exited before the grace window elapsed");
+  } finally {
+    // A failed assertion must not leak the runner or the SIGTERM-trapping
+    // stub (which ignores shutdown signals by construction).
+    child.kill("SIGKILL");
+    if (stubbornPid !== null) {
+      try {
+        process.kill(stubbornPid, "SIGKILL");
+      } catch {
+        /* already dead */
+      }
+    }
+    await rm(dir, { recursive: true, force: true });
   }
-  assert.equal(dead, true, "stubborn service still alive after grace — no SIGKILL escalation");
-  assert.ok(Date.now() - startedAt >= 5_000, "runner exited before the grace window elapsed");
-  await rm(dir, { recursive: true, force: true });
 });

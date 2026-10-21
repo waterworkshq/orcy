@@ -16,7 +16,11 @@ const uiCommand = process.env.ORCY_PROD_UI ?? "corepack pnpm start:ui";
 // this grace window.
 const SHUTDOWN_GRACE_MS = 5_000;
 
-const children = new Set();
+// Group ids of every spawned command, tracked INDEPENDENTLY of the direct
+// child's lifetime: the shell/pnpm wrapper can exit while a draining or
+// stubborn descendant still holds the group and its port, so teardown and
+// signaling key on the groups, not on child 'exit' events.
+const groupPids = new Set();
 
 function run(command, onSpawnError) {
   // Own process group: `shell: true` wraps the command in /bin/sh, and a
@@ -24,25 +28,22 @@ function run(command, onSpawnError) {
   // with their ports held. `detached: true` makes each child a process-group
   // leader so shutdown can signal the whole group.
   const child = spawn(command, { shell: true, stdio: "inherit", detached: true });
-  children.add(child);
-  child.on("exit", () => children.delete(child));
+  if (typeof child.pid === "number") groupPids.add(child.pid);
   // Without an `error` listener a failed spawn throws an uncaught exception
   // and the runner dies without shutting down everything already running.
   child.on("error", (err) => {
-    children.delete(child);
+    if (typeof child.pid === "number") groupPids.delete(child.pid);
     onSpawnError?.(err);
   });
   return child;
 }
 
 function signalGroups(signal) {
-  for (const child of children) {
-    // Negative pid signals the child's whole process group; fall back to a
-    // direct signal when the group is already gone.
+  for (const pid of groupPids) {
     try {
-      process.kill(-child.pid, signal);
+      process.kill(-pid, signal);
     } catch {
-      child.kill(signal);
+      /* group already gone */
     }
   }
 }
@@ -52,37 +53,26 @@ function shutdown() {
   if (shutdownStarted) return;
   shutdownStarted = true;
   signalGroups("SIGTERM");
-  // The direct child (shell/pnpm) can exit on SIGTERM while a draining or
-  // stubborn DESCENDANT still holds the group and its port — the children set
-  // is keyed to direct-child exits and must not decide teardown. Track the
-  // groups themselves: exit promptly once every group is gone, and escalate
-  // to SIGKILL for any group still alive after the grace window. The poll
-  // keeps the runner open until then.
-  const groups = [...children]
-    .map((child) => child.pid)
-    .filter((pid) => typeof pid === "number");
+  // Poll the groups themselves: exit promptly once every group is gone, and
+  // escalate to SIGKILL for any group still alive after the grace window.
+  // The poll keeps the runner open until then.
   const deadline = Date.now() + SHUTDOWN_GRACE_MS;
   const poll = setInterval(() => {
-    const alive = groups.filter((pid) => {
+    let alive = 0;
+    for (const pid of [...groupPids]) {
       try {
         process.kill(-pid, 0);
-        return true;
+        alive++;
       } catch {
-        return false;
+        groupPids.delete(pid);
       }
-    });
-    if (alive.length === 0) {
+    }
+    if (alive === 0) {
       clearInterval(poll);
       return;
     }
     if (Date.now() >= deadline) {
-      for (const pid of alive) {
-        try {
-          process.kill(-pid, "SIGKILL");
-        } catch {
-          /* group reaped between check and signal */
-        }
-      }
+      signalGroups("SIGKILL");
       clearInterval(poll);
     }
   }, 100);
@@ -99,11 +89,14 @@ const build = run(buildCommand, () => {
   process.exitCode = 1;
 });
 build.on("exit", (code) => {
-  if (process.exitCode === undefined && code !== 0) {
+  // A stop signal that arrived while the build was still running has already
+  // run shutdown, and a build spawn failure has already set the exit code —
+  // never start services after either.
+  if (shutdownStarted || process.exitCode !== undefined) return;
+  if (code !== 0) {
     process.exitCode = code ?? 1;
     return;
   }
-  if (process.exitCode !== undefined) return;
   // Mirror the first service exit's status; the sibling we terminate in
   // response must not overwrite it.
   let settled = false;
