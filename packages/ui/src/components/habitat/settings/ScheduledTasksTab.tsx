@@ -73,8 +73,7 @@ function ScheduledTasksView({ habitatId, credential }: ScheduledTasksTabProps & 
       if (!isCurrentView()) return;
       notify.error((err as Error).message);
     } finally {
-      if (!isCurrentView()) return;
-      setSaving(false);
+      if (isCurrentView()) setSaving(false);
     }
   }
 
@@ -147,9 +146,10 @@ function ScheduledTasksView({ habitatId, credential }: ScheduledTasksTabProps & 
       }
       notify.error(definitive ? (err as Error).message : `${(err as Error).message}. Result unconfirmed; Retry Run checks the same request.`);
     } finally {
-      if (!isCurrentView()) return;
-      inFlight.current.delete(id);
-      setRunningIds(new Set(inFlight.current));
+      if (isCurrentView()) {
+        inFlight.current.delete(id);
+        setRunningIds(new Set(inFlight.current));
+      }
     }
   }
 

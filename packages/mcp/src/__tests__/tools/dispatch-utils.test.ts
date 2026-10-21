@@ -312,6 +312,10 @@ describe("dispatch validation failures", () => {
 
 
 describe("required metadata entry types", () => {
+  // Length-1 array with a hole at index 0 (genuinely sparse, unlike a literal
+  // `[undefined]`), built without `new Array(1)` or a sparse-array literal.
+  const sparseRequired: string[] = [];
+  sparseRequired.length = 1;
   it.each([
     { label: "numeric", required: [1] },
     { label: "boolean", required: [true] },
@@ -319,7 +323,7 @@ describe("required metadata entry types", () => {
     { label: "undefined", required: [undefined] },
     { label: "symbol", required: [Symbol.for("invalid-required-entry")] },
     { label: "mixed", required: ["taskId", 1] },
-    { label: "sparse", required: new Array(1) },
+    { label: "sparse", required: sparseRequired },
   ])("rejects $label metadata even when coerced argument keys are present", async ({ required }) => {
     const registered = vi.fn().mockResolvedValue({ ok: true });
     const dispatch = createDispatchHandler(
