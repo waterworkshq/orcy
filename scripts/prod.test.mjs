@@ -54,3 +54,63 @@ test("failed build starts neither service and exits nonzero", async () => {
   assert.equal(events, "build");
   await rm(dir, { recursive: true, force: true });
 });
+
+test("a service exit terminates the sibling's whole process group, grandchildren included", async () => {
+  // The API stub spawns a long-lived GRANDCHILD (as a real service spawns
+  // pnpm -> node); the UI stub exits, which must take down the API stub's
+  // entire process group — killing only the /bin/sh wrapper (the pre-fix
+  // behavior) leaves the grandchild alive.
+  const dir = await mkdtemp(path.join(tmpdir(), "orcy-prod-log-"));
+  const logPath = path.join(dir, "events");
+  await writeFile(logPath, "");
+  const apiStub =
+    `node -e 'const { spawn } = require("child_process"); ` +
+    `const grandchild = spawn(process.execPath, ["-e", "setInterval(() => {}, 1 << 30)"], { stdio: "ignore" }); ` +
+    `require("fs").appendFileSync(${JSON.stringify(logPath)}, "api_started grandchild " + grandchild.pid + "\\n"); ` +
+    `setInterval(() => {}, 1 << 30);'`;
+  const uiStub =
+    `node -e 'const fs = require("fs"); const log = ${JSON.stringify(logPath)}; ` +
+    `const deadline = Date.now() + 10_000; ` +
+    `while (!fs.readFileSync(log, "utf8").includes("api_started")) { ` +
+    `if (Date.now() > deadline) process.exit(1); ` +
+    `Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 25); } ` +
+    `fs.appendFileSync(log, "ui_started\\n");'`;
+  const env = {
+    ...process.env,
+    ORCY_PROD_BUILD: stub(logPath, "build"),
+    ORCY_PROD_API: apiStub,
+    ORCY_PROD_UI: uiStub,
+  };
+  let exitCode;
+  try {
+    await execFileAsync("node", [prodScript], { env });
+    exitCode = 0;
+  } catch (error) {
+    exitCode = error.code ?? 1;
+  }
+  assert.equal(exitCode, 0);
+
+  const events = (await readFile(logPath, "utf8")).trim().split("\n");
+  assert.equal(events[0], "build");
+  assert.ok(events.includes("ui_started"), `ui line missing: ${events.join(" | ")}`);
+  const apiLine = events.find((entry) => entry.startsWith("api_started grandchild "));
+  assert.ok(apiLine, `api grandchild line missing: ${events.join(" | ")}`);
+
+  const grandchildPid = Number(apiLine.split(" ")[2]);
+  assert.ok(Number.isInteger(grandchildPid), `grandchild pid not logged: ${events.join(" | ")}`);
+  // The process-group SIGTERM ran before the runner exited; allow a short
+  // reaping window, then the pid must be gone (kill(pid, 0) throws ESRCH).
+  const deadline = Date.now() + 2_000;
+  let alive = true;
+  while (Date.now() < deadline) {
+    try {
+      process.kill(grandchildPid, 0);
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    } catch {
+      alive = false;
+      break;
+    }
+  }
+  assert.equal(alive, false, "grandchild survived the sibling-exit shutdown — process group not signaled");
+  await rm(dir, { recursive: true, force: true });
+});

@@ -14,14 +14,26 @@ const uiCommand = process.env.ORCY_PROD_UI ?? "corepack pnpm start:ui";
 const children = new Set();
 
 function run(command) {
-  const child = spawn(command, { shell: true, stdio: "inherit" });
+  // Own process group: `shell: true` wraps the command in /bin/sh, and a
+  // signal to the wrapper alone leaves the pnpm/node grandchildren running
+  // with their ports held. `detached: true` makes each child a process-group
+  // leader so shutdown can signal the whole group.
+  const child = spawn(command, { shell: true, stdio: "inherit", detached: true });
   children.add(child);
   child.on("exit", () => children.delete(child));
   return child;
 }
 
 function shutdown() {
-  for (const child of children) child.kill("SIGTERM");
+  for (const child of children) {
+    // Negative pid signals the child's whole process group; fall back to a
+    // direct signal when the group is already gone.
+    try {
+      process.kill(-child.pid, "SIGTERM");
+    } catch {
+      child.kill("SIGTERM");
+    }
+  }
 }
 
 process.on("SIGINT", shutdown);
