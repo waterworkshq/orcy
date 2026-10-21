@@ -2,8 +2,9 @@
  * SqliteError detection and HTTP status mapping for better-sqlite3 errors.
  *
  * better-sqlite3 throws errors with `name === "SqliteError"` and a string `code`
- * like "SQLITE_CONSTRAINT_UNIQUE". These are passed through Drizzle unchanged
- * and bubble up to the global error handler as raw Error objects.
+ * like "SQLITE_CONSTRAINT_UNIQUE". Drizzle may pass them through unchanged OR
+ * wrap them with the driver error on `.cause` (see `isSqliteDuplicateInsert`),
+ * so consumers must not assume the global error handler sees raw SqliteErrors.
  */
 
 export interface SqliteErrorLike extends Error {

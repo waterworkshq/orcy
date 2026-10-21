@@ -51,9 +51,10 @@ async function authorizeTaskEdgesAndProject(
 
 /**
  * Mission analogue of {@link authorizeTaskEdgesAndProject}: authorizes every
- * raw linked mission of `missionId` (both directions, dangling edges
- * included), then returns the joined projection, revalidating once if the two
- * reads disagree and otherwise failing closed.
+ * EXISTING raw linked mission of `missionId` (both directions; dangling
+ * endpoints are excluded — see the skip inside), then returns the joined
+ * projection, revalidating once if the two reads disagree and otherwise
+ * failing closed.
  */
 async function authorizeMissionEdgesAndProject(
   request: FastifyRequest,
