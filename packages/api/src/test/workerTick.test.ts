@@ -29,10 +29,15 @@ describe("ORCY_TEST_TICK_MS worker cadence override", () => {
   it("shrinks the tick when the variable is an explicitly set positive integer", () => {
     vi.stubEnv("ORCY_TEST_TICK_MS", "1500");
     expect(workerTickMs(60_000)).toBe(1_500);
+    // Integer-valued spellings parse to integers and stay acceptable.
+    vi.stubEnv("ORCY_TEST_TICK_MS", "1e3");
+    expect(workerTickMs(60_000)).toBe(1_000);
   });
 
-  it("rejects zero, negative, and malformed values (no silent cadence change)", () => {
-    for (const value of ["0", "-1000", "not-a-number"]) {
+  it("rejects zero, negative, non-integer, non-finite, and interval-overflow values (no silent cadence change)", () => {
+    // 1e21 is integer-valued but beyond setInterval's 32-bit domain, where
+    // Node silently clamps to a 1 ms interval.
+    for (const value of ["0", "-1000", "not-a-number", "1500.5", "Infinity", "NaN", "1e21"]) {
       vi.stubEnv("ORCY_TEST_TICK_MS", value);
       expect(workerTickMs(60_000), value).toBe(60_000);
     }

@@ -145,7 +145,7 @@ interface ReceivedRequest {
 }
 
 describe("webhook retry restoration — production boot smoke", () => {
-  it("the production entrypoint boots the retry worker: a due pending delivery is claimed and delivered within one tick", async () => {
+  it("the production entrypoint boots the retry worker: a due pending delivery is claimed and delivered within the fast-tick budget", async () => {
     const tempDir = join(tmpdir(), `orcy-webhook-smoke-${process.pid}-${Date.now()}`);
     mkdirSync(tempDir, { recursive: true });
     const dbPath = join(tempDir, "smoke.db");

@@ -502,7 +502,10 @@ function trustedDestination(row: DueUnitRow): TrustedChannelDestination | null {
 /**
  * Starts the background delivery worker (default 60 s tick, shrunk by the
  * test-only `ORCY_TEST_TICK_MS` override). Interval-only start: the first
- * pass fires one tick later, by which time initDb() has completed.
+ * pass fires one tick later. At the production cadence initDb() (awaited
+ * further down boot) has completed by then; a shrunk test tick may fire one
+ * pre-init pass, whose rejection is swallowed by the tick's catch and
+ * recovered by the next tick — the worker deliberately does not wait.
  */
 export function startNotificationDeliveryWorker(intervalMs?: number): void {
   if (workerInterval) return;

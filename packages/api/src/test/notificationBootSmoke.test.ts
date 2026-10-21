@@ -146,7 +146,7 @@ interface ReceivedRequest {
 }
 
 describe("notification V2 push restoration — production boot smoke", () => {
-  it("the production entrypoint boots the delivery worker: a due unit is claimed and sent to the authorized destination within one tick", async () => {
+  it("the production entrypoint boots the delivery worker: a due unit is claimed and sent to the authorized destination within the fast-tick budget", async () => {
     const tempDir = join(tmpdir(), `orcy-notify-smoke-${process.pid}-${Date.now()}`);
     mkdirSync(tempDir, { recursive: true });
     const dbPath = join(tempDir, "smoke.db");
