@@ -1,4 +1,5 @@
 import { logger } from "../lib/logger.js";
+import { workerTickMs } from "../lib/workerTick.js";
 import { getDb } from "../db/index.js";
 import * as deliveryRepo from "../repositories/notificationDelivery.js";
 import * as eventRepo from "../repositories/notificationEvent.js";
@@ -499,19 +500,18 @@ function trustedDestination(row: DueUnitRow): TrustedChannelDestination | null {
 }
 
 /**
- * Starts the background delivery worker (60 s tick). Interval-only start: the
- * first pass fires one tick later, by which time initDb() has completed.
+ * Starts the background delivery worker (default 60 s tick, shrunk by the
+ * test-only `ORCY_TEST_TICK_MS` override). Interval-only start: the first
+ * pass fires one tick later, by which time initDb() has completed.
  */
-export function startNotificationDeliveryWorker(
-  intervalMs: number = NOTIFICATION_WORKER_TICK_MS,
-): void {
+export function startNotificationDeliveryWorker(intervalMs?: number): void {
   if (workerInterval) return;
   generation += 1;
   workerInterval = setInterval(() => {
     void processNotificationQueue().catch((err) => {
       logger.error({ errorCode: "delivery_tick_failed" }, "Notification delivery tick failed");
     });
-  }, intervalMs);
+  }, intervalMs ?? workerTickMs(NOTIFICATION_WORKER_TICK_MS));
 }
 
 /**

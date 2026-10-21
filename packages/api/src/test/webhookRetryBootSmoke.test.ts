@@ -201,6 +201,10 @@ describe("webhook retry restoration — production boot smoke", () => {
       db.close();
 
       const apiPort = await getFreePort();
+      // Test-only fast tick (lib/workerTick.ts): the worker cadence shrinks
+      // from the frozen 60 s production default; budgets below are expressed
+      // in ticks, never wall-clock.
+      const WORKER_TICK_MS = 1_500;
       const child = spawn(process.execPath, [compiledApi.entrypoint], {
         env: {
           ...process.env,
@@ -211,6 +215,7 @@ describe("webhook retry restoration — production boot smoke", () => {
           JWT_SECRET: STRONG_JWT,
           ORCY_REGISTRATION_TOKEN: "webhook-smoke-token",
           ORCY_SSRF_ALLOWLIST: "127.0.0.1",
+          ORCY_TEST_TICK_MS: String(WORKER_TICK_MS),
           HOME: tempDir,
           LOG_LEVEL: "error",
         },
@@ -258,8 +263,9 @@ describe("webhook retry restoration — production boot smoke", () => {
         }
         expect(ready, `API never reached /health.\nstdout:\n${stdout}\nstderr:\n${stderr}`).toBe(true);
 
-        // The worker's first tick fires one 60 s interval after boot.
-        const DELIVERY_TIMEOUT = 100_000;
+        // The worker's first tick fires one (fast) interval after boot; the
+        // budget is six ticks, so slow machines degrade instead of flaking.
+        const DELIVERY_TIMEOUT = WORKER_TICK_MS * 6;
         const deliveryDeadline = Date.now() + DELIVERY_TIMEOUT;
         while (Date.now() < deliveryDeadline) {
           if (received.some((r) => r.deliveryId === DELIVERY_ID)) break;
