@@ -248,6 +248,9 @@ test("a service that ignores SIGTERM is force-killed after the grace window", as
     ORCY_PROD_BUILD: stub(logPath, "build"),
     ORCY_PROD_API: apiStub,
     ORCY_PROD_UI: uiStub,
+    // Production grace covers the API's own bounded drains (15+15+35 s);
+    // the shrunk seam keeps this test fast while pinning the same contract.
+    ORCY_PROD_SHUTDOWN_GRACE_MS: "1500",
   };
   const startedAt = Date.now();
   const child = spawn("node", [prodScript], { env, stdio: ["ignore", "pipe", "pipe"] });
@@ -281,8 +284,8 @@ test("a service that ignores SIGTERM is force-killed after the grace window", as
     assert.notEqual(exitCode, "timeout", "runner never exited");
     assert.equal(exitCode, 0);
 
-    // The stubborn group must be dead by now (SIGKILL after the 5 s grace) and
-    // the runner must not have exited before the grace window elapsed.
+    // The stubborn group must be dead by now (SIGKILL after the shrunk
+    // grace) and the runner must not have exited before the grace elapsed.
     let dead = false;
     try {
       process.kill(stubbornPid, 0);
@@ -290,7 +293,7 @@ test("a service that ignores SIGTERM is force-killed after the grace window", as
       dead = true;
     }
     assert.equal(dead, true, "stubborn service still alive after grace — no SIGKILL escalation");
-    assert.ok(Date.now() - startedAt >= 5_000, "runner exited before the grace window elapsed");
+    assert.ok(Date.now() - startedAt >= 1_500, "runner exited before the grace window elapsed");
   } finally {
     // A failed assertion must not leak the runner or the SIGTERM-trapping
     // stub and its sibling (both ignore shutdown signals by construction).

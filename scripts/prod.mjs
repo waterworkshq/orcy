@@ -7,14 +7,23 @@
 // scripts/prod.test.mjs — they are test seams, not operator configuration.
 import { spawn } from "node:child_process";
 
+function positiveIntegerEnv(name) {
+  const value = Number(process.env[name]);
+  return Number.isInteger(value) && value > 0 ? value : undefined;
+}
+
 const buildCommand = process.env.ORCY_PROD_BUILD ?? "corepack pnpm build";
 const apiCommand = process.env.ORCY_PROD_API ?? "corepack pnpm start:api";
 const uiCommand = process.env.ORCY_PROD_UI ?? "corepack pnpm start:ui";
 
 // A service that ignores SIGTERM (or drains slowly) must not outlive the
 // runner by holding its port forever: shutdown escalates to SIGKILL after
-// this grace window.
-const SHUTDOWN_GRACE_MS = 5_000;
+// this grace window. The default covers the API's own bounded shutdown
+// drains (webhook retry 15 s, notification delivery 15 s, effect deliverer
+// 35 s — worst case sequential plus close slack), so escalation only ever
+// cuts short a genuinely stuck service. ORCY_PROD_SHUTDOWN_GRACE_MS is a
+// test seam (positive integer) to shrink the window in stub checks.
+const SHUTDOWN_GRACE_MS = positiveIntegerEnv("ORCY_PROD_SHUTDOWN_GRACE_MS") ?? 65_000;
 
 // Group ids of every spawned command, tracked INDEPENDENTLY of the direct
 // child's lifetime: the shell/pnpm wrapper can exit while a draining or
