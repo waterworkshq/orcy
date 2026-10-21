@@ -22,7 +22,8 @@
     "dev:cli": "corepack pnpm --filter @orcy/cli dev",
     "setup": "tsx scripts/setup.ts",
     "deploy:ui": "corepack pnpm build:ui && cp -r packages/ui/dist/* ~/.orcy/ui/",
-    "test": "corepack pnpm -r test",
+    "test": "corepack pnpm test:scripts && corepack pnpm -r test",
+    "test:scripts": "node --test scripts/*.test.mjs",
     "test:api": "corepack pnpm --filter @orcy/api test",
     "typecheck": "corepack pnpm -r typecheck",
     "lint": "oxlint packages/*/src",
@@ -44,11 +45,13 @@
     "typescript": "^7.0.2",
     "vitest": "^4.1.12"
   },
-  "overrides": {
-    "hono": "^4.12.16",
-    "@hono/node-server": "^1.19.13",
-    "postcss": "^8.5.13",
-    "esbuild": "^0.27.7"
+  "pnpm": {
+    "overrides": {
+      "hono": "^4.12.16",
+      "@hono/node-server": "^1.19.13",
+      "postcss": "^8.5.13",
+      "esbuild": "^0.27.7"
+    }
   },
   "workspaces": [
     "packages/*"
