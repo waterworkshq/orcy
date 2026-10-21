@@ -185,3 +185,55 @@ test("a terminal hangup (SIGHUP) reaches the service groups too", async () => {
   assert.equal(alive, false, "grandchild survived the SIGHUP shutdown — hangup bypassed the service groups");
   await rm(dir, { recursive: true, force: true });
 });
+
+test("a service that ignores SIGTERM is force-killed after the grace window", async () => {
+  // The API stub traps SIGTERM and keeps running; the sibling UI exit starts
+  // shutdown, and after the runner's grace window the group must be SIGKILLed
+  // — the runner never exits while a service still holds its group.
+  const dir = await mkdtemp(path.join(tmpdir(), "orcy-prod-log-"));
+  const logPath = path.join(dir, "events");
+  await writeFile(logPath, "");
+  const apiStub =
+    `node -e 'process.on("SIGTERM", () => {}); ` +
+    `const fs = require("fs"); ` +
+    `fs.appendFileSync(${JSON.stringify(logPath)}, "api_started " + process.pid + "\\n"); ` +
+    `setInterval(() => {}, 1 << 30);'`;
+  const env = {
+    ...process.env,
+    ORCY_PROD_BUILD: stub(logPath, "build"),
+    ORCY_PROD_API: apiStub,
+    ORCY_PROD_UI: stubAfter(logPath, "api_started", "ui_started"),
+  };
+  const startedAt = Date.now();
+  const child = spawn("node", [prodScript], { env, stdio: ["ignore", "pipe", "pipe"] });
+  const exited = new Promise((resolve) => child.on("exit", (code) => resolve(code)));
+
+  const waitDeadline = Date.now() + 10_000;
+  let apiLine = null;
+  while (Date.now() < waitDeadline && !apiLine) {
+    const text = await readFile(logPath, "utf8");
+    apiLine = text.split("\n").find((entry) => entry.startsWith("api_started ")) ?? null;
+    if (!apiLine) await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+  assert.ok(apiLine, "api stub never logged");
+  const stubbornPid = Number(apiLine.split(" ")[1]);
+
+  const exitCode = await Promise.race([
+    exited,
+    new Promise((resolve) => setTimeout(() => resolve("timeout"), 15_000)),
+  ]);
+  assert.notEqual(exitCode, "timeout", "runner never exited");
+  assert.equal(exitCode, 0);
+
+  // The stubborn group must be dead by now (SIGKILL after the 5 s grace) and
+  // the runner must not have exited before the grace window elapsed.
+  let dead = false;
+  try {
+    process.kill(stubbornPid, 0);
+  } catch {
+    dead = true;
+  }
+  assert.equal(dead, true, "stubborn service still alive after grace — no SIGKILL escalation");
+  assert.ok(Date.now() - startedAt >= 5_000, "runner exited before the grace window elapsed");
+  await rm(dir, { recursive: true, force: true });
+});
