@@ -134,6 +134,34 @@ export function removeMissionDependency(missionId: string, dependsOnId: string):
     .run();
 }
 
+/**
+ * Raw ordered edge inventory for Mission access checks: every
+ * `mission_dependencies` row touching `missionId` in BOTH directions, read
+ * WITHOUT an inner join to `missions`. Unlike the joined projection, a
+ * dangling edge (endpoint Mission row abnormally missing) still surfaces its
+ * endpoint id so callers can fail closed instead of silently dropping the row.
+ */
+export function getMissionDependencyEdgeIds(missionId: string): {
+  outgoing: string[];
+  incoming: string[];
+} {
+  const db = getDb();
+  const outgoing = db
+    .select({ dependsOnId: missionDependencies.dependsOnId })
+    .from(missionDependencies)
+    .where(eq(missionDependencies.missionId, missionId))
+    .all();
+  const incoming = db
+    .select({ blockerId: missionDependencies.missionId })
+    .from(missionDependencies)
+    .where(eq(missionDependencies.dependsOnId, missionId))
+    .all();
+  return {
+    outgoing: outgoing.map((row) => row.dependsOnId),
+    incoming: incoming.map((row) => row.blockerId),
+  };
+}
+
 export function getMissionDependencies(missionId: string): MissionDependencyDetails {
   const db = getDb();
 

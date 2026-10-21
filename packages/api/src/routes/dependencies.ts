@@ -2,9 +2,10 @@ import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import * as dependencyService from '../services/dependencyService.js';
 import * as dependencyRepo from '../repositories/dependency.js';
 import * as taskRepo from '../repositories/task.js';
+import { getMissionById } from '../repositories/mission.js';
 import { badRequest, notFound, conflict, serviceUnavailable } from '../errors.js';
 import { applyDeclaredAuthPolicies } from "../authPolicy.js";
-import { authorizeTaskAccess } from '../middleware/realtimeAuth.js';
+import { authorizeTaskAccess, authorizeMissionAccessById } from '../middleware/realtimeAuth.js';
 
 function sameEndpointIds(projected: string[], inventoried: string[]): boolean {
   if (projected.length !== inventoried.length) return false;
@@ -40,6 +41,52 @@ async function authorizeTaskEdgesAndProject(
       sameEndpointIds(
         projection.blocking.map((row) => row.taskId),
         edges.incoming,
+      )
+    ) {
+      return projection;
+    }
+  }
+  throw serviceUnavailable('Dependency state changed during read; retry');
+}
+
+/**
+ * Mission analogue of {@link authorizeTaskEdgesAndProject}: authorizes every
+ * EXISTING raw linked mission of `missionId` (both directions; dangling
+ * endpoints are excluded — see the skip inside), then returns the joined
+ * projection, revalidating once if the two reads disagree and otherwise
+ * failing closed.
+ */
+async function authorizeMissionEdgesAndProject(
+  request: FastifyRequest,
+  missionId: string,
+): Promise<dependencyRepo.MissionDependencyDetails> {
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const edges = dependencyRepo.getMissionDependencyEdgeIds(missionId);
+    // `mission_dependencies.mission_id` carries no FK (only `depends_on_id`
+    // does), so deleting a SOURCE mission — allowed by deleteMission, which
+    // only blocks missions that others depend on — leaves a dangling edge
+    // that normal API use reaches. Unlike task_dependencies (FKs on both
+    // columns, where a dangling endpoint means corruption and fails closed),
+    // a dangling mission endpoint carries no disclosable metadata and the
+    // joined projection drops it too: skip it rather than 404, and exclude
+    // it from the comparison so projection and inventory agree.
+    const dangling = new Set(
+      [...edges.outgoing, ...edges.incoming].filter((id) => !getMissionById(id)),
+    );
+    for (const linkedId of new Set([...edges.outgoing, ...edges.incoming])) {
+      if (dangling.has(linkedId)) continue;
+      await authorizeMissionAccessById(request, linkedId);
+    }
+    const withoutDangling = (ids: string[]) => ids.filter((id) => !dangling.has(id));
+    const projection = dependencyService.getMissionDependencies(missionId);
+    if (
+      sameEndpointIds(
+        projection.dependsOn.map((row) => row.missionId),
+        withoutDangling(edges.outgoing),
+      ) &&
+      sameEndpointIds(
+        projection.blocking.map((row) => row.missionId),
+        withoutDangling(edges.incoming),
       )
     ) {
       return projection;
@@ -140,6 +187,9 @@ export async function dependencyRoutes(fastify: FastifyInstance): Promise<void> 
         throw badRequest('dependsOnMissionId is required');
       }
 
+      await authorizeMissionAccessById(request, request.params.missionId);
+      await authorizeMissionAccessById(request, dependsOnMissionId);
+
       const result = dependencyService.addMissionDependency(request.params.missionId, dependsOnMissionId);
       if (!result.success) {
         throw conflict(result.reason ?? 'Conflict');
@@ -152,6 +202,15 @@ export async function dependencyRoutes(fastify: FastifyInstance): Promise<void> 
     '/missions/:missionId/dependencies/:depId',
     { config: { authPolicy: "local_actor" } },
     async (request: FastifyRequest<{ Params: { missionId: string; depId: string } }>, _reply: FastifyReply) => {
+      await authorizeMissionAccessById(request, request.params.missionId);
+
+      const edges = dependencyRepo.getMissionDependencyEdgeIds(request.params.missionId);
+      if (!edges.outgoing.includes(request.params.depId)) {
+        throw notFound('Dependency not found');
+      }
+
+      await authorizeMissionAccessById(request, request.params.depId);
+
       const removed = dependencyService.removeMissionDependency(request.params.missionId, request.params.depId);
       if (!removed) {
         throw notFound('Dependency not found');
@@ -164,7 +223,8 @@ export async function dependencyRoutes(fastify: FastifyInstance): Promise<void> 
     '/missions/:missionId/dependencies',
     { config: { authPolicy: "local_actor" } },
     async (request: FastifyRequest<{ Params: { missionId: string } }>, _reply: FastifyReply) => {
-      return dependencyService.getMissionDependencies(request.params.missionId);
+      await authorizeMissionAccessById(request, request.params.missionId);
+      return authorizeMissionEdgesAndProject(request, request.params.missionId);
     }
   );
 
@@ -172,7 +232,17 @@ export async function dependencyRoutes(fastify: FastifyInstance): Promise<void> 
     '/missions/:missionId/blocked-status',
     { config: { authPolicy: "local_actor" } },
     async (request: FastifyRequest<{ Params: { missionId: string } }>, _reply: FastifyReply) => {
-      return dependencyService.validateMissionCompletion(request.params.missionId);
+      await authorizeMissionAccessById(request, request.params.missionId);
+
+      const validation = dependencyService.validateMissionCompletion(request.params.missionId);
+
+      // blockedBy entries carry dependency MISSION ids in their `taskId`
+      // field; authorize every linked mission the read discloses.
+      for (const blocker of validation.blockedBy ?? []) {
+        await authorizeMissionAccessById(request, blocker.taskId);
+      }
+
+      return validation;
     }
   );
 
@@ -180,7 +250,27 @@ export async function dependencyRoutes(fastify: FastifyInstance): Promise<void> 
     '/missions/:missionId/dependency-graph',
     { config: { authPolicy: "local_actor" } },
     async (request: FastifyRequest<{ Params: { missionId: string } }>, _reply: FastifyReply) => {
-      return dependencyService.getDependencyGraph(request.params.missionId);
+      await authorizeMissionAccessById(request, request.params.missionId);
+
+      const graph = dependencyService.getDependencyGraph(request.params.missionId);
+
+      // An accessible root must not disclose inaccessible linked missions'
+      // nodes: authorize every traversed node before returning the graph.
+      for (const node of graph.nodes) {
+        await authorizeMissionAccessById(request, node.id);
+      }
+
+      // getDependencyGraph pushes an edge BEFORE traversing its target, so a
+      // dangling endpoint (target mission row deleted — `mission_id` has no
+      // FK) can yield an edge whose endpoint id appears in no node: an
+      // authorization-free disclosure with no metadata. Drop those edges,
+      // mirroring the joined projections' inner-join semantics.
+      const nodeIds = new Set(graph.nodes.map((node) => node.id));
+      graph.edges = graph.edges.filter(
+        (edge) => nodeIds.has(edge.from) && nodeIds.has(edge.to),
+      );
+
+      return graph;
     }
   );
 }

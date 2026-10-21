@@ -1,28 +1,7 @@
 import type { DependencyValidationResult } from "../models/index.js";
 import { logger } from "../lib/logger.js";
-import { isSqliteError } from "../errors/sqlite.js";
+import { isSqliteDuplicateInsert } from "../errors/sqlite.js";
 import * as dependencyRepo from "../repositories/dependency.js";
-
-const UNIQUE_CONSTRAINT_RE = /UNIQUE constraint failed/i;
-
-/**
- * Cross-backend UNIQUE-constraint detector for the Task dependency insert.
- * better-sqlite3 (production) throws a `SqliteError` with
- * `code === "SQLITE_CONSTRAINT_UNIQUE"` (drizzle-orm may wrap it, putting the
- * real error on `.cause`); sql.js (tests) throws a plain `Error` whose
- * `message` contains "UNIQUE constraint failed". Same composite as
- * `repositories/taskCreationAttempts.ts`.
- */
-function isTaskDuplicateInsert(err: unknown): boolean {
-  if (isSqliteError(err) && err.code === "SQLITE_CONSTRAINT_UNIQUE") return true;
-  if (err instanceof Error && UNIQUE_CONSTRAINT_RE.test(err.message)) return true;
-  const cause = (err as { cause?: unknown } | null)?.cause;
-  if (cause instanceof Error) {
-    if (isSqliteError(cause) && cause.code === "SQLITE_CONSTRAINT_UNIQUE") return true;
-    if (UNIQUE_CONSTRAINT_RE.test(cause.message)) return true;
-  }
-  return false;
-}
 
 /** Records that one task depends on another, rejecting self-references, cycles, and duplicates. */
 export function addTaskDependency(
@@ -41,7 +20,7 @@ export function addTaskDependency(
     dependencyRepo.addTaskDependency(taskId, dependsOnId);
     return { success: true };
   } catch (err: unknown) {
-    if (isTaskDuplicateInsert(err)) {
+    if (isSqliteDuplicateInsert(err)) {
       return { success: false, reason: "already_exists" };
     }
     logger.error({ err, taskId, dependsOnId }, "Unexpected DB error adding task dependency");
@@ -109,8 +88,8 @@ export function addMissionDependency(
   try {
     dependencyRepo.addMissionDependency(missionId, dependsOnId);
     return { success: true };
-  } catch (err: any) {
-    if (err?.code === "SQLITE_CONSTRAINT_UNIQUE") {
+  } catch (err: unknown) {
+    if (isSqliteDuplicateInsert(err)) {
       return { success: false, reason: "already_exists" };
     }
     logger.error({ err, missionId, dependsOnId }, "Unexpected DB error adding mission dependency");

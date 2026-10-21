@@ -23,6 +23,13 @@
  *    `.code === "SQLITE_CONSTRAINT_UNIQUE"`, DELETE ... RETURNING), via a
  *    real file DB from `initDb()` — labeled unit-level driver
  *    classification because the shared wire harness runs on sql.js.
+ *
+ * 4. The Mission dependency duplicate-insert classifier: the pair is a
+ *    composite PRIMARY KEY, so native better-sqlite3 reports
+ *    `SQLITE_CONSTRAINT_PRIMARYKEY` (sql.js reports a plain
+ *    "UNIQUE constraint failed" message). First POST 200, repeat POST
+ *    409 already_exists with exactly one edge row; an unrelated INSERT
+ *    fault stays 500, never a false 409.
  */
 import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach } from "vitest";
 import net from "node:net";
@@ -39,7 +46,7 @@ import * as taskRepo from "../repositories/taskCrud.js";
 import * as dependencyRepo from "../repositories/dependency.js";
 import * as dependencyService from "../services/dependencyService.js";
 import * as agentRepo from "../repositories/agent.js";
-import { taskDependencies } from "../db/schema/index.js";
+import { taskDependencies, missionDependencies } from "../db/schema/index.js";
 import * as pluginManager from "../plugins/pluginManager.js";
 import { getJwtSecret } from "../middleware/jwt-verification.js";
 import { and, eq, sql } from "drizzle-orm";
@@ -61,6 +68,35 @@ function edgeRowsFor(taskId: string, dependsOnId: string) {
     .from(taskDependencies)
     .where(and(eq(taskDependencies.taskId, taskId), eq(taskDependencies.dependsOnId, dependsOnId)))
     .all();
+}
+
+function missionEdgeRowsFor(missionId: string, dependsOnId: string) {
+  return getDb()
+    .select()
+    .from(missionDependencies)
+    .where(
+      and(
+        eq(missionDependencies.missionId, missionId),
+        eq(missionDependencies.dependsOnId, dependsOnId),
+      ),
+    )
+    .all();
+}
+
+/** Two missions in a fresh habitat, for mission-dependency edge contracts. */
+function createMissionPair(tag: string) {
+  const habitatId = habitatRepo.createHabitat({ name: `${tag}-habitat` }).id;
+  const column = columnRepo.createColumn({
+    habitatId,
+    name: `${tag}-col`,
+    order: 0,
+    requiresClaim: false,
+  });
+  const base = { habitatId, columnId: column.id, createdBy: "tdf-seed" };
+  return [
+    missionRepo.createMission({ ...base, title: `${tag}-a` }),
+    missionRepo.createMission({ ...base, title: `${tag}-b` }),
+  ];
 }
 
 describe("task dependency DELETE — absent pair 404 vs DB failure 5xx on the real wire", () => {
@@ -163,6 +199,54 @@ describe("task dependency DELETE — absent pair 404 vs DB failure 5xx on the re
     expect(edgeRowsFor(srcId, depId)).toHaveLength(0);
   }, 30_000);
 
+  it("duplicate mission dependency POST is 409 already_exists with exactly one edge; unrelated INSERT fault is 500", async () => {
+    const [missionA, missionB] = createMissionPair("tdf-md");
+    const post = () =>
+      fetch(`${baseUrl}/api/v1/missions/${missionA.id}/dependencies`, {
+        method: "POST",
+        headers: { "content-type": "application/json", "x-agent-api-key": agentKey },
+        body: JSON.stringify({ dependsOnMissionId: missionB.id }),
+      });
+
+    const first = await post();
+    expect(first.status).toBe(200);
+    expect(((await first.json()) as any).success).toBe(true);
+
+    // sql.js path: plain "UNIQUE constraint failed" message on the composite
+    // primary key.
+    const second = await post();
+    expect(second.status).toBe(409);
+    expect(((await second.json()) as any).error).toBe("already_exists");
+    expect(missionEdgeRowsFor(missionA.id, missionB.id)).toHaveLength(1);
+
+    // An unrelated INSERT fault must stay 5xx, never a false 409 — proving
+    // the classifier is not a blanket catch.
+    const [faultA, faultB] = createMissionPair("tdf-md-fault");
+    const db = getDb();
+    db.run(
+      sql`CREATE TRIGGER tdf_mission_insert_fault BEFORE INSERT ON mission_dependencies BEGIN SELECT RAISE(ABORT, 'mission insert failure'); END`,
+    );
+    try {
+      const faulted = await fetch(`${baseUrl}/api/v1/missions/${faultA.id}/dependencies`, {
+        method: "POST",
+        headers: { "content-type": "application/json", "x-agent-api-key": agentKey },
+        body: JSON.stringify({ dependsOnMissionId: faultB.id }),
+      });
+      expect(faulted.status).toBe(500);
+      expect(((await faulted.json()) as any).code).toBe("INTERNAL_ERROR");
+      expect(missionEdgeRowsFor(faultA.id, faultB.id)).toHaveLength(0);
+    } finally {
+      db.run(sql`DROP TRIGGER tdf_mission_insert_fault`);
+    }
+    const control = await fetch(`${baseUrl}/api/v1/missions/${faultA.id}/dependencies`, {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-agent-api-key": agentKey },
+      body: JSON.stringify({ dependsOnMissionId: faultB.id }),
+    });
+    expect(control.status).toBe(200);
+    expect(missionEdgeRowsFor(faultA.id, faultB.id)).toHaveLength(1);
+  }, 30_000);
+
   it("absent pair stays a clean 404 while the DB is up", async () => {
     const res = await fetch(
       `${baseUrl}/api/v1/tasks/${srcId}/dependencies/00000000-0000-4000-8000-000000000091`,
@@ -233,6 +317,21 @@ describe("task dependency service — production driver (better-sqlite3 file DB)
     expect(first).toEqual({ success: true });
 
     const second = dependencyService.addTaskDependency(taskIdA, taskIdB);
+    expect(second).toEqual({ success: false, reason: "already_exists" });
+  }, 30_000);
+
+  it("duplicate mission dependency insert maps to already_exists on the production driver", () => {
+    // Outcome-level pin: better-sqlite3 raises a constraint error for the
+    // composite PRIMARY KEY duplicate and the classifier maps it to the
+    // conflict outcome (whether the driver error arrives directly or
+    // drizzle-wrapped on `.cause`, both paths collapse here). The sql.js
+    // message-path variant is covered by the wire test above.
+    const [missionA, missionB] = createMissionPair("tdf-prod-md");
+
+    const first = dependencyService.addMissionDependency(missionA.id, missionB.id);
+    expect(first).toEqual({ success: true });
+
+    const second = dependencyService.addMissionDependency(missionA.id, missionB.id);
     expect(second).toEqual({ success: false, reason: "already_exists" });
   }, 30_000);
 
