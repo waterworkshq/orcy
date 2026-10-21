@@ -14,7 +14,7 @@
     "build": "corepack pnpm -r build",
     "start:api": "node packages/api/dist/index.js",
     "start:ui": "corepack pnpm --filter @orcy/ui preview",
-    "prod": "corepack pnpm build && corepack pnpm start:api & corepack pnpm start:ui",
+    "prod": "node scripts/prod.mjs",
     "build:api": "corepack pnpm --filter @orcy/api build",
     "build:ui": "corepack pnpm --filter @orcy/ui build",
     "build:mcp": "corepack pnpm --filter @orcy/mcp build",
