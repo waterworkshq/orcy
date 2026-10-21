@@ -122,12 +122,15 @@ build.on("exit", (code) => {
     return;
   }
   // Mirror the first service exit's status; the sibling we terminate in
-  // response must not overwrite it.
+  // response must not overwrite it, and neither may a service exit that
+  // follows a stop signal — shutdown already recorded the interruption (a
+  // gracefully-SIGTERM-exiting service reports 0, which must not turn an
+  // interrupted run into a success).
   let settled = false;
   const handleServiceFailure = (serviceCode) => {
     if (!settled) {
       settled = true;
-      process.exitCode = serviceCode ?? 1;
+      if (process.exitCode === undefined) process.exitCode = serviceCode ?? 1;
     }
     shutdown();
   };
