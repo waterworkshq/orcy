@@ -220,6 +220,7 @@ Orcy pulls external tracker issues into habitat intake, where humans/orcys revie
 | Shipped: v0.44.0 | Scoped roles and governed review management: current human governance, typed operational assignments, custody-aware deletion, and transactional review-rule/reviewer writes. See [release notes](docs/releases/v0.44.0.md). |
 | Shipped: v0.44.1 | Test-only hardening for SQL proof constraints, current remote authority, recovery, contention, legacy repair and triage UI contracts. Runtime behavior unchanged. See [release notes](docs/releases/v0.44.1.md). |
 | Shipped: v0.44.2 | Guarded role-definition reads, MCP reviewer-type validation, explicit audit-attribution guidance, and clearer governance race diagnostics. See [release notes](docs/releases/v0.44.2.md). |
+| Shipped: v0.45.0 | Habitat access containment (mission detail, dependency, subscription, and list surfaces) and scheduled-occurrence recovery with durable history; enforced dependency-resolution floors and an api test suite at half the wall-clock. See [release notes](docs/releases/v0.45.0.md). |
 | Next | Unscheduled seeds (integration OAuth/webhook extraction and similar) wait on demand. See [docs/ROADMAP.md](docs/ROADMAP.md#upcoming). |
 | Architecture Optimization | Ongoing Architecture Work pertaining to investigated codebase opportunities |
 | npm publishing | GO LIVE on npm for the CLI, MCP server, and daemon for one command installer |
