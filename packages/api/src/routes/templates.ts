@@ -5,6 +5,7 @@ import * as templateRepo from "../repositories/template.js";
 import * as missionRepo from "../repositories/mission.js";
 import { tasks, workflows, taskCreationEnvelopes } from "../db/schema/index.js";
 import { adminOnly } from "../middleware/rbac.js";
+import { requireMissionAccess } from "../middleware/team.js";
 import { z } from "zod";
 import { badRequest, notFound, forbidden, unprocessableEntity, conflict } from "../errors.js";
 import { getDb } from "../db/index.js";
@@ -230,7 +231,7 @@ export async function templateRoutes(fastify: FastifyInstance): Promise<void> {
     Body: z.infer<typeof applyTemplateSchema>;
   }>(
     "/missions/:missionId/apply-template/:templateId",
-    { config: { authPolicy: "human" } },
+    { preHandler: [requireMissionAccess], config: { authPolicy: "human" } },
     async (
       request: FastifyRequest<{
         Params: { missionId: string; templateId: string };

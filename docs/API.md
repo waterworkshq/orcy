@@ -1187,7 +1187,7 @@ AI-powered decomposition of a mission into tasks. The mission must have a descri
 
 Apply a mission template to an existing mission. Creates child tasks from the template's `tasksTemplate` array.
 
-**Auth:** JWT required (human)
+**Auth:** JWT required (human), then the **target Mission's** derived-habitat membership check: the Mission's Habitat is resolved server-side (a missing Mission or parent Habitat is `404`); personal habitats admit any authenticated human, and on team habitats a human must be a team member — nonmembers, including global admins, receive `403` with nothing applied. As with the other guarded surfaces, the `403`/`404` distinction can reveal whether a Mission exists, and admission is evaluated at request time only. The template-side habitat check (template `habitatId` vs the Mission's Habitat) still applies after admission.
 
 **Response `200`:**
 
@@ -2918,7 +2918,7 @@ Delete a comment (author only).
 
 ## Mission Comments
 
-Comments on missions with threading and @mentions. Structurally identical to task comments.
+Comments on missions with threading and @mentions. Structurally identical to task comments. All four operations resolve the **target Mission's** actual Habitat server-side (a missing Mission or parent Habitat is `404`) and run the shared habitat-membership check before any row is read or written: local agents pass on any existing habitat (broad local-agent admission is intentional), personal habitats admit any authenticated human, and on team habitats a human must be a team member — nonmembers, including global admins, receive `403` with no comment rows read, written, or disclosed. Like the Mission dependency boundary, denial does not collapse existence: the distinct `403`/`404` outcomes can reveal whether a Mission exists. Admission is at request time only, the same request-time model as the Mission dependency boundary.
 
 ### POST /missions/:id/comments
 
@@ -2963,9 +2963,10 @@ to cascade when any reachable descendant comment belongs to another Mission — 
 whole root deletion matches nothing (`404`) and every row is preserved.
 Replies and mentions under the deleted root are removed by the existing foreign
 key cascade, and one `mission.comment_deleted` event is published for the deleted
-root, only after the deletion actually matched — with one accepted exception: if
-the owning Mission no longer exists, the delete still succeeds and no event is
-published, because there is no Habitat to publish it to.
+root, only after the deletion actually matched. A request naming a Mission that
+no longer exists is refused `404 Mission not found` by the admission check
+before any delete runs (the historical no-event exception for a vanished owning
+Mission is no longer reachable through this route).
 
 **Auth:** Agent API key OR JWT
 **Response `204`:** No content.
