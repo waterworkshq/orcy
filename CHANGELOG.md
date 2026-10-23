@@ -2,6 +2,123 @@
 
 > Older releases: see [git tags](https://github.com/waterworkshq/orcy/tags) and [GitHub Releases](https://github.com/waterworkshq/orcy/releases).
 
+## 0.46.0 — 2026-10-23
+
+### Bug Fixes
+
+#### enforce the mission access guard on comments and template application (#110) ([`027c28e`](https://github.com/waterworkshq/orcy/commit/027c28e3e70d6b39b714b571829720dfd8f015d2))
+
+
+
+
+- fix(api): enforce the mission access guard on comments and template application
+
+
+
+
+- POST /missions/:id/apply-template/:templateId and the four /missions/:id/comments handlers authenticated actors but never ran the target mission's habitat-membership check, so any authenticated human could read private team-habitat comment threads and publish template missions/tasks into a private habitat (200/201 observed on both prefixes). All five now carry the requireMissionAccess preHandler the mission detail routes already use: local agents keep broad admission, personal habitats stay open to any authenticated human, and team habitats require team membership (403 nonmember including global admins, 404 missing mission). Route baselines regenerated for the new preHandler; API.md authorization prose updated.
+
+
+
+
+- test(api): cover agent comment writes and align guard boundary docs
+
+
+
+
+- The wire matrix now proves local-agent admission on all three comment write handlers (agent-authored POST, PATCH, and DELETE on the private habitat), so a guard regression that over-restricts agents fails the matrix, not just production. The Mission Comments and apply-template boundary prose states the dangling-parent-Habitat 404 and the deliberate 403/404 existence distinction, and the DELETE section's historical no-event exception for a vanished owning Mission is replaced with the guard's actual 404 refusal.
+
+
+
+
+- ---------
+
+
+
+
+#### keep mission sprint membership single-owner (#111) ([`b051518`](https://github.com/waterworkshq/orcy/commit/b0515189b2973cb3fab7f30be297323aed7696da))
+
+
+
+
+- addMissionToSprint accepted a mission already committed to another sprint, leaving it in both committedMissionIds lists while missions.sprintId named only the latest; cancelling or deleting the stale sprint then nulled the pointer even though the current sprint still listed the mission. Attach now rejects with 409 while the mission is held by another planning or active sprint (a completed, cancelled, or deleted referenced sprint leaves a stale pointer and re-attaching is allowed as the recovery), and all four sprintId-clearing detach sites (delete, cancel, and the two completion carry-over clear paths) only null pointers that name the detaching sprint, mirroring removeMission's guarded update.
+
+
+
+
+#### make mission dependency removal report absent pairs (#114) ([`7b4ba33`](https://github.com/waterworkshq/orcy/commit/7b4ba33698afa6134428f03a1f01ceaeeb4ba58c))
+
+
+
+
+- The mission dependency DELETE had two repository implementations and a service wrapper that swallowed every error into a benign success: an absent ordered pair returned true, and a database fault collapsed into the same false the route maps to 404. The repository now mirrors the task dependency path (RETURNING-based exact-pair match returning found/absent), the service propagates faults instead of logging-and-returning-false, the duplicate copies in repositories/mission.ts are deleted in favor of the dependency module, and the lifecycle gap test pins the unified contract: absent pair is false (404 at the route), an existing pair is removed exactly once, and faults stay distinct from absence.
+
+
+
+
+#### add the mission_dependencies source foreign key (#115) ([`17e1ce6`](https://github.com/waterworkshq/orcy/commit/17e1ce6acb8b9c505897fe1c17da3d2de38b7d14))
+
+
+
+
+- fix(api): add the mission_dependencies source foreign key
+
+
+
+
+- mission_dependencies.mission_id carried no FK and mission deletion neither blocked nor cleaned source-side edges, so deleting a Mission that owned dependencies left permanent dangling rows. Migration 0086 rebuilds the table with the symmetric ON DELETE CASCADE foreign key via the archive-then-mirror pattern: rows with a missing endpoint Mission are preserved in mission_dependencies_orphans_0086 and excluded from the mirrored copy, and the drizzle declaration keeps schema parity. The notification startup fixture now strips the whole post-0085 journal tail when simulating a pre-index install and derives its expected ledger tail from the journal, so later migrations join the upgrade expectation without fixture edits.
+
+
+
+
+- fix(api): type the startup fixture ledger tail as an array
+
+
+
+
+- The notification startup fixture now derives its expected upgrade ledger from every journal entry at or after the watermark (an array); the test's report type still declared the old single-entry shape, so the fresh-checkout typecheck failed where the locally stale one had passed.
+
+
+
+
+- ---------
+
+
+
+
+
+### Documentation
+
+#### record v0.45.0 delivery ([`0544811`](https://github.com/waterworkshq/orcy/commit/054481104f69cb0fa1796a3aad8eed9d03a1d282))
+
+
+#### backfill tracked notes for v0.34.2 through v0.34.5 (#112) ([`654f21c`](https://github.com/waterworkshq/orcy/commit/654f21c6fd778db76312a32a2d1290a440c4c31e))
+
+
+
+
+- The four v0.34.x patch releases shipped with GitHub release bodies but no tracked docs/releases files (long-open convention miss). Backfills each file verbatim from its published release body, in the patch-notes structure, with the release date and hash-verified commit links recorded.
+
+
+
+
+#### add v0.46.0 operator notes ([`8e76822`](https://github.com/waterworkshq/orcy/commit/8e76822a323ac5043c0f68b61775483d89837271))
+
+
+
+### ci
+
+#### run lint and the main test suite on PRs and main pushes (#113) ([`95ecb9a`](https://github.com/waterworkshq/orcy/commit/95ecb9a0e5959aa7b054aebbb2e2bb0c742b69b2))
+
+
+
+
+- Adds a lint-and-tests workflow with two jobs mirroring the production-migration gate's conventions (Node 24, corepack-activated pin from packageManager, frozen lockfile). Lint runs the root oxlint script, which exits nonzero on errors only while the known warning backlog is triaged separately. Tests build @orcy/shared (the workspace symlink resolves to its dist) and then run the root test script: the scripts node:test suite plus every workspace package's default vitest suite. Same posture as the existing gate: post-push verification for the solo workflow, not a required status check.
+
+
+
+
+
 ## 0.45.0 — 2026-10-22
 
 ### Bug Fixes
@@ -931,51 +1048,3 @@
 
 
 - Detect governance race-worker code, signal, and process failures while waiting for markers, include bounded diagnostics, and verify child cleanup.
-
-
-
-
-
-## 0.44.1 — 2026-10-14
-
-### Documentation
-
-#### record v0.44.0 delivery and release verification ([`3bbec47`](https://github.com/waterworkshq/orcy/commit/3bbec47a7cff0bf5c824f020284b827411674792))
-
-
-
-
-- Mark scoped roles and governed review management as shipped, update the roadmap version and product next steps, and promote the bounded administration and review capabilities to Available after the managed release completed.
-
-
-
-
-#### add v0.44.1 operator notes ([`2743a0e`](https://github.com/waterworkshq/orcy/commit/2743a0e8864599501a0d3f0c34e2f8d06c932fbb))
-
-
-
-
-- Document test-only regression coverage for database proof constraints, current remote authority, recovery, contention, legacy repair and triage UI contracts, with verification boundaries and no operator action.
-
-
-
-
-
-### Tests
-
-#### cover SQL proof constraints and stale remote authority ([`03e15fd`](https://github.com/waterworkshq/orcy/commit/03e15fde5a95d75c93e57b9cb8a71c01f6f0b385))
-
-
-
-
-- Add direct constraint rejection and valid controls for release epoch pairing and proved checkpoint fields. Verify that persisted credential expiry and hard grant revocation invalidate stale authority snapshots, with five discriminating fault checks and existing fixtures.
-
-
-
-
-#### strengthen recovery, contention and triage UI coverage ([`f47f174`](https://github.com/waterworkshq/orcy/commit/f47f174b8100872f27beac6b181efa2b92f532f1))
-
-
-
-
-- Pin proved-resume exemptions, single-attempt writer contention and legacy repair replay with current fixtures and positive controls. Extend triage request, deferred-backlog and form-reset coverage with discriminating checks while keeping production behavior unchanged.
