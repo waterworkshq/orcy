@@ -1,2 +1,9 @@
 packages:
   - 'packages/*'
+
+# pnpm 10 blocks dependency lifecycle scripts by default. better-sqlite3's
+# install script compiles/preloads its native binding — the production
+# driver — so it must stay allowed. Anything else that newly needs a build
+# script must be added here deliberately.
+onlyBuiltDependencies:
+  - better-sqlite3
