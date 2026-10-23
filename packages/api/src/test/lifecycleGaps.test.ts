@@ -9,6 +9,7 @@ import * as agentRepo from '../repositories/agent.js';
 import * as timeRepo from '../repositories/timeTracking.js';
 import * as timeService from '../services/timeTrackingService.js';
 import * as dependencyService from '../services/dependencyService.js';
+import * as dependencyRepo from '../repositories/dependency.js';
 import * as qualityRepo from '../repositories/qualityGate.js';
 import * as qualityService from '../services/qualityGateService.js';
 import { claimTask, startTask, submitTask } from '../services/tasks/task-lifecycle.js';
@@ -323,7 +324,7 @@ describe('Dependency Validation', () => {
     expect(validation.blockedBy![0].taskId).toBe(upstream.id);
   });
 
-  it('removeMissionDependency is a no-op for non-existent dependencies', () => {
+  it('removeMissionDependency reports absent pairs and removes existing ones exactly once', () => {
     const missionX = missionRepo.createMission({
       habitatId,
       columnId,
@@ -337,12 +338,17 @@ describe('Dependency Validation', () => {
       createdBy: 'test-user',
     });
 
-    // No dependency was ever added between missionX and missionY.
-    // The repository DELETE silently affects zero rows, and the service
-    // wrapper must surface that as a benign success (idempotent removal)
-    // rather than throwing or returning false.
-    const removed = dependencyService.removeMissionDependency(missionX.id, missionY.id);
-    expect(removed).toBe(true);
+    // No dependency was ever added between missionX and missionY, so the exact
+    // ordered pair is absent: removal reports false (the route maps that to
+    // 404) — the unified contract, matching the task dependency path. It is
+    // never a benign success, and a DB fault propagates rather than collapsing
+    // into the absent-pair answer.
+    const absent = dependencyService.removeMissionDependency(missionX.id, missionY.id);
+    expect(absent).toBe(false);
+
+    dependencyRepo.addMissionDependency(missionX.id, missionY.id);
+    expect(dependencyService.removeMissionDependency(missionX.id, missionY.id)).toBe(true);
+    expect(dependencyService.removeMissionDependency(missionX.id, missionY.id)).toBe(false);
   });
 });
 

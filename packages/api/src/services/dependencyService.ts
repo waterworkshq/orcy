@@ -97,15 +97,9 @@ export function addMissionDependency(
   }
 }
 
-/** Removes a mission-to-mission dependency edge, returning false on failure rather than throwing. */
+/** Removes a mission-to-mission dependency edge; false when the exact ordered pair is absent. */
 export function removeMissionDependency(missionId: string, dependsOnId: string): boolean {
-  try {
-    dependencyRepo.removeMissionDependency(missionId, dependsOnId);
-    return true;
-  } catch (err) {
-    logger.warn({ err, missionId, dependsOnId }, "Failed to remove mission dependency");
-    return false;
-  }
+  return dependencyRepo.removeMissionDependency(missionId, dependsOnId);
 }
 
 /** Returns the missions a given mission depends on and the missions currently blocking it. */
