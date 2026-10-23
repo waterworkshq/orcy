@@ -260,6 +260,40 @@ describe("mission comments — authentication and target-mission authorization",
     }
   }, 30_000);
 
+  it("local agent write admission on all three comment write handlers (agent is the author)", async () => {
+    const missionId = makeMission(teamHabitatId, `mag-agent-write-${RUN}`);
+
+    for (const prefix of PREFIXES) {
+      const posted = await wire(prefix, "POST", `/missions/${missionId}/comments`, {
+        agentKey,
+        body: { content: `mag-agent-comment-${prefix}-${RUN}` },
+      });
+      expect(posted.status, `${prefix} agent POST`).toBe(201);
+      const commentId = posted.body?.comment?.id;
+      expect(commentId, `${prefix} agent POST returns comment id`).toBeTruthy();
+
+      const patched = await wire(
+        prefix,
+        "PATCH",
+        `/missions/${missionId}/comments/${commentId}`,
+        { agentKey, body: { content: `mag-agent-edited-${prefix}-${RUN}` } },
+      );
+      expect(patched.status, `${prefix} agent PATCH`).toBe(200);
+      expect(JSON.stringify(patched.body)).toContain(`mag-agent-edited-${prefix}-${RUN}`);
+
+      const deleted = await wire(
+        prefix,
+        "DELETE",
+        `/missions/${missionId}/comments/${commentId}`,
+        { agentKey },
+      );
+      expect(deleted.status, `${prefix} agent DELETE`).toBe(204);
+      expect(
+        JSON.stringify(missionCommentService.getComments(missionId).comments),
+      ).not.toContain(`mag-agent-edited-${prefix}-${RUN}`);
+    }
+  }, 30_000);
+
   it("missing mission stays 404 for an authenticated human (no cross-habitat oracle)", async () => {
     for (const prefix of PREFIXES) {
       const res = await wire(prefix, "GET", "/missions/mag-does-not-exist/comments", {
