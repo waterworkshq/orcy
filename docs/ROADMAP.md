@@ -2,7 +2,7 @@
 - Durable review-safety cutover landed (migration 0082): durable per-task review requirements with CHECK-enforced state matrix, immutable claim snapshots, append-only generation-tagged decisions, one-reservation finality with committed approval proof, guarded terminal primitives, known-zero-only merge auto-approval, and independent human recovery for legacy-unknown tasks.
 
 
-> **Version:** v0.45.0 | **Updated:** 2026-10-22
+> **Version:** v0.46.0 | **Updated:** 2026-10-23
 
 Each minor release tells a story — a coherent set of changes with a clear "why."
 Release boundaries are risk management decisions: breaking changes, fragile features, and big refactors never ship together.
@@ -125,6 +125,7 @@ Release boundaries are risk management decisions: breaking changes, fragile feat
 | v0.44.1 | **Shipped.** "Recovery and Triage Regression Coverage" — test-only controls for database proof constraints, stale remote authority, proved recovery, single-attempt writer contention, legacy replay and triage UI requests/state. No runtime, schema or operator-action change. See [operator notes](releases/v0.44.1.md). |
 | v0.44.2 | **Shipped.** "Governance Read and Review Validation" — controlled refusal of malformed stored permission reads, custom-namespace authorization before parsing, MCP reviewer-type validation, explicit unknown-attribution consumer filters, and prompt race-worker diagnostics. The unused import custody helper is removed. No schema migration or new server configuration. See [operator notes](releases/v0.44.2.md). |
 | v0.45.0 | **Shipped.** "Habitat Access Containment and Scheduled Occurrence Recovery" — mission detail/task/progress/pulse reads, the five Mission dependency endpoints, and notification subscription writes resolve the target's actual Habitat and enforce membership for human nonmembers (local agents keep broad admission by design); duplicate dependency inserts answer 409; manual scheduled runs consume their issued occurrence with boot recovery of committed reserved occurrences and a durable occurrence-history table; webhook failures keep their reasons; the dependency-resolution policy is actually enforced under `pnpm.overrides`; and the api test suite shares one compiled build with a test-only fast worker tick. Two additive migrations (0084, 0085); no operator action. See [operator notes](releases/v0.45.0.md). |
+| v0.46.0 | **Shipped.** "Mission Access Boundaries, Sprint Ownership, Dependency Integrity" — the four Mission comment routes and template application resolve the target Mission's actual Habitat and enforce the shared membership predicate (verified-audit fix: nonmembers previously read private comment threads and published template missions into private habitats); Sprint membership is single-owner (second attach to a non-terminal Sprint is 409, stale-sprint cancel/delete no longer destroys the live pointer); Mission dependency DELETE speaks the documented 404-on-absent contract with 5xx distinct; migration 0086 adds the symmetric source-side `ON DELETE CASCADE` foreign key to `mission_dependencies` (archive-then-mirror; orphans archived, never dropped); lint and the main test suite run in CI; the v0.34.2–v0.34.5 operator notes are backfilled. One migration (0086); no operator action on a clean upgrade. See [operator notes](releases/v0.46.0.md). |
 
 ---
 
