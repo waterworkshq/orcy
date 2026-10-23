@@ -22,7 +22,7 @@ interface StartupReport {
   upgrade?: {
     beforeRows: unknown[]; afterRows: unknown[];
     beforeLedger: unknown[]; afterLedger: unknown[]; reopenedLedger: unknown[];
-    expectedLedger: { hash: string; created_at: number };
+    expectedLedger: { hash: string; created_at: number }[];
     indexes: Record<string, string[]>;
     upgradedRows: unknown[]; reopenedRows: unknown[];
   };
