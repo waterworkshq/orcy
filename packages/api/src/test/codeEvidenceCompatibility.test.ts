@@ -277,7 +277,7 @@ describe("read model: canonical primary + labelled verified legacy projection", 
     // Deterministic order: linkedAt DESC then id ASC. The materialized page
     // is the NEWEST 100 rows.
     const times = commitGroup.items.map((i) => i.linkedAt);
-    expect([...times].sort().reverse()).toEqual(times);
+    expect([...times].sort().toReversed()).toEqual(times);
   });
 
   it("orders history links by correctedAt/linkedAt DESC with ascending id ties", () => {

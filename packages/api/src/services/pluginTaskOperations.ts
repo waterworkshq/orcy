@@ -288,6 +288,12 @@ export function releaseTaskForPlugin(input: PluginReleaseInput): PluginReleaseOu
  * bundle. The current row is read ONLY for these guards and the effect
  * snapshot — never to refresh the observed pin.
  */
+const refuse = (refusal: PluginReleaseRefusalKind, message: string): PluginReleaseOutcome => ({
+  ok: false,
+  refusal,
+  message,
+});
+
 export function pluginReleaseBundleInTx(
   db: ReturnType<typeof getDb>,
   input: PluginReleaseInput,
@@ -300,11 +306,6 @@ export function pluginReleaseBundleInTx(
     runId: input.runId,
     contributionId: input.contributionId,
   };
-  const refuse = (refusal: PluginReleaseRefusalKind, message: string): PluginReleaseOutcome => ({
-    ok: false,
-    refusal,
-    message,
-  });
 
   // Current in-tx habitat (mutation-time ownership, not only the precheck).
   const currentHabitatId = habitatIdForTaskWithClient(db, taskId);

@@ -54,7 +54,6 @@ import type { RemoteParticipantContext } from "../middleware/remoteAuth.js";
 import type { RemoteGrantRow, RemoteGrantTargetRow } from "../repositories/remoteGrant.js";
 import { isEffectivelyActive } from "./remoteGrantTime.js";
 import {
-  getActiveGrantsByParticipant,
   getActiveGrantsByParticipantAndPod,
   getRemoteGrantTargets,
   listRemoteGrantTargetsByGrantIds,

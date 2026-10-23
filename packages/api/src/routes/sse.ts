@@ -6,7 +6,6 @@ import {
   REMOTE_STREAM_FORBIDDEN_MESSAGE,
   REMOTE_STREAM_INTERNAL_CODE,
   REMOTE_STREAM_INTERNAL_MESSAGE,
-  guardRemoteStreamAdmission,
   refreshRemoteStreamRead,
   type RemoteStreamAnchors,
 } from "../middleware/remoteAuth.js";
@@ -14,6 +13,8 @@ import { inheritAuthPolicy } from "../authPolicy.js";
 import type { SSEEvent } from "../models/index.js";
 import { forbidden, AppError } from "../errors.js";
 import { isTargetVisibleToParticipant } from "../services/sharedGrantVisibilityService.js";
+
+const noopUnsubscribe = (): void => {};
 import {
   buildRemoteEntityChanged,
   extractRemotePrimaryTarget,
@@ -160,7 +161,7 @@ export async function sseRoutes(fastify: FastifyInstance): Promise<void> {
 
       let revalidationInterval: ReturnType<typeof setInterval> | undefined;
       let cleanedUp = false;
-      let unsubscribe: () => void = () => {};
+      let unsubscribe: () => void = noopUnsubscribe;
 
       /**
        * Terminate a remote stream: one generic control frame, then end and

@@ -43,7 +43,6 @@ import {
   createWithClient as createResolutionWithClient,
   findByFindingSourceWithClient,
 } from "../repositories/triageResolutions.js";
-import { isSqliteError } from "../errors/sqlite.js";
 import { sseBroadcaster } from "../sse/broadcaster.js";
 import type {
   FindingTriageStatus,

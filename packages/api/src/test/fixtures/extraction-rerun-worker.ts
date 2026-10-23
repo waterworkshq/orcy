@@ -102,4 +102,4 @@ runWorker().catch((err) => {
   process.exit(1);
 });
 
-export {};
+export const WORKER_MODULE_MARKER = true;

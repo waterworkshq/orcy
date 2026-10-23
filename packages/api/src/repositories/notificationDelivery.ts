@@ -5,7 +5,6 @@ import {
   aggregateDeliveryCompletionIfAllTerminal,
   freezeUnitPlanForDelivery,
   cancelNonTerminalUnitsForDelivery,
-  getNotificationDeliveryRowWithClient,
 } from "./notificationChannelState.js";
 import * as stateRepo from "./notificationChannelState.js";
 import { v4 as uuid } from "uuid";

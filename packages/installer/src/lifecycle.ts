@@ -438,7 +438,7 @@ export async function uninstallAll(
 
   // Reverse order
   let hadFailure = false;
-  const reversed = [...manifest.files].reverse();
+  const reversed = manifest.files.toReversed();
   for (const entry of reversed) {
     try {
       reverseEntry(ctx, entry);
@@ -627,7 +627,7 @@ export function rollbackJournal(
   }
   let reversed = 0;
   let failed = 0;
-  for (const step of [...doneSteps].reverse()) {
+  for (const step of doneSteps.toReversed()) {
     try {
       reverseEntry(ctx, toManifestEntry(step));
       reversed++;

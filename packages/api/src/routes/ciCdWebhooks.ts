@@ -36,8 +36,8 @@ export async function ciCdWebhookRoutes(fastify: FastifyInstance): Promise<void>
         { body, event },
         {
         workflow_run: async (b) => {
-          const event = b as Parameters<typeof ciCdService.handleGitHubWorkflowRunEvent>[0];
-          const run = event.workflow_run;
+          const workflowEvent = b as Parameters<typeof ciCdService.handleGitHubWorkflowRunEvent>[0];
+          const run = workflowEvent.workflow_run;
           // Release-workflow convention. Habitat is resolved first via the CI/CD
           // secret store (distinct from the code-review secret store), then the
           // per-habitat release settings drive the workflow-name + version-tag
@@ -82,7 +82,7 @@ export async function ciCdWebhookRoutes(fastify: FastifyInstance): Promise<void>
               };
             }
           }
-          return ciCdService.handleGitHubWorkflowRunEvent(event);
+          return ciCdService.handleGitHubWorkflowRunEvent(workflowEvent);
         },
         workflow_job: (b) =>
           ciCdService.handleGitHubWorkflowJobEvent(

@@ -188,7 +188,7 @@ export function redriveRunForEffectDelivery(input: {
   leaseExpiresAt: string;
 }): boolean {
   const db = getDb();
-  const run = db
+  db
     .update(pluginRuns)
     .set({
       status: "running",
@@ -223,7 +223,7 @@ export function finishRunLeaseFenced(input: {
   };
   if (input.signalsEmitted !== undefined) set.signalsEmitted = input.signalsEmitted;
   if (input.error !== undefined) set.error = input.error;
-  const run = db
+  db
     .update(pluginRuns)
     .set(set)
     .where(

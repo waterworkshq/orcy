@@ -347,7 +347,7 @@ export function prepareMissions(
   ctx: ManifestContext,
   idMap: IdentityMap,
 ): PreparedMissions {
-  const missions: PreparedMission[] = validated.missions.map((m) => {
+  const preparedMissionRows: PreparedMission[] = validated.missions.map((m) => {
     // F5: restore preserves the existing mission's serverId.
     const restoreServerId = lookupRestoreServerId(ctx, m.sourceId);
     const missionServerId = allocateServerId(idMap, m.sourceId, restoreServerId);
@@ -368,7 +368,7 @@ export function prepareMissions(
       dueAt: m.dueAt,
     };
   });
-  return { missions };
+  return { missions: preparedMissionRows };
 }
 
 // ---------------------------------------------------------------------------

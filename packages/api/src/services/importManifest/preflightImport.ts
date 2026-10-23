@@ -1076,14 +1076,14 @@ function buildGovernanceProposals(
   auditSource: AuditSource,
   causalContext: CausalContext,
 ): Array<{ proposal: CanonicalTaskPublicationProposal; guard: PublicationGuard }> | null {
-  const tasks = preparedDomains.tasks?.tasks;
-  const missions = preparedDomains.missions?.missions;
-  if (!tasks || tasks.length === 0) return null;
-  const missionByServerId = new Map((missions ?? []).map((m) => [m.missionServerId, m]));
+  const preparedTaskRows = preparedDomains.tasks?.tasks;
+  const preparedMissionRows = preparedDomains.missions?.missions;
+  if (!preparedTaskRows || preparedTaskRows.length === 0) return null;
+  const missionByServerId = new Map((preparedMissionRows ?? []).map((m) => [m.missionServerId, m]));
 
   const proposals: Array<{ proposal: CanonicalTaskPublicationProposal; guard: PublicationGuard }> =
     [];
-  for (const task of tasks) {
+  for (const task of preparedTaskRows) {
     // Skip Tasks whose mission didn't resolve — they surface as unresolved-
     // reference errors from step 5 (no point governing a Task whose target
     // mission is unknown).

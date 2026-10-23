@@ -72,7 +72,7 @@ export async function processNotificationQueue(
     try {
       const send = processDueUnit(row, owner, now);
       if (send) launched.push(send);
-    } catch (err) {
+    } catch {
       // No raw error serialization — the unit/delivery ids are the context.
       logger.error({ unitId: row.unitId, errorCode: "pass_row_failed" }, "Notification delivery pass row failed");
       // Per-row isolation: the unit stays recoverable via the scan.
@@ -261,7 +261,7 @@ function processDueUnit(
   })();
   inFlightSends.add(send);
   void send
-    .catch((err) => {
+    .catch(() => {
       logger.error({ unitId: row.unitId, errorCode: "send_failed" }, "Notification delivery send failed");
     })
     .finally(() => {
@@ -435,7 +435,7 @@ function fixedSkipDisposition(raw: string | undefined): string {
  * row. Raw parser messages, destination URLs, and secrets never survive
  * this function's output, so no downstream truncation can leak them.
  */
-function classifySendFailure(raw: string | undefined): string {
+function classifySendFailure(_raw: string | undefined): string {
   return "delivery_failed";
 }
 
@@ -444,7 +444,7 @@ function classifySendFailure(raw: string | undefined): string {
  * subscription row. Returns the fixed rejection disposition, or null when the
  * destination remains authorized.
  */
-function destinationRejection(row: DueUnitRow, now: string): string | null {
+function destinationRejection(row: DueUnitRow, _now: string): string | null {
   const destination = row.destination;
   if (destination === null || destination.url === null) {
     return NOTIFICATION_DISPOSITION_DESTINATION_REMOVED;
@@ -511,7 +511,7 @@ export function startNotificationDeliveryWorker(intervalMs?: number): void {
   if (workerInterval) return;
   generation += 1;
   workerInterval = setInterval(() => {
-    void processNotificationQueue().catch((err) => {
+    void processNotificationQueue().catch(() => {
       logger.error({ errorCode: "delivery_tick_failed" }, "Notification delivery tick failed");
     });
   }, intervalMs ?? workerTickMs(NOTIFICATION_WORKER_TICK_MS));

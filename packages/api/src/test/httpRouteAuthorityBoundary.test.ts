@@ -676,7 +676,9 @@ describe("HTTP route authority boundary — standing matching table (review F1)"
     const HEAD_SPELLINGS = [
       { name: "Unicode-escape head", specifier: "f\\u0061stify" },
       { name: "hex-escape head", specifier: "fa\\x73tify" },
+      // oxlint-disable-next-line no-useless-concat -- split literals are load-bearing obfuscation
       { name: "LF-continuation head", specifier: 'fa\\' + "\n" + 'stify' },
+      // oxlint-disable-next-line no-useless-concat -- split literals are load-bearing obfuscation
       { name: "CRLF-continuation head", specifier: 'fa\\' + "\r\n" + 'stify' },
       { name: "head-escaped subpath", specifier: "fa\\u0073tify/\\u0066astify" },
     ] as const;

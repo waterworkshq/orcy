@@ -30,7 +30,6 @@ import {
   evaluateFinalityWithClient,
   getRequirementWithClient,
   projectReviewersWithClient,
-  stampApprovedGenerationWithClient,
   type ProjectedReviewerStatus,
   type ReviewRequirementRow,
 } from "../repositories/reviewSafety.js";

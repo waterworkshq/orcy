@@ -45,8 +45,8 @@ export function getAgent(agentId: string): Omit<Agent, "apiKeyHash"> | null {
  * Lists all {@link Agent}s, optionally filtered by `status` and `domain`.
  */
 export function listAgents(status?: string, domain?: string): Omit<Agent, "apiKeyHash">[] {
-  const agents = agentRepo.listAgents();
-  return agents.filter((a) => {
+  const agentRows = agentRepo.listAgents();
+  return agentRows.filter((a) => {
     if (status && a.status !== status) return false;
     if (domain && a.domain !== domain) return false;
     return true;
@@ -64,13 +64,13 @@ export function listAgentsWithTasks(
   agent: Omit<Agent, "apiKeyHash">;
   currentTaskTitle: string | null;
 }[] {
-  const agents = listAgents(status, domain);
-  const taskIds = [...new Set(agents.filter((a) => a.currentTaskId).map((a) => a.currentTaskId!))];
+  const agentRows = listAgents(status, domain);
+  const taskIds = [...new Set(agentRows.filter((a) => a.currentTaskId).map((a) => a.currentTaskId!))];
   const taskMap = new Map<string, string>();
   for (const task of taskRepo.getTasksByIds(taskIds)) {
     taskMap.set(task.id, task.title);
   }
-  return agents.map((agent) => ({
+  return agentRows.map((agent) => ({
     agent,
     currentTaskTitle: agent.currentTaskId ? (taskMap.get(agent.currentTaskId) ?? null) : null,
   }));

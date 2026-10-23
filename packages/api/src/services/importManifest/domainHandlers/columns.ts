@@ -306,13 +306,13 @@ export function validateColumns(
  * The chain is a functional graph (each column has at most one `nextColumnName`);
  * a cycle is any path that revisits a node already on the current walk.
  */
-function detectColumnChainCycles(columns: ValidatedColumn[]): DomainError[] {
+function detectColumnChainCycles(columnRows: ValidatedColumn[]): DomainError[] {
   const errors: DomainError[] = [];
-  const byName = new Map(columns.map((c) => [c.name, c]));
+  const byName = new Map(columnRows.map((c) => [c.name, c]));
   const visited = new Set<string>(); // globally visited (cycle root already reported)
   const onPath = new Set<string>(); // current DFS path
 
-  for (const start of columns) {
+  for (const start of columnRows) {
     if (visited.has(start.name)) continue;
     const path: string[] = [];
     let current: ValidatedColumn | undefined = start;
@@ -359,7 +359,7 @@ export function prepareColumns(
   ctx: ManifestContext,
   idMap: IdentityMap,
 ): PreparedColumns {
-  const columns: PreparedColumn[] = validated.columns.map((col) => {
+  const preparedColumns: PreparedColumn[] = validated.columns.map((col) => {
     // F5: restore preserves the existing column's serverId.
     const restoreServerId = lookupRestoreServerId(ctx, col.sourceId);
     const columnServerId = allocateServerId(idMap, col.sourceId, restoreServerId);
@@ -377,7 +377,7 @@ export function prepareColumns(
       requiresClaim: col.requiresClaim ?? true,
     };
   });
-  return { columns };
+  return { columns: preparedColumns };
 }
 
 // ---------------------------------------------------------------------------

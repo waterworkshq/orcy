@@ -66,6 +66,17 @@ const deliveryMonitorQuerySchema = z.object({
   limit: z.string().regex(/^\d+$/).transform(Number).pipe(z.number().int().min(1).max(100)).optional(),
 });
 
+/**
+ * The authenticated recipient principal. `request.agent` wins when the
+ * caller presented an agent API key (policy `local_actor`); otherwise the
+ * human JWT user. Recipient identity is never taken from the request data.
+ */
+function requestPrincipal(request: FastifyRequest): { id: string; type: "human" | "agent" } {
+  return request.agent
+    ? { id: request.agent.id, type: "agent" }
+    : { id: request.user!.id, type: "human" };
+}
+
 export async function notificationRoutes(fastify: FastifyInstance): Promise<void> {
   applyDeclaredAuthPolicies(fastify);
 
@@ -77,17 +88,6 @@ export async function notificationRoutes(fastify: FastifyInstance): Promise<void
   // any authenticated agent, so the repo predicates are the cross-habitat
   // authority (an owned delivery in habitat A does not surface under
   // habitat B's route — habitat-mismatch answers 404, wrong recipient 403).
-
-  /**
-   * The authenticated recipient principal. `request.agent` wins when the
-   * caller presented an agent API key (policy `local_actor`); otherwise the
-   * human JWT user. Recipient identity is never taken from the request data.
-   */
-  function requestPrincipal(request: FastifyRequest): { id: string; type: "human" | "agent" } {
-    return request.agent
-      ? { id: request.agent.id, type: "agent" }
-      : { id: request.user!.id, type: "human" };
-  }
 
   fastify.get<{
     Params: { habitatId: string };

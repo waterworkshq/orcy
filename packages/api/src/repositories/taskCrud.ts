@@ -1,7 +1,7 @@
 import { getDb } from "../db/index.js";
 import { tasks, missions } from "../db/schema/index.js";
 import { eq, and, max, sql } from "drizzle-orm";
-import type { Task, TaskStatus, TaskPriority, Artifact, RetryPolicy } from "../models/index.js";
+import type { Task, TaskPriority, Artifact, RetryPolicy } from "../models/index.js";
 import { v4 as uuid } from "uuid";
 import { normalizeTaskId } from "@orcy/shared";
 import { insertUncapturedRequirementWithClient } from "./reviewSafety.js";

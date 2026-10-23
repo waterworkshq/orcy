@@ -486,7 +486,7 @@ export function finalizeReportPlan(plan: ReportPlan): ReportPlan {
 function planBranch(
   branch: NonNullable<CodeEvidenceLinkInput["branch"]>,
   configured: NonNullable<RepoRow> | null,
-  origin: ReportOrigin,
+  _origin: ReportOrigin,
 ): BranchPlan {
   if (!configured) {
     // Fresh request-local fallback: no selection by name, one record per

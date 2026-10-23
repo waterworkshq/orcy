@@ -24,7 +24,7 @@ export function parseScheduledAt(value: string): Date {
 /** Validate schedule semantics independently of a first-run override. */
 export function validateScheduleConfiguration(schedule: ScheduleConfiguration): string | null {
   try {
-    new Intl.DateTimeFormat('en', { timeZone: schedule.timezone ?? 'UTC' });
+    const _timeZoneProbe = new Intl.DateTimeFormat('en', { timeZone: schedule.timezone ?? 'UTC' });
   } catch {
     return 'Invalid timezone';
   }

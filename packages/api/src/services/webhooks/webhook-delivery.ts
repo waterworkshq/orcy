@@ -344,7 +344,7 @@ function processRetryRow(
     );
     try {
       handleDeliveryOutcome(row.id, claimFence, result, attemptNumber, now);
-    } catch (writeErr) {
+    } catch {
       // A send that outlived the drain bound (or teardown) must not crash
       // the process; its row remains recoverable via the exhaustion path.
       logger.error(

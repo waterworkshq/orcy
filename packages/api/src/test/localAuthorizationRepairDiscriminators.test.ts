@@ -25,7 +25,6 @@ import { existsSync, mkdirSync, mkdtempSync, rmSync, readFileSync } from "node:f
 import { tmpdir } from "node:os";
 import { eq, and } from "drizzle-orm";
 import { initTestDb, initDb, closeDb, getDb } from "../db/index.js";
-import type {} from "vitest";
 const DRIZZLE_DIR = join(import.meta.dirname, "..", "..", "drizzle");
 import * as schema from "../db/schema/index.js";
 import * as habitatRepo from "../repositories/habitat.js";

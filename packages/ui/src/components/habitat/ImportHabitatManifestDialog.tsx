@@ -129,6 +129,16 @@ function groupErrorsByDomain(errors: readonly ImportRejectionDetail[]): {
   return { ungrouped, byDomain };
 }
 
+const renderVeto = (v: ImportVetoView) => (
+        <li
+          key={v.taskSourceId}
+          className="text-sm"
+          data-testid={`veto-${v.taskSourceId}`}
+        >
+          <strong>{v.taskTitle}</strong> · {v.veto.interceptorKey}: {v.veto.reason}
+        </li>
+      );
+
 export function ImportHabitatManifestDialog({
   habitatId,
   boardName: _boardName,
@@ -600,15 +610,6 @@ export function ImportHabitatManifestDialog({
         );
       }
       case "vetoed": {
-        const renderVeto = (v: ImportVetoView) => (
-          <li
-            key={v.taskSourceId}
-            className="text-sm"
-            data-testid={`veto-${v.taskSourceId}`}
-          >
-            <strong>{v.taskTitle}</strong> · {v.veto.interceptorKey}: {v.veto.reason}
-          </li>
-        );
         return (
           <div className="space-y-3" data-testid="outcome-vetoed">
             <div

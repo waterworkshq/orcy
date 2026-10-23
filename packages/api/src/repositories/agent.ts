@@ -1,6 +1,6 @@
 import { getDb } from "../db/index.js";
 import { agents, tasks } from "../db/schema/index.js";
-import { eq, and, not, lt, ne, sql, inArray, or, isNotNull } from "drizzle-orm";
+import { eq, and, not, lt, ne, sql, or, isNotNull } from "drizzle-orm";
 
 import type { Agent, AgentType, AgentDomain, AgentStatus } from "../models/index.js";
 import { v4 as uuid } from "uuid";

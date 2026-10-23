@@ -1,6 +1,10 @@
 {
   "$schema": "./node_modules/oxlint/configuration_schema.json",
-  "plugins": ["typescript", "unicorn", "oxc"],
+  "plugins": [
+    "typescript",
+    "unicorn",
+    "oxc"
+  ],
   "categories": {
     "correctness": "error",
     "suspicious": "warn",
@@ -9,30 +13,37 @@
   "rules": {
     "no-unused-vars": "warn",
     "no-async-endpoint-handlers": "off",
-    "no-underscore-dangle": ["warn", {
-      "allow": [
-        "_vals", "_conditions", "_type", "_condition", "_table",
-        "_prs", "_tasks", "_prefsData", "_idCounter", "_filters",
-        "_pipelineEvents", "_integrations", "_overdueData", "_dbShouldThrow",
-        "_drizzleDb", "_sqlite", "_config", "_driver", "_jwtSecret",
-        "_resetActiveWorktrees", "_isOrderBy", "_habitatId", "_userId",
-        "__pluginTestCalls",
-        "_insertRun", "_updateRun", "_deleteRun", "_selectAllResult",
-        "_selectGetResult", "_countResult", "_insertShouldThrow",
-        "_insertValues", "_insertReturnAll", "_selectAllQueue",
-        "_selectSingleResult", "_selectCountResult", "_getResult",
-        "_allResult", "_getResults", "_updateSetValues", "_selectQueue",
-        "_selectResult", "_mentionsStore", "_subtasksStore", "_watchersStore",
-        "_usersStore", "_habitatNameResult", "_taskResult", "_agentResult",
-        "_getSelectResult", "_selectAll"
-      ]
-    }]
+    "no-underscore-dangle": "off",
+    "unicorn/no-array-sort": "off"
   },
   "overrides": [
     {
-      "files": ["*.test.ts", "*.test.tsx", "*.spec.ts"],
+      "files": [
+        "*.test.ts",
+        "*.test.tsx",
+        "*.spec.ts",
+        "**/src/test/fixtures/**"
+      ],
       "rules": {
-        "no-unused-vars": "off"
+        "no-unused-vars": "off",
+        "unicorn/consistent-function-scoping": "off",
+        "no-shadow": "off"
+      }
+    },
+    {
+      "files": [
+        "**/services/inlineScheduledOccurrencePublication.ts"
+      ],
+      "rules": {
+        "no-shadow": "off"
+      }
+    },
+    {
+      "files": [
+        "**/repositories/notificationDelivery.ts"
+      ],
+      "rules": {
+        "no-shadow": "off"
       }
     }
   ]
