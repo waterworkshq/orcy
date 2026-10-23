@@ -1,0 +1,85 @@
+name: lint-and-tests
+
+# Issue #103: run lint and the main test suite in CI. Same posture as
+# production-migration — post-push verification for the solo workflow, not a
+# required status check; local prevention stays in the untracked
+# .git/hooks/pre-push hook (see CONTRIBUTING.md).
+#
+# - lint: `pnpm lint` (oxlint over packages/*/src). Exits nonzero on errors
+#   only — the known warning backlog is triaged separately (issue #105).
+# - test: the root `pnpm test` script — scripts' node:test suite plus every
+#   workspace package's default vitest suite (perf/e2e suites are excluded by
+#   the package scripts themselves).
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    name: Lint (oxlint)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          # No built-in `cache: pnpm` — see the Corepack note in
+          # production-migration.yml; the pinned-pnpm contract outranks
+          # caching for this gate.
+
+      - name: Enable Corepack (pin derived from packageManager)
+        run: |
+          corepack enable
+          corepack prepare "$(node -p "require('./package.json').packageManager")" --activate
+          pnpm --version
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Lint
+        run: pnpm lint
+
+  test:
+    name: Main test suite
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          # No built-in `cache: pnpm` — see the Corepack note in
+          # production-migration.yml.
+
+      - name: Enable Corepack (pin derived from packageManager)
+        run: |
+          corepack enable
+          corepack prepare "$(node -p "require('./package.json').packageManager")" --activate
+          pnpm --version
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build shared (type dependency)
+        # @orcy/api / @orcy/mcp / @orcy/daemon resolve @orcy/shared via the
+        # pnpm workspace symlink to the built dist/ directory. Without this
+        # build step the dependent suites cannot resolve it on a fresh CI
+        # checkout.
+        run: pnpm --filter @orcy/shared build
+
+      - name: Run main test suite
+        # Root script: `test:scripts` (node --test over scripts/*.test.mjs)
+        # followed by every workspace package's default vitest suite.
+        run: pnpm test
