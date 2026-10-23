@@ -44,10 +44,13 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Build shared (type dependency)
+      - name: Build shared and daemon (type dependencies)
         # @orcy/api / @orcy/mcp / @orcy/daemon resolve @orcy/shared via the
-        # pnpm workspace symlink to the built dist/ directory.
-        run: pnpm --filter @orcy/shared build
+        # pnpm workspace symlink to the built dist/ directory, and @orcy/cli
+        # resolves @orcy/daemon the same way — none of those dist/ trees
+        # exist on a fresh checkout until built (the `...` builds shared
+        # first, topologically).
+        run: pnpm --filter "@orcy/daemon..." build
 
       - name: Typecheck every workspace package
         # Catches type errors at PR time instead of waiting for the
