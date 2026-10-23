@@ -79,7 +79,7 @@ describe("notification query on real older production startup states", () => {
     expect(report.currentRows).toEqual(report.originalRows);
     const upgrade = report.upgrade!;
     expect(upgrade.afterRows).toEqual(upgrade.beforeRows);
-    expect(upgrade.afterLedger).toEqual([...upgrade.beforeLedger, upgrade.expectedLedger]);
+    expect(upgrade.afterLedger).toEqual([...upgrade.beforeLedger, ...upgrade.expectedLedger]);
     expect(upgrade.reopenedLedger).toEqual(upgrade.afterLedger);
     expect(upgrade.indexes).toEqual({
       idx_notification_attempts_created_order: ["created_at", "id", "delivery_id"],

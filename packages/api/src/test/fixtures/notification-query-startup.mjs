@@ -45,10 +45,14 @@ function seedBlockingDuplicates(sqlite) {
 try {
   database = await load("db/index.js");
   const journalPath = join(installed, "drizzle", "meta", "_journal.json");
-  const fullJournal = JSON.parse(readFileSync(journalPath, "utf8"));
+  const fullJournal = JSON.parse(readFileSync(journalPath, "utf-8"));
+  const indexWatermark = fullJournal.entries.find(entry => entry.tag === "0085_notification_monitor_query_indexes");
   if (mode === "post-push-before-indexes" || mode === "upgrade-indexes") {
+    if (!indexWatermark) throw new Error("Missing index migration watermark in fixture journal");
+    // An install from before the index migration also predates every later
+    // journal entry — strip the whole tail (any count), not just 0085.
     writeFileSync(journalPath, JSON.stringify({ ...fullJournal,
-      entries: fullJournal.entries.filter(entry => entry.tag !== "0085_notification_monitor_query_indexes") }));
+      entries: fullJournal.entries.filter(entry => entry.when < indexWatermark.when) }));
   } else if (mode === "dirty-additive-startup") {
     const watermark = fullJournal.entries.find(entry => entry.tag === "0067_release_projection_epochs");
     if (!watermark) throw new Error("Missing additive watermark in fixture journal");
@@ -85,13 +89,18 @@ try {
   try { report.currentRows = reader.getDeliveryAttemptsByHabitat(habitatId, { channel: "slack", limit: 2 }); }
   catch (error) { report.currentError = error.message; }
   if (mode === "upgrade-indexes") {
-    const entry = fullJournal.entries.find(entry => entry.tag === "0085_notification_monitor_query_indexes");
-    if (!entry) throw new Error("Missing index migration in full fixture journal");
+    if (!indexWatermark) throw new Error("Missing index migration in full fixture journal");
     const ledger = connection => connection.prepare("SELECT hash,created_at FROM __drizzle_migrations ORDER BY created_at").all();
     const attempts = connection => connection.prepare("SELECT * FROM notification_delivery_attempts ORDER BY id").all();
+    // Every journal entry at or after the watermark upgrades in one reopen —
+    // derived from the journal, so later migrations join the tail without a
+    // fixture edit.
+    const expectedLedger = fullJournal.entries
+      .filter(entry => entry.when >= indexWatermark.when)
+      .map(entry => ({ hash: createHash("sha256").update(readFileSync(join(installed, "drizzle", `${entry.tag}.sql`))).digest("hex"), created_at: entry.when }));
     const upgrade = report.upgrade = {
       beforeRows: attempts(sqlite), beforeLedger: ledger(sqlite),
-      expectedLedger: { hash: createHash("sha256").update(readFileSync(join(installed, "drizzle", `${entry.tag}.sql`))).digest("hex"), created_at: entry.when },
+      expectedLedger,
     };
     database.closeDb();
     writeFileSync(journalPath, JSON.stringify(fullJournal));
