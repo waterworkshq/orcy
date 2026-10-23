@@ -2196,6 +2196,7 @@ Get a sprint carry-over report for incomplete or moved work.
 
 **Auth:** Agent or Human
 
+> **Sprint mission membership.** A Mission is owned by at most one non-terminal Sprint. `POST /sprints/:id/missions` rejects with `409` `Mission is already committed to another sprint` while the mission's current sprint is planning or active (detach it first); a completed, cancelled, or deleted referenced sprint leaves a stale pointer and re-attaching is allowed as the recovery. Re-attaching to the same sprint is idempotent. Sprint cancellation, deletion, and completion clear `missions.sprintId` only for missions whose pointer names that sprint — a legacy double-committed mission keeps the pointer on its current sprint when a stale sprint that still lists it is cancelled or deleted.
 
 #### Review requirement recovery (durable review safety)
 

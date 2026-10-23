@@ -256,3 +256,108 @@ describe('deleteSprint', () => {
     expect(() => deleteSprint(sprint.id)).toThrow('Cannot delete an active sprint');
   });
 });
+
+function createTwoPlanningSprints() {
+  const s1 = createSprint(habitatId, { name: 'Sprint 1', startDate: '2026-06-01', endDate: '2026-06-14' }, 'user-1');
+  const s2 = createSprint(habitatId, { name: 'Sprint 2', startDate: '2026-06-15', endDate: '2026-06-28' }, 'user-1');
+  return { s1, s2 };
+}
+
+describe('addMissionToSprint single ownership', () => {
+  it('rejects attaching a mission already committed to another planning sprint, leaving both sprints unchanged', () => {
+    const { s1, s2 } = createTwoPlanningSprints();
+    const mission = createTestMission('Held Mission');
+    addMissionToSprint(s1.id, mission.id);
+
+    expect(() => addMissionToSprint(s2.id, mission.id)).toThrow('already committed to another sprint');
+
+    expect(sprintRepo.getById(s1.id)!.committedMissionIds).toContain(mission.id);
+    expect(sprintRepo.getById(s2.id)!.committedMissionIds).not.toContain(mission.id);
+    expect(missionRepo.getMissionById(mission.id)!.sprintId).toBe(s1.id);
+  });
+
+  it('rejects attaching while the owning sprint is active', () => {
+    const { s1, s2 } = createTwoPlanningSprints();
+    const mission = createTestMission('Active Held Mission');
+    addMissionToSprint(s1.id, mission.id);
+    startSprint(s1.id);
+
+    expect(() => addMissionToSprint(s2.id, mission.id)).toThrow('already committed to another sprint');
+  });
+
+  it('allows re-attaching after the owning sprint was cancelled', () => {
+    const { s1, s2 } = createTwoPlanningSprints();
+    const mission = createTestMission('Recovered Mission');
+    addMissionToSprint(s1.id, mission.id);
+    cancelSprint(s1.id);
+    expect(missionRepo.getMissionById(mission.id)!.sprintId).toBeNull();
+
+    const updated = addMissionToSprint(s2.id, mission.id);
+    expect(updated.committedMissionIds).toContain(mission.id);
+    expect(missionRepo.getMissionById(mission.id)!.sprintId).toBe(s2.id);
+  });
+
+  it('allows re-attaching after the owning sprint completed and carried the mission to backlog', () => {
+    const { s1, s2 } = createTwoPlanningSprints();
+    const mission = createTestMission('Carried Mission');
+    addMissionToSprint(s1.id, mission.id);
+    startSprint(s1.id);
+    completeSprint(s1.id);
+    expect(missionRepo.getMissionById(mission.id)!.sprintId).toBeNull();
+
+    expect(() => addMissionToSprint(s2.id, mission.id)).not.toThrow();
+  });
+
+  it('re-attaching to the same sprint stays idempotent', () => {
+    const { s1 } = createTwoPlanningSprints();
+    const mission = createTestMission('Idempotent Mission');
+    addMissionToSprint(s1.id, mission.id);
+
+    expect(() => addMissionToSprint(s1.id, mission.id)).not.toThrow();
+    expect(sprintRepo.getById(s1.id)!.committedMissionIds).toEqual([mission.id]);
+  });
+});
+
+describe('stale sprint cancel/delete preserves current ownership', () => {
+  // Legacy corruption shape: repo-level double commit left the mission in both
+  // committed lists while the pointer names only the second sprint.
+  function doubleCommitLegacyState() {
+    const { s1, s2 } = createTwoPlanningSprints();
+    const mission = createTestMission('Legacy Mission');
+    sprintRepo.addMission(s1.id, mission.id);
+    sprintRepo.addMission(s2.id, mission.id);
+    expect(missionRepo.getMissionById(mission.id)!.sprintId).toBe(s2.id);
+    return { s1, s2, mission };
+  }
+
+  it('cancelling the stale first sprint keeps the pointer on the current sprint', () => {
+    const { s1, s2, mission } = doubleCommitLegacyState();
+
+    cancelSprint(s1.id);
+
+    expect(sprintRepo.getById(s1.id)!.status).toBe('cancelled');
+    expect(missionRepo.getMissionById(mission.id)!.sprintId).toBe(s2.id);
+    expect(sprintRepo.getById(s2.id)!.status).toBe('planning');
+    expect(sprintRepo.getById(s2.id)!.committedMissionIds).toContain(mission.id);
+  });
+
+  it('deleting the stale first sprint keeps the pointer on the current sprint', () => {
+    const { s1, s2, mission } = doubleCommitLegacyState();
+
+    deleteSprint(s1.id);
+
+    expect(sprintRepo.getById(s1.id)).toBeNull();
+    expect(missionRepo.getMissionById(mission.id)!.sprintId).toBe(s2.id);
+    expect(sprintRepo.getById(s2.id)!.committedMissionIds).toContain(mission.id);
+  });
+
+  it('cancelling the OWNING sprint still clears the pointer', () => {
+    const { s1 } = createTwoPlanningSprints();
+    const mission = createTestMission('Owned Mission');
+    addMissionToSprint(s1.id, mission.id);
+
+    cancelSprint(s1.id);
+
+    expect(missionRepo.getMissionById(mission.id)!.sprintId).toBeNull();
+  });
+});
