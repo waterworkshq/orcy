@@ -122,16 +122,19 @@ export function addMissionDependency(missionId: string, dependsOnId: string): vo
   db.insert(missionDependencies).values({ missionId, dependsOnId }).run();
 }
 
-export function removeMissionDependency(missionId: string, dependsOnId: string): void {
+export function removeMissionDependency(missionId: string, dependsOnId: string): boolean {
   const db = getDb();
-  db.delete(missionDependencies)
+  const matched = db
+    .delete(missionDependencies)
     .where(
       and(
         eq(missionDependencies.missionId, missionId),
         eq(missionDependencies.dependsOnId, dependsOnId),
       ),
     )
-    .run();
+    .returning({ missionId: missionDependencies.missionId })
+    .all();
+  return matched.length > 0;
 }
 
 /**

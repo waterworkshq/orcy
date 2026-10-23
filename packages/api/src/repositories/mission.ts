@@ -651,31 +651,6 @@ export function reorderMission(
   return getMissionById(missionId);
 }
 
-export function addMissionDependency(missionId: string, dependsOnId: string): void {
-  const db = getDb();
-  try {
-    db.insert(missionDependencies).values({ missionId, dependsOnId }).run();
-  } catch (err) {
-    throw repositoryCreateError("missionDependency", err as Error, `${missionId}->${dependsOnId}`);
-  }
-}
-
-export function removeMissionDependency(missionId: string, dependsOnId: string): void {
-  const db = getDb();
-  try {
-    db.delete(missionDependencies)
-      .where(
-        and(
-          eq(missionDependencies.missionId, missionId),
-          eq(missionDependencies.dependsOnId, dependsOnId),
-        ),
-      )
-      .run();
-  } catch (err) {
-    throw repositoryDeleteError("missionDependency", err as Error, `${missionId}->${dependsOnId}`);
-  }
-}
-
 export function areAllMissionDependenciesMet(missionId: string): boolean {
   const db = getDb();
   const result = db

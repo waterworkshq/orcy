@@ -187,8 +187,8 @@ describe("algorithm selection (RM-5)", () => {
     const mB = seedMission("M-B");
     const mC = seedMission("M-C");
     const mX = seedMission("M-X");
-    missionRepo.addMissionDependency(mB.id, mA.id);
-    missionRepo.addMissionDependency(mC.id, mB.id);
+    dependencyRepo.addMissionDependency(mB.id, mA.id);
+    dependencyRepo.addMissionDependency(mC.id, mB.id);
     const tA = seedTask(mA.id, "task-A");
     seedTask(mX.id, "task-X");
 
@@ -225,8 +225,8 @@ describe("algorithm selection (RM-5)", () => {
     const mB = seedMission("M-B");
     const mC = seedMission("M-C");
     const mX = seedMission("M-X");
-    missionRepo.addMissionDependency(mB.id, mA.id);
-    missionRepo.addMissionDependency(mC.id, mA.id);
+    dependencyRepo.addMissionDependency(mB.id, mA.id);
+    dependencyRepo.addMissionDependency(mC.id, mA.id);
     seedTask(mA.id, "task-A");
     seedTask(mB.id, "task-B");
     seedTask(mC.id, "task-C");
@@ -254,8 +254,8 @@ describe("algorithm selection (RM-5)", () => {
     // values.
     const mA = seedMission("M-A");
     const mB = seedMission("M-B");
-    missionRepo.addMissionDependency(mB.id, mA.id);
-    missionRepo.addMissionDependency(mA.id, mB.id);
+    dependencyRepo.addMissionDependency(mB.id, mA.id);
+    dependencyRepo.addMissionDependency(mA.id, mB.id);
     seedTask(mA.id, "task-A");
     seedTask(mB.id, "task-B");
 
