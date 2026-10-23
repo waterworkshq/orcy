@@ -20,14 +20,15 @@
     "dev": "tsx watch src/index.ts",
     "build": "rm -rf dist/test && tsc -p tsconfig.build.json",
     "start": "node dist/index.js",
-    "test": "vitest run --exclude src/test/perfWorkflow.test.ts --exclude src/test/stagedEnforcementOverlap.test.ts --exclude src/test/perfNotificationDeliveryQuery.test.ts",
+    "test": "vitest run --exclude src/test/perfWorkflow.test.ts --exclude src/test/stagedEnforcementOverlap.test.ts --exclude src/test/perfNotificationDeliveryQuery.test.ts --exclude src/test/extractionRerunConcurrency.test.ts",
     "test:watch": "vitest --exclude src/test/perfNotificationDeliveryQuery.test.ts",
     "test:perf": "vitest run src/test/perfWorkflow.test.ts --fileParallelism=false",
     "test:staged-overlap": "vitest run src/test/stagedEnforcementOverlap.test.ts",
     "test:production-migration": "vitest run src/test/migrationCompletenessGuard.test.ts src/test/productionMigrationChain.test.ts src/test/f3QuarantineResetFreeze.test.ts src/test/pluginQuarantineProductionMigration.test.ts src/test/compiledStartup.test.ts src/test/webhookRetryBootSmoke.test.ts",
     "typecheck": "tsc --noEmit",
     "db:seed": "tsx ../../scripts/seed.ts",
-    "test:notification-query-work": "vitest run src/test/perfNotificationDeliveryQuery.test.ts --maxWorkers=1 --no-file-parallelism"
+    "test:notification-query-work": "vitest run src/test/perfNotificationDeliveryQuery.test.ts --maxWorkers=1 --no-file-parallelism",
+    "test:extraction-concurrency": "vitest run src/test/extractionRerunConcurrency.test.ts --fileParallelism=false"
   },
   "dependencies": {
     "@fastify/cors": "^11.2.0",
