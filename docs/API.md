@@ -1187,7 +1187,7 @@ AI-powered decomposition of a mission into tasks. The mission must have a descri
 
 Apply a mission template to an existing mission. Creates child tasks from the template's `tasksTemplate` array.
 
-**Auth:** JWT required (human)
+**Auth:** JWT required (human), then the **target Mission's** derived-habitat membership check: the Mission's Habitat is resolved server-side (a missing Mission is `404`); personal habitats admit any authenticated human, and on team habitats a human must be a team member — nonmembers, including global admins, receive `403` with nothing applied. The template-side habitat check (template `habitatId` vs the Mission's Habitat) still applies after admission.
 
 **Response `200`:**
 
@@ -2918,7 +2918,7 @@ Delete a comment (author only).
 
 ## Mission Comments
 
-Comments on missions with threading and @mentions. Structurally identical to task comments.
+Comments on missions with threading and @mentions. Structurally identical to task comments. All four operations resolve the **target Mission's** actual Habitat server-side (a missing Mission is `404`) and run the shared habitat-membership check before any row is read or written: local agents pass on any existing habitat (broad local-agent admission is intentional), personal habitats admit any authenticated human, and on team habitats a human must be a team member — nonmembers, including global admins, receive `403` with no comment rows read, written, or disclosed. Admission is at request time only, the same request-time model as the Mission dependency boundary.
 
 ### POST /missions/:id/comments
 

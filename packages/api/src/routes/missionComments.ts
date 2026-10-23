@@ -3,6 +3,7 @@ import * as missionCommentService from '../services/missionCommentService.js';
 import { badRequest, unauthorized, notFound, forbidden } from '../errors.js';
 import { z } from 'zod';
 import { applyDeclaredAuthPolicies } from "../authPolicy.js";
+import { requireMissionAccess } from '../middleware/team.js';
 
 const createCommentSchema = z.object({
   content: z.string().min(1).max(5000),
@@ -23,7 +24,7 @@ export async function missionCommentRoutes(fastify: FastifyInstance): Promise<vo
 
   fastify.post<{ Params: { missionId: string }; Body: z.infer<typeof createCommentSchema> }>(
     '/missions/:missionId/comments',
-    { config: { authPolicy: "local_actor" } },
+    { preHandler: [requireMissionAccess], config: { authPolicy: "local_actor" } },
     async (request: FastifyRequest<{ Params: { missionId: string }; Body: z.infer<typeof createCommentSchema> }>, reply: FastifyReply) => {
       if (!request.agent && !request.user) {
         throw unauthorized('Authentication required');
@@ -61,7 +62,7 @@ export async function missionCommentRoutes(fastify: FastifyInstance): Promise<vo
 
   fastify.get<{ Params: { missionId: string }; Querystring: z.infer<typeof commentsQuerySchema> }>(
     '/missions/:missionId/comments',
-    { config: { authPolicy: "local_actor" } },
+    { preHandler: [requireMissionAccess], config: { authPolicy: "local_actor" } },
     async (request: FastifyRequest<{ Params: { missionId: string }; Querystring: z.infer<typeof commentsQuerySchema> }>, _reply: FastifyReply) => {
       const parsed = commentsQuerySchema.safeParse(request.query);
       if (!parsed.success) {
@@ -79,7 +80,7 @@ export async function missionCommentRoutes(fastify: FastifyInstance): Promise<vo
 
   fastify.patch<{ Params: { missionId: string; commentId: string }; Body: z.infer<typeof updateCommentSchema> }>(
     '/missions/:missionId/comments/:commentId',
-    { config: { authPolicy: "local_actor" } },
+    { preHandler: [requireMissionAccess], config: { authPolicy: "local_actor" } },
     async (request: FastifyRequest<{ Params: { missionId: string; commentId: string }; Body: z.infer<typeof updateCommentSchema> }>, _reply: FastifyReply) => {
       if (!request.agent && !request.user) {
         throw unauthorized('Authentication required');
@@ -120,7 +121,7 @@ export async function missionCommentRoutes(fastify: FastifyInstance): Promise<vo
 
   fastify.delete<{ Params: { missionId: string; commentId: string } }>(
     '/missions/:missionId/comments/:commentId',
-    { config: { authPolicy: "local_actor" } },
+    { preHandler: [requireMissionAccess], config: { authPolicy: "local_actor" } },
     async (request: FastifyRequest<{ Params: { missionId: string; commentId: string } }>, reply: FastifyReply) => {
       if (!request.agent && !request.user) {
         throw unauthorized('Authentication required');

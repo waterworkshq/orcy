@@ -354,7 +354,8 @@
       "path": "/api/missions/:missionId/comments/:commentId",
       "surface": "api-deprecated",
       "guards": [
-        "agentOrHumanAuth"
+        "agentOrHumanAuth",
+        "authorizeMissionAccess"
       ],
       "authKind": "local_actor",
       "rawBodyEligible": false,
@@ -890,7 +891,8 @@
       "path": "/api/v1/missions/:missionId/comments/:commentId",
       "surface": "api-v1",
       "guards": [
-        "agentOrHumanAuth"
+        "agentOrHumanAuth",
+        "authorizeMissionAccess"
       ],
       "authKind": "local_actor",
       "rawBodyEligible": false,
@@ -2713,7 +2715,8 @@
       "path": "/api/missions/:missionId/comments",
       "surface": "api-deprecated",
       "guards": [
-        "agentOrHumanAuth"
+        "agentOrHumanAuth",
+        "authorizeMissionAccess"
       ],
       "authKind": "local_actor",
       "rawBodyEligible": false,
@@ -5120,7 +5123,8 @@
       "path": "/api/v1/missions/:missionId/comments",
       "surface": "api-v1",
       "guards": [
-        "agentOrHumanAuth"
+        "agentOrHumanAuth",
+        "authorizeMissionAccess"
       ],
       "authKind": "local_actor",
       "rawBodyEligible": false,
@@ -7527,7 +7531,8 @@
       "path": "/api/missions/:missionId/comments",
       "surface": "api-deprecated",
       "guards": [
-        "agentOrHumanAuth"
+        "agentOrHumanAuth",
+        "authorizeMissionAccess"
       ],
       "authKind": "local_actor",
       "rawBodyEligible": false,
@@ -9934,7 +9939,8 @@
       "path": "/api/v1/missions/:missionId/comments",
       "surface": "api-v1",
       "guards": [
-        "agentOrHumanAuth"
+        "agentOrHumanAuth",
+        "authorizeMissionAccess"
       ],
       "authKind": "local_actor",
       "rawBodyEligible": false,
@@ -11006,7 +11012,8 @@
       "path": "/api/missions/:missionId/comments/:commentId",
       "surface": "api-deprecated",
       "guards": [
-        "agentOrHumanAuth"
+        "agentOrHumanAuth",
+        "authorizeMissionAccess"
       ],
       "authKind": "local_actor",
       "rawBodyEligible": false,
@@ -11322,7 +11329,8 @@
       "path": "/api/v1/missions/:missionId/comments/:commentId",
       "surface": "api-v1",
       "guards": [
-        "agentOrHumanAuth"
+        "agentOrHumanAuth",
+        "authorizeMissionAccess"
       ],
       "authKind": "local_actor",
       "rawBodyEligible": false,
@@ -12826,7 +12834,8 @@
       "path": "/api/missions/:missionId/apply-template/:templateId",
       "surface": "api-deprecated",
       "guards": [
-        "humanAuth"
+        "humanAuth",
+        "authorizeMissionAccess"
       ],
       "authKind": "human",
       "rawBodyEligible": false,
@@ -12910,7 +12919,8 @@
       "path": "/api/missions/:missionId/comments",
       "surface": "api-deprecated",
       "guards": [
-        "agentOrHumanAuth"
+        "agentOrHumanAuth",
+        "authorizeMissionAccess"
       ],
       "authKind": "local_actor",
       "rawBodyEligible": false,
@@ -15170,7 +15180,8 @@
       "path": "/api/v1/missions/:missionId/apply-template/:templateId",
       "surface": "api-v1",
       "guards": [
-        "humanAuth"
+        "humanAuth",
+        "authorizeMissionAccess"
       ],
       "authKind": "human",
       "rawBodyEligible": false,
@@ -15254,7 +15265,8 @@
       "path": "/api/v1/missions/:missionId/comments",
       "surface": "api-v1",
       "guards": [
-        "agentOrHumanAuth"
+        "agentOrHumanAuth",
+        "authorizeMissionAccess"
       ],
       "authKind": "local_actor",
       "rawBodyEligible": false,
