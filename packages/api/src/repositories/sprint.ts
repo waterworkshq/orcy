@@ -228,7 +228,10 @@ export function deleteSprintAndDetachMissions(sprintId: string, missionIds: stri
   try {
     db.transaction((tx) => {
       for (const missionId of missionIds) {
-        tx.update(missions).set({ sprintId: null }).where(eq(missions.id, missionId)).run();
+        tx.update(missions)
+          .set({ sprintId: null })
+          .where(and(eq(missions.id, missionId), eq(missions.sprintId, sprintId)))
+          .run();
       }
       tx.delete(sprints).where(eq(sprints.id, sprintId)).run();
     });
@@ -243,7 +246,10 @@ export function cancelSprintAndDetachMissions(sprintId: string, missionIds: stri
   try {
     db.transaction((tx) => {
       for (const missionId of missionIds) {
-        tx.update(missions).set({ sprintId: null }).where(eq(missions.id, missionId)).run();
+        tx.update(missions)
+          .set({ sprintId: null })
+          .where(and(eq(missions.id, missionId), eq(missions.sprintId, sprintId)))
+          .run();
       }
       tx.update(sprints)
         .set({ status: "cancelled", updatedAt: now })
@@ -287,7 +293,10 @@ export function completeSprintTransaction(input: CompleteSprintTransactionInput)
       if (incompleteMissionIds.length > 0) {
         if (policy === "backlog") {
           for (const missionId of incompleteMissionIds) {
-            tx.update(missions).set({ sprintId: null }).where(eq(missions.id, missionId)).run();
+            tx.update(missions)
+              .set({ sprintId: null })
+              .where(and(eq(missions.id, missionId), eq(missions.sprintId, sprintId)))
+              .run();
           }
           const sprint = tx.select().from(sprints).where(eq(sprints.id, sprintId)).get() as
             | Sprint
@@ -320,7 +329,10 @@ export function completeSprintTransaction(input: CompleteSprintTransactionInput)
           }
         } else if (policy === "next_sprint" && !nextSprintId) {
           for (const missionId of incompleteMissionIds) {
-            tx.update(missions).set({ sprintId: null }).where(eq(missions.id, missionId)).run();
+            tx.update(missions)
+              .set({ sprintId: null })
+              .where(and(eq(missions.id, missionId), eq(missions.sprintId, sprintId)))
+              .run();
           }
         }
       }

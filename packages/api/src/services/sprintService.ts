@@ -223,7 +223,11 @@ export function cancelSprint(sprintId: string): Sprint {
 }
 
 /**
- * Commits a mission from the same habitat to a planning {@link Sprint}.
+ * Commits a mission from the same habitat to a planning {@link Sprint}. A
+ * mission is owned by at most one non-terminal sprint: attaching one whose
+ * current sprint is still planning or active is a `409` (detach it first),
+ * while a terminal or deleted referenced sprint leaves a stale pointer and
+ * re-attaching is allowed as the recovery.
  */
 export function addMissionToSprint(sprintId: string, missionId: string): Sprint {
   const sprint = sprintRepo.getById(sprintId);
@@ -234,6 +238,13 @@ export function addMissionToSprint(sprintId: string, missionId: string): Sprint 
   if (!mission) throw notFound("Mission not found");
   if (mission.habitatId !== sprint.habitatId) {
     throw badRequest("Mission does not belong to the same habitat as the sprint");
+  }
+
+  if (mission.sprintId && mission.sprintId !== sprintId) {
+    const current = sprintRepo.getById(mission.sprintId);
+    if (current && current.status !== "completed" && current.status !== "cancelled") {
+      throw conflict("Mission is already committed to another sprint");
+    }
   }
 
   const updated = sprintRepo.addMission(sprintId, missionId);
