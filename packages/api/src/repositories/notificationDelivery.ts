@@ -184,6 +184,14 @@ export function getDeliveriesByEvent(eventId: string): NotificationDelivery[] {
 
 const ACTIVE_STATUSES: NotificationDeliveryStatus[] = ["pending", "delivered", "snoozed", "failed"];
 
+/** User actions that end a delivery's active lifecycle — a delivery in one of
+ * these states accepts no further user action (409 at the routes). */
+export const USER_TERMINAL_DELIVERY_STATUSES: NotificationDeliveryStatus[] = [
+  "acknowledged",
+  "muted",
+  "cleared",
+];
+
 export function getActiveInbox(
   habitatId: string,
   recipientType: NotificationRecipientType,

@@ -196,6 +196,57 @@ describe("agent recipient self-service — 7 routes admit local agents", () => {
     expect(res.json().status).toBe("snoozed");
   });
 
+  it("terminal-state deliveries reject further user actions (cleared stays cleared)", async () => {
+    const d = seedDelivery(habitatA.id, "agent", agentAId);
+    const cleared = await app.inject({
+      method: "POST",
+      url: `/api/habitats/${habitatA.id}/notifications/deliveries/${d.id}/clear`,
+      headers: agentHeaders(agentAKey),
+    });
+    expect(cleared.statusCode).toBe(200);
+
+    // A late snooze on the cleared delivery must NOT resurrect it into the
+    // active inbox (acknowledged/muted/cleared are terminal user states).
+    const snoozed = await app.inject({
+      method: "POST",
+      url: `/api/habitats/${habitatA.id}/notifications/deliveries/${d.id}/snooze`,
+      headers: agentHeaders(agentAKey),
+      payload: { snoozedUntil: "2099-01-01T00:00:00.000Z" },
+    });
+    expect(snoozed.statusCode).toBe(409);
+    const acked = await app.inject({
+      method: "POST",
+      url: `/api/habitats/${habitatA.id}/notifications/deliveries/${d.id}/ack`,
+      headers: agentHeaders(agentAKey),
+    });
+    expect(acked.statusCode).toBe(409);
+
+    const detail = await app.inject({
+      method: "GET",
+      url: `/api/habitats/${habitatA.id}/notifications/deliveries/${d.id}`,
+      headers: agentHeaders(agentAKey),
+    });
+    expect(detail.json().delivery?.status ?? detail.json().status).toBe("cleared");
+  });
+
+  it("live-state transitions stay allowed (snooze then acknowledge)", async () => {
+    const d = seedDelivery(habitatA.id, "agent", agentAId);
+    const snoozed = await app.inject({
+      method: "POST",
+      url: `/api/habitats/${habitatA.id}/notifications/deliveries/${d.id}/snooze`,
+      headers: agentHeaders(agentAKey),
+      payload: { snoozedUntil: "2099-01-01T00:00:00.000Z" },
+    });
+    expect(snoozed.statusCode).toBe(200);
+    const acked = await app.inject({
+      method: "POST",
+      url: `/api/habitats/${habitatA.id}/notifications/deliveries/${d.id}/ack`,
+      headers: agentHeaders(agentAKey),
+    });
+    expect(acked.statusCode).toBe(200);
+    expect(acked.json().status).toBe("acknowledged");
+  });
+
   it("snooze rejects a non-ISO snoozedUntil like the remote twin does", async () => {
     const d = seedDelivery(habitatA.id, "agent", agentAId);
     const res = await app.inject({

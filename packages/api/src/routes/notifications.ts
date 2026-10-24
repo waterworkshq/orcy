@@ -13,7 +13,7 @@ import { updateHabitatSubscription, deleteHabitatSubscription } from "../service
 import { adminClearDeliveries } from "../services/notificationClearanceService.js";
 import { projectNotificationEventData } from "../services/notificationService.js";
 import { requireHabitatAccess } from "../middleware/team.js";
-import { notFound, badRequest, forbidden } from "../errors.js";
+import { notFound, badRequest, forbidden, conflict } from "../errors.js";
 import { applyDeclaredAuthPolicies } from "../authPolicy.js";
 
 const recipientTypeSchema = z.enum(["human", "agent", "remote_human", "remote_orcy"]);
@@ -167,6 +167,9 @@ export async function notificationRoutes(fastify: FastifyInstance): Promise<void
       if (delivery.recipientId !== principal.id || delivery.recipientType !== principal.type) {
         throw forbidden("You can only acknowledge your own deliveries");
       }
+      if (deliveryRepo.USER_TERMINAL_DELIVERY_STATUSES.includes(delivery.status)) {
+        throw conflict("This delivery was already acknowledged, muted, or cleared");
+      }
       return deliveryRepo.acknowledgeDelivery(deliveryId);
     },
   );
@@ -188,6 +191,9 @@ export async function notificationRoutes(fastify: FastifyInstance): Promise<void
       if (delivery.recipientId !== principal.id || delivery.recipientType !== principal.type) {
         throw forbidden("You can only snooze your own deliveries");
       }
+      if (deliveryRepo.USER_TERMINAL_DELIVERY_STATUSES.includes(delivery.status)) {
+        throw conflict("This delivery was already acknowledged, muted, or cleared");
+      }
       return deliveryRepo.snoozeDelivery(deliveryId, parsed.data.snoozedUntil);
     },
   );
@@ -204,6 +210,9 @@ export async function notificationRoutes(fastify: FastifyInstance): Promise<void
       }
       if (delivery.recipientId !== principal.id || delivery.recipientType !== principal.type) {
         throw forbidden("You can only clear your own deliveries");
+      }
+      if (deliveryRepo.USER_TERMINAL_DELIVERY_STATUSES.includes(delivery.status)) {
+        throw conflict("This delivery was already acknowledged, muted, or cleared");
       }
       return deliveryRepo.clearDelivery(deliveryId);
     },
