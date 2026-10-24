@@ -168,9 +168,13 @@ export async function notificationRoutes(fastify: FastifyInstance): Promise<void
         throw forbidden("You can only acknowledge your own deliveries");
       }
       if (deliveryRepo.USER_TERMINAL_DELIVERY_STATUSES.includes(delivery.status)) {
-        throw conflict("This delivery was already acknowledged, muted, or cleared");
+        throw conflict("This delivery was already cleared");
       }
-      return deliveryRepo.acknowledgeDelivery(deliveryId);
+      const updated = deliveryRepo.acknowledgeDelivery(deliveryId);
+      if (!updated) {
+        throw conflict("This delivery was already cleared");
+      }
+      return updated;
     },
   );
 
@@ -192,9 +196,13 @@ export async function notificationRoutes(fastify: FastifyInstance): Promise<void
         throw forbidden("You can only snooze your own deliveries");
       }
       if (deliveryRepo.USER_TERMINAL_DELIVERY_STATUSES.includes(delivery.status)) {
-        throw conflict("This delivery was already acknowledged, muted, or cleared");
+        throw conflict("This delivery was already cleared");
       }
-      return deliveryRepo.snoozeDelivery(deliveryId, parsed.data.snoozedUntil);
+      const updated = deliveryRepo.snoozeDelivery(deliveryId, parsed.data.snoozedUntil);
+      if (!updated) {
+        throw conflict("This delivery was already cleared");
+      }
+      return updated;
     },
   );
 
@@ -212,9 +220,13 @@ export async function notificationRoutes(fastify: FastifyInstance): Promise<void
         throw forbidden("You can only clear your own deliveries");
       }
       if (deliveryRepo.USER_TERMINAL_DELIVERY_STATUSES.includes(delivery.status)) {
-        throw conflict("This delivery was already acknowledged, muted, or cleared");
+        throw conflict("This delivery was already cleared");
       }
-      return deliveryRepo.clearDelivery(deliveryId);
+      const updated = deliveryRepo.clearDelivery(deliveryId);
+      if (!updated) {
+        throw conflict("This delivery was already cleared");
+      }
+      return updated;
     },
   );
 

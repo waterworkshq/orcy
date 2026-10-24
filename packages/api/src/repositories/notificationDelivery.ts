@@ -1,6 +1,6 @@
 import { getDb } from "../db/index.js";
 import { notificationDeliveries } from "../db/schema/index.js";
-import { eq, and, desc, sql, inArray } from "drizzle-orm";
+import { eq, and, desc, sql, inArray, notInArray } from "drizzle-orm";
 import {
   aggregateDeliveryCompletionIfAllTerminal,
   freezeUnitPlanForDelivery,
@@ -184,11 +184,11 @@ export function getDeliveriesByEvent(eventId: string): NotificationDelivery[] {
 
 const ACTIVE_STATUSES: NotificationDeliveryStatus[] = ["pending", "delivered", "snoozed", "failed"];
 
-/** User actions that end a delivery's active lifecycle — a delivery in one of
- * these states accepts no further user action (409 at the routes). */
+/** The one user state that ends a delivery's lifecycle — once cleared, no
+ * further recipient action applies (409 at the routes; the repo writers
+ * enforce the same predicate at statement time). Acknowledge and mute stay
+ * transitionable: the repository's own lifecycle test pins ack → clear. */
 export const USER_TERMINAL_DELIVERY_STATUSES: NotificationDeliveryStatus[] = [
-  "acknowledged",
-  "muted",
   "cleared",
 ];
 
@@ -267,7 +267,19 @@ export function getDeliveryHistory(
   return { deliveries: rows as unknown as NotificationDelivery[], total };
 }
 
-export function acknowledgeDelivery(deliveryId: string): NotificationDelivery {
+/** Statement-time terminal guard shared by the recipient-action writers: the
+ * UPDATE itself refuses to touch a delivery already acknowledged, muted, or
+ * cleared, so a request that raced past the route-level precheck cannot
+ * resurrect a terminal delivery (the writers return null when nothing was
+ * applied). The system's markDelivered writer deliberately stays unguarded. */
+function liveDeliveryPredicate(deliveryId: string) {
+  return and(
+    eq(notificationDeliveries.id, deliveryId),
+    notInArray(notificationDeliveries.status, USER_TERMINAL_DELIVERY_STATUSES),
+  );
+}
+
+export function acknowledgeDelivery(deliveryId: string): NotificationDelivery | null {
   const db = getDb();
   return db.transaction((tx) => acknowledgeDeliveryInTx(deliveryId, tx));
 }
@@ -280,14 +292,16 @@ function acknowledgeDeliveryInTx(
   const now = new Date().toISOString();
 
   try {
-    db.update(notificationDeliveries)
+    const applied = db.update(notificationDeliveries)
       .set({
         status: "acknowledged",
         acknowledgedAt: now,
         updatedAt: now,
       })
-      .where(eq(notificationDeliveries.id, deliveryId))
-      .run();
+      .where(liveDeliveryPredicate(deliveryId))
+      .returning({ id: notificationDeliveries.id })
+      .all();
+    if (applied.length === 0) return null;
   } catch (err) {
     throw repositoryUpdateError("notificationDelivery", err as Error, deliveryId);
   }
@@ -301,7 +315,7 @@ function acknowledgeDeliveryInTx(
   return updated;
 }
 
-export function snoozeDelivery(deliveryId: string, snoozedUntil: string): NotificationDelivery {
+export function snoozeDelivery(deliveryId: string, snoozedUntil: string): NotificationDelivery | null {
   const db = getDb();
   return db.transaction((tx) => snoozeDeliveryInTx(deliveryId, tx, snoozedUntil));
 }
@@ -315,14 +329,16 @@ function snoozeDeliveryInTx(
   const now = new Date().toISOString();
 
   try {
-    db.update(notificationDeliveries)
+    const applied = db.update(notificationDeliveries)
       .set({
         status: "snoozed",
         snoozedUntil,
         updatedAt: now,
       })
-      .where(eq(notificationDeliveries.id, deliveryId))
-      .run();
+      .where(liveDeliveryPredicate(deliveryId))
+      .returning({ id: notificationDeliveries.id })
+      .all();
+    if (applied.length === 0) return null;
   } catch (err) {
     throw repositoryUpdateError("notificationDelivery", err as Error, deliveryId);
   }
@@ -336,7 +352,7 @@ function snoozeDeliveryInTx(
   return updated;
 }
 
-export function muteDelivery(deliveryId: string): NotificationDelivery {
+export function muteDelivery(deliveryId: string): NotificationDelivery | null {
   const db = getDb();
   return db.transaction((tx) => muteDeliveryInTx(deliveryId, tx));
 }
@@ -349,14 +365,16 @@ function muteDeliveryInTx(
   const now = new Date().toISOString();
 
   try {
-    db.update(notificationDeliveries)
+    const applied = db.update(notificationDeliveries)
       .set({
         status: "muted",
         mutedAt: now,
         updatedAt: now,
       })
-      .where(eq(notificationDeliveries.id, deliveryId))
-      .run();
+      .where(liveDeliveryPredicate(deliveryId))
+      .returning({ id: notificationDeliveries.id })
+      .all();
+    if (applied.length === 0) return null;
   } catch (err) {
     throw repositoryUpdateError("notificationDelivery", err as Error, deliveryId);
   }
@@ -375,7 +393,7 @@ export function markDeliveryDelivered(deliveryId: string): NotificationDelivery 
   const now = new Date().toISOString();
 
   try {
-    db.update(notificationDeliveries)
+    const applied = db.update(notificationDeliveries)
       .set({
         status: "delivered",
         deliveredAt: now,
@@ -392,7 +410,7 @@ export function markDeliveryDelivered(deliveryId: string): NotificationDelivery 
   return updated;
 }
 
-export function clearDelivery(deliveryId: string): NotificationDelivery {
+export function clearDelivery(deliveryId: string): NotificationDelivery | null {
   const db = getDb();
   return db.transaction((tx) => clearDeliveryInTx(deliveryId, tx));
 }
@@ -405,14 +423,16 @@ function clearDeliveryInTx(
   const now = new Date().toISOString();
 
   try {
-    db.update(notificationDeliveries)
+    const applied = db.update(notificationDeliveries)
       .set({
         status: "cleared",
         clearedAt: now,
         updatedAt: now,
       })
-      .where(eq(notificationDeliveries.id, deliveryId))
-      .run();
+      .where(liveDeliveryPredicate(deliveryId))
+      .returning({ id: notificationDeliveries.id })
+      .all();
+    if (applied.length === 0) return null;
   } catch (err) {
     throw repositoryUpdateError("notificationDelivery", err as Error, deliveryId);
   }

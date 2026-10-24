@@ -6865,7 +6865,7 @@ Remote participants are not admitted on recipient routes (`local_actor` accepts 
 | POST | `/habitats/:hid/notifications/deliveries/:did/clear` | Clear from active inbox |
 | GET | `/habitats/:hid/notifications/subscriptions` | Own subscription overrides + habitat defaults (read-only) |
 
-Recipient actions are state transitions on a live delivery: acknowledge, snooze, and clear each end the delivery's active lifecycle, and once a delivery is **acknowledged, muted, or cleared** those states are terminal — any further recipient action on it is rejected `409` (a late action cannot resurrect a dismissed delivery into the active inbox). Transitions between live states (pending, delivered, snoozed, failed) remain allowed in any order.
+Recipient actions are state transitions on a live delivery. **Cleared is the terminal state**: once a recipient clears a delivery, any further recipient action on it is rejected `409` at the route and by the writer's own statement-time predicate (a late action from a stale tab or a racing request cannot resurrect a dismissed delivery into the active inbox). All other transitions — including acknowledge → clear and snooze → acknowledge — remain allowed.
 
 ### Admin Routes
 
@@ -7224,7 +7224,7 @@ Acknowledges a notification delivery.
 
 **Auth:** `X-Orcy-Remote-Key` + `Idempotency-Key`
 
-**Error:** 403 if the delivery belongs to a different recipient. Acknowledged, muted, and cleared are terminal states — acting on a delivery already in one is `409` (`DELIVERY_TERMINAL`); a late action cannot resurrect a dismissed delivery.
+**Error:** 403 if the delivery belongs to a different recipient. Cleared is the terminal state — acting on a cleared delivery is `409` (`DELIVERY_TERMINAL`), enforced at the route and at statement time; a late action cannot resurrect a dismissed delivery.
 
 #### POST /api/shared/notifications/deliveries/:deliveryId/snooze
 

@@ -21,6 +21,7 @@ import { initTestDb, closeDb, getDb } from "../db/index.js";
 import { notificationRoutes } from "../routes/notifications.js";
 import * as habitatRepo from "../repositories/habitat.js";
 import * as agentRepo from "../repositories/agent.js";
+import * as deliveryRepo from "../repositories/notificationDelivery.js";
 import * as subscriptionRepo from "../repositories/notificationSubscription.js";
 import { enqueueNotificationForRecipients } from "../services/notificationCommandService.js";
 import { users } from "../db/schema/index.js";
@@ -227,6 +228,11 @@ describe("agent recipient self-service — 7 routes admit local agents", () => {
       headers: agentHeaders(agentAKey),
     });
     expect(detail.json().delivery?.status ?? detail.json().status).toBe("cleared");
+
+    // The repo writers enforce the same terminal predicate at statement time —
+    // a request that raced past the route precheck still cannot resurrect it.
+    expect(deliveryRepo.snoozeDelivery(d.id, "2099-01-01T00:00:00.000Z")).toBeNull();
+    expect(deliveryRepo.acknowledgeDelivery(d.id)).toBeNull();
   });
 
   it("live-state transitions stay allowed (snooze then acknowledge)", async () => {
