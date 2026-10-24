@@ -222,6 +222,7 @@ Orcy pulls external tracker issues into habitat intake, where humans/orcys revie
 | Shipped: v0.44.2 | Guarded role-definition reads, MCP reviewer-type validation, explicit audit-attribution guidance, and clearer governance race diagnostics. See [release notes](docs/releases/v0.44.2.md). |
 | Shipped: v0.45.0 | Habitat access containment (mission detail, dependency, subscription, and list surfaces) and scheduled-occurrence recovery with durable history; enforced dependency-resolution floors and an api test suite at half the wall-clock. See [release notes](docs/releases/v0.45.0.md). |
 | Shipped: v0.46.0 | Verified-audit hardening: mission access guard on comments and template application, single-owner Sprint membership, one 404-on-absent dependency removal contract, the mission_dependencies source foreign key (migration 0086), and CI for lint plus the main test suite. See [release notes](docs/releases/v0.46.0.md). |
+| Shipped: v0.46.1 | Maintenance: changelog dedupe in the trimmer, lint backlog 402→0, CI typecheck of every package, the rerun concurrency proof in a stable serial pass, and pnpm 10.34.8 with one allowlisted build script. See [release notes](docs/releases/v0.46.1.md). |
 | Next | Unscheduled seeds (integration OAuth/webhook extraction and similar) wait on demand. See [docs/ROADMAP.md](docs/ROADMAP.md#upcoming). |
 | Architecture Optimization | Ongoing Architecture Work pertaining to investigated codebase opportunities |
 | npm publishing | GO LIVE on npm for the CLI, MCP server, and daemon for one command installer |
