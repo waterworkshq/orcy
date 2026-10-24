@@ -954,7 +954,13 @@ export async function sharedApiRoutes(fastify: FastifyInstance): Promise<void> {
       ) {
         throw forbidden("You can only acknowledge your own deliveries", "NOT_DELIVERY_OWNER");
       }
+      if (deliveryRepo.USER_TERMINAL_DELIVERY_STATUSES.includes(delivery.status)) {
+        throw conflict("This delivery was already cleared", "DELIVERY_TERMINAL");
+      }
       const updated = deliveryRepo.acknowledgeDelivery(request.params.deliveryId);
+      if (!updated) {
+        throw conflict("This delivery was already cleared", "DELIVERY_TERMINAL");
+      }
       const responseBody = { delivery: updated };
       completeRemoteIdempotency(request, 200, responseBody);
       reply.code(200).send(responseBody);
@@ -985,7 +991,13 @@ export async function sharedApiRoutes(fastify: FastifyInstance): Promise<void> {
       ) {
         throw forbidden("You can only snooze your own deliveries", "NOT_DELIVERY_OWNER");
       }
+      if (deliveryRepo.USER_TERMINAL_DELIVERY_STATUSES.includes(delivery.status)) {
+        throw conflict("This delivery was already cleared", "DELIVERY_TERMINAL");
+      }
       const updated = deliveryRepo.snoozeDelivery(request.params.deliveryId, body.snoozedUntil);
+      if (!updated) {
+        throw conflict("This delivery was already cleared", "DELIVERY_TERMINAL");
+      }
       const responseBody = { delivery: updated };
       completeRemoteIdempotency(request, 200, responseBody);
       reply.code(200).send(responseBody);

@@ -13,7 +13,7 @@ import { updateHabitatSubscription, deleteHabitatSubscription } from "../service
 import { adminClearDeliveries } from "../services/notificationClearanceService.js";
 import { projectNotificationEventData } from "../services/notificationService.js";
 import { requireHabitatAccess } from "../middleware/team.js";
-import { notFound, badRequest, forbidden } from "../errors.js";
+import { notFound, badRequest, forbidden, conflict } from "../errors.js";
 import { applyDeclaredAuthPolicies } from "../authPolicy.js";
 
 const recipientTypeSchema = z.enum(["human", "agent", "remote_human", "remote_orcy"]);
@@ -167,7 +167,14 @@ export async function notificationRoutes(fastify: FastifyInstance): Promise<void
       if (delivery.recipientId !== principal.id || delivery.recipientType !== principal.type) {
         throw forbidden("You can only acknowledge your own deliveries");
       }
-      return deliveryRepo.acknowledgeDelivery(deliveryId);
+      if (deliveryRepo.USER_TERMINAL_DELIVERY_STATUSES.includes(delivery.status)) {
+        throw conflict("This delivery was already cleared");
+      }
+      const updated = deliveryRepo.acknowledgeDelivery(deliveryId);
+      if (!updated) {
+        throw conflict("This delivery was already cleared");
+      }
+      return updated;
     },
   );
 
@@ -188,7 +195,14 @@ export async function notificationRoutes(fastify: FastifyInstance): Promise<void
       if (delivery.recipientId !== principal.id || delivery.recipientType !== principal.type) {
         throw forbidden("You can only snooze your own deliveries");
       }
-      return deliveryRepo.snoozeDelivery(deliveryId, parsed.data.snoozedUntil);
+      if (deliveryRepo.USER_TERMINAL_DELIVERY_STATUSES.includes(delivery.status)) {
+        throw conflict("This delivery was already cleared");
+      }
+      const updated = deliveryRepo.snoozeDelivery(deliveryId, parsed.data.snoozedUntil);
+      if (!updated) {
+        throw conflict("This delivery was already cleared");
+      }
+      return updated;
     },
   );
 
@@ -205,7 +219,14 @@ export async function notificationRoutes(fastify: FastifyInstance): Promise<void
       if (delivery.recipientId !== principal.id || delivery.recipientType !== principal.type) {
         throw forbidden("You can only clear your own deliveries");
       }
-      return deliveryRepo.clearDelivery(deliveryId);
+      if (deliveryRepo.USER_TERMINAL_DELIVERY_STATUSES.includes(delivery.status)) {
+        throw conflict("This delivery was already cleared");
+      }
+      const updated = deliveryRepo.clearDelivery(deliveryId);
+      if (!updated) {
+        throw conflict("This delivery was already cleared");
+      }
+      return updated;
     },
   );
 

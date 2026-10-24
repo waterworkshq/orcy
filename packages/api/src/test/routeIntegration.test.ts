@@ -71,8 +71,8 @@ describe("notification route handlers (service layer)", () => {
       const { delivery } = createEventDelivery(habitat.id, "user-1");
 
       const acked = deliveryRepo.acknowledgeDelivery(delivery.id);
-      expect(acked.status).toBe("acknowledged");
-      expect(acked.acknowledgedAt).not.toBeNull();
+      expect(acked!.status).toBe("acknowledged");
+      expect(acked!.acknowledgedAt).not.toBeNull();
     });
 
     it("snoozes delivery", () => {
@@ -81,8 +81,8 @@ describe("notification route handlers (service layer)", () => {
       const future = new Date(Date.now() + 3600000).toISOString();
 
       const snoozed = deliveryRepo.snoozeDelivery(delivery.id, future);
-      expect(snoozed.status).toBe("snoozed");
-      expect(snoozed.snoozedUntil).toBe(future);
+      expect(snoozed!.status).toBe("snoozed");
+      expect(snoozed!.snoozedUntil).toBe(future);
     });
 
     it("clears own delivery", () => {
@@ -90,7 +90,7 @@ describe("notification route handlers (service layer)", () => {
       const { delivery } = createEventDelivery(habitat.id, "user-1");
 
       const cleared = deliveryRepo.clearDelivery(delivery.id);
-      expect(cleared.status).toBe("cleared");
+      expect(cleared!.status).toBe("cleared");
     });
   });
 

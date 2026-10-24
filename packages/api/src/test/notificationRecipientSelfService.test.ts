@@ -21,6 +21,7 @@ import { initTestDb, closeDb, getDb } from "../db/index.js";
 import { notificationRoutes } from "../routes/notifications.js";
 import * as habitatRepo from "../repositories/habitat.js";
 import * as agentRepo from "../repositories/agent.js";
+import * as deliveryRepo from "../repositories/notificationDelivery.js";
 import * as subscriptionRepo from "../repositories/notificationSubscription.js";
 import { enqueueNotificationForRecipients } from "../services/notificationCommandService.js";
 import { users } from "../db/schema/index.js";
@@ -194,6 +195,62 @@ describe("agent recipient self-service — 7 routes admit local agents", () => {
     });
     expect(res.statusCode).toBe(200);
     expect(res.json().status).toBe("snoozed");
+  });
+
+  it("terminal-state deliveries reject further user actions (cleared stays cleared)", async () => {
+    const d = seedDelivery(habitatA.id, "agent", agentAId);
+    const cleared = await app.inject({
+      method: "POST",
+      url: `/api/habitats/${habitatA.id}/notifications/deliveries/${d.id}/clear`,
+      headers: agentHeaders(agentAKey),
+    });
+    expect(cleared.statusCode).toBe(200);
+
+    // A late snooze on the cleared delivery must NOT resurrect it into the
+    // active inbox (acknowledged/muted/cleared are terminal user states).
+    const snoozed = await app.inject({
+      method: "POST",
+      url: `/api/habitats/${habitatA.id}/notifications/deliveries/${d.id}/snooze`,
+      headers: agentHeaders(agentAKey),
+      payload: { snoozedUntil: "2099-01-01T00:00:00.000Z" },
+    });
+    expect(snoozed.statusCode).toBe(409);
+    const acked = await app.inject({
+      method: "POST",
+      url: `/api/habitats/${habitatA.id}/notifications/deliveries/${d.id}/ack`,
+      headers: agentHeaders(agentAKey),
+    });
+    expect(acked.statusCode).toBe(409);
+
+    const detail = await app.inject({
+      method: "GET",
+      url: `/api/habitats/${habitatA.id}/notifications/deliveries/${d.id}`,
+      headers: agentHeaders(agentAKey),
+    });
+    expect(detail.json().delivery?.status ?? detail.json().status).toBe("cleared");
+
+    // The repo writers enforce the same terminal predicate at statement time —
+    // a request that raced past the route precheck still cannot resurrect it.
+    expect(deliveryRepo.snoozeDelivery(d.id, "2099-01-01T00:00:00.000Z")).toBeNull();
+    expect(deliveryRepo.acknowledgeDelivery(d.id)).toBeNull();
+  });
+
+  it("live-state transitions stay allowed (snooze then acknowledge)", async () => {
+    const d = seedDelivery(habitatA.id, "agent", agentAId);
+    const snoozed = await app.inject({
+      method: "POST",
+      url: `/api/habitats/${habitatA.id}/notifications/deliveries/${d.id}/snooze`,
+      headers: agentHeaders(agentAKey),
+      payload: { snoozedUntil: "2099-01-01T00:00:00.000Z" },
+    });
+    expect(snoozed.statusCode).toBe(200);
+    const acked = await app.inject({
+      method: "POST",
+      url: `/api/habitats/${habitatA.id}/notifications/deliveries/${d.id}/ack`,
+      headers: agentHeaders(agentAKey),
+    });
+    expect(acked.statusCode).toBe(200);
+    expect(acked.json().status).toBe("acknowledged");
   });
 
   it("snooze rejects a non-ISO snoozedUntil like the remote twin does", async () => {

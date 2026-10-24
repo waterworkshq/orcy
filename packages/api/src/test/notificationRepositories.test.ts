@@ -261,8 +261,8 @@ describe("notificationDelivery repository", () => {
     });
 
     const acked = deliveryRepo.acknowledgeDelivery(delivery.id);
-    expect(acked.status).toBe("acknowledged");
-    expect(acked.acknowledgedAt).not.toBeNull();
+    expect(acked!.status).toBe("acknowledged");
+    expect(acked!.acknowledgedAt).not.toBeNull();
   });
 
   it("snoozes a delivery", () => {
@@ -277,8 +277,8 @@ describe("notificationDelivery repository", () => {
 
     const until = "2026-12-31T23:59:59Z";
     const snoozed = deliveryRepo.snoozeDelivery(delivery.id, until);
-    expect(snoozed.status).toBe("snoozed");
-    expect(snoozed.snoozedUntil).toBe(until);
+    expect(snoozed!.status).toBe("snoozed");
+    expect(snoozed!.snoozedUntil).toBe(until);
   });
 
   it("mutes a delivery", () => {
@@ -292,8 +292,8 @@ describe("notificationDelivery repository", () => {
     });
 
     const muted = deliveryRepo.muteDelivery(delivery.id);
-    expect(muted.status).toBe("muted");
-    expect(muted.mutedAt).not.toBeNull();
+    expect(muted!.status).toBe("muted");
+    expect(muted!.mutedAt).not.toBeNull();
   });
 
   it("marks delivery as delivered", () => {
@@ -322,8 +322,8 @@ describe("notificationDelivery repository", () => {
     });
 
     const cleared = deliveryRepo.clearDelivery(delivery.id);
-    expect(cleared.status).toBe("cleared");
-    expect(cleared.clearedAt).not.toBeNull();
+    expect(cleared!.status).toBe("cleared");
+    expect(cleared!.clearedAt).not.toBeNull();
   });
 
   it("finds clearance candidates", () => {
@@ -977,10 +977,10 @@ describe("notification compact history flow", () => {
     expect(delivered.status).toBe("delivered");
 
     const acked = deliveryRepo.acknowledgeDelivery(delivery.id);
-    expect(acked.status).toBe("acknowledged");
+    expect(acked!.status).toBe("acknowledged");
 
     const cleared = deliveryRepo.clearDelivery(delivery.id);
-    expect(cleared.status).toBe("cleared");
+    expect(cleared!.status).toBe("cleared");
 
     const { total } = deliveryRepo.getActiveInbox(habitat.id, "agent", "agent-1");
     expect(total).toBe(0);
