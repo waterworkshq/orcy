@@ -268,10 +268,11 @@ export function getDeliveryHistory(
 }
 
 /** Statement-time terminal guard shared by the recipient-action writers: the
- * UPDATE itself refuses to touch a delivery already acknowledged, muted, or
- * cleared, so a request that raced past the route-level precheck cannot
- * resurrect a terminal delivery (the writers return null when nothing was
- * applied). The system's markDelivered writer deliberately stays unguarded. */
+ * UPDATE itself refuses to touch a delivery that is already cleared — the one
+ * terminal recipient state — so a request that raced past the route-level
+ * precheck cannot resurrect a cleared delivery (the writers return null when
+ * nothing was applied). Acknowledged and muted stay transitionable; the
+ * system's markDelivered writer deliberately stays unguarded. */
 function liveDeliveryPredicate(deliveryId: string) {
   return and(
     eq(notificationDeliveries.id, deliveryId),
