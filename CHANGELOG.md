@@ -2,6 +2,44 @@
 
 > Older releases: see [git tags](https://github.com/waterworkshq/orcy/tags) and [GitHub Releases](https://github.com/waterworkshq/orcy/releases).
 
+## 0.46.1 — 2026-10-24
+
+### Chores
+
+#### dedupe merge-era bullets in the changelog trimmer (#117) ([`976aede`](https://github.com/waterworkshq/orcy/commit/976aedecc56d27e4b986024d82688b717748c524))
+
+- trim-changelog now removes repeated identical body bullets within each retained release section (merge-commit landings emitted the same paragraph once per landing — 13 copies of one such bullet lived in the v0.45.0 section) and drops cliff's empty-body placeholder bullets, on top of the existing 3-section cap. The transform is exported as a pure function with node:test coverage under test:scripts, and the committed CHANGELOG is re-trimmed once so the retained sections are clean now rather than at the next release.
+
+#### triage the warning backlog to zero (#118) ([`0706920`](https://github.com/waterworkshq/orcy/commit/0706920f6783f997f7682d8da6317c8c2914f182))
+
+- 402 warnings to 0. Real cleanups: 30 dead imports/variables, 5 in-place reverses to toReversed, string-concat merges, caught-error causes in fixtures, a side-effect construction named, and 13 shadowing bindings renamed. Intentional patterns moved to config: the underscore-prefix convention and in-place sort idiom are off globally (the old name-by-name allow list accreted for years and still left ~90 warnings), and test/fixture locality keeps consistent-function-scoping, no-shadow, and no-unused-vars off for test code. Two files get scoped no-shadow overrides (the notification delivery creation pair and the inline occurrence publication kernel) where the flagged bindings are module-level siblings or the publication-kernel db-signature convention, so no semantic shadow exists. Five small pure helpers were hoisted to module scope where the rule was right.
+
+#### bump pnpm to 10.34.8 with the better-sqlite3 build allowlist (#121) ([`fa1374f`](https://github.com/waterworkshq/orcy/commit/fa1374f74f3815e38d92493d9fd37531e80bfd24))
+
+- The packageManager pin moves from 9.15.9 to the newest 10.x. pnpm 10 blocks dependency lifecycle scripts by default, so pnpm-workspace.yaml allowlists better-sqlite3's install script — the native production driver binding. Nothing else requested a build script during install, the lockfile is unchanged (both majors use lockfileVersion 9), and the full canonical gate set passes under the new pin: shared build, recursive typecheck across all seven packages, lint, the full workspace test suite (api 9359 passed, scripts 25), and the production-migration suite on the real better-sqlite3 driver.
+
+### Documentation
+
+#### record v0.46.0 delivery ([`16540ff`](https://github.com/waterworkshq/orcy/commit/16540ff9682f41c17298b6f54d52ac1aa25db3f4))
+
+### Tests
+
+#### run the extraction rerun concurrency proof in its own serial pass (#120) ([`9820b55`](https://github.com/waterworkshq/orcy/commit/9820b55be3a9acbe70216e0572e60de2170d90f6))
+
+- The fork-worker proof boots a cold file DB through the full migration chain and forks two child processes, so under default file parallelism (~500 sibling files competing for cores) it intermittently exceeded vitest's 5s default timeout and false-failed the suite. It now runs as pnpm test:extraction-concurrency with --fileParallelism=false (the perfWorkflow pattern), is excluded from the default api suite, and the CI test job runs it as its own step after the main suite, so the proof stays machine-gated without sharing the parallel pool.
+
+### ci
+
+#### typecheck every package on PRs and document the workflow force-add (#119) ([`307b4ad`](https://github.com/waterworkshq/orcy/commit/307b4ad76c08540ea29511037639718a62988d4a))
+
+- ci: typecheck every package on PRs and document the workflow force-add
+
+- The lint-and-tests workflow gains a typecheck job that builds @orcy/shared then runs every workspace package's typecheck script in one pass, so type errors surface at PR time instead of waiting for the production-migration gate's api-only step (the gap that let a fixture-type miss reach CI on the migration PR). CONTRIBUTING now documents that .github is gitignored and workflow files are force-added, so the next contributor does not trip on the plain-git-add refusal.
+
+- ci: build the daemon before the workspace typecheck
+
+- The cli package's typecheck resolves @orcy/daemon through the workspace symlink to its built dist/index.js, which does not exist on a fresh checkout — the first CI run of the job failed on exactly that while local runs passed against a stale local build. The dependency-build step now builds daemon (and shared, topologically) via the daemon... filter, and the failure was reproduced and cleared locally by removing and rebuilding exactly that dist.
+
 ## 0.46.0 — 2026-10-23
 
 ### Bug Fixes
@@ -355,55 +393,3 @@
 #### keep native work checks out of watch mode ([`2cf7731`](https://github.com/waterworkshq/orcy/commit/2cf7731a85b76f09d822344c8d7fa5ba7b44a989))
 
 - Exclude the optional compiler-backed query check from watch discovery while preserving every other selected test. State explicitly that missing migration indexes use the complete delivery-monitor fallback.
-
-## 0.44.2 — 2026-10-17
-
-### Bug Fixes
-
-#### validate stored permissions in role detail reads ([`e2c27ad`](https://github.com/waterworkshq/orcy/commit/e2c27ad9689bcbe3dcea8446a72cba0795138a71))
-
-#### validate stored permissions in role detail reads ([`b544b4d`](https://github.com/waterworkshq/orcy/commit/b544b4dbf47d95ef7d20cdd97e0783fe92853daf))
-
-- Reuse guarded stored-permission parsing for role detail reads, authorize custom namespaces before parsing, and pin safe validation and denial responses for every malformed fixture.
-
-#### validate reviewer types before client calls ([`3776183`](https://github.com/waterworkshq/orcy/commit/377618322de9822136a520993cf78dbf9d37eae1))
-
-#### validate reviewer types before client calls ([`48befb0`](https://github.com/waterworkshq/orcy/commit/48befb07d8b58e4abef66fcddc4e6ef647dc1f97))
-
-- Advertise and enforce human or agent reviewer types before client calls, preserve omission-to-human compatibility, and document the roster token format and source.
-
-### Chores
-
-#### remove unused import custody helpers ([`bbc53b9`](https://github.com/waterworkshq/orcy/commit/bbc53b9fbcced2723bb3afa54d4b4eee3fcdd60e))
-
-#### remove unused import custody helpers ([`1cadf73`](https://github.com/waterworkshq/orcy/commit/1cadf7347e989f7168e649c7cfcddba277cb1126))
-
-- Remove the unused import-domain custody helper and its otherwise-unused traversal while retaining the restore-aware publication path.
-
-#### ignore local dot directories ([`90613e7`](https://github.com/waterworkshq/orcy/commit/90613e7c79a2fbf15a2cc9c965cbb3a2fcbccd51))
-
-### Documentation
-
-#### record v0.44.1 delivery ([`6f3d974`](https://github.com/waterworkshq/orcy/commit/6f3d974321405ffd1a95f7592c4b89da896d849c))
-
-- Record the test-only patch release in the roadmap, product next steps and capability register while preserving the v0.44.0 runtime contract.
-
-#### define unknown custody audit attribution ([`1099b8b`](https://github.com/waterworkshq/orcy/commit/1099b8b69c363ee99393790469b63a9ed6d556d6))
-
-#### define unknown custody audit attribution ([`d0aa6ff`](https://github.com/waterworkshq/orcy/commit/d0aa6ffb4f8022d63ce584e8141aacf01f6356f4))
-
-- Define the retained unknown custody-attribution sentinel and its consumer projection and count filters, with real audit-row coverage that preserves history.
-
-#### clarify reviewer roster token requirements ([`b25a15d`](https://github.com/waterworkshq/orcy/commit/b25a15ddcefaa24093c627a407cca5ab3a5f7d97))
-
-#### add v0.44.2 operator notes ([`268d285`](https://github.com/waterworkshq/orcy/commit/268d2854c6a035f3d2ef638e5140f5d1038183cf))
-
-### Tests
-
-#### pin redaction for every malformed permission fixture ([`c3bd41d`](https://github.com/waterworkshq/orcy/commit/c3bd41d82443e5d06e661cc3000d4d8aaa5b0cc6))
-
-#### report race worker failures promptly ([`bcf0c1e`](https://github.com/waterworkshq/orcy/commit/bcf0c1ef9e4d2ace77834d38c2c39c8190737180))
-
-#### report race worker failures promptly ([`6b23c3b`](https://github.com/waterworkshq/orcy/commit/6b23c3bc2fd5fd4a12d5cfc88838f27faa2d954f))
-
-- Detect governance race-worker code, signal, and process failures while waiting for markers, include bounded diagnostics, and verify child cleanup.
