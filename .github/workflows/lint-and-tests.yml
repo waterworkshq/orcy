@@ -120,3 +120,10 @@ jobs:
         # Root script: `test:scripts` (node --test over scripts/*.test.mjs)
         # followed by every workspace package's default vitest suite.
         run: pnpm test
+
+      - name: Run the multi-process concurrency proof serially
+        # Fork-worker proofs are load-sensitive under file parallelism (the
+        # cold file DB boots the full migration chain); run it in its own
+        # serial vitest pass, mirroring the local test:extraction-concurrency
+        # script (the default suite excludes this file).
+        run: pnpm --filter @orcy/api run test:extraction-concurrency
