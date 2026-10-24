@@ -20,6 +20,43 @@ permissions:
   contents: read
 
 jobs:
+  typecheck:
+    name: Typecheck (all packages)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          # No built-in `cache: pnpm` — see the Corepack note in
+          # production-migration.yml.
+
+      - name: Enable Corepack (pin derived from packageManager)
+        run: |
+          corepack enable
+          corepack prepare "$(node -p "require('./package.json').packageManager")" --activate
+          pnpm --version
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build shared and daemon (type dependencies)
+        # @orcy/api / @orcy/mcp / @orcy/daemon resolve @orcy/shared via the
+        # pnpm workspace symlink to the built dist/ directory, and @orcy/cli
+        # resolves @orcy/daemon the same way — none of those dist/ trees
+        # exist on a fresh checkout until built (the `...` builds shared
+        # first, topologically).
+        run: pnpm --filter "@orcy/daemon..." build
+
+      - name: Typecheck every workspace package
+        # Catches type errors at PR time instead of waiting for the
+        # production-migration gate's api-only typecheck step.
+        run: pnpm -r typecheck
+
   lint:
     name: Lint (oxlint)
     runs-on: ubuntu-latest
