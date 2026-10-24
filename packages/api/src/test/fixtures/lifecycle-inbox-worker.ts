@@ -23,7 +23,7 @@
  *
  * Usage: forked with argv `[dbPath]`.
  */
-export {}; // module scope (top-level imports are deferred to main() by design)
+export const WORKER_MODULE_MARKER = true; // module scope (top-level imports are deferred to main() by design)
 
 const [dbPath] = process.argv.slice(2);
 

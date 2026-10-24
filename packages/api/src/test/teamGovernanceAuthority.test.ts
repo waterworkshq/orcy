@@ -267,9 +267,9 @@ describe("current Team governor authority", () => {
     expect((await send(i, token(actorId, "viewer"), prefix)).statusCode).toBe(i.status);
   });
 
-  it.each(operations.flatMap(operation => (["owner", "admin"] as const).flatMap(teamRole =>
-    (["demoted", "removed"] as const).map(change => ({ operation, teamRole, change })))))
-    ("$operation refuses SAME request when $teamRole is $change before reservation", async ({ operation, teamRole, change }) => {
+  const sameRequestDemotionCases = operations.flatMap((operation) => (["owner", "admin"] as const).flatMap((teamRole) =>
+    (["demoted", "removed"] as const).map((change) => ({ operation, teamRole, change }))));
+  it.each(sameRequestDemotionCases)("$operation refuses SAME request when $teamRole is $change before reservation", async ({ operation, teamRole, change }) => {
       const f = fixture(teamRole);
       const actorToken = token(f.ownerId, "editor");
       const i = input(operation, f);

@@ -43,8 +43,6 @@ import {
   type DispatchTargetAttemptOutcome,
   registerDispatchAdapter,
 } from "./taskCreationDispatchRegistry.js";
-import type { DispatchTargetInput } from "../repositories/taskPublication.js";
-
 type EnvelopeRow = typeof taskCreationEnvelopes.$inferSelect;
 
 // ---------------------------------------------------------------------------

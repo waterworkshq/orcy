@@ -652,7 +652,7 @@ describe('upload/list parent admission - actor matrix on both prefixes', () => {
       const times: string[] = listed.body.attachments.map((a: any) => a.createdAt);
       expect(times.length).toBeGreaterThanOrEqual(2);
       // Distinct timestamps, so DESC is deterministic.
-      expect([...times].sort().reverse()).toEqual(times);
+      expect([...times].sort().toReversed()).toEqual(times);
       for (const a of listed.body.attachments) {
         expect(Object.keys(a).toSorted()).toEqual(RAW_ROW_KEYS);
       }

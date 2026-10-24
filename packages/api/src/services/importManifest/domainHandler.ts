@@ -58,7 +58,6 @@ import type {
   CommentPortable,
   DependencyPortable,
   DomainEnvelope,
-  ManifestDomainName,
   MissionPortable,
   SubtaskPortable,
   TaskPortable,

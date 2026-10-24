@@ -44,7 +44,7 @@ import * as sprintRepo from "../repositories/sprint.js";
 import { getAnomalySettings } from "./anomalyService.js";
 import { agents } from "../db/schema/agent.js";
 import { codeEvidenceGaps } from "../db/schema/code-evidence.js";
-import { missions, missionDependencies } from "../db/schema/habitat.js";
+import { missions } from "../db/schema/habitat.js";
 import { tasks } from "../db/schema/task.js";
 import { getDb } from "../db/index.js";
 import type { AutomationScanType, AutomationRule, AutomationTargetType } from "@orcy/shared";

@@ -2,8 +2,6 @@ import { createHmac, createPublicKey, timingSafeEqual, verify } from 'crypto';
 import * as dns from 'dns';
 import { Agent } from 'undici';
 import { classifyPosture } from './security.js';
-import { logger } from '../lib/logger.js';
-
 const DEFAULT_SLACK_TIMESTAMP_SKEW_SECONDS = 60 * 5;
 
 const BLOCKED_HOSTNAMES = new Set([

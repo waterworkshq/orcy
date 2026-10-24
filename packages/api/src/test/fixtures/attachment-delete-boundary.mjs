@@ -187,7 +187,7 @@ async function patchFileStorageUnlink(body) {
         try {
           src = cjsFs.readFileSync(new URL(url), "utf-8");
         } catch (err) {
-          throw new Error(`AAD-SEAM: unsupported load for ${url}: ${String(err)}`);
+          throw new Error(`AAD-SEAM: unsupported load for ${url}: ${String(err)}`, { cause: err });
         }
       }
       const patched = src.replace(
@@ -360,7 +360,7 @@ async function captureRateLimitCleanupInterval() {
         try {
           src = cjsFs.readFileSync(new URL(url), "utf-8");
         } catch (err) {
-          throw new Error(`AAD-TIMER: unsupported load for ${url}: ${String(err)}`);
+          throw new Error(`AAD-TIMER: unsupported load for ${url}: ${String(err)}`, { cause: err });
         }
       }
       const occurrences = src.split(SOURCE_LINE).length - 1;

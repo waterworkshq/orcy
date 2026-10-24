@@ -16,7 +16,6 @@ import { badRequest, notFound, internalError } from '../errors.js';
 import { applyDeclaredAuthPolicies } from "../authPolicy.js";
 import {
   isNotificationWebhookEventEntry,
-  NOTIFICATION_EVENT_CATALOG,
 } from "../services/notificationSubscriptionResolver.js";
 
 interface CreateWebhookBody {

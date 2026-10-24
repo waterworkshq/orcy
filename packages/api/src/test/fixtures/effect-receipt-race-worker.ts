@@ -139,18 +139,11 @@ import {
   pluginRuns as _runs,
   effectReceiptTargets as _targets,
 } from "../../db/schema/index.js";
-import { and as drizzleAnd } from "drizzle-orm";
 function require_gates() {
   return _gates;
 }
-function require_runs() {
-  return _runs;
-}
 function require_targets() {
   return _targets;
-}
-function require_drizzle_and(...conds: Parameters<typeof drizzleAnd>) {
-  return drizzleAnd(...conds);
 }
 
 void main();

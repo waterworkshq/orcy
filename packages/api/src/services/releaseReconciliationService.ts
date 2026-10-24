@@ -47,8 +47,6 @@
  */
 import { createHash } from "crypto";
 import { eq, and, or, isNotNull, ne } from "drizzle-orm";
-import { sql } from "drizzle-orm";
-
 import { getDb } from "../db/index.js";
 import { habitats, missions, notificationEvents } from "../db/schema/index.js";
 import * as projRepo from "../repositories/releaseProjection.js";

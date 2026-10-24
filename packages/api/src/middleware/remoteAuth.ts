@@ -562,51 +562,52 @@ function loadStreamRelevantGrants(
  * stamp request-scoped audit provenance on what is a per-event visibility
  * decision. One clock value is captured and used for every check here.
  */
+const denyRefresh = (code: string, reason: string): RemoteStreamRefresh => ({
+  valid: false,
+  code,
+  reason,
+});
+
 export function refreshRemoteStreamRead(
   anchors: RemoteStreamAnchors,
   now: number = Date.now(),
 ): RemoteStreamRefresh {
-  const deny = (code: string, reason: string): RemoteStreamRefresh => ({
-    valid: false,
-    code,
-    reason,
-  });
 
   const credential = credentialService.verifyRemoteKeyById(anchors.credentialId);
-  if (!credential) return deny("CREDENTIAL_INVALID", "Credential no longer valid");
+  if (!credential) return denyRefresh("CREDENTIAL_INVALID", "Credential no longer valid");
   if (credential.remoteParticipantId !== anchors.participantId) {
-    return deny("CREDENTIAL_REBOUND", "Credential was reassigned to another participant");
+    return denyRefresh("CREDENTIAL_REBOUND", "Credential was reassigned to another participant");
   }
   if (credential.habitatId !== anchors.habitatId) {
-    return deny("HABITAT_DRIFT", "Credential Habitat no longer matches the stream Habitat");
+    return denyRefresh("HABITAT_DRIFT", "Credential Habitat no longer matches the stream Habitat");
   }
 
   const participant = participantRepo.getRemoteParticipantById(anchors.participantId);
-  if (!participant) return deny("PARTICIPANT_GONE", "Participant no longer exists");
+  if (!participant) return denyRefresh("PARTICIPANT_GONE", "Participant no longer exists");
   if (participant.status !== "active") {
-    return deny("PARTICIPANT_INACTIVE", "Participant is not active");
+    return denyRefresh("PARTICIPANT_INACTIVE", "Participant is not active");
   }
   if (participant.remotePodId !== anchors.podId) {
-    return deny("PARTICIPANT_REBOUND", "Participant was moved to a different pod");
+    return denyRefresh("PARTICIPANT_REBOUND", "Participant was moved to a different pod");
   }
   if (participant.habitatId !== anchors.habitatId) {
-    return deny("HABITAT_DRIFT", "Participant Habitat no longer matches the stream Habitat");
+    return denyRefresh("HABITAT_DRIFT", "Participant Habitat no longer matches the stream Habitat");
   }
   // Standing is re-read every time: a promotion or demotion must take effect on
   // the next event decision, not at the next reconnect.
   if (participant.standing === "local_member") {
-    return deny("STANDING_NOT_REMOTE", "Participant standing is no longer a remote standing");
+    return denyRefresh("STANDING_NOT_REMOTE", "Participant standing is no longer a remote standing");
   }
 
   const pod = podRepo.getRemotePodById(anchors.podId);
-  if (!pod) return deny("POD_GONE", "Pod no longer exists");
-  if (pod.status !== "active") return deny("POD_INACTIVE", "Pod is not active");
+  if (!pod) return denyRefresh("POD_GONE", "Pod no longer exists");
+  if (pod.status !== "active") return denyRefresh("POD_INACTIVE", "Pod is not active");
   if (pod.habitatId !== anchors.habitatId) {
-    return deny("HABITAT_DRIFT", "Pod Habitat no longer matches the stream Habitat");
+    return denyRefresh("HABITAT_DRIFT", "Pod Habitat no longer matches the stream Habitat");
   }
 
   if (!getHabitatById(anchors.habitatId)) {
-    return deny("HABITAT_GONE", "Subscribed Habitat no longer exists");
+    return denyRefresh("HABITAT_GONE", "Subscribed Habitat no longer exists");
   }
 
   const grants = loadStreamRelevantGrants(anchors.participantId, anchors.podId, anchors.habitatId);
@@ -620,7 +621,7 @@ export function refreshRemoteStreamRead(
     now,
   );
   if (!readResult.allowed) {
-    return deny("NO_ACTIVE_READ_AUTHORITY", `No active read authority (${readResult.code})`);
+    return denyRefresh("NO_ACTIVE_READ_AUTHORITY", `No active read authority (${readResult.code})`);
   }
 
   return {

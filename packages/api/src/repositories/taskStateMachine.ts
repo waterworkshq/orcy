@@ -5,7 +5,7 @@ import type { Task, Artifact } from "../models/index.js";
 import { repositoryTransactionError } from "../errors/repository.js";
 import { ExecutionEpochMismatchError } from "../errors.js";
 import { getTaskById } from "./taskCrud.js";
-import { endOwnershipWithClient, stampApprovedGenerationWithClient } from "./reviewSafety.js";
+import { endOwnershipWithClient } from "./reviewSafety.js";
 import {
   claimWithAuthority,
   progressWithAuthority,

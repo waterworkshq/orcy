@@ -120,7 +120,6 @@ import {
 import {
   publishTemplateAggregateWithClient,
   type TemplateAggregateParticipantWriter,
-  type TemplateAggregateParticipantContext,
 } from "./templateAggregatePublication.js";
 import {
   deriveClusterScope,

@@ -383,7 +383,7 @@ function ownMapEntry<T>(map: Record<string, T> | undefined | null, key: string):
  * module init in `pluginManager.ts` (T4).
  */
 export function buildContributionCatalog(
-  registries: PluginRegistries,
+  registryBag: PluginRegistries,
 ): Record<ContributionKind, ContributionAdapter> {
   const {
     channelRegistry,
@@ -393,7 +393,7 @@ export function buildContributionCatalog(
     conditionRegistry,
     actionRegistry,
     providerRegistry,
-  } = registries;
+  } = registryBag;
 
   // Collision-error template helpers. The catalog owns the per-kind error
   // format and the cross-registry reference so `detectIdCollisions` in

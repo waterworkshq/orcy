@@ -178,7 +178,7 @@ export async function wizard(opts: WizardOptions = {}): Promise<void> {
         console.log("\n⚠ A previous installation was interrupted.");
         if (stale) {
           const doneCount = stale.steps.filter((s) => s.status === "done").length;
-          const lastDone = [...stale.steps].reverse().find((s) => s.status === "done");
+          const lastDone = stale.steps.toReversed().find((s) => s.status === "done");
           console.log(`  Started: ${stale.startedAt}`);
           console.log(`  Steps recorded: ${stale.steps.length} (${doneCount} completed)`);
           if (lastDone) console.log(`  Last completed: ${lastDone.path} (${lastDone.action})`);

@@ -136,7 +136,7 @@ export async function processEffectReceipts(opts: PassOpts = {}): Promise<void> 
 
   try {
     receiptRepo.sweepExpiredCapRows(now);
-  } catch (err) {
+  } catch {
     logger.error(
       { errorCode: `${ERROR_CODE_PREFIX}_sweep_failed` },
       "Effect receipt expiry sweep failed",
@@ -265,7 +265,7 @@ async function runReceiptUnit(
 
 async function deliverWorkflowGates(
   receipt: EffectReceiptRow,
-  now: string,
+  _now: string,
 ): Promise<"delivered" | "superseded" | EffectErrorCode> {
   const snapshot = (receipt.causalSnapshot ?? {}) as Record<string, unknown>;
   const taskId = snapshot.taskId as string;

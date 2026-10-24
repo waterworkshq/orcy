@@ -1152,7 +1152,7 @@ async function attemptFrozenRuleDelivery(
   }
 
   const composite = calculateRunStatus(succeededCount, failedCount, actionResults.length);
-  const bundle = terminalizeDeliveryBundle({
+  const terminalBundle = terminalizeDeliveryBundle({
     deliveryId: frozen.delivery.id,
     fence: frozen.delivery.fence,
     terminalDisposition: composite,
@@ -1171,7 +1171,7 @@ async function attemptFrozenRuleDelivery(
     inboxId: frozen.inbox.id,
     now: nowIso,
   });
-  if (!bundle.transitioned) return { kind: "fenced_out" };
+  if (!terminalBundle.transitioned) return { kind: "fenced_out" };
   return { kind: "executed", outcome: composite, actionResults, runId: run?.id ?? null };
 
   /** Shared terminal-failure path for condition-stage failures. */

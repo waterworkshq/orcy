@@ -264,9 +264,9 @@ export function commitJournal(): Manifest | null {
   // Merge with the existing committed manifest: a re-install may skip some
   // steps (e.g. agent already registered → no credentials record). Those prior
   // entries must survive — the manifest is the full ledger, not just this run.
-  const existing = readManifest();
-  const priorFiles = existing?.files ?? [];
-  const priorComponents = existing?.components ?? [];
+  const committed = readManifest();
+  const priorFiles = committed?.files ?? [];
+  const priorComponents = committed?.components ?? [];
   const journalFiles = j.steps.filter((s) => s.status === "done").map(toManifestEntry);
   // Dedup on {path, action} with metadata upsert (G2H.1): a journal entry that
   // duplicates a prior manifest entry refreshes its metadata (hash/keys/etc.)
@@ -287,8 +287,8 @@ export function commitJournal(): Manifest | null {
   const manifest: Manifest = {
     // T2.6: preserve an existing reconciled version (e.g. v2) instead of
     // hardcoding 1 — a later wizard install over a v2 manifest must not downgrade it.
-    version: existing?.version ?? 1,
-    installedAt: existing?.installedAt ?? j.startedAt,
+    version: committed?.version ?? 1,
+    installedAt: committed?.installedAt ?? j.startedAt,
     components: mergedComponents,
     files: mergedFiles,
     ...(j.intent !== undefined ? { intent: j.intent } : {}),
