@@ -196,6 +196,24 @@ describe("agent recipient self-service — 7 routes admit local agents", () => {
     expect(res.json().status).toBe("snoozed");
   });
 
+  it("snooze rejects a non-ISO snoozedUntil like the remote twin does", async () => {
+    const d = seedDelivery(habitatA.id, "agent", agentAId);
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/habitats/${habitatA.id}/notifications/deliveries/${d.id}/snooze`,
+      headers: agentHeaders(agentAKey),
+      payload: { snoozedUntil: "tomorrow" },
+    });
+    expect(res.statusCode).toBe(400);
+    // The delivery is untouched — not snoozed, still active.
+    const after = await app.inject({
+      method: "GET",
+      url: `/api/habitats/${habitatA.id}/notifications/deliveries/${d.id}`,
+      headers: agentHeaders(agentAKey),
+    });
+    expect(after.json().delivery?.status ?? after.json().status).not.toBe("snoozed");
+  });
+
   it("clear removes the agent's own delivery from the active path", async () => {
     const d = seedDelivery(habitatA.id, "agent", agentAId);
     const res = await app.inject({

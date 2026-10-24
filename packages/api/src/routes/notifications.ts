@@ -52,7 +52,9 @@ const retentionPolicySchema = z.object({
 });
 
 const snoozeSchema = z.object({
-  snoozedUntil: z.string().min(1),
+  // Matches the remote-shared twin (sharedApi.ts snoozeSchema): the column is
+  // a declared ISO "snooze expiry", so both writers enforce one format.
+  snoozedUntil: z.string().datetime(),
 });
 
 const adminClearSchema = z.object({
