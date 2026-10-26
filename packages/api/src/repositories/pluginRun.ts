@@ -294,10 +294,12 @@ export function findStaleRunning(thresholdIso: string, habitatId?: string): Plug
  * (pluginId, contributionKind, contributionId, triggerEventId) tuple
  * (ADR-0039 Detector Recovery + Q9 Canonical Contribution Identity).
  *
- * Only `running`, `succeeded`, and `failed` satisfy the query — these mean a
- * handler was durably launched. `skipped` (quarantine) and `rate_limited`
- * (capacity denial) remain visible telemetry but are **recovery-eligible**: the
- * handler was never launched, so catch-up must retry them.
+ * Only `running`, `succeeded`, `failed`, and `lost` satisfy the query — the
+ * first three mean a handler was durably launched; `lost` means an operator
+ * acknowledged a stale `running` run as indeterminate (ADR-005 stale-run
+ * recovery). `skipped` (quarantine) and `rate_limited` (capacity denial)
+ * remain visible telemetry but are **recovery-eligible**: the handler was
+ * never launched, so catch-up must retry them.
  *
  * The `contributionKind` filter is kind-safe (Q9): contribution IDs are only
  * unique within their kind's registry, so a terminal Action or Channel run with
