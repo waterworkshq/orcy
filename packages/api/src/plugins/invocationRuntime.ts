@@ -780,6 +780,7 @@ export function createInvocationRuntime(deps: RuntimeDeps): InvocationRuntime {
     // 2. Quarantine check — quarantined pre = skipped, Task continues.
     if (deps.isQuarantined(target.canonicalKey)) {
       const ff = safeFinishRun(runId, "skipped");
+      if (!ff) safeDeleteRun(runId);
       return { decision: "allow", runId, startFailed: false, finishFailed: !ff };
     }
 
@@ -805,6 +806,7 @@ export function createInvocationRuntime(deps: RuntimeDeps): InvocationRuntime {
         errMessage: message,
       });
       const ff = safeFinishRun(runId, "failed", undefined, message);
+      if (!ff) safeDeleteRun(runId);
       return {
         decision: "veto",
         vetoReason: "failure",
