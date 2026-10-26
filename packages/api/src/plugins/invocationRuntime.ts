@@ -760,17 +760,18 @@ export function createInvocationRuntime(deps: RuntimeDeps): InvocationRuntime {
       });
       runId = run.id;
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
+      const errMessage = err instanceof Error ? err.message : String(err);
+      // Both veto consumers must receive a generic reason; raw infrastructure errors stay in logs.
       deps.logger.error("Pre-veto startRun failed — infrastructure failure", {
         pluginId: target.pluginId,
         contributionId: target.contributionId,
-        errMessage: message,
+        errMessage,
       });
       // start failure = no handler, no counter increment, failure veto.
       return {
         decision: "veto",
         vetoReason: "failure",
-        message,
+        message: "Plugin invocation infrastructure unavailable",
         runId: null,
         startFailed: true,
         finishFailed: false,
@@ -780,6 +781,7 @@ export function createInvocationRuntime(deps: RuntimeDeps): InvocationRuntime {
     // 2. Quarantine check — quarantined pre = skipped, Task continues.
     if (deps.isQuarantined(target.canonicalKey)) {
       const ff = safeFinishRun(runId, "skipped");
+      if (!ff) safeDeleteRun(runId);
       return { decision: "allow", runId, startFailed: false, finishFailed: !ff };
     }
 
@@ -805,6 +807,7 @@ export function createInvocationRuntime(deps: RuntimeDeps): InvocationRuntime {
         errMessage: message,
       });
       const ff = safeFinishRun(runId, "failed", undefined, message);
+      if (!ff) safeDeleteRun(runId);
       return {
         decision: "veto",
         vetoReason: "failure",

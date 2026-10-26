@@ -124,7 +124,7 @@ A never-settling handler intentionally holds its slot until process restart. Thi
 
 ### Telemetry Failure Contract (Q13)
 
-`startRun` is the invocation gate. If it fails, no capability context is constructed and no handler invocation occurs. This is Orcy infrastructure failure and never counts against the Plugin.
+`startRun` is the invocation gate. If it fails, no capability context is constructed and no handler invocation occurs. This is Orcy infrastructure failure and never counts against the Plugin. The resulting pre-veto failure decision carries a fixed generic client-facing reason (`Plugin invocation infrastructure unavailable`) — raw repository/SQLite error text is logged server-side only and never reaches the veto reason or governance-ledger diagnostics.
 
 Once a Plugin Run row exists and the handler returns, the handler's outcome (allow, explicit veto, or failure) is honored even if `finishRun` fails. Explicit veto reasons are preserved; allow remains allow; failure veto remains failure veto. The finalization failure is logged/surfaced as infrastructure trouble; the row may remain `running` for separate stale-run reconciliation.
 

@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import Fastify, { type FastifyInstance } from "fastify";
 import jwt from "jsonwebtoken";
 import { initTestDb, closeDb } from "../db/index.js";
@@ -9,6 +9,12 @@ import {
   scanStalePluginRuns,
   type StalePluginRun,
 } from "../services/pluginEnrollmentService.js";
+import { createInvocationRuntime } from "../plugins/invocationRuntime.js";
+import type {
+  PreInterceptorTarget,
+  RuntimeDeps,
+} from "../plugins/invocationRuntime.js";
+import type { InterceptorEvent } from "@orcy/shared";
 
 const JWT_SECRET = "dev-secret-change-in-production";
 
@@ -176,5 +182,145 @@ describe("stale plugin run operational surfacing", () => {
 
     expect(count).toBe(2);
     expect(calls).toBe(2);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Issue #129 — persistence-level proof: a pre-launch exit whose `finishRun`
+// fails must leave NO `running` row behind. A mocked `deleteRun` call proves
+// the wiring; this proves the ROW is gone and the stale-running sweep no
+// longer re-warns on it forever.
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe("issue #129: pre-launch finish failure leaves no stale running row", () => {
+  const target: PreInterceptorTarget = {
+    kind: "preInterceptor",
+    pluginId: "pre-plugin",
+    contributionId: "pre-interceptor",
+    handler: vi.fn(() => ({ allow: true as const })),
+    requires: [],
+    timeoutMs: 0,
+    canonicalKey: '["lifecycleInterceptor","pre-plugin","pre-interceptor","pre","taskCreated"]',
+    contribution: {
+      kind: "lifecycleInterceptor",
+      interceptorId: "pre-interceptor",
+      phase: "pre",
+      event: "taskCreated",
+      priority: 0,
+      requires: [],
+    } as unknown as PreInterceptorTarget["contribution"],
+  };
+
+  /** Real repository deps — the row's fate is what is under test. */
+  function realDeps(overrides: Partial<RuntimeDeps> = {}): RuntimeDeps {
+    return {
+      // Backdate the row: the runtime's `startRun` dep carries no `startedAt`,
+      // so a fresh row would never look stale and the sweeps below would be
+      // vacuously empty. 40 minutes back puts it past both the 30-minute
+      // sweep threshold and the explicit 1-minute `findStaleRunning` bound.
+      startRun: (input) =>
+        runRepo.startRun({
+          ...input,
+          startedAt: new Date(Date.now() - 40 * 60_000).toISOString(),
+        }),
+      finishRun: (id, status, signalsEmitted, error) =>
+        runRepo.finishRun(id, status, signalsEmitted, error),
+      deleteRun: (id) => runRepo.deleteRun(id),
+      buildContext: (opts) =>
+        ({
+          pluginId: opts.pluginId,
+          contributionId: opts.contributionId,
+          habitatId: opts.habitatId,
+          runId: opts.runId,
+          logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+          audit: { log: vi.fn() },
+        }) as unknown as ReturnType<RuntimeDeps["buildContext"]>,
+      isQuarantined: () => false,
+      incrementError: vi.fn(),
+      withTimeout: (<T>(p: Promise<T>) => p) as RuntimeDeps["withTimeout"],
+      acquireDetectorSlot: () => true,
+      releaseDetectorSlot: vi.fn(),
+      logger: { error: vi.fn(), warn: vi.fn(), info: vi.fn() },
+      ...overrides,
+    };
+  }
+
+  function invoke(habitatId: string, deps: Partial<RuntimeDeps>) {
+    return createInvocationRuntime(realDeps(deps)).checkPreVeto({
+      target,
+      taskId: "task-1",
+      event: "taskCreated" as InterceptorEvent,
+      habitatId,
+      context: {},
+    });
+  }
+
+  const PRELAUNCH_EXITS = [
+    {
+      name: "buildContext failure",
+      deps: {
+        buildContext: () => {
+          throw new Error("ctx fail");
+        },
+      },
+    },
+    { name: "quarantined skip", deps: { isQuarantined: () => true } },
+  ] as const;
+
+  it.each(PRELAUNCH_EXITS)(
+    "$name + finishRun failure → no running row, sweep finds nothing",
+    (c) => {
+      const habitat = habitatRepo.createHabitat({ name: "Prelaunch Cleanup Habitat" });
+      const decision = invoke(habitat.id, {
+        ...c.deps,
+        // finishRun fails at the repository layer (infrastructure failure).
+        finishRun: () => {
+          throw new Error("finishRun DB down");
+        },
+      });
+
+      expect(decision.finishFailed).toBe(true);
+      expect(decision.runId).not.toBeNull();
+      // The stranded row is gone — no `running` row survives the pre-launch exit.
+      expect(runRepo.getById(decision.runId!)).toBeNull();
+      expect(
+        runRepo.findStaleRunning(new Date(Date.now() - 60_000).toISOString(), habitat.id),
+      ).toHaveLength(0);
+      // And the stale-running sweep no longer re-warns on it.
+      const warnings: unknown[] = [];
+      expect(
+        scanStalePluginRuns(30, {
+          warn(data: Record<string, unknown>) {
+            warnings.push(data);
+          },
+        }),
+      ).toBe(0);
+      expect(warnings).toHaveLength(0);
+    },
+  );
+
+  it("post-launch finish failure KEEPS the running row (launched runs are never deleted)", () => {
+    const habitat = habitatRepo.createHabitat({ name: "Postlaunch Habitat" });
+    const decision = invoke(habitat.id, {
+      finishRun: () => {
+        throw new Error("finishRun DB down");
+      },
+    });
+
+    expect(decision.finishFailed).toBe(true);
+    expect(target.handler).toHaveBeenCalledTimes(1);
+    // The handler LAUNCHED — its outcome is preserved and the row is not deleted.
+    expect(runRepo.getById(decision.runId!)?.status).toBe("running");
+    // The row IS stale-detectable, so the sweeps above are discriminating:
+    // the pre-launch rows are absent because they were deleted, not because
+    // they were never stale.
+    expect(
+      runRepo.findStaleRunning(new Date(Date.now() - 60_000).toISOString(), habitat.id),
+    ).toHaveLength(1);
+    expect(
+      scanStalePluginRuns(30, {
+        warn() {},
+      }),
+    ).toBe(1);
   });
 });

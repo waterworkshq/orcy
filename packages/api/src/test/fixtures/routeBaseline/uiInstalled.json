@@ -12225,7 +12225,7 @@
       "surface": "api-deprecated",
       "guards": [
         "agentOrHumanAuth",
-        "authorizeHabitatAccess"
+        "<anonymous>"
       ],
       "authKind": "local_actor",
       "rawBodyEligible": false,
@@ -14571,7 +14571,7 @@
       "surface": "api-v1",
       "guards": [
         "agentOrHumanAuth",
-        "authorizeHabitatAccess"
+        "<anonymous>"
       ],
       "authKind": "local_actor",
       "rawBodyEligible": false,

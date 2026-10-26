@@ -268,18 +268,36 @@ export interface MarkRunLostOptions {
 }
 
 /**
+ * The explicit principal that marked a Plugin Run lost. Required — there is no
+ * anonymous or "unknown" fallback. The actor is recorded deterministically in
+ * the run row's existing `error` text; no separate attribution column exists.
+ */
+export type MarkRunLostActor = { type: "human" | "agent"; id: string };
+
+/**
  * Transitions a stale `running` Plugin Run to terminal `lost` status (ADR-005).
  *
  * Enforces:
  * 1. Existence and habitat ownership.
  * 2. Current status must be `running` (terminal lock — no resurrecting or re-classifying terminal runs).
  * 3. Staleness threshold guard (age >= minAgeMinutes, default 30 min) unless `force: true` is passed.
+ * 4. Explicit actor — validated at this service boundary.
  */
 export function markPluginRunLost(
   habitatId: string,
   runId: string,
+  actor: MarkRunLostActor,
   options?: MarkRunLostOptions,
 ): PluginRunRow {
+  if (
+    !actor ||
+    (actor.type !== "human" && actor.type !== "agent") ||
+    typeof actor.id !== "string" ||
+    actor.id.trim() === ""
+  ) {
+    throw badRequest("Mark-run-lost requires an explicit actor: {type: 'human' | 'agent', id}");
+  }
+
   const run = runRepo.getById(runId);
   if (!run || run.habitatId !== habitatId) {
     throw notFound("Plugin run not found");
@@ -303,7 +321,7 @@ export function markPluginRunLost(
     runId,
     "lost",
     run.signalsEmitted ?? 0,
-    "Marked lost by operator",
+    `Marked lost by operator (${actor.type}:${actor.id})`,
   );
   if (!updated) {
     throw notFound("Plugin run not found");
@@ -311,4 +329,3 @@ export function markPluginRunLost(
 
   return updated;
 }
-
