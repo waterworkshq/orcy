@@ -600,6 +600,65 @@ describe("checkPreVeto", () => {
     expect(deps.incrementError).not.toHaveBeenCalled();
   });
 
+  // Issue #128 — the startRun failure message is client-facing (veto reason
+  // for BOTH adapters: the direct lifecycle veto via InterceptorVetoError and
+  // the governance-ledger diagnostics), so raw infrastructure text (e.g. the
+  // bare SQLite message that escapes the post-insert getById read when the
+  // plugin_runs table is missing) must never reach it. The raw error stays in
+  // the server-side log.
+  it("startRun failure: client message is a fixed literal; raw error only logged (issue #128)", () => {
+    const inc = vi.fn();
+    const handler = vi.fn(() => ({ allow: true }));
+    const { runtime, deps } = makeRuntime({
+      // Mirrors the raw SQLite text thrown by the bare post-insert SELECT in
+      // repositories/pluginRun.ts startRun (outside the repository try).
+      startRun: () => {
+        throw new Error("no such table: plugin_runs");
+      },
+      incrementError: inc,
+    });
+    const d = runtime.checkPreVeto(preReq(handler));
+    expect(d.decision).toBe("veto");
+    if (d.decision === "veto") {
+      expect(d.vetoReason).toBe("failure");
+      expect(d.message).toBe("Plugin invocation infrastructure unavailable");
+      expect(d.message).not.toContain("plugin_runs");
+    }
+    expect(deps.logger.error).toHaveBeenCalledWith(
+      "Pre-veto startRun failed — infrastructure failure",
+      expect.objectContaining({ errMessage: "no such table: plugin_runs" }),
+    );
+    expect(handler).not.toHaveBeenCalled();
+    expect(inc).not.toHaveBeenCalled();
+    expect(d.startFailed).toBe(true);
+    expect(d.runId).toBeNull();
+  });
+
+  // Discriminator: ONLY the startRun infrastructure path is sanitized — an
+  // explicit plugin veto keeps its own reason/details, and a handler fault
+  // keeps the plugin-authored error text.
+  it("explicit veto reason/details and handler-fault text are NOT sanitized (issue #128)", () => {
+    const { runtime } = makeRuntime({ incrementError: vi.fn() });
+    const explicit = runtime.checkPreVeto(
+      preReq(() => ({ allow: false, reason: "policy-reason", details: "policy-details" })),
+    );
+    expect(explicit.decision).toBe("veto");
+    if (explicit.decision === "veto" && explicit.vetoReason === "explicit") {
+      expect(explicit.message).toBe("policy-reason");
+      expect(explicit.details).toBe("policy-details");
+    }
+    const fault = runtime.checkPreVeto(
+      preReq(() => {
+        throw new Error("handler-fault-text");
+      }),
+    );
+    expect(fault.decision).toBe("veto");
+    if (fault.decision === "veto") {
+      expect(fault.vetoReason).toBe("failure");
+      expect(fault.message).toBe("handler-fault-text");
+    }
+  });
+
   it("buildContext failure = infrastructure failure, no handler, no counter (MEDIUM 6)", () => {
     const inc = vi.fn();
     const handler = vi.fn(() => ({ allow: true }));

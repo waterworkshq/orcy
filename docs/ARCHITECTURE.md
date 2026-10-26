@@ -2061,6 +2061,8 @@ startRun (Plugin Run row — the invocation gate) →
 - **Timeout is a deadline, not cancellation** (ADR-0039 Q5). The watchdog is a `Promise` race — a late handler settles outlive it and no cancellation is claimed. Per-kind defaults (`INVOCATION_POLICY`): detectors 5s, actions/channels/post-interceptors 30s, pre-interceptors none (synchronous); a manifest `timeoutMs: 0` disables the watchdog.
 - **Concurrency and rate admission** apply to Detectors only: a per-habitat slot pool (`ORCY_DETECTOR_MAX_CONCURRENT`, default 8 — denial writes `rate_limited`, recovery-eligible), slot release attached to the *underlying handler settlement* rather than the watchdog winner, and manifest-declared sliding windows (`maxDetectionsPerMinute` over 60s, `maxSignalsPerHour` over 3600s) enforced through the injected rate-limiter dependency.
 
+Pre-veto `startRun` failures carry the fixed client-facing reason `Plugin invocation infrastructure unavailable`. The original error message stays in the server log, not the veto reason or publication-governance diagnostics.
+
 ### Adapter-registered, non-runtime dispatch kinds
 
 The remaining contribution kinds are validated and registered at load through the same adapter catalog but are **not** dispatched by the invocation runtime:

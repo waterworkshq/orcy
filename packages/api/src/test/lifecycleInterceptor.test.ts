@@ -172,7 +172,8 @@ describe("Lifecycle interceptor runner — real end-to-end (Phase 5 fix)", () =>
   });
 });
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { initTestDb, closeDb } from "../db/index.js";
+import { sql } from "drizzle-orm";
+import { initTestDb, closeDb, getDb } from "../db/index.js";
 import * as habitatRepo from "../repositories/habitat.js";
 import * as columnRepo from "../repositories/column.js";
 import * as missionRepo from "../repositories/mission.js";
@@ -1156,6 +1157,40 @@ describe("ADR-0039 T7: pre-veto runtime migration (real end-to-end)", () => {
       // Verify failed runs were written for the two faults.
       const failedRuns = runs.filter((r) => r.status === "failed");
       expect(failedRuns.length).toBe(2);
+    });
+  });
+
+  // ── startRun infrastructure failure sanitization (issue #128) ─────────────
+
+  describe("startRun infrastructure failure: fixed client veto reason (issue #128)", () => {
+    it("raw SQLite text from the post-insert read never reaches the veto reason", async () => {
+      vi.restoreAllMocks();
+      // If the handler ran at all it would produce this explicit reason —
+      // proving by contrast that startRun failed before handler invocation.
+      await writeVetoPlugin(
+        "start-fail",
+        "taskClaimed",
+        "start-fail-int",
+        "() => ({ allow: false, reason: 'handler-ran-explicit-veto' })",
+      );
+      const { habitatId } = setupHabitatAndTask("pending");
+      enrollPlugin(habitatId, "start-fail", "start-fail-int");
+
+      // Drop the table so startRun's bare post-insert SELECT (outside the
+      // repository try in pluginRun.ts) throws raw SQLite text.
+      getDb().run(sql`DROP TABLE plugin_runs`);
+
+      const veto = pluginManager.runPreInterceptors(
+        "t-startfail",
+        "taskClaimed",
+        habitatId,
+        {} as never,
+      );
+      expect(veto).not.toBeNull();
+      expect(veto!.allow).toBe(false);
+      expect(veto!.reason).toBe("Plugin invocation infrastructure unavailable");
+      expect(veto!.reason).not.toContain("plugin_runs");
+      expect(veto!.reason).not.toContain("no such table");
     });
   });
 });
