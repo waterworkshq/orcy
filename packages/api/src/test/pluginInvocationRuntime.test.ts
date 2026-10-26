@@ -1212,6 +1212,98 @@ describe("R2: pre-launch finish failure → deleteRun fallback (BLOCKER 2)", () 
   });
 });
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Issue #129 — the sync pre-launch exits mirror the async path's
+// `if (!ff) safeDeleteRun(runId)` fallback. A pre-launch outcome (quarantined
+// skip, buildContext failure) whose `finishRun` also fails would otherwise
+// strand a `running` Plugin Run row for a handler that never launched.
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe("issue #129: pre-launch deleteRun fallback (checkPreVeto)", () => {
+  const PRELAUNCH_EXITS = [
+    {
+      name: "quarantined skip",
+      deps: { isQuarantined: (key: string) => key === preTarget.canonicalKey },
+      decision: "allow",
+    },
+    {
+      name: "buildContext failure",
+      deps: {
+        buildContext: () => {
+          throw new Error("ctx fail");
+        },
+      },
+      decision: "veto",
+    },
+  ] as const;
+
+  const FINISH_FAILURES = [
+    {
+      mode: "throws",
+      finishRun: (): never => {
+        throw new Error("finishRun DB down");
+      },
+    },
+    { mode: "returns null", finishRun: (): null => null },
+  ] as const;
+
+  it.each(
+    PRELAUNCH_EXITS.flatMap((e) => FINISH_FAILURES.map((f) => ({ ...e, ...f }))),
+  )("$name + finishRun $mode → deleteRun called, handler never ran", (c) => {
+    const del = vi.fn((): boolean => true);
+    const handler = vi.fn(() => ({ allow: true }));
+    const { runtime } = makeRuntime({
+      ...c.deps,
+      finishRun: c.finishRun,
+      deleteRun: del,
+    });
+    const d = runtime.checkPreVeto(preReq(handler));
+    expect(d.decision).toBe(c.decision);
+    if (d.decision === "veto") expect(d.vetoReason).toBe("failure");
+    expect(d.startFailed).toBe(false);
+    expect(d.finishFailed).toBe(true);
+    expect(d.runId).not.toBeNull();
+    expect(handler).not.toHaveBeenCalled();
+    expect(del).toHaveBeenCalledTimes(1);
+    expect(del).toHaveBeenCalledWith(d.runId);
+  });
+
+  it("post-launch finish failure does NOT call deleteRun (launched runs are never deleted)", () => {
+    const del = vi.fn((): boolean => true);
+    const handler = vi.fn(() => ({ allow: true }));
+    const { runtime } = makeRuntime({
+      finishRun: () => {
+        throw new Error("finishRun DB down");
+      },
+      deleteRun: del,
+    });
+    const d = runtime.checkPreVeto(preReq(handler));
+    expect(d.decision).toBe("allow");
+    expect(d.finishFailed).toBe(true);
+    expect(handler).toHaveBeenCalledTimes(1);
+    expect(del).not.toHaveBeenCalled();
+  });
+
+  it("deleteRun failure does NOT throw out of checkPreVeto (best-effort fallback)", () => {
+    const handler = vi.fn(() => ({ allow: true }));
+    const { runtime } = makeRuntime({
+      buildContext: () => {
+        throw new Error("ctx fail");
+      },
+      finishRun: () => {
+        throw new Error("finishRun DB down");
+      },
+      deleteRun: () => {
+        throw new Error("deleteRun DB down");
+      },
+    });
+    const d = runtime.checkPreVeto(preReq(handler));
+    expect(d.decision).toBe("veto");
+    expect(d.finishFailed).toBe(true);
+    expect(handler).not.toHaveBeenCalled();
+  });
+});
+
 describe("R2: slot cleanup on every pre-launch path (HIGH 3)", () => {
   beforeEach(() => {
     detectorTarget.handler = vi.fn(() =>
