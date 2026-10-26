@@ -486,7 +486,7 @@ describe("pluginEnrollmentService", () => {
       };
     }
 
-    it("transitions a stale running run to lost status", () => {
+    it("transitions a stale running run to lost status with the actor in the error text", () => {
       const run = makeRunRow();
       (runRepo.getById as any).mockReturnValue(run);
       (runRepo.finishRun as any).mockReturnValue({
@@ -495,10 +495,71 @@ describe("pluginEnrollmentService", () => {
         finishedAt: new Date().toISOString(),
       });
 
-      const result = service.markPluginRunLost("hab-1", "run-1");
+      const result = service.markPluginRunLost("hab-1", "run-1", { type: "human", id: "user-1" });
 
-      expect(runRepo.finishRun).toHaveBeenCalledWith("run-1", "lost", 0, "Marked lost by operator");
+      expect(runRepo.finishRun).toHaveBeenCalledWith(
+        "run-1",
+        "lost",
+        0,
+        "Marked lost by operator (human:user-1)",
+      );
       expect(result.status).toBe("lost");
+    });
+
+    it("attributes an agent actor with the agent prefix", () => {
+      const run = makeRunRow();
+      (runRepo.getById as any).mockReturnValue(run);
+      (runRepo.finishRun as any).mockReturnValue({ ...run, status: "lost" });
+
+      service.markPluginRunLost("hab-1", "run-1", { type: "agent", id: "agent-9" });
+      expect(runRepo.finishRun).toHaveBeenCalledWith(
+        "run-1",
+        "lost",
+        0,
+        "Marked lost by operator (agent:agent-9)",
+      );
+    });
+
+    it("rejects with 400 when the actor type is invalid", () => {
+      (runRepo.getById as any).mockReturnValue(makeRunRow());
+
+      try {
+        service.markPluginRunLost("hab-1", "run-1", { type: "system", id: "user-1" } as any);
+        fail("expected throw");
+      } catch (err) {
+        expect((err as AppError).statusCode).toBe(400);
+        expect((err as AppError).message).toContain("explicit actor");
+      }
+      expect(runRepo.finishRun).not.toHaveBeenCalled();
+    });
+
+    it("rejects with 400 when the actor id is blank", () => {
+      (runRepo.getById as any).mockReturnValue(makeRunRow());
+
+      try {
+        service.markPluginRunLost("hab-1", "run-1", { type: "human", id: "   " });
+        fail("expected throw");
+      } catch (err) {
+        expect((err as AppError).statusCode).toBe(400);
+        expect((err as AppError).message).toContain("explicit actor");
+      }
+      expect(runRepo.finishRun).not.toHaveBeenCalled();
+    });
+
+    it("rejects with 400 when the actor is missing entirely", () => {
+      (runRepo.getById as any).mockReturnValue(makeRunRow());
+
+      try {
+        service.markPluginRunLost("hab-1", "run-1", undefined as unknown as {
+          type: "human";
+          id: string;
+        });
+        fail("expected throw");
+      } catch (err) {
+        expect((err as AppError).statusCode).toBe(400);
+        expect((err as AppError).message).toContain("explicit actor");
+      }
+      expect(runRepo.finishRun).not.toHaveBeenCalled();
     });
 
     it("rejects a fresh run with 400 when force is not set", () => {
@@ -508,7 +569,7 @@ describe("pluginEnrollmentService", () => {
       (runRepo.getById as any).mockReturnValue(freshRun);
 
       try {
-        service.markPluginRunLost("hab-1", "run-1");
+        service.markPluginRunLost("hab-1", "run-1", { type: "human", id: "user-1" });
         fail("expected throw");
       } catch (err) {
         expect((err as AppError).statusCode).toBe(400);
@@ -523,8 +584,15 @@ describe("pluginEnrollmentService", () => {
       (runRepo.getById as any).mockReturnValue(freshRun);
       (runRepo.finishRun as any).mockReturnValue({ ...freshRun, status: "lost" });
 
-      const result = service.markPluginRunLost("hab-1", "run-1", { force: true });
-      expect(runRepo.finishRun).toHaveBeenCalledWith("run-1", "lost", 0, "Marked lost by operator");
+      const result = service.markPluginRunLost("hab-1", "run-1", { type: "human", id: "user-1" }, {
+        force: true,
+      });
+      expect(runRepo.finishRun).toHaveBeenCalledWith(
+        "run-1",
+        "lost",
+        0,
+        "Marked lost by operator (human:user-1)",
+      );
       expect(result.status).toBe("lost");
     });
 
@@ -533,7 +601,7 @@ describe("pluginEnrollmentService", () => {
       (runRepo.getById as any).mockReturnValue(terminalRun);
 
       try {
-        service.markPluginRunLost("hab-1", "run-1");
+        service.markPluginRunLost("hab-1", "run-1", { type: "human", id: "user-1" });
         fail("expected throw");
       } catch (err) {
         expect((err as AppError).statusCode).toBe(400);
@@ -545,7 +613,7 @@ describe("pluginEnrollmentService", () => {
       (runRepo.getById as any).mockReturnValue(null);
 
       try {
-        service.markPluginRunLost("hab-1", "missing");
+        service.markPluginRunLost("hab-1", "missing", { type: "human", id: "user-1" });
         fail("expected throw");
       } catch (err) {
         expect((err as AppError).statusCode).toBe(404);
@@ -556,7 +624,7 @@ describe("pluginEnrollmentService", () => {
       (runRepo.getById as any).mockReturnValue(makeRunRow({ habitatId: "other-hab" }));
 
       try {
-        service.markPluginRunLost("hab-1", "run-1");
+        service.markPluginRunLost("hab-1", "run-1", { type: "human", id: "user-1" });
         fail("expected throw");
       } catch (err) {
         expect((err as AppError).statusCode).toBe(404);

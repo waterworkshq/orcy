@@ -53,6 +53,7 @@ Complete reference for the Orcy REST API.
 - [Learning Loop Extraction](#learning-loop-extraction)
 - [Local Role Administration](#local-role-administration)
 - [Review-Governance Commands](#review-governance-commands)
+- [Plugin Runs](#plugin-runs)
 
 ---
 
@@ -7879,3 +7880,38 @@ with no write. Every update increments the row's `version` via native SQL
 
 Optional query `?expectedVersion=N` for empty-body clients (same 409
 contract). Deletion never carries a version bump. Response `204`.
+
+## Plugin Runs
+
+### POST /habitats/:habitatId/plugins/runs/:id/lost
+
+Marks a stale `running` plugin run as terminal `lost` using local-actor
+authentication (agent API key or human JWT). Habitat access is checked against
+`:habitatId`: a missing habitat returns `404`; a human without membership in
+an existing team habitat receives `403 BOARD_ACCESS_DENIED`, which reveals
+that the habitat exists. Authenticated local agents retain access to existing
+habitats; personal habitats admit authenticated humans without team membership.
+
+After habitat admission, a missing run or a run belonging to another habitat
+returns `404`. This conceals run existence across habitats, not habitat
+existence. The run must be `running` and meet the staleness threshold (default
+30 min, `ORCY_PLUGIN_STALE_RUN_MINUTES`), unless `force: true` overrides the
+age check.
+
+**Actor attribution.** The authenticated principal is recorded
+deterministically in the run row's existing `error` text —
+`Marked lost by operator (human:<userId>)` for a human JWT, or
+`Marked lost by operator (agent:<agentId>)` for an agent API key. When both
+credentials are presented the agent key wins (the auth guard's own
+precedence). The body accepts only the optional `force` boolean — a
+body-supplied actor is ignored, and an unauthenticated request is `401`
+(there is no anonymous or "unknown" actor fallback).
+
+Response `200`: `{ run }` — the full run row, including the attribution
+`error` text and the `finishedAt` timestamp of the transition. Both fields
+are also retrievable via `GET /habitats/:habitatId/plugins/runs`.
+
+**Limitation:** attribution lives in the run row only. The plugin-run audit
+projection deliberately excludes the error text and stays system-attributed —
+this endpoint is not a canonical operator audit trail; use it for run
+telemetry, not audit queries.
