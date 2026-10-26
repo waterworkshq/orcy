@@ -2055,11 +2055,13 @@ startRun (Plugin Run row — the invocation gate) →
               fault classification → finishRun (terminal status)
 ```
 
-- **No handler runs before `startRun` succeeds**; a `startRun` failure is an infrastructure fault, not a plugin fault. On the pre-veto path such a failure carries a fixed generic client-facing reason (`Plugin invocation infrastructure unavailable`) — the raw error text is logged server-side only, never surfaced in the veto reason or governance diagnostics.
+- **No handler runs before `startRun` succeeds**; a `startRun` failure is an infrastructure fault, not a plugin fault.
 - **Fault classification** is explicit: an explicit `{ allow: false }` veto and expected domain outcomes (`status:"failed"`, `success:false`) are ordinary outcomes that never increment quarantine counters; runtime faults (handler throw, watchdog timeout, invalid return, validator rejection, Promise-return on the sync pre path) increment the contribution's counter when its kind counts faults. A `finishRun` infrastructure failure preserves the handler's outcome and never counts against the plugin; a pre-launch finish failure falls back to deleting the stranded `running` row so catch-up dedup is not falsely satisfied.
 - **Quarantine semantics.** Quarantine is per *contribution*, keyed by the canonical kind-safe identity `(kind, pluginId, contributionId[, phase, event])` — never the whole plugin. Runtime faults accrue over a fixed 60-second window; breaching `ORCY_PLUGIN_QUARANTINE_THRESHOLD` (default 10) auto-quarantines. Quarantined contributions are skipped (not failed) so Task work continues, and remain admin-clearable. Only Signal Detectors, Automation Actions, and pre Interceptors can reach the threshold; Channels and post Interceptors carry a defensive gate only.
 - **Timeout is a deadline, not cancellation** (ADR-0039 Q5). The watchdog is a `Promise` race — a late handler settles outlive it and no cancellation is claimed. Per-kind defaults (`INVOCATION_POLICY`): detectors 5s, actions/channels/post-interceptors 30s, pre-interceptors none (synchronous); a manifest `timeoutMs: 0` disables the watchdog.
 - **Concurrency and rate admission** apply to Detectors only: a per-habitat slot pool (`ORCY_DETECTOR_MAX_CONCURRENT`, default 8 — denial writes `rate_limited`, recovery-eligible), slot release attached to the *underlying handler settlement* rather than the watchdog winner, and manifest-declared sliding windows (`maxDetectionsPerMinute` over 60s, `maxSignalsPerHour` over 3600s) enforced through the injected rate-limiter dependency.
+
+Pre-veto `startRun` failures carry the fixed client-facing reason `Plugin invocation infrastructure unavailable`. The original error message stays in the server log, not the veto reason or publication-governance diagnostics.
 
 ### Adapter-registered, non-runtime dispatch kinds
 
