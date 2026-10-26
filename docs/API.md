@@ -7885,14 +7885,18 @@ contract). Deletion never carries a version bump. Response `204`.
 
 ### POST /habitats/:habitatId/plugins/runs/:id/lost
 
-Marks a stale `running` plugin run as terminal `lost` (local-actor auth:
-agent API key or human JWT + habitat membership on `:habitatId`). Guards:
-habitat ownership (404 on a run of another habitat — no existence oracle),
-`running`-only status lock, and the staleness threshold (default 30 min,
-`ORCY_PLUGIN_STALE_RUN_MINUTES`; `force: true` overrides). The habitat
-membership preHandler binds to the `:habitatId` param — previously it read
-`:id` (the run id) and no authenticated request could ever reach the service;
-that binding is fixed, the guard semantics are not changed.
+Marks a stale `running` plugin run as terminal `lost` using local-actor
+authentication (agent API key or human JWT). Habitat access is checked against
+`:habitatId`: a missing habitat returns `404`; a human without membership in
+an existing team habitat receives `403 BOARD_ACCESS_DENIED`, which reveals
+that the habitat exists. Authenticated local agents retain access to existing
+habitats; personal habitats admit authenticated humans without team membership.
+
+After habitat admission, a missing run or a run belonging to another habitat
+returns `404`. This conceals run existence across habitats, not habitat
+existence. The run must be `running` and meet the staleness threshold (default
+30 min, `ORCY_PLUGIN_STALE_RUN_MINUTES`), unless `force: true` overrides the
+age check.
 
 **Actor attribution.** The authenticated principal is recorded
 deterministically in the run row's existing `error` text —
