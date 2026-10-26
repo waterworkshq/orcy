@@ -1002,7 +1002,12 @@ describe("T2 acceptance 9/10 — detector units + pulse intents", () => {
       leaseExpiresAt: new Date(Date.now() + 60_000).toISOString(),
     });
     const { markPluginRunLost } = await import("../services/pluginEnrollmentService.js");
-    const lost = markPluginRunLost(habitatId, "lost-run", { force: true });
+    const lost = markPluginRunLost(
+      habitatId,
+      "lost-run",
+      { type: "human", id: "operator-1" },
+      { force: true },
+    );
     expect(lost.status).toBe("lost");
 
     await processEffectReceipts();
@@ -1020,7 +1025,7 @@ describe("T2 acceptance 9/10 — detector units + pulse intents", () => {
     // no fresh lease generation minted over it.
     const run = getDb().select().from(pluginRuns).where(eq(pluginRuns.id, "lost-run")).get()!;
     expect(run.status).toBe("lost");
-    expect(run.error).toBe("Marked lost by operator");
+    expect(run.error).toBe("Marked lost by operator (human:operator-1)");
     expect(run.finishedAt).toBe(lost.finishedAt);
     expect(run.leaseToken).toBe("lost-gen-1");
     expect(run.signalsCommittedAt).toBeNull(); // composer never ran
