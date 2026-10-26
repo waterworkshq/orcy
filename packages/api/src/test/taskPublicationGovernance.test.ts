@@ -17,7 +17,7 @@
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { mkdir, writeFile, rm } from "node:fs/promises";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { closeDb, getDb, initTestDb } from "../db/index.js";
 import {
   pluginRuns,
@@ -488,6 +488,75 @@ describe("T3B Phase 2 — batch fault isolation (one Task's fault does not chang
     expect(decisions.length).toBe(2);
     expect(decisions.every((d) => d.decision === "failure_veto")).toBe(true);
     delete (globalThis as { __batchCalls?: string[] }).__batchCalls;
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Issue #128 — startRun infrastructure failure sanitization at the single
+// runtime authority: the governance seam (mapPreVetoToGovernanceDecision
+// diagnostics.reason and the decisive veto reason) must surface the fixed
+// generic literal, never raw SQLite/repository text.
+// ---------------------------------------------------------------------------
+describe("T3B Phase 2 — startRun infrastructure failure: fixed generic veto reason (issue #128)", () => {
+  let tmpDir: string;
+  beforeEach(() => {
+    tmpDir = "";
+  });
+  afterEach(async () => {
+    if (tmpDir) await cleanup(tmpDir);
+  });
+
+  it("ledger diagnostics and decisive veto carry the generic reason, not raw SQLite text; handler never runs", async () => {
+    tmpDir = await writePlugin(
+      "start-fail-gov",
+      `{
+        manifest: {
+          id: 'start-fail-gov', version: '1.0.0', description: 'start failure sanitization',
+          contributions: [
+            { kind: 'lifecycleInterceptor', scope: 'habitat', interceptorId: 'gov-int', phase: 'pre', event: 'taskCreated', priority: 0, requires: [] },
+          ],
+        },
+        interceptors: {
+          'gov-int': () => { (globalThis.__govStartFailCalls = globalThis.__govStartFailCalls || []).push('gov-int'); return { allow: true }; },
+        },
+      }`,
+    );
+    enrollInterceptor(habitatId, "start-fail-gov", "gov-int");
+    seedAttempt("attempt-startfail");
+
+    // Drop the table so startRun's bare post-insert SELECT throws raw SQLite
+    // text ('no such table: plugin_runs') outside the repository try.
+    getDb().run(sql`DROP TABLE plugin_runs`);
+
+    const prepared = prepareTask();
+    if (prepared.outcome !== "prepared") throw new Error("prep failed");
+
+    const result = governTaskPublication({
+      attemptId: "attempt-startfail",
+      tasks: [{ proposal: prepared.proposal, guard: prepared.guard }],
+      db: getDb(),
+    });
+
+    // Bounded fail-closed: infrastructure failure vetoes the publication.
+    expect(result.results[0].outcome).toBe("vetoed");
+    if (result.results[0].outcome === "vetoed") {
+      expect(result.results[0].veto.reason).toBe("Plugin invocation infrastructure unavailable");
+      expect(result.results[0].veto.reason).not.toContain("plugin_runs");
+      expect(result.results[0].veto.reason).not.toContain("no such table");
+    }
+    // startRun failed before handler invocation — the call spy stays empty.
+    expect((globalThis as { __govStartFailCalls?: string[] }).__govStartFailCalls).toBeUndefined();
+    // The ledger records a failure veto with the sanitized diagnostics reason.
+    const decisions = getDb()
+      .select()
+      .from(taskCreationGovernanceDecisions)
+      .where(eq(taskCreationGovernanceDecisions.attemptId, "attempt-startfail"))
+      .all();
+    expect(decisions.length).toBe(1);
+    expect(decisions[0].decision).toBe("failure_veto");
+    const diag = decisions[0].diagnostics as { reason?: string } | null;
+    expect(diag?.reason).toBe("Plugin invocation infrastructure unavailable");
+    delete (globalThis as { __govStartFailCalls?: string[] }).__govStartFailCalls;
   });
 });
 
