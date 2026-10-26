@@ -53,6 +53,7 @@ Complete reference for the Orcy REST API.
 - [Learning Loop Extraction](#learning-loop-extraction)
 - [Local Role Administration](#local-role-administration)
 - [Review-Governance Commands](#review-governance-commands)
+- [Plugin Runs](#plugin-runs)
 
 ---
 
@@ -7879,3 +7880,34 @@ with no write. Every update increments the row's `version` via native SQL
 
 Optional query `?expectedVersion=N` for empty-body clients (same 409
 contract). Deletion never carries a version bump. Response `204`.
+
+## Plugin Runs
+
+### POST /habitats/:habitatId/plugins/runs/:id/lost
+
+Marks a stale `running` plugin run as terminal `lost` (local-actor auth:
+agent API key or human JWT + habitat membership on `:habitatId`). Guards:
+habitat ownership (404 on a run of another habitat — no existence oracle),
+`running`-only status lock, and the staleness threshold (default 30 min,
+`ORCY_PLUGIN_STALE_RUN_MINUTES`; `force: true` overrides). The habitat
+membership preHandler binds to the `:habitatId` param — previously it read
+`:id` (the run id) and no authenticated request could ever reach the service;
+that binding is fixed, the guard semantics are not changed.
+
+**Actor attribution.** The authenticated principal is recorded
+deterministically in the run row's existing `error` text —
+`Marked lost by operator (human:<userId>)` for a human JWT, or
+`Marked lost by operator (agent:<agentId>)` for an agent API key. When both
+credentials are presented the agent key wins (the auth guard's own
+precedence). The body accepts only the optional `force` boolean — a
+body-supplied actor is ignored, and an unauthenticated request is `401`
+(there is no anonymous or "unknown" actor fallback).
+
+Response `200`: `{ run }` — the full run row, including the attribution
+`error` text and the `finishedAt` timestamp of the transition. Both fields
+are also retrievable via `GET /habitats/:habitatId/plugins/runs`.
+
+**Limitation:** attribution lives in the run row only. The plugin-run audit
+projection deliberately excludes the error text and stays system-attributed —
+this endpoint is not a canonical operator audit trail; use it for run
+telemetry, not audit queries.

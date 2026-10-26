@@ -1,10 +1,11 @@
 import { applyDeclaredAuthPolicies } from "../authPolicy.js";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
-import { requireHabitatAccess } from "../middleware/team.js";
+import { requireHabitatAccess, checkHabitatAccess } from "../middleware/team.js";
 import * as service from "../services/pluginEnrollmentService.js";
 import * as pluginManager from "../plugins/pluginManager.js";
-import { badRequest } from "../errors.js";
+import { badRequest, unauthorized } from "../errors.js";
+import type { MarkRunLostActor } from "../services/pluginEnrollmentService.js";
 
 const createEnrollmentBody = z.object({
   pluginId: z.string().min(1),
@@ -112,13 +113,30 @@ export async function pluginRoutes(fastify: FastifyInstance): Promise<void> {
 
   fastify.post<{ Params: { habitatId: string; id: string }; Body?: { force?: boolean } }>(
     "/habitats/:habitatId/plugins/runs/:id/lost",
-    { preHandler: [requireHabitatAccess], config: { authPolicy: "local_actor" } },
+    {
+      // Bind the habitat check to `habitatId`: requireHabitatAccess would read
+      // `params.id` (the run id) and always 404.
+      preHandler: [
+        async (request) => {
+          await checkHabitatAccess(request, request.params.habitatId);
+        },
+      ],
+      config: { authPolicy: "local_actor" },
+    },
     async (request, _reply) => {
       const parsed = z.object({ force: z.boolean().optional() }).safeParse(request.body ?? {});
       if (!parsed.success) {
         throw badRequest("Validation failed", parsed.error.flatten());
       }
-      const run = service.markPluginRunLost(request.params.habitatId, request.params.id, {
+      const actor: MarkRunLostActor | null = request.agent
+        ? { type: "agent", id: request.agent.id }
+        : request.user
+          ? { type: "human", id: request.user.id }
+          : null;
+      if (!actor) {
+        throw unauthorized("Authentication required", "UNAUTHORIZED");
+      }
+      const run = service.markPluginRunLost(request.params.habitatId, request.params.id, actor, {
         force: parsed.data.force,
       });
       return { run };
