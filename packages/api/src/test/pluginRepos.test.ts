@@ -271,6 +271,62 @@ describe("pluginRun repo", () => {
     void _compileTimeNarrowingCheck;
   });
 
+  describe("redriveRunForEffectDelivery (T2 — operator-lost guard, ADR-005)", () => {
+    function insertReceiptRun(habitatId: string, dispatchKey: string) {
+      return runRepo.insertRunForEffectDelivery({
+        id: `run-${dispatchKey}`,
+        habitatId,
+        pluginId: "detector-regex-frustration",
+        contributionId: "frustration-detector",
+        triggerEventId: "evt-1",
+        triggerType: "taskEvent",
+        dispatchKey,
+        leaseToken: "gen-1",
+        leaseExpiresAt: new Date(Date.now() + 60_000).toISOString(),
+      });
+    }
+
+    it("refuses an operator-lost row at statement level: returns false and leaves status/error/finishedAt/leaseToken untouched", () => {
+      const { id } = setupHabitat();
+      insertReceiptRun(id, "lost-key");
+      const lost = runRepo.finishRun("run-lost-key", "lost", 0, "Marked lost by operator");
+      expect(lost!.status).toBe("lost");
+
+      const redriven = runRepo.redriveRunForEffectDelivery({
+        id: "run-lost-key",
+        leaseToken: "gen-2",
+        leaseExpiresAt: new Date(Date.now() + 60_000).toISOString(),
+      });
+
+      expect(redriven).toBe(false);
+      const after = runRepo.getById("run-lost-key")!;
+      expect(after.status).toBe("lost");
+      expect(after.error).toBe("Marked lost by operator");
+      expect(after.finishedAt).toBe(lost!.finishedAt);
+      expect(after.leaseToken).toBe("gen-1"); // no fresh generation minted
+    });
+
+    it("still re-drives retryable terminal rows (rate_limited): returns true, fresh lease, cleared outcome", () => {
+      const { id } = setupHabitat();
+      insertReceiptRun(id, "retry-key");
+      const capped = runRepo.finishRun("run-retry-key", "rate_limited");
+      expect(capped!.status).toBe("rate_limited");
+
+      const redriven = runRepo.redriveRunForEffectDelivery({
+        id: "run-retry-key",
+        leaseToken: "gen-2",
+        leaseExpiresAt: new Date(Date.now() + 60_000).toISOString(),
+      });
+
+      expect(redriven).toBe(true);
+      const after = runRepo.getById("run-retry-key")!;
+      expect(after.status).toBe("running");
+      expect(after.leaseToken).toBe("gen-2");
+      expect(after.finishedAt).toBeNull();
+      expect(after.error).toBeNull();
+    });
+  });
+
   describe("deleteRun (R2 BLOCKER 2 — pre-launch finish failure fallback)", () => {
     it("deletes an existing run and returns true", () => {
       const { id } = setupHabitat();

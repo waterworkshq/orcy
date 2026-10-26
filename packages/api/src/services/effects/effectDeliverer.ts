@@ -778,7 +778,7 @@ async function dispatchDetectorTargetUnit(
     return "plugin_removed_or_disabled";
   }
 
-  // One run row per (event, target) lifetime: first attempt inserts; every
+  // One run row per (event, target) lifetime: first attempt inserts; a
   // later attempt re-drives the SAME row under a fresh lease generation.
   let run = runRepo.getRunByDispatchKey(dispatchKey);
   let runLeaseToken = uuid();
@@ -806,13 +806,24 @@ async function dispatchDetectorTargetUnit(
         .run();
     });
     return "delivered";
+  } else if (run.status === "lost") {
+    // A lost run is terminal by operator decision: never re-invoke; settle
+    // the target and leave the run row untouched.
+    return "delivered";
   } else {
     runLeaseToken = uuid();
-    runRepo.redriveRunForEffectDelivery({
+    const redriven = runRepo.redriveRunForEffectDelivery({
       id: run.id,
       leaseToken: runLeaseToken,
       leaseExpiresAt: expiry,
     });
+    if (!redriven) {
+      // Redrive refused (late mark-lost or displacement): never launch the
+      // handler; settle if lost, else retry next pass.
+      const current = runRepo.getRunByDispatchKey(dispatchKey);
+      if (current?.status === "lost") return "delivered";
+      return "start_failed";
+    }
   }
   const runId = run.id;
 

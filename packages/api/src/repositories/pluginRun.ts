@@ -1,7 +1,7 @@
 import { getDb } from "../db/index.js";
 import { pluginRuns } from "../db/schema/index.js";
 import type { PluginRunInsert, PluginRunRow } from "../db/schema/index.js";
-import { eq, and, desc, gte, inArray, lt } from "drizzle-orm";
+import { eq, and, desc, gte, inArray, lt, ne } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 import {
   repositoryCreateError,
@@ -181,6 +181,10 @@ export function insertRunForEffectDelivery(input: {
  * row per (event, target) lifetime, C2). Fenced on the exact run id: sets
  * `running` under a fresh lease token. The previous generation's composer tx
  * then zero-rows on token mismatch (B6).
+ *
+ * Excludes `lost` at statement time (a lost row is never re-driven); all
+ * other statuses stay re-drivable. Callers must not launch the handler when
+ * this returns false.
  */
 export function redriveRunForEffectDelivery(input: {
   id: string;
@@ -197,7 +201,7 @@ export function redriveRunForEffectDelivery(input: {
       finishedAt: null,
       error: null,
     })
-    .where(eq(pluginRuns.id, input.id))
+    .where(and(eq(pluginRuns.id, input.id), ne(pluginRuns.status, "lost")))
     .run();
   const row = getById(input.id);
   return row?.status === "running" && row.leaseToken === input.leaseToken;

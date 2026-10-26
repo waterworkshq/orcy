@@ -54,6 +54,27 @@ vi.mock("../repositories/effectReceipts.js", async (importOriginal) => {
   };
 });
 
+// Redrive refusal seam: arming the flag makes the fenced redrive return
+// false, as its lost guard would between the deliverer's read and UPDATE;
+// "lost" applies the operator's lost write first, then refuses. Delegates
+// to the real repo unless armed.
+const redriveRefusal = { refuse: false as boolean | "lost" };
+vi.mock("../repositories/pluginRun.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../repositories/pluginRun.js")>();
+  return {
+    ...actual,
+    redriveRunForEffectDelivery: (
+      input: Parameters<typeof actual.redriveRunForEffectDelivery>[0],
+    ) => {
+      if (redriveRefusal.refuse === false) return actual.redriveRunForEffectDelivery(input);
+      if (redriveRefusal.refuse === "lost") {
+        actual.finishRun(input.id, "lost", 0, "Marked lost by operator");
+      }
+      return false;
+    },
+  };
+});
+
 import { closeDb, getDb, initTestDb } from "../db/index.js";
 import {
   pulses,
@@ -957,6 +978,139 @@ describe("T2 acceptance 9/10 — detector units + pulse intents", () => {
     const run = getDb().select().from(pluginRuns).where(eq(pluginRuns.id, "stranded-run")).get()!;
     expect(run.status).toBe("failed");
     expect(run.error).toBe("outcome_unrecovered");
+  });
+
+  it("operator-lost adopted run (marker null) → no re-drive: target settles delivered, run keeps the operator mark, handler never invoked", async () => {
+    const agent = seedAgent();
+    await enrollDetector("ok-detector", OK_DETECTOR);
+    const started = seedStartedTask(agent.id, "lost-run");
+    failTask(started.id, agent.id, "agent", "boom");
+
+    // Crash-before-ack shape: adopted run row exists, marker null, target
+    // still pending. The operator then marks the run lost (real admin path).
+    const [ev] = failedEventFor(started.id);
+    const runRepo = await import("../repositories/pluginRun.js");
+    runRepo.insertRunForEffectDelivery({
+      id: "lost-run",
+      habitatId,
+      pluginId: "ok-detector",
+      contributionId: "ok-detector-det",
+      triggerEventId: ev!.id,
+      triggerType: "taskEvent",
+      dispatchKey: receiptRepo.encodeDispatchKey(ev!.id, "ok-detector", "ok-detector-det"),
+      leaseToken: "lost-gen-1",
+      leaseExpiresAt: new Date(Date.now() + 60_000).toISOString(),
+    });
+    const { markPluginRunLost } = await import("../services/pluginEnrollmentService.js");
+    const lost = markPluginRunLost(
+      habitatId,
+      "lost-run",
+      { type: "human", id: "operator-1" },
+      { force: true },
+    );
+    expect(lost.status).toBe("lost");
+
+    await processEffectReceipts();
+
+    // Target settles durably (no endless retries) and the parent derives.
+    const after = getDb().select().from(effectReceiptTargets).all()[0]!;
+    expect(after.state).toBe("delivered");
+    const parent = getDb()
+      .select()
+      .from(effectReceipts)
+      .where(eq(effectReceipts.consumer, "detector_dispatch"))
+      .get()!;
+    expect(parent.state).toBe("delivered");
+    // The operator's mark survives verbatim: status, message, timestamp, and
+    // no fresh lease generation minted over it.
+    const run = getDb().select().from(pluginRuns).where(eq(pluginRuns.id, "lost-run")).get()!;
+    expect(run.status).toBe("lost");
+    expect(run.error).toBe("Marked lost by operator (human:operator-1)");
+    expect(run.finishedAt).toBe(lost.finishedAt);
+    expect(run.leaseToken).toBe("lost-gen-1");
+    expect(run.signalsCommittedAt).toBeNull(); // composer never ran
+    // Handler never re-invoked: the detector emits one detected pulse if run.
+    const detected = getDb().select().from(pulses).where(eq(pulses.signalType, "detected")).all();
+    expect(detected).toHaveLength(0);
+  });
+
+  it("fenced redrive refusal is honored: no handler launch, bounded start_failed retry (late mark-lost race)", async () => {
+    const agent = seedAgent();
+    await enrollDetector("ok-detector", OK_DETECTOR);
+    const started = seedStartedTask(agent.id, "redrive-refused");
+    failTask(started.id, agent.id, "agent", "boom");
+
+    const [ev] = failedEventFor(started.id);
+    const runRepo = await import("../repositories/pluginRun.js");
+    runRepo.insertRunForEffectDelivery({
+      id: "refused-run",
+      habitatId,
+      pluginId: "ok-detector",
+      contributionId: "ok-detector-det",
+      triggerEventId: ev!.id,
+      triggerType: "taskEvent",
+      dispatchKey: receiptRepo.encodeDispatchKey(ev!.id, "ok-detector", "ok-detector-det"),
+      leaseToken: "refused-gen-1",
+      leaseExpiresAt: new Date(Date.now() + 60_000).toISOString(),
+    });
+    // Simulate the late mark-lost race at the repository seam: the deliverer
+    // read the row as running, then the fenced redrive refuses.
+    redriveRefusal.refuse = true;
+    try {
+      await processEffectReceipts();
+    } finally {
+      redriveRefusal.refuse = false;
+    }
+
+    // No handler launch (no marker, no signals) and a bounded, visible retry.
+    const after = getDb().select().from(effectReceiptTargets).all()[0]!;
+    expect(after.state).toBe("pending");
+    expect(after.lastErrorCode).toBe("start_failed");
+    const run = getDb().select().from(pluginRuns).where(eq(pluginRuns.id, "refused-run")).get()!;
+    expect(run.status).toBe("running"); // row untouched — the refusal decided
+    expect(run.signalsCommittedAt).toBeNull();
+    const detected = getDb().select().from(pulses).where(eq(pulses.signalType, "detected")).all();
+    expect(detected).toHaveLength(0);
+  });
+
+  it("late mark-lost race: redrive refused AND the row went lost underneath → target settles delivered, run keeps the operator mark verbatim, handler never invoked", async () => {
+    const agent = seedAgent();
+    await enrollDetector("ok-detector", OK_DETECTOR);
+    const started = seedStartedTask(agent.id, "late-lost");
+    failTask(started.id, agent.id, "agent", "boom");
+
+    const [ev] = failedEventFor(started.id);
+    const runRepo = await import("../repositories/pluginRun.js");
+    runRepo.insertRunForEffectDelivery({
+      id: "late-lost-run",
+      habitatId,
+      pluginId: "ok-detector",
+      contributionId: "ok-detector-det",
+      triggerEventId: ev!.id,
+      triggerType: "taskEvent",
+      dispatchKey: receiptRepo.encodeDispatchKey(ev!.id, "ok-detector", "ok-detector-det"),
+      leaseToken: "late-gen-1",
+      leaseExpiresAt: new Date(Date.now() + 60_000).toISOString(),
+    });
+    // Exact race: the deliverer read the row as running; the operator's lost
+    // write lands between that read and the fenced redrive, which refuses.
+    redriveRefusal.refuse = "lost";
+    try {
+      await processEffectReceipts();
+    } finally {
+      redriveRefusal.refuse = false;
+    }
+
+    const after = getDb().select().from(effectReceiptTargets).all()[0]!;
+    expect(after.state).toBe("delivered"); // settled durably — no endless retries
+    const run = getDb().select().from(pluginRuns).where(eq(pluginRuns.id, "late-lost-run")).get()!;
+    expect(run.status).toBe("lost");
+    expect(run.error).toBe("Marked lost by operator"); // operator write verbatim
+    expect(run.finishedAt).not.toBeNull();
+    expect(run.leaseToken).toBe("late-gen-1"); // no fresh generation over the mark
+    expect(run.signalsCommittedAt).toBeNull(); // handler never launched
+    const detected = getDb().select().from(pulses).where(eq(pulses.signalType, "detected")).all();
+    expect(detected).toHaveLength(0);
   });
 
   it("S-2 discriminators: child-only requeue of the last dead child leaves the parent dead_lettered; parent admin retry with all children complete delivers in the same audited tx", async () => {
