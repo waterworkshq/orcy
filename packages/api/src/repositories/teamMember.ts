@@ -2,6 +2,7 @@ import { getDb } from '../db/index.js';
 import { teamMembers, habitats } from '../db/schema/index.js';
 import { eq, and } from 'drizzle-orm';
 import { v4 as uuid } from 'uuid';
+import { getHabitatById } from './habitat.js';
 
 export type TeamMemberRole = 'owner' | 'admin' | 'member';
 
@@ -72,4 +73,20 @@ export function isTeamMemberByHabitatId(habitatId: string, userId: string): bool
       and(eq(habitats.id, habitatId), eq(teamMembers.userId, userId))
     ).all();
   return rows.length > 0;
+}
+
+/**
+ * The human admission rule backing the `request.user` branch of
+ * `checkHabitatAccess` (middleware/realtimeAuth.ts), exported so outbound
+ * habitat-content channels (task notification email) enforce the SAME rule
+ * as the read surface instead of a competing policy. Personal habitats (no
+ * team) admit any authenticated human; team habitats require CURRENT team
+ * membership — a deployment-wide admin role alone grants no admission. A
+ * missing habitat admits nobody (fail closed).
+ */
+export function humanCanAccessHabitat(habitatId: string, userId: string): boolean {
+  const habitat = getHabitatById(habitatId);
+  if (!habitat) return false;
+  if (!habitat.teamId) return true;
+  return isTeamMemberByHabitatId(habitatId, userId);
 }
