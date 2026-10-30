@@ -151,7 +151,8 @@ each event by representation and applies a per-representation projection:
   overwrites a newer version with an older response.
 - **Invalidate** for partial, filter-sensitive, or version-sensitive
   payloads (e.g. `task.*` invalidates the owning Mission, Mission progress,
-  and Habitat detail).
+  Habitat detail, and the subscription Habitat's task-list key prefix — so
+  every active filtered/paginated task-table variant refetches).
 - **Generation-reset** for archived-pagination membership or order changes
   (archive/unarchive/delete); the archived infinite Query is reset from
   offset zero.
