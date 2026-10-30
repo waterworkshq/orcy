@@ -17,7 +17,7 @@
  * migration 0033 (which adds `workflow_template`), so template seeding
  * succeeds on both fresh and upgraded databases.
  */
-import { vi, describe, it, expect, afterEach } from "vitest";
+import { vi, describe, it, expect, afterEach, afterAll } from "vitest";
 
 // Migration-chain tests build file-backed databases through the full journal
 // (now including the staged preflight/enforcement protocol) — allow headroom
@@ -26,13 +26,20 @@ vi.setConfig({ testTimeout: 60_000 });
 import { closeDb, initDb, getDb } from "../db/index.js";
 import { pluginQuarantines } from "../db/schema/index.js";
 import { join } from "node:path";
-import { existsSync, readFileSync, unlinkSync } from "node:fs";
+import { existsSync, readFileSync, unlinkSync, mkdtempSync, rmSync } from "node:fs";
 import { createHash } from "node:crypto";
 import Database from "better-sqlite3";
 
 const PACKAGE_ROOT = join(import.meta.dirname, "..", "..");
 const DRIZZLE_DIR = join(PACKAGE_ROOT, "drizzle");
-const TEMP_DB = join(PACKAGE_ROOT, ".test-prod-quarantine-reset.db");
+// Per-invocation ownership (mkdtemp): two concurrent Vitest invocations of
+// this suite each get a unique temp directory, so neither can unlink the
+// other's live database. Torn down in afterAll — this invocation's dir only.
+const TEMP_DIR = mkdtempSync(join(PACKAGE_ROOT, ".test-prod-quarantine-reset-"));
+const TEMP_DB = join(TEMP_DIR, "prod-quarantine-reset.db");
+afterAll(() => {
+  rmSync(TEMP_DIR, { recursive: true, force: true });
+});
 
 function cleanupTempDb(): void {
   for (const suffix of ["", "-wal", "-shm"]) {
