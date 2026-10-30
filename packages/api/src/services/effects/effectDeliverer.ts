@@ -435,11 +435,18 @@ function deliverRetryLadder(
   const taskId = snapshot.taskId as string;
   const eventId = receipt.subjectId;
 
-  // Policy math on the immutable SNAPSHOT (never the current row).
+  // Policy math on the immutable SNAPSHOT (never the current row). The
+  // historical reviewer `rejectionReason` is deliberately NOT projected into
+  // the ladder's task input: this failed-phase admission must not filter on
+  // an earlier phase's prose (a rejected→reworked→failed task admits exactly
+  // like a direct failure with the same count/policy). Activating the
+  // current failure `reason` as an allowlist filter is a separate, unmade
+  // decision — fresh failures keep their existing behavior (a null reason
+  // input skips the non-`all` allowlist check).
   const pseudoTask = {
     id: taskId,
     retryCount: (snapshot.retryCount as number) ?? 0,
-    rejectionReason: (snapshot.rejectionReason as string) ?? null,
+    rejectionReason: null,
     retryPolicy: (snapshot.retryPolicy as RetryPolicy | null) ?? null,
   } as Parameters<typeof retryService.getEffectivePolicy>[0];
   const policy = retryService.getEffectivePolicy(pseudoTask);
@@ -535,7 +542,10 @@ function deliverRetryLadder(
             metadata: {
               retryCount: pseudoTask.retryCount,
               maxRetries: policy.maxRetries,
-              rejectionReason: pseudoTask.rejectionReason,
+              // Provenance only: the historical review text rides the
+              // escalated event next to the current failure cause; it took
+              // no part in the admission decision above.
+              rejectionReason: (snapshot.rejectionReason as string) ?? null,
               cause: (snapshot.reason as string) ?? null,
               causeActorType: (snapshot.actorType as string) ?? null,
             },
