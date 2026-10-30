@@ -25,6 +25,7 @@ import {
   badRequest,
   internalError,
   unprocessableEntity,
+  conflictWithCode,
   InterceptorVetoError,
 } from "../../errors.js";
 import { applyDeclaredAuthPolicies } from "../../authPolicy.js";
@@ -460,11 +461,27 @@ export async function taskLifecycleRoutes(fastify: FastifyInstance): Promise<voi
           throw badRequest("Task must be in failed status to retry");
         }
 
-        const retried = retryService.executeRetry(task);
-        if (!retried) {
+        const retried = retryService.executeRetryWithOutcome(task);
+        if (retried.outcome === "refused") {
+          // Intentional policy refusal — the established typed client-refusal
+          // convention for transition-budget exhaustion (409 with a typed
+          // code, mirroring the agent-deletion budget refusal and the submit
+          // path's TRANSITION_BUDGET_EXHAUSTED vocabulary), NOT a 500: the
+          // server did not fail, the task's budget is spent.
+          throw conflictWithCode(
+            "TRANSITION_BUDGET_EXHAUSTED",
+            "Manual retry refused: the task's transition budget is exhausted",
+            {
+              category: retried.refusal.reason,
+              count: retried.refusal.count,
+              ceiling: retried.refusal.ceiling,
+            },
+          );
+        }
+        if (retried.outcome === "failed") {
           throw internalError("Failed to execute retry");
         }
-        return { task: retried };
+        return { task: retried.task };
       },
     );
 

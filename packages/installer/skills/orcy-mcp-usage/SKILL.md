@@ -498,7 +498,7 @@ orcy_habitat_task({ action: "retry", taskId: "uuid" })
 Output: { "success": true, "task": { "status": "pending" } }
 ```
 
-Retry is a separate failed → pending reset — not an approval and not a substitute for `complete`.
+Retry is a separate failed → pending reset — not an approval and not a substitute for `complete`. If the task's per-habitat transition budget is exhausted, retry is refused with a typed `409` `TRANSITION_BUDGET_EXHAUSTED` (details carry the count and ceiling); the task stays `failed` and unchanged — raise the ceiling or have a human act rather than retry-looping.
 
 ### Fail Task
 

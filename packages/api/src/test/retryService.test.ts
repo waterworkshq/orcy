@@ -46,9 +46,11 @@ import {
   calculateBackoff,
   scheduleRetry,
   executeRetry,
+  executeRetryWithOutcome,
   escalateToHuman,
   processPendingRetries,
 } from "../services/retryService.js";
+import { guardTransitionTop } from "../services/tasks/transitionBudget.js";
 import * as taskRepo from "../repositories/task.js";
 import * as habitatRepo from "../repositories/habitat.js";
 import * as eventRepo from "../repositories/event.js";
@@ -177,6 +179,66 @@ describe("retryService", () => {
         "task-1",
         1,
       );
+    });
+  });
+
+  describe("executeRetryWithOutcome (#143 typed refusal distinction)", () => {
+    it("executed: carries the retried task", () => {
+      vi.mocked(taskRepo.getHabitatIdForTask).mockReturnValue("h1");
+      vi.mocked(guardTransitionTop).mockReturnValue({ outcome: "allow", count: 0, ceiling: 21 } as any);
+      const pending = makeTask({ status: "pending", retryCount: 1 });
+      vi.mocked(taskStateMachine.retryTransitionToPendingWithEffects).mockReturnValue(
+        pending as any,
+      );
+
+      const result = executeRetryWithOutcome(makeTask({ retryCount: 0 }));
+
+      expect(result).toEqual({ outcome: "executed", task: pending });
+    });
+
+    it("refused: preserves the guard's typed budget refusal", () => {
+      vi.mocked(guardTransitionTop).mockReturnValue({
+        outcome: "refused",
+        reason: "transition_budget_exhausted",
+        count: 21,
+        ceiling: 21,
+      } as any);
+
+      const result = executeRetryWithOutcome(makeTask({ retryCount: 0 }));
+
+      expect(result).toEqual({
+        outcome: "refused",
+        refusal: { outcome: "refused", reason: "transition_budget_exhausted", count: 21, ceiling: 21 },
+      });
+      expect(taskStateMachine.retryTransitionToPendingWithEffects).not.toHaveBeenCalled();
+    });
+
+    it("failed: an unsuccessful write is NOT a refusal (unexpected-failure distinction)", () => {
+      vi.mocked(taskRepo.getHabitatIdForTask).mockReturnValue("h1");
+      // Explicit allow: the refused stub from the previous test would
+      // otherwise short-circuit before the write (mockReturnValue survives
+      // clearAllMocks).
+      vi.mocked(guardTransitionTop).mockReturnValue({ outcome: "allow", count: 0, ceiling: 21 } as any);
+      vi.mocked(taskStateMachine.retryTransitionToPendingWithEffects).mockReturnValue(null);
+
+      const result = executeRetryWithOutcome(makeTask({ retryCount: 0 }));
+
+      expect(result).toEqual({ outcome: "failed" });
+    });
+
+    it("executeRetry keeps the background null-collapse contract on refusal and failure", () => {
+      vi.mocked(taskRepo.getHabitatIdForTask).mockReturnValue("h1");
+      vi.mocked(guardTransitionTop).mockReturnValue({
+        outcome: "refused",
+        reason: "transition_budget_exhausted",
+        count: 21,
+        ceiling: 21,
+      } as any);
+      expect(executeRetry(makeTask({ retryCount: 0 }))).toBeNull();
+
+      vi.mocked(guardTransitionTop).mockReturnValue({ outcome: "allow", count: 0, ceiling: 21 } as any);
+      vi.mocked(taskStateMachine.retryTransitionToPendingWithEffects).mockReturnValue(null);
+      expect(executeRetry(makeTask({ retryCount: 0 }))).toBeNull();
     });
   });
 
