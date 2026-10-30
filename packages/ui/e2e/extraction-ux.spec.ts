@@ -1,15 +1,14 @@
 /**
  * Extraction / Learning Loop E2E browser flow.
  *
- * Verifies the full browser flow: navigate to habitat settings → Learning Loop
+ * Verifies the settings flow: navigate to habitat settings → Learning Loop
  * tab → verify disabled-by-default → create policy via API → verify rendering
  * → verify no Wiki publish or Automation Rule affordance.
  *
- * NOTE: The accept/reject browser flow requires extraction findings to exist,
- * which depends on the extraction execution service having run (ensure/fresh_
- * rerun/dry_run routes are pending backend wiring). When those routes are
- * wired, extend this test with the full: configure policy → dry run → real
- * run → accept/reject a finding through production routes.
+ * NOTE: The ensure, fresh-rerun, and dry-run backend routes are wired. This
+ * spec does not yet seed findings or exercise the complete flow: configure
+ * policy → dry run → real run → accept/reject a finding through production
+ * routes. Seeded browser coverage is tracked in GitHub issue #147.
  *
  * Mind the Playwright actionability/viewport trap (MEMORY): use dispatchEvent
  * or {force:true} for offscreen controls in overflow containers.

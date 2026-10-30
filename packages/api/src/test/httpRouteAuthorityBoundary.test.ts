@@ -64,12 +64,11 @@
  * ule"` is the literal `module`), and quoted module-export names are
  * opaque units — a `,`/`}`/the words import/export inside one (including
  * the `}` of a `\u{…}` escape) are string content, never a delimiter or
- * statement boundary. Shared A/F residuals (documented, not fixed): an
- * ESCAPED module keyword (`\u0069mport { createRequire } from
- * "node:module"`) is not recognized — the scan anchors on the literal
- * keywords, and closing that spelling needs keyword-escape normalization
- * a structured regex does not attempt (fixup 03, R3-4); TOKEN-CONTEXT
- * false positives — neither check knows whether an acquiring clause sits
+ * statement boundary. An escaped module keyword (`\u0069mport`) is not
+ * recognized, but Node and TypeScript reject that spelling: keywords cannot
+ * contain escape characters. It is not a valid-source bypass. Shared A/F
+ * residuals (documented, not fixed): TOKEN-CONTEXT false positives —
+ * neither check knows whether an acquiring clause sits
  * in code or inside ordinary string/regex text, so such text fails closed
  * for A and F alike (the safe direction; revisit only if a legitimate
  * production string/regex ever trips it); and the comment-stripper's

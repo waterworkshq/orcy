@@ -1569,7 +1569,7 @@ workflowService.handleRedemptionIfNeeded()
 | `api/src/routes/metrics.ts` | Admin metrics routes |
 | `api/src/db/schema/workflow.ts` | 3 tables: workflows, taskWorkflowGates, failureContexts |
 | `shared/src/types/workflow.ts` | 13 shared types (GateType, JoinMode, SignalMatch, etc.) |
-| `shared/src/types/signal.ts` | Consolidated `SIGNAL_TYPES` const (10 values including `experience`) |
+| `shared/src/types/signal.ts` | Canonical `SIGNAL_TYPES` registry, including `experience` and `detected` |
 | `api/src/services/tasks/transition-emitter.ts` | `onTransition`/`notifyTransition` channel (ADR-0005) |
 | `mcp/src/tools/workflow.ts` | `orcy_get_failure_context` + `orcy_get_workflow_context` MCP tools |
 
@@ -1987,7 +1987,7 @@ The route inventory is derived at `finalize` from the same registration stream t
 
 ### Wire headers
 
-`X-API-Version: 1` is stamped at `onSend` on every response, and the deprecated `/api` group additionally stamps `Deprecation: true` (also at `onSend`, so both actually reach the wire — the historical `onResponse` stamping never did; see the resolved RA-2 item in `docs/deferred/roadmap/README.md`).
+`X-API-Version: 1` is stamped at `onSend` on every response, and the deprecated `/api` group additionally stamps `Deprecation: true` (also at `onSend`, so both actually reach the wire — the historical `onResponse` stamping never did; see the [v0.41.0 release notes](releases/v0.41.0.md)).
 
 ### Key Files
 
