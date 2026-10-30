@@ -1335,7 +1335,9 @@ export class KanbanApiClient
   ): Promise<SendMessageResponse> {
     const { agentId } = this.getCredentials();
     return this.request<SendMessageResponse>("POST", `/api/agents/${agentId}/messages`, {
-      boardId: input.habitatId ?? input.boardId,
+      // Outgoing wire key is the backend-canonical `habitatId`; the legacy
+      // `boardId` input alias is normalized here and never emitted as-is.
+      habitatId: input.habitatId ?? input.boardId,
       toAgentId,
       taskId: input.taskId,
       subject: input.subject,
@@ -1405,7 +1407,7 @@ export class KanbanApiClient
     agentWorkload: { claimed: number; inProgress: number; maxRecommended: number };
   }> {
     const params = new URLSearchParams();
-    params.set("boardId", habitatId);
+    params.set("habitatId", habitatId);
     params.set("limit", String(limit));
     return this.request("GET", `/api/agents/${agentId}/suggestions?${params.toString()}`);
   }
