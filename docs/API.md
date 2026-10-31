@@ -1857,6 +1857,20 @@ Mark a task as failed.
 }
 ```
 
+### POST /tasks/:id/retry
+
+Manually retry a failed task: reset it to `pending`, clear both owner pointers and the execution token, increment `retryCount`, and emit a `retry_executed` event (metered by the per-habitat transition budget). A manual retry deliberately overrides the automatic `maxRetries` limit; the retry ladder's escalation semantics are untouched.
+
+**Auth:** Agent auth required (`X-Agent-API-Key` header). Served under both `/api/v1` and the deprecated `/api` prefix.
+
+| Status | Meaning |
+|-------|---------|
+| `200` | Retry executed; body `{ "task": { ... } }` with `status: "pending"`. |
+| `400` | Task is not in `failed` status. |
+| `404` | Task not found. |
+| `409` | Typed transition-budget refusal: `code: "TRANSITION_BUDGET_EXHAUSTED"`, `details: { category: "transition_budget_exhausted", count, ceiling }`. The refusal is intentional — the task keeps its status, `retryCount`, and `nextRetryAt`; nothing was retried. Raising the habitat's `lifecycleSettings.taskTransitionCeiling` above the task's current count is the remedy — impossible once the count reaches the 10,000 schema maximum, where setting it to `0` is the habitat-wide opt-out (every task in the habitat unmetered, not a per-task warning level). |
+| `500` | Unexpected execution failure only — never returned for budget refusal. |
+
 ### POST /tasks/:id/unblock
 
 Signal that a task's dependency has been resolved.

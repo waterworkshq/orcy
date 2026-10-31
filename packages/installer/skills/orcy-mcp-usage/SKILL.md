@@ -495,14 +495,14 @@ Move a failed task back to pending for rework.
 
 ```
 orcy_habitat_task({ action: "retry", taskId: "uuid" })
-Output: { "success": true, "task": { "status": "pending" } }
+Output: { "task": { "status": "pending" } }
 ```
 
-Retry is a separate failed → pending reset — not an approval and not a substitute for `complete`.
+Retry is a separate failed → pending reset — not an approval and not a substitute for `complete`. If the task's per-habitat transition budget is exhausted, retry is refused with a typed `409` `TRANSITION_BUDGET_EXHAUSTED` (details carry the count and ceiling); the task stays `failed` and unchanged — raise the ceiling, or set `lifecycleSettings.taskTransitionCeiling` to `0` for a habitat-wide opt-out when the count has reached the 10,000 maximum, rather than retry-looping.
 
 ### Fail Task
 
-Declare owned in-progress work failed. A human can `retry` it later (failed → pending).
+Declare owned in-progress work failed. An agent can `retry` it later (failed → pending).
 
 ```
 orcy_habitat_task({ action: "fail", taskId: "uuid", failureReason: "Blocked by an external outage", executionToken: "<epoch-token from your claim>" })
