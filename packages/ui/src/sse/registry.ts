@@ -157,8 +157,13 @@ function invalidateTaskDetail<T extends SSEEventType>(context: ServerProjectionC
 }
 
 /**
- * Invalidate the Task representations, the owning Mission progress/detail, and
- * the Habitat detail (complete active collection) for a task-lifecycle SSE.
+ * Invalidate the Task representations, the owning Mission progress/detail, the
+ * Habitat detail (complete active collection), and the subscription Habitat's
+ * task-list family for a task-lifecycle SSE. The task-list invalidation uses
+ * the PREFIX `["habitats","tasks",habitatId]` — not the exact
+ * `queryKeys.habitats.tasks(habitatId)` key, whose trailing `undefined`
+ * filters element would fail prefix matching against filtered/paginated
+ * variants — so every active TaskTableView/SprintDashboard variant refetches.
  * Invalidate-only — no speculative patch. Does NOT reset the events-infinite
  * family: that ownership belongs to exactly one canonical SSE per transition
  * (see `projectTaskServer`).
@@ -184,6 +189,9 @@ function invalidateTaskLifecycle<T extends SSEEventType>(
   }
   context.queryClient.invalidateQueries({
     queryKey: queryKeys.habitats.detail(context.subscriptionHabitatId),
+  });
+  context.queryClient.invalidateQueries({
+    queryKey: [...queryKeys.habitats.all, "tasks", context.subscriptionHabitatId],
   });
 }
 
