@@ -83,10 +83,36 @@ export function isTeamMemberByHabitatId(habitatId: string, userId: string): bool
  * team) admit any authenticated human; team habitats require CURRENT team
  * membership — a deployment-wide admin role alone grants no admission. A
  * missing habitat admits nobody (fail closed).
+ *
+ * Single-user projection of {@link humansWithHabitatAccess} — the policy is
+ * implemented exactly once, there.
  */
 export function humanCanAccessHabitat(habitatId: string, userId: string): boolean {
+  return humansWithHabitatAccess(habitatId, [userId]).has(userId);
+}
+
+/**
+ * Batch arity of {@link humanCanAccessHabitat} for recipient fan-out (task
+ * notification email). Loads the habitat once, then reads the habitat
+ * team's current member ids with a single habitat-keyed query whose only
+ * bound value is the habitat id — no recipient-count-bound parameters, so
+ * the candidate-set size has no SQLite host-parameter ceiling — and returns
+ * the stdlib Set intersection with the candidates. Same admission policy as
+ * {@link humanCanAccessHabitat}: missing habitat admits nobody, personal
+ * habitats admit every candidate, team habitats admit only current members;
+ * an empty candidate set runs no query.
+ */
+export function humansWithHabitatAccess(habitatId: string, userIds: readonly string[]): Set<string> {
+  if (userIds.length === 0) return new Set();
   const habitat = getHabitatById(habitatId);
-  if (!habitat) return false;
-  if (!habitat.teamId) return true;
-  return isTeamMemberByHabitatId(habitatId, userId);
+  if (!habitat) return new Set();
+  const candidates = new Set(userIds);
+  if (!habitat.teamId) return candidates;
+  const db = getDb();
+  const rows = db.select({ userId: teamMembers.userId }).from(teamMembers)
+    .innerJoin(habitats, eq(habitats.teamId, teamMembers.teamId))
+    .where(eq(habitats.id, habitatId))
+    .all() as Array<{ userId: string }>;
+  const members = new Set(rows.map((row) => row.userId));
+  return new Set([...members].filter((userId) => candidates.has(userId)));
 }

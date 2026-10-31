@@ -40,7 +40,7 @@ vi.mock("nodemailer", () => ({
   },
 }));
 
-import { initTestDb, closeDb } from "../db/index.js";
+import { initTestDb, closeDb, getDb } from "../db/index.js";
 import * as userRepo from "../repositories/user.js";
 import * as habitatRepo from "../repositories/habitat.js";
 import * as missionRepo from "../repositories/mission.js";
@@ -194,6 +194,140 @@ describe("task email recipient authorization (issue #139)", () => {
   it("missing habitat id fails closed: no email and no 'Unknown Habitat' disclosure fallback", async () => {
     const { taskId } = seedTeamHabitatWorld();
     await fireEvent("task.submitted", "habitat-that-does-not-exist", taskId);
+    expect(sentEnvelopes).toHaveLength(0);
+  });
+});
+
+// --- PR149 review fix: bounded authorization query work --------------------
+//
+// The disclosure gate must batch its reads ONCE PER EVENT (one habitat read +
+// one current-membership query) no matter how many recipients the event fans
+// out to. The per-recipient form issued two synchronous queries per global
+// admin on every bulk task event (review finding on notificationService.ts).
+// The tests above pin WHO is admitted; these pin the WORK: exact statement
+// counts, so a regression back to per-recipient reads fails on query work.
+//
+// Instrumentation: every drizzle sql-js query goes through
+// `client.prepare(sql)` (SQLiteSyncDialect -> SQLJsSession.prepareQuery), so
+// wrapping the raw client's prepare captures each statement exactly once.
+// The capture window closes before sendIfEnabled's preference/email reads
+// (those run as Promise.allSettled microtasks after processEvent's
+// synchronous section).
+function captureAuthorizationStatements(run: () => unknown): string[] {
+  const client = (
+    getDb() as unknown as {
+      session: { client: { prepare: (source: string) => unknown } };
+    }
+  ).session.client;
+  const statements: string[] = [];
+  const originalPrepare = client.prepare;
+  client.prepare = (source: string) => {
+    statements.push(source);
+    return originalPrepare.call(client, source);
+  };
+  try {
+    run();
+  } finally {
+    client.prepare = originalPrepare;
+  }
+  return statements;
+}
+
+describe("task email authorization query work (PR149 review)", () => {
+  beforeEach(async () => {
+    await initTestDb();
+    sentEnvelopes.length = 0;
+  });
+  afterEach(() => closeDb());
+
+  it("task.submitted authorizes N recipients with ONE habitat read and ONE membership query", async () => {
+    const { teamId, habitatId, taskId } = seedTeamHabitatWorld();
+    // Grow the recipient set: task.submitted fans out to EVERY deployment
+    // admin. Base fixture contributes 3 admins (actor is editor); 5 more
+    // here (2 current team members, 3 nonmembers) => 8 recipients.
+    const expectedMemberEmails = [MEMBER_ADMIN_EMAIL];
+    const expectedNonmemberEmails = [NONMEMBER_ADMIN_EMAIL];
+    for (let n = 0; n < 5; n++) {
+      const id = `proof-bulk-${n}`;
+      const email = `${id}@example.invalid`;
+      mkUser(id, id, "admin", email);
+      if (n < 2) {
+        teamMemberRepo.addMember({ teamId, userId: id, role: "member" });
+        expectedMemberEmails.push(email);
+      } else {
+        expectedNonmemberEmails.push(email);
+      }
+    }
+
+    // The fan-out set: every deployment admin is a task.submitted recipient.
+    const recipients = userRepo.getAdmins();
+    expect(recipients).toHaveLength(8);
+
+    let pending: Promise<void> = Promise.resolve();
+    const statements = captureAuthorizationStatements(() => {
+      pending = fireEvent("task.submitted", habitatId, taskId);
+    });
+    await pending;
+
+    // Bounded work — exact statement counts, independent of the 8-recipient
+    // fan-out. Prepare-count arithmetic (drizzle sql-js session): a
+    // field-projected `.all()` prepares the same SQL TWICE (once discarded
+    // in `all()`, once inside `values()`); a `.get()` prepares ONCE. So the
+    // batched gate = ONE logical membership query (2 prepares) + ONE
+    // authorization habitat read (1 prepare), plus processEvent's own
+    // habitat-name lookup (1 prepare) => 2 membership + 2 habitat prepares.
+    // The per-recipient form this pins out = 8x2 membership + 1+8x1 habitat.
+    expect(statements.filter((s) => s.includes('from "team_members"'))).toHaveLength(2);
+    expect(statements.filter((s) => s.includes('from "habitats"'))).toHaveLength(2);
+
+    // Delivery parity under the batched gate: exactly the current members.
+    for (const email of expectedMemberEmails) {
+      expect(sendsTo(email), email).toHaveLength(1);
+    }
+    for (const email of expectedNonmemberEmails) {
+      expect(sendsTo(email), email).toHaveLength(0);
+    }
+    expect(sentEnvelopes).toHaveLength(expectedMemberEmails.length);
+  });
+
+  it("candidate set beyond SQLite's 32766 host-parameter ceiling still authorizes: habitat-keyed query, zero recipient-bound parameters", () => {
+    const { habitatId } = seedTeamHabitatWorld();
+    // 33001 candidates (1 real member + 33000 synthetic ids never inserted)
+    // exceed SQLITE_MAX_VARIABLE_NUMBER (32766). An `in`-list keyed by the
+    // candidate set would throw — and merely failing closed there would LOSE
+    // the real member's notification. The membership query must therefore
+    // bind only the habitat id and intersect in JS.
+    const candidates = [
+      "proof-member-admin",
+      ...Array.from({ length: 33000 }, (_, n) => `synthetic-candidate-${n}`),
+    ];
+    let authorized: Set<string> = new Set();
+    const statements = captureAuthorizationStatements(() => {
+      authorized = teamMemberRepo.humansWithHabitatAccess(habitatId, candidates);
+    });
+    // Intersection semantics: exactly the real member, none of the synthetics,
+    // and members NOT in the candidate set (proof-actor) stay out.
+    expect(authorized).toEqual(new Set(["proof-member-admin"]));
+    // Query shape: the membership SQL binds exactly ONE value (the habitat
+    // id) — work independent of candidate-set size by construction.
+    const membershipSql = statements.filter((s) => s.includes('from "team_members"'));
+    expect(membershipSql).toHaveLength(2); // drizzle projected `.all()` double-prepare
+    for (const sql of membershipSql) {
+      expect(sql.split("?").length - 1).toBe(1);
+    }
+  });
+
+  it("event with no recipients issues no membership query and no authorization habitat read", async () => {
+    const { habitatId, taskId } = seedTeamHabitatWorld();
+    // task.assigned with no assignedAgentId builds an empty queue.
+    let pending: Promise<void> = Promise.resolve();
+    const statements = captureAuthorizationStatements(() => {
+      pending = fireEvent("task.assigned", habitatId, taskId);
+    });
+    await pending;
+    expect(statements.filter((s) => s.includes('from "team_members"'))).toHaveLength(0);
+    // Only processEvent's own habitat-name lookup runs.
+    expect(statements.filter((s) => s.includes('from "habitats"'))).toHaveLength(1);
     expect(sentEnvelopes).toHaveLength(0);
   });
 });
