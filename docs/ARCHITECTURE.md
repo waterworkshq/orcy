@@ -941,6 +941,8 @@ Missions declare dependencies on other missions. Tasks inherit dependency filter
 3. Tasks within a mission with unmet dependencies are not shown to agents
 4. When a mission reaches `done` status, dependent missions become available
 
+Query-work bound: the eligibility check is ONE habitat-keyed `mission_dependencies` join per pass (the dependsOn target is not habitat-filtered, so cross-habitat dependency rows block exactly as direct lookups did), and each suggestion pass batch-loads its candidate missions in ≤500-id chunks — per-pass query count is independent of habitat mission/task count.
+
 #### Release Gates (v0.25.0)
 
 Release gates layer alongside mission dependencies as an additional blocking condition in `getAvailableTasksForAgent()`. A mission carries an optional gate declared via two nullable columns — `releaseGateType` (`patch`/`minor`/`major`) and `releaseGateVersion` (a free-text version pin like `v0.25` or `v0.25.0`):

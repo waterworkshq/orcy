@@ -10,7 +10,7 @@ import * as agentRepo from "../repositories/agent.js";
 import { getDb } from "../db/index.js";
 import { tasks } from "../db/schema/index.js";
 import { eq, and, sql } from "drizzle-orm";
-import type { Task, Agent } from "../models/index.js";
+import type { Task, Agent, Mission } from "../models/index.js";
 import { resolveRoadmapSettings } from "./roadmapSettingsService.js";
 import { SCORING_STRATEGIES, type StrategyBonusEntry } from "./roadmapScoring.js";
 
@@ -56,10 +56,11 @@ export interface SuggestionResult {
 function buildStrategyBonusMap(
   habitatId: string,
   candidateTasks: Task[],
+  missionsById: Map<string, Mission>,
 ): Map<string, StrategyBonusEntry> {
   const { scoringAlgorithm } = resolveRoadmapSettings(habitatId);
   const strategy = SCORING_STRATEGIES[scoringAlgorithm];
-  return strategy.buildBonusMap({ habitatId, candidateTasks });
+  return strategy.buildBonusMap({ habitatId, candidateTasks, missionsById });
 }
 
 /** Scores pending tasks in a habitat for a specific agent and returns the top-ranked suggestions with workload-aware penalties applied. */
@@ -78,19 +79,20 @@ export function getSuggestionsForAgent(
   });
 
   const { claimed, inProgress } = getAgentWorkload(agentId);
-  const missionMap = new Map<string, string>();
+  // ONE chunked batched read serves mission titles, SLA deadlines, and the
+  // scoring strategies' gate lookups for the whole pass — no per-task or
+  // per-mission `getMissionById` calls.
+  const missionsById = missionRepo.getMissionsByIds(
+    availableTasks.map((task) => task.missionId),
+  );
+  const missionMap = new Map(
+    [...missionsById].map(([id, mission]) => [id, mission.title] as const),
+  );
 
-  for (const task of availableTasks) {
-    if (!missionMap.has(task.missionId)) {
-      const mission = missionRepo.getMissionById(task.missionId);
-      if (mission) missionMap.set(task.missionId, mission.title);
-    }
-  }
-
-  const bonusMap = buildStrategyBonusMap(habitatId, availableTasks);
+  const bonusMap = buildStrategyBonusMap(habitatId, availableTasks, missionsById);
 
   const suggestions: TaskSuggestion[] = availableTasks
-    .map((task) => scoreWithFactors(task, agent, claimed, inProgress, missionMap, bonusMap))
+    .map((task) => scoreWithFactors(task, agent, claimed, inProgress, missionMap, missionsById, bonusMap))
     .toSorted((a, b) => b.score - a.score)
     .slice(0, limit);
 
@@ -106,10 +108,14 @@ function scoreWithFactors(
   claimedCount: number,
   inProgressCount: number,
   missionMap: Map<string, string>,
+  missionsById: Map<string, Mission>,
   bonusMap: Map<string, StrategyBonusEntry>,
 ): TaskSuggestion {
   const reasons: string[] = [];
-  const baseScore = scoreTask(task, undefined, agent.capabilities);
+  // One batched per-pass mission read feeds the base score (dueAt/SLA weights)
+  // AND the SLA reason below — no per-task repository lookup.
+  const mission = task.missionId ? (missionsById.get(task.missionId) ?? null) : null;
+  const baseScore = scoreTask(task, undefined, agent.capabilities, mission);
 
   const bonusEntry = bonusMap.get(task.id);
   const dependencyBonus = bonusEntry?.bonus ?? 0;
@@ -132,7 +138,6 @@ function scoreWithFactors(
     reasons.push(bonusEntry.reason);
   }
 
-  const mission = task.missionId ? missionRepo.getMissionById(task.missionId) : null;
   const slaDeadline = mission?.slaDeadlineAt ?? null;
   const slaWeight = computeSlaUrgencyWeight(slaDeadline);
   if (slaWeight > 0) {

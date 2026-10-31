@@ -1,4 +1,4 @@
-import type { Task, TaskPriority } from "../models/index.js";
+import type { Task, TaskPriority, Mission } from "../models/index.js";
 import * as missionRepo from "../repositories/mission.js";
 
 /** Weight multipliers per priority level used by the smart scoring algorithm. */
@@ -14,10 +14,26 @@ const MAX_AGE_WEIGHT = 10;
 const AGE_WEIGHT_PER_DAY = 0.5;
 const SLA_URGENCY_WEIGHT_MAX = 35;
 
-/** Compute the composite smart-priority score for a task, factoring priority, urgency, age, SLA deadline, and agent capability match. */
-export function scoreTask(task: Task, agentDomain?: string, agentCapabilities?: string[]): number {
+/**
+ * Compute the composite smart-priority score for a task, factoring priority,
+ * urgency, age, SLA deadline, and agent capability match. When the caller
+ * already holds the task's mission (one batched per-pass read), pass it as
+ * `missionPrefetch` to skip the per-task repository lookup; `undefined`
+ * (default) preserves the standalone single-task repository read.
+ */
+export function scoreTask(
+  task: Task,
+  agentDomain?: string,
+  agentCapabilities?: string[],
+  missionPrefetch?: Mission | null,
+): number {
   const priorityWeight = PRIORITY_WEIGHTS[task.priority] ?? 20;
-  const mission = task.missionId ? missionRepo.getMissionById(task.missionId) : null;
+  const mission =
+    missionPrefetch !== undefined
+      ? missionPrefetch
+      : task.missionId
+        ? missionRepo.getMissionById(task.missionId)
+        : null;
   const urgencyWeight = computeUrgencyWeight(mission?.dueAt ?? null);
   const slaUrgencyWeight = computeSlaUrgencyWeight(mission?.slaDeadlineAt ?? null);
   const ageWeight = computeAgeWeight(task.createdAt);
