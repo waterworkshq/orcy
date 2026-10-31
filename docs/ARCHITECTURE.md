@@ -941,7 +941,7 @@ Missions declare dependencies on other missions. Tasks inherit dependency filter
 3. Tasks within a mission with unmet dependencies are not shown to agents
 4. When a mission reaches `done` status, dependent missions become available
 
-Query-work bound: the eligibility check is ONE habitat-keyed `mission_dependencies` join per pass (the dependsOn target is not habitat-filtered, so cross-habitat dependency rows block exactly as direct lookups did), and each suggestion pass batch-loads its candidate missions in ≤500-id chunks — per-pass query count is independent of habitat mission/task count.
+Query-work bound: eligibility uses one habitat-keyed `mission_dependencies` join per pass; the dependsOn target is not habitat-filtered, preserving cross-habitat dependency blocking. Candidate mission reads use `ceil(distinct candidate mission count / 500)` queries, shared across suggestion titles, scoring and release gates rather than repeated for each task.
 
 #### Release Gates (v0.25.0)
 
