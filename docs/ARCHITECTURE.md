@@ -167,11 +167,21 @@ each event by representation and applies a per-representation projection:
   and nothing is dropped (the flush swaps out its pending state before
   invalidating; events arriving during a flush or an in-flight refetch
   start the next generation, where the supersede-abort signal forwarding
-  keeps the latest response authoritative). A habitat's flush takes effect
-  only while at least one of its enqueued source subscriptions (`isActive`
-  fence) is still active — a retired subscription generation's queued
-  invalidation is discarded at flush time instead of firing, so a stale
-  generation never refetches on behalf of a scope nobody observes anymore.
+  keeps the latest response authoritative). Acceptance and requests are
+  separate phases: an event accepted by a live generation marks the
+  habitat's cached entries (Habitat detail + task-list prefix) stale
+  synchronously at reception — `invalidateQueries` with
+  `refetchType: "none"`, a pure cache-state transition, no request — while
+  the refetch REQUEST is deferred to the window flush and runs only while
+  at least one of the habitat's enqueued source subscriptions (`isActive`
+  fence) is still live. A retired subscription generation therefore never
+  issues a request, and an accepted invalidation is never lost: retire
+  before the flush costs only the immediate refetch, and the next mount of
+  the scope refetches fresh despite a long staleTime (invalidated queries
+  are stale regardless of `staleTime`) instead of serving the pre-event
+  revision for minutes. Events delivered by an already-stale generation
+  are dropped by the message-handler fence before any of this (ADR 0040
+  item 4) — zero cache effect, zero request.
 - **Generation-reset** for archived-pagination membership or order changes
   (archive/unarchive/delete); the archived infinite Query is reset from
   offset zero.

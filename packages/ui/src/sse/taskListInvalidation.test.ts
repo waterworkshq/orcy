@@ -344,7 +344,7 @@ describe("issue — task SSE events refresh active habitat task-list observers",
   });
 
   describe("generation fence — a retired subscription's queued invalidation never fires", () => {
-    it("generation retires AFTER enqueue ⇒ zero invalidation, zero fetch (stale gen never effects)", async () => {
+    it("generation retires AFTER enqueue ⇒ zero refetch now (stale gen never requests; the accepted stale mark survives for the next mount)", async () => {
       const { qc, serverRevision, observe, awaitRevision, settle, state, keys } = setup();
       const h1List = observe(keys.habitatTasks("h1", {}));
       const habitatDetail = observe(keys.habitatDetail);
@@ -411,6 +411,104 @@ describe("issue — task SSE events refresh active habitat task-list observers",
       await awaitRevision(h1List, 2);
       await settle();
       expect(state(keys.habitatTasks("h1", {}))).toEqual({ data: 2, fetches: 2 });
+    });
+  });
+
+  describe("accepted invalidations survive retirement (mark stale now, request only when live)", () => {
+    /**
+     * Regression (review finding on the coalescing fence): an event ACCEPTED
+     * by a live generation must not lose its invalidation when the
+     * subscription retires inside the coalescing window. The retire path
+     * suppresses the REQUEST (zero network) — the cache must still be marked
+     * stale, so a later mount refetches fresh instead of reading the
+     * pre-event revision until staleTime (5 min detail / 30 s lists in
+     * production) expires. `staleTime: Infinity` here is stricter than any
+     * production value: only a surviving invalidation can force the remount
+     * refetch.
+     */
+    it("active event marks the cached scope stale synchronously; retire-before-flush ⇒ zero network now", async () => {
+      const { qc, serverRevision, observe, awaitRevision, settle, state, keys } = setup();
+      // First mount populates the cache, then the user leaves: observers
+      // unmount, the entries stay cached — the exact unobserved-scope case.
+      const first = observe(keys.habitatTasks("h1", {}));
+      const firstDetail = observe(keys.habitatDetail);
+      await awaitRevision(first, 1);
+      await awaitRevision(firstDetail, 1);
+      first.destroy();
+      firstDetail.destroy();
+
+      serverRevision.value = 2;
+      let active = true;
+      const event = {
+        type: "task.updated",
+        data: makeTask({ version: 2 }),
+      } as unknown as SSEEvent;
+      await projectSSEServerEvent(event, ctx(event, qc, { isActive: () => active }));
+
+      // Accepted while live: both cached entries are invalidated
+      // SYNCHRONOUSLY, before any window elapses.
+      expect(qc.getQueryState(keys.habitatTasks("h1", {}))?.isInvalidated).toBe(true);
+      expect(qc.getQueryState(keys.habitatDetail)?.isInvalidated).toBe(true);
+
+      active = false; // subscription retires before the window flushes
+      await settle();
+      // The retired generation issues no request — the refetch stays deferred.
+      expect(state(keys.habitatTasks("h1", {}))).toEqual({ data: 1, fetches: 1 });
+      expect(state(keys.habitatDetail)).toEqual({ data: 1, fetches: 1 });
+    });
+
+    it("retire-before-flush ⇒ remount under a new generation fetches fresh despite staleTime", async () => {
+      const { qc, serverRevision, observe, awaitRevision, settle, state, keys } = setup();
+      const first = observe(keys.habitatTasks("h1", {}));
+      const firstDetail = observe(keys.habitatDetail);
+      await awaitRevision(first, 1);
+      await awaitRevision(firstDetail, 1);
+      first.destroy();
+      firstDetail.destroy();
+
+      serverRevision.value = 2;
+      let active = true;
+      const event = {
+        type: "task.updated",
+        data: makeTask({ version: 2 }),
+      } as unknown as SSEEvent;
+      await projectSSEServerEvent(event, ctx(event, qc, { isActive: () => active }));
+      active = false; // retire before the flush
+      await settle(); // window flushed (and dropped, guards all retired)
+
+      // A different SSE generation's observers mount the same scope: the
+      // surviving invalidation must force a refetch even though the data is
+      // young — no multi-minute stale read.
+      const remount = observe(keys.habitatTasks("h1", {}));
+      const remountDetail = observe(keys.habitatDetail);
+      await awaitRevision(remount, 2);
+      await awaitRevision(remountDetail, 2);
+      expect(state(keys.habitatTasks("h1", {}))).toEqual({ data: 2, fetches: 2 });
+      expect(state(keys.habitatDetail)).toEqual({ data: 2, fetches: 2 });
+    });
+
+    it("event already stale at reception ⇒ zero effects (no stale mark, no fetch, remount reads cache)", async () => {
+      const { qc, serverRevision, observe, awaitRevision, settle, state, keys } = setup();
+      const first = observe(keys.habitatTasks("h1", {}));
+      await awaitRevision(first, 1);
+      first.destroy();
+
+      serverRevision.value = 2;
+      const event = {
+        type: "task.updated",
+        data: makeTask({ version: 2 }),
+      } as unknown as SSEEvent;
+      // Generation already retired when the event projects: the message-level
+      // fence (ADR 0040 item 4) leaves nothing to accept — no cache effect.
+      await projectSSEServerEvent(event, ctx(event, qc, { isActive: () => false }));
+      await settle();
+
+      expect(qc.getQueryState(keys.habitatTasks("h1", {}))?.isInvalidated).toBe(false);
+      expect(state(keys.habitatTasks("h1", {}))).toEqual({ data: 1, fetches: 1 });
+      const remount = observe(keys.habitatTasks("h1", {}));
+      await settle(); // any wrongful fetch would land here
+      expect(remount.getCurrentResult().data?.revision).toBe(1);
+      expect(state(keys.habitatTasks("h1", {}))).toEqual({ data: 1, fetches: 1 });
     });
   });
 

@@ -162,9 +162,14 @@ function invalidateTaskDetail<T extends SSEEventType>(context: ServerProjectionC
  * cancel-restart refetch per event. Timer — not `queueMicrotask` — because a
  * microtask checkpoint runs between every SSE listener, so microtasks
  * coalesce nothing; the timer is armed once per generation, bounding each
- * event's wait to one window. A habitat's flush takes effect only while at
- * least one of its enqueued source subscriptions (`isActive`) is still
- * active — a retired generation never refetches.
+ * event's wait to one window. Two-phase semantics: an event ACCEPTED by a
+ * live generation marks the scope's cached entries stale synchronously at
+ * reception (`refetchType: "none"`, no request), while the REQUEST is
+ * deferred to the flush and runs only while at least one of the habitat's
+ * enqueued source subscriptions (`isActive`) is still active — a retired
+ * generation never issues a request, and an accepted invalidation is never
+ * lost: the next mount of the scope refetches fresh despite a long
+ * staleTime.
  */
 const HABITAT_SCOPE_COALESCE_WINDOW_MS = 50;
 
@@ -182,6 +187,25 @@ function scheduleHabitatScopeInvalidation(
   habitatId: string,
   isActive: () => boolean,
 ): void {
+  // Accepted by a live generation (fence rechecked before the effect, per
+  // ADR 0040 item 4): mark the scope's cached entries stale NOW with
+  // `refetchType: "none"` — a pure cache-state transition, no request. The
+  // window below then decides only whether a REQUEST runs, so retiring
+  // before the flush loses the request, never the accepted invalidation: a
+  // later mount refetches fresh despite a long staleTime instead of reading
+  // the pre-event revision until staleness expires. Events already stale at
+  // reception fail this fence (and the message handler's earlier check) and
+  // mark nothing — zero effects for a stale generation.
+  if (isActive()) {
+    qc.invalidateQueries({
+      queryKey: queryKeys.habitats.detail(habitatId),
+      refetchType: "none",
+    });
+    qc.invalidateQueries({
+      queryKey: [...queryKeys.habitats.all, "tasks", habitatId],
+      refetchType: "none",
+    });
+  }
   let batch = habitatScopeBatches.get(qc);
   if (!batch) {
     habitatScopeBatches.set(qc, (batch = { pending: new Set(), guards: new Map(), timer: null }));
@@ -205,7 +229,10 @@ function scheduleHabitatScopeInvalidation(
     for (const pendingHabitatId of flushing) {
       const pendingGuards = flushingGuards.get(pendingHabitatId);
       // Stale-generation fence: every enqueued source subscription retired —
-      // the queued invalidation dies here instead of refetching.
+      // the queued REQUEST dies here instead of firing. Only the request is
+      // dropped: live-reception events already marked the scope's cache
+      // entries stale (refetchType "none") at enqueue time, so the next
+      // mount refetches fresh rather than serving the stale revision.
       if (!pendingGuards?.size) continue;
       if (!Array.from(pendingGuards).some((fence) => fence())) continue;
       qc.invalidateQueries({ queryKey: queryKeys.habitats.detail(pendingHabitatId) });
@@ -225,7 +252,10 @@ function scheduleHabitatScopeInvalidation(
  * filters element would fail prefix matching against filtered/paginated
  * variants — so every active TaskTableView/SprintDashboard variant refetches.
  * The habitat-scoped pair (detail + task-list prefix) is window-coalesced per
- * QueryClient per habitat — see `scheduleHabitatScopeInvalidation`. Invalidate
+ * QueryClient per habitat — see `scheduleHabitatScopeInvalidation`: accepted
+ * events mark the cached pair stale immediately (no fetch); the refetch
+ * request runs at the window flush only while a source generation is live.
+ * Invalidate
  * only — no speculative patch. Does NOT reset the events-infinite family:
  * that ownership belongs to exactly one canonical SSE per transition (see
  * `projectTaskServer`).
