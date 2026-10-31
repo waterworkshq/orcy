@@ -331,3 +331,138 @@ describe("task email authorization query work (PR149 review)", () => {
     expect(sentEnvelopes).toHaveLength(0);
   });
 });
+
+// --- SINGLE-USER admission query shape ---------------------------------------
+//
+// checkHabitatAccess (realtimeAuth middleware — presence heartbeat every 30s,
+// mission/task guards) calls humanCanAccessHabitat for ONE user per request.
+// Delegating that to the batch helper (humansWithHabitatAccess) would make
+// every such request load the habitat's ENTIRE team roster. These tests pin
+// the single-user query WORK: the
+// membership query must bind BOTH the habitat id and the user id (selective
+// predicate) and materialize at most one row, independent of team size.
+//
+// Instrumentation extends captureAuthorizationStatements with row counting:
+// drizzle's projected `.all()` delegates to `values()`, which prepares its own
+// statement, binds, and steps rows (the first prepared statement is discarded
+// unexecuted) — so the executed statement is the one that binds.
+interface CapturableStatement {
+  bind: (params: unknown[]) => void;
+  step: () => boolean;
+  get: (...args: unknown[]) => unknown;
+  getAsObject: (...args: unknown[]) => unknown;
+  run: (...args: unknown[]) => unknown;
+  free: () => void;
+}
+
+interface StatementWork {
+  sql: string;
+  boundParams: number;
+  rowsStepped: number;
+}
+
+function captureAuthorizationWork(run: () => unknown): StatementWork[] {
+  const client = (
+    getDb() as unknown as {
+      session: { client: { prepare: (source: string) => CapturableStatement } };
+    }
+  ).session.client;
+  const work: StatementWork[] = [];
+  const originalPrepare = client.prepare;
+  client.prepare = (source: string) => {
+    const stmt = originalPrepare.call(client, source);
+    const entry: StatementWork = { sql: source, boundParams: 0, rowsStepped: 0 };
+    work.push(entry);
+    return {
+      bind: (params: unknown[]) => {
+        entry.boundParams = params.length;
+        return stmt.bind(params);
+      },
+      step: () => {
+        const hasRow = stmt.step();
+        if (hasRow) entry.rowsStepped += 1;
+        return hasRow;
+      },
+      get: (...args: unknown[]) => stmt.get(...args),
+      getAsObject: (...args: unknown[]) => stmt.getAsObject(...args),
+      run: (...args: unknown[]) => stmt.run(...args),
+      free: () => stmt.free(),
+    };
+  };
+  try {
+    run();
+  } finally {
+    client.prepare = originalPrepare;
+  }
+  return work;
+}
+
+function assertSingleUserMembershipShape(work: StatementWork[], expectedRows: number): void {
+  const membership = work.filter((w) => w.sql.includes('from "team_members"'));
+  // drizzle projected `.all()` double-prepares; both carry the SQL shape.
+  expect(membership).toHaveLength(2);
+  for (const stmt of membership) {
+    // Selective predicate: BOTH the habitat id and the USER id are bound
+    // values — a habitat-only query (the batch shape) materializes the roster.
+    expect(stmt.sql.split("?").length - 1).toBe(2);
+  }
+  // Exactly one statement really executes (binds); it materializes at most
+  // the queried user's single row, never the team roster.
+  const executed = membership.filter((stmt) => stmt.boundParams > 0);
+  expect(executed).toHaveLength(1);
+  expect(executed[0].boundParams).toBe(2);
+  expect(executed[0].rowsStepped).toBe(expectedRows);
+}
+
+describe("single-user habitat admission query shape", () => {
+  beforeEach(async () => {
+    await initTestDb();
+    sentEnvelopes.length = 0;
+  });
+  afterEach(() => closeDb());
+
+  it("humanCanAccessHabitat binds the user predicate and materializes one row on a 3300-member team", () => {
+    const { teamId, habitatId } = seedTeamHabitatWorld();
+    for (let n = 0; n < 3300; n++) {
+      const id = `proof-roster-${n}`;
+      mkUser(id, id, "editor", `${id}@example.invalid`);
+      teamMemberRepo.addMember({ teamId, userId: id, role: "member" });
+    }
+
+    let admitted = false;
+    const memberWork = captureAuthorizationWork(() => {
+      admitted = teamMemberRepo.humanCanAccessHabitat(habitatId, "proof-member-admin");
+    });
+    expect(admitted).toBe(true);
+    assertSingleUserMembershipShape(memberWork, 1);
+
+    let denied = true;
+    const nonmemberWork = captureAuthorizationWork(() => {
+      denied = teamMemberRepo.humanCanAccessHabitat(habitatId, "proof-admin-ext");
+    });
+    expect(denied).toBe(false);
+    assertSingleUserMembershipShape(nonmemberWork, 0);
+  });
+
+  it("access parity on team and missing habitats: single-user and batch helpers agree", () => {
+    const team = seedTeamHabitatWorld();
+    const cases: Array<[string, string, boolean]> = [
+      [team.habitatId, "proof-member-admin", true],
+      [team.habitatId, "proof-actor", true],
+      [team.habitatId, "proof-admin-ext", false],
+      ["habitat-that-does-not-exist", "proof-member-admin", false],
+    ];
+    for (const [habitatId, userId, expected] of cases) {
+      expect(teamMemberRepo.humanCanAccessHabitat(habitatId, userId), `${habitatId}/${userId}`).toBe(expected);
+      expect(teamMemberRepo.humansWithHabitatAccess(habitatId, [userId]).has(userId), `${habitatId}/${userId}`).toBe(expected);
+    }
+  });
+
+  it("access parity on personal habitats: single-user and batch helpers agree", () => {
+    const personal = seedPersonalHabitatWorld();
+    for (const userId of ["proof-actor", "proof-admin-ext"]) {
+      expect(teamMemberRepo.humanCanAccessHabitat(personal.habitatId, userId), userId).toBe(true);
+      expect(teamMemberRepo.humansWithHabitatAccess(personal.habitatId, [userId]).has(userId), userId).toBe(true);
+    }
+  });
+});

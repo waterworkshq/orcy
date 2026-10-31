@@ -84,23 +84,29 @@ export function isTeamMemberByHabitatId(habitatId: string, userId: string): bool
  * membership — a deployment-wide admin role alone grants no admission. A
  * missing habitat admits nobody (fail closed).
  *
- * Single-user projection of {@link humansWithHabitatAccess} — the policy is
- * implemented exactly once, there.
+ * Per-request path (presence heartbeat, mission/task guards): the membership
+ * query binds BOTH the habitat id and the user id, so work is independent of
+ * team size. Deliberately NOT a projection of {@link humansWithHabitatAccess}
+ * — the batch helper's habitat-keyed query would materialize the whole team
+ * roster on every single-user check.
  */
 export function humanCanAccessHabitat(habitatId: string, userId: string): boolean {
-  return humansWithHabitatAccess(habitatId, [userId]).has(userId);
+  const habitat = getHabitatById(habitatId);
+  if (!habitat) return false;
+  if (!habitat.teamId) return true;
+  return isTeamMemberByHabitatId(habitatId, userId);
 }
 
 /**
- * Batch arity of {@link humanCanAccessHabitat} for recipient fan-out (task
- * notification email). Loads the habitat once, then reads the habitat
- * team's current member ids with a single habitat-keyed query whose only
- * bound value is the habitat id — no recipient-count-bound parameters, so
- * the candidate-set size has no SQLite host-parameter ceiling — and returns
- * the stdlib Set intersection with the candidates. Same admission policy as
- * {@link humanCanAccessHabitat}: missing habitat admits nobody, personal
- * habitats admit every candidate, team habitats admit only current members;
- * an empty candidate set runs no query.
+ * Batch arity of the human admission rule for recipient fan-out (task
+ * notification email); the policy statements mirror
+ * {@link humanCanAccessHabitat} above. Loads the habitat once, then reads the
+ * habitat team's current member ids with a single habitat-keyed query whose
+ * only bound value is the habitat id — no recipient-count-bound parameters,
+ * so the candidate-set size has no SQLite host-parameter ceiling — and
+ * returns the stdlib Set intersection with the candidates. Missing habitat
+ * admits nobody, personal habitats admit every candidate, team habitats
+ * admit only current members; an empty candidate set runs no query.
  */
 export function humansWithHabitatAccess(habitatId: string, userIds: readonly string[]): Set<string> {
   if (userIds.length === 0) return new Set();
