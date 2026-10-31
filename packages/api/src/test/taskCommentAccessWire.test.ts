@@ -397,7 +397,11 @@ beforeAll(async () => {
 
   // Human mention recipient with a real account row, real email and real
   // habitat-level mention preference — the production recipient path reads
-  // exactly these rows.
+  // exactly these rows. The recipient is a TEAM-A MEMBER: the mention email
+  // carries the private team habitat's task content, so recipient
+  // authorization (issue #139) requires the same habitat admission as the
+  // read surface — a nonmember human would be suppressed by the disclosure
+  // gate.
   userRepo.createUser({
     id: "tcw-mention-human",
     username: "tcw-mention-human",
@@ -406,6 +410,7 @@ beforeAll(async () => {
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
   });
+  teamMemberRepo.addMember({ teamId: teamA.id, userId: "tcw-mention-human", role: "member" });
   getDb()
     .update(users)
     .set({ email: "tcw-mention-human@example.test" })
