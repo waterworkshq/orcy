@@ -116,9 +116,18 @@ export function executeRetry(task: Task): Task | null {
   return updated;
 }
 
-/** Moves an exhausted task out of the retry loop for human attention and emits an escalation transition. */
+/**
+ * Moves an exhausted task out of the retry loop for human attention and emits an escalation transition.
+ * A `rejected` task escalates as attention bookkeeping only — its owner and
+ * continuation token survive so the documented rework restart keeps working;
+ * the custody-ending writer stays exclusive to the failed lane (#137).
+ */
 export function escalateToHuman(task: Task): Task | null {
   const policy = getEffectivePolicy(task);
+
+  if (task.status === "rejected") {
+    return escalateRejectedAttention(task, policy);
+  }
 
   const updated = retryEscalateClearOwnerWithEffects(task.id);
   if (!updated) return null;
@@ -139,6 +148,39 @@ export function escalateToHuman(task: Task): Task | null {
   });
 
   return updated;
+}
+
+/**
+ * Rejected-lane escalation arm (#137): records `escalated` attention WITHOUT
+ * ending custody — the still-assigned owner keeps the rejected-continuation
+ * token and restarts rework under existing review semantics. A stale
+ * `nextRetryAt` (policy-shrink edge) is retired so the retry processor
+ * cannot re-escalate the row on every tick.
+ */
+function escalateRejectedAttention(task: Task, policy: RetryPolicy | null): Task | null {
+  let current = task;
+  if (task.nextRetryAt != null) {
+    const updated = taskRepo.updateTask(task.id, { nextRetryAt: null });
+    if (!updated.success || !updated.task) return null;
+    current = updated.task;
+  }
+
+  const habitatId = taskRepo.getHabitatIdForTask(task.id) ?? "";
+
+  emitTransition(task.id, "escalated", habitatId, {
+    actorType: "system",
+    actorId: "retry-service",
+    reason: task.rejectionReason ?? "max retries exceeded",
+    retryCount: task.retryCount,
+    metadata: {
+      retryCount: task.retryCount,
+      maxRetries: policy?.maxRetries ?? DEFAULT_POLICY.maxRetries,
+      rejectionReason: task.rejectionReason,
+    },
+    task: current,
+  });
+
+  return current;
 }
 
 /** Advances all due retry tasks, either executing the next attempt or escalating once the limit is reached. */
