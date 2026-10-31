@@ -17,7 +17,7 @@
  *   - Schema-parity / representative repository read-write across all
  *     post-consolidation domains.
  */
-import { vi, describe, it, expect, afterEach, beforeEach } from "vitest";
+import { vi, describe, it, expect, afterEach, afterAll, beforeEach } from "vitest";
 
 // Migration-chain tests build file-backed databases through the full journal
 // (now including the staged preflight/enforcement protocol) — allow headroom
@@ -25,7 +25,7 @@ import { vi, describe, it, expect, afterEach, beforeEach } from "vitest";
 vi.setConfig({ testTimeout: 60_000 });
 import { closeDb, initDb, getDb } from "../db/index.js";
 import { join } from "node:path";
-import { existsSync, readFileSync, unlinkSync, mkdirSync } from "node:fs";
+import { existsSync, readFileSync, unlinkSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { createHash } from "node:crypto";
 import Database from "better-sqlite3";
 import { sql } from "drizzle-orm";
@@ -33,7 +33,13 @@ import * as schema from "../db/schema/index.js";
 
 const PACKAGE_ROOT = join(import.meta.dirname, "..", "..");
 const DRIZZLE_DIR = join(PACKAGE_ROOT, "drizzle");
-const TEMP_DIR = join(PACKAGE_ROOT, ".test-f2-migration");
+// Per-invocation ownership (mkdtemp): two concurrent Vitest invocations of
+// this suite each get a unique temp directory, so neither can unlink the
+// other's live database. Torn down in afterAll — this invocation's dir only.
+const TEMP_DIR = mkdtempSync(join(PACKAGE_ROOT, ".test-f2-migration-"));
+afterAll(() => {
+  rmSync(TEMP_DIR, { recursive: true, force: true });
+});
 
 function ensureTempDir(): void {
   if (!existsSync(TEMP_DIR)) mkdirSync(TEMP_DIR, { recursive: true });

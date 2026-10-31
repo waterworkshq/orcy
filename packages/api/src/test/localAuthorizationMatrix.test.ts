@@ -21,9 +21,9 @@
  * (`services/localAuthorization.ts`, `AuthorizationTarget`, `LocalPrincipal`,
  * `AuthorizationDenialReason`, `materialized`). Status: UNRUN.
  */
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, afterAll } from "vitest";
 import { join } from "node:path";
-import { existsSync, mkdirSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { sql } from "drizzle-orm";
 import { closeDb, initDb, getDb } from "../db/index.js";
 import {
@@ -43,7 +43,13 @@ import { createAgent } from "../repositories/agent.js";
 import { updateTaskFixtureForTests } from "./helpers/taskFixtures.js";
 
 const PACKAGE_ROOT = join(import.meta.dirname, "..", "..");
-const TEMP_DIR = join(PACKAGE_ROOT, ".test-local-authorization");
+// Per-invocation ownership (mkdtemp): two concurrent Vitest invocations of
+// this suite each get a unique temp directory, so neither can unlink the
+// other's live database. Torn down in afterAll — this invocation's dir only.
+const TEMP_DIR = mkdtempSync(join(PACKAGE_ROOT, ".test-local-authorization-"));
+afterAll(() => {
+  rmSync(TEMP_DIR, { recursive: true, force: true });
+});
 
 const BUILTIN_COORDINATOR_DEF = "builtin-role-coordinator";
 const BUILTIN_COORDINATOR_REV = "builtin-role-coordinator-rev-1";
