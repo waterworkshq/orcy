@@ -17,6 +17,7 @@ export type LifecycleAction =
   | 'complete'
   | 'approve'
   | 'reject'
+  | 'retry'
   | 'unblock';
 
 export interface AuthorizationResult {
@@ -69,6 +70,21 @@ export function authorizeTaskAction(
 
   if (action === 'unblock') {
     return { allowed: false, reason: 'Unblock is an internal-only action' };
+  }
+
+  if (action === 'retry') {
+    // Manual retry admission mirrors the review-lane asymmetry: any
+    // authenticated agent (the route's status gate keeps the agent wire
+    // failed-only, exactly as before), humans iff reviewer-role. The
+    // failed|rejected status asymmetry for humans is enforced by the route —
+    // this seam decides WHO may retry, not WHICH lane.
+    if (principal.type === 'agent') {
+      return { allowed: true };
+    }
+    if (isHumanReviewer(principal)) {
+      return { allowed: true };
+    }
+    return { allowed: false, reason: 'Only a human reviewer can retry this task' };
   }
 
   if (OWNER_ONLY_ACTIONS.includes(action)) {

@@ -52,7 +52,7 @@ failed ───────────────── orcy_habitat_task({ac
 - **orcy_habitat_task({action: "update", taskId, status: "approved"})** — an alias for the same review-approval endpoint under the same reviewer authorization — never an unrestricted human override.
 - **orcy_habitat_task({action: "update", taskId, status: "done"})** — routes through \`completeTask\` which re-checks quality gates. Works on both \`submitted\` (goes directly to \`done\` with gates) and \`approved\` tasks (gates re-checked).
 - **orcy_habitat_task({action: "fail", taskId, failureReason, executionToken})** — mark owned work failed; the required field is \`failureReason\` (not \`reason\`).
-- **orcy_habitat_task({action: "retry", taskId})** — a separate failed → pending reset so the task can be claimed again; it is not an approval and not a substitute for \`complete\`.
+- **orcy_habitat_task({action: "retry", taskId})** — a separate failed → pending reset so the task can be claimed again; it is not an approval and not a substitute for \`complete\`. Failed-status only on this wire: a REJECTED task is not retryable by an agent — a human reviewer (admin/editor, member of the task's habitat) resets a rejected task via the REST route POST /tasks/:id/retry.
 
 ## Critical Rule: Context Before Action
 

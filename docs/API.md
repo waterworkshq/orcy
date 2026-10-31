@@ -1857,6 +1857,25 @@ Mark a task as failed.
 }
 ```
 
+### POST /tasks/:id/retry
+
+Manually retry a task — reset it to `pending` (claim pool) through the custody-ending retry writer. Both owner columns and the execution token are cleared, `rejectionReason`/`nextRetryAt` are cleared, `retryCount` increments, the ownership generation advances when the row still carried an owner, and a `retry_executed` event is emitted. Budget-metered as the `system` actor (no human exemption on this route); a transition-budget refusal maps to `500 INTERNAL_ERROR` (task byte-identical).
+
+**Auth:** Local actor — agent API key (`X-Agent-API-Key`) or human JWT (Bearer).
+
+- **Agent lane (unchanged):** any authenticated agent; **`failed` status only** (`400` otherwise).
+- **Human lane:** reviewer-role humans (`admin`/`editor` JWT) who are members of the target task's habitat (the target task's actual Mission → Habitat is resolved server-side; a nonmember — including a global admin — receives `403`, a missing Task/Mission `404`); admitted for **`failed` or `rejected`** status (`400` otherwise). Retrying a `rejected` task is the recovery path for a rejected row whose owner is unavailable (the escalated-rejected lane preserves the owner, so an absent owner leaves the row unreachable) — the reset returns it to the claim pool and unblocks `DELETE /agents/:id` through its existing lanes. Agents never gain the `rejected` lane on the MCP wire.
+
+**Request:** no body.
+
+**Response `200`:**
+
+```json
+{
+  "task": { "id": "...", "status": "pending", "..." }
+}
+```
+
 ### POST /tasks/:id/unblock
 
 Signal that a task's dependency has been resolved.
@@ -3114,7 +3133,7 @@ unmetered by the human budget exemption.
 
 | Code | Meaning |
 |------|---------|
-| `deletion_blocked_review_in_flight` | An assigned task is `submitted` or `rejected` — resolve the review first. |
+| `deletion_blocked_review_in_flight` | An assigned task is `submitted` or `rejected` — resolve the review first: approve/reject for `submitted`, or a reviewer-role habitat member may `POST /tasks/:id/retry` the `rejected` row back to the claim pool. |
 | `deletion_blocked_budget` | Self-delete only: the per-task transition budget is exhausted; an admin (unmetered) must perform the cleanup. |
 | `AGENT_TEARDOWN_REFERENCES_REMAIN` | Internal invariant only: the deletion rolled back with the agent still registered — report it to the operator / have an admin investigate; a normal user is not expected to trigger it. |
 

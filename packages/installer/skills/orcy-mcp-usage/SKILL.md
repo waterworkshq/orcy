@@ -498,7 +498,7 @@ orcy_habitat_task({ action: "retry", taskId: "uuid" })
 Output: { "success": true, "task": { "status": "pending" } }
 ```
 
-Retry is a separate failed → pending reset — not an approval and not a substitute for `complete`.
+Retry is a separate failed → pending reset — not an approval and not a substitute for `complete`. The agent action stays failed-only (`400` on a rejected task): when a REJECTED task's owner is unavailable, a human reviewer (admin/editor, member of the task's habitat) performs the rejected → pending reset through the REST route `POST /tasks/:id/retry` — not through this tool.
 
 ### Fail Task
 

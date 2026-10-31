@@ -28,6 +28,7 @@ import {
   InterceptorVetoError,
 } from "../../errors.js";
 import { applyDeclaredAuthPolicies } from "../../authPolicy.js";
+import { authorizeTaskAccess } from "../../middleware/realtimeAuth.js";
 
 const taskParamsSchema = z.object({ id: z.string() });
 
@@ -449,15 +450,43 @@ export async function taskLifecycleRoutes(fastify: FastifyInstance): Promise<voi
     .withTypeProvider<ZodTypeProvider>()
     .post(
       "/tasks/:id/retry",
-      { schema: { params: taskParamsSchema }, config: { authPolicy: "agent" } },
+      { schema: { params: taskParamsSchema }, config: { authPolicy: "local_actor" } },
       async (request, _reply) => {
         const task = taskRepo.getTaskById(request.params.id);
         if (!task) {
           throw notFound("Task not found");
         }
 
-        if (task.status !== "failed") {
-          throw badRequest("Task must be in failed status to retry");
+        const principal = getPrincipalFromRequest(request);
+
+        // Human lane object authorization: resolve the TARGET task's actual
+        // Mission → Habitat and require team membership on team habitats
+        // (same seam as the effort/time-tracking/task-object routes — a
+        // global-role-only human never reaches the writer). Agents pass on
+        // any existing habitat; the agent wire is unchanged.
+        if (principal?.type === "human") {
+          await authorizeTaskAccess(request, request.params.id);
+        }
+
+        const auth = authorizeTaskAction(task, principal, "retry");
+        if (!auth.allowed) {
+          throw forbidden(auth.reason ?? "Forbidden");
+        }
+
+        // Status gate asymmetry: the agent lane stays failed-only (unchanged
+        // contract); a human reviewer may additionally retry a `rejected`
+        // task — the custody-ending reset that returns an owner-stranded
+        // rejected row to the claim pool. `submitted` still blocks both.
+        const humanRetry = principal?.type === "human";
+        const retryableStatus = humanRetry
+          ? task.status === "failed" || task.status === "rejected"
+          : task.status === "failed";
+        if (!retryableStatus) {
+          throw badRequest(
+            humanRetry
+              ? "Task must be in failed or rejected status to retry"
+              : "Task must be in failed status to retry",
+          );
         }
 
         const retried = retryService.executeRetry(task);

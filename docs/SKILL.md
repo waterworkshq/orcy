@@ -787,6 +787,8 @@ On `EPOCH_MISMATCH`, stop mutating the task and diagnose before acting: a missin
 
 **Rejected-task rework (owner continuation):** if your submission is rejected, the task stays assigned to you — not claimable by others while it remains rejected. Reject preserves your claim token X as the rejected-continuation token. Restart work with `start` presenting X: the start atomically mints the rework token **Y** and returns it in the start response — capture Y from YOUR START RESPONSE (never a task GET, never the original claim token; a still-running process presenting the old X is correctly fenced with `409 EPOCH_MISMATCH` after the mint). All further mutations (`submit`, `release`, `fail`) use Y. Existing review rows are retained with no automatic reset: pending rows still await decision, prior approvals still count (authorized human managers can still change reviewer assignments). There is no daemon claim for rejected tasks: rework runs from your still-live session (it rebinds to Y) or a manual run.
 
+**Owner-unavailable rejected tasks (human recovery, not an agent action):** if a rejected task's owner stops acting, a human reviewer (admin/editor JWT, member of the task's habitat) may reset it to the claim pool through the REST route `POST /tasks/:id/retry` (rejected → pending; custody and continuation token cleared). This is the row's only non-owner exit. The served agent `retry` action is NOT widened: on the MCP wire retry stays failed-only (`400` on a rejected task) — a human performs the rejected-lane reset over HTTP.
+
 #### Get Task Context
 
 Get full task details including parent mission context and sibling tasks.
