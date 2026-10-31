@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { QueryClient, QueryObserver } from "@tanstack/react-query";
 import { projectSSEServerEvent } from "./registry.js";
 import { queryKeys } from "../lib/queryKeys.js";
@@ -259,6 +259,242 @@ describe("issue — task SSE events refresh active habitat task-list observers",
     await awaitRevision(h1List, 2);
     expect(state(keys.missionTasks)).toEqual({ data: 2, fetches: 2 });
     expect(state(keys.habitatTasks("h1", {}))).toEqual({ data: 2, fetches: 2 });
+  });
+
+  describe("burst coalescing — habitat-scope invalidations are windowed per QueryClient", () => {
+    it("100-event synchronous burst (single listener stack) also coalesces to one refetch", async () => {
+      const { qc, serverRevision, observe, awaitRevision, settle, state, keys } = setup();
+      const h1Lists = habitatVariants.map((v) => observe(keys.habitatTasks("h1", v.filters)));
+      for (const o of h1Lists) await awaitRevision(o, 1);
+
+      serverRevision.value = 2;
+      for (let i = 0; i < 100; i++) {
+        const event = {
+          type: "task.updated",
+          data: makeTask({ id: `t${i}`, version: 2 }),
+        } as unknown as SSEEvent;
+        void projectSSEServerEvent(event, ctx(event, qc));
+      }
+
+      for (const o of h1Lists) await awaitRevision(o, 2);
+      await settle();
+      for (const v of habitatVariants) {
+        const s = state(keys.habitatTasks("h1", v.filters));
+        expect(s.data, v.label).toBe(2);
+        expect(s.fetches, v.label).toBeLessThanOrEqual(2);
+      }
+    });
+
+    it("two QueryClients in the same window each flush their own state (no shared flag, no cross-client loss)", async () => {
+      const a = setup();
+      const b = setup();
+      const aList = a.observe(a.keys.habitatTasks("h1", {}));
+      const bList = b.observe(b.keys.habitatTasks("h1", {}));
+      await a.awaitRevision(aList, 1);
+      await b.awaitRevision(bList, 1);
+
+      a.serverRevision.value = 2;
+      b.serverRevision.value = 2;
+      // Client A bursts 100 events for h1; client B schedules ONE h1 event in
+      // the SAME window. A shared scheduled-flag across clients would ride B's
+      // habitat on A's timer and B would never flush — B must still advance.
+      for (let i = 0; i < 100; i++) {
+        const event = {
+          type: "task.updated",
+          data: makeTask({ id: `t${i}`, version: 2 }),
+        } as unknown as SSEEvent;
+        void projectSSEServerEvent(event, ctx(event, a.qc));
+      }
+      const bEvent = {
+        type: "task.updated",
+        data: makeTask({ id: "bx", version: 2 }),
+      } as unknown as SSEEvent;
+      void projectSSEServerEvent(bEvent, ctx(bEvent, b.qc));
+
+      await a.awaitRevision(aList, 2);
+      await b.awaitRevision(bList, 2);
+      await a.settle();
+      expect(a.state(a.keys.habitatTasks("h1", {})).fetches).toBe(2);
+      expect(b.state(b.keys.habitatTasks("h1", {})).fetches).toBe(2);
+    });
+
+    it("drip slower than the window still lands the latest revision — no starvation, no dropped tail", async () => {
+      const { qc, serverRevision, observe, awaitRevision, settle, state, keys } = setup();
+      const h1List = observe(keys.habitatTasks("h1", {}));
+      await awaitRevision(h1List, 1);
+
+      // Each event gets its own generation (spacing > coalesce window): the
+      // honest ceiling — spaced events refetch per event, exactly like today,
+      // and the LAST event's revision must still land (nothing dropped).
+      for (let i = 0; i < 5; i++) {
+        serverRevision.value = i + 2;
+        const event = {
+          type: "task.updated",
+          data: makeTask({ id: `d${i}`, version: i + 2 }),
+        } as unknown as SSEEvent;
+        void projectSSEServerEvent(event, ctx(event, qc));
+        await new Promise((r) => setTimeout(r, 80));
+      }
+      await settle();
+      const s = state(keys.habitatTasks("h1", {}));
+      expect(s.data).toBe(6);
+      expect(s.fetches).toBeGreaterThanOrEqual(2);
+      expect(s.fetches).toBeLessThanOrEqual(6);
+    });
+  });
+
+  describe("generation fence — a retired subscription's queued invalidation never fires", () => {
+    it("generation retires AFTER enqueue ⇒ zero invalidation, zero fetch (stale gen never effects)", async () => {
+      const { qc, serverRevision, observe, awaitRevision, settle, state, keys } = setup();
+      const h1List = observe(keys.habitatTasks("h1", {}));
+      const habitatDetail = observe(keys.habitatDetail);
+      await awaitRevision(h1List, 1);
+      await awaitRevision(habitatDetail, 1);
+
+      serverRevision.value = 2;
+      let active = true;
+      const event = {
+        type: "task.updated",
+        data: makeTask({ version: 2 }),
+      } as unknown as SSEEvent;
+      await projectSSEServerEvent(event, ctx(event, qc, { isActive: () => active }));
+      active = false; // subscription retires before the window flushes
+      await settle();
+
+      expect(state(keys.habitatTasks("h1", {}))).toEqual({ data: 1, fetches: 1 });
+      expect(state(keys.habitatDetail)).toEqual({ data: 1, fetches: 1 });
+    });
+
+    it("live guard FIRST, retired guard LAST — dropping to a last-write-wins guard must not suppress the flush", async () => {
+      const { qc, serverRevision, observe, awaitRevision, settle, state, keys } = setup();
+      const h1List = observe(keys.habitatTasks("h1", {}));
+      await awaitRevision(h1List, 1);
+
+      serverRevision.value = 2;
+      const live = {
+        type: "task.updated",
+        data: makeTask({ id: "live", version: 2 }),
+      } as unknown as SSEEvent;
+      await projectSSEServerEvent(live, ctx(live, qc, { isActive: () => true }));
+      let retired = true;
+      const dead = {
+        type: "task.updated",
+        data: makeTask({ id: "dead", version: 2 }),
+      } as unknown as SSEEvent;
+      await projectSSEServerEvent(dead, ctx(dead, qc, { isActive: () => retired }));
+      retired = false;
+
+      await awaitRevision(h1List, 2);
+      await settle();
+      expect(state(keys.habitatTasks("h1", {}))).toEqual({ data: 2, fetches: 2 });
+    });
+
+    it("retired guard FIRST, live guard LAST — flush still fires (any-active wins)", async () => {
+      const { qc, serverRevision, observe, awaitRevision, settle, state, keys } = setup();
+      const h1List = observe(keys.habitatTasks("h1", {}));
+      await awaitRevision(h1List, 1);
+
+      serverRevision.value = 2;
+      let retired = true;
+      const dead = {
+        type: "task.updated",
+        data: makeTask({ id: "dead", version: 2 }),
+      } as unknown as SSEEvent;
+      await projectSSEServerEvent(dead, ctx(dead, qc, { isActive: () => retired }));
+      retired = false;
+      const live = {
+        type: "task.updated",
+        data: makeTask({ id: "live", version: 2 }),
+      } as unknown as SSEEvent;
+      await projectSSEServerEvent(live, ctx(live, qc, { isActive: () => true }));
+
+      await awaitRevision(h1List, 2);
+      await settle();
+      expect(state(keys.habitatTasks("h1", {}))).toEqual({ data: 2, fetches: 2 });
+    });
+  });
+
+  describe("timer window determinism (fake timers — no load assumptions)", () => {
+    beforeEach(() => {
+      vi.useFakeTimers();
+    });
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    /** Settle promise-only (observer fetch/notify) chains without advancing the clock. */
+    const drainMicrotasks = async () => {
+      for (let i = 0; i < 10; i++) await Promise.resolve();
+    };
+
+    it("macrotask-dispatched 100-event burst (microtask checkpoint after every listener) flushes exactly ONCE at the window boundary", async () => {
+      const { qc, serverRevision, observe, state, keys } = setup();
+      const h1Lists = habitatVariants.map((v) => observe(keys.habitatTasks("h1", v.filters)));
+      const h2List = observe(keys.habitatTasks("h2", {}));
+      const habitatDetail = observe(keys.habitatDetail);
+      await drainMicrotasks();
+
+      serverRevision.value = 2;
+      // Real EventSource dispatch shape: every message is its own macrotask,
+      // and a microtask checkpoint runs after EVERY listener
+      // (advanceTimersByTimeAsync flushes microtasks between callbacks). A
+      // queueMicrotask-only coalescer flushes between every pair of these and
+      // issues one request per event — that variant must FAIL this test.
+      for (let i = 0; i < 100; i++) {
+        setTimeout(() => {
+          const event = {
+            type: "task.updated",
+            data: makeTask({ id: `t${i}`, version: 2 }),
+          } as unknown as SSEEvent;
+          void projectSSEServerEvent(event, ctx(event, qc));
+        }, 0);
+      }
+
+      await vi.advanceTimersByTimeAsync(49); // the whole burst dispatches; window NOT elapsed
+      for (const v of habitatVariants) {
+        expect(state(keys.habitatTasks("h1", v.filters)).fetches, `49ms ${v.label}`).toBe(1);
+      }
+      await vi.advanceTimersByTimeAsync(1); // boundary: the single flush fires
+      await drainMicrotasks();
+      for (const v of habitatVariants) {
+        const s = state(keys.habitatTasks("h1", v.filters));
+        expect(s.data, v.label).toBe(2);
+        expect(s.fetches, v.label).toBe(2);
+      }
+      const detail = state(keys.habitatDetail);
+      expect(detail.data).toBe(2);
+      expect(detail.fetches).toBe(2);
+      // Negative control: unrelated habitat untouched by the burst.
+      expect(state(keys.habitatTasks("h2", {}))).toEqual({ data: 1, fetches: 1 });
+      await vi.advanceTimersByTimeAsync(200); // nothing pending: no second flush
+      for (const v of habitatVariants) {
+        expect(state(keys.habitatTasks("h1", v.filters)).fetches, v.label).toBe(2);
+      }
+    });
+
+    it("sustained 5ms drip (40 events over 200ms) flushes at window cadence — bounded requests, no starvation, final revision lands", async () => {
+      const { qc, serverRevision, observe, state, keys } = setup();
+      const h1List = observe(keys.habitatTasks("h1", {}));
+      await drainMicrotasks();
+
+      for (let i = 0; i < 40; i++) {
+        setTimeout(() => {
+          serverRevision.value = i + 2;
+          const event = {
+            type: "task.updated",
+            data: makeTask({ id: `s${i}`, version: i + 2 }),
+          } as unknown as SSEEvent;
+          void projectSSEServerEvent(event, ctx(event, qc));
+        }, i * 5);
+      }
+      await vi.advanceTimersByTimeAsync(300);
+      await drainMicrotasks();
+
+      const s = state(keys.habitatTasks("h1", {}));
+      expect(s.data).toBe(41); // the LAST event's revision landed — not starved, not dropped
+      expect(s.fetches).toBeGreaterThanOrEqual(2);
+      expect(s.fetches).toBeLessThanOrEqual(8); // window cadence, never per-event (41)
+    });
   });
 
   it("control: explicit task-list invalidation refreshes the same observers (observer wiring is sound)", async () => {

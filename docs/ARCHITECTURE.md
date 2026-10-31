@@ -152,7 +152,26 @@ each event by representation and applies a per-representation projection:
 - **Invalidate** for partial, filter-sensitive, or version-sensitive
   payloads (e.g. `task.*` invalidates the owning Mission, Mission progress,
   Habitat detail, and the subscription Habitat's task-list key prefix — so
-  every active filtered/paginated task-table variant refetches).
+  every active filtered/paginated task-table variant refetches). The
+  habitat-scoped pair (Habitat detail + task-list prefix) is
+  burst-coalesced: per subscription habitat, per QueryClient (WeakMap — no
+  cross-client state), both invalidations run once per trailing window
+  instead of once per event. The window is a timer, not a microtask
+  (the platform dispatches each SSE message as its own listener callback
+  with a microtask checkpoint between callbacks, so a microtask flush would
+  coalesce nothing), and it is bounded: the timer is armed when a
+  generation starts and never re-armed, so any event flushes within one
+  window of the first event of its generation (50 ms in normal foreground
+  execution; background-tab timer throttling can delay a flush, never drop
+  it) — spaced events (a drip) still invalidate per event, no starvation,
+  and nothing is dropped (the flush swaps out its pending state before
+  invalidating; events arriving during a flush or an in-flight refetch
+  start the next generation, where the supersede-abort signal forwarding
+  keeps the latest response authoritative). A habitat's flush takes effect
+  only while at least one of its enqueued source subscriptions (`isActive`
+  fence) is still active — a retired subscription generation's queued
+  invalidation is discarded at flush time instead of firing, so a stale
+  generation never refetches on behalf of a scope nobody observes anymore.
 - **Generation-reset** for archived-pagination membership or order changes
   (archive/unarchive/delete); the archived infinite Query is reset from
   offset zero.

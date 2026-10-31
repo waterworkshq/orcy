@@ -157,6 +157,66 @@ function invalidateTaskDetail<T extends SSEEventType>(context: ServerProjectionC
 }
 
 /**
+ * Coalesce the habitat-scoped invalidation pair across task-lifecycle bursts:
+ * one trailing-window flush per habitat per QueryClient instead of one
+ * cancel-restart refetch per event. Timer — not `queueMicrotask` — because a
+ * microtask checkpoint runs between every SSE listener, so microtasks
+ * coalesce nothing; the timer is armed once per generation, bounding each
+ * event's wait to one window. A habitat's flush takes effect only while at
+ * least one of its enqueued source subscriptions (`isActive`) is still
+ * active — a retired generation never refetches.
+ */
+const HABITAT_SCOPE_COALESCE_WINDOW_MS = 50;
+
+interface HabitatScopeBatch {
+  pending: Set<string>;
+  /** Per habitat: the isActive fence of every source generation enqueued in the current window. */
+  guards: Map<string, Set<() => boolean>>;
+  timer: ReturnType<typeof setTimeout> | null;
+}
+
+const habitatScopeBatches = new WeakMap<QueryClient, HabitatScopeBatch>();
+
+function scheduleHabitatScopeInvalidation(
+  qc: QueryClient,
+  habitatId: string,
+  isActive: () => boolean,
+): void {
+  let batch = habitatScopeBatches.get(qc);
+  if (!batch) {
+    habitatScopeBatches.set(qc, (batch = { pending: new Set(), guards: new Map(), timer: null }));
+  }
+  batch.pending.add(habitatId);
+  // Accumulate (never replace) fences: a retired source generation must not
+  // suppress a live one enqueued for the same habitat.
+  let habitatGuards = batch.guards.get(habitatId);
+  if (!habitatGuards) batch.guards.set(habitatId, (habitatGuards = new Set()));
+  habitatGuards.add(isActive);
+  if (batch.timer !== null) return; // trailing flush of this generation covers it
+  batch.timer = setTimeout(() => {
+    // Fence discipline: release the timer and swap out pending state BEFORE
+    // any side effect — events arriving during this flush start the NEXT
+    // generation instead of being dropped.
+    batch.timer = null;
+    const flushing = batch.pending;
+    const flushingGuards = batch.guards;
+    batch.pending = new Set();
+    batch.guards = new Map();
+    for (const pendingHabitatId of flushing) {
+      const pendingGuards = flushingGuards.get(pendingHabitatId);
+      // Stale-generation fence: every enqueued source subscription retired —
+      // the queued invalidation dies here instead of refetching.
+      if (!pendingGuards?.size) continue;
+      if (!Array.from(pendingGuards).some((fence) => fence())) continue;
+      qc.invalidateQueries({ queryKey: queryKeys.habitats.detail(pendingHabitatId) });
+      qc.invalidateQueries({
+        queryKey: [...queryKeys.habitats.all, "tasks", pendingHabitatId],
+      });
+    }
+  }, HABITAT_SCOPE_COALESCE_WINDOW_MS);
+}
+
+/**
  * Invalidate the Task representations, the owning Mission progress/detail, the
  * Habitat detail (complete active collection), and the subscription Habitat's
  * task-list family for a task-lifecycle SSE. The task-list invalidation uses
@@ -164,9 +224,11 @@ function invalidateTaskDetail<T extends SSEEventType>(context: ServerProjectionC
  * `queryKeys.habitats.tasks(habitatId)` key, whose trailing `undefined`
  * filters element would fail prefix matching against filtered/paginated
  * variants — so every active TaskTableView/SprintDashboard variant refetches.
- * Invalidate-only — no speculative patch. Does NOT reset the events-infinite
- * family: that ownership belongs to exactly one canonical SSE per transition
- * (see `projectTaskServer`).
+ * The habitat-scoped pair (detail + task-list prefix) is window-coalesced per
+ * QueryClient per habitat — see `scheduleHabitatScopeInvalidation`. Invalidate
+ * only — no speculative patch. Does NOT reset the events-infinite family:
+ * that ownership belongs to exactly one canonical SSE per transition (see
+ * `projectTaskServer`).
  */
 function invalidateTaskLifecycle<T extends SSEEventType>(
   context: ServerProjectionContext<T>,
@@ -187,12 +249,11 @@ function invalidateTaskLifecycle<T extends SSEEventType>(
       });
     }
   }
-  context.queryClient.invalidateQueries({
-    queryKey: queryKeys.habitats.detail(context.subscriptionHabitatId),
-  });
-  context.queryClient.invalidateQueries({
-    queryKey: [...queryKeys.habitats.all, "tasks", context.subscriptionHabitatId],
-  });
+  scheduleHabitatScopeInvalidation(
+    context.queryClient,
+    context.subscriptionHabitatId,
+    context.isActive,
+  );
 }
 
 /**
