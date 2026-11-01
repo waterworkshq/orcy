@@ -1,0 +1,17 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "rootDir": ".",
+    "allowImportingTsExtensions": true
+  },
+  "include": [
+    "playwright.seeded.config.ts",
+    "playwright.seeded.teardown.ts",
+    "vite.e2e.seeded.config.ts",
+    "vitest.safety.config.ts",
+    "e2e/learning-loop-seeded.spec.ts",
+    "e2e/playwright.seeded.safety.test.ts"
+  ],
+  "exclude": ["node_modules", "dist"]
+}
