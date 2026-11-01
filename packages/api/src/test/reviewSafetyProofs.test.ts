@@ -9,9 +9,9 @@
  * and-completion; B3 projected reviewer GET + allocator occupancy; B6
  * cross-habitat requirement GET.
  */
-import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, afterAll, vi } from "vitest";
 import { join } from "node:path";
-import { existsSync, mkdirSync, rmSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, rmSync, readFileSync, writeFileSync } from "node:fs";
 import Database from "better-sqlite3";
 import { eq, and } from "drizzle-orm";
 import { closeDb, getDb, initTestDb, initDb } from "../db/index.js";
@@ -48,7 +48,13 @@ import { reviewSafetyRoutes } from "../routes/reviewSafety.js";
 
 const PACKAGE_ROOT = join(import.meta.dirname, "..", "..");
 const DRIZZLE_DIR = join(PACKAGE_ROOT, "drizzle");
-const TEMP_DIR = join(PACKAGE_ROOT, ".test-rs-proofs");
+// Per-invocation ownership (mkdtemp): two concurrent Vitest invocations of
+// this suite each get a unique temp directory, so neither can unlink the
+// other's live database. Torn down in afterAll — this invocation's dir only.
+const TEMP_DIR = mkdtempSync(join(PACKAGE_ROOT, ".test-rs-proofs-"));
+afterAll(() => {
+  rmSync(TEMP_DIR, { recursive: true, force: true });
+});
 
 let habitatId: string;
 let missionId: string;
@@ -171,8 +177,10 @@ describe("P2: veto commits telemetry through the REAL plugin runtime", () => {
     const pluginManager = await import("../plugins/pluginManager.js");
     const { mkdir, writeFile } = await import("node:fs/promises");
 
-    // REAL plugin file loaded through the production plugin manager.
-    pluginDir = `/tmp/test-runner-rs-veto-${Date.now()}`;
+    // REAL plugin file loaded through the production plugin manager. Lives
+    // inside this invocation's temp dir (unique by construction — a plain
+    // Date.now() name could collide between two overlapping invocations).
+    pluginDir = join(TEMP_DIR, "rs-veto-plugins");
     await mkdir(pluginDir, { recursive: true });
     await writeFile(
       `${pluginDir}/veto-telemetry.mjs`,

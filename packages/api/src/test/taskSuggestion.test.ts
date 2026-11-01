@@ -7,6 +7,7 @@ vi.mock("../repositories/task.js", () => ({
 
 vi.mock("../repositories/mission.js", () => ({
   getMissionById: vi.fn(),
+  getMissionsByIds: vi.fn(),
 }));
 
 vi.mock("../repositories/agent.js", () => ({
@@ -92,6 +93,16 @@ describe("taskSuggestion", () => {
     vi.clearAllMocks();
     vi.mocked(taskRepo.getAvailableTasksForAgent).mockReturnValue([]);
     vi.mocked(missionRepo.getMissionById).mockReturnValue(null);
+    // The batched read (one call per pass) delegates to the single-id stub so
+    // existing per-mission fixtures keep driving titles/SLA through it.
+    vi.mocked(missionRepo.getMissionsByIds).mockImplementation((ids: string[]) => {
+      const map = new Map<string, unknown>();
+      for (const id of ids) {
+        const mission = missionRepo.getMissionById(id);
+        if (mission) map.set(id, mission);
+      }
+      return map as never;
+    });
     vi.mocked(agentRepo.getAgentById).mockReturnValue(null);
     taskScoringMocks.scoreTask.mockReturnValue(50);
     taskScoringMocks.computeSlaUrgencyWeight.mockReturnValue(0);

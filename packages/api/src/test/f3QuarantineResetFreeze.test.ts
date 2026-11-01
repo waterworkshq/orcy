@@ -14,7 +14,7 @@
  *  - A prerelease marker recorded with the pre-F3 0053 hash cannot suppress the
  *    repaired structural migration chain after the immutability banner lands.
  */
-import { vi, describe, it, expect, afterEach, beforeEach } from "vitest";
+import { vi, describe, it, expect, afterEach, afterAll, beforeEach } from "vitest";
 
 // Migration-chain tests build file-backed databases through the full journal
 // (now including the staged preflight/enforcement protocol) — allow headroom
@@ -28,6 +28,7 @@ import {
   readFileSync,
   unlinkSync,
   mkdirSync,
+  mkdtempSync,
   cpSync,
   appendFileSync,
   writeFileSync,
@@ -39,7 +40,14 @@ import { sql } from "drizzle-orm";
 
 const PACKAGE_ROOT = join(import.meta.dirname, "..", "..");
 const DRIZZLE_DIR = join(PACKAGE_ROOT, "drizzle");
-const TEMP_DIR = join(PACKAGE_ROOT, ".test-f3-freeze");
+// Per-invocation ownership (mkdtemp): two concurrent Vitest invocations of
+// this suite each get a unique temp directory (databases AND the copied
+// drizzle-comment-mutation folder), so neither can unlink the other's live
+// files. Torn down in afterAll — this invocation's dir only.
+const TEMP_DIR = mkdtempSync(join(PACKAGE_ROOT, ".test-f3-freeze-"));
+afterAll(() => {
+  rmSync(TEMP_DIR, { recursive: true, force: true });
+});
 const MARKER_TAG = "0053_plugin_quarantine_kind_safe_reset";
 const MARKER_PATH = join(DRIZZLE_DIR, `${MARKER_TAG}.sql`);
 

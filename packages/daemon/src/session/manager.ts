@@ -24,6 +24,10 @@ interface ManagerDeps {
 
 /** {@link ISessionManager} implementation that owns the live session map, spawns CLIs via {@link spawnCli}, and reconciles state through {@link ISessionUpdater}. */
 export class SessionManager implements ISessionManager {
+  // Live sessions only: every terminal path (exit, failure, release, timeout,
+  // start failure) evicts its entry once reconciliation and the completion
+  // callback no longer need map lookup — server-side records are the
+  // durable history.
   private sessions: Map<string, ActiveSession> = new Map();
   private children: Map<string, ChildProcess> = new Map();
   private sessionUpdater: ISessionUpdater;
@@ -168,11 +172,17 @@ export class SessionManager implements ISessionManager {
         this.children.delete(sessionId);
       }
       if (daemonSessionId) {
-        await this.sessionUpdater.updateSession(daemonSessionId, {
-          status: "failed",
-          lastProgress: redact(err instanceof Error ? err.message : String(err)),
-        });
+        // Best-effort terminal write (same policy as every other terminal
+        // path): a rejected reconciliation must not mask the original spawn
+        // failure nor skip the eviction below.
+        try {
+          await this.sessionUpdater.updateSession(daemonSessionId, {
+            status: "failed",
+            lastProgress: redact(err instanceof Error ? err.message : String(err)),
+          });
+        } catch {}
       }
+      this.sessions.delete(sessionId);
       throw err;
     }
 
@@ -199,6 +209,7 @@ export class SessionManager implements ISessionManager {
         status: "released",
       });
     } catch {}
+    this.sessions.delete(sessionId);
   }
 
   async shutdownAll(): Promise<void> {
@@ -234,6 +245,7 @@ export class SessionManager implements ISessionManager {
         lastProgress: reason,
       });
     } catch {}
+    this.sessions.delete(sessionId);
   }
 
   private checkTimeouts(): void {
@@ -261,7 +273,11 @@ export class SessionManager implements ISessionManager {
           () => {},
         );
 
-      this.onSessionComplete?.(session);
+      try {
+        this.onSessionComplete?.(session);
+      } finally {
+        this.sessions.delete(sessionId);
+      }
     }
   }
 
@@ -306,7 +322,11 @@ export class SessionManager implements ISessionManager {
       });
     } catch {}
 
-    this.onSessionComplete?.(session);
+    try {
+      this.onSessionComplete?.(session);
+    } finally {
+      this.sessions.delete(sessionId);
+    }
   }
 
   private async handleProcessError(sessionId: string, error: Error): Promise<void> {

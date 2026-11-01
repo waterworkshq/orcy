@@ -158,14 +158,31 @@ export function getAvailableTasksForAgent(
     .map((r) => r.version);
   const missionGateMap = new Map(habitatMissions.map((m) => [m.id, m]));
 
-  const eligibleMissionIds = habitatMissionIds.filter((fid) => {
-    const deps = db
-      .select()
+  // Bounded mission-eligibility read: ONE habitat-keyed query collects every
+  // habitat mission that still depends on a non-done mission (the dependsOn
+  // target is NOT habitat-filtered — cross-habitat dependency rows block the
+  // same way the former per-mission lookup did). Query work is independent
+  // of habitat mission count; no id-list parameters.
+  const dependingMission = alias(missions, "depending_mission");
+  const dependencyMission = alias(missions, "dependency_mission");
+  const blockedMissionIds = new Set(
+    db
+      .select({ missionId: missionDependencies.missionId })
       .from(missionDependencies)
-      .innerJoin(missions, eq(missionDependencies.dependsOnId, missions.id))
-      .where(and(eq(missionDependencies.missionId, fid), notInArray(missions.status, ["done"])))
-      .all();
-    if (deps.length > 0) return false;
+      .innerJoin(dependingMission, eq(missionDependencies.missionId, dependingMission.id))
+      .innerJoin(dependencyMission, eq(missionDependencies.dependsOnId, dependencyMission.id))
+      .where(
+        and(
+          eq(dependingMission.habitatId, habitatId),
+          notInArray(dependencyMission.status, ["done"]),
+        ),
+      )
+      .all()
+      .map((r) => r.missionId),
+  );
+
+  const eligibleMissionIds = habitatMissionIds.filter((fid) => {
+    if (blockedMissionIds.has(fid)) return false;
     const mission = missionGateMap.get(fid);
     if (mission && !isReleaseGateSatisfied(mission, habitatReleaseTypes, habitatReleaseVersions))
       return false;
