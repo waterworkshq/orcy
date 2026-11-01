@@ -593,11 +593,12 @@ export interface RetryTransitionOptions {
    */
   preserveRejectionReason?: boolean;
   /**
-   * Require transition-budget headroom for TWO metered slots — this reset's
-   * `retry_executed` AND the subsequent replacement claim — checked INSIDE
-   * the writer's BEGIN IMMEDIATE, atomically with the meter count it reads
-   * (the manual recovery lane: a custody-ending reset that the replacement
-   * claim cannot afford must refuse, never strand the row unclaimable).
+   * Require transition-budget headroom for FOUR metered slots — this reset's
+   * `retry_executed` AND the replacement's claim, start, and submit (the
+   * deterministic exact task path of a recovered row) — checked INSIDE the
+   * writer's BEGIN IMMEDIATE, atomically with the meter count it reads (the
+   * manual recovery lane: a custody-ending reset that the replacement path
+   * cannot afford must refuse, never strand the row claimed-but-unstartable).
    * Refusal throws the typed budget-refusal error; the whole
    * reservation rolls back with zero effects.
    */
@@ -605,20 +606,36 @@ export interface RetryTransitionOptions {
 }
 
 /**
- * Recovery-lane headroom check: required=2 — this reset's
- * `retry_executed` AND the subsequent replacement claim — evaluated ON the
- * writer's open transaction, whose BEGIN IMMEDIATE holds the write lock, so
- * a concurrent metered commit cannot slip between this count and the write.
- * One policy: the canonical {@link guardTransition} with the reservation
- * size. Refusal throws {@link RetryTransitionBudgetRefusedError} → the whole
- * reservation rolls back with zero effects; the last slot is never consumed
- * by a custody-ending reset. Called BEFORE the no-op classification too: an
- * already-clean row still EMITS `retry_executed` upstream, so it equally
- * must afford both slots.
+ * The retry reset's transition-budget gate — evaluated ON the writer's open
+ * transaction, whose BEGIN IMMEDIATE holds the write lock, so a concurrent
+ * metered commit cannot slip between this count and the write. Runs for
+ * EVERY lane (manual and background: `retry_executed` is a metered system
+ * transition on all of them), AFTER the preimage CAS, BEFORE any write.
+ * Refusal throws {@link RetryTransitionBudgetRefusedError} → the whole
+ * reservation rolls back with zero effects.
+ *
+ * `required` is the reservation size:
+ *   - 1 (default, every non-recovery lane): this reset's `retry_executed`.
+ *   - 4 (`requireClaimHeadroom`, the manual human recovery lane): the reset
+ *     PLUS the replacement's deterministic exact path — claim + start +
+ *     submit. Two slots were proven insufficient (claimed-but-unstartable
+ *     strand: `started` and `submitted` are metered too, and so is
+ *     `released`, so even backing out was budget-refused). The 5th-slot
+ *     consumer — an agent-reviewer `rejected` at exactly the ceiling — is a
+ *     DOCUMENTED boundary, not a reservation: it refuses typed with the task
+ *     staying `submitted` (review blocked, not a custody strand), and a
+ *     human reviewer is unmetered entirely.
+ *
+ * Called BEFORE the no-op classification too: an already-clean row still
+ * EMITS `retry_executed` upstream, so it equally must afford the slots.
  */
-function requireRetryClaimHeadroom(tx: Parameters<typeof guardTransition>[0], taskId: string): void {
+function requireRetryBudgetHeadroom(
+  tx: Parameters<typeof guardTransition>[0],
+  taskId: string,
+  required: number,
+): void {
   const budgetHabitatId = habitatIdForTaskWithClient(tx, taskId) ?? "";
-  const budget = guardTransition(tx, taskId, budgetHabitatId, "system", "retry_executed", 2);
+  const budget = guardTransition(tx, taskId, budgetHabitatId, "system", "retry_executed", required);
   if (budget.outcome === "refused") {
     throw new RetryTransitionBudgetRefusedError(budget);
   }
@@ -638,8 +655,7 @@ export function retryTransitionToPendingWithEffects(
       const row = tx.select().from(tasks).where(eq(tasks.id, taskId)).get() as TaskRow | undefined;
       if (!row) return null;
 
-      // Manual-retry CAS: refuse, NO effects, when the row
-      // moved since `expected` was pinned — never erase live custody.
+      // Manual-retry CAS: a moved row refuses with NO effects — never erase custody.
       if (
         opts?.expected !== undefined &&
         (row.status !== opts.expected.status || row.version !== opts.expected.version)
@@ -647,8 +663,9 @@ export function retryTransitionToPendingWithEffects(
         return null;
       }
 
-      // Recovery-lane headroom: required=2, on this transaction's count.
-      if (opts?.requireClaimHeadroom === true) requireRetryClaimHeadroom(tx, taskId);
+      // Budget gate: every lane, in-tx, post-CAS — see requireRetryBudgetHeadroom
+      // for the required=4/1 reservation and CAS-before-budget precedence.
+      requireRetryBudgetHeadroom(tx, taskId, opts?.requireClaimHeadroom === true ? 4 : 1);
 
       const preserveReason = opts?.preserveRejectionReason === true;
 

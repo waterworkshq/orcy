@@ -9,7 +9,7 @@ import * as habitatRepo from "../repositories/habitat.js";
 import { logger } from "../lib/logger.js";
 import type { Task, RetryPolicy } from "../models/index.js";
 import { emitTransition } from "./tasks/transition-emitter.js";
-import { guardTransitionTop, type BudgetRefusedOutcome } from "./tasks/transitionBudget.js";
+import type { BudgetRefusedOutcome } from "./tasks/transitionBudget.js";
 
 const DEFAULT_POLICY: RetryPolicy = {
   maxRetries: 3,
@@ -87,8 +87,10 @@ export interface ExecuteRetryOptions {
   /**
    * Preimage CAS pinned from the caller's OWN read of the task: the writer
    * refuses (no effects) when the row moved between that read and the write.
-   * Manual REST retries always pin it; the background processor omits it
-   * (background ladder contract unchanged).
+   * Manual REST retries pin it from the request's fetch; the background
+   * processor pins it from the scheduler snapshot — a stale snapshot (the
+   * row reset/restarted/claimed after the tick's read) refuses instead of
+   * overwriting the newer state.
    */
   expected?: RetryPreimage;
   /**
@@ -99,11 +101,11 @@ export interface ExecuteRetryOptions {
    */
   preserveRejectionReason?: boolean;
   /**
-   * Require transition-budget headroom for TWO metered slots — this reset's
-   * `retry_executed` AND the subsequent replacement claim — enforced INSIDE
-   * the writer's BEGIN IMMEDIATE, atomically with the meter count (the
-   * manual recovery lane; see the writer's headroom guard). The refusal
-   * surfaces as the typed `refused` outcome with zero effects.
+   * Require transition-budget headroom for FOUR metered slots — this reset's
+   * `retry_executed` AND the replacement's claim, start, and submit —
+   * enforced INSIDE the writer's BEGIN IMMEDIATE, atomically with the meter
+   * count (the manual recovery lane; see the writer's headroom guard). The
+   * refusal surfaces as the typed `refused` outcome with zero effects.
    */
   requireClaimHeadroom?: boolean;
 }
@@ -122,26 +124,21 @@ export function executeRetryWithOutcome(
   task: Task,
   opts?: ExecuteRetryOptions,
 ): ExecuteRetryOutcome {
-  // Transition budget (plan §5): retry_executed is the metered progression of
-  // the retry ladder (retry_scheduled is bookkeeping — counted in the meter
-  // when written, but scheduling itself is not guarded). The retry processor
-  // is a system actor: metered. The task keeps its nextRetryAt until a human
-  // resolves it or the ceiling is raised. The first refusal escalates (plan
-  // §6) — emitted once, outside this module, by the guard's breach site.
-  // (The recovery lane's required=2 reservation is enforced INSIDE the
-  // writer's transaction — atomically with the count — not here.)
-  const budgetHabitatId = taskRepo.getHabitatIdForTask(task.id) ?? "";
-  const budget = guardTransitionTop(task.id, budgetHabitatId, "system", "retry_executed");
-  if (budget.outcome === "refused") return { outcome: "refused", refusal: budget };
-
   const newRetryCount = task.retryCount + 1;
 
   // Dedicated immediate retry writer (review safety): the privileged
   // status/assignee reset and the requirement ownership-end invariant share
   // one reservation — the generic task update can no longer perform this.
-  // Inside that BEGIN IMMEDIATE: the preimage CAS (a moved row refuses with
-  // NO effects) and, for the recovery lane, the required=2 headroom (a
-  // refusal rolls the whole reservation back and surfaces typed below).
+  // Inside that BEGIN IMMEDIATE, in order: the preimage CAS (a moved row
+  // refuses with NO effects) and the transition-budget gate — required=1
+  // (every lane: retry_executed is the metered progression of the retry
+  // ladder; retry_scheduled is bookkeeping — counted in the meter when
+  // written, but scheduling itself is not guarded) or required=4 on the
+  // human recovery lane (reset + replacement claim/start/submit). No
+  // service-level preflight exists BY DESIGN: a stale preimage must always
+  // surface as the CAS refusal (VERSION_CONFLICT), never as a spurious
+  // budget breach — CAS takes precedence over the budget check, and the
+  // first genuine refusal escalates from the guard's breach site (plan §6).
   try {
     const updated = opts
       ? retryTransitionToPendingWithEffects(task.id, newRetryCount, opts)
@@ -267,7 +264,16 @@ export function processPendingRetries(): void {
     if (!policy) continue;
 
     if (task.retryCount < (policy.maxRetries ?? 3)) {
-      executeRetry(task);
+      // The scheduler snapshot's preimage is pinned into the writer: a row
+      // that moved after this tick's read (a human rejected-recovery reset
+      // to pending, an owner rework restart, a fresh claim) refuses with NO
+      // effects instead of being overwritten by the stale snapshot — no
+      // duplicate `retry_executed`, no cleared preserved feedback, no
+      // stolen metered slot. A benign version bump only defers the row to
+      // the next tick (nextRetryAt survives the refusal).
+      executeRetry(task, {
+        expected: { status: task.status, version: task.version },
+      });
     } else if (policy.escalateToHuman) {
       escalateToHuman(task);
     }

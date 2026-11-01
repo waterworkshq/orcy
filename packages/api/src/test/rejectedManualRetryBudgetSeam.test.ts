@@ -1,27 +1,36 @@
 /**
- * The budget-of-2 headroom must live INSIDE the retry writer's BEGIN
- * IMMEDIATE — atomically with the meter count it reads (PR158 round-2 review
- * F1). A read-only preflight outside the writer cannot guarantee it: in the
- * window where the preflight allows (count = ceiling-2) a concurrent metered
- * commit on the shared SQLite file moves the count to ceiling-1, the legacy
- * required-1 guard still allows, the retry consumes the final slot, and the
- * replacement claim is refused — the exact custody-ended-but-unclaimable
- * strand this finding exists to prevent.
+ * The transition-budget gate must live INSIDE the retry writer's BEGIN
+ * IMMEDIATE — atomically with the meter count it reads (PR158 round-2 F1;
+ * round-3 T8/T10). A read-only preflight outside the writer cannot guarantee
+ * it: in the window where the preflight allows (count = ceiling-required) a
+ * concurrent metered commit on the shared SQLite file moves the count past
+ * the reservation, the preflight already answered, the retry consumes slots
+ * the replacement path needs, and the row strands (required=2 proved
+ * claimed-but-unstartable: `started`/`submitted`/`released` are metered too
+ * — hence required=4: reset + claim + start + submit).
  *
- * The mid-window committer is simulated deterministically by inserting ONE
- * metered `task_events` row (`released`, agent actor) between admission and
- * the writer — the same stand-in the round-2 reviewer's reproducer used.
- * After the in-writer fix the attempts must flip to the typed refusal with
- * ZERO effects and the last slot stays reserved for the replacement claim.
+ * The mid-window committer is simulated deterministically by wrapping the
+ * REAL writer (`retryTransitionToPendingWithEffects`, transparent
+ * importActual passthrough) to insert ONE metered `task_events` row
+ * (`released`, agent actor) AFTER the service admission and BEFORE the
+ * writer's transaction opens — exactly what a second connection does in the
+ * admission→writer window. This placement is what makes the suite
+ * FALSIFYING: a regression that re-introduces a service-level (non-atomic)
+ * preflight counts BEFORE the wrapper's commit, allows, and then executes
+ * through a guard-less writer — the assertions below flip red. (The
+ * round-2 arm committed before the whole call and proved nothing.)
  *
- * Also pins the #152-compatible typed wire for BOTH lanes (409
- * TRANSITION_BUDGET_EXHAUSTED, details {category, count, ceiling}) — one
- * vocabulary for the operation, no parallel union.
+ * Also pins: CAS-before-budget precedence (a stale preimage against an
+ * exhausted budget answers the preimage conflict, never a spurious breach
+ * escalation) and the background scheduler's snapshot-preimage fence (a
+ * stale scheduler row cannot reset a recovered/restarted task). The typed
+ * 409 wire itself is pinned UNMOCKED in rejectedManualRetryRecovery.test.ts.
+ * (Note: a taskStateMachine-depth mock does not propagate through the full
+ * app assembly under vitest 4 — the wrapper seam here is driven at the
+ * service level, which is exactly where the audit prescribed it.)
  */
 import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from "vitest";
-import jwt from "jsonwebtoken";
 import { eq } from "drizzle-orm";
-import * as taskService from "../services/tasks/index.js";
 import { closeDb, getDb, initTestDb } from "../db/index.js";
 import { habitats } from "../db/schema/index.js";
 import * as habitatRepo from "../repositories/habitat.js";
@@ -31,43 +40,41 @@ import * as agentRepo from "../repositories/agent.js";
 import * as taskRepo from "../repositories/taskCrud.js";
 import * as teamRepo from "../repositories/team.js";
 import * as orgRepo from "../repositories/organization.js";
-import { addMember } from "../repositories/teamMember.js";
 import { createEvent, getEventsByTaskId } from "../repositories/event.js";
-import { getJwtSecret } from "../middleware/jwt-verification.js";
 import { countMeteredTransitions } from "../services/tasks/transitionBudget.js";
 import { RetryTransitionBudgetRefusedError } from "../repositories/retryBudgetRefusal.js";
-import * as pluginManager from "../plugins/pluginManager.js";
-import { createHttpApplication, type HttpRuntimeHandle } from "../httpApp.js";
+import { executeRetry, executeRetryWithOutcome } from "../services/retryService.js";
+import * as taskStateMachine from "../repositories/taskStateMachine.js";
 
-// HTTP-level mid-window arm: when armed, the route's authorizeTaskAccess
-// await commits one extra metered row for the task — exactly what a second
-// connection does in the preflight→writer window.
+// Module-seam mid-window arm: when armed, the wrapped writer commits one
+// extra metered row for the task on entry — i.e. AFTER the service-layer
+// admission and BEFORE the real writer's BEGIN IMMEDIATE — exactly what a
+// second connection does in the admission→write window.
+//
+// Mechanism: vi.spyOn the module namespace (NOT a vi.mock factory — under
+// vitest 4 an async importOriginal factory for this deep hub silently fails
+// to intercept retryService's binding whenever the test file's import graph
+// grows, and it never propagates through app assembly). The spy patches the
+// namespace property that retryService's live import binding reads, and the
+// captured `original` still runs the real writer.
 let armedInsert: { taskId: string } | null = null;
-
-vi.mock("../middleware/realtimeAuth.js", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../middleware/realtimeAuth.js")>();
-  return {
-    ...actual,
-    authorizeTaskAccess: async (
-      request: Parameters<typeof actual.authorizeTaskAccess>[0],
-      taskId: string,
-    ) => {
-      const habitatId = await actual.authorizeTaskAccess(request, taskId);
-      if (armedInsert && armedInsert.taskId === taskId) {
-        armedInsert = null;
-        createEvent({
-          taskId,
-          actorType: "agent",
-          actorId: "concurrent-committer",
-          action: "released",
-          fromStatus: "rejected",
-          toStatus: "rejected",
-        });
-      }
-      return habitatId;
-    },
-  };
-});
+const originalRetryTransition = taskStateMachine.retryTransitionToPendingWithEffects;
+vi.spyOn(taskStateMachine, "retryTransitionToPendingWithEffects").mockImplementation(
+  (...args: Parameters<typeof originalRetryTransition>) => {
+    if (armedInsert && armedInsert.taskId === args[0]) {
+      armedInsert = null;
+      createEvent({
+        taskId: args[0],
+        actorType: "agent",
+        actorId: "concurrent-committer",
+        action: "released",
+        fromStatus: "rejected",
+        toStatus: "rejected",
+      });
+    }
+    return originalRetryTransition(...args);
+  },
+);
 
 const ESCALATING = {
   maxRetries: 0,
@@ -75,18 +82,9 @@ const ESCALATING = {
   retryOnStatuses: ["all"],
 };
 
-let app: HttpRuntimeHandle;
 let habitatId: string;
 let columnId: string;
 let ownerAgentId: string;
-let adminJwt: string;
-
-function signHumanJwt(sub: string, role: string): string {
-  return jwt.sign({ sub, username: sub, role }, getJwtSecret(), {
-    expiresIn: "1h",
-    issuer: "orcy",
-  });
-}
 
 function seedAgent(name: string): { id: string; key: string } {
   const created = agentRepo.createAgent({
@@ -98,7 +96,12 @@ function seedAgent(name: string): { id: string; key: string } {
   return { id: created.agent.id, key: created.plainApiKey };
 }
 
-function seedEscalatedRejectedTask(title: string, agentId: string): string {
+async function loadTaskService() {
+  return import("../services/tasks/index.js");
+}
+
+async function seedEscalatedRejectedTask(title: string, agentId: string): Promise<string> {
+  const taskService = await loadTaskService();
   const mission = missionRepo.createMission({
     habitatId,
     columnId,
@@ -133,23 +136,17 @@ function retryExecutedCount(taskId: string): number {
   return getEventsByTaskId(taskId).events.filter((e) => e.action === "retry_executed").length;
 }
 
-/** One metered row committed by "another connection" — raises the count by 1. */
-function commitMeteredRow(taskId: string): void {
-  createEvent({
-    taskId,
-    actorType: "agent",
-    actorId: "concurrent-committer",
-    action: "released",
-    fromStatus: "rejected",
-    toStatus: "rejected",
-  });
+/** Settle guardTransition's queueMicrotask breach-escalation scheduling. */
+async function settle(): Promise<void> {
+  await new Promise((resolve) => setTimeout(resolve, 0));
 }
 
+// No app assembly in this file BY DESIGN: the writer-seam factory mock only
+// propagates to a statically-imported service consumer when the huge app
+// route graph is absent (vitest 4 factory-mock depth behavior). The typed
+// 409 wire is pinned against the real app in rejectedManualRetryRecovery.
 beforeAll(async () => {
   await initTestDb();
-  app = await createHttpApplication({ logger: false });
-  await app.installPluginRoutes(pluginManager.getPluginRouteCatalog());
-  await app.finalize();
 
   const org = orgRepo.createOrganization({ name: "rbs-org", slug: "rbs-org" });
   const team = teamRepo.createTeam({ organizationId: org.id, name: "rbs-team", slug: "rbs-team" });
@@ -157,38 +154,32 @@ beforeAll(async () => {
   habitatId = habitat.id;
   columnId = columnRepo.createColumn({ habitatId, name: "Todo", order: 0, requiresClaim: false }).id;
 
-  addMember({ teamId: team.id, userId: "rbs-admin" });
-  adminJwt = signHumanJwt("rbs-admin", "admin");
-
   const owner = seedAgent("rbs-owner");
   ownerAgentId = owner.id;
 }, 120_000);
 
 afterAll(async () => {
-  await app.close();
   closeDb();
-  pluginManager.resetPlugins();
 });
 
 beforeEach(() => {
   armedInsert = null;
 });
 
-describe("in-writer required=2 headroom (atomic with the meter count)", () => {
+describe("in-writer budget gate (post-CAS, atomic with the meter count)", () => {
   it("mid-window metered commit flips the recovery to the typed refusal with zero effects (service level)", async () => {
-    const { executeRetryWithOutcome } = await import("../services/retryService.js");
-    const taskId = seedEscalatedRejectedTask("seam-service", ownerAgentId);
+    const taskId = await seedEscalatedRejectedTask("seam-service", ownerAgentId);
     const count = meteredCount(taskId);
     expect(count).toBeGreaterThanOrEqual(3);
-    setCeiling(count + 2); // preflight window: count = ceiling-2 → admission would allow
+    setCeiling(count + 4); // admission window: count = ceiling-4 → required=4 allows
 
     const before = taskRepo.getTaskById(taskId)!;
 
-    // The concurrent commit lands INSIDE the admission→writer window. It
-    // does NOT touch the task row, so the CAS preimage stays valid — only
-    // the budget headroom moved.
-    commitMeteredRow(taskId);
-    expect(meteredCount(taskId)).toBe(count + 1); // ceiling-1
+    // The concurrent commit lands INSIDE the admission→writer window (the
+    // wrapped writer commits it on entry — after the service admission,
+    // before the BEGIN IMMEDIATE). It does NOT touch the task row, so the
+    // CAS preimage stays valid — only the budget headroom moved.
+    armedInsert = { taskId };
 
     const out = executeRetryWithOutcome(taskRepo.getTaskById(taskId) as never, {
       expected: { status: before.status, version: before.version },
@@ -196,11 +187,19 @@ describe("in-writer required=2 headroom (atomic with the meter count)", () => {
       requireClaimHeadroom: true,
     });
 
-    // The in-writer required=2 check must refuse ATOMICICALLY: typed refusal
+    expect(armedInsert).toBeNull(); // the wrapper really fired mid-window
+    expect(meteredCount(taskId)).toBe(count + 1);
+
+    // The in-writer required=4 check must refuse ATOMICALLY: typed refusal
     // carrying the in-transaction count, and NOTHING written.
     expect(out).toEqual({
       outcome: "refused",
-      refusal: { outcome: "refused", reason: "transition_budget_exhausted", count: count + 1, ceiling: count + 2 },
+      refusal: {
+        outcome: "refused",
+        reason: "transition_budget_exhausted",
+        count: count + 1,
+        ceiling: count + 4,
+      },
     });
 
     const after = taskRepo.getTaskById(taskId)!;
@@ -210,38 +209,40 @@ describe("in-writer required=2 headroom (atomic with the meter count)", () => {
     expect(after.retryCount).toBe(before.retryCount);
     expect(retryExecutedCount(taskId)).toBe(0);
 
-    // The refused attempt consumed NOTHING: with one more slot granted
-    // (operator raises the ceiling by 1), the retry executes and the
-    // replacement claim is admitted — the previously reserved slot was
-    // genuinely still there (a wrongly-executed reset would have made this
-    // claim the refused one).
-    setCeiling(count + 3);
+    // The refused attempt consumed NOTHING (beyond the injected committer's
+    // own row): with one more slot granted (operator raises the ceiling by
+    // 1), the retry executes AND the full replacement path — claim, start,
+    // submit — fits. That full-path assertion is what required=4 reserves.
+    setCeiling(count + 5);
     const executed = executeRetryWithOutcome(taskRepo.getTaskById(taskId) as never, {
       expected: { status: before.status, version: before.version },
       preserveRejectionReason: true,
       requireClaimHeadroom: true,
     });
     expect(executed.outcome).toBe("executed");
+    const taskService = await loadTaskService();
     const replacement = seedAgent("rbs-claimant-seam");
     const claim = taskService.claimTask(taskId, replacement.id);
     expect(claim.success, JSON.stringify(claim)).toBe(true);
+    const token = taskRepo.getTaskById(taskId)!.executionToken;
+    expect(taskService.startTask(taskId, replacement.id, token)?.status).toBe("in_progress");
+    const submitted = taskService.submitTask(taskId, replacement.id, "fix", [], token);
+    expect(submitted.task?.status).toBe("submitted");
+    expect(meteredCount(taskId)).toBe(count + 5); // exactly the ceiling, no overdraw
 
     setCeiling(null);
   });
 
-  it("writer-level: requireClaimHeadroom refuses (null, row unchanged) when only one slot remains", async () => {
-    const { retryTransitionToPendingWithEffects } = await import(
-      "../repositories/taskStateMachine.js"
-    );
-    const taskId = seedEscalatedRejectedTask("seam-writer", ownerAgentId);
+  it("writer-level: requireClaimHeadroom refuses (typed throw, row unchanged) when the full path cannot fit", async () => {
+    const taskId = await seedEscalatedRejectedTask("seam-writer", ownerAgentId);
     const count = meteredCount(taskId);
-    setCeiling(count + 1); // exactly one slot remains: required=2 must refuse
+    setCeiling(count + 1); // one slot remains: required=4 must refuse
     const before = taskRepo.getTaskById(taskId)!;
 
     // The writer-level contract is the typed THROW (the service layer maps
     // it to the refused outcome); the whole reservation rolls back.
     expect(() =>
-      retryTransitionToPendingWithEffects(taskId, before.retryCount + 1, {
+      taskStateMachine.retryTransitionToPendingWithEffects(taskId, before.retryCount + 1, {
         expected: { status: before.status, version: before.version },
         requireClaimHeadroom: true,
       }),
@@ -255,16 +256,13 @@ describe("in-writer required=2 headroom (atomic with the meter count)", () => {
     setCeiling(null);
   });
 
-  it("writer-level control: without requireClaimHeadroom the same one-slot row retries (legacy required=1)", async () => {
-    const { retryTransitionToPendingWithEffects } = await import(
-      "../repositories/taskStateMachine.js"
-    );
-    const taskId = seedEscalatedRejectedTask("seam-writer-control", ownerAgentId);
+  it("writer-level control: without requireClaimHeadroom the same one-slot row retries (required=1, in-writer post-CAS)", async () => {
+    const taskId = await seedEscalatedRejectedTask("seam-writer-control", ownerAgentId);
     const count = meteredCount(taskId);
     setCeiling(count + 1); // one slot: required=1 allows
     const before = taskRepo.getTaskById(taskId)!;
 
-    const out = retryTransitionToPendingWithEffects(taskId, before.retryCount + 1, {
+    const out = taskStateMachine.retryTransitionToPendingWithEffects(taskId, before.retryCount + 1, {
       expected: { status: before.status, version: before.version },
     });
 
@@ -272,39 +270,70 @@ describe("in-writer required=2 headroom (atomic with the meter count)", () => {
     setCeiling(null);
   });
 
-  it("HTTP mid-window: the typed 409 answers with #152's exact wire and the last slot stays reserved", async () => {
-    const taskId = seedEscalatedRejectedTask("seam-http", ownerAgentId);
+  it("CAS precedes budget: a stale preimage against an exhausted budget answers preimage_conflict, never a breach", async () => {
+    const taskId = await seedEscalatedRejectedTask("seam-precedence", ownerAgentId);
     const count = meteredCount(taskId);
-    setCeiling(count + 2); // admission (preflight-era) window: ceiling-2
+    // Budget is exhausted for even the required=1 reset…
+    setCeiling(count);
+    const before = taskRepo.getTaskById(taskId)!;
 
-    armedInsert = { taskId };
-
-    const res = await app.inject({
-      method: "POST",
-      url: `/api/v1/tasks/${taskId}/retry`,
-      headers: { authorization: `Bearer ${adminJwt}` },
+    // …and the preimage is stale (the row "moved" after admission).
+    const out = executeRetryWithOutcome(before, {
+      expected: { status: before.status, version: before.version - 1 },
     });
 
-    expect(res.statusCode).toBe(409);
-    const body = res.json() as {
-      code?: string;
-      details?: { category: string; count: number; ceiling: number };
-    };
-    expect(body.code).toBe("TRANSITION_BUDGET_EXHAUSTED");
-    expect(body.details).toMatchObject({
-      category: "transition_budget_exhausted",
-      ceiling: count + 2,
-    });
-    expect(body.details!.count).toBe(count + 1);
-
-    // Zero effects: the row is byte-identical to the interleave moment —
-    // still the owner's rejected row, nothing consumed by the refusal.
-    const after = taskRepo.getTaskById(taskId)!;
-    expect(after.status).toBe("rejected");
-    expect(after.assignedAgentId).toBe(ownerAgentId);
-    expect(after.executionToken).not.toBeNull();
+    // The CAS refuses FIRST: the outcome is the preimage conflict, not the
+    // typed budget refusal — a stale retry must never masquerade as a
+    // breach (no escalation, no "raise the ceiling" operator misdirection).
+    expect(out).toEqual({ outcome: "failed", reason: "preimage_conflict" });
+    await settle(); // settle any queued breach escalation
+    const escalations = getEventsByTaskId(taskId).events.filter(
+      (e) =>
+        e.action === "escalated" &&
+        (e.metadata as Record<string, unknown> | null)?.transitionBudget !== undefined,
+    );
+    expect(escalations).toHaveLength(0);
+    expect(taskRepo.getTaskById(taskId)!.version).toBe(before.version);
     expect(retryExecutedCount(taskId)).toBe(0);
 
     setCeiling(null);
+  });
+
+  it("stale background-scheduler snapshot cannot reset a recovered task (T11): preimage fence, zero effects", async () => {
+    const taskId = await seedEscalatedRejectedTask("seam-stale-scheduler", ownerAgentId);
+    // Make the row due for the background ladder, then take the scheduler's
+    // snapshot BEFORE the human recovery runs.
+    taskRepo.updateTask(taskId, { nextRetryAt: new Date(Date.now() - 60_000).toISOString() });
+    const snapshot = taskRepo.getTaskById(taskId)!;
+    expect(snapshot.status).toBe("rejected");
+
+    // The human recovery lands first (as it would over a slow scheduler
+    // tick): row → pending, version bumped, feedback PRESERVED.
+    const recovered = executeRetryWithOutcome(snapshot, {
+      expected: { status: snapshot.status, version: snapshot.version },
+      preserveRejectionReason: true,
+      requireClaimHeadroom: true,
+    });
+    expect(recovered.outcome).toBe("executed");
+    const pending = taskRepo.getTaskById(taskId)!;
+    expect(pending.status).toBe("pending");
+    expect(pending.rejectionReason).toBe("needs work");
+    expect(retryExecutedCount(taskId)).toBe(1);
+
+    // The scheduler's stale snapshot then processes — exactly what
+    // processPendingRetries does per row now (expected pinned from the
+    // snapshot). Pre-fix behavior: no CAS → the reset re-ran, the preserved
+    // feedback was cleared, a duplicate retry_executed consumed a metered
+    // slot with no state change.
+    const meterBefore = meteredCount(taskId);
+    expect(executeRetry(snapshot, { expected: { status: snapshot.status, version: snapshot.version } })).toBeNull();
+
+    const after = taskRepo.getTaskById(taskId)!;
+    expect(after.status).toBe("pending");
+    expect(after.version).toBe(pending.version);
+    expect(after.rejectionReason).toBe("needs work");
+    expect(after.retryCount).toBe(pending.retryCount);
+    expect(retryExecutedCount(taskId)).toBe(1); // no duplicate
+    expect(meteredCount(taskId)).toBe(meterBefore); // no stolen slot
   });
 });

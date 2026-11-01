@@ -1,14 +1,14 @@
 /**
- * Deterministic interleave at the REAL route seam (PR158 review, critical
- * finding): the human retry route fetches the task, then AWAITS
- * `authorizeTaskAccess` (membership check), then admits + writes off the
- * FETCHED snapshot. That await is the only interleave window inside one
- * request — the sequential race tests in `rejectedManualRetryRecovery.test.ts`
- * cannot reach it. Here the membership middleware is wrapped (vi.mock,
- * transparent passthrough) to run the rejected owner's rework restart
- * (`startTask`: rejected→in_progress, minting a FRESH epoch token, #150/#158
- * semantics) exactly inside that window, between the route's fetch and the
- * custody-ending writer.
+ * Deterministic interleave at the REAL admission→write seam (PR158 review,
+ * critical finding): the human retry route fetches the task, authorizes
+ * (recovery policy, persisted rows), then admits + writes off the FETCHED
+ * snapshot. The only interleave window inside one request is between that
+ * admission and the writer's BEGIN IMMEDIATE — the sequential race tests in
+ * `rejectedManualRetryRecovery.test.ts` cannot reach it. Here the retry
+ * SERVICE is wrapped (vi.mock, transparent passthrough) to run the rejected
+ * owner's rework restart (`startTask`: rejected→in_progress, minting a FRESH
+ * epoch token, #150/#158 semantics) exactly inside that window, after the
+ * route's admission read and before the real service/writer run.
  *
  * Nothing else is mocked: real app assembly, real writer, real budget meter.
  * The writer's in-transaction preimage CAS (status+version pinned from the
@@ -18,7 +18,7 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from "vitest";
 import jwt from "jsonwebtoken";
 import * as taskService from "../services/tasks/index.js";
-import { closeDb, initTestDb } from "../db/index.js";
+import { closeDb, getDb, initTestDb } from "../db/index.js";
 import * as habitatRepo from "../repositories/habitat.js";
 import * as columnRepo from "../repositories/column.js";
 import * as missionRepo from "../repositories/mission.js";
@@ -27,6 +27,7 @@ import * as taskRepo from "../repositories/taskCrud.js";
 import * as teamRepo from "../repositories/team.js";
 import * as orgRepo from "../repositories/organization.js";
 import { addMember } from "../repositories/teamMember.js";
+import { users } from "../db/schema/index.js";
 import { getEventsByTaskId } from "../repositories/event.js";
 import { getJwtSecret } from "../middleware/jwt-verification.js";
 import * as pluginManager from "../plugins/pluginManager.js";
@@ -38,25 +39,29 @@ import type { Task } from "../models/index.js";
 let armed: { taskId: string; agentId: string; token: string } | null = null;
 let interleaveResult: Task | null = null;
 
-vi.mock("../middleware/realtimeAuth.js", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../middleware/realtimeAuth.js")>();
+vi.mock("../services/retryService.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../services/retryService.js")>();
   return {
     ...actual,
-    authorizeTaskAccess: async (
-      request: Parameters<typeof actual.authorizeTaskAccess>[0],
-      taskId: string,
+    // Transparent passthrough EXCEPT when armed: the concurrent owner
+    // restart runs at retryService entry — AFTER the route's admission
+    // (fetch + recovery-policy auth, which pinned the preimage off the
+    // request's own read) and BEFORE the real service/writer run. This is
+    // the route's stale-snapshot window. (The round-2 arm fired in the
+    // route's authorizeTaskAccess await; the recovery-policy cutover made
+    // that lane synchronous. Deeper writer-seam mocks do not propagate
+    // through the app assembly in vitest 4 — this depth does, same as the
+    // round-2 middleware arm. `taskService` is referenced lazily inside the
+    // wrapper body, never during the hoisted factory evaluation.)
+    executeRetryWithOutcome: (
+      ...args: Parameters<typeof actual.executeRetryWithOutcome>
     ) => {
-      const habitatId = await actual.authorizeTaskAccess(request, taskId);
-      if (armed && armed.taskId === taskId) {
+      if (armed && armed.taskId === args[0].id) {
         const shot = armed;
         armed = null;
-        // The concurrent owner restart, INSIDE the route's await window.
-        // Dynamic import: the vi.mock factory must not close over bindings
-        // that are still in TDZ at module-graph init time.
-        const svc = await import("../services/tasks/index.js");
-        interleaveResult = svc.startTask(shot.taskId, shot.agentId, shot.token);
+        interleaveResult = taskService.startTask(shot.taskId, shot.agentId, shot.token);
       }
-      return habitatId;
+      return actual.executeRetryWithOutcome(...args);
     },
   };
 });
@@ -125,6 +130,18 @@ beforeAll(async () => {
   columnId = columnRepo.createColumn({ habitatId, name: "Todo", order: 0, requiresClaim: false }).id;
 
   addMember({ teamId: team.id, userId: "rmi-admin" });
+  // Persisted-role policy (round-3): the recovery lane reads the persisted
+  // users row — seed it so the admin JWT is backed by a persisted admin.
+  getDb()
+    .insert(users)
+    .values({
+      id: "rmi-admin",
+      username: "rmi-admin",
+      passwordHash: "x",
+      displayName: "rmi-admin",
+      role: "admin",
+    })
+    .run();
   adminJwt = signHumanJwt("rmi-admin", "admin");
 
   const owner = seedAgent("rmi-owner");
@@ -142,13 +159,13 @@ beforeEach(() => {
   interleaveResult = null;
 });
 
-describe("deterministic interleave at the route's authorizeTaskAccess await (critical race)", () => {
+describe("deterministic interleave at the admission→writer seam (critical race)", () => {
   it("owner restart lands between fetch and writer → HTTP retry refuses 409 with ZERO effects", async () => {
     const { taskId, token } = seedEscalatedRejectedTask("interleave-restart-first", ownerAgentId);
     const preRestart = taskRepo.getTaskById(taskId)!;
 
-    // Arm the window: when the retry route awaits membership auth, the owner
-    // restarts rework — rejected→in_progress, minting a FRESH epoch token.
+    // Arm the window: when the retry writer is entered, the owner restarts
+    // rework first — rejected→in_progress, minting a FRESH epoch token.
     armed = { taskId, agentId: ownerAgentId, token };
 
     const res = await app.inject({

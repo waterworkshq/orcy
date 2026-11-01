@@ -25,7 +25,7 @@ import jwt from "jsonwebtoken";
 import { eq } from "drizzle-orm";
 import * as taskService from "../services/tasks/index.js";
 import { closeDb, getDb, initTestDb } from "../db/index.js";
-import { habitats } from "../db/schema/index.js";
+import { habitats, users } from "../db/schema/index.js";
 import * as habitatRepo from "../repositories/habitat.js";
 import * as columnRepo from "../repositories/column.js";
 import * as missionRepo from "../repositories/mission.js";
@@ -55,6 +55,7 @@ let adminJwt: string;
 let editorJwt: string;
 let viewerJwt: string;
 let outsiderJwt: string;
+let globalAdminJwt: string;
 
 function signHumanJwt(sub: string, role: string): string {
   return jwt.sign({ sub, username: sub, role }, getJwtSecret(), {
@@ -160,15 +161,36 @@ beforeAll(async () => {
   habitatId = habitat.id;
   columnId = columnRepo.createColumn({ habitatId, name: "Todo", order: 0, requiresClaim: false }).id;
 
-  // Member humans (admin + editor + viewer) and a NON-member global admin —
-  // the membership gate must refuse the outsider even with role admin.
-  addMember({ teamId: team.id, userId: "rmr-admin" });
+  // Member humans + persisted users rows (round-3 policy: the human retry
+  // lane authorizes on the persisted users row via the recovery policy —
+  // persisted global admin; personal owner; team owner/admin — never the
+  // JWT role alone and never plain habitat READ admission).
+  //   rmr-admin  : users editor + team member role 'admin' → team-admin path
+  //   rmr-editor : users editor + team member role 'member' → refused (T6)
+  //   rmr-viewer : persisted viewer → refused everywhere
+  //   rmr-outsider: NO users row, JWT claims admin, non-member → refused
+  //   rmr-gadmin : persisted global admin, NON-member → admitted
+  for (const [id, role] of [
+    ["rmr-admin", "editor"],
+    ["rmr-editor", "editor"],
+    ["rmr-viewer", "viewer"],
+    ["rmr-gadmin", "admin"],
+    ["rmr-powner", "editor"],
+    ["rmr-pother", "editor"],
+  ] as const) {
+    getDb()
+      .insert(users)
+      .values({ id, username: id, passwordHash: "x", displayName: id, role })
+      .run();
+  }
+  addMember({ teamId: team.id, userId: "rmr-admin", role: "admin" });
   addMember({ teamId: team.id, userId: "rmr-editor", role: "member" });
   addMember({ teamId: team.id, userId: "rmr-viewer", role: "member" });
   adminJwt = signHumanJwt("rmr-admin", "admin");
   editorJwt = signHumanJwt("rmr-editor", "editor");
   viewerJwt = signHumanJwt("rmr-viewer", "viewer");
   outsiderJwt = signHumanJwt("rmr-outsider", "admin");
+  globalAdminJwt = signHumanJwt("rmr-gadmin", "viewer"); // JWT hint deliberately wrong
 
   const owner = seedAgent("rmr-owner");
   ownerAgentId = owner.id;
@@ -182,10 +204,12 @@ afterAll(async () => {
 });
 
 describe("human manual retry at the rejected lane (#150 corrective)", () => {
-  it("admin member retry resets an escalated rejected task to claimable pending (custody ends)", async () => {
+  it("team-admin member retry resets an escalated rejected task to claimable pending (custody ends)", async () => {
     const { taskId } = seedEscalatedRejectedTask("admin-retry", ownerAgentId);
     const before = taskRepo.getTaskById(taskId)!;
-
+    // rmr-admin: persisted users role EDITOR + team member role ADMIN —
+    // admitted through the team-owner/admin branch of the recovery policy,
+    // NOT a global role (proves the team branch admits without global admin).
     const res = await injectRetry(taskId, humanHeaders(adminJwt));
     expect(res.statusCode).toBe(200);
     const body = res.json() as { task: { status: string } };
@@ -208,11 +232,16 @@ describe("human manual retry at the rejected lane (#150 corrective)", () => {
     expect(taskService.claimTask(taskId, other.id).success).toBe(true);
   });
 
-  it("editor member retry has the same admission (reviewer population parity)", async () => {
-    const { taskId } = seedEscalatedRejectedTask("editor-retry", ownerAgentId);
+  it("plain team member (editor, not owner/admin) is REFUSED (403) — the recovery lane is governor-bound", async () => {
+    const { taskId } = seedEscalatedRejectedTask("editor-refused", ownerAgentId);
     const res = await injectRetry(taskId, humanHeaders(editorJwt));
-    expect(res.statusCode).toBe(200);
-    expect(taskRepo.getTaskById(taskId)!.status).toBe("pending");
+    // Round-3 policy (T6): the manual retry is a custody-ending MUTATION —
+    // the broad READ admission (any member / any JWT admin-editor) no longer
+    // applies; team habitats admit owner/admin members only.
+    expect(res.statusCode).toBe(403);
+    const after = taskRepo.getTaskById(taskId)!;
+    expect(after.status).toBe("rejected");
+    expect(after.assignedAgentId).toBe(ownerAgentId);
   });
 
   it("kody scenario end-to-end: deleteAgent 409 before human retry, 204 after, task re-claimable", async () => {
@@ -250,13 +279,24 @@ describe("human manual retry at the rejected lane (#150 corrective)", () => {
     expect(after.assignedAgentId).toBe(ownerAgentId);
   });
 
-  it("non-member global admin is refused by the habitat membership gate (403, task untouched)", async () => {
+  it("JWT-claim admin with NO persisted users row is refused (403) — the JWT role is a hint, never authority", async () => {
     const { taskId } = seedEscalatedRejectedTask("outsider-refused", ownerAgentId);
     const res = await injectRetry(taskId, humanHeaders(outsiderJwt));
+    // rmr-outsider signs an admin JWT but has no persisted users row and no
+    // team membership: the recovery policy reads PERSISTED rows only.
     expect(res.statusCode).toBe(403);
     const after = taskRepo.getTaskById(taskId)!;
     expect(after.status).toBe("rejected");
     expect(after.assignedAgentId).toBe(ownerAgentId);
+  });
+
+  it("persisted global admin (non-member, wrong JWT hint) is admitted (200) — persisted role decides", async () => {
+    const { taskId } = seedEscalatedRejectedTask("gadmin-admitted", ownerAgentId);
+    // rmr-gadmin: persisted users.role = admin, NOT a team member, and the
+    // JWT deliberately claims viewer — authorization reads the users row.
+    const res = await injectRetry(taskId, humanHeaders(globalAdminJwt));
+    expect(res.statusCode).toBe(200);
+    expect(taskRepo.getTaskById(taskId)!.status).toBe("pending");
   });
 
   it("unauthenticated request is 401", async () => {
@@ -366,16 +406,24 @@ describe("human manual retry at the rejected lane (#150 corrective)", () => {
     }
   });
 
-  it("recovery at count = ceiling-1 refuses (409, unchanged row): the last transition is reserved for the replacement claim", async () => {
-    const { taskId } = seedEscalatedRejectedTask("ceiling-minus-one", ownerAgentId);
+  it("recovery at count = ceiling-3 refuses (409, unchanged row): the reset must afford claim+start+submit too", async () => {
+    const { taskId } = seedEscalatedRejectedTask("ceiling-minus-three", ownerAgentId);
     const count = countMeteredTransitions(getDb(), taskId);
     expect(count).toBeGreaterThanOrEqual(3);
-    setCeiling(count + 1); // count = ceiling-1 → retry + claim cannot both fit
+    // required=4 (reset + claim + start + submit): count+4 > ceiling=count+3
+    // → typed refusal. required=2 admitted here and stranded the row
+    // claimed-but-unstartable (started/submitted/released are all metered).
+    setCeiling(count + 3);
 
     try {
       const res = await injectRetry(taskId, humanHeaders(adminJwt));
       expect(res.statusCode).toBe(409);
-      expect((res.json() as { code?: string }).code).toBe("TRANSITION_BUDGET_EXHAUSTED");
+      const body = res.json() as {
+        code?: string;
+        details?: { count: number; ceiling: number };
+      };
+      expect(body.code).toBe("TRANSITION_BUDGET_EXHAUSTED");
+      expect(body.details).toMatchObject({ count, ceiling: count + 3 });
       await settle();
 
       // Refused while the task was unchanged: byte-identical rejected row.
@@ -389,21 +437,29 @@ describe("human manual retry at the rejected lane (#150 corrective)", () => {
     }
   });
 
-  it("recovery at count = ceiling-2 succeeds and the replacement claim still fits", async () => {
-    const { taskId } = seedEscalatedRejectedTask("ceiling-minus-two", ownerAgentId);
+  it("recovery at count = ceiling-4 succeeds and the FULL replacement path (claim→start→submit) fits", async () => {
+    const { taskId } = seedEscalatedRejectedTask("ceiling-minus-four", ownerAgentId);
     const count = countMeteredTransitions(getDb(), taskId);
-    setCeiling(count + 2); // retry_executed (+1) + replacement claim (+1) fit
+    setCeiling(count + 4); // reset(+1) + claim(+1) + start(+1) + submit(+1)
 
     try {
       const res = await injectRetry(taskId, humanHeaders(adminJwt));
       expect(res.statusCode).toBe(200);
       expect(taskRepo.getTaskById(taskId)!.status).toBe("pending");
 
-      // The whole point of the reservation: the replacement claim is ADMITTED
-      // by the budget gate — no stranded unclaimable pending row.
+      // The whole point of the required=4 reservation: the replacement's
+      // ENTIRE deterministic path is admitted by the budget gate — never a
+      // claimed-but-unstartable (or unsubmittable) stranded row.
       const replacement = seedAgent("rmr-claimant-ceiling");
       const claim = taskService.claimTask(taskId, replacement.id);
       expect(claim.success).toBe(true);
+      const token = taskRepo.getTaskById(taskId)!.executionToken;
+      expect(taskService.startTask(taskId, replacement.id, token)?.status).toBe("in_progress");
+      const submitted = taskService.submitTask(taskId, replacement.id, "fixed", [], token);
+      expect(submitted.task?.status).toBe("submitted");
+      // Exactly at the ceiling — the reservation consumed it to the last
+      // slot and not beyond.
+      expect(countMeteredTransitions(getDb(), taskId)).toBe(count + 4);
     } finally {
       setCeiling(null);
     }
@@ -467,5 +523,85 @@ describe("human manual retry at the rejected lane (#150 corrective)", () => {
     const res = await injectRetry(taskId, humanHeaders(adminJwt));
     expect(res.statusCode).toBe(400);
     expect(taskRepo.getTaskById(taskId)!.status).toBe("in_progress");
+  });
+});
+
+describe("personal-habitat recovery authority (T6: owner or persisted global admin only)", () => {
+  let pHabitatId: string;
+  let pColumnId: string;
+  let ownerJwt: string;
+  let otherJwt: string;
+
+  beforeAll(() => {
+    const habitat = habitatRepo.createHabitat({ name: "rmr-personal" });
+    pHabitatId = habitat.id;
+    // Explicit personal owner (migration 0083 adapter): rmr-powner.
+    getDb()
+      .update(habitats)
+      .set({ ownerUserId: "rmr-powner" })
+      .where(eq(habitats.id, pHabitatId))
+      .run();
+    pColumnId = columnRepo.createColumn({
+      habitatId: pHabitatId,
+      name: "Todo",
+      order: 0,
+      requiresClaim: false,
+    }).id;
+    ownerJwt = signHumanJwt("rmr-powner", "editor"); // NOT an admin anywhere
+    otherJwt = signHumanJwt("rmr-pother", "editor"); // same persisted role, not the owner
+  });
+
+  function seedPersonalRejectedTask(title: string): string {
+    const mission = missionRepo.createMission({
+      habitatId: pHabitatId,
+      columnId: pColumnId,
+      title: `m-${title}`,
+      createdBy: "seed",
+    });
+    const taskId = taskRepo.createTask({ missionId: mission.id, title, createdBy: "seed" }).id;
+    taskRepo.updateTask(taskId, { retryPolicy: ESCALATING });
+    const claim = taskService.claimTask(taskId, ownerAgentId);
+    expect(claim.success).toBe(true);
+    const token = taskRepo.getTaskById(taskId)!.executionToken;
+    expect(taskService.startTask(taskId, ownerAgentId, token)?.status).toBe("in_progress");
+    expect(
+      taskService.submitTask(taskId, ownerAgentId, "first", [], token).task,
+    ).not.toBeNull();
+    expect(taskService.rejectTask(taskId, "rev", "needs work", "human")).not.toBeNull();
+    expect(taskRepo.getTaskById(taskId)!.status).toBe("rejected");
+    return taskId;
+  }
+
+  it("the personal habitat's explicit owner (plain editor) is admitted (200)", async () => {
+    const taskId = seedPersonalRejectedTask("personal-owner");
+    const res = await injectRetry(taskId, humanHeaders(ownerJwt));
+    expect(res.statusCode).toBe(200);
+    expect(taskRepo.getTaskById(taskId)!.status).toBe("pending");
+  });
+
+  it("a DIFFERENT editor (any-authenticated-human READ rule) is refused (403, row untouched)", async () => {
+    const taskId = seedPersonalRejectedTask("personal-other");
+    const res = await injectRetry(taskId, humanHeaders(otherJwt));
+    // Pre-fix behavior: personal habitats admitted any authenticated human,
+    // so any editor could reset ANY user's personal task. The recovery
+    // policy admits only the owner or a persisted global admin.
+    expect(res.statusCode).toBe(403);
+    const after = taskRepo.getTaskById(taskId)!;
+    expect(after.status).toBe("rejected");
+    expect(after.assignedAgentId).toBe(ownerAgentId);
+  });
+
+  it("persisted global admin may recover a personal habitat task (200)", async () => {
+    const taskId = seedPersonalRejectedTask("personal-gadmin");
+    const res = await injectRetry(taskId, humanHeaders(globalAdminJwt));
+    expect(res.statusCode).toBe(200);
+    expect(taskRepo.getTaskById(taskId)!.status).toBe("pending");
+  });
+
+  it("persisted viewer is refused even on personal habitats (403)", async () => {
+    const taskId = seedPersonalRejectedTask("personal-viewer");
+    const res = await injectRetry(taskId, humanHeaders(viewerJwt));
+    expect(res.statusCode).toBe(403);
+    expect(taskRepo.getTaskById(taskId)!.status).toBe("rejected");
   });
 });

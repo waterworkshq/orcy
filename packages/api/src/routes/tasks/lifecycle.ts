@@ -30,7 +30,8 @@ import {
   InterceptorVetoError,
 } from "../../errors.js";
 import { applyDeclaredAuthPolicies } from "../../authPolicy.js";
-import { authorizeTaskAccess } from "../../middleware/realtimeAuth.js";
+import { authorizeRecoveryWithClient } from "../../services/reviewRecoveryService.js";
+import { getDb } from "../../db/index.js";
 
 const taskParamsSchema = z.object({ id: z.string() });
 
@@ -460,26 +461,39 @@ export async function taskLifecycleRoutes(fastify: FastifyInstance): Promise<voi
         }
 
         const principal = getPrincipalFromRequest(request);
+        const humanRetry = principal?.type === "human";
 
-        // Human lane object authorization: resolve the TARGET task's actual
-        // Mission → Habitat and require team membership on team habitats
-        // (same seam as the effort/time-tracking/task-object routes — a
-        // global-role-only human never reaches the writer). Agents pass on
-        // any existing habitat; the agent wire is unchanged.
-        if (principal?.type === "human") {
-          await authorizeTaskAccess(request, request.params.id);
-        }
-
-        const auth = authorizeTaskAction(task, principal, "retry");
-        if (!auth.allowed) {
-          throw forbidden(auth.reason ?? "Forbidden");
+        // Human lane object authorization: the manual human retry is a
+        // CUSTODY-ENDING MUTATION, so it binds to the repo's established
+        // recovery-mutation policy (authorizeRecoveryWithClient — the
+        // review-safety precedent), NOT the broad habitat READ rule (any
+        // authenticated human on personal habitats) and NOT the JWT
+        // admin/editor role: persisted global admin; personal habitat → its
+        // explicit owner; team habitat → team owner/admin. Persisted viewer
+        // is refused everywhere; the JWT role is an identity hint, never
+        // authority (the persisted users row decides). Agents keep the
+        // historical authorizeTaskAction admission; the agent wire is
+        // unchanged.
+        if (humanRetry) {
+          const authorized = authorizeRecoveryWithClient(
+            getDb(),
+            principal.id,
+            request.params.id,
+          );
+          if (!authorized) {
+            throw forbidden("Not authorized to recover this task");
+          }
+        } else {
+          const auth = authorizeTaskAction(task, principal, "retry");
+          if (!auth.allowed) {
+            throw forbidden(auth.reason ?? "Forbidden");
+          }
         }
 
         // Status gate asymmetry: the agent lane stays failed-only (unchanged
-        // contract); a human reviewer may additionally retry a `rejected`
+        // contract); a human may additionally retry a `rejected`
         // task — the custody-ending reset that returns an owner-stranded
         // rejected row to the claim pool. `submitted` still blocks both.
-        const humanRetry = principal?.type === "human";
         const retryableStatus = humanRetry
           ? task.status === "failed" || task.status === "rejected"
           : task.status === "failed";
@@ -494,13 +508,16 @@ export async function taskLifecycleRoutes(fastify: FastifyInstance): Promise<voi
         // Both manual lanes pin the admission preimage from THIS request's
         // read: a row that moves between the fetch and the writer (owner
         // rework restart minting a fresh epoch, a concurrent claim) refuses
-        // with no effects instead of erasing live custody. The human
-        // recovery lane additionally reserves transition-budget headroom for
-        // TWO slots (reset + replacement claim) INSIDE the writer's
-        // transaction — a custody-ending reset that the replacement claim
-        // cannot afford refuses typed rather than stranding the row — and
-        // preserves the reviewer's rejection feedback for the replacement
-        // claimant. Failed-lane/background retries keep the historical clear.
+        // with no effects instead of erasing live custody — and the CAS runs
+        // BEFORE the writer's transition-budget gate, so a stale retry
+        // always answers VERSION_CONFLICT, never a spurious budget breach.
+        // The human recovery lane additionally reserves transition-budget
+        // headroom for FOUR slots (reset + the replacement's claim, start,
+        // and submit) INSIDE the writer's transaction — a custody-ending
+        // reset whose replacement path cannot be afforded refuses typed
+        // rather than stranding the row — and preserves the reviewer's
+        // rejection feedback for the replacement claimant.
+        // Failed-lane/background retries keep the historical clear.
         const retried = retryService.executeRetryWithOutcome(task, {
           expected: { status: task.status, version: task.version },
           ...(humanRetry ? { requireClaimHeadroom: true } : {}),
