@@ -267,6 +267,48 @@ E2E tests use Playwright with a Chromium browser. The test config (`packages/ui/
 node run-e2e.js
 ```
 
+### Seeded Learning Loop flow (isolated harness)
+
+The complete Learning Loop browser flow (policy enable → dry run → ensure run → accept/reject review → reload durability) runs under a dedicated config that owns every resource it touches — separate ports (API 3147 / UI preview 5147, `reuseExistingServer: false`), a per-invocation `mkdtemp` run root under the OS temp dir for its database (removed by the global teardown; no shell `rm`), and the global feature opt-in set only in the harness's API env.
+
+```bash
+# Prereqs: workspace builds (api serves dist/index.js, ui preview serves dist/);
+# shared + daemon are built first — the api build/runtime imports their dist;
+# plus Google Chrome — the dedicated config pins Playwright channel "chrome"
+# (no additional Playwright browser download is needed).
+corepack pnpm --filter @orcy/shared build
+corepack pnpm --filter @orcy/daemon build
+corepack pnpm --filter @orcy/api build
+corepack pnpm --filter @orcy/ui build
+
+corepack pnpm --filter @orcy/ui test:e2e:seeded
+```
+
+Honest boundary: review-queue/detail/decision operations are exercised through the live HTTP contract (Playwright's request context via the UI proxy) because no review UI is mounted; the browser drives the mounted settings controls (policy toggle, dry run, ensure, run history). See `packages/ui/playwright.seeded.config.ts` and `packages/ui/e2e/learning-loop-seeded.spec.ts`.
+
+Harness safety and types are guarded independently of any browser run:
+
+```bash
+# Hostile-env proof: a preset ORCY_SEEDED_E2E_RUN_ROOT / DB_PATH / HOME /
+# TEST_WORKER_INDEX cannot steer the run root or DB path; a hostile
+# HOST=0.0.0.0 / NODE_ENV=production cannot steer the API child env; every
+# config evaluation gets a fresh non-empty mkdtemp root, and a config
+# returning an untrusted root is rejected before any cleanup tracking;
+# teardown refuses every target outside the owned mkdtemp shape — a direct
+# child of the OS temp dir whose name carries the exact `orcy-seeded-e2e-`
+# prefix plus a unique suffix. That is a shape check on harness-internal
+# metadata, not an ownership proof for arbitrary prefixed dirs; it deletes
+# exactly the owned root, leaving siblings intact. The suite also probes
+# Playwright discovery with `--list` (no servers booted): the default config
+# collects neither seeded harness file, the dedicated config collects exactly
+# the seeded spec (one test in one file), and the run root that probe
+# allocates is deleted even when the CLI or an assertion fails.
+corepack pnpm --filter @orcy/ui test:e2e:seeded:safety
+
+# Typecheck the harness files (excluded from the src/ tsconfig by design).
+corepack pnpm --filter @orcy/ui typecheck:e2e
+```
+
 ### Writing E2E Tests
 
 ```typescript
