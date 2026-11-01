@@ -69,7 +69,11 @@ afterEach(() => {
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
 });
 
-describe("owned compiler tree termination", () => {
+// The grandchild-dead assertions must classify a zombie as dead, which only
+// the /proc stat read can do (kill-0 sees an unreaped zombie as alive): a
+// test-harness limit, not a production gap — the /proc-less liveness probe
+// itself stays covered by the ungated block below.
+describe.skipIf(process.platform !== "linux")("owned compiler tree termination", () => {
   it("kills a SIGTERM-resistant descendant when the build times out", async () => {
     const root = makeRoot();
     const { script, pidFile } = writeResistantCompiler(root);
