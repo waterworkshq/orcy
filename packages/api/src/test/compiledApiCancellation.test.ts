@@ -108,7 +108,9 @@ describe("owned compiler tree termination", () => {
   });
 });
 
-describe("cancellation signal during the initial build", () => {
+// The run-root scan below enumerates /proc directly (cmdline + parent
+// chains): it has no portable equivalent, so this block is Linux-only.
+describe.skipIf(process.platform !== "linux")("cancellation signal during the initial build", () => {
   it("leaves no owned compiler descendant behind", async () => {
     await expectCancelledRunToLeaveNoCompiler();
   });
@@ -130,6 +132,58 @@ describe("cancellation signal during the initial build", () => {
       foreign.kill("SIGKILL");
     }
   }, 180_000);
+});
+
+// The fixture below writes /proc/self/comm — Linux-only by construction.
+describe.skipIf(process.platform !== "linux")("proc stat parsing", () => {
+  it("reads state and ppid past a comm that contains ') '", async () => {
+    const root = makeRoot();
+    const script = join(root, "tricky-comm.mjs");
+    writeFileSync(
+      script,
+      `import { writeFileSync } from "node:fs";
+writeFileSync("/proc/self/comm", "x) Z 5");
+setInterval(() => {}, 1000);
+`,
+    );
+    const child = spawn(process.execPath, [script], { stdio: "ignore" });
+    try {
+      // Once the child has installed its comm, /proc/<pid>/stat reads
+      // "<pid> (x) Z 5) S <ppid> ...": a parse anchored at the FIRST ") "
+      // reads the state as "Z" (a live child reported dead) and the ppid as
+      // "5"; the fields only start after the LAST ") " (cf. isGroupAlive).
+      expect(
+        await waitFor(() => {
+          try {
+            return readFileSync(`/proc/${child.pid}/stat`, "utf8").includes("(x) Z 5)");
+          } catch {
+            return false;
+          }
+        }, 5_000),
+      ).toBe(true);
+      expect(isSurviving(child.pid!)).toBe(true);
+      expect(parentPid(child.pid!)).toBe(process.pid);
+    } finally {
+      child.kill("SIGKILL");
+    }
+  }, 10_000);
+});
+
+describe("liveness probe without procfs", () => {
+  it("probes with a signal on non-procfs platforms", async () => {
+    const child = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000);"], { stdio: "ignore" });
+    try {
+      expect(isSurviving(child.pid!, "darwin")).toBe(true);
+    } finally {
+      child.kill("SIGKILL");
+    }
+  });
+
+  it("reports an exited process as not surviving on non-procfs platforms", async () => {
+    const child = spawn(process.execPath, ["-e", "process.exit(0);"], { stdio: "ignore" });
+    await new Promise((accept) => child.once("exit", accept));
+    expect(isSurviving(child.pid!, "darwin")).toBe(false);
+  });
 });
 
 /**
@@ -187,7 +241,7 @@ async function expectCancelledRunToLeaveNoCompiler(foreignPid?: number): Promise
     // The owned compiler tree must be gone WHEN the run ends, not merely
     // moments later. The identity captured above is preserved even though the
     // nested run's death reparents its descendants.
-    const survivors = [...new Set([...owned, ...processesInRunRoot(runRoot)])].filter(isSurviving);
+    const survivors = [...new Set([...owned, ...processesInRunRoot(runRoot)])].filter((pid) => isSurviving(pid));
     expect(survivors, `compiler tree survived the cancelled run:\n${describeProcesses(survivors)}`).toEqual([]);
     expect(exit.code ?? exit.signal).toBeTruthy();
   } finally {
@@ -274,10 +328,31 @@ function processesInRunRoot(runRoot: string): number[] {
   return found;
 }
 
+/**
+ * stat is "pid (comm) state ppid pgrp …"; comm may contain spaces and
+ * parentheses, so the fields start after the LAST ") " — the production
+ * `isGroupAlive` parses the same way.
+ */
+function statFields(stat: string): string[] {
+  const boundary = stat.lastIndexOf(") ");
+  return boundary < 0 ? [] : stat.slice(boundary + 2).split(/\s+/);
+}
+
 /** A process that is still running (a reaped-but-unwaited zombie is not). */
-function isSurviving(pid: number): boolean {
+function isSurviving(pid: number, platform: NodeJS.Platform = process.platform): boolean {
+  if (platform !== "linux") {
+    // No procfs: probe with a signal instead (like isGroupAlive's /proc-less
+    // fallback). A zombie reads alive here — zombie-awareness needs /proc.
+    try {
+      process.kill(pid, 0);
+      return true;
+    } catch (error) {
+      // EPERM means the process exists but is not ours to signal.
+      return (error as NodeJS.ErrnoException).code !== "ESRCH";
+    }
+  }
   try {
-    const state = readFileSync(`/proc/${pid}/stat`, "utf8").split(") ")[1]?.split(" ")[0];
+    const state = statFields(readFileSync(`/proc/${pid}/stat`, "utf8"))[0];
     return state !== undefined && state !== "Z";
   } catch {
     return false;
@@ -316,7 +391,7 @@ function describeProcesses(pids: number[]): string {
       let state = "?";
       try {
         cmdline = readFileSync(`/proc/${pid}/cmdline`, "utf8").split("\0").join(" ");
-        state = readFileSync(`/proc/${pid}/stat`, "utf8").split(") ")[1]?.split(" ")[0] ?? "?";
+        state = statFields(readFileSync(`/proc/${pid}/stat`, "utf8"))[0] ?? "?";
       } catch {
         // The process is gone.
       }
@@ -335,8 +410,7 @@ function readCmdline(pid: number): string {
 
 function parentPid(pid: number): number {
   try {
-    const stat = readFileSync(`/proc/${pid}/stat`, "utf8");
-    return Number(stat.split(") ")[1]?.split(" ")[1] ?? 0);
+    return Number(statFields(readFileSync(`/proc/${pid}/stat`, "utf8"))[1] ?? 0);
   } catch {
     return 0;
   }
