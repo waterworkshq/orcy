@@ -7,10 +7,10 @@
  *   3. Repair preview/apply — offline, exclusive, operator/reason, digest drift.
  *   4. Mutate/revert evidence for lineage validators and digest-drift guard.
  */
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, afterAll } from "vitest";
 import { eq, and, sql } from "drizzle-orm";
 import { join } from "node:path";
-import { existsSync, unlinkSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
+import { existsSync, unlinkSync, mkdirSync, mkdtempSync, writeFileSync, rmSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 import {
   closeDb,
@@ -57,7 +57,14 @@ import {
 // ─── Production initDb upgrade ─────────────────────────────────────────
 
 const PACKAGE_ROOT = join(import.meta.dirname, "..", "..");
-const TEMP_DIR = join(PACKAGE_ROOT, ".test-lifecycle-additive");
+// Per-invocation ownership (mkdtemp): two concurrent Vitest invocations of
+// this suite each get a unique temp directory AND repair-session root, so
+// neither can unlink the other's live database or maintenance-session
+// locks. Torn down in afterAll — this invocation's dir only.
+const TEMP_DIR = mkdtempSync(join(PACKAGE_ROOT, ".test-lifecycle-additive-"));
+afterAll(() => {
+  rmSync(TEMP_DIR, { recursive: true, force: true });
+});
 const DB_PATH = join(TEMP_DIR, "lifecycle-additive.db");
 
 function ensureTempDir(): void {

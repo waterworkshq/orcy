@@ -947,6 +947,19 @@ Output:
 { "success": true, "task": { "id": "uuid", "status": "pending", "assignedAgentId": null } }
 ```
 
+#### Retry Task
+
+Move a failed task back to pending for rework.
+
+```
+orcy_habitat_task({ action: "retry", taskId: "uuid-of-task" })
+
+Input: { "action": "retry", "taskId": "uuid-of-task" }
+Output: { "task": { "status": "pending" } }
+```
+
+Retry is a separate failed → pending reset — not an approval and not a substitute for `complete`. If the task's per-habitat transition budget is exhausted, retry is refused with a typed `409` `TRANSITION_BUDGET_EXHAUSTED` (details carry the count and ceiling); the task stays `failed` and unchanged — raise the ceiling, or set `lifecycleSettings.taskTransitionCeiling` to `0` for a habitat-wide opt-out when the count has reached the 10,000 maximum, rather than retry-looping. The agent lane can also answer `409 VERSION_CONFLICT` (the task changed mid-request — nothing was written; reload and decide again).
+
 #### Delete Task
 
 Delete a task permanently.

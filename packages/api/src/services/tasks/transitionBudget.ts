@@ -21,12 +21,17 @@
  * remote wrappers' atomic txs without opening nested transactions or calling
  * `getDb()` behind a caller's back.
  *
- * Breach semantics (user-selected design, ADR-0051): on the FIRST refusal
- * the guard escalates — emits the existing `escalated` TaskAction (SSE
+ * Breach semantics (user-selected design, ADR-0051): on the first
+ * TRUE-EXHAUSTION refusal (`count + 1 > ceiling` — the next single metered
+ * attempt itself no longer fits) the guard escalates — emits the existing
+ * `escalated` TaskAction (SSE
  * `task.escalated` + `task_events` row; `ACTION_EFFECTS.escalated` has no
  * `eventToStatus`, so no status change) with breach metadata, and direct-calls
  * the human notification (never the NOTIFY_TASK_EVENT_ACTIONS hook bus — the
- * v0.17.1 consumer-audit rule). Repeat refusals do not duplicate the
+ * v0.17.1 consumer-audit rule). A HEADROOM-ONLY refusal (a `required > 1`
+ * reservation that no longer fits while `count + 1 <= ceiling`) stays silent —
+ * no escalation, no notification — so the emit-once escalation is never spent
+ * before real exhaustion. Repeat refusals do not duplicate the
  * escalation: emit-once is scoped by the {@link BUDGET_BREACH_MARKER} metadata
  * key, so a prior retry-ladder `escalated` event never suppresses a budget
  * escalation. The escalation side effects live in

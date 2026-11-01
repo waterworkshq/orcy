@@ -8,7 +8,7 @@ import {
   type ReleaseType,
   type RoadmapScoringAlgorithm,
 } from "@orcy/shared";
-import type { Task } from "../models/index.js";
+import type { Task, Mission } from "../models/index.js";
 import { resolveRoadmapSettings } from "./roadmapSettingsService.js";
 
 const BONUS_WEIGHT = 5;
@@ -26,6 +26,8 @@ export interface StrategyBonusEntry {
 export interface ScoringContext {
   habitatId: string;
   candidateTasks: Task[];
+  /** Candidate missions by exact id, fetched ONCE per pass (chunked batched read) — strategies must not issue per-task mission queries. */
+  missionsById: Map<string, Mission>;
 }
 
 /** A roadmap-position scoring algorithm. Builds a bonus map in one pass (not per task). */
@@ -133,7 +135,7 @@ const depthFromRootStrategy: RoadmapScoringStrategy = {
  * recent release — i.e. freshly-unblocked work gets priority. Scales by recency.
  */
 const releaseProximityStrategy: RoadmapScoringStrategy = {
-  buildBonusMap({ habitatId, candidateTasks }) {
+  buildBonusMap({ habitatId, candidateTasks, missionsById }) {
     const map = new Map<string, StrategyBonusEntry>();
     if (candidateTasks.length === 0) return map;
     const recent = releaseRepo.findRecentByHabitat(habitatId, 5);
@@ -143,7 +145,7 @@ const releaseProximityStrategy: RoadmapScoringStrategy = {
     const shippedTypes = new Set(recent.map((r) => r.releaseType as ReleaseType));
     const shippedVersions = recent.map((r) => r.version);
     for (const t of candidateTasks) {
-      const mission = missionRepo.getMissionById(t.missionId);
+      const mission = missionsById.get(t.missionId) ?? null;
       if (!mission || (!mission.releaseGateType && !mission.releaseGateVersion)) continue;
       if (!isReleaseGateSatisfied(mission, shippedTypes, shippedVersions)) continue;
       // Most recent release that resolves the gate → recency factor.

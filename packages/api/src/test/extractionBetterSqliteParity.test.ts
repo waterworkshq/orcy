@@ -15,12 +15,12 @@
  *   4. Candidate atomic rollback (subordinate INSERT failure rolls back finding).
  *   5. Wrapped UNIQUE classification (isUniqueConstraintViolation).
  */
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, afterAll } from "vitest";
 import { eq, and } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 import { closeDb, initDb, getDb } from "../db/index.js";
 import { join } from "node:path";
-import { existsSync, unlinkSync, mkdirSync } from "node:fs";
+import { existsSync, unlinkSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import Database from "better-sqlite3";
 import {
   reserveWorkItemWithClient,
@@ -46,7 +46,13 @@ import { FailingDbClient } from "./helpers/failingDbClient.js";
 import type { ExtractionDbClient } from "../repositories/extraction/types.js";
 
 const PACKAGE_ROOT = join(import.meta.dirname, "..", "..");
-const TEMP_DIR = join(PACKAGE_ROOT, ".test-b10-parity");
+// Per-invocation ownership (mkdtemp): two concurrent Vitest invocations of
+// this suite each get a unique temp directory, so neither can unlink the
+// other's live database. Torn down in afterAll — this invocation's dir only.
+const TEMP_DIR = mkdtempSync(join(PACKAGE_ROOT, ".test-b10-parity-"));
+afterAll(() => {
+  rmSync(TEMP_DIR, { recursive: true, force: true });
+});
 
 function ensureTempDir(): void {
   if (!existsSync(TEMP_DIR)) mkdirSync(TEMP_DIR, { recursive: true });
