@@ -273,7 +273,9 @@ The complete Learning Loop browser flow (policy enable → dry run → ensure ru
 
 ```bash
 # Prereqs: workspace builds (api serves dist/index.js, ui preview serves dist/);
-# shared + daemon are built first — the api build/runtime imports their dist.
+# shared + daemon are built first — the api build/runtime imports their dist;
+# plus Google Chrome — the dedicated config pins Playwright channel "chrome"
+# (no additional Playwright browser download is needed).
 corepack pnpm --filter @orcy/shared build
 corepack pnpm --filter @orcy/daemon build
 corepack pnpm --filter @orcy/api build
@@ -288,9 +290,15 @@ Harness safety and types are guarded independently of any browser run:
 
 ```bash
 # Hostile-env proof: a preset ORCY_SEEDED_E2E_RUN_ROOT / DB_PATH / HOME /
-# TEST_WORKER_INDEX cannot steer the run root or DB path; every config
-# evaluation gets a fresh non-empty mkdtemp root; teardown refuses every
-# unowned target and deletes exactly the owned root, leaving siblings intact.
+# TEST_WORKER_INDEX cannot steer the run root or DB path; a hostile
+# HOST=0.0.0.0 / NODE_ENV=production cannot steer the API child env; every
+# config evaluation gets a fresh non-empty mkdtemp root, and a config
+# returning an untrusted root is rejected before any cleanup tracking;
+# teardown refuses every target outside the owned mkdtemp shape — a direct
+# child of the OS temp dir whose name carries the exact `orcy-seeded-e2e-`
+# prefix plus a unique suffix. That is a shape check on harness-internal
+# metadata, not an ownership proof for arbitrary prefixed dirs; it deletes
+# exactly the owned root, leaving siblings intact.
 corepack pnpm --filter @orcy/ui test:e2e:seeded:safety
 
 # Typecheck the harness files (excluded from the src/ tsconfig by design).

@@ -8,8 +8,7 @@ import type { FullConfig } from "@playwright/test";
 import { rmSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-
-const RUN_ROOT_PREFIX = "orcy-seeded-e2e-";
+import { RUN_ROOT_PREFIX } from "./seeded.harness.constants.ts";
 
 export default async function globalTeardown(config: FullConfig): Promise<void> {
   const root = config.metadata?.runRoot;

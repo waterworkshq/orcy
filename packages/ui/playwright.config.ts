@@ -6,6 +6,11 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 export default defineConfig({
   testDir: "./e2e",
+  // The seeded harness files live in the shared testDir but belong to their own
+  // configs: the vitest safety suite is not a Playwright test (loading it under
+  // Playwright crashes the loader), and the seeded spec must only run against
+  // its dedicated owned servers — never this shared-DB harness.
+  testIgnore: /learning-loop-seeded\.spec\.ts$|playwright\.seeded\.safety\.test\.ts$/,
   fullyParallel: false,
   forbidOnly: !!process.env.CI,
   retries: 0,

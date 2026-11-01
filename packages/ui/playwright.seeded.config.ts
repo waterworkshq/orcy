@@ -15,15 +15,9 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { API_PORT, RUN_ROOT_PREFIX, UI_PORT } from "./seeded.harness.constants.ts";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-
-/** Owned ports for this harness. Distinct from the shared e2e harness (3000/5173). */
-const API_PORT = 3147;
-const UI_PORT = 5147;
-
-/** mkdtemp prefix shared with the teardown's exact-match ownership check. */
-export const RUN_ROOT_PREFIX = "orcy-seeded-e2e-";
 
 /** Per-evaluation private run root — always fresh, never from env. */
 const RUN_ROOT = mkdtempSync(path.join(tmpdir(), RUN_ROOT_PREFIX));
@@ -76,6 +70,10 @@ export default defineConfig({
       reuseExistingServer: false,
       timeout: 60_000,
       env: {
+        // Pin local-dev posture: an inherited HOST=0.0.0.0 must not expose the
+        // seeded server, and NODE_ENV=production would fail security admission.
+        HOST: "127.0.0.1",
+        NODE_ENV: "development",
         PORT: String(API_PORT),
         DB_PATH,
         ORCY_LEARNING_LOOP_ENABLED: "true",
@@ -84,7 +82,7 @@ export default defineConfig({
     {
       // Test-only vite config (wraps production vite.config.ts; overrides the
       // preview proxy to API_PORT — see vite.e2e.seeded.config.ts).
-      command: `${shq(process.execPath)} ${shq(path.resolve(__dirname, "node_modules/vite/bin/vite.js"))} preview --port ${UI_PORT} --strictPort --config ${shq(path.resolve(__dirname, "vite.e2e.seeded.config.ts"))}`,
+      command: `${shq(process.execPath)} ${shq(path.resolve(__dirname, "node_modules/vite/bin/vite.js"))} preview --host 127.0.0.1 --port ${UI_PORT} --strictPort --config ${shq(path.resolve(__dirname, "vite.e2e.seeded.config.ts"))}`,
       url: `http://127.0.0.1:${UI_PORT}/app/`,
       reuseExistingServer: false,
       timeout: 60_000,

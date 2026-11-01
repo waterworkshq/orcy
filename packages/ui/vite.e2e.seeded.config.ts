@@ -4,13 +4,14 @@
  * the preview proxy/port so the browser harness talks to its own short-lived
  * API server — no production config edit, no new production env variable.
  *
- * `127.0.0.1:3147` is the `API_PORT` constant in `playwright.seeded.config.ts`
- * (and `5147` its `UI_PORT`); keep them in lockstep when either changes.
+ * Ports come from the shared side-effect-free `seeded.harness.constants.ts`,
+ * so the Playwright constants and this preview proxy cannot drift apart.
  */
 import { defineConfig, type UserConfig } from "vite";
 import baseConfig from "./vite.config.ts";
+import { API_PORT, UI_PORT } from "./seeded.harness.constants.ts";
 
-const E2E_API_TARGET = "http://127.0.0.1:3147";
+const E2E_API_TARGET = `http://127.0.0.1:${API_PORT}`;
 
 export default defineConfig(async (args) => {
   const base = (await baseConfig(args)) as UserConfig;
@@ -18,7 +19,7 @@ export default defineConfig(async (args) => {
     ...base,
     preview: {
       ...base.preview,
-      port: 5147,
+      port: UI_PORT,
       proxy: {
         "/api": { target: E2E_API_TARGET, changeOrigin: true },
         "/sse": { target: E2E_API_TARGET, changeOrigin: true },
