@@ -56,15 +56,6 @@ setInterval(() => {}, 1000);
   return { script, pidFile };
 }
 
-function isAlive(pid: number): boolean {
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch (error) {
-    return (error as NodeJS.ErrnoException).code !== "ESRCH";
-  }
-}
-
 async function waitFor(predicate: () => boolean, timeoutMs: number): Promise<boolean> {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
@@ -94,7 +85,7 @@ describe("owned compiler tree termination", () => {
 
     expect(existsSync(pidFile)).toBe(true);
     const grandchild = Number(readFileSync(pidFile, "utf8").trim());
-    expect(isAlive(grandchild)).toBe(false);
+    expect(isSurviving(grandchild)).toBe(false);
   });
 
   it("kills a SIGTERM-resistant descendant when the build is cancelled", async () => {
@@ -109,11 +100,11 @@ describe("owned compiler tree termination", () => {
     });
     expect(await waitFor(() => existsSync(pidFile), 10_000)).toBe(true);
     const grandchild = Number(readFileSync(pidFile, "utf8").trim());
-    expect(isAlive(grandchild)).toBe(true);
+    expect(isSurviving(grandchild)).toBe(true);
 
     cancelActiveApiCompiler("SIGTERM");
     await expect(running).rejects.toThrow(/cancelled/);
-    expect(isAlive(grandchild)).toBe(false);
+    expect(isSurviving(grandchild)).toBe(false);
   });
 });
 
