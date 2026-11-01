@@ -309,6 +309,33 @@ export function getMissionById(id: string): Mission | null {
   return null;
 }
 
+/**
+ * Chunk bound for id-listed mission reads. 500 keeps every statement far below
+ * SQLite's 32766 host-parameter ceiling while bounding per-pass statement
+ * growth to ceil(n/500).
+ */
+export const MISSION_ID_CHUNK_SIZE = 500;
+
+/**
+ * Batched exact-id Mission read: all missions for `ids` in ONE map, chunked at
+ * {@link MISSION_ID_CHUNK_SIZE} ids per statement. Exact canonical ids only —
+ * no `mission-` prefix normalization (callers pass ids loaded from task rows,
+ * which are already canonical). Per-pass replacement for per-task
+ * `getMissionById` loops (suggestion titles, SLA deadlines, gate lookups).
+ */
+export function getMissionsByIds(ids: string[]): Map<string, Mission> {
+  const map = new Map<string, Mission>();
+  const unique = [...new Set(ids)];
+  if (unique.length === 0) return map;
+  const db = getDb();
+  for (let i = 0; i < unique.length; i += MISSION_ID_CHUNK_SIZE) {
+    const chunk = unique.slice(i, i + MISSION_ID_CHUNK_SIZE);
+    const rows = db.select().from(missions).where(inArray(missions.id, chunk)).all() as Mission[];
+    for (const row of rows) map.set(row.id, row);
+  }
+  return map;
+}
+
 export function getMissionsByHabitatId(
   habitatId: string,
   filters?: {
