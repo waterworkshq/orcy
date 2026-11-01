@@ -1857,6 +1857,39 @@ Mark a task as failed.
 }
 ```
 
+### POST /tasks/:id/retry
+
+Manually retry a task — reset it to `pending` (claim pool) through the custody-ending retry writer. Both owner columns and the execution token are cleared, `nextRetryAt` is cleared, `retryCount` increments, the ownership generation advances when the row still carried an owner, and a `retry_executed` event is emitted. On the **human rejected lane** the reviewer's `rejectionReason` is **preserved** on the pending row (and carried on the `retry_executed` event's metadata) so the replacement claimant sees why the prior attempt was rejected; every other lane (agent, human failed-lane, background ladder) clears `rejectionReason` as before. Budget-metered as the `system` actor (no human exemption on this route). A manual retry deliberately overrides the automatic `maxRetries` limit; the retry ladder's escalation semantics are untouched.
+
+**Admission preimage CAS (both manual lanes):** the status/version read at admission is pinned into the writer's transaction — if the row moves before the write (e.g. the rejected owner restarts rework and mints a fresh epoch), the retry refuses with **`409` `VERSION_CONFLICT`** (`details.expectedStatus`/`details.expectedVersion` from the request's read) and **zero effects**: no status change, no custody/generation change, no metered event. The CAS runs **before** the budget gate inside the writer, so a stale retry against a budget-exhausted row always answers `VERSION_CONFLICT`, never a spurious `TRANSITION_BUDGET_EXHAUSTED` and never a breach escalation. The background ladder's scheduler pins the same preimage from its snapshot — a stale background row refuses with no effects instead of overwriting a newer reset.
+
+**Transition budget (typed `409` on the two HTTP manual lanes):** a budget refusal answers **`409` `TRANSITION_BUDGET_EXHAUSTED`** with `details: { category: "transition_budget_exhausted", count, ceiling }` and leaves the task row byte-identical — the server did not fail, the budget cannot cover the attempt. On the human recovery lane the required reservation is **four metered slots** (this reset's `retry_executed` **plus the replacement's claim, start, and submit**) and is enforced **inside the retry writer's `BEGIN IMMEDIATE` transaction, atomically with the meter count it reads** — a custody-ending reset whose replacement path cannot be afforded refuses with zero effects instead of stranding the row claimed-but-unstartable (`started`, `submitted`, and `released` are all metered too), with no window for a concurrent metered commit to slip between the check and the write. Remedy: raise the habitat's `taskTransitionCeiling` (or set `0` to unmeter the habitat) and retry. The typed `409` is the contract of the two HTTP manual lanes (agent failed-lane and human recovery lane; the historical `500` mapping was a mislabeled policy refusal and is gone). The **background ladder** is not an HTTP lane — its budget refusal collapses that tick's retry to a silent skip (no typed refusal surfaces on the wire). At exactly the ceiling, the one unreserved 5th-slot consumer is an **agent-reviewer `rejected`** of the freshly submitted replacement — that review rejection surfaces as the generic `400` "Task cannot be rejected in current state" (not a typed budget refusal) while the task stays `submitted` (not a custody strand); human reviewers are unmetered. Task-row rollback and escalation are separate: every refusal rolls the task row back with no writes, but only a refusal at **true exhaustion** (`count + 1 > ceiling` — the next single metered attempt itself no longer fits) also schedules a best-effort post-commit breach escalation (an `escalated` task event with SSE and a human notification naming the remedy); a **headroom-only** refusal (the four-slot reservation no longer fits while `count + 1 <= ceiling`) stays silent — no escalation, no notification — so the one-shot escalation is never spent before real exhaustion.
+
+**Human-lane authority (recovery policy, persisted rows):** the human retry lane authorizes through the same custody-aware recovery policy as review-safety recovery, evaluated on **persisted** rows — the JWT role is an identity hint, never authority: a persisted global admin passes anywhere; a **personal habitat** admits only its explicit owner (`ownerUserId`); a **team habitat** admits only team `owner`/`admin` members; a persisted viewer is refused everywhere. Plain habitat membership (the read rule that admits any authenticated human to personal habitats) and a global editor role are NOT sufficient. The policy is evaluated at admission AND re-checked **inside the retry writer's `BEGIN IMMEDIATE`** (after the preimage CAS, before the budget gate): a persisted-role or team-membership revocation landing between the route's admission and the writer answers the typed `403` with zero effects — the admission preflight is never the sole gate. The agent lane keeps its historical admission (any authenticated agent, failed-status only).
+
+**Auth:** Local actor — agent API key (`X-Agent-API-Key`) or human JWT (Bearer). Served under both `/api/v1` and the deprecated `/api` prefix.
+
+- **Agent lane (unchanged):** any authenticated agent; **`failed` status only** (`400` otherwise).
+- **Human lane:** a human authorized by the recovery policy above (persisted global admin passes anywhere; personal habitat → its explicit owner; team habitat → team `owner`/`admin` member; persisted viewer refused — a missing Task/Mission is `404`); admitted for **`failed` or `rejected`** status (`400` otherwise). Retrying a `rejected` task is the recovery path for a rejected row whose owner is unavailable (the escalated-rejected lane preserves the owner, so an absent owner leaves the row unreachable) — the reset returns it to the claim pool and unblocks `DELETE /agents/:id` through its existing lanes. Agents never gain the `rejected` lane on the MCP wire.
+
+**Request:** no body.
+
+**Response `200`:**
+
+```json
+{
+  "task": { "id": "...", "status": "pending", "..." }
+}
+```
+
+| Status | Meaning |
+|-------|---------|
+| `200` | Retry executed; body `{ "task": { ... } }` with `status: "pending"`. |
+| `400` | Task is not in a retryable status (agent lane: `failed` only; human lane: `failed` or `rejected`). |
+| `404` | Task (or its Mission) not found. |
+| `409` | Two typed refusals, in fixed precedence. `VERSION_CONFLICT`: the admission preimage CAS refused (the row moved before the write; zero effects; `details.expectedStatus`/`details.expectedVersion`; reload and decide again). `TRANSITION_BUDGET_EXHAUSTED`: `details: { category: "transition_budget_exhausted", count, ceiling }` — the refusal is intentional; the task keeps its status, `retryCount`, and `nextRetryAt`; nothing was retried. Raising the habitat's `lifecycleSettings.taskTransitionCeiling` above the task's current count is the remedy — impossible once the count reaches the 10,000 schema maximum, where setting it to `0` is the habitat-wide opt-out (every task in the habitat unmetered, not a per-task warning level). |
+| `500` | Unexpected execution failure only — never returned for a policy refusal. |
+
 ### POST /tasks/:id/unblock
 
 Signal that a task's dependency has been resolved.
@@ -3114,7 +3147,7 @@ unmetered by the human budget exemption.
 
 | Code | Meaning |
 |------|---------|
-| `deletion_blocked_review_in_flight` | An assigned task is `submitted` or `rejected` — resolve the review first. |
+| `deletion_blocked_review_in_flight` | An assigned task is `submitted` or `rejected` — resolve the review first: approve/reject for `submitted`, or a human authorized by the habitat recovery policy (personal owner or persisted global admin; team owner/admin) may `POST /tasks/:id/retry` the `rejected` row back to the claim pool. |
 | `deletion_blocked_budget` | Self-delete only: the per-task transition budget is exhausted; an admin (unmetered) must perform the cleanup. |
 | `AGENT_TEARDOWN_REFERENCES_REMAIN` | Internal invariant only: the deletion rolled back with the agent still registered — report it to the operator / have an admin investigate; a normal user is not expected to trigger it. |
 

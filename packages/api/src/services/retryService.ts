@@ -2,12 +2,15 @@ import * as taskRepo from "../repositories/task.js";
 import {
   retryTransitionToPendingWithEffects,
   retryEscalateClearOwnerWithEffects,
+  type RetryPreimage,
+  type RetryTransitionOptions,
 } from "../repositories/taskStateMachine.js";
+import { RetryTransitionBudgetRefusedError } from "../repositories/retryBudgetRefusal.js";
 import * as habitatRepo from "../repositories/habitat.js";
 import { logger } from "../lib/logger.js";
 import type { Task, RetryPolicy } from "../models/index.js";
 import { emitTransition } from "./tasks/transition-emitter.js";
-import { guardTransitionTop } from "./tasks/transitionBudget.js";
+import type { BudgetRefusedOutcome } from "./tasks/transitionBudget.js";
 
 const DEFAULT_POLICY: RetryPolicy = {
   maxRetries: 3,
@@ -80,40 +83,119 @@ export function scheduleRetry(task: Task): Task | null {
   return result.task;
 }
 
-/** Resets a task back to pending for the next attempt, increments its retry count, and emits a transition. */
-export function executeRetry(task: Task): Task | null {
-  // Transition budget (plan §5): retry_executed is the metered progression of
-  // the retry ladder (retry_scheduled is bookkeeping — counted in the meter
-  // when written, but scheduling itself is not guarded). The retry processor
-  // is a system actor: metered. Refusal follows this function's null-on-
-  // failed-update convention; the task keeps its nextRetryAt until a human
-  // resolves it or the ceiling is raised. The first refusal escalates (plan
-  // §6) — emitted once, outside this module, by the guard's breach site.
-  const budgetHabitatId = taskRepo.getHabitatIdForTask(task.id) ?? "";
-  const budget = guardTransitionTop(task.id, budgetHabitatId, "system", "retry_executed");
-  if (budget.outcome === "refused") return null;
+/** Options for {@link executeRetryWithOutcome} (all default to the historical behavior). */
+export interface ExecuteRetryOptions {
+  /**
+   * Preimage CAS pinned from the caller's OWN read of the task: the writer
+   * refuses (no effects) when the row moved between that read and the write.
+   * Manual REST retries pin it from the request's fetch; the background
+   * processor pins it from the scheduler snapshot — a stale snapshot (the
+   * row reset/restarted/claimed after the tick's read) refuses instead of
+   * overwriting the newer state.
+   */
+  expected?: RetryPreimage;
+  /**
+   * Preserve `rejectionReason` on the reset row (human rejected-lane
+   * recovery) so the replacement claimant keeps the prior attempt's
+   * feedback. Also carries the preserved reason on the emitted
+   * `retry_executed` event for audit provenance.
+   */
+  preserveRejectionReason?: boolean;
+  /**
+   * Require transition-budget headroom for FOUR metered slots — this reset's
+   * `retry_executed` AND the replacement's claim, start, and submit —
+   * enforced INSIDE the writer's BEGIN IMMEDIATE, atomically with the meter
+   * count (the manual recovery lane; see the writer's headroom guard). The
+   * refusal surfaces as the typed `refused` outcome with zero effects.
+   */
+  requireClaimHeadroom?: boolean;
+  /**
+   * In-transaction authority re-check passed through to the retry writer
+   * (manual human recovery lane): evaluated inside the writer's BEGIN
+   * IMMEDIATE after the preimage CAS and before the budget gate; a `false`
+   * return throws the typed 403 with zero effects. See
+   * {@link RetryTransitionOptions.authorize}.
+   */
+  authorize?: RetryTransitionOptions["authorize"];
+}
 
+/** Distinguishes execution, budget refusal, and a stale manual-retry preimage. */
+export type ExecuteRetryOutcome =
+  | { outcome: "executed"; task: Task }
+  | { outcome: "refused"; refusal: BudgetRefusedOutcome }
+  | { outcome: "failed"; reason?: "preimage_conflict" };
+
+/**
+ * Resets a task back to pending for the next attempt, increments its retry
+ * count, and emits a transition — preserving the typed refusal distinction.
+ */
+export function executeRetryWithOutcome(
+  task: Task,
+  opts?: ExecuteRetryOptions,
+): ExecuteRetryOutcome {
   const newRetryCount = task.retryCount + 1;
 
   // Dedicated immediate retry writer (review safety): the privileged
   // status/assignee reset and the requirement ownership-end invariant share
   // one reservation — the generic task update can no longer perform this.
-  const updated = retryTransitionToPendingWithEffects(task.id, newRetryCount);
-  if (!updated) return null;
+  // Inside that BEGIN IMMEDIATE, in order: the preimage CAS (a moved row
+  // refuses with NO effects) and the transition-budget gate — required=1
+  // (every lane: retry_executed is the metered progression of the retry
+  // ladder; retry_scheduled is bookkeeping — counted in the meter when
+  // written, but scheduling itself is not guarded) or required=4 on the
+  // human recovery lane (reset + replacement claim/start/submit). No
+  // service-level preflight exists BY DESIGN: a stale preimage must always
+  // surface as the CAS refusal (VERSION_CONFLICT), never as a spurious
+  // budget breach — CAS takes precedence over the budget check, and the
+  // first genuine refusal escalates from the guard's breach site (plan §6).
+  try {
+    const updated = opts
+      ? retryTransitionToPendingWithEffects(task.id, newRetryCount, opts)
+      : retryTransitionToPendingWithEffects(task.id, newRetryCount);
+    if (!updated) {
+      return { outcome: "failed", ...(opts?.expected ? { reason: "preimage_conflict" as const } : {}) };
+    }
 
-  const habitatId = taskRepo.getHabitatIdForTask(task.id) ?? "";
+    const habitatId = taskRepo.getHabitatIdForTask(task.id) ?? "";
 
-  emitTransition(task.id, "retry_executed", habitatId, {
-    actorType: "system",
-    actorId: "retry-service",
-    oldStatus: task.status,
-    newStatus: "pending",
-    retryCount: newRetryCount,
-    metadata: { retryCount: newRetryCount },
-    task: updated,
-  });
+    // Audit provenance for the preserved-feedback recovery: the replacement
+    // claimant's trail shows WHY the prior attempt was rejected, not just a
+    // bare reset. (With `expected` pinned, `task.rejectionReason` equals the
+    // row's — the CAS refused otherwise.)
+    const preservedReason =
+      opts?.preserveRejectionReason === true ? (task.rejectionReason ?? undefined) : undefined;
 
-  return updated;
+    emitTransition(task.id, "retry_executed", habitatId, {
+      actorType: "system",
+      actorId: "retry-service",
+      oldStatus: task.status,
+      newStatus: "pending",
+      retryCount: newRetryCount,
+      ...(preservedReason !== undefined ? { reason: preservedReason } : {}),
+      metadata: {
+        retryCount: newRetryCount,
+        ...(preservedReason !== undefined ? { rejectionReason: preservedReason } : {}),
+      },
+      task: updated,
+    });
+
+    return { outcome: "executed", task: updated };
+  } catch (err) {
+    if (err instanceof RetryTransitionBudgetRefusedError) {
+      return { outcome: "refused", refusal: err.refusal };
+    }
+    throw err;
+  }
+}
+
+/**
+ * Null-on-failure wrapper over {@link executeRetryWithOutcome} — the
+ * background retry processor's established convention (a refusal or an
+ * unsuccessful write collapses to null and the tick skips the task).
+ */
+export function executeRetry(task: Task, opts?: ExecuteRetryOptions): Task | null {
+  const result = executeRetryWithOutcome(task, opts);
+  return result.outcome === "executed" ? result.task : null;
 }
 
 /**
@@ -191,7 +273,16 @@ export function processPendingRetries(): void {
     if (!policy) continue;
 
     if (task.retryCount < (policy.maxRetries ?? 3)) {
-      executeRetry(task);
+      // The scheduler snapshot's preimage is pinned into the writer: a row
+      // that moved after this tick's read (a human rejected-recovery reset
+      // to pending, an owner rework restart, a fresh claim) refuses with NO
+      // effects instead of being overwritten by the stale snapshot — no
+      // duplicate `retry_executed`, no cleared preserved feedback, no
+      // stolen metered slot. A benign version bump only defers the row to
+      // the next tick (nextRetryAt survives the refusal).
+      executeRetry(task, {
+        expected: { status: task.status, version: task.version },
+      });
     } else if (policy.escalateToHuman) {
       escalateToHuman(task);
     }

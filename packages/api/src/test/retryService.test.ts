@@ -4,13 +4,22 @@ import * as taskStateMachine from "../repositories/taskStateMachine.js";
 vi.mock("../repositories/taskStateMachine.js", () => ({
   // Review-safety cutover: the retry ladder's privileged writes moved to the
   // dedicated immediate writers (asserted below); the rest of the state
-  // machine is out of scope for this unit test.
+  // machine is out of scope for this unit test. The typed budget-refusal
+  // error class lives in its own runtime-leaf module (retryBudgetRefusal.js)
+  // so this factory stays simple and instanceof still matches the real class.
   retryTransitionToPendingWithEffects: vi.fn(() => ({ id: "task-1", status: "pending" })),
-  retryEscalateClearOwnerWithEffects: vi.fn(() => ({ id: "task-1", status: "failed", assignedAgentId: null })),
+  retryEscalateClearOwnerWithEffects: vi.fn(
+    () => ({ id: "task-1", status: "failed", assignedAgentId: null }),
+  ),
 }));
 vi.mock("../services/tasks/transitionBudget.js", () => ({
-  // Budget guard seam: allow (this suite exercises retry-ladder mechanics).
-  guardTransitionTop: vi.fn(() => ({ outcome: "allow", count: 0, ceiling: 12 })),
+  // Budget guard seam: the retry reset's budget gate moved INTO the writer
+  // (round-3), so retryService no longer imports the top-level guard — the
+  // writer mock below owns refusal mapping. The factory keeps the module
+  // surface other graph consumers may resolve.
+  resolveCeiling: vi.fn(() => 12),
+  countMeteredTransitions: vi.fn(() => 0),
+  habitatIdForTaskWithClient: vi.fn(() => "h1"),
 }));
 
 vi.mock("../repositories/task.js", () => ({
@@ -46,9 +55,11 @@ import {
   calculateBackoff,
   scheduleRetry,
   executeRetry,
+  executeRetryWithOutcome,
   escalateToHuman,
   processPendingRetries,
 } from "../services/retryService.js";
+import { RetryTransitionBudgetRefusedError } from "../repositories/retryBudgetRefusal.js";
 import * as taskRepo from "../repositories/task.js";
 import * as habitatRepo from "../repositories/habitat.js";
 import * as eventRepo from "../repositories/event.js";
@@ -160,8 +171,8 @@ describe("retryService", () => {
     });
   });
 
-  describe("executeRetry", () => {
-    it("resets task to pending", () => {
+  describe("executeRetryWithOutcome", () => {
+    it("wrapper executeRetry returns the task on success (null-on-failure contract)", () => {
       vi.mocked(taskRepo.getHabitatIdForTask).mockReturnValue("h1");
       vi.mocked(taskRepo.updateTask).mockReturnValue({
         success: true,
@@ -171,12 +182,95 @@ describe("retryService", () => {
       const result = executeRetry(makeTask({ retryCount: 0 }));
 
       expect(result).not.toBeNull();
+      expect(result?.status).toBe("pending");
       // Review safety: the privileged status/assignee reset now runs through
-      // the dedicated immediate retry writer (mocked here).
+      // the dedicated immediate retry writer (mocked here) — 2-arg call when
+      // no options are supplied (background ladder arity unchanged).
       expect(taskStateMachine.retryTransitionToPendingWithEffects).toHaveBeenCalledWith(
         "task-1",
         1,
       );
+    });
+
+    it("wrapper executeRetry collapses a typed refusal to null", () => {
+      vi.mocked(taskRepo.getHabitatIdForTask).mockReturnValue("h1");
+      // The budget gate lives in the WRITER (round-3): a refusal surfaces as
+      // the typed throw from retryTransitionToPendingWithEffects.
+      vi.mocked(taskStateMachine.retryTransitionToPendingWithEffects).mockImplementationOnce(
+        (() => {
+          throw new RetryTransitionBudgetRefusedError({
+            outcome: "refused",
+            reason: "transition_budget_exhausted",
+            count: 21,
+            ceiling: 21,
+          });
+        }) as any,
+      );
+
+      expect(executeRetry(makeTask())).toBeNull();
+    });
+
+    it("threads the manual-retry options to the writer", () => {
+      vi.mocked(taskRepo.getHabitatIdForTask).mockReturnValue("h1");
+      const expected = { status: "rejected", version: 7 };
+
+      const result = executeRetryWithOutcome(
+        // Fixture mirrors a REAL preimage read (round-3 T13): the pinned
+        // `expected` says rejected@7, so the task row must say the same.
+        makeTask({ status: "rejected", version: 7, retryCount: 2, rejectionReason: "needs work" }),
+        { expected, preserveRejectionReason: true, requireClaimHeadroom: true },
+      );
+
+      expect(result.outcome).toBe("executed");
+      expect(taskStateMachine.retryTransitionToPendingWithEffects).toHaveBeenCalledWith(
+        "task-1",
+        3,
+        { expected, preserveRejectionReason: true, requireClaimHeadroom: true },
+      );
+      // Audit provenance: the preserved rejection feedback rides the emitted
+      // retry_executed event (reason + metadata).
+      expect(eventRepo.createEvent).toHaveBeenCalledWith(
+        expect.objectContaining({
+          action: "retry_executed",
+          metadata: expect.objectContaining({ retryCount: 3, rejectionReason: "needs work" }),
+        }),
+      );
+    });
+
+    it("maps a writer CAS refusal to failed/preimage_conflict with no event", () => {
+      vi.mocked(taskRepo.getHabitatIdForTask).mockReturnValue("h1");
+      // One-shot override only — the factory default implementation must
+      // survive for later tests (clearAllMocks keeps implementations).
+      vi.mocked(taskStateMachine.retryTransitionToPendingWithEffects).mockReturnValueOnce(
+        null as any,
+      );
+
+      const result = executeRetryWithOutcome(makeTask(), { expected: { status: "rejected", version: 3 } });
+
+      expect(result).toEqual({ outcome: "failed", reason: "preimage_conflict" });
+      expect(eventRepo.createEvent).not.toHaveBeenCalled();
+    });
+
+    it("maps an in-writer headroom refusal (typed throw) to the refused outcome", () => {
+      vi.mocked(taskRepo.getHabitatIdForTask).mockReturnValue("h1");
+      vi.mocked(taskStateMachine.retryTransitionToPendingWithEffects).mockImplementationOnce(
+        (() => {
+          throw new RetryTransitionBudgetRefusedError({
+            outcome: "refused",
+            reason: "transition_budget_exhausted",
+            count: 4,
+            ceiling: 5,
+          });
+        }) as any,
+      );
+
+      const result = executeRetryWithOutcome(makeTask(), { requireClaimHeadroom: true });
+
+      expect(result).toEqual({
+        outcome: "refused",
+        refusal: { outcome: "refused", reason: "transition_budget_exhausted", count: 4, ceiling: 5 },
+      });
+      expect(eventRepo.createEvent).not.toHaveBeenCalled();
     });
   });
 
@@ -199,8 +293,10 @@ describe("retryService", () => {
   });
 
   describe("processPendingRetries", () => {
-    it("processes overdue retries", () => {
-      vi.mocked(taskRepo.getTasksPendingRetry).mockReturnValue([makeTask({ retryCount: 1 })]);
+    it("processes overdue retries and pins the scheduler snapshot's preimage into the writer", () => {
+      vi.mocked(taskRepo.getTasksPendingRetry).mockReturnValue([
+        makeTask({ retryCount: 1, status: "failed", version: 5 }),
+      ]);
       vi.mocked(taskRepo.getHabitatIdForTask).mockReturnValue("h1");
       vi.mocked(habitatRepo.getHabitatById).mockReturnValue({
         retrySettings: { maxRetries: 3 },
@@ -213,6 +309,15 @@ describe("retryService", () => {
       processPendingRetries();
 
       expect(taskRepo.getTasksPendingRetry).toHaveBeenCalled();
+      // Round-3 (stale-scheduler fence): the background lane carries
+      // expected {status, version} from the SNAPSHOT — a row that moved
+      // after the tick's read refuses in the writer's CAS instead of being
+      // overwritten (no duplicate retry_executed, no cleared feedback).
+      expect(taskStateMachine.retryTransitionToPendingWithEffects).toHaveBeenCalledWith(
+        "task-1",
+        2,
+        { expected: { status: "failed", version: 5 } },
+      );
     });
     it("escalates when max retries exceeded", () => {
       vi.mocked(taskRepo.getTasksPendingRetry).mockReturnValue([makeTask({ retryCount: 3 })]);

@@ -599,7 +599,7 @@
 | POST | `/tasks/:param/quality-checklist/validate` | `local_actor` | current + deprecated twin |
 | POST | `/tasks/:param/reject` | `local_actor` | current + deprecated twin |
 | POST | `/tasks/:param/release` | `agent` | current + deprecated twin |
-| POST | `/tasks/:param/retry` | `agent` | current + deprecated twin |
+| POST | `/tasks/:param/retry` | `local_actor` | current + deprecated twin |
 | GET | `/tasks/:param/review-requirement` | `human` | current + deprecated twin |
 | POST | `/tasks/:param/review-requirement/resolve` | `human` | current + deprecated twin |
 | GET | `/tasks/:param/reviewers` | `local_actor` | current + deprecated twin |

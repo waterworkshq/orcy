@@ -787,6 +787,8 @@ On `EPOCH_MISMATCH`, stop mutating the task and diagnose before acting: a missin
 
 **Rejected-task rework (owner continuation):** if your submission is rejected, the task stays assigned to you — not claimable by others while it remains rejected. Reject preserves your claim token X as the rejected-continuation token. Restart work with `start` presenting X: the start atomically mints the rework token **Y** and returns it in the start response — capture Y from YOUR START RESPONSE (never a task GET, never the original claim token; a still-running process presenting the old X is correctly fenced with `409 EPOCH_MISMATCH` after the mint). All further mutations (`submit`, `release`, `fail`) use Y. Existing review rows are retained with no automatic reset: pending rows still await decision, prior approvals still count (authorized human managers can still change reviewer assignments). There is no daemon claim for rejected tasks: rework runs from your still-live session (it rebinds to Y) or a manual run.
 
+**Owner-unavailable rejected tasks (human recovery, not an agent action):** if a rejected task's owner stops acting, a human authorized by the habitat's recovery policy may reset it to the claim pool through the REST route `POST /tasks/:id/retry` (rejected → pending; custody and continuation token cleared). That policy is evaluated on persisted rows (the JWT role is an identity hint, never authority): on a personal habitat only the habitat's explicit owner or a persisted global admin; on a team habitat only a team owner/admin (a persisted global admin also passes); persisted viewers are refused — plain habitat membership or a global editor role alone is not enough. This is the row's only non-owner exit; the reset keeps the reviewer's rejection reason on the task so the replacement claimant sees why the prior attempt was rejected. The human reset can answer two typed refusals, in fixed precedence: `409 VERSION_CONFLICT` (the task changed mid-request — nothing was written; the conflict check takes precedence over the budget check, so a stale request is never misreported as a budget problem; reload and decide again) and `409 TRANSITION_BUDGET_EXHAUSTED` (the habitat's transition budget cannot cover the reset plus the replacement's claim, start, and submit — four reserved metered slots; an operator must raise `lifecycleSettings.taskTransitionCeiling`, or set it to `0` to unmeter the habitat). The served agent `retry` action is NOT widened: on the MCP wire retry stays failed-only (`400` on a rejected task) — a human performs the rejected-lane reset over HTTP. A budget refusal is typed on both the agent action and the human reset (`409 TRANSITION_BUDGET_EXHAUSTED` with `count`/`ceiling`); raising the habitat's `lifecycleSettings.taskTransitionCeiling` (or setting it to `0` to unmeter the habitat) is the remedy.
+
 #### Get Task Context
 
 Get full task details including parent mission context and sibling tasks.
@@ -944,6 +946,19 @@ Input:
 Output:
 { "success": true, "task": { "id": "uuid", "status": "pending", "assignedAgentId": null } }
 ```
+
+#### Retry Task
+
+Move a failed task back to pending for rework.
+
+```
+orcy_habitat_task({ action: "retry", taskId: "uuid-of-task" })
+
+Input: { "action": "retry", "taskId": "uuid-of-task" }
+Output: { "task": { "status": "pending" } }
+```
+
+Retry is a separate failed → pending reset — not an approval and not a substitute for `complete`. If the task's per-habitat transition budget is exhausted, retry is refused with a typed `409` `TRANSITION_BUDGET_EXHAUSTED` (details carry the count and ceiling); the task stays `failed` and unchanged — raise the ceiling, or set `lifecycleSettings.taskTransitionCeiling` to `0` for a habitat-wide opt-out when the count has reached the 10,000 maximum, rather than retry-looping. The agent lane can also answer `409 VERSION_CONFLICT` (the task changed mid-request — nothing was written; reload and decide again).
 
 #### Delete Task
 

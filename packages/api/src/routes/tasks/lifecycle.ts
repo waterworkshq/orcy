@@ -18,16 +18,20 @@ import { authorizeTaskAction, getPrincipalFromRequest } from "../../middleware/t
 import * as reviewAssignment from "../../services/reviewAssignmentService.js";
 import type { Artifact } from "../../models/index.js";
 import {
+  AppError,
   notFound,
   unauthorized,
   forbidden,
   conflict,
+  conflictWithCode,
   badRequest,
   internalError,
   unprocessableEntity,
   InterceptorVetoError,
 } from "../../errors.js";
 import { applyDeclaredAuthPolicies } from "../../authPolicy.js";
+import { authorizeRecoveryWithClient } from "../../services/reviewRecoveryService.js";
+import { getDb } from "../../db/index.js";
 
 const taskParamsSchema = z.object({ id: z.string() });
 
@@ -449,22 +453,116 @@ export async function taskLifecycleRoutes(fastify: FastifyInstance): Promise<voi
     .withTypeProvider<ZodTypeProvider>()
     .post(
       "/tasks/:id/retry",
-      { schema: { params: taskParamsSchema }, config: { authPolicy: "agent" } },
+      { schema: { params: taskParamsSchema }, config: { authPolicy: "local_actor" } },
       async (request, _reply) => {
         const task = taskRepo.getTaskById(request.params.id);
         if (!task) {
           throw notFound("Task not found");
         }
 
-        if (task.status !== "failed") {
-          throw badRequest("Task must be in failed status to retry");
+        const principal = getPrincipalFromRequest(request);
+        const humanRetry = principal?.type === "human";
+
+        // Human lane object authorization: the manual human retry is a
+        // CUSTODY-ENDING MUTATION, so it binds to the repo's established
+        // recovery-mutation policy (authorizeRecoveryWithClient — the
+        // review-safety precedent), NOT the broad habitat READ rule (any
+        // authenticated human on personal habitats) and NOT the JWT
+        // admin/editor role: persisted global admin; personal habitat → its
+        // explicit owner; team habitat → team owner/admin. Persisted viewer
+        // is refused everywhere; the JWT role is an identity hint, never
+        // authority (the persisted users row decides). This admission is a
+        // UX preflight, NOT the sole gate: the same policy is re-checked
+        // INSIDE the retry writer's transaction (retryOptions.authorize), so
+        // a revocation in between still refuses. Agents keep the
+        // historical authorizeTaskAction admission; the agent wire is
+        // unchanged.
+        if (humanRetry) {
+          const authorized = authorizeRecoveryWithClient(
+            getDb(),
+            principal.id,
+            request.params.id,
+          );
+          if (!authorized) {
+            throw forbidden("Not authorized to recover this task");
+          }
+        } else {
+          const auth = authorizeTaskAction(task, principal, "retry");
+          if (!auth.allowed) {
+            throw forbidden(auth.reason ?? "Forbidden");
+          }
         }
 
-        const retried = retryService.executeRetry(task);
-        if (!retried) {
+        // Status gate asymmetry: the agent lane stays failed-only (unchanged
+        // contract); a human may additionally retry a `rejected`
+        // task — the custody-ending reset that returns an owner-stranded
+        // rejected row to the claim pool. `submitted` still blocks both.
+        const retryableStatus = humanRetry
+          ? task.status === "failed" || task.status === "rejected"
+          : task.status === "failed";
+        if (!retryableStatus) {
+          throw badRequest(
+            humanRetry
+              ? "Task must be in failed or rejected status to retry"
+              : "Task must be in failed status to retry",
+          );
+        }
+
+        // Both manual lanes pin the admission preimage from THIS request's
+        // read: a row that moves between the fetch and the writer (owner
+        // rework restart minting a fresh epoch, a concurrent claim) refuses
+        // with no effects instead of erasing live custody — and the CAS runs
+        // BEFORE the writer's transition-budget gate, so a stale retry
+        // always answers VERSION_CONFLICT, never a spurious budget breach.
+        // The human recovery lane additionally reserves transition-budget
+        // headroom for FOUR slots (reset + the replacement's claim, start,
+        // and submit) INSIDE the writer's transaction — a custody-ending
+        // reset whose replacement path cannot be afforded refuses typed
+        // rather than stranding the row — and re-checks the recovery-policy
+        // authorization INSIDE the same transaction (a persisted-role or
+        // membership revocation landing between this admission and the
+        // writer answers the typed 403 with zero effects), preserving the
+        // reviewer's rejection feedback for the replacement claimant.
+        // Failed-lane/background retries keep the historical clear.
+        const retryOptions: retryService.ExecuteRetryOptions = {
+          expected: { status: task.status, version: task.version },
+        };
+        if (humanRetry) {
+          retryOptions.requireClaimHeadroom = true;
+          retryOptions.authorize = (tx) =>
+            authorizeRecoveryWithClient(tx, principal.id, request.params.id);
+          if (task.status === "rejected") {
+            retryOptions.preserveRejectionReason = true;
+          }
+        }
+        const retried = retryService.executeRetryWithOutcome(task, retryOptions);
+        if (retried.outcome === "refused") {
+          // Policy refusal on either lane: the budget is spent or cannot
+          // cover the recovery lane's reserved replacement claim.
+          throw conflictWithCode(
+            "TRANSITION_BUDGET_EXHAUSTED",
+            "Manual retry refused: the task's transition budget is exhausted",
+            {
+              category: retried.refusal.reason,
+              count: retried.refusal.count,
+              ceiling: retried.refusal.ceiling,
+            },
+          );
+        }
+        if (retried.outcome === "failed") {
+          if (retried.reason === "preimage_conflict") {
+            // The CAS refused: the row moved between this request's read and
+            // the writer. Nothing was written — reload the task and decide.
+            throw new AppError(
+              409,
+              "VERSION_CONFLICT",
+              "Task changed before the retry could run — reload the task and retry",
+              { expectedStatus: task.status, expectedVersion: task.version },
+            );
+          }
           throw internalError("Failed to execute retry");
         }
-        return { task: retried };
+        return { task: retried.task };
       },
     );
 

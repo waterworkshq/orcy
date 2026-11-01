@@ -3,9 +3,11 @@ import { tasks } from "../db/schema/index.js";
 import { eq, and, inArray, isNull, sql } from "drizzle-orm";
 import type { Task, Artifact } from "../models/index.js";
 import { repositoryTransactionError } from "../errors/repository.js";
-import { ExecutionEpochMismatchError } from "../errors.js";
+import { ExecutionEpochMismatchError, forbidden } from "../errors.js";
 import { getTaskById } from "./taskCrud.js";
 import { endOwnershipWithClient } from "./reviewSafety.js";
+import { guardTransition, habitatIdForTaskWithClient } from "../services/tasks/transitionBudget.js";
+import { RetryTransitionBudgetRefusedError } from "./retryBudgetRefusal.js";
 import {
   claimWithAuthority,
   progressWithAuthority,
@@ -568,7 +570,94 @@ export function releaseTask(
  * already ended at the fail act-tx — a no-op escalation never manufactures a
  * generation or a known-zero).
  */
-export function retryTransitionToPendingWithEffects(taskId: string, newRetryCount: number): Task | null {
+/**
+ * Caller-pinned preimage for the manual retry CAS: the status + version the
+ * CALLER read when it admitted the retry. Checked INSIDE the writer's
+ * transaction — a row that moved between the caller's read and this write
+ * (e.g. the rejected owner's rework restart minting a fresh epoch) refuses
+ * with `null` before ANY effect, instead of wiping the new owner's custody.
+ */
+export interface RetryPreimage {
+  status: string;
+  version: number;
+}
+
+/** Options for {@link retryTransitionToPendingWithEffects}. */
+export interface RetryTransitionOptions {
+  /** Preimage CAS — refuse (null, no effects) if the row no longer matches. */
+  expected?: RetryPreimage;
+  /**
+   * Keep `rejectionReason` on the reset row (human rejected-lane recovery):
+   * the replacement claimant still sees WHY the prior attempt was rejected.
+   * Default (absent) clears it — the failed-lane/background semantics.
+   */
+  preserveRejectionReason?: boolean;
+  /**
+   * Require transition-budget headroom for FOUR metered slots — this reset's
+   * `retry_executed` AND the replacement's claim, start, and submit (the
+   * deterministic exact task path of a recovered row) — checked INSIDE the
+   * writer's BEGIN IMMEDIATE, atomically with the meter count it reads (the
+   * manual recovery lane: a custody-ending reset that the replacement path
+   * cannot afford must refuse, never strand the row claimed-but-unstartable).
+   * Refusal throws the typed budget-refusal error; the whole
+   * reservation rolls back with zero effects.
+   */
+  requireClaimHeadroom?: boolean;
+  /**
+   * In-transaction authority re-check (the manual human recovery lane):
+   * evaluated INSIDE the writer's BEGIN IMMEDIATE — AFTER the preimage CAS
+   * (a moved row answers the CAS refusal, never a spurious auth refusal)
+   * and BEFORE the budget gate and any write — against this transaction's
+   * own view, so a persisted-role/team-membership revocation landing between
+   * the route's admission and the writer refuses typed with ZERO effects
+   * (the writer throws the typed 403 AppError; the whole reservation rolls
+   * back). Internal trust boundary: the route constructs this callback from
+   * the authenticated principal — never caller-supplied data.
+   */
+  authorize?: (tx: Parameters<typeof guardTransition>[0]) => boolean;
+}
+
+/**
+ * The retry reset's transition-budget gate — evaluated ON the writer's open
+ * transaction, whose BEGIN IMMEDIATE holds the write lock, so a concurrent
+ * metered commit cannot slip between this count and the write. Runs for
+ * EVERY lane (manual and background: `retry_executed` is a metered system
+ * transition on all of them), AFTER the preimage CAS, BEFORE any write.
+ * Refusal throws {@link RetryTransitionBudgetRefusedError} → the whole
+ * reservation rolls back with zero effects.
+ *
+ * `required` is the reservation size:
+ *   - 1 (default, every non-recovery lane): this reset's `retry_executed`.
+ *   - 4 (`requireClaimHeadroom`, the manual human recovery lane): the reset
+ *     PLUS the replacement's deterministic exact path — claim + start +
+ *     submit. Two slots were proven insufficient (claimed-but-unstartable
+ *     strand: `started` and `submitted` are metered too, and so is
+ *     `released`, so even backing out was budget-refused). The 5th-slot
+ *     consumer — an agent-reviewer `rejected` at exactly the ceiling — is a
+ *     DOCUMENTED boundary, not a reservation: it refuses typed with the task
+ *     staying `submitted` (review blocked, not a custody strand), and a
+ *     human reviewer is unmetered entirely.
+ *
+ * Called BEFORE the no-op classification too: an already-clean row still
+ * EMITS `retry_executed` upstream, so it equally must afford the slots.
+ */
+function requireRetryBudgetHeadroom(
+  tx: Parameters<typeof guardTransition>[0],
+  taskId: string,
+  required: number,
+): void {
+  const budgetHabitatId = habitatIdForTaskWithClient(tx, taskId) ?? "";
+  const budget = guardTransition(tx, taskId, budgetHabitatId, "system", "retry_executed", required);
+  if (budget.outcome === "refused") {
+    throw new RetryTransitionBudgetRefusedError(budget);
+  }
+}
+
+export function retryTransitionToPendingWithEffects(
+  taskId: string,
+  newRetryCount: number,
+  opts?: RetryTransitionOptions,
+): Task | null {
   const db = getDb();
   const now = new Date().toISOString();
 
@@ -578,18 +667,26 @@ export function retryTransitionToPendingWithEffects(taskId: string, newRetryCoun
       const row = tx.select().from(tasks).where(eq(tasks.id, taskId)).get() as TaskRow | undefined;
       if (!row) return null;
 
-      // Fixup-8 (Sol-adjudicated): retry-to-pending is a CUSTODY-ENDING
-      // transition for EITHER claimant kind. The write clears BOTH owner
-      // columns atomically; the review invalidation advances the generation
-      // exactly once iff EITHER preimage owner column was present.
-      //
-      // The ONLY no-op classification is PRE-WRITE, on the writer's FULL
-      // intended reset shape (both owners null, token + both provenance
-      // pointers null, rejectionReason/nextRetryAt null, retryCount already
-      // current): a genuinely complete clean row attempts NO UPDATE (version
-      // untouched, no generation change, no invalidation). Any stale field —
-      // including a stale execution token on an otherwise-clean pending row —
-      // means real work and the write runs.
+      // Manual-retry CAS: a moved row refuses with NO effects — never erase custody.
+      if (
+        opts?.expected !== undefined &&
+        (row.status !== opts.expected.status || row.version !== opts.expected.version)
+      ) {
+        return null;
+      }
+
+      // Recheck persisted authority after CAS, before budget checks or writes.
+      if (opts?.authorize !== undefined && !opts.authorize(tx)) {
+        throw forbidden("Not authorized to recover this task");
+      }
+
+      // Budget gate: every lane, in-tx, post-CAS — see requireRetryBudgetHeadroom
+      // for the required=4/1 reservation and CAS-before-budget precedence.
+      requireRetryBudgetHeadroom(tx, taskId, opts?.requireClaimHeadroom === true ? 4 : 1);
+
+      const preserveReason = opts?.preserveRejectionReason === true;
+
+      // Both claimant kinds end custody; a complete reset is the only no-op.
       const alreadyClean =
         row.status === "pending" &&
         row.assignedAgentId === null &&
@@ -597,7 +694,7 @@ export function retryTransitionToPendingWithEffects(taskId: string, newRetryCoun
         row.executionToken === null &&
         row.lastFailureEventId === null &&
         row.lastReleaseEventId === null &&
-        row.rejectionReason === null &&
+        (preserveReason || row.rejectionReason === null) &&
         row.nextRetryAt === null &&
         row.retryCount === newRetryCount;
       if (alreadyClean) {
@@ -609,7 +706,7 @@ export function retryTransitionToPendingWithEffects(taskId: string, newRetryCoun
           status: "pending",
           assignedAgentId: null,
           remoteAssignedParticipantId: null,
-          rejectionReason: null,
+          ...(preserveReason ? {} : { rejectionReason: null }),
           retryCount: newRetryCount,
           nextRetryAt: null,
           executionToken: null,
@@ -622,9 +719,9 @@ export function retryTransitionToPendingWithEffects(taskId: string, newRetryCoun
         .run();
 
       // Fixup-8: after an ATTEMPTED write there is no no-op fallback — the
-      // FULL intended postimage (both owners NULL, every cleared field clean,
-      // exact retry count, version moved) or the whole reservation rolls
-      // back; a skipped or partially rewritten write never returns success.
+      // FULL intended postimage (both owners NULL, every field clean per the
+      // preserve mode, exact retry count, version moved) or the whole
+      // reservation rolls back; a partially rewritten write never succeeds.
       const verify = tx.select().from(tasks).where(eq(tasks.id, taskId)).get() as
         | TaskRow
         | undefined;
@@ -636,7 +733,9 @@ export function retryTransitionToPendingWithEffects(taskId: string, newRetryCoun
         verify.executionToken === null &&
         verify.lastFailureEventId === null &&
         verify.lastReleaseEventId === null &&
-        verify.rejectionReason === null &&
+        (preserveReason
+          ? verify.rejectionReason === row.rejectionReason
+          : verify.rejectionReason === null) &&
         verify.nextRetryAt === null &&
         verify.retryCount === newRetryCount &&
         verify.version > row.version;

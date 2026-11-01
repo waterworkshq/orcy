@@ -493,9 +493,20 @@ export function emitTransition(
 
   if (task && cfg.triggerRetry) {
     try {
-      if (retryService.shouldRetry(task)) {
-        retryService.scheduleRetry(task);
-      } else if (retryService.getEffectivePolicy(task)?.escalateToHuman) {
+      // Phase-scoped reason filtering (kept in lockstep with the receipt
+      // consumer's isolation — `deliverRetryLadder`): `shouldRetry` matches
+      // `rejectionReason` only at the REJECTION phase (`rejected` action:
+      // the live row carries the CURRENT reviewer text). For the `failed`
+      // action any historical reviewer text on the row is provenance, never
+      // an admission filter — the decision sees a reason-free projection so
+      // a rejected→reworked→failed task admits exactly like a direct
+      // failure. (No production caller emits the full-mask `failed` action
+      // today — receipts own failed-lane arming — this keeps the seam
+      // correct for any future caller.)
+      const laneTask = action === "failed" ? { ...task, rejectionReason: null } : task;
+      if (retryService.shouldRetry(laneTask)) {
+        retryService.scheduleRetry(laneTask);
+      } else if (retryService.getEffectivePolicy(laneTask)?.escalateToHuman) {
         retryService.escalateToHuman(task);
       }
     } catch (err) {

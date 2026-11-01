@@ -258,7 +258,8 @@ export const BOARD_RETRY_TASK_TOOL: Tool = {
   description:
     "Manually retry a failed task, resetting it to pending status so it can be reclaimed. " +
     "Use when a task has failed but the underlying issue has been resolved and you want to give it another attempt. " +
-    "Only works on tasks currently in failed status.",
+    "Only works on tasks currently in failed status (a REJECTED task is not retryable through this tool — " +
+    "a human reviewer may reset a rejected task to pending via the REST route POST /tasks/:id/retry).",
   inputSchema: {
     type: "object",
     properties: {

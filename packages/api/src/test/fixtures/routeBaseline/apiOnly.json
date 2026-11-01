@@ -13438,9 +13438,9 @@
       "path": "/api/tasks/:id/retry",
       "surface": "api-deprecated",
       "guards": [
-        "agentAuth"
+        "agentOrHumanAuth"
       ],
-      "authKind": "agent",
+      "authKind": "local_actor",
       "rawBodyEligible": false,
       "source": "core",
       "generatedTwin": false
@@ -15630,9 +15630,9 @@
       "path": "/api/v1/tasks/:id/retry",
       "surface": "api-v1",
       "guards": [
-        "agentAuth"
+        "agentOrHumanAuth"
       ],
-      "authKind": "agent",
+      "authKind": "local_actor",
       "rawBodyEligible": false,
       "source": "core",
       "generatedTwin": false

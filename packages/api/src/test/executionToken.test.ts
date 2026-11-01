@@ -538,6 +538,9 @@ describe("T1 acceptance 11 — every clear path yields NULL token", () => {
     const out = executeRetry(
       taskRepo.getTaskById(task.id) as unknown as import("../models/index.js").Task,
     );
+    // The null-on-failure wrapper contract (#152 shape): a successful reset
+    // returns the task; refusals/failures collapse to null for the
+    // background processor.
     expect(out).not.toBeNull();
     expect(taskToken(task.id)).toBeNull();
   });
