@@ -336,7 +336,8 @@ export interface HabitatTasksFilters {
 export function useHabitatTasks(habitatId: string | undefined, filters?: HabitatTasksFilters) {
   return useQuery({
     queryKey: queryKeys.habitats.tasks(habitatId ?? "", filters),
-    queryFn: () => api.habitats.tasks(habitatId!, filters),
+    queryFn: ({ signal }: { signal?: AbortSignal }) =>
+      api.habitats.tasks(habitatId!, filters, signal),
     enabled: !!habitatId,
     staleTime: 30 * 1000,
   });

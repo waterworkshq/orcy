@@ -177,6 +177,7 @@ export const habitatsApi = {
       sortBy?: string;
       sortDir?: "asc" | "desc";
     },
+    signal?: AbortSignal,
   ) => {
     const params = new URLSearchParams();
     if (filters?.status) params.set("status", filters.status);
@@ -193,6 +194,7 @@ export const habitatsApi = {
     const qs = params.toString();
     return request<{ tasks: Task[]; total: number }>(
       `/habitats/${habitatId}/tasks${qs ? `?${qs}` : ""}`,
+      { signal },
     );
   },
 };

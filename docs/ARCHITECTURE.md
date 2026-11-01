@@ -151,7 +151,37 @@ each event by representation and applies a per-representation projection:
   overwrites a newer version with an older response.
 - **Invalidate** for partial, filter-sensitive, or version-sensitive
   payloads (e.g. `task.*` invalidates the owning Mission, Mission progress,
-  and Habitat detail).
+  Habitat detail, and the subscription Habitat's task-list key prefix — so
+  every active filtered/paginated task-table variant refetches). The
+  habitat-scoped pair (Habitat detail + task-list prefix) is
+  burst-coalesced: per subscription habitat, per QueryClient (WeakMap — no
+  cross-client state), both invalidations run once per trailing window
+  instead of once per event. The window is a timer, not a microtask
+  (the platform dispatches each SSE message as its own listener callback
+  with a microtask checkpoint between callbacks, so a microtask flush would
+  coalesce nothing), and it is bounded: the timer is armed when a
+  generation starts and never re-armed, so any event flushes within one
+  window of the first event of its generation (50 ms in normal foreground
+  execution; background-tab timer throttling can delay a flush, never drop
+  it) — spaced events (a drip) still invalidate per event, no starvation,
+  and nothing is dropped (the flush swaps out its pending state before
+  invalidating; events arriving during a flush or an in-flight refetch
+  start the next generation, where the supersede-abort signal forwarding
+  keeps the latest response authoritative). Acceptance and requests are
+  separate phases: an event accepted by a live generation marks the
+  habitat's cached entries (Habitat detail + task-list prefix) stale
+  synchronously at reception — `invalidateQueries` with
+  `refetchType: "none"`, a pure cache-state transition, no request — while
+  the refetch REQUEST is deferred to the window flush and runs only while
+  at least one of the habitat's enqueued source subscriptions (`isActive`
+  fence) is still live. A retired subscription generation therefore never
+  issues a request, and an accepted invalidation is never lost: retire
+  before the flush costs only the immediate refetch, and the next mount of
+  the scope refetches fresh despite a long staleTime (invalidated queries
+  are stale regardless of `staleTime`) instead of serving the pre-event
+  revision for minutes. Events delivered by an already-stale generation
+  are dropped by the message-handler fence before any of this (ADR 0040
+  item 4) — zero cache effect, zero request.
 - **Generation-reset** for archived-pagination membership or order changes
   (archive/unarchive/delete); the archived infinite Query is reset from
   offset zero.

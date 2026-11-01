@@ -157,11 +157,108 @@ function invalidateTaskDetail<T extends SSEEventType>(context: ServerProjectionC
 }
 
 /**
- * Invalidate the Task representations, the owning Mission progress/detail, and
- * the Habitat detail (complete active collection) for a task-lifecycle SSE.
- * Invalidate-only — no speculative patch. Does NOT reset the events-infinite
- * family: that ownership belongs to exactly one canonical SSE per transition
- * (see `projectTaskServer`).
+ * Coalesce the habitat-scoped invalidation pair across task-lifecycle bursts:
+ * one trailing-window flush per habitat per QueryClient instead of one
+ * cancel-restart refetch per event. Timer — not `queueMicrotask` — because a
+ * microtask checkpoint runs between every SSE listener, so microtasks
+ * coalesce nothing; the timer is armed once per generation, bounding each
+ * event's wait to one window. Two-phase semantics: an event ACCEPTED by a
+ * live generation marks the scope's cached entries stale synchronously at
+ * reception (`refetchType: "none"`, no request), while the REQUEST is
+ * deferred to the flush and runs only while at least one of the habitat's
+ * enqueued source subscriptions (`isActive`) is still active — a retired
+ * generation never issues a request, and an accepted invalidation is never
+ * lost: the next mount of the scope refetches fresh despite a long
+ * staleTime.
+ */
+const HABITAT_SCOPE_COALESCE_WINDOW_MS = 50;
+
+interface HabitatScopeBatch {
+  pending: Set<string>;
+  /** Per habitat: the isActive fence of every source generation enqueued in the current window. */
+  guards: Map<string, Set<() => boolean>>;
+  timer: ReturnType<typeof setTimeout> | null;
+}
+
+const habitatScopeBatches = new WeakMap<QueryClient, HabitatScopeBatch>();
+
+function scheduleHabitatScopeInvalidation(
+  qc: QueryClient,
+  habitatId: string,
+  isActive: () => boolean,
+): void {
+  // Accepted by a live generation (fence rechecked before the effect, per
+  // ADR 0040 item 4): mark the scope's cached entries stale NOW with
+  // `refetchType: "none"` — a pure cache-state transition, no request. The
+  // window below then decides only whether a REQUEST runs, so retiring
+  // before the flush loses the request, never the accepted invalidation: a
+  // later mount refetches fresh despite a long staleTime instead of reading
+  // the pre-event revision until staleness expires. Events already stale at
+  // reception fail this fence (and the message handler's earlier check) and
+  // mark nothing — zero effects for a stale generation.
+  if (isActive()) {
+    qc.invalidateQueries({
+      queryKey: queryKeys.habitats.detail(habitatId),
+      refetchType: "none",
+    });
+    qc.invalidateQueries({
+      queryKey: [...queryKeys.habitats.all, "tasks", habitatId],
+      refetchType: "none",
+    });
+  }
+  let batch = habitatScopeBatches.get(qc);
+  if (!batch) {
+    habitatScopeBatches.set(qc, (batch = { pending: new Set(), guards: new Map(), timer: null }));
+  }
+  batch.pending.add(habitatId);
+  // Accumulate (never replace) fences: a retired source generation must not
+  // suppress a live one enqueued for the same habitat.
+  let habitatGuards = batch.guards.get(habitatId);
+  if (!habitatGuards) batch.guards.set(habitatId, (habitatGuards = new Set()));
+  habitatGuards.add(isActive);
+  if (batch.timer !== null) return; // trailing flush of this generation covers it
+  batch.timer = setTimeout(() => {
+    // Fence discipline: release the timer and swap out pending state BEFORE
+    // any side effect — events arriving during this flush start the NEXT
+    // generation instead of being dropped.
+    batch.timer = null;
+    const flushing = batch.pending;
+    const flushingGuards = batch.guards;
+    batch.pending = new Set();
+    batch.guards = new Map();
+    for (const pendingHabitatId of flushing) {
+      const pendingGuards = flushingGuards.get(pendingHabitatId);
+      // Stale-generation fence: every enqueued source subscription retired —
+      // the queued REQUEST dies here instead of firing. Only the request is
+      // dropped: live-reception events already marked the scope's cache
+      // entries stale (refetchType "none") at enqueue time, so the next
+      // mount refetches fresh rather than serving the stale revision.
+      if (!pendingGuards?.size) continue;
+      if (!Array.from(pendingGuards).some((fence) => fence())) continue;
+      qc.invalidateQueries({ queryKey: queryKeys.habitats.detail(pendingHabitatId) });
+      qc.invalidateQueries({
+        queryKey: [...queryKeys.habitats.all, "tasks", pendingHabitatId],
+      });
+    }
+  }, HABITAT_SCOPE_COALESCE_WINDOW_MS);
+}
+
+/**
+ * Invalidate the Task representations, the owning Mission progress/detail, the
+ * Habitat detail (complete active collection), and the subscription Habitat's
+ * task-list family for a task-lifecycle SSE. The task-list invalidation uses
+ * the PREFIX `["habitats","tasks",habitatId]` — not the exact
+ * `queryKeys.habitats.tasks(habitatId)` key, whose trailing `undefined`
+ * filters element would fail prefix matching against filtered/paginated
+ * variants — so every active TaskTableView/SprintDashboard variant refetches.
+ * The habitat-scoped pair (detail + task-list prefix) is window-coalesced per
+ * QueryClient per habitat — see `scheduleHabitatScopeInvalidation`: accepted
+ * events mark the cached pair stale immediately (no fetch); the refetch
+ * request runs at the window flush only while a source generation is live.
+ * Invalidate
+ * only — no speculative patch. Does NOT reset the events-infinite family:
+ * that ownership belongs to exactly one canonical SSE per transition (see
+ * `projectTaskServer`).
  */
 function invalidateTaskLifecycle<T extends SSEEventType>(
   context: ServerProjectionContext<T>,
@@ -182,9 +279,11 @@ function invalidateTaskLifecycle<T extends SSEEventType>(
       });
     }
   }
-  context.queryClient.invalidateQueries({
-    queryKey: queryKeys.habitats.detail(context.subscriptionHabitatId),
-  });
+  scheduleHabitatScopeInvalidation(
+    context.queryClient,
+    context.subscriptionHabitatId,
+    context.isActive,
+  );
 }
 
 /**

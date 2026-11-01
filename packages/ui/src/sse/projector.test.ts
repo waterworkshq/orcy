@@ -256,9 +256,13 @@ describe("realtime projector — event-by-representation matrix", () => {
     expect(invalidateSpy).toHaveBeenCalledWith(
       expect.objectContaining({ queryKey: queryKeys.tasks.detail("t1") }),
     );
-    expect(invalidateSpy).toHaveBeenCalledWith(
-      expect.objectContaining({ queryKey: queryKeys.habitats.detail("h1") }),
-    );
+    // The habitat-scope pair is window-coalesced (burst protection) — await
+    // the trailing flush instead of asserting it synchronously.
+    await vi.waitFor(() => {
+      expect(invalidateSpy).toHaveBeenCalledWith(
+        expect.objectContaining({ queryKey: queryKeys.habitats.detail("h1") }),
+      );
+    });
   });
 
   it("column.updated invalidates habitat detail (no speculative single-column patch)", async () => {
