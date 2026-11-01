@@ -3,7 +3,7 @@ import * as agentService from "../services/agentService.js";
 import { getHabitatById } from "../repositories/habitat.js";
 import { getMissionById } from "../repositories/mission.js";
 import { getTaskById } from "../repositories/task.js";
-import { isTeamMemberByHabitatId } from "../repositories/teamMember.js";
+import { humanCanAccessHabitat } from "../repositories/teamMember.js";
 import type { HumanRole } from "./auth.js";
 import { extractAndVerifyJwt } from "./jwt-verification.js";
 import { unauthorized, forbidden, notFound } from "../errors.js";
@@ -108,9 +108,7 @@ export async function checkHabitatAccess(
   }
 
   if (request.user) {
-    if (!habitat.teamId) return;
-    const isMember = isTeamMemberByHabitatId(habitatId, request.user.id);
-    if (isMember) return;
+    if (humanCanAccessHabitat(habitatId, request.user.id)) return;
     throw forbidden("You do not have access to this habitat", "BOARD_ACCESS_DENIED");
   }
 

@@ -6,6 +6,7 @@ import * as habitatRepo from "../repositories/habitat.js";
 import * as watcherRepo from "../repositories/watcher.js";
 import * as userRepo from "../repositories/user.js";
 import * as emailService from "./emailService.js";
+import { humansWithHabitatAccess } from "../repositories/teamMember.js";
 import type {
   NotificationEvent,
   NotificationEventType as StoredNotificationEventType,
@@ -345,7 +346,19 @@ export async function processEvent(
     }
   }
 
+  // Habitat-content disclosure gate: every email recipient must satisfy the
+  // same human admission rule as the read surface (checkHabitatAccess). A
+  // deployment-wide admin role alone must not receive a private team
+  // habitat's task content, and a missing habitat/recipient admits nobody.
+  // Applied BEFORE any template is composed or sent (buildEmail runs inside
+  // sendIfEnabled, after this filter). Batched once per event: one habitat
+  // read + one habitat-keyed membership query, so query work is independent
+  // of the recipient count (exact statement counts are pinned in
+  // notificationEmailAuthorization.test.ts).
+  const authorizedUserIds = humansWithHabitatAccess(habitatId, queue.map((item) => item.userId));
+  const authorizedQueue = queue.filter((item) => authorizedUserIds.has(item.userId));
+
   await Promise.allSettled(
-    queue.map((item) => sendIfEnabled(item.userId, habitatId, item.eventType, item.buildEmail)),
+    authorizedQueue.map((item) => sendIfEnabled(item.userId, habitatId, item.eventType, item.buildEmail)),
   );
 }
