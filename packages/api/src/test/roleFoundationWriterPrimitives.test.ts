@@ -15,7 +15,7 @@
  *   - Success/failure booleans agree with persisted rows on BOTH drivers,
  *     catching the sql.js `.changes === undefined` class (finding 6).
  */
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, afterAll } from "vitest";
 import { join } from "node:path";
 import { existsSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -35,7 +35,13 @@ import {
 } from "../repositories/roleFoundation.js";
 import type { LocalAuthorizationDbClient } from "../services/localAuthorization.js";
 
-const TEMP_DIR = join(import.meta.dirname, "..", "..", ".test-rf-writer");
+// Per-invocation ownership (mkdtemp): two concurrent Vitest invocations of
+// this suite each get a unique temp directory, so neither can unlink the
+// other's live database. Torn down in afterAll — this invocation's dir only.
+const TEMP_DIR = mkdtempSync(join(import.meta.dirname, "..", "..", ".test-rf-writer-"));
+afterAll(() => {
+  rmSync(TEMP_DIR, { recursive: true, force: true });
+});
 
 function tempDbPath(name: string): string {
   if (!existsSync(TEMP_DIR)) mkdirSync(TEMP_DIR, { recursive: true });
