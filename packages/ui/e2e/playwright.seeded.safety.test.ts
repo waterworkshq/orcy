@@ -122,6 +122,77 @@ function isOwnedRoot(root: string): boolean {
   );
 }
 
+/**
+ * Delete the owned run root the seeded config printed — and ONLY that one.
+ * The path must match this harness's own mkdtemp shape (a direct child of the
+ * OS temp dir carrying the exact prefix); anything else (the ambient HOME, a
+ * legacy root, a nested prefixed dir) is never touched.
+ */
+function cleanupOwnedRoot(stdout: string): string | undefined {
+  const m = /\[seeded-e2e\] run root: (.+) pid=\d+/.exec(stdout);
+  if (!m || !isOwnedRoot(m[1])) return undefined;
+  rmSync(m[1], { recursive: true, force: true });
+  return m[1];
+}
+
+/**
+ * The dedicated config must collect EXACTLY the seeded spec: one test, one
+ * file, and that file is the seeded spec. Playwright's list output names every
+ * collected spec, so an unexpected extra file is visible here.
+ */
+function assertExactSeededDiscovery(stdout: string): void {
+  const summary = /Total: (\d+) tests? in (\d+) files?/.exec(stdout);
+  if (!summary) throw new Error(`no Playwright summary in --list output: ${stdout.slice(0, 200)}`);
+  expect(Number(summary[1])).toBe(1);
+  expect(Number(summary[2])).toBe(1);
+  const files: string[] = [];
+  for (const line of stdout.split("\n")) {
+    const m = /›\s+(\S+?):\d+:\d+\s+›/.exec(line);
+    if (m && !files.includes(m[1])) files.push(m[1]);
+  }
+  expect(files).toEqual(["learning-loop-seeded.spec.ts"]);
+}
+
+/**
+ * Run `fn` and ALWAYS delete the owned run root the captured stdout names —
+ * including when `fn` throws (a failed assertion) — while refusing to touch
+ * a path that does not match the owned mkdtemp shape.
+ */
+function withOwnedRootCleanup<T>(stdout: string, fn: () => T): T {
+  try {
+    return fn();
+  } finally {
+    cleanupOwnedRoot(stdout);
+  }
+}
+
+/**
+ * Run the dedicated `--list` probe (no servers booted) and ALWAYS remove the
+ * seeded config's temporary root — including when the CLI exits non-zero or
+ * an assertion fails. execFileSync throws on a non-zero exit, but the config
+ * module has already printed its root to stdout by then, so the captured
+ * stdout is the only source of that root.
+ */
+function withSeededListCleanup<T>(fn: (stdout: string) => T): T {
+  let stdout = "";
+  let error: Error | null = null;
+  try {
+    stdout = execFileSync(
+      process.execPath,
+      ["node_modules/@playwright/test/cli.js", "test", "-c", "playwright.seeded.config.ts", "--list"],
+      { cwd: pkgRoot, encoding: "utf8", timeout: 60_000 },
+    );
+  } catch (err) {
+    const captured = (err as { stdout?: unknown }).stdout;
+    stdout = typeof captured === "string" ? captured : "";
+    error = err as Error;
+  }
+  return withOwnedRootCleanup(stdout, () => {
+    if (error) throw error;
+    return fn(stdout);
+  });
+}
+
 describe("seeded harness safety (#147)", () => {
   test("hostile env cannot steer run root or DB path; each evaluation gets a fresh non-empty root", async () => {
     const fakeHome = ownTemp("orcy-safety-fakehome-");
@@ -247,17 +318,71 @@ describe("seeded harness safety (#147)", () => {
   });
 
   test("dedicated seeded config lists exactly the seeded spec (--list)", { timeout: 90_000 }, async () => {
-    const out = execFileSync(
-      process.execPath,
-      ["node_modules/@playwright/test/cli.js", "test", "-c", "playwright.seeded.config.ts", "--list"],
-      { cwd: pkgRoot, encoding: "utf8", timeout: 60_000 },
-    );
-    expect(out).toContain("learning-loop-seeded.spec.ts");
-    expect(out).not.toContain("playwright.seeded.safety");
-    // --list evaluates the config module (allocating a run root no teardown
-    // will clean) — remove exactly that owned root, nothing else.
-    const m = /\[seeded-e2e\] run root: (\S+)/.exec(out);
-    if (!m || !isOwnedRoot(m[1])) throw new Error(`no owned run root in --list output: ${out.slice(0, 200)}`);
-    rmSync(m[1], { recursive: true, force: true });
+    // The seeded config allocates a run root that no teardown will clean
+    // (--list boots no servers) — withSeededListCleanup removes exactly that
+    // owned root even if the CLI fails or an assertion below throws.
+    withSeededListCleanup((out) => {
+      expect(out).toContain("learning-loop-seeded.spec.ts");
+      expect(out).not.toContain("playwright.seeded.safety");
+      // Exact discovery: one test, one file, and that file is the seeded spec.
+      assertExactSeededDiscovery(out);
+    });
+  });
+
+  // Runnable proof for the two --list guarantees: the owned run root is
+  // deleted even when the assertion fails, and the discovery check REJECTS an
+  // extra collected spec. Both are exercised on injected output so the proof
+  // runs without booting a browser.
+  test("--list cleanup is failure-safe and the discovery check rejects an extra spec", () => {
+    // (1) Failure-safe cleanup: the assertion throws, the owned root still goes.
+    const owned = ownTemp(`${RUN_ROOT_PREFIX}with spaces-`);
+    const ownedStdout = `[seeded-e2e] run root: ${owned} pid=1\nTotal: 1 test in 1 file\n`;
+    expect(() =>
+      withOwnedRootCleanup(ownedStdout, () => {
+        throw new Error("simulated assertion failure");
+      }),
+    ).toThrow("simulated assertion failure");
+    expect(existsSync(owned)).toBe(false);
+    const ownedIdx = created.indexOf(owned);
+    if (ownedIdx >= 0) created.splice(ownedIdx, 1);
+
+    // (2) Hostile output is never deleted: the fake HOME, the ambient DB's
+    // parent, and a legacy (non-prefixed) root all survive.
+    const fakeHome = ownTemp("orcy-safety-fakehome-");
+    const homeMarker = path.join(fakeHome, "sentinel.txt");
+    writeFileSync(homeMarker, "sentinel");
+    const legacyRoot = ownTemp("orcy-legacy-root-");
+    const legacyMarker = path.join(legacyRoot, "sentinel.txt");
+    writeFileSync(legacyMarker, "sentinel");
+    for (const hostile of [
+      `[seeded-e2e] run root: ${fakeHome} pid=1\n`,
+      `[seeded-e2e] run root: ${legacyRoot} pid=1\n`,
+      `[seeded-e2e] run root: ${path.join(tmpdir(), "nested", RUN_ROOT_PREFIX + "x")} pid=1\n`,
+    ]) {
+      withOwnedRootCleanup(hostile, () => undefined);
+    }
+    expect(existsSync(homeMarker)).toBe(true);
+    expect(existsSync(legacyMarker)).toBe(true);
+
+    // (3) The discovery check rejects an extra collected spec.
+    const withExtra = [
+      "[seeded-e2e] run root: /tmp/x pid=1",
+      "Listing tests:",
+      "  [chromium] › learning-loop-seeded.spec.ts:221:3 › Seeded flow",
+      "  [chromium] › unexpected-extra.spec.ts:5:3 › An extra spec",
+      "Total: 2 tests in 2 files",
+      "",
+    ].join("\n");
+    expect(() => assertExactSeededDiscovery(withExtra)).toThrow();
+
+    // (4) ...and accepts the real single-spec shape.
+    const exact = [
+      "[seeded-e2e] run root: /tmp/x pid=1",
+      "Listing tests:",
+      "  [chromium] › learning-loop-seeded.spec.ts:221:3 › Seeded flow",
+      "Total: 1 test in 1 file",
+      "",
+    ].join("\n");
+    expect(() => assertExactSeededDiscovery(exact)).not.toThrow();
   });
 });

@@ -298,7 +298,11 @@ Harness safety and types are guarded independently of any browser run:
 # child of the OS temp dir whose name carries the exact `orcy-seeded-e2e-`
 # prefix plus a unique suffix. That is a shape check on harness-internal
 # metadata, not an ownership proof for arbitrary prefixed dirs; it deletes
-# exactly the owned root, leaving siblings intact.
+# exactly the owned root, leaving siblings intact. The suite also probes
+# Playwright discovery with `--list` (no servers booted): the default config
+# collects neither seeded harness file, the dedicated config collects exactly
+# the seeded spec (one test in one file), and the run root that probe
+# allocates is deleted even when the CLI or an assertion fails.
 corepack pnpm --filter @orcy/ui test:e2e:seeded:safety
 
 # Typecheck the harness files (excluded from the src/ tsconfig by design).
