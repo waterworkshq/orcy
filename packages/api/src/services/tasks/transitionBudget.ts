@@ -216,16 +216,29 @@ function scheduleBreachEscalation(
  *   - `human_actor`                      → allow, exemption (plan §2)
  *   - `refused`   (count + required > ceiling) → typed refusal; caller maps
  *                                          it to its own failure convention.
- *                                          When `attemptedAction` is threaded,
- *                                          the FIRST refusal also schedules
+ *                                          When `attemptedAction` is
+ *                                          threaded, a refusal at TRUE
+ *                                          exhaustion (`count + 1 > ceiling`
+ *                                          — the (N+1)th metered attempt
+ *                                          itself no longer fits) schedules
  *                                          the breach escalation (plan §6) —
  *                                          see {@link scheduleBreachEscalation}.
+ *                                          A headroom-only refusal
+ *                                          (`required > 1` reservation that
+ *                                          no longer fits while
+ *                                          `count + 1 <= ceiling`) stays
+ *                                          SILENT: the escalation is
+ *                                          emit-once, and spending it on an
+ *                                          un-exhausted task would suppress
+ *                                          the true-exhaustion notification.
  *
  * `required` (default 1) is the reservation size: how many metered slots
  * this attempt AND its reserved consequences must still fit. The manual
- * recovery lane passes 2 — the `retry_executed` write plus the subsequent
- * replacement claim — so a custody-ending reset can never consume the final
- * slot and strand the row pending-but-unclaimable. The
+ * recovery lane passes 4 — the `retry_executed` write plus the
+ * replacement's claim, start, and submit (two slots were proven
+ * insufficient: the stranded row was left claimed-but-unstartable, and even
+ * `released` is metered) — so a custody-ending reset can never consume the
+ * final slots and strand the row pending-but-unclaimable. The
  * check is atomic with the meter count ONLY when `client` is the caller's
  * open write transaction; a top-level client is a non-atomic preflight.
  */
@@ -250,7 +263,11 @@ export function guardTransition(
       count,
       ceiling,
     };
-    if (attemptedAction) {
+    // Escalate only on TRUE exhaustion (count+1 > ceiling): a headroom-only
+    // refusal still refuses, but spending the emit-once escalation there
+    // would suppress the real exhaustion notification later. For the
+    // default required=1 this is identical to the refusal predicate.
+    if (attemptedAction && count + 1 > ceiling) {
       scheduleBreachEscalation(taskId, habitatId, refused, attemptedAction, actorType);
     }
     return refused;

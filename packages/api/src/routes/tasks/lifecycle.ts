@@ -471,7 +471,10 @@ export async function taskLifecycleRoutes(fastify: FastifyInstance): Promise<voi
         // admin/editor role: persisted global admin; personal habitat → its
         // explicit owner; team habitat → team owner/admin. Persisted viewer
         // is refused everywhere; the JWT role is an identity hint, never
-        // authority (the persisted users row decides). Agents keep the
+        // authority (the persisted users row decides). This admission is a
+        // UX preflight, NOT the sole gate: the same policy is re-checked
+        // INSIDE the retry writer's transaction (retryOptions.authorize), so
+        // a revocation in between still refuses. Agents keep the
         // historical authorizeTaskAction admission; the agent wire is
         // unchanged.
         if (humanRetry) {
@@ -515,16 +518,24 @@ export async function taskLifecycleRoutes(fastify: FastifyInstance): Promise<voi
         // headroom for FOUR slots (reset + the replacement's claim, start,
         // and submit) INSIDE the writer's transaction — a custody-ending
         // reset whose replacement path cannot be afforded refuses typed
-        // rather than stranding the row — and preserves the reviewer's
-        // rejection feedback for the replacement claimant.
+        // rather than stranding the row — and re-checks the recovery-policy
+        // authorization INSIDE the same transaction (a persisted-role or
+        // membership revocation landing between this admission and the
+        // writer answers the typed 403 with zero effects), preserving the
+        // reviewer's rejection feedback for the replacement claimant.
         // Failed-lane/background retries keep the historical clear.
-        const retried = retryService.executeRetryWithOutcome(task, {
+        const retryOptions: retryService.ExecuteRetryOptions = {
           expected: { status: task.status, version: task.version },
-          ...(humanRetry ? { requireClaimHeadroom: true } : {}),
-          ...(humanRetry && task.status === "rejected"
-            ? { preserveRejectionReason: true }
-            : {}),
-        });
+        };
+        if (humanRetry) {
+          retryOptions.requireClaimHeadroom = true;
+          retryOptions.authorize = (tx) =>
+            authorizeRecoveryWithClient(tx, principal.id, request.params.id);
+          if (task.status === "rejected") {
+            retryOptions.preserveRejectionReason = true;
+          }
+        }
+        const retried = retryService.executeRetryWithOutcome(task, retryOptions);
         if (retried.outcome === "refused") {
           // Policy refusal on either lane: the budget is spent or cannot
           // cover the recovery lane's reserved replacement claim.

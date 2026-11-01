@@ -763,6 +763,67 @@ describe("transition budget — breach escalation closure", () => {
     expect(countEvents(task.id)).toBe(22);
   });
 
+  it("headroom-only refusal (required=4 at ceiling-3) escalates NOTHING; true exhaustion escalates exactly once", async () => {
+    const mod = await import("../services/tasks/transitionBudget.js");
+    const task = seedTask("headroom-vs-exhaustion");
+    // ceiling stays the default 21. count=18: the manual recovery lane's
+    // required=4 reservation refuses (18+4 > 21) while the task is NOT
+    // exhausted (18+1 <= 21) — a headroom-only refusal.
+    seedEvents(task.id, 18, "claimed", "agent");
+
+    const headroom = mod.guardTransition(
+      getDb(),
+      task.id,
+      habitatId,
+      "system",
+      "retry_executed",
+      4,
+    );
+    expect(headroom.outcome).toBe("refused");
+    await flushEscalations();
+
+    // NO escalation side effects: no escalated event (budget or ladder), no
+    // emit-once marker, no notification. Spending the one-shot escalation
+    // here would suppress the TRUE exhaustion notification below.
+    expect(budgetBreachEscalations(task.id)).toHaveLength(0);
+    expect(escalatedEvents(task.id)).toHaveLength(0);
+    expect(mod.hasBudgetBreachEscalation(getDb(), task.id)).toBe(false);
+    expect(
+      notificationEventRows(habitatId).filter((n) => n.targetId === task.id),
+    ).toHaveLength(0);
+
+    // Meter to TRUE exhaustion (count=21): the same lane's required=1
+    // refusal — the (N+1)th metered attempt itself no longer fits —
+    // escalates exactly once, and a repeat refusal stays emit-once.
+    seedEvents(task.id, 3, "claimed", "agent");
+    const exhausted = mod.guardTransition(
+      getDb(),
+      task.id,
+      habitatId,
+      "system",
+      "retry_executed",
+      1,
+    );
+    expect(exhausted.outcome).toBe("refused");
+    await flushEscalations();
+    expect(budgetBreachEscalations(task.id)).toHaveLength(1);
+    expect(
+      notificationEventRows(habitatId).filter((n) => n.targetId === task.id),
+    ).toHaveLength(1);
+
+    const again = mod.guardTransition(
+      getDb(),
+      task.id,
+      habitatId,
+      "system",
+      "retry_executed",
+      1,
+    );
+    expect(again.outcome).toBe("refused");
+    await flushEscalations();
+    expect(budgetBreachEscalations(task.id)).toHaveLength(1);
+  });
+
   it("human transitions still succeed after the breach and add no escalation", async () => {
     const agent = seedAgent("breach-human-resolution");
     const task = seedTask("breach-human-resolve");

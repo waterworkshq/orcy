@@ -3,6 +3,7 @@ import {
   retryTransitionToPendingWithEffects,
   retryEscalateClearOwnerWithEffects,
   type RetryPreimage,
+  type RetryTransitionOptions,
 } from "../repositories/taskStateMachine.js";
 import { RetryTransitionBudgetRefusedError } from "../repositories/retryBudgetRefusal.js";
 import * as habitatRepo from "../repositories/habitat.js";
@@ -108,6 +109,14 @@ export interface ExecuteRetryOptions {
    * refusal surfaces as the typed `refused` outcome with zero effects.
    */
   requireClaimHeadroom?: boolean;
+  /**
+   * In-transaction authority re-check passed through to the retry writer
+   * (manual human recovery lane): evaluated inside the writer's BEGIN
+   * IMMEDIATE after the preimage CAS and before the budget gate; a `false`
+   * return throws the typed 403 with zero effects. See
+   * {@link RetryTransitionOptions.authorize}.
+   */
+  authorize?: RetryTransitionOptions["authorize"];
 }
 
 /** Distinguishes execution, budget refusal, and a stale manual-retry preimage. */

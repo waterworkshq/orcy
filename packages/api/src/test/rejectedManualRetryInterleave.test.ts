@@ -17,6 +17,7 @@
  */
 import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from "vitest";
 import jwt from "jsonwebtoken";
+import { eq } from "drizzle-orm";
 import * as taskService from "../services/tasks/index.js";
 import { closeDb, getDb, initTestDb } from "../db/index.js";
 import * as habitatRepo from "../repositories/habitat.js";
@@ -37,6 +38,10 @@ import type { Task } from "../models/index.js";
 // Armed per-test by taskId; consumed once (shared vi.mock state must not
 // leak between tests — the wrapper is a no-op when unarmed).
 let armed: { taskId: string; agentId: string; token: string } | null = null;
+// Second interleave shape (A1 auth TOCTOU): demote the persisted users row
+// inside the same admission→writer window — the route's recovery-policy
+// admission still saw the admin role; the writer must re-read it in-tx.
+let armedRevoke: { taskId: string; userId: string } | null = null;
 let interleaveResult: Task | null = null;
 
 vi.mock("../services/retryService.js", async (importOriginal) => {
@@ -60,6 +65,15 @@ vi.mock("../services/retryService.js", async (importOriginal) => {
         const shot = armed;
         armed = null;
         interleaveResult = taskService.startTask(shot.taskId, shot.agentId, shot.token);
+      }
+      if (armedRevoke && armedRevoke.taskId === args[0].id) {
+        const shot = armedRevoke;
+        armedRevoke = null;
+        getDb()
+          .update(users)
+          .set({ role: "viewer" })
+          .where(eq(users.id, shot.userId))
+          .run();
       }
       return actual.executeRetryWithOutcome(...args);
     },
@@ -129,9 +143,11 @@ beforeAll(async () => {
   habitatId = habitat.id;
   columnId = columnRepo.createColumn({ habitatId, name: "Todo", order: 0, requiresClaim: false }).id;
 
-  addMember({ teamId: team.id, userId: "rmi-admin" });
   // Persisted-role policy (round-3): the recovery lane reads the persisted
   // users row — seed it so the admin JWT is backed by a persisted admin.
+  // Seeded BEFORE the team-membership insert: production better-sqlite3
+  // enforces the team_members → users FK (sql.js does not), so the user row
+  // must exist first for production-FK parity.
   getDb()
     .insert(users)
     .values({
@@ -142,6 +158,7 @@ beforeAll(async () => {
       role: "admin",
     })
     .run();
+  addMember({ teamId: team.id, userId: "rmi-admin" });
   adminJwt = signHumanJwt("rmi-admin", "admin");
 
   const owner = seedAgent("rmi-owner");
@@ -156,6 +173,7 @@ afterAll(async () => {
 
 beforeEach(() => {
   armed = null;
+  armedRevoke = null;
   interleaveResult = null;
 });
 
@@ -227,5 +245,58 @@ describe("deterministic interleave at the admission→writer seam (critical race
     const after = taskRepo.getTaskById(taskId)!;
     expect(after.assignedAgentId).toBe(replacement.id);
     expect(after.executionToken).toBe(claimed.executionToken);
+  });
+
+  it("persisted-role revocation between admission and writer → 403 with ZERO effects (in-tx re-check)", async () => {
+    const { taskId, token } = seedEscalatedRejectedTask("interleave-revoke-admin", ownerAgentId);
+    const pre = taskRepo.getTaskById(taskId)!;
+    expect(pre.status).toBe("rejected");
+
+    // Arm the window: at retryService entry — AFTER the route's
+    // recovery-policy admission (which still read the persisted admin) and
+    // BEFORE the writer's transaction — the persisted role is demoted to
+    // viewer. The JWT still claims admin: it is an identity hint, never
+    // authority, so ONLY an in-writer re-read of the persisted row can
+    // refuse this custody-ending reset.
+    armedRevoke = { taskId, userId: "rmi-admin" };
+
+    try {
+      const res = await app.inject({
+        method: "POST",
+        url: `/api/v1/tasks/${taskId}/retry`,
+        headers: { authorization: `Bearer ${adminJwt}` },
+      });
+
+      // The revocation really happened inside the window.
+      const roleAfter = getDb()
+        .select({ role: users.role })
+        .from(users)
+        .where(eq(users.id, "rmi-admin"))
+        .get() as { role: string };
+      expect(roleAfter.role).toBe("viewer");
+
+      expect(res.statusCode).toBe(403);
+      const body = res.json() as { code?: string; message?: string };
+      expect(body.code).toBe("FORBIDDEN");
+
+      // ZERO effects: the rejected row is byte-identical — status, owner,
+      // epoch token, retryCount, version — and no retry_executed event.
+      const after = taskRepo.getTaskById(taskId)!;
+      expect(after.status).toBe("rejected");
+      expect(after.assignedAgentId).toBe(ownerAgentId);
+      expect(after.executionToken).toBe(token);
+      expect(after.retryCount).toBe(pre.retryCount);
+      expect(after.version).toBe(pre.version);
+      expect(
+        getEventsByTaskId(taskId).events.filter((e) => e.action === "retry_executed").length,
+      ).toBe(0);
+    } finally {
+      // Restore the shared persisted admin for any later assertions/files.
+      getDb()
+        .update(users)
+        .set({ role: "admin" })
+        .where(eq(users.id, "rmi-admin"))
+        .run();
+    }
   });
 });

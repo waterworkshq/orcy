@@ -3,7 +3,7 @@ import { tasks } from "../db/schema/index.js";
 import { eq, and, inArray, isNull, sql } from "drizzle-orm";
 import type { Task, Artifact } from "../models/index.js";
 import { repositoryTransactionError } from "../errors/repository.js";
-import { ExecutionEpochMismatchError } from "../errors.js";
+import { ExecutionEpochMismatchError, forbidden } from "../errors.js";
 import { getTaskById } from "./taskCrud.js";
 import { endOwnershipWithClient } from "./reviewSafety.js";
 import { guardTransition, habitatIdForTaskWithClient } from "../services/tasks/transitionBudget.js";
@@ -603,6 +603,18 @@ export interface RetryTransitionOptions {
    * reservation rolls back with zero effects.
    */
   requireClaimHeadroom?: boolean;
+  /**
+   * In-transaction authority re-check (the manual human recovery lane):
+   * evaluated INSIDE the writer's BEGIN IMMEDIATE — AFTER the preimage CAS
+   * (a moved row answers the CAS refusal, never a spurious auth refusal)
+   * and BEFORE the budget gate and any write — against this transaction's
+   * own view, so a persisted-role/team-membership revocation landing between
+   * the route's admission and the writer refuses typed with ZERO effects
+   * (the writer throws the typed 403 AppError; the whole reservation rolls
+   * back). Internal trust boundary: the route constructs this callback from
+   * the authenticated principal — never caller-supplied data.
+   */
+  authorize?: (tx: Parameters<typeof guardTransition>[0]) => boolean;
 }
 
 /**
@@ -663,21 +675,18 @@ export function retryTransitionToPendingWithEffects(
         return null;
       }
 
+      // Recheck persisted authority after CAS, before budget checks or writes.
+      if (opts?.authorize !== undefined && !opts.authorize(tx)) {
+        throw forbidden("Not authorized to recover this task");
+      }
+
       // Budget gate: every lane, in-tx, post-CAS — see requireRetryBudgetHeadroom
       // for the required=4/1 reservation and CAS-before-budget precedence.
       requireRetryBudgetHeadroom(tx, taskId, opts?.requireClaimHeadroom === true ? 4 : 1);
 
       const preserveReason = opts?.preserveRejectionReason === true;
 
-      // Fixup-8 (Sol-adjudicated): retry-to-pending is a CUSTODY-ENDING
-      // transition for EITHER claimant kind. The write clears BOTH owner
-      // columns atomically; the review invalidation advances the generation
-      // exactly once iff EITHER preimage owner column was present.
-      //
-      // The ONLY no-op classification is PRE-WRITE, on the FULL intended
-      // reset shape (owners/token/pointers/nextRetryAt null, rejectionReason
-      // clean per the preserve mode, retryCount current): a complete clean
-      // row attempts NO UPDATE. Any stale field means real work.
+      // Both claimant kinds end custody; a complete reset is the only no-op.
       const alreadyClean =
         row.status === "pending" &&
         row.assignedAgentId === null &&
