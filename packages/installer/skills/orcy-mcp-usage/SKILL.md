@@ -498,7 +498,7 @@ orcy_habitat_task({ action: "retry", taskId: "uuid" })
 Output: { "success": true, "task": { "status": "pending" } }
 ```
 
-Retry is a separate failed → pending reset — not an approval and not a substitute for `complete`. The agent action stays failed-only (`400` on a rejected task): when a REJECTED task's owner is unavailable, a human reviewer (admin/editor, member of the task's habitat) performs the rejected → pending reset through the REST route `POST /tasks/:id/retry` — not through this tool.
+Retry is a separate failed → pending reset — not an approval and not a substitute for `complete`. The agent action stays failed-only (`400` on a rejected task): when a REJECTED task's owner is unavailable, a human reviewer (admin/editor, member of the task's habitat) performs the rejected → pending reset through the REST route `POST /tasks/:id/retry` — not through this tool. That human reset keeps the reviewer's rejection reason on the task (the replacement claimant sees why the prior attempt was rejected) and can answer two typed refusals: `409 VERSION_CONFLICT` (the task changed mid-request — nothing was written; reload and decide again) and `409 TRANSITION_BUDGET_EXHAUSTED` (the habitat's transition budget cannot cover the reset plus the replacement claim — an operator must raise `lifecycleSettings.taskTransitionCeiling`, or set it to `0` to unmeter the habitat). The agent `retry` action stays failed-only but its budget refusal is now typed the same way (`409 TRANSITION_BUDGET_EXHAUSTED` with `count`/`ceiling` — previously an indistinct `500`); only an unexpected execution failure is a `500`.
 
 ### Fail Task
 

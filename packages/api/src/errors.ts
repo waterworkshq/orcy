@@ -83,10 +83,12 @@ export function conflict(message: string, details?: unknown): AppError {
  * code to `"CONFLICT"` and accepts only `details`, so callers that want a
  * granular diagnostic code reachable by clients create an `AppError` here
  * instead. Used by the local and remote triage lifecycle outcome mappers so
- * both surfaces emit byte-identical typed codes.
+ * both surfaces emit byte-identical typed codes. Optional `details` carries
+ * structured diagnostics for typed policy refusals (e.g. the manual-retry
+ * transition-budget refusal's category/count/ceiling).
  */
-export function conflictWithCode(code: string, message: string): AppError {
-  return new AppError(409, code, message);
+export function conflictWithCode(code: string, message: string, details?: unknown): AppError {
+  return new AppError(409, code, message, details);
 }
 
 /** 400 with a specific error code (badRequest() hardcodes VALIDATION_ERROR). */

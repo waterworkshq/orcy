@@ -214,12 +214,20 @@ function scheduleBreachEscalation(
  *
  *   - `opt_out`   (ceiling 0)            → allow, unmetered habitat
  *   - `human_actor`                      → allow, exemption (plan §2)
- *   - `refused`   (count >= ceiling)     → typed refusal; caller maps it to
- *                                          its own failure convention. When
- *                                          `attemptedAction` is threaded, the
- *                                          FIRST refusal also schedules the
- *                                          breach escalation (plan §6) — see
- *                                          {@link scheduleBreachEscalation}.
+ *   - `refused`   (count + required > ceiling) → typed refusal; caller maps
+ *                                          it to its own failure convention.
+ *                                          When `attemptedAction` is threaded,
+ *                                          the FIRST refusal also schedules
+ *                                          the breach escalation (plan §6) —
+ *                                          see {@link scheduleBreachEscalation}.
+ *
+ * `required` (default 1) is the reservation size: how many metered slots
+ * this attempt AND its reserved consequences must still fit. The manual
+ * recovery lane passes 2 — the `retry_executed` write plus the subsequent
+ * replacement claim — so a custody-ending reset can never consume the final
+ * slot and strand the row pending-but-unclaimable. The
+ * check is atomic with the meter count ONLY when `client` is the caller's
+ * open write transaction; a top-level client is a non-atomic preflight.
  */
 export function guardTransition(
   client: TransitionBudgetClient,
@@ -227,6 +235,7 @@ export function guardTransition(
   habitatId: string,
   actorType: BudgetActorType,
   attemptedAction?: MeteredTaskAction,
+  required: number = 1,
 ): TransitionBudgetOutcome {
   const ceiling = resolveCeiling(client, habitatId);
   if (ceiling === 0) return { outcome: "skipped", why: "opt_out" };
@@ -234,7 +243,7 @@ export function guardTransition(
     return { outcome: "skipped", why: "human_actor" };
   }
   const count = countMeteredTransitions(client, taskId);
-  if (count >= ceiling) {
+  if (count + required > ceiling) {
     const refused: BudgetRefusedOutcome = {
       outcome: "refused",
       reason: "transition_budget_exhausted",
@@ -261,6 +270,7 @@ export function guardTransitionTop(
   habitatId: string,
   actorType: BudgetActorType,
   attemptedAction?: MeteredTaskAction,
+  required: number = 1,
 ): TransitionBudgetOutcome {
-  return guardTransition(getDb(), taskId, habitatId, actorType, attemptedAction);
+  return guardTransition(getDb(), taskId, habitatId, actorType, attemptedAction, required);
 }

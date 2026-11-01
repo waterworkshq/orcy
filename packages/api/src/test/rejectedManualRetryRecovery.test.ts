@@ -36,6 +36,7 @@ import * as orgRepo from "../repositories/organization.js";
 import { addMember } from "../repositories/teamMember.js";
 import { getEventsByTaskId } from "../repositories/event.js";
 import { getJwtSecret } from "../middleware/jwt-verification.js";
+import { countMeteredTransitions } from "../services/tasks/transitionBudget.js";
 import * as pluginManager from "../plugins/pluginManager.js";
 import { createHttpApplication, type HttpRuntimeHandle } from "../httpApp.js";
 
@@ -194,7 +195,9 @@ describe("human manual retry at the rejected lane (#150 corrective)", () => {
     expect(after.status).toBe("pending");
     expect(after.assignedAgentId).toBeNull();
     expect(after.executionToken).toBeNull();
-    expect(after.rejectionReason).toBeNull();
+    // Preserved (PR158 review): the rejected-lane reset keeps the reviewer's
+    // feedback for the replacement claimant instead of clearing it.
+    expect(after.rejectionReason).toBe("needs work");
     expect(after.nextRetryAt).toBeNull();
     expect(after.retryCount).toBe(before.retryCount + 1);
     expect(after.version).toBeGreaterThan(before.version);
@@ -296,26 +299,32 @@ describe("human manual retry at the rejected lane (#150 corrective)", () => {
     expect(taskRepo.getTaskById(taskId)!.status).toBe("pending");
   });
 
-  it("budget-exhausted rejected retry is refused with the task byte-identical (exact 500 INTERNAL_ERROR on main)", async () => {
+  it("budget-exhausted rejected retry is refused typed (409 TRANSITION_BUDGET_EXHAUSTED) with the task byte-identical", async () => {
     const { taskId } = seedEscalatedRejectedTask("budget-refused", ownerAgentId);
     const before = taskRepo.getTaskById(taskId)!;
     // The retry meters as the `system` actor, so the human invocation gets no
     // human budget exemption: ceiling 1 with the claim/start/submit meter
-    // already spent (>= 3 metered rows) refuses before any write.
+    // already spent (>= 3 metered rows) refuses inside the writer's
+    // transaction — capacity for retry_executed AND the replacement claim is
+    // required before custody may end (PR158 review: never strand an
+    // unclaimable pending row).
     setCeiling(1);
 
     try {
       const res = await injectRetry(taskId, humanHeaders(adminJwt));
-      // Current-main contract, pinned EXACTLY: the refusal maps to 500
-      // INTERNAL_ERROR (docs/API.md retry section). FOLD OBLIGATION for open
-      // PR #152: when its typed-refusal layer lands, this assertion MUST be
-      // updated to the exact typed refusal — 409 with code
-      // TRANSITION_BUDGET_EXHAUSTED — and manualRetryBudgetRefusalWire.test.ts
-      // must gain the human rejected-lane invocation pinning that same typed
-      // code. Never widen this to a status-code family to make a merge pass;
-      // the refusal MUST leave the task byte-identical on either layer.
-      expect(res.statusCode).toBe(500);
-      expect((res.json() as { code?: string }).code).toBe("INTERNAL_ERROR");
+      // Both-lane contract, pinned EXACTLY (docs/API.md retry section; #152
+      // vocabulary): the refusal is the typed 409 with code
+      // TRANSITION_BUDGET_EXHAUSTED and details {category, count, ceiling}.
+      // Never widen this to a status-code family; the refusal MUST leave the
+      // task byte-identical.
+      expect(res.statusCode).toBe(409);
+      const body = res.json() as {
+        code?: string;
+        details?: { category: string; count: number; ceiling: number };
+      };
+      expect(body.code).toBe("TRANSITION_BUDGET_EXHAUSTED");
+      expect(body.details).toMatchObject({ category: "transition_budget_exhausted", ceiling: 1 });
+      expect(body.details!.count).toBeGreaterThanOrEqual(3);
       await settle();
 
       const after = taskRepo.getTaskById(taskId)!;
@@ -328,6 +337,111 @@ describe("human manual retry at the rejected lane (#150 corrective)", () => {
     } finally {
       setCeiling(null);
     }
+  });
+
+  it("agent lane budget refusal is the SAME typed 409 (one wire, both lanes)", async () => {
+    const taskId = seedFailedTask("agent-budget-typed", ownerAgentId);
+    setCeiling(1);
+    try {
+      const res = await injectRetry(taskId, { "x-agent-api-key": ownerKey });
+      // Vocabulary decision (round-2 review F3): this branch adopts #152's
+      // ExecuteRetryOutcome + conflictWithCode-details wire VERBATIM and
+      // types BOTH lanes now — the historical 500 was a mislabeled policy
+      // refusal. #152's manualRetryBudgetRefusalWire.test.ts (agent lane)
+      // carries the identical pin when it folds; no parallel union remains.
+      expect(res.statusCode).toBe(409);
+      const body = res.json() as {
+        code?: string;
+        error?: string;
+        details?: { category: string; count: number; ceiling: number };
+      };
+      expect(body.code).toBe("TRANSITION_BUDGET_EXHAUSTED");
+      expect(body.error).toBe("Manual retry refused: the task's transition budget is exhausted");
+      expect(body.details).toMatchObject({ category: "transition_budget_exhausted", ceiling: 1 });
+      await settle();
+      expect(taskRepo.getTaskById(taskId)!.status).toBe("failed");
+      expect(retryExecutedCount(taskId)).toBe(0);
+    } finally {
+      setCeiling(null);
+    }
+  });
+
+  it("recovery at count = ceiling-1 refuses (409, unchanged row): the last transition is reserved for the replacement claim", async () => {
+    const { taskId } = seedEscalatedRejectedTask("ceiling-minus-one", ownerAgentId);
+    const count = countMeteredTransitions(getDb(), taskId);
+    expect(count).toBeGreaterThanOrEqual(3);
+    setCeiling(count + 1); // count = ceiling-1 → retry + claim cannot both fit
+
+    try {
+      const res = await injectRetry(taskId, humanHeaders(adminJwt));
+      expect(res.statusCode).toBe(409);
+      expect((res.json() as { code?: string }).code).toBe("TRANSITION_BUDGET_EXHAUSTED");
+      await settle();
+
+      // Refused while the task was unchanged: byte-identical rejected row.
+      const after = taskRepo.getTaskById(taskId)!;
+      expect(after.status).toBe("rejected");
+      expect(after.assignedAgentId).toBe(ownerAgentId);
+      expect(after.retryCount).toBe(0);
+      expect(retryExecutedCount(taskId)).toBe(0);
+    } finally {
+      setCeiling(null);
+    }
+  });
+
+  it("recovery at count = ceiling-2 succeeds and the replacement claim still fits", async () => {
+    const { taskId } = seedEscalatedRejectedTask("ceiling-minus-two", ownerAgentId);
+    const count = countMeteredTransitions(getDb(), taskId);
+    setCeiling(count + 2); // retry_executed (+1) + replacement claim (+1) fit
+
+    try {
+      const res = await injectRetry(taskId, humanHeaders(adminJwt));
+      expect(res.statusCode).toBe(200);
+      expect(taskRepo.getTaskById(taskId)!.status).toBe("pending");
+
+      // The whole point of the reservation: the replacement claim is ADMITTED
+      // by the budget gate — no stranded unclaimable pending row.
+      const replacement = seedAgent("rmr-claimant-ceiling");
+      const claim = taskService.claimTask(taskId, replacement.id);
+      expect(claim.success).toBe(true);
+    } finally {
+      setCeiling(null);
+    }
+  });
+
+  it("replacement claimant sees the preserved rejection feedback in task detail, with audit provenance", async () => {
+    const { taskId } = seedEscalatedRejectedTask("replacement-context", ownerAgentId);
+
+    const res = await injectRetry(taskId, humanHeaders(adminJwt));
+    expect(res.statusCode).toBe(200);
+
+    // The replacement agent reads the task through the ordinary detail route.
+    const replacement = seedAgent("rmr-claimant-detail");
+    const detail = await app.inject({
+      method: "GET",
+      url: `/api/v1/tasks/${taskId}`,
+      headers: { "x-agent-api-key": replacement.key },
+    });
+    expect(detail.statusCode).toBe(200);
+    const task = (detail.json() as { task: { rejectionReason: string | null; status: string } }).task;
+    expect(task.status).toBe("pending");
+    expect(task.rejectionReason).toBe("needs work");
+
+    // Audit provenance: the reset's own trail carries the preserved reason.
+    const retriedEvent = getEventsByTaskId(taskId).events.find(
+      (e) => e.action === "retry_executed",
+    );
+    expect(retriedEvent).toBeDefined();
+    expect((retriedEvent!.metadata as Record<string, unknown>)?.rejectionReason).toBe("needs work");
+  });
+
+  it("failed-lane human retry still clears a leftover rejectionReason (unchanged semantics)", async () => {
+    const taskId = seedFailedTask("failed-lane-clears", ownerAgentId);
+    taskRepo.updateTask(taskId, { rejectionReason: "stale reason" });
+
+    const res = await injectRetry(taskId, humanHeaders(adminJwt));
+    expect(res.statusCode).toBe(200);
+    expect(taskRepo.getTaskById(taskId)!.rejectionReason).toBeNull();
   });
 
   it("race, retry-first: the owner's stale startTask on the preserved token fails after the reset", async () => {

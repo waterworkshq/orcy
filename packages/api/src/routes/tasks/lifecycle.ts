@@ -18,10 +18,12 @@ import { authorizeTaskAction, getPrincipalFromRequest } from "../../middleware/t
 import * as reviewAssignment from "../../services/reviewAssignmentService.js";
 import type { Artifact } from "../../models/index.js";
 import {
+  AppError,
   notFound,
   unauthorized,
   forbidden,
   conflict,
+  conflictWithCode,
   badRequest,
   internalError,
   unprocessableEntity,
@@ -489,11 +491,50 @@ export async function taskLifecycleRoutes(fastify: FastifyInstance): Promise<voi
           );
         }
 
-        const retried = retryService.executeRetry(task);
-        if (!retried) {
+        // Both manual lanes pin the admission preimage from THIS request's
+        // read: a row that moves between the fetch and the writer (owner
+        // rework restart minting a fresh epoch, a concurrent claim) refuses
+        // with no effects instead of erasing live custody. The human
+        // recovery lane additionally reserves transition-budget headroom for
+        // TWO slots (reset + replacement claim) INSIDE the writer's
+        // transaction — a custody-ending reset that the replacement claim
+        // cannot afford refuses typed rather than stranding the row — and
+        // preserves the reviewer's rejection feedback for the replacement
+        // claimant. Failed-lane/background retries keep the historical clear.
+        const retried = retryService.executeRetryWithOutcome(task, {
+          expected: { status: task.status, version: task.version },
+          ...(humanRetry ? { requireClaimHeadroom: true } : {}),
+          ...(humanRetry && task.status === "rejected"
+            ? { preserveRejectionReason: true }
+            : {}),
+        });
+        if (retried.outcome === "refused") {
+          // Policy refusal on either lane: the budget is spent or cannot
+          // cover the recovery lane's reserved replacement claim.
+          throw conflictWithCode(
+            "TRANSITION_BUDGET_EXHAUSTED",
+            "Manual retry refused: the task's transition budget is exhausted",
+            {
+              category: retried.refusal.reason,
+              count: retried.refusal.count,
+              ceiling: retried.refusal.ceiling,
+            },
+          );
+        }
+        if (retried.outcome === "failed") {
+          if (retried.reason === "preimage_conflict") {
+            // The CAS refused: the row moved between this request's read and
+            // the writer. Nothing was written — reload the task and decide.
+            throw new AppError(
+              409,
+              "VERSION_CONFLICT",
+              "Task changed before the retry could run — reload the task and retry",
+              { expectedStatus: task.status, expectedVersion: task.version },
+            );
+          }
           throw internalError("Failed to execute retry");
         }
-        return { task: retried };
+        return { task: retried.task };
       },
     );
 
