@@ -79,6 +79,11 @@ import {
   terminalRejectOccurrenceWithCoordination,
   type PublishScheduledOccurrenceInput,
 } from "../services/scheduledOccurrencePublication.js";
+// GROUND: T1 Step 3 — namespace views for call-through routing spies (no
+// mocked implementations) so frozen-shape adapter selection is observable
+// alongside the real database assertions below.
+import * as templatePublication from "../services/scheduledOccurrencePublication.js";
+import * as handlerPublication from "../services/scheduledHandlerDispatch.js";
 import {
   createRecoveryWorkerId,
   recoverExpiredOccurrenceLeases,
@@ -1052,6 +1057,43 @@ describe("reserved occurrence automatic recovery", () => {
       if (handle !== undefined) clearInterval(handle);
       vi.useRealTimers();
       spy.mockRestore();
+    }
+  });
+
+  // GROUND: T1 Step 3 (GREEN characterization, no product code) — DESIGN §2
+  // (reserved takeover routes from row.scheduleRevision, the frozen revision,
+  // never a live reread) and §4 routing matrix (truthy frozen templateId →
+  // template adapter even after the live row gains a handlerKey); PRD R3 —
+  // the frozen basis must survive the execution-module extraction. Both
+  // adapters return the same guard-mismatch on live shape drift, so adapter
+  // selection is proven with call-through spies plus real DB assertions.
+  it("routes reserved takeover from the frozen template shape after a live handler edit", () => {
+    const templateCalls = vi.spyOn(templatePublication, "publishScheduledOccurrence");
+    const handlerDispatchCalls = vi.spyOn(handlerPublication, "dispatchHandlerScheduledOccurrence");
+    const handlerKey = "reserved-frozen-template-shape";
+    const handler = vi.fn(() => ({ success: true }));
+    registerScheduledTaskHandler(handlerKey, handler);
+    try {
+      const { id: scheduleId } = createSchedule();
+      const { id } = reserveOccurrenceForSchedule(scheduleId);
+      const frozen = readOccurrence(id).scheduleRevision;
+      expect(frozen?.templateId).toBeTruthy();
+      expect(frozen?.handlerKey).toBeFalsy();
+      // Direct drizzle update: UpdateScheduledTaskInput has no handlerKey
+      // field, so updateScheduledTask would silently drop this live edit.
+      getDb().update(scheduledTasks).set({ handlerKey }).where(eq(scheduledTasks.id, scheduleId)).run();
+      const result = recoverReservedOccurrences({ leaseOwner: "frozen-template-worker" });
+      expect(result.details).toEqual([{ occurrenceId: id, publication: "schedule_guard_mismatch" }]);
+      expect(result.resumable).toBe(1);
+      expect(templateCalls).toHaveBeenCalledTimes(1);
+      expect(handlerDispatchCalls).not.toHaveBeenCalled();
+      expect(handler).not.toHaveBeenCalled();
+      expect(readOccurrence(id)).toMatchObject({ state: "publishing", scheduleRevision: frozen });
+      expect(getDb().select().from(missions).all()).toHaveLength(0);
+    } finally {
+      templateCalls.mockRestore();
+      handlerDispatchCalls.mockRestore();
+      registerScheduledTaskHandler(handlerKey, () => ({ success: true }));
     }
   });
 });

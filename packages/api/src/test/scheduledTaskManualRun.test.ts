@@ -515,6 +515,37 @@ describe("manual publication dispatch and post-commit faults", () => {
     expect(replay.json()).toMatchObject({ success: true, replayed: true, missionId: before.occurrences[0].createdMissionId });
     expect(durableState()).toEqual(before);
   });
+  // GROUND: T1 Step 2 (GREEN characterization, no product code) — DESIGN §2
+  // (manual path: runScheduledTaskNow → publishReservedScheduledTask) and §6
+  // (exactly one scheduled_task.executed for non-skipped success, none for
+  // replay); PRD AC — same-coordinate replay and initial-only event counts
+  // survive the coming publication-routing extraction unchanged.
+  it.each(["/api/v1", "/api"])("%s emits one initial terminal event and no replay event", async (prefix) => {
+    const saved = await create({}, prefix);
+    const events: string[] = [];
+    const unsubscribe = sseBroadcaster.subscribe(habitatId, (event) => {
+      if (event.type === "scheduled_task.executed" || event.type === "scheduled_task.failed") {
+        events.push(event.type);
+      }
+    });
+    try {
+      const first = await run(saved.id, scheduledFor, prefix);
+      expect(first.statusCode, first.body).toBe(200);
+      expect(first.json()).toMatchObject({ success: true, occurrenceState: "published", replayed: false });
+      const committed = durableState();
+      expect(committed.occurrences).toHaveLength(1);
+      expect(committed.occurrences[0]).toMatchObject({ state: "published", scheduledFor });
+      expect(committed.tasks).toHaveLength(1);
+      expect(events).toEqual(["scheduled_task.executed"]);
+      const replay = await run(saved.id, scheduledFor, prefix);
+      expect(replay.statusCode, replay.body).toBe(200);
+      expect(replay.json()).toMatchObject({ success: true, replayed: true });
+      expect(durableState()).toEqual(committed);
+      expect(events).toEqual(["scheduled_task.executed"]);
+    } finally {
+      unsubscribe();
+    }
+  });
 });
 
 describe("legacy bodyless failure compatibility", () => {
