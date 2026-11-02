@@ -1266,6 +1266,150 @@ describe("reserved occurrence automatic recovery", () => {
   });
 });
 
+// GROUND: T5 Steps 2+4 — the reserved pass delegates to publishReservedOccurrence
+// from scheduledOccurrenceExecution.js (shapeSource: row.scheduleRevision, the
+// frozen revision — never a live reread) and buckets counters from the
+// module's recoveryDisposition; PRD R1 (single publication authority — the
+// production recovery caller no longer duplicates handler/template/inline
+// selection), R2 (reserved takeover = initial publication under the newly
+// claimed takeover lease), R4/R8 (raw detail + counters unchanged). Exact
+// shapeSource equality discriminates frozen-snapshot provenance: a live
+// schedule row carries different keys than the reservation-time revision.
+describe("recoverReservedOccurrences — unified execution-module takeover cutover", () => {
+  it("takes over a reserved template occurrence through publishReservedOccurrence with the frozen revision and a takeover lease", () => {
+    const executionPublish = vi.spyOn(occurrenceExecution, "publishReservedOccurrence");
+    const executionClassify = vi.spyOn(occurrenceExecution, "classifyRecoveryOutcome");
+    vi.mocked(sseBroadcaster.publish).mockClear();
+    try {
+      const { id: scheduleId } = createSchedule();
+      const { id } = reserveOccurrenceForSchedule(scheduleId);
+      const frozen = readOccurrence(id).scheduleRevision;
+
+      const result = recoverReservedOccurrences({ leaseOwner: "execution-takeover-worker", now: RECOVERY_NOW });
+
+      // T5 Step 4 input contract verbatim: scheduleId as presentation context,
+      // deterministic takeover lease (claimNow + default 30s), frozen shapeSource.
+      expect(executionPublish).toHaveBeenCalledTimes(1);
+      expect(executionPublish).toHaveBeenCalledWith({
+        scheduleId: scheduleId,
+        occurrenceId: id,
+        leaseOwner: "execution-takeover-worker",
+        leaseExpiresAt: new Date(Date.parse(RECOVERY_NOW) + 30_000).toISOString(),
+        shapeSource: frozen,
+      });
+      // DESIGN D5: the bucket comes from the exhaustive classifier, not a local
+      // Set accepting unknown names as an ordinary skip.
+      expect(executionClassify).toHaveBeenCalledTimes(1);
+      expect(executionClassify).toHaveBeenCalledWith(expect.objectContaining({ outcome: "published" }));
+      // R4/R8: raw details/counters unchanged by the cutover.
+      expect(result).toMatchObject({ scanned: 1, terminalized: 1, resumable: 0, skipped: 0 });
+      expect(result.details).toEqual([{ occurrenceId: id, publication: "published" }]);
+      expect(readOccurrence(id)).toMatchObject({ state: "published", leaseOwner: null });
+      expect(getDb().select().from(missions).all()).toHaveLength(1);
+      // R7: recovery emits no Scheduled Task events.
+      expect(sseBroadcaster.publish).not.toHaveBeenCalled();
+    } finally {
+      executionPublish.mockRestore();
+      executionClassify.mockRestore();
+    }
+  });
+
+  it("decides frozen handler precedence inside the module (one dispatch, no Mission)", () => {
+    const executionPublish = vi.spyOn(occurrenceExecution, "publishReservedOccurrence");
+    const handlerKey = "execution-takeover-handler";
+    const handler = vi.fn(() => ({ success: true }));
+    registerScheduledTaskHandler(handlerKey, handler);
+    try {
+      const { id: scheduleId } = createSchedule({
+        handlerKey,
+        tasksTemplate: [{ title: "Inline fallback", order: 0 }],
+      });
+      const { id } = reserveOccurrenceForSchedule(scheduleId);
+      const frozen = readOccurrence(id).scheduleRevision;
+      expect(frozen?.handlerKey).toBe(handlerKey);
+
+      const result = recoverReservedOccurrences({ leaseOwner: "handler-takeover-worker", now: RECOVERY_NOW });
+
+      // DESIGN D4: truthy handlerKey wins over template/inline — decided
+      // INSIDE the module from the handed-over frozen revision, not
+      // pre-selected by this production caller (R1/R10 — no adapter bypass).
+      expect(executionPublish).toHaveBeenCalledTimes(1);
+      expect(executionPublish).toHaveBeenCalledWith(expect.objectContaining({
+        scheduleId: scheduleId,
+        occurrenceId: id,
+        leaseOwner: "handler-takeover-worker",
+        shapeSource: frozen,
+      }));
+      expect(handler).toHaveBeenCalledTimes(1);
+      expect(result).toMatchObject({ terminalized: 1, resumable: 0, skipped: 0 });
+      expect(result.details).toEqual([{ occurrenceId: id, publication: "dispatched" }]);
+      expect(readOccurrence(id)).toMatchObject({ state: "published", createdMissionId: null });
+      expect(getDb().select().from(missions).all()).toHaveLength(0);
+    } finally {
+      executionPublish.mockRestore();
+      registerScheduledTaskHandler(handlerKey, () => ({ success: true }));
+    }
+  });
+
+  it("keeps a schedule_guard_mismatch takeover resumable via the module bucket without stamping a reclaim count", () => {
+    const executionPublish = vi.spyOn(occurrenceExecution, "publishReservedOccurrence");
+    const executionClassify = vi.spyOn(occurrenceExecution, "classifyRecoveryOutcome");
+    try {
+      const { id: scheduleId } = createSchedule();
+      const { id } = reserveOccurrenceForSchedule(scheduleId);
+      const frozen = readOccurrence(id).scheduleRevision;
+      scheduledTaskRepo.updateScheduledTask(scheduleId, { missionTitle: "EDITED — takeover guard mismatch" });
+
+      const result = recoverReservedOccurrences({ leaseOwner: "guard-takeover-worker", now: RECOVERY_NOW });
+
+      expect(executionPublish).toHaveBeenCalledTimes(1);
+      expect(executionPublish).toHaveBeenCalledWith(expect.objectContaining({
+        shapeSource: frozen,
+      }));
+      // DESIGN D5: schedule_guard_mismatch → resumable (circuit-breaker budget).
+      expect(executionClassify).toHaveBeenCalledWith(expect.objectContaining({ outcome: "schedule_guard_mismatch" }));
+      expect(result).toMatchObject({ terminalized: 0, resumable: 1, skipped: 0 });
+      expect(result.details).toEqual([{ occurrenceId: id, publication: "schedule_guard_mismatch" }]);
+      expect(readOccurrence(id)).toMatchObject({ state: "publishing", leaseOwner: "guard-takeover-worker" });
+      // R8: the reserved pass owns no reclaim budget — expired-lease recovery does.
+      expect(readOccurrence(id).result?.reclaimCount).toBeUndefined();
+      expect(getDb().select().from(missions).all()).toHaveLength(0);
+    } finally {
+      executionPublish.mockRestore();
+      executionClassify.mockRestore();
+    }
+  });
+
+  it("hands an absent snapshot to the module (inline initial fallback → typed validation refusal)", () => {
+    const executionPublish = vi.spyOn(occurrenceExecution, "publishReservedOccurrence");
+    try {
+      const { id: scheduleId } = createSchedule();
+      const { id } = reserveOccurrenceForSchedule(scheduleId);
+      getDb().update(scheduledOccurrences).set({ scheduleRevision: null })
+        .where(eq(scheduledOccurrences.id, id)).run();
+
+      const result = recoverReservedOccurrences({ leaseOwner: "legacy-takeover-worker", now: RECOVERY_NOW });
+
+      // DESIGN D4: missing/null source → inline initial INSIDE the module; the
+      // adapter's typed validation refuses instead of throwing pre-claim.
+      expect(executionPublish).toHaveBeenCalledTimes(1);
+      expect(executionPublish).toHaveBeenCalledWith({
+        scheduleId: scheduleId,
+        occurrenceId: id,
+        leaseOwner: "legacy-takeover-worker",
+        leaseExpiresAt: new Date(Date.parse(RECOVERY_NOW) + 30_000).toISOString(),
+        shapeSource: null,
+      });
+      expect(result).toMatchObject({ terminalized: 1, resumable: 0, skipped: 0 });
+      expect(result.details).toEqual([{ occurrenceId: id, publication: "rejected_validation" }]);
+      expect(readOccurrence(id).state).toBe("rejected");
+      expect(getDb().select().from(missions).all()).toHaveLength(0);
+    } finally {
+      executionPublish.mockRestore();
+    }
+  });
+});
+
 // ===========================================================================
 // 7. EDGE CASES
 // ===========================================================================

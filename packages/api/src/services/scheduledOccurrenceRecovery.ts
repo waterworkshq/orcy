@@ -94,25 +94,13 @@ import {
   type ScheduledOccurrenceRow,
 } from "../repositories/scheduledOccurrences.js";
 import { listPendingTaskCreationAttemptsForScopeWithClient } from "../repositories/taskCreationAttempts.js";
+import { terminalRejectOccurrenceWithCoordination } from "./scheduledOccurrencePublication.js";
 import {
-  publishScheduledOccurrence,
-  terminalRejectOccurrenceWithCoordination,
-  type ResumeScheduledOccurrenceOutcome,
-  type PublishScheduledOccurrenceOutcome,
-} from "./scheduledOccurrencePublication.js";
-import {
-  publishInlineScheduledOccurrence,
-  type ResumeInlineScheduledOccurrenceOutcome,
-  type PublishInlineScheduledOccurrenceOutcome,
-} from "./inlineScheduledOccurrencePublication.js";
-import {
-  dispatchHandlerScheduledOccurrence,
-  type ResumeHandlerDispatchOutcome,
-  type PublishHandlerDispatchOutcome,
-} from "./scheduledHandlerDispatch.js";
-import {
+  publishReservedOccurrence,
   resumeOccurrencePublication,
   classifyRecoveryOutcome,
+  type InitialOccurrenceOutcome,
+  type ResumeOccurrenceOutcome,
 } from "./scheduledOccurrenceExecution.js";
 import { v4 as uuid } from "uuid";
 
@@ -234,52 +222,6 @@ export interface RecoverExpiredOccurrenceLeasesResult {
   /** Per-occurrence recovery details (for diagnostics/logging). */
   details: OccurrenceLeaseRecoveryDetail[];
 }
-
-// ---------------------------------------------------------------------------
-// Terminal-outcome classifier (the resume-outcome → recovery-bucket map)
-// ---------------------------------------------------------------------------
-
-type ResumeOccurrenceOutcome =
-  | ResumeScheduledOccurrenceOutcome
-  | ResumeInlineScheduledOccurrenceOutcome
-  | ResumeHandlerDispatchOutcome;
-
-/**
- * The RESUMABLE resume outcomes — the occurrence STAYS `publishing` under
- * the recovery worker's lease; the lease will expire; the next scan tick
- * reclaims + advances the count. These are the outcomes the circuit-breaker
- * is designed to eventually terminalize.
- *
- * `replayed` is included here (conservative — the occurrence's per-Task
- * attempts are terminal/recovering but the occurrence ROW is still
- * `publishing`; the recovery worker can't fully resolve this partial state,
- * so the circuit-breaker handles it).
- */
-const RESUMABLE_RESUME_OUTCOMES: ReadonlySet<ResumeOccurrenceOutcome["outcome"]> = new Set(
-  [
-    "schedule_guard_mismatch",
-    "guard_mismatch",
-    "governance_denied",
-    "schedule_vanished_mid_tx",
-    "replayed",
-  ],
-);
-
-/**
- * The TERMINAL resume outcomes — the occurrence reached a terminal state
- * (`published` or `rejected`) via the resume. The occurrence is no longer
- * recoverable; the circuit-breaker is irrelevant.
- */
-const TERMINAL_RESUME_OUTCOMES: ReadonlySet<ResumeOccurrenceOutcome["outcome"]> = new Set([
-  "published",
-  "vetoed",
-  "rejected_validation",
-  "schedule_missing",
-  "rejected_fingerprint",
-  "dispatched",
-  "handler_failed",
-  "handler_not_registered",
-]);
 
 // ---------------------------------------------------------------------------
 // Recovery function
@@ -553,11 +495,6 @@ export function recoverExpiredOccurrenceLeases(
   return result;
 }
 
-type InitialOccurrenceOutcome =
-  | PublishScheduledOccurrenceOutcome
-  | PublishInlineScheduledOccurrenceOutcome
-  | PublishHandlerDispatchOutcome;
-
 export type RecoverReservedOccurrencesOptions = Omit<RecoverExpiredOccurrenceLeasesOptions, "maxReclaims">;
 
 /** First-publication outcomes; these counts do not assert a lease was acquired. */
@@ -595,29 +532,18 @@ export function recoverReservedOccurrences(
   for (const row of reserved) {
     try {
       const claimNow = opts.now ?? new Date().toISOString();
-      const input = {
+      const publication = publishReservedOccurrence({
+        scheduleId: row.scheduledTaskId,
         occurrenceId: row.id,
         leaseOwner: opts.leaseOwner,
         leaseExpiresAt: new Date(Date.parse(claimNow) + (opts.leaseDurationMs ?? 30_000)).toISOString(),
-      };
-      const snapshot = row.scheduleRevision;
-      // Missing snapshots use the existing inline adapter's typed validation
-      // and missing-schedule handling, rather than throwing before the claim.
-      const publication = snapshot?.handlerKey
-        ? dispatchHandlerScheduledOccurrence(input)
-        : snapshot?.templateId
-          ? publishScheduledOccurrence(input)
-          : publishInlineScheduledOccurrence(input);
-      const outcome = publication.outcome;
-      if (outcome === "already_publishing") {
-        result.skipped++;
-      } else if (TERMINAL_RESUME_OUTCOMES.has(outcome)) {
-        result.terminalized++;
-      } else if (RESUMABLE_RESUME_OUTCOMES.has(outcome)) {
-        result.resumable++;
-      } else {
-        result.skipped++;
-      }
+        shapeSource: row.scheduleRevision,
+      });
+      const outcome = publication.outcome.outcome;
+      const bucket = classifyRecoveryOutcome(publication.outcome);
+      if (bucket === "terminalized") result.terminalized++;
+      else if (bucket === "resumable") result.resumable++;
+      else result.skipped++;
       result.details.push({ occurrenceId: row.id, publication: outcome });
     } catch (err) {
       // A throw may precede or follow the CAS. Do not infer ownership or reset
