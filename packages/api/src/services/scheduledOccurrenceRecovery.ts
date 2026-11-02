@@ -96,23 +96,24 @@ import {
 import { listPendingTaskCreationAttemptsForScopeWithClient } from "../repositories/taskCreationAttempts.js";
 import {
   publishScheduledOccurrence,
-  resumeScheduledOccurrencePublication,
   terminalRejectOccurrenceWithCoordination,
   type ResumeScheduledOccurrenceOutcome,
   type PublishScheduledOccurrenceOutcome,
 } from "./scheduledOccurrencePublication.js";
 import {
   publishInlineScheduledOccurrence,
-  resumeInlineScheduledOccurrencePublication,
   type ResumeInlineScheduledOccurrenceOutcome,
   type PublishInlineScheduledOccurrenceOutcome,
 } from "./inlineScheduledOccurrencePublication.js";
 import {
   dispatchHandlerScheduledOccurrence,
-  resumeHandlerScheduledOccurrenceDispatch,
   type ResumeHandlerDispatchOutcome,
   type PublishHandlerDispatchOutcome,
 } from "./scheduledHandlerDispatch.js";
+import {
+  resumeOccurrencePublication,
+  classifyRecoveryOutcome,
+} from "./scheduledOccurrenceExecution.js";
 import { v4 as uuid } from "uuid";
 
 // ---------------------------------------------------------------------------
@@ -509,20 +510,11 @@ export function recoverExpiredOccurrenceLeases(
         .from(scheduledTasks)
         .where(eq(scheduledTasks.id, reclaimed.scheduledTaskId))
         .get();
-      const resumeInput = {
+      resume = resumeOccurrencePublication({
         occurrenceId: reclaimed.id,
         leaseOwner: opts.leaseOwner,
-      };
-
-      if (schedule?.handlerKey) {
-        resume = resumeHandlerScheduledOccurrenceDispatch(resumeInput);
-      } else if (schedule?.templateId) {
-        resume = resumeScheduledOccurrencePublication(resumeInput);
-      } else if (schedule && Array.isArray(schedule.tasksTemplate) && schedule.tasksTemplate.length > 0) {
-        resume = resumeInlineScheduledOccurrencePublication(resumeInput);
-      } else {
-        resume = resumeScheduledOccurrencePublication(resumeInput);
-      }
+        schedule,
+      }).outcome;
     } catch (err) {
       // Infrastructure failure during the resume — the aggregate rolled
       // back; the occurrence stays `publishing` under this worker's lease.
@@ -544,9 +536,10 @@ export function recoverExpiredOccurrenceLeases(
 
     // 2e. MAP the resume's outcome.
     const outcome = resume.outcome;
-    if (TERMINAL_RESUME_OUTCOMES.has(outcome)) {
+    const bucket = classifyRecoveryOutcome(resume);
+    if (bucket === "terminalized") {
       result.terminalized++;
-    } else if (RESUMABLE_RESUME_OUTCOMES.has(outcome)) {
+    } else if (bucket === "resumable") {
       result.resumable++;
     } else {
       // `not_found` / `illegal_source_state` / `not_owner` — the occurrence
