@@ -14,18 +14,7 @@ import { writeFileSync, mkdirSync } from "fs";
 import { join } from "path";
 import { sanitizeFilename } from "./fileStorage.js";
 import { reserveScheduledOccurrence, reserveScheduledOccurrenceWithClient, ScheduledOccurrenceAdvanceLostRace } from "../repositories/scheduledOccurrenceReservation.js";
-import {
-  publishScheduledOccurrence,
-  type PublishScheduledOccurrenceOutcome,
-} from "./scheduledOccurrencePublication.js";
-import {
-  publishInlineScheduledOccurrence,
-  type PublishInlineScheduledOccurrenceOutcome,
-} from "./inlineScheduledOccurrencePublication.js";
-import {
-  dispatchHandlerScheduledOccurrence,
-  type PublishHandlerDispatchOutcome,
-} from "./scheduledHandlerDispatch.js";
+import { publishReservedOccurrence } from "./scheduledOccurrenceExecution.js";
 
 // ---------------------------------------------------------------------------
 // Handler registry — MOVED to `repositories/scheduledHandlerRegistry.ts`.
@@ -298,223 +287,27 @@ function executeScheduledTaskViaPublication(schedule: ScheduledTask): ExecuteSch
   return publishReservedScheduledTask(schedule, reservation.occurrence.id);
 }
 
-/** Publish a newly committed reservation through the established dispatch precedence. */
+/** Publish a committed reservation and preserve the initial-only Scheduled Task effects. */
 function publishReservedScheduledTask(schedule: ScheduledTask, occurrenceId: string): ExecuteScheduledTaskResult {
-  const id = schedule.id;
-  // 3. Route by schedule shape. The publication adapter owns the occurrence's
-  //    `reserved → publishing → published | rejected` transition. Routing
-  //    precedence matches the legacy path: `handlerKey` first (legacy
-  //    executeScheduledTask:165), then `templateId` (:208), then inline.
-  const publicationInput = {
+  const { projection } = publishReservedOccurrence({
+    scheduleId: schedule.id,
     occurrenceId,
     leaseOwner: SCHEDULER_PUBLICATION_LEASE_OWNER,
     leaseExpiresAt: new Date(Date.now() + SCHEDULER_PUBLICATION_LEASE_MS).toISOString(),
-  };
-
-  if (schedule.handlerKey) {
-    const outcome = dispatchHandlerScheduledOccurrence(publicationInput);
-    return mapHandlerDispatchOutcome(id, schedule.habitatId, outcome);
-  }
-  if (schedule.templateId) {
-    const outcome = publishScheduledOccurrence(publicationInput);
-    return mapScheduledOccurrenceOutcome(id, schedule.habitatId, outcome);
-  }
-  const outcome = publishInlineScheduledOccurrence(publicationInput);
-  return mapInlineOccurrenceOutcome(id, schedule.habitatId, outcome);
-}
-
-/**
- * Maps the templateId-path publication outcome to the legacy return shape +
- * emits the legacy `scheduled_task.executed` / `scheduled_task.failed` SSE
- * events (UI parity). Resumable outcomes (`schedule_guard_mismatch`,
- * `guard_mismatch`, `governance_denied`, `schedule_vanished_mid_tx`) + the
- * concurrent-worker outcomes (`already_publishing`, `illegal_source_state`,
- * `replayed`) map to `{success: true, skipped: true}` — T9B's recovery worker
- * (or the concurrent worker that owns the lease) finishes the publication.
- */
-function mapScheduledOccurrenceOutcome(
-  scheduleId: string,
-  habitatId: string,
-  outcome: PublishScheduledOccurrenceOutcome,
-): ExecuteScheduledTaskResult {
-  switch (outcome.outcome) {
-    case "published": {
-      const missionId = outcome.mission.id;
-      sseBroadcaster.publish(habitatId, {
-        type: "scheduled_task.executed",
-        data: { scheduleId, missionId },
-      });
-      return { success: true, missionId };
-    }
-    case "vetoed":
-      return failScheduledTaskPublication(
-        scheduleId,
-        habitatId,
-        "Scheduled occurrence publication vetoed by governance",
-      );
-    case "rejected_validation":
-      return failScheduledTaskPublication(
-        scheduleId,
-        habitatId,
-        "Scheduled occurrence publication rejected (validation)",
-      );
-    case "rejected_fingerprint":
-      return failScheduledTaskPublication(
-        scheduleId,
-        habitatId,
-        "Scheduled occurrence publication rejected (fingerprint mismatch)",
-      );
-    case "schedule_missing":
-      return failScheduledTaskPublication(
-        scheduleId,
-        habitatId,
-        "Scheduled occurrence publication failed (schedule missing)",
-      );
-    case "not_found":
-      return failScheduledTaskPublication(
-        scheduleId,
-        habitatId,
-        "Scheduled occurrence publication failed (occurrence not found)",
-      );
-    // Resumable — T9B's recovery worker will finish the publication.
-    case "schedule_guard_mismatch":
-    case "guard_mismatch":
-    case "governance_denied":
-    case "schedule_vanished_mid_tx":
-      return { success: true, skipped: true };
-    // Another worker owns this occurrence (or a prior publication already terminalized it).
-    case "already_publishing":
-    case "illegal_source_state":
-    case "replayed":
-      return { success: true, skipped: true };
-  }
-}
-
-/**
- * Maps the inline-path publication outcome to the legacy return shape + SSE.
- * Branch semantics mirror {@link mapScheduledOccurrenceOutcome}; the ONLY
- * difference is the error-message prefix (inline path).
- */
-function mapInlineOccurrenceOutcome(
-  scheduleId: string,
-  habitatId: string,
-  outcome: PublishInlineScheduledOccurrenceOutcome,
-): ExecuteScheduledTaskResult {
-  switch (outcome.outcome) {
-    case "published": {
-      const missionId = outcome.mission.id;
-      sseBroadcaster.publish(habitatId, {
-        type: "scheduled_task.executed",
-        data: { scheduleId, missionId },
-      });
-      return { success: true, missionId };
-    }
-    case "vetoed":
-      return failScheduledTaskPublication(
-        scheduleId,
-        habitatId,
-        "Inline scheduled occurrence publication vetoed by governance",
-      );
-    case "rejected_validation":
-      return failScheduledTaskPublication(
-        scheduleId,
-        habitatId,
-        "Inline scheduled occurrence publication rejected (validation)",
-      );
-    case "rejected_fingerprint":
-      return failScheduledTaskPublication(
-        scheduleId,
-        habitatId,
-        "Inline scheduled occurrence publication rejected (fingerprint mismatch)",
-      );
-    case "schedule_missing":
-      return failScheduledTaskPublication(
-        scheduleId,
-        habitatId,
-        "Inline scheduled occurrence publication failed (schedule missing)",
-      );
-    case "not_found":
-      return failScheduledTaskPublication(
-        scheduleId,
-        habitatId,
-        "Inline scheduled occurrence publication failed (occurrence not found)",
-      );
-    case "schedule_guard_mismatch":
-    case "guard_mismatch":
-    case "governance_denied":
-    case "schedule_vanished_mid_tx":
-      return { success: true, skipped: true };
-    case "already_publishing":
-    case "illegal_source_state":
-    case "replayed":
-      return { success: true, skipped: true };
-  }
-}
-
-/**
- * Maps the handler-dispatch outcome to the legacy return shape + SSE. Handler
- * dispatch produces no Mission (`createdMissionId: null`); the handler's
- * optional `missionId` (audit-only in the occurrence result JSON) is surfaced
- * on success for parity with the legacy handler-key branch's conditional
- * `{success: true, ...(missionId ? {missionId} : {})}` shape.
- */
-function mapHandlerDispatchOutcome(
-  scheduleId: string,
-  habitatId: string,
-  outcome: PublishHandlerDispatchOutcome,
-): ExecuteScheduledTaskResult {
-  switch (outcome.outcome) {
-    case "dispatched": {
-      const missionId = outcome.handlerResult.missionId;
-      sseBroadcaster.publish(habitatId, {
-        type: "scheduled_task.executed",
-        data: { scheduleId, ...(missionId ? { missionId } : {}) },
-      });
-      return { success: true, ...(missionId ? { missionId } : {}) };
-    }
-    case "handler_failed":
-      return failScheduledTaskPublication(scheduleId, habitatId, outcome.error);
-    case "handler_not_registered":
-      return failScheduledTaskPublication(
-        scheduleId,
-        habitatId,
-        `No handler registered for handlerKey "${outcome.handlerKey}" on scheduled task ${scheduleId}.`,
-      );
-    case "schedule_missing":
-      return failScheduledTaskPublication(
-        scheduleId,
-        habitatId,
-        "Handler dispatch failed (schedule missing)",
-      );
-    case "not_found":
-      return failScheduledTaskPublication(
-        scheduleId,
-        habitatId,
-        "Handler dispatch failed (occurrence not found)",
-      );
-    // Resumable — T9B's recovery worker re-drives the lease.
-    case "schedule_guard_mismatch":
-    case "schedule_vanished_mid_tx":
-      return { success: true, skipped: true };
-    // Concurrent worker / replay — not this caller's concern.
-    case "already_publishing":
-    case "illegal_source_state":
-    case "replayed":
-      return { success: true, skipped: true };
-  }
-}
-
-/** Emits the `scheduled_task.failed` SSE event + returns the failure shape. */
-function failScheduledTaskPublication(
-  scheduleId: string,
-  habitatId: string,
-  error: string,
-): ExecuteScheduledTaskResult {
-  sseBroadcaster.publish(habitatId, {
-    type: "scheduled_task.failed",
-    data: { scheduleId, error },
+    shapeSource: schedule,
   });
-  return { success: false, error };
+  if (!projection.success) {
+    sseBroadcaster.publish(schedule.habitatId, {
+      type: "scheduled_task.failed",
+      data: { scheduleId: schedule.id, error: projection.error! },
+    });
+  } else if (!projection.skipped) {
+    sseBroadcaster.publish(schedule.habitatId, {
+      type: "scheduled_task.executed",
+      data: { scheduleId: schedule.id, ...(projection.missionId ? { missionId: projection.missionId } : {}) },
+    });
+  }
+  return projection;
 }
 
 /** Keep per-pass operator diagnostics bounded; publication state stays authoritative. */

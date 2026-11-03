@@ -79,6 +79,16 @@ import {
   terminalRejectOccurrenceWithCoordination,
   type PublishScheduledOccurrenceInput,
 } from "../services/scheduledOccurrencePublication.js";
+// GROUND: T1 Step 3 — namespace views for call-through routing spies (no
+// mocked implementations) so frozen-shape adapter selection is observable
+// alongside the real database assertions below.
+import * as templatePublication from "../services/scheduledOccurrencePublication.js";
+import * as handlerPublication from "../services/scheduledHandlerDispatch.js";
+// GROUND: T4 Steps 3–4 — namespace view for call-through cutover spies so
+// expired-lease resume delegation to the unified execution module is
+// observable alongside the real database assertions below.
+import * as occurrenceExecution from "../services/scheduledOccurrenceExecution.js";
+import { sseBroadcaster } from "../sse/broadcaster.js";
 import {
   createRecoveryWorkerId,
   recoverExpiredOccurrenceLeases,
@@ -399,6 +409,169 @@ describe("recoverExpiredOccurrenceLeases — deterministic takeover", () => {
     if (recoveryTerminal.outcome !== "transitioned") throw new Error("unreachable");
     expect(recoveryTerminal.occurrence.state).toBe("published");
     expect(recoveryTerminal.occurrence.createdMissionId).toBe("recovery-mission-id");
+  });
+});
+
+// ===========================================================================
+// 1b. UNIFIED EXECUTION-MODULE RESUME CUTOVER (T4)
+// ===========================================================================
+// GROUND: T4 Steps 3–4 / DESIGN D3 — the expired-lease resume selector and
+// outcome mapping delegate to scheduledOccurrenceExecution
+// (`resumeOccurrencePublication` + `classifyRecoveryOutcome`); the local
+// four-branch adapter selector and Set-based classifier are the pre-cutover
+// bypass these tests forbid (R10 cutover completeness). Call-through spies
+// (no mocked implementations) alongside real database assertions, mirroring
+// the T1 discriminator pattern.
+describe("recoverExpiredOccurrenceLeases — unified execution-module resume cutover", () => {
+  it("resumes a template occurrence through resumeOccurrencePublication and counts the bucket via classifyRecoveryOutcome", () => {
+    const executionResume = vi.spyOn(occurrenceExecution, "resumeOccurrencePublication");
+    const executionClassify = vi.spyOn(occurrenceExecution, "classifyRecoveryOutcome");
+    vi.mocked(sseBroadcaster.publish).mockClear();
+    try {
+      const { id: scheduleId } = createSchedule();
+      const { id: occurrenceId } = reserveOccurrenceForSchedule(scheduleId);
+      simulateCrashedWorker(occurrenceId, "crashed-worker", LEASE_PAST);
+
+      const result = recoverExpiredOccurrenceLeases({
+        leaseOwner: "execution-cutover-worker",
+        now: RECOVERY_NOW,
+      });
+
+      // R10: no adapter bypass — the resume handed the LIVE schedule reread
+      // row to the execution module (exact T4 Step 3 input contract).
+      expect(executionResume).toHaveBeenCalledTimes(1);
+      expect(executionResume).toHaveBeenCalledWith({
+        occurrenceId: occurrenceId,
+        leaseOwner: "execution-cutover-worker",
+        schedule: expect.objectContaining({ id: scheduleId, templateId: expect.any(String) }),
+      });
+      // DESIGN D5: counters come from the exhaustive classifier, not a local
+      // Set accepting unknown names as an ordinary skip.
+      expect(executionClassify).toHaveBeenCalledTimes(1);
+      expect(executionClassify).toHaveBeenCalledWith(expect.objectContaining({ outcome: "published" }));
+
+      // R4/R8: raw details/counters unchanged by the cutover.
+      expect(result).toMatchObject({ scanned: 1, reclaimed: 1, terminalized: 1, resumable: 0, skipped: 0 });
+      expect(result.details).toEqual([{ occurrenceId: occurrenceId, reclaim: "reclaimed", resume: "published" }]);
+      expect(readOccurrence(occurrenceId)).toMatchObject({ state: "published", leaseOwner: null });
+      expect(readOccurrence(occurrenceId).createdMissionId).not.toBeNull();
+      // R7: recovery emits no Scheduled Task events.
+      expect(sseBroadcaster.publish).not.toHaveBeenCalled();
+    } finally {
+      executionResume.mockRestore();
+      executionClassify.mockRestore();
+    }
+  });
+
+  it("routes a live handlerKey schedule through the execution module (handler precedence, one dispatch)", () => {
+    const handlerKey = "execution-cutover-handler";
+    const handler = vi.fn(() => ({ success: true }));
+    registerScheduledTaskHandler(handlerKey, handler);
+    const executionResume = vi.spyOn(occurrenceExecution, "resumeOccurrencePublication");
+    try {
+      const { id: scheduleId } = createSchedule({
+        handlerKey,
+        tasksTemplate: [{ title: "Inline fallback", order: 0 }],
+      });
+      const { id: occurrenceId } = reserveOccurrenceForSchedule(scheduleId);
+      simulateCrashedWorker(occurrenceId, "crashed-worker", LEASE_PAST);
+
+      const result = recoverExpiredOccurrenceLeases({
+        leaseOwner: "handler-cutover-worker",
+        now: RECOVERY_NOW,
+      });
+
+      // DESIGN D4: truthy handlerKey wins over template/inline — decided
+      // INSIDE the module from the handed-over live row, not pre-selected.
+      expect(executionResume).toHaveBeenCalledTimes(1);
+      expect(executionResume).toHaveBeenCalledWith({
+        occurrenceId: occurrenceId,
+        leaseOwner: "handler-cutover-worker",
+        schedule: expect.objectContaining({ id: scheduleId, handlerKey }),
+      });
+      expect(handler).toHaveBeenCalledTimes(1);
+      expect(result).toMatchObject({ terminalized: 1, resumable: 0, skipped: 0 });
+      expect(result.details).toEqual([{ occurrenceId: occurrenceId, reclaim: "reclaimed", resume: "dispatched" }]);
+      expect(readOccurrence(occurrenceId)).toMatchObject({ state: "published", createdMissionId: null });
+      expect(getDb().select().from(missions).all()).toHaveLength(0);
+    } finally {
+      executionResume.mockRestore();
+      registerScheduledTaskHandler(handlerKey, () => ({ success: true }));
+    }
+  });
+
+  it("classifies a schedule_guard_mismatch resume as resumable through classifyRecoveryOutcome", () => {
+    const executionResume = vi.spyOn(occurrenceExecution, "resumeOccurrencePublication");
+    const executionClassify = vi.spyOn(occurrenceExecution, "classifyRecoveryOutcome");
+    try {
+      const { id: scheduleId } = createSchedule();
+      const { id: occurrenceId } = reserveOccurrenceForSchedule(scheduleId);
+      simulateCrashedWorker(occurrenceId, "crashed-worker", LEASE_PAST);
+      getDb()
+        .update(scheduledTasks)
+        .set({ missionTitle: "EDITED — cutover guard mismatch" })
+        .where(eq(scheduledTasks.id, scheduleId))
+        .run();
+
+      const result = recoverExpiredOccurrenceLeases({
+        leaseOwner: "resumable-cutover-worker",
+        now: RECOVERY_NOW,
+      });
+
+      expect(executionResume).toHaveBeenCalledTimes(1);
+      expect(executionClassify).toHaveBeenCalledTimes(1);
+      expect(executionClassify).toHaveBeenCalledWith(expect.objectContaining({ outcome: "schedule_guard_mismatch" }));
+      // R4/R8: resumable bucket + raw detail unchanged; the occurrence stays
+      // publishing under the recovery worker's lease.
+      expect(result).toMatchObject({ terminalized: 0, resumable: 1, skipped: 0 });
+      expect(result.details).toEqual([
+        { occurrenceId: occurrenceId, reclaim: "reclaimed", resume: "schedule_guard_mismatch" },
+      ]);
+      expect(readOccurrence(occurrenceId)).toMatchObject({
+        state: "publishing",
+        leaseOwner: "resumable-cutover-worker",
+      });
+      expect(getDb().select().from(missions).all()).toHaveLength(0);
+    } finally {
+      executionResume.mockRestore();
+      executionClassify.mockRestore();
+    }
+  });
+
+  it("hands a missing live schedule row to the execution module (template resume fallback → schedule_missing terminal)", () => {
+    const executionResume = vi.spyOn(occurrenceExecution, "resumeOccurrencePublication");
+    const executionClassify = vi.spyOn(occurrenceExecution, "classifyRecoveryOutcome");
+    try {
+      const { id: scheduleId } = createSchedule();
+      const { id: occurrenceId } = reserveOccurrenceForSchedule(scheduleId);
+      simulateCrashedWorker(occurrenceId, "crashed-worker", LEASE_PAST);
+      getDb().delete(scheduledTasks).where(eq(scheduledTasks.id, scheduleId)).run();
+
+      const result = recoverExpiredOccurrenceLeases({
+        leaseOwner: "missing-schedule-cutover-worker",
+        now: RECOVERY_NOW,
+      });
+
+      // DESIGN D4: missing/null live source → template resume fallback INSIDE
+      // the module — `schedule: undefined` passes through to the module
+      // rather than being pre-selected into a template adapter call here.
+      expect(executionResume).toHaveBeenCalledTimes(1);
+      expect(executionResume.mock.calls[0][0]).toEqual({
+        occurrenceId: occurrenceId,
+        leaseOwner: "missing-schedule-cutover-worker",
+        schedule: undefined,
+      });
+      expect(executionClassify).toHaveBeenCalledTimes(1);
+      expect(executionClassify).toHaveBeenCalledWith(expect.objectContaining({ outcome: "schedule_missing" }));
+      expect(result).toMatchObject({ terminalized: 1, resumable: 0, skipped: 0 });
+      expect(result.details).toEqual([
+        { occurrenceId: occurrenceId, reclaim: "reclaimed", resume: "schedule_missing" },
+      ]);
+      expect(readOccurrence(occurrenceId).state).toBe("rejected");
+    } finally {
+      executionResume.mockRestore();
+      executionClassify.mockRestore();
+    }
   });
 });
 
@@ -1052,6 +1225,187 @@ describe("reserved occurrence automatic recovery", () => {
       if (handle !== undefined) clearInterval(handle);
       vi.useRealTimers();
       spy.mockRestore();
+    }
+  });
+
+  // GROUND: T1 Step 3 (GREEN characterization, no product code) — DESIGN §2
+  // (reserved takeover routes from row.scheduleRevision, the frozen revision,
+  // never a live reread) and §4 routing matrix (truthy frozen templateId →
+  // template adapter even after the live row gains a handlerKey); PRD R3 —
+  // the frozen basis must survive the execution-module extraction. Both
+  // adapters return the same guard-mismatch on live shape drift, so adapter
+  // selection is proven with call-through spies plus real DB assertions.
+  it("routes reserved takeover from the frozen template shape after a live handler edit", () => {
+    const templateCalls = vi.spyOn(templatePublication, "publishScheduledOccurrence");
+    const handlerDispatchCalls = vi.spyOn(handlerPublication, "dispatchHandlerScheduledOccurrence");
+    const handlerKey = "reserved-frozen-template-shape";
+    const handler = vi.fn(() => ({ success: true }));
+    registerScheduledTaskHandler(handlerKey, handler);
+    try {
+      const { id: scheduleId } = createSchedule();
+      const { id } = reserveOccurrenceForSchedule(scheduleId);
+      const frozen = readOccurrence(id).scheduleRevision;
+      expect(frozen?.templateId).toBeTruthy();
+      expect(frozen?.handlerKey).toBeFalsy();
+      // Direct drizzle update: UpdateScheduledTaskInput has no handlerKey
+      // field, so updateScheduledTask would silently drop this live edit.
+      getDb().update(scheduledTasks).set({ handlerKey }).where(eq(scheduledTasks.id, scheduleId)).run();
+      const result = recoverReservedOccurrences({ leaseOwner: "frozen-template-worker" });
+      expect(result.details).toEqual([{ occurrenceId: id, publication: "schedule_guard_mismatch" }]);
+      expect(result.resumable).toBe(1);
+      expect(templateCalls).toHaveBeenCalledTimes(1);
+      expect(handlerDispatchCalls).not.toHaveBeenCalled();
+      expect(handler).not.toHaveBeenCalled();
+      expect(readOccurrence(id)).toMatchObject({ state: "publishing", scheduleRevision: frozen });
+      expect(getDb().select().from(missions).all()).toHaveLength(0);
+    } finally {
+      templateCalls.mockRestore();
+      handlerDispatchCalls.mockRestore();
+      registerScheduledTaskHandler(handlerKey, () => ({ success: true }));
+    }
+  });
+});
+
+// GROUND: T5 Steps 2+4 — the reserved pass delegates to publishReservedOccurrence
+// from scheduledOccurrenceExecution.js (shapeSource: row.scheduleRevision, the
+// frozen revision — never a live reread) and buckets counters from the
+// module's recoveryDisposition; PRD R1 (single publication authority — the
+// production recovery caller no longer duplicates handler/template/inline
+// selection), R2 (reserved takeover = initial publication under the newly
+// claimed takeover lease), R4/R8 (raw detail + counters unchanged). Exact
+// shapeSource equality discriminates frozen-snapshot provenance: a live
+// schedule row carries different keys than the reservation-time revision.
+describe("recoverReservedOccurrences — unified execution-module takeover cutover", () => {
+  it("takes over a reserved template occurrence through publishReservedOccurrence with the frozen revision and a takeover lease", () => {
+    const executionPublish = vi.spyOn(occurrenceExecution, "publishReservedOccurrence");
+    const executionClassify = vi.spyOn(occurrenceExecution, "classifyRecoveryOutcome");
+    vi.mocked(sseBroadcaster.publish).mockClear();
+    try {
+      const { id: scheduleId } = createSchedule();
+      const { id } = reserveOccurrenceForSchedule(scheduleId);
+      const frozen = readOccurrence(id).scheduleRevision;
+
+      const result = recoverReservedOccurrences({ leaseOwner: "execution-takeover-worker", now: RECOVERY_NOW });
+
+      // T5 Step 4 input contract verbatim: scheduleId as presentation context,
+      // deterministic takeover lease (claimNow + default 30s), frozen shapeSource.
+      expect(executionPublish).toHaveBeenCalledTimes(1);
+      expect(executionPublish).toHaveBeenCalledWith({
+        scheduleId: scheduleId,
+        occurrenceId: id,
+        leaseOwner: "execution-takeover-worker",
+        leaseExpiresAt: new Date(Date.parse(RECOVERY_NOW) + 30_000).toISOString(),
+        shapeSource: frozen,
+      });
+      // DESIGN D5: the bucket comes from the exhaustive classifier, not a local
+      // Set accepting unknown names as an ordinary skip.
+      expect(executionClassify).toHaveBeenCalledTimes(1);
+      expect(executionClassify).toHaveBeenCalledWith(expect.objectContaining({ outcome: "published" }));
+      // R4/R8: raw details/counters unchanged by the cutover.
+      expect(result).toMatchObject({ scanned: 1, terminalized: 1, resumable: 0, skipped: 0 });
+      expect(result.details).toEqual([{ occurrenceId: id, publication: "published" }]);
+      expect(readOccurrence(id)).toMatchObject({ state: "published", leaseOwner: null });
+      expect(getDb().select().from(missions).all()).toHaveLength(1);
+      // R7: recovery emits no Scheduled Task events.
+      expect(sseBroadcaster.publish).not.toHaveBeenCalled();
+    } finally {
+      executionPublish.mockRestore();
+      executionClassify.mockRestore();
+    }
+  });
+
+  it("decides frozen handler precedence inside the module (one dispatch, no Mission)", () => {
+    const executionPublish = vi.spyOn(occurrenceExecution, "publishReservedOccurrence");
+    const handlerKey = "execution-takeover-handler";
+    const handler = vi.fn(() => ({ success: true }));
+    registerScheduledTaskHandler(handlerKey, handler);
+    try {
+      const { id: scheduleId } = createSchedule({
+        handlerKey,
+        tasksTemplate: [{ title: "Inline fallback", order: 0 }],
+      });
+      const { id } = reserveOccurrenceForSchedule(scheduleId);
+      const frozen = readOccurrence(id).scheduleRevision;
+      expect(frozen?.handlerKey).toBe(handlerKey);
+
+      const result = recoverReservedOccurrences({ leaseOwner: "handler-takeover-worker", now: RECOVERY_NOW });
+
+      // DESIGN D4: truthy handlerKey wins over template/inline — decided
+      // INSIDE the module from the handed-over frozen revision, not
+      // pre-selected by this production caller (R1/R10 — no adapter bypass).
+      expect(executionPublish).toHaveBeenCalledTimes(1);
+      expect(executionPublish).toHaveBeenCalledWith(expect.objectContaining({
+        scheduleId: scheduleId,
+        occurrenceId: id,
+        leaseOwner: "handler-takeover-worker",
+        shapeSource: frozen,
+      }));
+      expect(handler).toHaveBeenCalledTimes(1);
+      expect(result).toMatchObject({ terminalized: 1, resumable: 0, skipped: 0 });
+      expect(result.details).toEqual([{ occurrenceId: id, publication: "dispatched" }]);
+      expect(readOccurrence(id)).toMatchObject({ state: "published", createdMissionId: null });
+      expect(getDb().select().from(missions).all()).toHaveLength(0);
+    } finally {
+      executionPublish.mockRestore();
+      registerScheduledTaskHandler(handlerKey, () => ({ success: true }));
+    }
+  });
+
+  it("keeps a schedule_guard_mismatch takeover resumable via the module bucket without stamping a reclaim count", () => {
+    const executionPublish = vi.spyOn(occurrenceExecution, "publishReservedOccurrence");
+    const executionClassify = vi.spyOn(occurrenceExecution, "classifyRecoveryOutcome");
+    try {
+      const { id: scheduleId } = createSchedule();
+      const { id } = reserveOccurrenceForSchedule(scheduleId);
+      const frozen = readOccurrence(id).scheduleRevision;
+      scheduledTaskRepo.updateScheduledTask(scheduleId, { missionTitle: "EDITED — takeover guard mismatch" });
+
+      const result = recoverReservedOccurrences({ leaseOwner: "guard-takeover-worker", now: RECOVERY_NOW });
+
+      expect(executionPublish).toHaveBeenCalledTimes(1);
+      expect(executionPublish).toHaveBeenCalledWith(expect.objectContaining({
+        shapeSource: frozen,
+      }));
+      // DESIGN D5: schedule_guard_mismatch → resumable (circuit-breaker budget).
+      expect(executionClassify).toHaveBeenCalledWith(expect.objectContaining({ outcome: "schedule_guard_mismatch" }));
+      expect(result).toMatchObject({ terminalized: 0, resumable: 1, skipped: 0 });
+      expect(result.details).toEqual([{ occurrenceId: id, publication: "schedule_guard_mismatch" }]);
+      expect(readOccurrence(id)).toMatchObject({ state: "publishing", leaseOwner: "guard-takeover-worker" });
+      // R8: the reserved pass owns no reclaim budget — expired-lease recovery does.
+      expect(readOccurrence(id).result?.reclaimCount).toBeUndefined();
+      expect(getDb().select().from(missions).all()).toHaveLength(0);
+    } finally {
+      executionPublish.mockRestore();
+      executionClassify.mockRestore();
+    }
+  });
+
+  it("hands an absent snapshot to the module (inline initial fallback → typed validation refusal)", () => {
+    const executionPublish = vi.spyOn(occurrenceExecution, "publishReservedOccurrence");
+    try {
+      const { id: scheduleId } = createSchedule();
+      const { id } = reserveOccurrenceForSchedule(scheduleId);
+      getDb().update(scheduledOccurrences).set({ scheduleRevision: null })
+        .where(eq(scheduledOccurrences.id, id)).run();
+
+      const result = recoverReservedOccurrences({ leaseOwner: "legacy-takeover-worker", now: RECOVERY_NOW });
+
+      // DESIGN D4: missing/null source → inline initial INSIDE the module; the
+      // adapter's typed validation refuses instead of throwing pre-claim.
+      expect(executionPublish).toHaveBeenCalledTimes(1);
+      expect(executionPublish).toHaveBeenCalledWith({
+        scheduleId: scheduleId,
+        occurrenceId: id,
+        leaseOwner: "legacy-takeover-worker",
+        leaseExpiresAt: new Date(Date.parse(RECOVERY_NOW) + 30_000).toISOString(),
+        shapeSource: null,
+      });
+      expect(result).toMatchObject({ terminalized: 1, resumable: 0, skipped: 0 });
+      expect(result.details).toEqual([{ occurrenceId: id, publication: "rejected_validation" }]);
+      expect(readOccurrence(id).state).toBe("rejected");
+      expect(getDb().select().from(missions).all()).toHaveLength(0);
+    } finally {
+      executionPublish.mockRestore();
     }
   });
 });
