@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   automationTriggerSchema,
   automationActionSchema,
+  automationRecipientSchema,
   createAutomationRuleSchema,
   updateAutomationRuleSchema,
   automationRuleDraftSchema,
@@ -176,5 +177,71 @@ describe("LL-RM-1 Phase 1: Automation Rule Schema Validation", () => {
       });
       expect(res.success).toBe(true);
     });
+  });
+});
+
+// GROUND: TASKS T7 bullet 1 — "New authoring unsupported recipient/nonempty
+// channel form rejects; legacy revision decoding/data remain unchanged."
+// PRD N4 (reject newly authored unsupported forms with actionable errors,
+// keep legacy revisions decodable) and N10 (immutable configuration controls).
+describe("automation notify authoring guard (N4)", () => {
+  const notifyAction = (recipients: unknown, channels?: string[]) => ({
+    type: "notify", recipients, template: "T", ...(channels ? { channels } : {}),
+  });
+  const ruleBody = (actions: unknown) => ({
+    name: "N", trigger: { type: "event", eventType: "task.rejected" }, actions,
+  });
+
+  // GROUND: PRD N4 — mission_owner rejected with named replacement.
+  it("rejects mission_owner notify recipient with replacement guidance (N4)", () => {
+    const res = automationRuleDraftSchema.safeParse(ruleBody([notifyAction([{ type: "mission_owner" }])]));
+    expect(res.success).toBe(false);
+    if (!res.success) {
+      const issue = res.error.issues.find((i) => i.path.join(".") === "actions.0.recipients.0.type");
+      expect(issue?.message).toContain("mission_owner is not supported");
+      expect(issue?.message).toContain("habitat_admins");
+    }
+  });
+
+  // GROUND: PRD N4 — channel recipient form rejected at authoring time.
+  it("rejects channel notify recipient with replacement guidance", () => {
+    const res = automationRuleDraftSchema.safeParse(ruleBody([notifyAction([{ type: "channel", channelId: "c1" }])]));
+    expect(res.success).toBe(false);
+  });
+
+  // GROUND: PRD N4 — nonempty per-notify channel override rejected; the
+  // empty array stays a legal no-op form.
+  it("rejects nonempty channels override, accepts empty channels array", () => {
+    expect(automationRuleDraftSchema.safeParse(ruleBody([notifyAction([{ type: "habitat_admins" }], ["email"])])).success).toBe(false);
+    expect(createAutomationRuleSchema.safeParse(ruleBody([notifyAction([{ type: "habitat_admins" }], [])])).success).toBe(true);
+  });
+
+  // GROUND: PRD N4 — "Support legitimate domain audiences" (parity cell;
+  // must stay green across the migration).
+  it("habitat_admins / human / agent / assignee / reporter / reviewers recipients still accepted", () => {
+    const res = updateAutomationRuleSchema.safeParse(ruleBody([notifyAction([
+      { type: "habitat_admins" }, { type: "human", userId: "u1" }, { type: "agent", agentId: "a1" },
+      { type: "assignee" }, { type: "reporter" }, { type: "reviewers" },
+    ])]));
+    expect(res.success).toBe(true);
+  });
+
+  // GROUND: TASKS T7 bullet 2 — "Preserve PATCH derivation and unrelated
+  // updates; no ZodEffects `.partial` break" (parity cell).
+  it("enable-only PATCH (no actions) is unaffected", () => {
+    expect(updateAutomationRuleSchema.safeParse({ enabled: true }).success).toBe(true);
+  });
+
+  // GROUND: PRD N4 — "Keep legacy revisions decodable and unchanged" (frozen
+  // decode-union parity cell; the decode union must stay untouched).
+  it("frozen decode union: all 8 stored recipient forms still parse (stored revisions stay decodable)", () => {
+    const forms = [
+      { type: "assignee" }, { type: "reporter" }, { type: "reviewers" }, { type: "mission_owner" },
+      { type: "habitat_admins" }, { type: "agent", agentId: "a1" }, { type: "human", userId: "u1" },
+      { type: "channel", channelId: "c1" },
+    ];
+    for (const f of forms) {
+      expect(automationRecipientSchema.safeParse(f).success).toBe(true);
+    }
   });
 });

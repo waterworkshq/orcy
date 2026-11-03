@@ -66,7 +66,7 @@ function setupPulse(habitatId: string) {
 function createEnabledRule(
   habitatId: string,
   triggerType: string,
-  overrides?: Partial<{ cooldownSeconds: number; maxRunsPerHour: number; name: string }>,
+  overrides?: Partial<{ cooldownSeconds: number; maxRunsPerHour: number; name: string; actions: unknown[] }>,
 ) {
   const isEvent =
     triggerType.startsWith("task.") ||
@@ -84,7 +84,9 @@ function createEnabledRule(
     enabled: true,
     cooldownSeconds: overrides?.cooldownSeconds ?? 0,
     maxRunsPerHour: overrides?.maxRunsPerHour ?? 100,
-    actions: [{ type: "notify", recipients: [{ type: "assignee" }], template: "Test" }],
+    actions:
+      (overrides?.actions as never) ??
+      ([{ type: "notify", recipients: [{ type: "assignee" }], template: "Test" }] as never),
     createdBy: "system:test",
   });
 }
@@ -392,7 +394,12 @@ describe("automationScanService", () => {
   it("scan respects cooldown", async () => {
     const habitat = setupHabitat();
     setupBlockedMissionFixture(habitat.id);
-    createEnabledRule(habitat.id, "mission_blocked", { cooldownSeconds: 3600 });
+    createEnabledRule(habitat.id, "mission_blocked", {
+      cooldownSeconds: 3600,
+      // mission scans carry no task context, so the notify recipient must not
+      // be task-scoped (an assignee recipient now fails MISSING_CONTEXT_TARGET)
+      actions: [{ type: "notify", recipients: [], template: "Test" }],
+    });
     await runAllScans();
     const second = await runAllScans();
     const r = second.find(

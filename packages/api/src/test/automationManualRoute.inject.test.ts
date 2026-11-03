@@ -33,8 +33,9 @@ import * as taskRepo from "../repositories/taskCrud.js";
 import * as taskRepoAll from "../repositories/task.js";
 import * as ruleRepo from "../repositories/automationRule.js";
 import * as pulseRepo from "../repositories/pulse.js";
-import { closeDb, initTestDb } from "../db/index.js";
+import { closeDb, initTestDb, getDb } from "../db/index.js";
 import { tasks as tasksSchema } from "../db/schema/task.js";
+import { users } from "../db/schema/user.js";
 import { automationRoutes } from "../routes/automationRules.js";
 import type { AutomationCondition } from "@orcy/shared";
 
@@ -113,6 +114,9 @@ function createEnabledRule(
 describe("CS-56 cold-review m3.2 — POST /automation-rules/:ruleId/run inject tests", () => {
   beforeEach(async () => {
     await initTestDb();
+    // Exact notify recipients are validated (intent migration): the simulation
+    // rule's `human admin-1` must exist; personal habitats admit any existing user.
+    getDb().insert(users).values({ id: "admin-1", username: "admin-1", passwordHash: "fixture" }).run();
     setJwtSecret(JWT_SECRET);
   });
   afterEach(async () => {

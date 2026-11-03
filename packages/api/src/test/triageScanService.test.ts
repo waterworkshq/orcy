@@ -109,7 +109,9 @@ function createScanRule(
     enabled: true,
     cooldownSeconds: 0,
     maxRunsPerHour: 100,
-    actions: [{ type: "notify", recipients: [{ type: "assignee" }], template: "T" }],
+    // signal-cluster scans carry no task context, so the notify recipient must
+    // not be task-scoped (an assignee recipient now fails MISSING_CONTEXT_TARGET)
+    actions: [{ type: "notify", recipients: [], template: "T" }],
     createdBy: "system:test",
   });
 }
