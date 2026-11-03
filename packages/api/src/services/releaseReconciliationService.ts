@@ -58,8 +58,6 @@ import type {
 import type { Release } from "../repositories/release.js";
 import * as findingTriageRepo from "../repositories/findingTriage.js";
 import { getMissionByIdWithClient } from "../repositories/mission.js";
-import * as habitatRepo from "../repositories/habitat.js";
-import * as teamMemberRepo from "../repositories/teamMember.js";
 import * as pulseRepo from "../repositories/pulse.js";
 import { sseBroadcaster } from "../sse/broadcaster.js";
 import { badRequest, AppError, ErrorCodes } from "../errors.js";
@@ -68,7 +66,7 @@ import {
   runReleaseActivationOnReservedClient,
 } from "./findingTriageLifecycle.js";
 import { admitReleaseShippedEventToInbox, drainAutomationInbox } from "./automationInboxService.js";
-import { enqueueNotificationForRecipients } from "./notificationCommandService.js";
+import { enqueueNotificationWithIntents } from "./notificationIntentCommand.js";
 import {
   DEFAULT_RELEASE_SETTINGS,
   isReleaseGateSatisfied,
@@ -806,18 +804,6 @@ export function readEpochCounts(releaseId: string, db?: DbClient): EpochCounts {
 // Deadline / notification / pulse helpers (deterministic Release-scoped ids)
 // ---------------------------------------------------------------------------
 
-/** Resolves the human recipients for a habitat's release notification. */
-function getHabitatHumanRecipients(
-  habitatId: string,
-): Array<{ recipientType: "human"; recipientId: string }> {
-  const habitat = habitatRepo.getHabitatById(habitatId);
-  if (!habitat?.teamId) return [];
-  return teamMemberRepo.listMembers(habitat.teamId).map((m) => ({
-    recipientType: "human" as const,
-    recipientId: m.userId,
-  }));
-}
-
 /** Deadline-missed missions for the shipped release (live read on the client). */
 function findDeadlineMissedMissionsOnClient(
   client: DbClient,
@@ -898,26 +884,33 @@ function runDeadlineNotificationProjection(release: Release): number {
         release.id,
       );
       if (!existing) {
-        const recipients = getHabitatHumanRecipients(release.habitatId);
-        const result = enqueueNotificationForRecipients(
-          release.habitatId,
-          "release.deadline_missed",
-          "system",
-          "warning",
-          recipients,
-          {
-            sourceId: release.id,
-            payload: {
-              releaseId: release.id,
-              version: release.version,
-              releaseType: release.releaseType,
-              missedDeadlineCount: missed.length,
-              missionIds: missed.map((m) => m.id),
-            },
-            createdByType: "system",
-            createdById: "release",
+        const result = enqueueNotificationWithIntents({
+          habitatId: release.habitatId,
+          eventType: "release.deadline_missed",
+          sourceType: "system",
+          severity: "warning",
+          sourceId: release.id,
+          payload: {
+            releaseId: release.id,
+            version: release.version,
+            releaseType: release.releaseType,
+            missedDeadlineCount: missed.length,
+            missionIds: missed.map((m) => m.id),
           },
-        );
+          createdByType: "system",
+          createdById: "release",
+          intents: [
+            { kind: "habitat_members" },
+            // P2 passed NO target today (untargeted all-grants pool). The new
+            // intended-audience selection is the habitat target — a DELIBERATE,
+            // owner-approved narrowing: only grants passing habitat visibility
+            // remain.
+            { kind: "remote_visible", targetType: "habitat", targetId: release.habitatId },
+          ],
+          // This call site sits INSIDE withImmediateLifecycleTransaction (BEGIN
+          // IMMEDIATE — the §0 census): declare the reserved scope so the
+          // module savepoint-joins instead of failing closed.
+        }, { outer: "reserved-immediate" });
         eventId = result.event.id;
       } else {
         eventId = existing.id;
@@ -956,29 +949,29 @@ function runActivationNotificationProjection(release: Release, counts: EpochCoun
         release.id,
       );
       if (!existing) {
-        const recipients = getHabitatHumanRecipients(release.habitatId);
-        const result = enqueueNotificationForRecipients(
-          release.habitatId,
-          "release.activated",
-          "system",
-          "info",
-          recipients,
-          {
-            sourceId: release.id,
-            payload: {
-              releaseId: release.id,
-              version: release.version,
-              releaseType: release.releaseType,
-              promotedCount: 0,
-              // Mission-count fields count activated GROUPS — a corrective
-              // Mission can carry multiple Findings, so the finding count
-              // overstates the mission count.
-              activatedMissionCount: counts.activatedGroups,
-            },
-            createdByType: "system",
-            createdById: "release",
+        const result = enqueueNotificationWithIntents({
+          habitatId: release.habitatId,
+          eventType: "release.activated",
+          sourceType: "system",
+          severity: "info",
+          sourceId: release.id,
+          payload: {
+            releaseId: release.id,
+            version: release.version,
+            releaseType: release.releaseType,
+            promotedCount: 0,
+            // Mission-count fields count activated GROUPS — a corrective
+            // Mission can carry multiple Findings, so the finding count
+            // overstates the mission count.
+            activatedMissionCount: counts.activatedGroups,
           },
-        );
+          createdByType: "system",
+          createdById: "release",
+          intents: [
+            { kind: "habitat_members" },
+            { kind: "remote_visible", targetType: "habitat", targetId: release.habitatId },
+          ],
+        }, { outer: "reserved-immediate" }); // inside withImmediateLifecycleTransaction
         eventId = result.event.id;
       } else {
         eventId = existing.id;

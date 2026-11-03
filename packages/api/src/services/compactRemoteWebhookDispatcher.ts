@@ -10,9 +10,8 @@ import {
   type CompactRemoteWebhookEventInput,
 } from "./compactRemoteWebhookPayload.js";
 import { fetchValidated } from "../config/integrationSecurity.js";
-import { enqueueNotificationForRecipients } from "./notificationCommandService.js";
+import { enqueueNotificationWithIntents } from "./notificationIntentCommand.js";
 import { sseBroadcaster } from "../sse/broadcaster.js";
-import { getAdmins } from "../repositories/user.js";
 import { logger } from "../lib/logger.js";
 
 /**
@@ -208,22 +207,21 @@ function reportDeliveryFailure(
   }
 
   try {
-    const admins = getAdmins();
-    if (admins.length > 0) {
-      enqueueNotificationForRecipients(
-        habitatId,
-        "webhook.delivery_failed",
-        "system",
-        "warning",
-        admins.map((a) => ({ recipientType: "human" as const, recipientId: a.id })),
-        {
-          sourceId: endpoint.id,
-          targetType: "habitat",
-          targetId: habitatId,
-          payload: { endpointUrl: endpoint.url, error },
-        },
-      );
-    }
+    enqueueNotificationWithIntents({
+      habitatId,
+      eventType: "webhook.delivery_failed",
+      sourceType: "system",
+      severity: "warning",
+      sourceId: endpoint.id,
+      targetType: "habitat",
+      targetId: habitatId,
+      payload: { endpointUrl: endpoint.url, error },
+      createdByType: "system",   // explicit now: the legacy wrapper defaulted this
+      intents: [
+        { kind: "habitat_operators" },                              // was ALL global admins (adopted delta)
+        { kind: "remote_visible", targetType: "habitat", targetId: habitatId },  // current pool preserved exactly
+      ],
+    });
   } catch (err) {
     logger.warn(
       { err, habitatId, endpointId: endpoint.id },

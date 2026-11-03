@@ -14,7 +14,7 @@
 import { logger } from "../../lib/logger.js";
 import { getDb } from "../../db/index.js";
 import { emitTransition } from "./transition-emitter.js";
-import { enqueueNotificationForRecipients } from "../notificationCommandService.js";
+import { enqueueNotificationWithIntents } from "../notificationIntentCommand.js";
 import {
   BUDGET_BREACH_MARKER,
   BUDGET_ESCALATION_ACTOR_ID,
@@ -24,8 +24,6 @@ import {
   type MeteredTaskAction,
 } from "./transitionBudget.js";
 import * as taskRepo from "../../repositories/task.js";
-import * as habitatRepo from "../../repositories/habitat.js";
-import * as teamMemberRepo from "../../repositories/teamMember.js";
 
 /**
  * THE breach site (plan §6): on the first refusal, emit the existing
@@ -95,36 +93,25 @@ function notifyHabitatHumansOfBreach(
       ceiling: refused.ceiling,
       count: refused.count,
     };
-    enqueueNotificationForRecipients(
+    enqueueNotificationWithIntents({
       habitatId,
-      "task.blocked",
-      "task",
-      "warning",
-      habitatHumanRecipients(habitatId),
-      {
-        sourceId: taskId,
-        targetType: "task",
-        targetId: taskId,
-        title: "Task blocked: transition budget exhausted",
-        body: `Task "${taskTitle ?? taskId}" exhausted its transition budget: ${refused.count} of ${refused.ceiling} metered transitions used; the ${attemptedAction} attempt by a ${attemptedActorType} actor was refused. Raise lifecycleSettings.taskTransitionCeiling or resolve the task as a human.`,
-        payload: { taskId, taskTitle, transitionBudget: breach },
-        createdByType: "system",
-        createdById: BUDGET_ESCALATION_ACTOR_ID,
-      },
-    );
+      eventType: "task.blocked",
+      sourceType: "task",
+      severity: "warning",
+      sourceId: taskId,
+      targetType: "task",
+      targetId: taskId,
+      title: "Task blocked: transition budget exhausted",
+      body: `Task "${taskTitle ?? taskId}" exhausted its transition budget: ${refused.count} of ${refused.ceiling} metered transitions used; the ${attemptedAction} attempt by a ${attemptedActorType} actor was refused. Raise lifecycleSettings.taskTransitionCeiling or resolve the task as a human.`,
+      payload: { taskId, taskTitle, transitionBudget: breach },
+      createdByType: "system",
+      createdById: BUDGET_ESCALATION_ACTOR_ID,
+      intents: [
+        { kind: "habitat_operators" },
+        { kind: "remote_visible", targetType: "task", targetId: taskId },
+      ],
+    });
   } catch (err) {
     logger.warn({ err, taskId, habitatId }, "Transition-budget breach notification failed");
   }
-}
-
-/** The habitat's human team members (the `releaseReconciliationService` recipient precedent). */
-function habitatHumanRecipients(
-  habitatId: string,
-): Array<{ recipientType: "human"; recipientId: string }> {
-  const habitat = habitatRepo.getHabitatById(habitatId);
-  if (!habitat?.teamId) return [];
-  return teamMemberRepo.listMembers(habitat.teamId).map((m) => ({
-    recipientType: "human" as const,
-    recipientId: m.userId,
-  }));
 }
