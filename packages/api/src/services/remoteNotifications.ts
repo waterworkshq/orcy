@@ -7,7 +7,7 @@
  * {@link dispatchRemoteWebhook} — are unchanged in behavior; only their home
  * moved.
  */
-import * as notificationCommandService from "./notificationCommandService.js";
+import { enqueueNotificationWithIntents } from "./notificationIntentCommand.js";
 import {
   dispatchCompactRemoteEvent,
   buildDispatchInputFromRemoteAction,
@@ -43,27 +43,41 @@ export interface EmitRemoteOriginatedNotificationOpts {
  * scope here — those are emitted by the existing V2 paths.
  */
 export function emitRemoteOriginatedNotification(opts: EmitRemoteOriginatedNotificationOpts) {
-  try {
-    notificationCommandService.enqueueNotification({
-      habitatId: opts.habitatId,
-      eventType: opts.eventType,
-      sourceType: opts.sourceType,
-      sourceId: opts.sourceId,
-      targetType: opts.targetType,
-      targetId: opts.targetId,
-      severity: opts.severity,
-      title: opts.title,
-      body: opts.body,
-      payload: opts.payload,
-      createdByType: opts.actorType,
-      createdById: opts.actorId,
-      explicitRecipients: opts.explicitRecipients,
-    });
-  } catch (err) {
-    // Notifications are best-effort. A failure to enqueue should not
-    // fail the originating remote action.
+  if (!(opts.targetType && opts.targetId)) {
+    // All three current callers pass an explicit target (sharedApi.ts:756,
+    // remote-task-lifecycle.ts:187,353). A missing target must not degrade to
+    // an untargeted all-grants broadcast; sourceId is NOT a safe fallback
+    // (the pulse caller's sourceId is the pulse id, not the mission id).
     // eslint-disable-next-line no-console
-    console.error("[remoteNotifications] failed to enqueue remote notification:", err);
+    console.warn("[remoteNotifications] notification skipped: no target supplied");
+  } else {
+    try {
+      enqueueNotificationWithIntents({
+        habitatId: opts.habitatId,
+        eventType: opts.eventType,
+        sourceType: opts.sourceType,
+        sourceId: opts.sourceId,
+        targetType: opts.targetType,
+        targetId: opts.targetId,
+        severity: opts.severity,
+        title: opts.title,
+        body: opts.body,
+        payload: opts.payload,
+        createdByType: opts.actorType,
+        createdById: opts.actorId,
+        intents: [{
+          kind: "remote_visible",
+          targetType: opts.targetType,
+          targetId: opts.targetId,
+          explicitRemote: opts.explicitRecipients,
+        }],
+      });
+    } catch (err) {
+      // Notifications are best-effort. A failure to enqueue should not
+      // fail the originating remote action.
+      // eslint-disable-next-line no-console
+      console.error("[remoteNotifications] failed to enqueue remote notification:", err);
+    }
   }
 
   // Also fire a compact remote webhook dispatch (best-effort, async)

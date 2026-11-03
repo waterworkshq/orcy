@@ -31,6 +31,10 @@ import { randomUUID } from "crypto";
 import { taskLifecycleRoutes } from "../routes/tasks/lifecycle.js";
 import * as agentService from "../services/agentService.js";
 import * as taskService from "../services/tasks/index.js";
+import { agentMessageRoutes } from "../routes/agentMessages.js";
+import * as agentRepo from "../repositories/agent.js";
+import * as eventRepo from "../repositories/notificationEvent.js";
+import * as subscriptionRepo from "../repositories/notificationSubscription.js";
 
 const ORIGINAL_ENV = { ...process.env };
 
@@ -150,6 +154,10 @@ async function buildApp(): Promise<FastifyInstance> {
     },
     { prefix: "/api/shared" },
   );
+  // GROUND: MIGRATION-TASKS T6 6.1b — sibling of the scoped shared API plugin,
+  // not nested under its remote-participant auth policy; the mail route
+  // retains its own agent guard. Isolated test registration only.
+  await app.register(agentMessageRoutes, { prefix: "/api" });
   await app.ready();
   return app;
 }
@@ -168,6 +176,36 @@ describe("Phase D — Shared Habitat API", () => {
     await initTestDb();
     process.env = { ...ORIGINAL_ENV };
     app = await buildApp();
+  });
+
+  // GROUND: MIGRATION-TASKS T6 6.1b — N1 exact audience over real HTTP: a
+  // direct agent message must never appear in an unrelated remote
+  // participant's self-inbox or history. RED on the old untargeted-widen
+  // producer, GREEN after exact mail migration.
+  it("direct agent message never appears in an unrelated remote self-inbox", async () => {
+    const setup = setupRemoteFixture(["read"]);
+    const from = agentRepo.createAgent({ name: "intent-mail-from", type: "codex", domain: "backend" });
+    const to = agentRepo.createAgent({ name: "intent-mail-to", type: "codex", domain: "backend" });
+    subscriptionRepo.createSubscription({ habitatId: setup.habitat.id, scope: "habitat_default",
+      eventType: "agent.message_received", enabled: true, required: false, channels: ["in_app"], cadence: "immediate" });
+    const sent = await app!.inject({ method: "POST",
+      url: `/api/agents/${from.agent.id}/messages`,
+      headers: { "x-agent-api-key": from.plainApiKey },
+      payload: { habitatId: setup.habitat.id, toAgentId: to.agent.id,
+        subject: "INTENT-PRIVATE-SUBJECT", body: "INTENT-PRIVATE-BODY", messageType: "info", priority: "normal" },
+    });
+    expect(sent.statusCode, sent.body).toBe(201);
+    const inbox = await app!.inject({ method: "GET", url: "/api/shared/notifications", headers: remoteHeaders(setup) });
+    expect(inbox.statusCode, inbox.body).toBe(200);
+    const eventId = eventRepo.listNotificationEventsByHabitat(setup.habitat.id).events.find(
+      (event) => event.eventType === "agent.message_received",
+    )!.id;
+    expect(inbox.json().deliveries.some((delivery: { eventId: string }) => delivery.eventId === eventId)).toBe(false);
+    expect(inbox.body).not.toContain("INTENT-PRIVATE-SUBJECT");
+    expect(inbox.body).not.toContain("INTENT-PRIVATE-BODY");
+    const response = await app!.inject({ method: "GET", url: "/api/shared/notifications/history", headers: remoteHeaders(setup) });
+    expect(response.statusCode, response.body).toBe(200);
+    expect(response.json().deliveries.some((delivery: { eventId: string }) => delivery.eventId === eventId)).toBe(false);
   });
 
   it.skip("DEBUG prints routes", () => {

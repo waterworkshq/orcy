@@ -5,11 +5,7 @@ import * as boardRepo from "../repositories/habitat.js";
 import * as subscriptionRepo from "../repositories/notificationSubscription.js";
 import * as deliveryRepo from "../repositories/notificationDelivery.js";
 import * as eventRepo from "../repositories/notificationEvent.js";
-import * as podRepo from "../repositories/remotePod.js";
-import * as participantRepo from "../repositories/remoteParticipant.js";
-import * as grantRepo from "../repositories/remoteGrant.js";
 import {
-  enqueueNotification,
   enqueueNotificationForRecipients,
 } from "../services/notificationCommandService.js";
 
@@ -62,55 +58,10 @@ describe("characterization — current recipient resolution (intended-to-change 
     expect(r.suppressed[0]?.reason).toBe("disabled");
   });
 
-  // GROUND: TASKS T1 "current message peer expansion" (N1 exact audience /
-  // N5, before-change baseline). Successor: T6 agent-message exact-audience
-  // test — exact mail loses implicit remote augmentation and this cell flips
-  // to expect no remote_human delivery.
-  it("agent.message_received widens to remote grant holders via targetType 'agent' → untargeted discovery (core closes)", () => {
-    const habitat = boardRepo.createHabitat({ name: "Widen Habitat" });
-    const pod = podRepo.activateRemotePod(
-      podRepo.createRemotePod({ habitatId: habitat.id, name: "P" }).id,
-    )!;
-    const p = participantRepo.activateRemoteParticipant(
-      participantRepo.createRemoteParticipant({
-        remotePodId: pod.id,
-        habitatId: habitat.id,
-        participantType: "remote_human",
-        displayName: "Remote",
-        standing: "remote_observer",
-      }).id,
-    )!;
-    grantRepo.createRemoteGrant({
-      habitatId: habitat.id,
-      remotePodId: pod.id,
-      remoteParticipantId: p.id,
-      grantType: "scoped_elevation",
-      standing: "remote_observer",
-      actionScopes: ["read"],
-    });
-    subscriptionRepo.createSubscription({
-      habitatId: habitat.id,
-      scope: "habitat_default",
-      eventType: "agent.message_received",
-      enabled: true,
-      required: false,
-      channels: ["in_app"],
-      cadence: "immediate",
-    });
-    const r = enqueueNotification({
-      habitatId: habitat.id,
-      eventType: "agent.message_received",
-      sourceType: "agent",
-      targetType: "agent", // dropped to untargeted by augmentRecipientsWithRemote
-      targetId: "agent-b",
-      severity: "info",
-      createdByType: "agent",
-      createdById: "agent-a",
-      explicitRecipients: [{ recipientType: "agent", recipientId: "agent-b" }],
-    });
-    // CURRENT: the remote grant holder gains a delivery of the agent mail event.
-    expect(r.deliveries.some((d) => d.recipientType === "remote_human")).toBe(true);
-  });
+  // GROUND: TASKS T6 6.5 — the T1 "agent-mail widen" cell is RETIRED: its
+  // expectation moved to agentMessageNotification.test.ts as the closed
+  // behavior ("active remote grant holder gains no delivery"). The legacy
+  // wrapper itself is unchanged by T6 and the remaining cells stay GREEN.
 
   // GROUND: TASKS T1 "raw outer-transaction rollback composition" (N6
   // snapshot/atomicity, before-change baseline). Successor: T2/T4 atomicity
