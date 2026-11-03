@@ -86,6 +86,9 @@ describe("Scheduled Occurrence execution", () => {
   });
   it("skips a resume loser without making it an initial outcome", () => {
     expect(classifyRecoveryOutcome({ outcome: "not_owner" } as ResumeOccurrenceOutcome)).toBe("skipped");
+    adapters.resumeTemplate.mockReturnValue({ outcome: "not_owner" });
+    const result = resumeOccurrencePublication({ occurrenceId: claim.occurrenceId, leaseOwner: claim.leaseOwner, schedule: null });
+    expect(result.recoveryDisposition).toBe("skipped");
   });
   it.each([
     [{ handlerKey: "handler", templateId: "template", tasksTemplate: [{}] }, "handler"],
