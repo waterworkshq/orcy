@@ -295,6 +295,31 @@ describe("intent core — exact (N1)", () => {
     expect(out.candidates).toEqual([{ recipientType: "agent", recipientId: agent.id }]);
   });
 
+  // GROUND: DESIGN §3 `exact` row ("Existing identity and applicable Habitat
+  // admission are required") + §6 ("Invalid/unsupported/ambiguous input fails
+  // with zero notification writes") — an exact AGENT on a habitat that does not
+  // exist is unresolved CONTEXT, not an admitted recipient: it must fail typed
+  // at resolution, never reach the Event insert and surface as an untyped
+  // habitat-FK RepositoryError.
+  it("exact agent on a nonexistent habitat ⇒ MISSING_CONTEXT_TARGET, zero writes", () => {
+    const agent = insertAgent("worker");
+    expectIntentError(
+      () =>
+        resolveAudience({
+          habitatId: "no-such-habitat",
+          eventType: "task.blocked",
+          intents: [{ kind: "exact", recipients: [{ recipientType: "agent", recipientId: agent.id }] }],
+        }),
+      "MISSING_CONTEXT_TARGET",
+    );
+    expectIntentError(
+      () => enqueue("no-such-habitat", [{ kind: "exact", recipients: [{ recipientType: "agent", recipientId: agent.id }] }]),
+      "MISSING_CONTEXT_TARGET",
+    );
+    expect(eventCount()).toBe(0);
+    expect(deliveryCount()).toBe(0);
+  });
+
   // GROUND: DESIGN §3 `exact` row ("No remote augmentation"); PRD N1 (typed identity, never an id-string guess).
   it("rejects remote refs in exact (INVALID_EXACT_RECIPIENT)", () => {
     const habitatId = setupTeamHabitat([{ userId: "member-1", role: "member" }]);

@@ -238,6 +238,14 @@ export function resolveAudience(input: {
   eventType: NotificationEventType;
   intents: NotificationAudienceIntent[];
 }): AudienceResolution {
+  // The command habitat must exist before ANY intent resolves. Without this,
+  // an exact local recipient (agent, or human on an unowned habitat) is
+  // admitted against a habitat that is not there and the enqueue only fails
+  // later as an untyped habitat-FK RepositoryError. Context, not identity —
+  // same typed code as the population intents below.
+  if (!habitatRow(input.habitatId)) {
+    throw new NotificationIntentError("MISSING_CONTEXT_TARGET", `habitat ${input.habitatId} not found`);
+  }
   const candidates: Candidate[] = [];
   const suppressedRemote: Candidate[] = [];
   const seen = new Set<string>();
