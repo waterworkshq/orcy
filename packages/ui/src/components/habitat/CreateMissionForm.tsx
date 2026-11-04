@@ -1,5 +1,11 @@
 import React, { useState, useEffect } from "react";
 import {
+  createMissionInputFromDraft,
+  releaseAuthoringEnabled,
+  titleReady,
+  useMissionAuthoring,
+} from "../../lib/missionAuthoring.js";
+import {
   Dialog,
   DialogContent,
   DialogHeader,
@@ -23,38 +29,37 @@ export function CreateMissionForm({ open, onClose, habitatId }: CreateMissionFor
   useTemplates(habitatId);
   const { data: boardData } = useHabitat(habitatId);
   const columns = boardData?.columns ?? [];
-  const [title, setTitle] = useState("");
-  const [description, setDescription] = useState("");
   const [acceptanceCriteria, setAcceptanceCriteria] = useState("");
-  const [priority, setPriority] = useState<TaskPriority>("medium");
   const [columnId, setColumnId] = useState("");
-  const [labels, setLabels] = useState("");
-  const [dueAt, setDueAt] = useState("");
-  const [slaMinutes, setSlaMinutes] = useState("");
-  const [releaseGateType, setReleaseGateType] = useState<"patch" | "minor" | "major" | "">("");
-  const [releaseGateVersion, setReleaseGateVersion] = useState("");
-  const [releaseDeadlineType, setReleaseDeadlineType] = useState<"patch" | "minor" | "major" | "">(
-    "",
-  );
-  const [releaseDeadlineVersion, setReleaseDeadlineVersion] = useState("");
+  const {
+    draft,
+    title,
+    description,
+    priority,
+    labels,
+    dueAt,
+    slaMinutes,
+    releaseGateType,
+    releaseGateVersion,
+    releaseDeadlineType,
+    releaseDeadlineVersion,
+    setTitle,
+    setDescription,
+    setPriority,
+    setLabels,
+    setDueAt,
+    setSlaMinutes,
+    setReleaseGateType,
+    setReleaseGateVersion,
+    setReleaseDeadlineType,
+    setReleaseDeadlineVersion,
+  } = useMissionAuthoring(open);
   const createMission = useCreateMission(habitatId);
   // Feature-based habitats hide release-gate/deadline authoring (RM-6). Existing gates still display.
-  const releaseMode = boardData?.habitat?.roadmapSettings?.mode !== "feature";
+  const releaseMode = releaseAuthoringEnabled(boardData);
 
   useEffect(() => {
-    if (open) {
-      setTitle("");
-      setDescription("");
-      setAcceptanceCriteria("");
-      setPriority("medium");
-      setLabels("");
-      setDueAt("");
-      setSlaMinutes("");
-      setReleaseGateType("");
-      setReleaseGateVersion("");
-      setReleaseDeadlineType("");
-      setReleaseDeadlineVersion("");
-    }
+    if (open) setAcceptanceCriteria("");
   }, [open]);
 
   useEffect(() => {
@@ -66,28 +71,9 @@ export function CreateMissionForm({ open, onClose, habitatId }: CreateMissionFor
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (!title.trim() || !columnId) return;
-
+    if (!titleReady(draft) || !columnId) return;
     try {
-      const labelList = labels
-        .split(",")
-        .map((l) => l.trim())
-        .filter(Boolean);
-
-      await createMission.mutateAsync({
-        columnId,
-        title: title.trim(),
-        description: description.trim() || undefined,
-        acceptanceCriteria: acceptanceCriteria.trim() || undefined,
-        priority,
-        labels: labelList.length > 0 ? labelList : undefined,
-        dueAt: dueAt ? new Date(dueAt).toISOString() : undefined,
-        slaMinutes: slaMinutes ? parseInt(slaMinutes, 10) : undefined,
-        releaseGateType: releaseGateType || undefined,
-        releaseGateVersion: releaseGateVersion.trim() || undefined,
-        releaseDeadlineType: releaseDeadlineType || undefined,
-        releaseDeadlineVersion: releaseDeadlineVersion.trim() || undefined,
-      });
+      await createMission.mutateAsync(createMissionInputFromDraft(draft, columnId, acceptanceCriteria));
       notify.success(`Mission "${title.trim()}" created`);
       onClose();
     } catch (err) {
@@ -276,7 +262,7 @@ export function CreateMissionForm({ open, onClose, habitatId }: CreateMissionFor
           <Button
             type="submit"
             loading={createMission.isPending}
-            disabled={createMission.isPending || !title.trim()}
+            disabled={createMission.isPending || !titleReady(draft)}
           >
             Create Mission
           </Button>
