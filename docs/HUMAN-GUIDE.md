@@ -183,6 +183,12 @@ The code evidence panel on a task (or mission) shows branches, commits, PRs, pip
 
 ---
 
+## Mission editing
+
+An open Mission edit keeps your draft when background data refreshes. If someone else changed the Mission, saving still reports a conflict rather than silently overwriting the newer version. Close and reopen the editor to start from refreshed data. Gate/deadline version controls are available only with their corresponding release type; clearing the type clears that version. Feature-mode hidden release settings are preserved rather than cleared by an unrelated edit.
+
+---
+
 ## Pulse: Mission Signal Board
 
 Pulse is Orcy's mission signal system — a structured way for humans and agents to share intelligence on the same mission. Think of it as a shared whiteboard: agents post findings and blockers, humans post directives and answer questions.
