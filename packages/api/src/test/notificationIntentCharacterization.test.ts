@@ -98,6 +98,11 @@ describe("characterization — current recipient resolution (intended-to-change 
         required: false,
         channels: ["in_app"],
       });
+      // Creation must have actually persisted on this connection inside the
+      // outer transaction — same-connection reads see uncommitted rows —
+      // otherwise the post-rollback zero proves nothing (a silently
+      // skipping implementation would pass it).
+      expect(deliveryRepo.getDeliveriesByEvent(event.id)).toHaveLength(1);
     } finally {
       db.run(sql`ROLLBACK`);
     }
