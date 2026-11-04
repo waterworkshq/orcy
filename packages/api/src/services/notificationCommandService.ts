@@ -49,7 +49,14 @@ export interface EnqueueNotificationResult {
   }>;
 }
 
-/** Creates a notification event, renders its template, and persists a delivery row for each resolved recipient (including remote participants). */
+/**
+ * Creates a notification event, renders its template, and persists a delivery row for each resolved recipient (including remote participants).
+ * @deprecated Legacy remote-augmenting enqueue. No production caller since the
+ * recipient-intent migration; retained for existing test suites only. Audience
+ * authority lives in services/notificationIntentCommand.ts
+ * (enqueueNotificationWithIntents). Do not use in production source — enforced
+ * by notificationWrapperRetirementGuard.test.ts.
+ */
 export function enqueueNotification(
   command: EnqueueNotificationCommand,
 ): EnqueueNotificationResult {
@@ -117,7 +124,14 @@ export function enqueueNotification(
   return { event, deliveries, suppressed };
 }
 
-/** Convenience wrapper around `enqueueNotification` for the common case of notifying an explicit recipient list. */
+/**
+ * Convenience wrapper around `enqueueNotification` for the common case of notifying an explicit recipient list.
+ * @deprecated Legacy remote-augmenting enqueue. No production caller since the
+ * recipient-intent migration; retained for existing test suites only. Audience
+ * authority lives in services/notificationIntentCommand.ts
+ * (enqueueNotificationWithIntents). Do not use in production source — enforced
+ * by notificationWrapperRetirementGuard.test.ts.
+ */
 export function enqueueNotificationForRecipients(
   habitatId: string,
   eventType: NotificationEventType,
@@ -155,7 +169,14 @@ export function enqueueNotificationForRecipients(
   });
 }
 
-/** Returns the full resolved recipient list (including remote participants) for an event without persisting anything. */
+/**
+ * Returns the full resolved recipient list (including remote participants) for an event without persisting anything.
+ * @deprecated Legacy remote-augmenting resolution. No production caller since the
+ * recipient-intent migration; retained for existing test suites only. Audience
+ * authority lives in services/notificationIntentCommand.ts
+ * (enqueueNotificationWithIntents). Do not use in production source — enforced
+ * by notificationWrapperRetirementGuard.test.ts.
+ */
 export function getResolvedRecipients(
   habitatId: string,
   eventType: NotificationEventType,
@@ -182,6 +203,12 @@ export function getResolvedRecipients(
  * grants cover the event's target. This is how remote participants get
  * notifications — they are not in the explicitRecipients list normally,
  * but their grant visibility makes them eligible.
+ *
+ * @deprecated Legacy remote-augmenting helper. No production caller since the
+ * recipient-intent migration; retained for existing test suites only. Audience
+ * authority lives in services/notificationIntentCommand.ts
+ * (enqueueNotificationWithIntents). Do not use in production source — enforced
+ * by notificationWrapperRetirementGuard.test.ts.
  */
 function augmentRecipientsWithRemote(input: {
   habitatId: string;
@@ -224,6 +251,12 @@ function augmentRecipientsWithRemote(input: {
 /**
  * Wrap the command's explicitRecipients to also include remote participants
  * whose grants cover the command's target.
+ *
+ * @deprecated Legacy remote-augmenting helper. No production caller since the
+ * recipient-intent migration; retained for existing test suites only. Audience
+ * authority lives in services/notificationIntentCommand.ts
+ * (enqueueNotificationWithIntents). Do not use in production source — enforced
+ * by notificationWrapperRetirementGuard.test.ts.
  */
 function augmentWithRemoteRecipients(
   command: EnqueueNotificationCommand,
