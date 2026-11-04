@@ -1,24 +1,25 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { ReactNode } from "react";
+import { SessionStateProvider, useAccountSession } from "../../lib/sessionState.js";
 import type { MissionWithProgress } from "../../types/index.js";
 import { CreateMissionForm } from "./CreateMissionForm.js";
 import { EditMissionForm } from "./EditMissionForm.js";
 import { notify } from "../../lib/toast.js";
 
-const state = vi.hoisted(() => ({ mode: "release" as "release" | "feature" }));
+const state = vi.hoisted(() => ({ mode: "release" as "release" | "feature", ready: true }));
 vi.mock("../../lib/useHabitatData.js", async (load) => {
   const actual = await load<typeof import("../../lib/useHabitatData.js")>();
   return { ...actual,
     useTemplates: () => ({ data: { templates: [] } }),
-    useHabitat: () => ({ data: { habitat: { id: "h1", roadmapSettings: { mode: state.mode } },
-      columns: [{ id: "c1", name: "Backlog", isTerminal: false }], missions: [] } }),
+    useHabitat: () => ({ data: state.ready ? { habitat: { id: "h1", roadmapSettings: { mode: state.mode } },
+      columns: [{ id: "c1", name: "Backlog", isTerminal: false }], missions: [] } : undefined }),
   };
 });
 vi.mock("../../lib/toast.js", () => ({ notify: { success: vi.fn(), error: vi.fn(), warning: vi.fn() } }));
-vi.mock("../ui/RichTextEditor.js", () => ({ RichTextEditor: ({ content, onChange }: { content: string; onChange: (value: string) => void }) =>
-  <textarea data-testid="draft-description" value={content} onChange={(event) => onChange(event.target.value)} /> }));
+vi.mock("../ui/RichTextEditor.js", () => ({ RichTextEditor: ({ content, onChange, placeholder }: { content: string; onChange: (value: string) => void; placeholder?: string }) =>
+  <textarea data-testid="draft-description" placeholder={placeholder} value={content} onChange={(event) => onChange(event.target.value)} /> }));
 
 const base = {
   id: "m1", habitatId: "h1", columnId: "c1", title: "Original", description: "desc", acceptanceCriteria: "",
@@ -36,6 +37,7 @@ let failure: { code: string; message: string } | undefined;
 let client: QueryClient;
 beforeEach(() => {
   state.mode = "release";
+  state.ready = true;
   writes = [];
   failure = undefined;
   vi.clearAllMocks();
@@ -49,8 +51,12 @@ beforeEach(() => {
   vi.stubGlobal("fetch", fetchMock);
 });
 afterEach(() => { cleanup(); client.clear(); vi.unstubAllGlobals(); });
+function RetireSession() {
+  const session = useAccountSession();
+  return <button onClick={() => session.logout()}>Retire session</button>;
+}
 function wrapper({ children }: { children: ReactNode }) {
-  return <QueryClientProvider client={client}>{children}</QueryClientProvider>;
+  return <SessionStateProvider><RetireSession /><QueryClientProvider client={client}>{children}</QueryClientProvider></SessionStateProvider>;
 }
 function field(label: string): HTMLInputElement | HTMLSelectElement {
   const element = screen.getByText(label, { selector: "label" }).parentElement?.querySelector("input, select");
@@ -66,23 +72,31 @@ describe("Mission authoring real transport journeys", () => {
     render(<CreateMissionForm open onClose={vi.fn()} habitatId="h1" />, { wrapper });
     fireEvent.change(screen.getByPlaceholderText("Mission title"), { target: { value: "  New Mission  " } });
     fireEvent.change(field("Labels"), { target: { value: " a, , b " } });
+    fireEvent.change(screen.getByPlaceholderText("What defines done for this mission"), { target: { value: "  Criteria  " } });
     fireEvent.click(screen.getByRole("button", { name: "Create Mission" }));
     await waitFor(() => expect(writes.length).toBe(1));
     expect(writes[0]).toEqual({ url: "/api/habitats/h1/missions", method: "POST",
-      data: { columnId: "c1", title: "New Mission", priority: "medium", labels: ["a", "b"] } });
+      data: { columnId: "c1", title: "New Mission", priority: "medium", labels: ["a", "b"], acceptanceCriteria: "Criteria" } });
   });
   // GROUND: T3+T4+T5 Step 1 journey 2; PRD M4 (feature-mode hiding intact);
   // DESIGN §2 (feature mode hides release authoring; Create never submits an inapplicable version).
-  it("feature-mode Create hides release authoring and omits release keys", async () => {
+  it("feature-mode Create hides release authoring and omits stale release keys", async () => {
+    const view = render(<CreateMissionForm open onClose={vi.fn()} habitatId="h1" />, { wrapper });
+    fireEvent.change(field("Release Gate"), { target: { value: "minor" } });
+    fireEvent.change(field("Gate Version"), { target: { value: "v2.0" } });
+    fireEvent.change(field("Release Deadline"), { target: { value: "patch" } });
+    fireEvent.change(field("Deadline Version"), { target: { value: "v3.0" } });
     state.mode = "feature";
-    render(<CreateMissionForm open onClose={vi.fn()} habitatId="h1" />, { wrapper });
+    view.rerender(<CreateMissionForm open onClose={vi.fn()} habitatId="h1" />);
     expect(screen.queryByText("Release Gate")).toBeNull();
     expect(screen.queryByText("Release Deadline")).toBeNull();
     fireEvent.change(screen.getByPlaceholderText("Mission title"), { target: { value: "Feature Mission" } });
     fireEvent.click(screen.getByRole("button", { name: "Create Mission" }));
     await waitFor(() => expect(writes.length).toBe(1));
     expect(writes[0].data).not.toHaveProperty("releaseGateType");
+    expect(writes[0].data).not.toHaveProperty("releaseGateVersion");
     expect(writes[0].data).not.toHaveProperty("releaseDeadlineType");
+    expect(writes[0].data).not.toHaveProperty("releaseDeadlineVersion");
   });
   // GROUND: T3+T4+T5 Step 1 journey 3 (expected RED: current [open, mission] reset effect);
   // PRD M5 (refetch of same open Mission keeps draft and captured baseline version);
@@ -131,6 +145,16 @@ describe("Mission authoring real transport journeys", () => {
     expect(writes[0].data).not.toHaveProperty("releaseDeadlineType");
     expect(writes[0].data).not.toHaveProperty("releaseDeadlineVersion");
   });
+  it("unresolved Habitat data keeps Edit release fields out of the PATCH", async () => {
+    state.ready = false;
+    render(<EditMissionForm open onClose={vi.fn()} mission={base} />, { wrapper });
+    save();
+    await waitFor(() => expect(writes.length).toBe(1));
+    expect(writes[0].data).not.toHaveProperty("releaseGateType");
+    expect(writes[0].data).not.toHaveProperty("releaseGateVersion");
+    expect(writes[0].data).not.toHaveProperty("releaseDeadlineType");
+    expect(writes[0].data).not.toHaveProperty("releaseDeadlineVersion");
+  });
   // GROUND: T3+T4+T5 Step 1 journey 7; PRD M5 (close/reopen or identity change reinitializes);
   // DESIGN §3 (sessionKey = open/closed + selected id; those triggers reset, refetch does not).
   it("close/reopen and identity change capture a fresh baseline, unlike refetch", async () => {
@@ -165,5 +189,23 @@ describe("Mission authoring real transport journeys", () => {
     save();
     await waitFor(() => expect(writes.length).toBe(2));
     expect(writes[1].data.version).toBe(3);
+  });
+  it("retired Create sessions emit no success or close continuation", async () => {
+    let resolveWrite!: (response: Response) => void;
+    const close = vi.fn();
+    fetchMock.mockImplementationOnce(async (input, init) => {
+      const data = JSON.parse(String(init?.body ?? "{}")) as Record<string, unknown>;
+      writes.push({ url: String(input), method: init?.method ?? "GET", data });
+      return new Promise<Response>((resolve) => { resolveWrite = resolve; });
+    });
+    render(<CreateMissionForm open onClose={close} habitatId="h1" />, { wrapper });
+    fireEvent.change(screen.getByPlaceholderText("Mission title"), { target: { value: "Deferred Mission" } });
+    fireEvent.click(screen.getByRole("button", { name: "Create Mission" }));
+    await waitFor(() => expect(writes.length).toBe(1));
+    fireEvent.click(screen.getByRole("button", { name: "Retire session" }));
+    await act(async () => { resolveWrite(new Response(JSON.stringify({ mission: base }), { status: 200 })); });
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    expect(close).not.toHaveBeenCalled();
+    expect(notify.success).not.toHaveBeenCalled();
   });
 });

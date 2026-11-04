@@ -16,6 +16,7 @@ import {
 import { Button } from "../ui/Button.js";
 import { RichTextEditor } from "../ui/RichTextEditor.js";
 import { notify } from "../../lib/toast.js";
+import { useSessionLiveness } from "../../lib/sessionState.js";
 import { useTemplates, useCreateMission, useHabitat } from "../../lib/useHabitatData.js";
 import type { TaskPriority } from "../../types/index.js";
 
@@ -55,8 +56,9 @@ export function CreateMissionForm({ open, onClose, habitatId }: CreateMissionFor
     setReleaseDeadlineVersion,
   } = useMissionAuthoring(open);
   const createMission = useCreateMission(habitatId);
+  const isSessionActive = useSessionLiveness();
   // Feature-based habitats hide release-gate/deadline authoring (RM-6). Existing gates still display.
-  const releaseMode = releaseAuthoringEnabled(boardData);
+  const releaseMode = boardData ? releaseAuthoringEnabled(boardData) : false;
 
   useEffect(() => {
     if (open) setAcceptanceCriteria("");
@@ -73,10 +75,12 @@ export function CreateMissionForm({ open, onClose, habitatId }: CreateMissionFor
     e.preventDefault();
     if (!titleReady(draft) || !columnId) return;
     try {
-      await createMission.mutateAsync(createMissionInputFromDraft(draft, columnId, acceptanceCriteria));
+      await createMission.mutateAsync(createMissionInputFromDraft(draft, columnId, acceptanceCriteria, releaseMode));
+      if (!isSessionActive()) return;
       notify.success(`Mission "${title.trim()}" created`);
       onClose();
     } catch (err) {
+      if (!isSessionActive()) return;
       notify.error((err as Error).message);
     }
   }

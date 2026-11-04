@@ -60,7 +60,7 @@ export function EditMissionForm({ open, onClose, mission }: EditMissionFormProps
   const updateMission = useUpdateMission(mission.id, mission.habitatId);
   const { data: boardData } = useHabitat(mission.habitatId);
   // Feature-based habitats hide release-gate/deadline authoring (RM-6).
-  const releaseMode = releaseAuthoringEnabled(boardData);
+  const releaseMode = boardData ? releaseAuthoringEnabled(boardData) : false;
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();

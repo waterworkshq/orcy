@@ -68,7 +68,7 @@ This document covers the system architecture, design decisions, key flows, and i
 | SSE | `src/sse/` | Event registry (membership-aware projection matrix) |
 | Types | `src/types/` | TypeScript interfaces |
 
-Mission Create/Edit share the Mission-specific `lib/missionAuthoring.ts` rules for draft prefill and field serialization. Create-only Column/acceptance criteria remain local; Create omits empty optional values while Edit clears them explicitly. An Edit session captures its Mission id/version and retains that baseline and input across same-record refetches. Conflict reconciliation remains server-authoritative through the existing mutation hooks; no durable client store or automatic draft rebase is introduced.
+Mission Create/Edit share the Mission-specific `lib/missionAuthoring.ts` rules for draft prefill and field serialization. Create-only Column/acceptance criteria remain local; Create omits empty optional values, while Edit clears regular empty values and release fields only when release authoring is enabled. In feature mode, Edit omits release fields to preserve persisted gates. An Edit session captures its Mission id/version and retains that baseline and input across same-record refetches. Conflict reconciliation remains server-authoritative through the existing mutation hooks; no durable client store or automatic draft rebase is introduced.
 
 ### MCP (`packages/mcp`)
 

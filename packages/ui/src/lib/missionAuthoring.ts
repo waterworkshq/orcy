@@ -22,16 +22,16 @@ export function releaseAuthoringEnabled(data: { habitat?: { roadmapSettings?: { 
 }
 export const titleReady = (draft: MissionDraft): boolean => draft.title.trim().length > 0;
 const labelsFrom = (text: string) => text.split(",").map((label) => label.trim()).filter(Boolean);
-export function createMissionInputFromDraft(draft: MissionDraft, columnId: string, acceptanceCriteria: string): CreateMissionInput {
+export function createMissionInputFromDraft(draft: MissionDraft, columnId: string, acceptanceCriteria: string, releaseMode = false): CreateMissionInput {
   const labels = labelsFrom(draft.labels);
   return { columnId, title: draft.title.trim(), description: draft.description.trim() || undefined,
     acceptanceCriteria: acceptanceCriteria.trim() || undefined, priority: draft.priority,
     labels: labels.length ? labels : undefined, dueAt: draft.dueAt ? new Date(draft.dueAt).toISOString() : undefined,
     slaMinutes: draft.slaMinutes ? parseInt(draft.slaMinutes, 10) : undefined,
-    releaseGateType: draft.releaseGateType || undefined,
-    releaseGateVersion: draft.releaseGateType ? draft.releaseGateVersion.trim() || undefined : undefined,
-    releaseDeadlineType: draft.releaseDeadlineType || undefined,
-    releaseDeadlineVersion: draft.releaseDeadlineType ? draft.releaseDeadlineVersion.trim() || undefined : undefined };
+    ...(releaseMode ? { releaseGateType: draft.releaseGateType || undefined,
+      releaseGateVersion: draft.releaseGateType ? draft.releaseGateVersion.trim() || undefined : undefined,
+      releaseDeadlineType: draft.releaseDeadlineType || undefined,
+      releaseDeadlineVersion: draft.releaseDeadlineType ? draft.releaseDeadlineVersion.trim() || undefined : undefined } : {}) };
 }
 export function updateMissionInputFromDraft(draft: MissionDraft, version: number, releaseMode: boolean): Partial<Mission> & { version: number } {
   return { title: draft.title.trim(), description: draft.description.trim(), priority: draft.priority,
