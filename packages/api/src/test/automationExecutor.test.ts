@@ -803,8 +803,7 @@ describe("automationExecutor", () => {
       expect(actionResults[0]!.result).toMatchObject({ outcome: "enqueued", deliveryCount: expect.any(Number) });
       const event = eventRepo.listNotificationEventsByHabitat(h.id).events[0]!;
       const ids = deliveryRepo.getDeliveriesByEvent(event.id).map((d) => `${d.recipientType}:${d.recipientId}`);
-      expect(ids).toContain(`agent:${agent.id}`);       // pending reviewer
-      expect(ids).toContain("human:rev-human");         // approved reviewer — roster membership, NOT pending-only
+      expect(ids.sort()).toEqual([`agent:${agent.id}`, "human:rev-human"]);   // FULL set: pending + approved reviewers (roster membership, NOT pending-only), no unintended recipients
     });
 
     // GROUND: PRD N4 — whole-action preflight: unsupported form fails the
