@@ -29,6 +29,7 @@ import {
   notificationEvents,
   automationRunCompletionOutbox,
   taskEvents,
+  users,
 } from "../db/schema/index.js";
 import * as boardRepo from "../repositories/habitat.js";
 import * as columnRepo from "../repositories/column.js";
@@ -427,6 +428,9 @@ describe("FU2: stale-lease attention CAS is bound to the observed fence", () => 
 describe("FU2: outbox-delivered completion advances a real workflow gate", () => {
   beforeEach(async () => {
     await initTestDb();
+    // Exact notify recipients are validated (intent migration): the notifyAction
+    // fixture's `human user-1` must exist; personal habitats admit any existing user.
+    getDb().insert(users).values({ id: "user-1", username: "user-1", passwordHash: "fixture" }).run();
   });
 
   afterEach(() => closeDb());

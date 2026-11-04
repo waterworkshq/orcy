@@ -12,7 +12,13 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { eq } from "drizzle-orm";
 import { closeDb, initTestDb, getDb } from "../db/index.js";
-import { notificationEvents, automationDeliveryActionCheckpoints } from "../db/schema/index.js";
+import {
+  notificationEvents,
+  notificationDeliveries,
+  automationDeliveryActionCheckpoints,
+  users,
+} from "../db/schema/index.js";
+import * as subscriptionRepo from "../repositories/notificationSubscription.js";
 import * as boardRepo from "../repositories/habitat.js";
 import * as columnRepo from "../repositories/column.js";
 import * as ruleRepo from "../repositories/automationRule.js";
@@ -136,6 +142,21 @@ function crashAfterProving(
 describe("stale-lease proof-aware recovery + operator dispositions", () => {
   beforeEach(async () => {
     await initTestDb();
+    // GROUND: TASKS T7 (MIGRATION 7.3b) — repair the suite-wide notifyAction
+    // fixture before the intent migration: its explicit `human user-1`
+    // recipient must be an authorized persisted user once executeNotify
+    // validates exact recipients. Personal habitats admit any existing user
+    // (humanCanAccessHabitat), so existence is the whole authorization here.
+    getDb()
+      .insert(users)
+      .values({
+        id: "user-1",
+        username: "user-1",
+        passwordHash: "fixture",
+        displayName: "user-1",
+        role: "editor",
+      })
+      .run();
   });
 
   afterEach(() => {
@@ -980,5 +1001,47 @@ describe("stale-lease proof-aware recovery + operator dispositions", () => {
     expect(report.outcomes["skipped"]).toBe(1);
     expect(deliveryRepo.getDeliveryById(deliveryId)!.terminalDisposition).toBe("skipped:cooldown");
     expect(renderedTemplates(h.id)).toEqual([]);
+  });
+
+  // GROUND: TASKS T7 bullet 1 — "legacy revision decoding/data remain
+  // unchanged" + bullet 3 stored-rule outcome matrix. PRD N4 (frozen
+  // revisions stay decodable and unchanged; whole-action preflight fails a
+  // frozen mission_owner with zero writes) and N10 (real persisted frozen
+  // Automation revision tests, immutable configuration controls). The
+  // fixture intentionally writes historical forms through the repository
+  // rather than the new authoring validator, then freezes a revision before
+  // editing the live rule. No historical row rewrite is authorized.
+  it.each(["habitat_admins", "mission_owner"] as const)("executes frozen %s after live rule edit without rewriting it", async (recipientType) => {
+    const habitat = setupHabitat();
+    const operatorId = `frozen-operator-${recipientType}`;
+    getDb().insert(users).values({ id: operatorId, username: operatorId, passwordHash: "fixture", role: "admin" }).run();
+    subscriptionRepo.createSubscription({ habitatId: habitat.id, scope: "habitat_default", eventType: "automation.rule_matched",
+      enabled: true, required: false, channels: ["in_app"], cadence: "immediate" });
+    const rule = createReleaseRule(habitat.id, { templates: ["FROZEN"] });
+    ruleRepo.updateAutomationRule(rule.id, {
+      actions: [{ type: "notify", template: "FROZEN", recipients: [{ type: recipientType }] }],
+    });
+    admitReleaseShippedEventToInbox({ habitatId: habitat.id, eventId: `frozen-notify-${recipientType}`,
+      payload: { eventId: `frozen-notify-${recipientType}` } });
+    const inbox = deliveryRepo.listInboxEntriesForHabitat(habitat.id)[0];
+    const deliveryId = firstDeliveryId(inbox.id);
+    const delivery = deliveryRepo.getDeliveryById(deliveryId)!;
+    const before = revisionRepo.getRuleRevisionById(delivery.ruleRevisionId)!;
+    ruleRepo.updateAutomationRule(rule.id, {
+      actions: [{ type: "notify", template: "LIVE-EDIT", recipients: [{ type: "mission_owner" }] }],
+    });
+    await drainAutomationInbox({ now: new Date().toISOString() });
+    expect(revisionRepo.getRuleRevisionById(delivery.ruleRevisionId)).toEqual(before);
+    const events = getDb().select().from(notificationEvents).where(eq(notificationEvents.habitatId, habitat.id)).all();
+    if (recipientType === "mission_owner") {
+      expect(events).toHaveLength(0);
+      expect(deliveryRepo.listCheckpointsForDelivery(deliveryId)[0]).toMatchObject({ state: "failed" });
+    } else {
+      const event = events.find((row) => (row.payload as { renderedTemplate?: string })?.renderedTemplate === "FROZEN");
+      expect(event).toBeDefined();
+      const deliveries = getDb().select().from(notificationDeliveries).where(eq(notificationDeliveries.eventId, event!.id)).all();
+      expect(deliveries.some((row) => row.recipientId === operatorId)).toBe(true);
+      expect(events.some((row) => (row.payload as { renderedTemplate?: string })?.renderedTemplate === "LIVE-EDIT")).toBe(false);
+    }
   });
 });

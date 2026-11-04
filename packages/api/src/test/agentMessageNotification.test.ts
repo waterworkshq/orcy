@@ -7,14 +7,18 @@ import * as eventRepo from "../repositories/notificationEvent.js";
 import * as deliveryRepo from "../repositories/notificationDelivery.js";
 import { agentMessageRoutes } from "../routes/agentMessages.js";
 import { isAppError } from "../errors.js";
-import { enqueueNotification } from "../services/notificationCommandService.js";
+import { enqueueNotificationWithIntents } from "../services/notificationIntentCommand.js";
+import * as podRepo from "../repositories/remotePod.js";
+import * as participantRepo from "../repositories/remoteParticipant.js";
+import * as grantRepo from "../repositories/remoteGrant.js";
 
-vi.mock("../services/notificationCommandService.js", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../services/notificationCommandService.js")>();
+vi.mock("../services/notificationIntentCommand.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../services/notificationIntentCommand.js")>();
   return {
     ...actual,
-    enqueueNotification: vi.fn((cmd: Parameters<typeof actual.enqueueNotification>[0]) =>
-      actual.enqueueNotification(cmd),
+    enqueueNotificationWithIntents: vi.fn(
+      (cmd: Parameters<typeof actual.enqueueNotificationWithIntents>[0]) =>
+        actual.enqueueNotificationWithIntents(cmd),
     ),
   };
 });
@@ -126,6 +130,30 @@ function createDefaultSubscription(habitatId: string, eventType: string) {
   });
 }
 
+// GROUND: MIGRATION-TASKS T6 6.1 seedRemoteGrantHolder — exact constructors;
+// interfaces verified: remotePod.ts:12-21, remoteParticipant.ts:16-26,
+// remoteGrant.ts:29-39, notificationSubscription.ts:19-33 (CORE-TASKS §note10
+// fixtures). Participant-scoped allowlist with no targets; only the old
+// untargeted discovery (targetType "agent" → undefined) includes it.
+function seedRemoteGrantHolder(habId: string): string {
+  const pod = podRepo.activateRemotePod(podRepo.createRemotePod({ habitatId: habId, name: "pod-grant" }).id)!;
+  const p = participantRepo.activateRemoteParticipant(
+    participantRepo.createRemoteParticipant({
+      remotePodId: pod.id, habitatId: habId, participantType: "remote_human",
+      displayName: "Grant Holder", standing: "remote_contributor",
+    }).id,
+  )!;
+  grantRepo.createRemoteGrant({
+    habitatId: habId, remotePodId: pod.id, remoteParticipantId: p.id,
+    grantType: "scoped_elevation", standing: "remote_contributor", actionScopes: ["read"],
+  });
+  subscriptionRepo.createSubscription({
+    habitatId: habId, scope: "habitat_default", eventType: "agent.message_received",
+    enabled: true, required: false, channels: ["in_app"], cadence: "immediate",
+  });
+  return p.id;
+}
+
 describe("agent mail Notification V2 enqueue", () => {
   let habitatId: string;
   let fromAgentId: string;
@@ -135,7 +163,7 @@ describe("agent mail Notification V2 enqueue", () => {
 
   beforeEach(async () => {
     await initTestDb();
-    vi.mocked(enqueueNotification).mockClear();
+    vi.mocked(enqueueNotificationWithIntents).mockClear();
 
     const habitat = habitatRepo.createHabitat({ name: "Mail Notify Habitat" });
     habitatId = habitat.id;
@@ -222,15 +250,43 @@ describe("agent mail Notification V2 enqueue", () => {
     expect(events[0].payload).not.toHaveProperty("body");
   });
 
-  it("still returns 201 when enqueueNotification throws", async () => {
+  // GROUND: MIGRATION-TASKS T6 6.1 — N1 exact audience; replaces the T1
+  // "agent-mail widen" characterization cell (6.5 retirement): the active
+  // remote grant holder gained a delivery under old untargeted discovery and
+  // gains none under the exact intent.
+  it("delivers only to the addressed agent — active remote grant holder gains no delivery (widen closed)", async () => {
+    const remoteId = seedRemoteGrantHolder(habitatId);
+    const { sent } = await sendMail({ body: "hello", priority: "normal" });
+    expect(sent.code).toBe(201);
+    expect(vi.mocked(enqueueNotificationWithIntents)).toHaveBeenCalledTimes(1);
+    const cmd = vi.mocked(enqueueNotificationWithIntents).mock.calls[0][0];
+    expect(cmd.intents).toEqual([
+      { kind: "exact", recipients: [{ recipientType: "agent", recipientId: cmd.targetId }] },
+    ]);
+    expect(cmd.targetType).toBe("agent");          // event-row metadata parity kept
+    const deliveries = deliveryRepo.getDeliveriesByEvent(
+      eventRepo.listNotificationEventsByHabitat(cmd.habitatId).events[0]!.id, // {events,total}, newest-first
+    );
+    expect(deliveries).toHaveLength(1);
+    expect(deliveries[0]!.recipientType).toBe("agent");
+    expect(deliveries.some((d) => d.recipientId === remoteId)).toBe(false);
+  });
+
+  // GROUND: MIGRATION-TASKS T6 6.1 — subject-only projection (N10 payload
+  // parity): the message body never enters the notification payload.
+  it("payload stays subject-only — the message body never enters the notification payload", async () => {
+    await sendMail({ body: "SECRET-BODY" });
+    const cmd = vi.mocked(enqueueNotificationWithIntents).mock.calls[0][0];
+    expect(cmd.payload).toHaveProperty("subject");
+    expect(JSON.stringify(cmd.payload)).not.toContain("SECRET-BODY");
+  });
+
+  // GROUND: MIGRATION-TASKS T6 6.1 — best-effort primary action retained;
+  // supersedes the old enqueueNotification-throw test.
+  it("enqueue failure does not fail the 201 (best-effort retained)", async () => {
     createDefaultSubscription(habitatId, "agent.message_received");
-    vi.mocked(enqueueNotification).mockImplementationOnce(() => {
-      throw new Error("enqueue failed");
-    });
-
-    const { sent } = await sendMail();
-
-    expect(vi.mocked(enqueueNotification)).toHaveBeenCalled();
+    vi.mocked(enqueueNotificationWithIntents).mockImplementationOnce(() => { throw new Error("boom"); });
+    const { sent } = await sendMail({});
     expect(sent.code).toBe(201);
   });
 });

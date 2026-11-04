@@ -8,12 +8,16 @@ vi.mock("node:dns", () => ({
   },
 }));
 
-import { closeDb, initTestDb } from "../db/index.js";
+import { closeDb, initTestDb, getDb } from "../db/index.js";
+import { taskReviewers, users } from "../db/schema/index.js";
 import * as boardRepo from "../repositories/habitat.js";
 import * as columnRepo from "../repositories/column.js";
 import * as missionRepo from "../repositories/mission.js";
 import * as taskRepo from "../repositories/task.js";
 import * as agentRepo from "../repositories/agent.js";
+import * as podRepo from "../repositories/remotePod.js";
+import * as participantRepo from "../repositories/remoteParticipant.js";
+import * as grantRepo from "../repositories/remoteGrant.js";
 import * as subscriptionRepo from "../repositories/notificationSubscription.js";
 import { renderTemplate } from "../services/automationTemplateRenderer.js";
 import type { AutomationEvaluationContext } from "../services/automationContextBuilder.js";
@@ -736,6 +740,124 @@ describe("automationExecutor", () => {
         "create_signal",
         "mark_risk",
       ]);
+    });
+  });
+
+  // -----------------------------------------------------------------------
+  // GROUND: TASKS T7 bullet 3 — "Run complete supported-intent and
+  // stored-rule outcome matrices; legitimate empty/suppressed is classified,
+  // unsupported/ambiguous is failure, actual recipients are asserted."
+  // PRD N3 (typed review roster), N4 (whole-action preflight, zero writes),
+  // N7 (honest classified outcomes), N8-P1 (executor migration off the old
+  // generic wrapper). Stored rules execute the same frozen-decodable forms
+  // the decode-union test in automationRuleDraftValidation.test.ts pins.
+  // -----------------------------------------------------------------------
+  describe("notify intent migration (N3/N4/N7/N8-P1)", () => {
+    function seedTaskFor(habitatId: string) {
+      const mission = setupMission(habitatId);
+      return taskRepo.createTask({ missionId: mission.id, title: "T", description: "",
+        requiredCapabilities: [], labels: [], createdBy: "user-1" });
+    }
+    function seedReviewerUser(id: string) {
+      getDb().insert(users).values({ id, username: id, passwordHash: "x", displayName: id, role: "editor" }).run();
+    }
+    // Same body as the agent-message suite's seedRemoteGrantHolder MINUS its
+    // agent.message_received subscription default — the untargeted-trigger
+    // test below seeds its own task.review_requested default (the mapped
+    // event) inline.
+    function seedRemoteGrantHolder(habitatId: string): string {
+      const pod = podRepo.activateRemotePod(podRepo.createRemotePod({ habitatId, name: "pod-grant" }).id)!;
+      const p = participantRepo.activateRemoteParticipant(
+        participantRepo.createRemoteParticipant({
+          remotePodId: pod.id, habitatId, participantType: "remote_human",
+          displayName: "Grant Holder", standing: "remote_contributor",
+        }).id,
+      )!;
+      grantRepo.createRemoteGrant({
+        habitatId, remotePodId: pod.id, remoteParticipantId: p.id,
+        grantType: "scoped_elevation", standing: "remote_contributor", actionScopes: ["read"],
+      }); // participant-scoped allowlist with no targets; only the old untargeted discovery includes it
+      return p.id;
+    }
+
+    // GROUND: PRD N3 — "current typed review roster"; roster membership, not
+    // pending-only. Old behavior null-collapsed `reviewers`.
+    it("reviewers recipient now executes: whole current roster gains deliveries (was null-collapse)", async () => {
+      const h = setupHabitat();
+      const task = seedTaskFor(h.id);
+      const agent = setupAgent("rev-agent", "code");
+      seedReviewerUser("rev-human");
+      const now = new Date().toISOString();
+      subscriptionRepo.createSubscription({ habitatId: h.id, scope: "habitat_default",
+        eventType: "task.review_requested",   // MAPPED event for the task.rejected trigger (AUTOMATION_TRIGGER_TO_NOTIFY_EVENT)
+        enabled: true, required: false, channels: ["in_app"], cadence: "immediate" });
+      getDb().insert(taskReviewers).values([   // TWO DISTINCT reviewers; explicit ids (text PK, no drizzle default); statuses differ on purpose
+        { id: "tr-1", taskId: task.id, reviewerType: "agent", reviewerId: agent.id, status: "pending", assignedAt: now },
+        { id: "tr-2", taskId: task.id, reviewerType: "human", reviewerId: "rev-human", status: "approved", assignedAt: now },
+      ]).run();
+      const rule = buildRule(h.id, { actions: [{ type: "notify", recipients: [{ type: "reviewers" }], template: "T" }] });
+      const ctx = { ...emptyContext(), task: taskRepo.getTaskById(task.id) };
+      const { status, actionResults } = await executeActions(rule, buildRun(h.id, rule.id), ctx);
+      expect(status).toBe("succeeded");
+      expect(actionResults[0]!.status).toBe("succeeded");
+      expect(actionResults[0]!.result).toMatchObject({ outcome: "enqueued", deliveryCount: expect.any(Number) });
+      const event = eventRepo.listNotificationEventsByHabitat(h.id).events[0]!;
+      const ids = deliveryRepo.getDeliveriesByEvent(event.id).map((d) => `${d.recipientType}:${d.recipientId}`);
+      expect(ids.sort()).toEqual([`agent:${agent.id}`, "human:rev-human"]);   // FULL set: pending + approved reviewers (roster membership, NOT pending-only), no unintended recipients
+    });
+
+    // GROUND: PRD N4 — whole-action preflight: unsupported form fails the
+    // action with zero notification writes even when other intents were valid.
+    it("mission_owner in a stored revision fails the whole action with zero notification writes (N4 preflight)", async () => {
+      const h = setupHabitat();
+      const rule = buildRule(h.id, { actions: [{ type: "notify",
+        recipients: [{ type: "human", userId: "u-real" }, { type: "mission_owner" }], template: "T" }] });
+      const { actionResults } = await executeActions(rule, buildRun(h.id, rule.id), emptyContext()); // preflight fires before any resolution/write
+      expect(actionResults[0]!.status).toBe("failed");
+      expect(actionResults[0]!.error).toContain("UNSUPPORTED_RECIPIENT_FORM");
+      expect(actionResults[0]!.error).toContain("habitat_admins");
+      expect(eventRepo.listNotificationEventsByHabitat(h.id).events).toHaveLength(0);   // mixed valid+invalid ⇒ zero writes, no valid-subset send
+    });
+
+    // GROUND: PRD N4 — channel recipient and nonempty channel override both
+    // fail closed with zero writes.
+    it("channel recipient and nonempty channels override fail the action with zero writes", async () => {
+      const h = setupHabitat();
+      const r1 = buildRule(h.id, { actions: [{ type: "notify", recipients: [{ type: "channel", channelId: "c" }], template: "T" }] });
+      const a1 = await executeActions(r1, buildRun(h.id, r1.id), emptyContext());
+      expect(a1.actionResults[0]!.status).toBe("failed");
+      expect(a1.actionResults[0]!.error).toContain("UNSUPPORTED_RECIPIENT_FORM");
+      const r2 = buildRule(h.id, { actions: [{ type: "notify", recipients: [{ type: "habitat_admins" }], template: "T", channels: ["email"] }] });
+      const a2 = await executeActions(r2, buildRun(h.id, r2.id), emptyContext());
+      expect(a2.actionResults[0]!.status).toBe("failed");
+      expect(a2.actionResults[0]!.error).toContain("UNSUPPORTED_CHANNEL_OVERRIDE");
+      expect(eventRepo.listNotificationEventsByHabitat(h.id).events).toHaveLength(0);
+    });
+
+    // GROUND: PRD N7 — supported empty audience is classified honestly
+    // (event_only + emptyReasons), not silent success with hidden semantics.
+    it("empty audience exposes the complete classified executor result", async () => {
+      const h = setupHabitat();
+      const rule = buildRule(h.id, { actions: [{ type: "notify", recipients: [], template: "T" }] });
+      const { actionResults } = await executeActions(rule, buildRun(h.id, rule.id), emptyContext());
+      expect(actionResults[0]!.status).toBe("succeeded");
+      expect(actionResults[0]!.result).toEqual({ eventId: expect.any(String), outcome: "event_only",
+        deliveryCount: 0, suppressedCount: 0, emptyReasons: ["no_recipients"] });
+    });
+
+    // GROUND: PRD N8 — "No invisible audience contraction/expansion through
+    // an old generic wrapper": the old untargeted wrapper widened the pool
+    // with targetless remote grant holders; the intent path must not.
+    it("untargeted automation trigger no longer gains remote grant holders (adopted removal)", async () => {
+      const h = setupHabitat();
+      seedRemoteGrantHolder(h.id);   // active participant with a participant-scoped targetless allowlist grant
+      subscriptionRepo.createSubscription({ habitatId: h.id, scope: "habitat_default",
+        eventType: "task.review_requested", enabled: true, required: false, channels: ["in_app"], cadence: "immediate" });
+      const rule = buildRule(h.id, { actions: [{ type: "notify", recipients: [{ type: "habitat_admins" }], template: "T" }] });
+      await executeActions(rule, buildRun(h.id, rule.id), emptyContext());
+      const event = eventRepo.listNotificationEventsByHabitat(h.id).events[0]!;
+      const deliveries = deliveryRepo.getDeliveriesByEvent(event.id);
+      expect(deliveries.every((d) => d.recipientType !== "remote_human" && d.recipientType !== "remote_orcy")).toBe(true);
     });
   });
 });

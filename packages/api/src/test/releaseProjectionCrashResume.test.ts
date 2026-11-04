@@ -39,16 +39,20 @@ import {
   reconcileActivationGroups,
   finalizeActivationEpoch,
 } from "../services/releaseReconciliationService.js";
-import { enqueueNotificationForRecipients } from "../services/notificationCommandService.js";
+import { enqueueNotificationWithIntents } from "../services/notificationIntentCommand.js";
 
-vi.mock("../services/notificationCommandService.js", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../services/notificationCommandService.js")>();
+// GROUND: MIGRATION-TASKS T8 8.4 — failure-injection seam migrated from the
+// legacy enqueueNotificationForRecipients wrapper to the intent command the
+// producer now calls. If the producer ignores the new seam, the injected
+// failure never fires and the incomplete-projection assertions below fail.
+vi.mock("../services/notificationIntentCommand.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../services/notificationIntentCommand.js")>();
   return {
     ...actual,
-    enqueueNotificationForRecipients: vi.fn(((
-      ...args: Parameters<typeof enqueueNotificationForRecipients>
+    enqueueNotificationWithIntents: vi.fn(((
+      ...args: Parameters<typeof enqueueNotificationWithIntents>
     ) =>
-      (actual.enqueueNotificationForRecipients as (...a: typeof args) => unknown)(
+      (actual.enqueueNotificationWithIntents as (...a: typeof args) => unknown)(
         ...args,
       )) as never),
   };
@@ -60,7 +64,7 @@ let columnId: string;
 
 beforeEach(async () => {
   await initTestDb();
-  vi.mocked(enqueueNotificationForRecipients).mockRestore();
+  vi.mocked(enqueueNotificationWithIntents).mockRestore();
   const db = getDb();
   db.delete(releasesTable).run();
   db.delete(findingTriageTable).run();
@@ -128,7 +132,7 @@ describe("T7: projection failure leaves pending + incomplete reporting; replay c
   it("an activation-notification failure leaves the failed and ALL later projections pending", async () => {
     seedGatedMissionWithFinding("A");
 
-    vi.mocked(enqueueNotificationForRecipients).mockImplementation((() => {
+    vi.mocked(enqueueNotificationWithIntents).mockImplementation((() => {
       throw new Error("injected notification failure");
     }) as never);
 
@@ -163,7 +167,7 @@ describe("T7: projection failure leaves pending + incomplete reporting; replay c
     ).not.toBeNull();
 
     // --- Replay after the transient failure heals -------------------------
-    vi.mocked(enqueueNotificationForRecipients).mockRestore();
+    vi.mocked(enqueueNotificationWithIntents).mockRestore();
     const replay = await releaseTriggerService.detectAndActivate(habitatId, "v0.1.0", {
       detectedBy: "api",
     });

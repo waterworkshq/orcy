@@ -110,6 +110,8 @@ export interface NotificationDelivery {
   pushEpoch?: string;
   required: boolean;
   channels: NotificationChannel[];
+  /** Resolved cadence at enqueue (migration 0087); 'immediate' for all legacy rows and undeclared inserts. */
+  cadence?: NotificationCadence;
   deliveredAt: string | null;
   acknowledgedAt: string | null;
   snoozedUntil: string | null;

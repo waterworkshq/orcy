@@ -35,7 +35,7 @@ import {
   updatePriorityForPlugin,
   type TaskObservationSet,
 } from "../services/pluginTaskOperations.js";
-import { enqueueNotificationForRecipients } from "../services/notificationCommandService.js";
+import { enqueueNotificationWithIntents } from "../services/notificationIntentCommand.js";
 import { isValidEventType } from "../services/notificationSubscriptionResolver.js";
 import {
   publishPluginTask,
@@ -457,8 +457,9 @@ const BANNED_HEADERS = new Set(["authorization", "cookie", "x-api-key", "x-token
 
 /**
  * Write surface for notification enqueueing, scoped to the contribution's habitat (ADR-0023).
- * Wraps notificationCommandService.enqueueNotificationForRecipients with provenance
- * stamping, rate cap, and habitat scoping.
+ * Wraps notificationIntentCommand.enqueueNotificationWithIntents with an exact
+ * local-identity intent (no remote augmentation), provenance stamping, rate cap,
+ * and habitat scoping.
  */
 function buildNotificationSender(
   pluginId: string,
@@ -476,18 +477,16 @@ function buildNotificationSender(
         throw badRequest(`Unknown notification event type: ${input.eventType}`);
       }
       writeCounter.count++;
-      const result = enqueueNotificationForRecipients(
+      const result = enqueueNotificationWithIntents({
         habitatId,
-        input.eventType as NotificationEventType,
-        "automation",
-        input.severity ?? "info",
-        input.recipients,
-        {
-          payload: { renderedTemplate: input.template, pluginId },
-          createdByType: "automation",
-          createdById: `plugin:${pluginId}`,
-        },
-      );
+        eventType: input.eventType as NotificationEventType,
+        sourceType: "automation",
+        severity: input.severity ?? "info",
+        payload: { renderedTemplate: input.template, pluginId },
+        createdByType: "automation",
+        createdById: `plugin:${pluginId}`,
+        intents: [{ kind: "exact", recipients: input.recipients }],
+      });
       rootLogger.info(
         {
           pluginId,

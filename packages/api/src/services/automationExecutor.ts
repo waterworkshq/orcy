@@ -8,7 +8,7 @@ import type {
 } from "@orcy/shared";
 import type { AutomationEvaluationContext } from "./automationContextBuilder.js";
 import { renderTemplate } from "./automationTemplateRenderer.js";
-import { enqueueNotificationForRecipients } from "./notificationCommandService.js";
+import { enqueueNotificationWithIntents, type NotificationAudienceIntent } from "./notificationIntentCommand.js";
 import * as pulseRepo from "../repositories/pulse.js";
 import * as taskRepo from "../repositories/task.js";
 import * as taskReviewerRepo from "../repositories/taskReviewer.js";
@@ -153,61 +153,88 @@ function executeNotify(
   _run: AutomationRuleRun,
   ctx: AutomationEvaluationContext,
 ): AutomationActionResult {
+  // Whole-action preflight BEFORE any write (N4): map every recipient form
+  // first; any unsupported form/channel fails the action with zero writes.
+  const intents: NotificationAudienceIntent[] = [];
+  const taskId = ctx.task?.id;
+  for (const r of action.recipients ?? []) {
+    if (r.type === "mission_owner") {
+      return notifyPreflightFailure(index, "UNSUPPORTED_RECIPIENT_FORM",
+        "mission_owner is not supported; use habitat_admins (scoped habitat operators)");
+    }
+    if (r.type === "channel") {
+      return notifyPreflightFailure(index, "UNSUPPORTED_RECIPIENT_FORM",
+        "channel recipients are not supported; address human/agent recipients explicitly");
+    }
+    if (r.type === "assignee" || r.type === "reporter" || r.type === "reviewers") {
+      if (!taskId) {
+        return notifyPreflightFailure(index, "MISSING_CONTEXT_TARGET",
+          `notify recipient "${r.type}" requires a task trigger target`);
+      }
+      intents.push(r.type === "assignee" ? { kind: "task_assignee", taskId }
+        : r.type === "reporter" ? { kind: "task_creator", taskId }
+        : { kind: "task_reviewers", taskId });
+      continue;
+    }
+    if (r.type === "habitat_admins") { intents.push({ kind: "habitat_operators" }); continue; }
+    if (r.type === "human" && "userId" in r) {
+      intents.push({ kind: "exact", recipients: [{ recipientType: "human", recipientId: r.userId }] });
+      continue;
+    }
+    if (r.type === "agent" && "agentId" in r) {
+      intents.push({ kind: "exact", recipients: [{ recipientType: "agent", recipientId: r.agentId }] });
+      continue;
+    }
+    return notifyPreflightFailure(index, "UNSUPPORTED_RECIPIENT_FORM",
+      `unsupported notify recipient form "${(r as { type: string }).type}"`);
+  }
+  if (action.channels && action.channels.length > 0) {
+    return notifyPreflightFailure(index, "UNSUPPORTED_CHANNEL_OVERRIDE",
+      "per-notify channel override is not supported; configure habitat notification subscription defaults");
+  }
+
   const template = renderTemplate(action.template ?? "", ctx);
-
-  const recipients = (action.recipients ?? [])
-    .map((r) => {
-      if (r.type === "assignee" && ctx.task?.assignedAgentId) {
-        return { recipientType: "agent" as const, recipientId: ctx.task.assignedAgentId };
-      }
-      if (r.type === "reporter" && ctx.task?.createdBy) {
-        return { recipientType: "human" as const, recipientId: ctx.task.createdBy };
-      }
-      if (r.type === "habitat_admins") {
-        return null; // deferred to subscription resolution
-      }
-      if (r.type === "human" && "userId" in r) {
-        return { recipientType: "human" as const, recipientId: r.userId };
-      }
-      if (r.type === "agent" && "agentId" in r) {
-        return { recipientType: "agent" as const, recipientId: r.agentId };
-      }
-      return null;
-    })
-    .filter(Boolean) as Array<{ recipientType: "human" | "agent"; recipientId: string }>;
-
   const severity = (action.severity ?? "info") as "info" | "warning" | "critical";
-
   const eventType = resolveNotifyEventType(rule);
 
-  const result = enqueueNotificationForRecipients(
-    rule.habitatId,
-    eventType,
-    "automation",
-    severity,
-    recipients,
-    {
-      payload: {
-        ruleName: rule.name,
-        ruleId: rule.id,
-        renderedTemplate: template.rendered,
-        ...ctx.raw,
-      },
+  try {
+    const result = enqueueNotificationWithIntents({
+      habitatId: rule.habitatId,
+      eventType,
+      sourceType: "automation",
+      payload: { ruleName: rule.name, ruleId: rule.id, renderedTemplate: template.rendered, ...ctx.raw },
       createdByType: "automation",
       createdById: `rule:${rule.id}`,
-    },
-  );
+      targetType: taskId ? "task" : undefined,   // trigger target metadata, deliberate (DESIGN §6 P1)
+      targetId: taskId,
+      severity,
+      intents,
+    });
+    return {
+      actionType: "notify",
+      actionIndex: index,
+      status: "succeeded",
+      result: {
+        eventId: result.event.id,
+        outcome: result.outcome,
+        deliveryCount: result.deliveries.length,
+        suppressedCount: result.suppressed.length,
+        emptyReasons: result.emptyReasons,
+      },
+    };
+  } catch (err) {
+    // Producer policy (PRD §5): invalid intent / storage failure ⇒ action error.
+    return {
+      actionType: "notify",
+      actionIndex: index,
+      status: "failed",
+      error: err instanceof Error ? err.message : String(err),
+    };
+  }
+}
 
-  return {
-    actionType: "notify",
-    actionIndex: index,
-    status: "succeeded",
-    result: {
-      eventId: result.event.id,
-      deliveryCount: result.deliveries.length,
-      suppressedCount: result.suppressed.length,
-    },
-  };
+function notifyPreflightFailure(index: number, code: string, message: string): AutomationActionResult {
+  return { actionType: "notify", actionIndex: index, status: "failed", error: `${code}:${message}` };
 }
 
 function executeCreateSignal(

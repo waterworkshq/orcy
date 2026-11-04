@@ -100,7 +100,7 @@ export const createAutomationRuleSchema = z.object({
   actions: z.array(automationActionSchema).min(1).max(10),
   cooldownSeconds: z.number().int().nonnegative().optional(),
   maxRunsPerHour: z.number().int().positive().optional(),
-});
+}).superRefine(refineNotifyAuthoring);
 
 /** Schema for updating an existing automation rule. */
 export const updateAutomationRuleSchema = z.object({
@@ -113,7 +113,33 @@ export const updateAutomationRuleSchema = z.object({
   actions: z.array(automationActionSchema).min(1).max(10).optional(),
   cooldownSeconds: z.number().int().nonnegative().optional(),
   maxRunsPerHour: z.number().int().positive().optional(),
-});
+}).superRefine(refineNotifyAuthoring);
+
+/** Authoring-time guard (N4): notify actions may not use recipient forms or
+ *  channel overrides the intent migration does not execute. The decode union
+ *  above is deliberately untouched — frozen stored revisions must keep parsing. */
+function refineNotifyAuthoring(
+  rule: { actions?: Array<{ type?: string; recipients?: Array<{ type?: string }>; channels?: string[] }> },
+  ctx: z.RefinementCtx,
+): void {
+  const UNSUPPORTED: Record<string, string> = {
+    mission_owner: "mission_owner is not supported; use habitat_admins (scoped habitat operators)",
+    channel: "channel recipients are not supported; address human/agent recipients explicitly",
+  };
+  for (const [i, action] of (rule.actions ?? []).entries()) {
+    if (action.type !== "notify") continue;
+    for (const [j, r] of (action.recipients ?? []).entries()) {
+      const msg = UNSUPPORTED[r.type ?? ""];
+      if (msg) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["actions", i, "recipients", j, "type"], message: msg });
+    }
+    if (action.channels && action.channels.length > 0) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom, path: ["actions", i, "channels"],
+        message: "Per-notify channel override is not supported; configure habitat notification subscription defaults instead",
+      });
+    }
+  }
+}
 
 /** Schema for machine-readable authoring drafts (LL-RM-1). */
 export const automationRuleDraftSchema = createAutomationRuleSchema;

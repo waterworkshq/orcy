@@ -63,6 +63,10 @@ export const notificationDeliveries = sqliteTable(
     // restoration and are never sent; 'restored' is the storage default for
     // every insert since. INSERT-only — no code path writes it on update.
     pushEpoch: text("push_epoch").notNull().default("restored"),
+    // Resolved cadence at enqueue (migration 0087): 'immediate' unless the
+    // enqueueing command persists a required-default/override/plain-default
+    // cadence. Downstream digest grouping authority for the required path.
+    cadence: text("cadence").notNull().default("immediate"),
     createdAt: text("created_at").notNull().default("(datetime('now'))"),
     updatedAt: text("updated_at").notNull().default("(datetime('now'))"),
   },
@@ -76,6 +80,16 @@ export const notificationDeliveries = sqliteTable(
     ),
     index("idx_notification_deliveries_event").on(table.eventId),
     index("idx_notification_deliveries_scope_lookup").on(table.id, table.habitatId),
+    // Migration 0088: covering index for the digest-cadence source lookup
+    // (listDigestCandidateRecipientsByCadence) — eq(cadence) + IN(status)
+    // prefix, grouped (habitat, recipient) columns carried in the index.
+    index("idx_notification_deliveries_digest_cadence").on(
+      table.cadence,
+      table.status,
+      table.habitatId,
+      table.recipientType,
+      table.recipientId,
+    ),
     index("idx_notification_deliveries_clearance").on(
       table.habitatId,
       table.clearAfter,

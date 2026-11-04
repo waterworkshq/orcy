@@ -11,13 +11,15 @@ vi.mock("node:dns", () => ({
 }));
 
 import { closeDb, getDb, initTestDb } from "../db/index.js";
-import { notificationDeliveries, notificationEvents, notificationSubscriptions, users } from "../db/schema/index.js";
+import { notificationDeliveries, notificationEvents, notificationSubscriptions, users, habitats, organizations, teams, teamMembers } from "../db/schema/index.js";
 import * as habitatRepo from "../repositories/habitat.js";
 import * as podRepo from "../repositories/remotePod.js";
 import * as endpointRepo from "../repositories/remoteWebhookEndpoint.js";
 import * as deliveryRepo from "../repositories/remoteWebhookDelivery.js";
 import * as participantRepo from "../repositories/remoteParticipant.js";
 import * as grantRepo from "../repositories/remoteGrant.js";
+import * as notificationDeliveryRepo from "../repositories/notificationDelivery.js";
+import * as eventRepo from "../repositories/notificationEvent.js";
 import { getActiveInbox } from "../repositories/notificationDelivery.js";
 import { createSubscription } from "../repositories/notificationSubscription.js";
 import { getAdmins } from "../repositories/user.js";
@@ -77,6 +79,27 @@ function addEndpoint(habitatId: string, podId: string) {
 
 function notifications(habitatId: string) {
   return getDb().select().from(notificationEvents).where(eq(notificationEvents.habitatId, habitatId)).all();
+}
+
+// GROUND: MIGRATION-TASKS T8 8.1 — P7 webhook remote-pool fixtures (helper
+// bodies mirror the T6.3/T8 seed shapes; used by the P7 test below).
+function seedParticipant(habId: string, name: string) {
+  const pod = podRepo.activateRemotePod(podRepo.createRemotePod({ habitatId: habId, name: `pod-${name}` }).id)!;
+  const p = participantRepo.activateRemoteParticipant(
+    participantRepo.createRemoteParticipant({
+      remotePodId: pod.id, habitatId: habId, participantType: "remote_human",
+      displayName: name, standing: "remote_contributor",
+    }).id,
+  )!;
+  return { podId: pod.id, participantId: p.id };
+}
+function seedGrant(habId: string, podId: string, participantId: string, target?: { targetType: "task" | "mission" | "habitat"; targetId: string }) {
+  const grant = grantRepo.createRemoteGrant({
+    habitatId: habId, remotePodId: podId, remoteParticipantId: participantId,
+    grantType: "scoped_elevation", standing: "remote_contributor", actionScopes: ["read"],
+  });
+  if (target) grantRepo.addRemoteGrantTarget(grant.id, target.targetType, target.targetId);
+  return grant;
 }
 
 beforeEach(async () => {
@@ -275,7 +298,10 @@ describe("Compact remote webhook failure visibility", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
-  it("still publishes SSE when there are no admin notification recipients", async () => {
+  // GROUND: MIGRATION-TASKS T8 8.5b — intended contract flip: the intent
+  // module commits the Event even when the audience is empty
+  // (outcome:"event_only"); the old admins.length>0 early-out is gone.
+  it("still publishes SSE with an empty operator audience — the Event commits event_only with zero deliveries", async () => {
     const { habitat, input, received } = setupDispatch();
     getDb().update(users).set({ role: "viewer" }).run();
     expect(getAdmins()).toEqual([]);
@@ -283,7 +309,9 @@ describe("Compact remote webhook failure visibility", () => {
 
     expect(await dispatchCompactRemoteEvent(input)).toEqual({ dispatched: 0, failed: 1, skipped: 0 });
     expect(received).toHaveLength(1);
-    expect(notifications(habitat.id)).toEqual([]);
+    const events = notifications(habitat.id);
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({ eventType: "webhook.delivery_failed", severity: "warning" });
     expect(getDb().select().from(notificationDeliveries).all()).toEqual([]);
   });
 
@@ -295,16 +323,45 @@ describe("Compact remote webhook failure visibility", () => {
     getDb().run(sql`CREATE TRIGGER reject_notification_delivery BEFORE INSERT ON notification_deliveries BEGIN SELECT RAISE(ABORT, 'notification storage unavailable'); END`);
     fetchMock.mockImplementation(async () => new Response("rejected", { status: 401 }));
 
+    // GROUND: MIGRATION-TASKS T8 8.5b — intended contract flip: the intent
+    // module commits Event and Deliveries in ONE scope, so the trigger abort
+    // discards the Event together with the rejected Deliveries.
     expect(await dispatchCompactRemoteEvent(input)).toEqual({ dispatched: 0, failed: 2, skipped: 0 });
     expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(received).toHaveLength(2);
-    expect(notifications(habitat.id)).toHaveLength(2);
+    expect(notifications(habitat.id)).toHaveLength(0);
     expect(getDb().select().from(notificationDeliveries).all()).toEqual([]);
     for (const id of [endpoint.id, second.id]) {
       expect(deliveryRepo.listRemoteWebhookDeliveriesForEndpoint(id)).toEqual([
         expect.objectContaining({ status: "failed", statusCode: 401, responseBody: "rejected", attempts: 1 }),
       ]);
     }
+  });
+
+  // GROUND: MIGRATION-TASKS T8 8.1 — P7 webhook failure: scoped operators
+  // replace the old all-global-admins broadcast (TASKS T8 bullet 3 — no
+  // all-admin broadcast when scoped responsibility exists), and the
+  // habitat-targeted remote pool is preserved exactly.
+  it("delivery-failure notification reaches scoped operators and the habitat pool — NOT unrelated global admins", async () => {
+    const { habitat, input } = setupDispatch();
+    fetchMock.mockResolvedValue(new Response("rejected", { status: 401 }));
+    const organizationId = `intent-org-${crypto.randomUUID()}`;
+    const teamId = `intent-team-${crypto.randomUUID()}`;
+    getDb().insert(organizations).values({ id: organizationId, name: "Intent Org", slug: organizationId }).run();
+    getDb().insert(teams).values({ id: teamId, organizationId, name: "Intent Team", slug: teamId }).run();
+    getDb().update(habitats).set({ teamId }).where(eq(habitats.id, habitat.id)).run();
+    getDb().insert(users).values([{ id: "op-admin", username: "op-admin", passwordHash: "x", displayName: "op", role: "admin" },
+      { id: "other-admin", username: "other-admin", passwordHash: "x", displayName: "o", role: "admin" }]).run();
+    getDb().insert(teamMembers).values({ id: `tm-${crypto.randomUUID().slice(0, 8)}`, teamId, userId: "op-admin", role: "admin" }).run(); // explicit id — text PK, no drizzle default
+    const gh = seedParticipant(habitat.id, "webhook-grant");
+    seedGrant(habitat.id, gh.podId, gh.participantId, { targetType: "habitat", targetId: habitat.id });
+    expect(await dispatchCompactRemoteEvent(input)).toEqual({ dispatched: 0, failed: 1, skipped: 0 });
+    const events = eventRepo.listNotificationEventsByHabitat(habitat.id).events;
+    expect(events[0]).toMatchObject({ eventType: "webhook.delivery_failed", severity: "warning" });
+    const ids = notificationDeliveryRepo.getDeliveriesByEvent(events[0]!.id).map((d) => d.recipientId);
+    expect(ids).toContain("op-admin");        // scoped operator
+    expect(ids).not.toContain("other-admin"); // unrelated global admin — the old getAdmins() behavior, now gone
+    expect(ids).toContain(gh.participantId);  // habitat-targeted remote pool preserved
   });
 
 });

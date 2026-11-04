@@ -3,7 +3,7 @@ import * as agentMessageRepo from '../repositories/agentMessage.js';
 import * as agentRepo from '../repositories/agent.js';
 import { sseBroadcaster } from '../sse/broadcaster.js';
 import { unauthorized, forbidden, notFound, badRequest } from '../errors.js';
-import { enqueueNotification } from '../services/notificationCommandService.js';
+import { enqueueNotificationWithIntents } from '../services/notificationIntentCommand.js';
 import { logger } from '../lib/logger.js';
 import { applyDeclaredAuthPolicies } from "../authPolicy.js";
 
@@ -64,17 +64,17 @@ export async function agentMessageRoutes(fastify: FastifyInstance): Promise<void
 
       try {
         const priority = message.priority;
-        enqueueNotification({
+        enqueueNotificationWithIntents({
           eventType: 'agent.message_received',
           sourceType: 'agent',
           sourceId: message.id,
-          targetType: 'agent',
+          targetType: 'agent',              // event-row metadata parity; no longer drives augmentation
           targetId: body.toAgentId,
           habitatId: body.habitatId,
           severity: priority === 'urgent' || priority === 'high' ? 'warning' : 'info',
           createdByType: 'agent',
           createdById: authenticatedAgentId,
-          explicitRecipients: [{ recipientType: 'agent', recipientId: body.toAgentId }],
+          intents: [{ kind: 'exact', recipients: [{ recipientType: 'agent', recipientId: body.toAgentId }] }],
           payload: {
             fromAgentName: request.agent.name,
             subject: message.subject,

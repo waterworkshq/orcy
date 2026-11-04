@@ -19,6 +19,7 @@ import {
   effectReceipts,
   habitats,
   automationDeliveryActionCheckpoints,
+  users,
 } from "../db/schema/index.js";
 import * as boardRepo from "../repositories/habitat.js";
 import * as columnRepo from "../repositories/column.js";
@@ -249,6 +250,9 @@ function crashedPinnedCheckpoint(args: {
 describe("automation release_assignment — canonical release restoration", () => {
   beforeEach(async () => {
     await initTestDb();
+    // Exact notify recipients are validated (intent migration): the frozen-rule
+    // fixture's `human user-1` must exist; personal habitats admit any existing user.
+    getDb().insert(users).values({ id: "user-1", username: "user-1", passwordHash: "fixture" }).run();
   });
   afterEach(() => {
     vi.unstubAllEnvs();

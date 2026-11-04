@@ -442,6 +442,20 @@
       "when": 1789021200007,
       "tag": "0086_mission_dependencies_source_fk",
       "breakpoints": true
+    },
+    {
+      "idx": 63,
+      "version": "6",
+      "when": 1789021200008,
+      "tag": "0087_notification_delivery_cadence",
+      "breakpoints": true
+    },
+    {
+      "idx": 64,
+      "version": "6",
+      "when": 1789021200009,
+      "tag": "0088_notification_delivery_cadence_index",
+      "breakpoints": true
     }
   ]
 }

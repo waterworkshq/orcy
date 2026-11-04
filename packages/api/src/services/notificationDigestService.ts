@@ -38,13 +38,30 @@ export function generateAllDigests(): DigestGroupResult[] {
 
 function generateDigestsForCadence(cadence: NotificationCadence): DigestGroupResult[] {
   const results: DigestGroupResult[] = [];
-  const subscriptions = findSubscriptionsForCadence(cadence);
-  if (subscriptions.length === 0) return results;
-  const groups = groupSubscriptionsByRecipient(subscriptions);
+  const groups = digestGroupsForCadence(cadence);
+  if (groups.length === 0) return results;
   for (const group of groups) {
     results.push(processDigestGroup(cadence, group));
   }
   return results;
+}
+
+/** Recipient groups for a cadence: recipient-specific subscriptions (legacy
+ *  authority, unchanged) UNION deliveries whose PERSISTED cadence is this
+ *  cadence (migration 0087 — the required-default path: a recipient with no
+ *  personal subscription row still digests on the mandatory cadence). Delivery
+ *  groups carry no timezone/localSendTime (those live on subscription rows),
+ *  so their daily/weekly firing uses the existing UTC default windows. */
+function digestGroupsForCadence(cadence: NotificationCadence): RecipientGroup[] {
+  const groups = groupSubscriptionsByRecipient(findSubscriptionsForCadence(cadence));
+  const seen = new Set(groups.map((g) => `${g.habitatId}:${g.recipientType}:${g.recipientId}`));
+  for (const d of deliveryRepo.listDigestCandidateRecipientsByCadence(cadence)) {
+    const key = `${d.habitatId}:${d.recipientType}:${d.recipientId}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    groups.push({ habitatId: d.habitatId, recipientType: d.recipientType, recipientId: d.recipientId, timezone: null, localSendTime: null });
+  }
+  return groups;
 }
 
 function findSubscriptionsForCadence(cadence: NotificationCadence): NotificationSubscription[] {

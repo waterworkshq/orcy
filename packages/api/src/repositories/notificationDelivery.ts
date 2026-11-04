@@ -18,6 +18,7 @@ import type {
   NotificationDeliveryStatus,
   NotificationRecipientType,
   NotificationChannel,
+  NotificationCadence,
 } from "@orcy/shared";
 
 export interface CreateNotificationDeliveryInput {
@@ -27,6 +28,7 @@ export interface CreateNotificationDeliveryInput {
   recipientId: string;
   required?: boolean;
   channels?: NotificationChannel[];
+  cadence?: NotificationCadence;
   clearAfter?: string;
 }
 
@@ -117,6 +119,7 @@ function runCreateInTx(
         status: "pending",
         required: input.required ?? false,
         channels: input.channels ?? [],
+        cadence: input.cadence ?? "immediate",
         deliveredAt: null,
         acknowledgedAt: null,
         snoozedUntil: null,
@@ -492,4 +495,23 @@ export function batchUpdateDeliveryStatus(
   } catch (err) {
     throw repositoryUpdateError("notificationDelivery", err as Error);
   }
+}
+
+/** Distinct (habitat, recipient) groups holding pending/delivered deliveries
+ *  with the given persisted cadence — the migration-0087 digest source for
+ *  recipients whose cadence came from a required habitat default (no personal
+ *  subscription row exists for them). */
+export function listDigestCandidateRecipientsByCadence(
+  cadence: NotificationCadence,
+): Array<{ habitatId: string; recipientType: string; recipientId: string }> {
+  return getDb()
+    .select({
+      habitatId: notificationDeliveries.habitatId,
+      recipientType: notificationDeliveries.recipientType,
+      recipientId: notificationDeliveries.recipientId,
+    })
+    .from(notificationDeliveries)
+    .where(and(eq(notificationDeliveries.cadence, cadence), inArray(notificationDeliveries.status, ["pending", "delivered"])))
+    .groupBy(notificationDeliveries.habitatId, notificationDeliveries.recipientType, notificationDeliveries.recipientId)
+    .all();
 }

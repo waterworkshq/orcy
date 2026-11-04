@@ -7,6 +7,7 @@ import { sql } from "drizzle-orm";
 import { closeDb, getDb, initDb, initTestDb } from "../db/index.js";
 import { habitats, notificationEvents, notificationDeliveries, notificationDeliveryAttempts } from "../db/schema/index.js";
 import { getDeliveryAttemptById, getDeliveryAttemptsByHabitat } from "../repositories/notificationDeliveryAttempt.js";
+import { listDigestCandidateRecipientsByCadence } from "../repositories/notificationDelivery.js";
 
 const TARGET = "query-target";
 const OTHER = "query-other";
@@ -164,6 +165,16 @@ describe.each(["sql.js", "native"] as const)("delivery query on %s", driver => {
     expect(recent, JSON.stringify(plan)).toBeGreaterThanOrEqual(0);
     expect(parent, JSON.stringify(plan)).toBeGreaterThan(recent);
     expect(plan.some(detail => /\bSCAN d\b/.test(detail)), JSON.stringify(plan)).toBe(false);
+  });
+
+  it.skipIf(driver !== "native")("serves the digest cadence scan from the covering cadence index", () => {
+    getDb().insert(notificationDeliveries).values({ id: "digest-daily", habitatId: TARGET, eventId: "query-target-event",
+      recipientType: "human", recipientId: "digest-human", channels: [], cadence: "daily" }).run();
+    const observed = captureNativeRead(() => listDigestCandidateRecipientsByCadence("daily"));
+    expect(observed.result).toEqual([{ habitatId: TARGET, recipientType: "human", recipientId: "digest-human" }]);
+    const plan = observed.plans.flat();
+    expect(plan.some(detail => /USING COVERING INDEX idx_notification_deliveries_digest_cadence/.test(detail)), JSON.stringify(plan)).toBe(true);
+    expect(plan.some(detail => /^SCAN notification_deliveries$/.test(detail)), JSON.stringify(plan)).toBe(false);
   });
 
   it.skipIf(driver !== "native")("propagates a data-read failure instead of silently retrying the full query", () => {

@@ -24,7 +24,7 @@ import { join } from "node:path";
 import { existsSync, unlinkSync, mkdirSync } from "node:fs";
 import { eq } from "drizzle-orm";
 import { closeDb, getDb, initDb } from "../db/index.js";
-import { notificationEvents, automationRuleRuns } from "../db/schema/index.js";
+import { notificationEvents, automationRuleRuns, users } from "../db/schema/index.js";
 import * as boardRepo from "../repositories/habitat.js";
 import * as columnRepo from "../repositories/column.js";
 import * as ruleRepo from "../repositories/automationRule.js";
@@ -109,6 +109,9 @@ async function seed(
   await initDb(dbPath);
   const h = boardRepo.createHabitat({ name: "Inbox Fencing Habitat" });
   columnRepo.createColumn({ habitatId: h.id, name: "Backlog", order: 0, requiresClaim: false });
+  // Exact notify recipients are validated (intent migration): the frozen rule's
+  // `human user-1` must exist; personal habitats admit any existing user.
+  getDb().insert(users).values({ id: "user-1", username: "user-1", passwordHash: "fixture" }).run();
   ruleRepo.createAutomationRule({
     habitatId: h.id,
     name: "Fencing Rule",

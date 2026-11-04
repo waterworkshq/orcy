@@ -707,6 +707,16 @@ When agents repeatedly struggle with the same type of problem, Orcy's triage sys
 - **Confirm routing decisions** when the triage agent recommends a routing for engineering findings
 - **Activate deferred findings** when you're ready (Activate clears only the release gate on the existing corrective mission — dependencies, status, and tasks are preserved), or wait for the target release: each release activates deferred groups under a frozen per-release cap
 
+## Notifications and Automation Notify Actions
+
+### Automation notify authoring
+
+Notify actions no longer accept `mission_owner` or `channel` recipients, or per-notify channel overrides. Use `habitat_admins` for habitat operators, explicit human/agent recipients otherwise, and habitat notification subscription defaults for channels. Existing stored rules are not rewritten; a stored rule using an unsupported form fails that action with a named error and sends nothing.
+
+### Who gets notified on personal habitats
+
+Release reaches the owner plus the habitat's eligible remote recipients (remote participants holding an effective grant with visibility on the habitat); budget breach and webhook failures reach scoped habitat operators — global administrators only when a habitat has none — plus eligible remote recipients of the blocked task (budget) or the habitat (webhook failures); workflow recovery reaches operators plus the affected task's remote participants when the recovery references a real task (recovery without a resolvable task target stays operators-only).
+
 ## Need Help?
 
 - Press `?` in the UI to open the contextual help drawer with keyboard shortcuts
