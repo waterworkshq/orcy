@@ -13,9 +13,11 @@
  *      from the legacy module — plain, aliased (`as`), or string-named;
  *      TYPE-only imports (`EnqueueNotificationCommand`/`EnqueueNotificationResult`)
  *      stay legal (erased at runtime, no authority);
- *   B. no namespace import (`import * as x from`), dynamic `import("…")`, or
- *      `require("…")` of the legacy module — any of these reaches the
- *      wrapper values and would bypass A;
+ *   B. no namespace import (`import * as x from`), wildcard re-export
+ *      (`export * [as x] from`), dynamic `import("…")`, or `require("…")` of
+ *      the legacy module — any of these reaches the wrapper values and would
+ *      bypass A; literal specifiers are cooked (escape sequences resolved)
+ *      before matching, so `notificationCommandService.js` is caught too;
  *   C. call/reference tripwire: a `wrapperName(` call shape in comment-stripped
  *      production source — belt-and-suspenders for a binding smuggled without
  *      a visible import clause; string-literal occurrences fail closed, the
@@ -119,7 +121,21 @@ function stripComments(source: string): string {
 
 const SRC_ROOT = join(import.meta.dirname, ".."); // packages/api/src — ONE parent from src/test (round-4 flag 12)
 const LEGACY_REL = join("services", "notificationCommandService.ts");
-const LEGACY_SPECIFIER = /(?:^|[./])notificationCommandService(?:\.js)?$/; // cooked literal module specifier
+const LEGACY_SPECIFIER = /(?:^|[./])notificationCommandService(?:\.js)?$/; // literal module specifier
+
+/** Cook a raw literal (escape sequences intact) to its runtime string value. */
+function cook(raw: string): string {
+  return raw.replace(
+    /\\\r?\n|\\u\{([0-9a-fA-F]+)\}|\\u([0-9a-fA-F]{4})|\\x([0-9a-fA-F]{2})|\\([\s\S])/g,
+    (_m, uB: string, u4: string, x2: string, ch: string) => {
+      if (uB !== undefined) return String.fromCodePoint(parseInt(uB, 16));
+      if (u4 !== undefined) return String.fromCharCode(parseInt(u4, 16));
+      if (x2 !== undefined) return String.fromCharCode(parseInt(x2, 16));
+      if (ch !== undefined) return ch; // identity escape (\. → .); octal/`\n` never appear in specifiers
+      return ""; // line continuation
+    },
+  );
+}
 const WRAPPERS = ["enqueueNotification", "enqueueNotificationForRecipients", "getResolvedRecipients"] as const;
 
 function listTypeScriptFiles(dir: string): string[] {
@@ -145,15 +161,17 @@ function legacyClauses(stripped: string): string[] {
   const clauses: string[] = [];
   const re = /(?:import|export)\s+(?:type\s+)?[^;()]*?\s*from\s*(["'`])([^"'`]+)\1/g;
   for (const m of stripped.matchAll(re)) {
-    if (LEGACY_SPECIFIER.test(m[2]!)) clauses.push(m[0]);
+    if (LEGACY_SPECIFIER.test(cook(m[2]!))) clauses.push(m[0]);
   }
   return clauses;
 }
 
-/** Namespace/dynamic/require acquisition of the legacy module (any binding). */
+/** Namespace/wildcard/dynamic/require acquisition of the legacy module (any binding). */
 function legacyAcquisition(stripped: string): string | null {
-  const spec = (specifier: string) => LEGACY_SPECIFIER.test(specifier);
+  const spec = (specifier: string) => LEGACY_SPECIFIER.test(cook(specifier));
   let m: RegExpExecArray | null;
+  const wc = /export\s*\*(?:\s*as\s+\w+)?\s*from\s*(["'`])([^"'`]+)\1/g;
+  while ((m = wc.exec(stripped))) if (spec(m[2]!)) return "wildcard re-export";
   const ns = /import\s*\*\s*as\s+\w+\s*from\s*(["'`])([^"'`]+)\1/g;
   while ((m = ns.exec(stripped))) if (spec(m[2]!)) return "namespace import";
   const dyn = /(?:import|require)\s*\(?\s*(["'`])([^"'`]+)\1/g;
@@ -174,7 +192,7 @@ function violationsIn(rel: string, stripped: string): string[] {
     }
   }
   const acq = legacyAcquisition(stripped);
-  if (acq) errs.push(`${rel}: ${acq} of the legacy module (aliases bypass the named-import ban)`);
+  if (acq) errs.push(`${rel}: ${acq} of the legacy module (aliases/wildcards bypass the named-import ban)`);
   for (const w of WRAPPERS) {
     if (new RegExp(`\\b${w}\\s*\\(`).test(stripped)) {
       errs.push(`${rel}: references banned wrapper ${w}( — audience authority is notificationIntentCommand.ts`);
@@ -218,6 +236,14 @@ describe("legacy notification wrapper retirement guard", () => {
     });
     it("flags a namespace import", () => {
       expect(run(`import * as legacy from "../services/notificationCommandService.js";`)).toHaveLength(1);
+    });
+    it("flags a wildcard re-export (and a wildcard-namespace re-export)", () => {
+      expect(run(`export * from "../services/notificationCommandService.js";`)).toHaveLength(1);
+      expect(run(`export * as legacy from "../services/notificationCommandService.js";`)).toHaveLength(1);
+    });
+    it("flags escaped module specifiers (raw literal cooks to the legacy path)", () => {
+      expect(run(`import { enqueueNotification } from "../services/notificatio\\u006eCommandService.js";`)).toHaveLength(1);
+      expect(run(`const m = await import("./notification\\x43ommandService.js");`)).toHaveLength(1);
     });
     it("flags dynamic import() and require()", () => {
       expect(run(`const m = await import("../services/notificationCommandService.js");`)).toHaveLength(1);
