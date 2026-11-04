@@ -715,7 +715,7 @@ Notify actions no longer accept `mission_owner` or `channel` recipients, or per-
 
 ### Who gets notified on personal habitats
 
-Release reaches the owner; budget breach and webhook failures reach scoped habitat operators — global administrators only when a habitat has none; workflow recovery reaches operators plus the task's remote participants.
+Release reaches the owner plus the habitat's eligible remote recipients (remote participants holding an effective grant with visibility on the habitat); budget breach and webhook failures reach scoped habitat operators — global administrators only when a habitat has none — plus eligible remote recipients of the blocked task (budget) or the habitat (webhook failures); workflow recovery reaches operators plus the affected task's remote participants when the recovery references a real task (recovery without a resolvable task target stays operators-only).
 
 ## Need Help?
 
