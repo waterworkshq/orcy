@@ -22,10 +22,12 @@ export function emitRecoveryNotification(
     // augmentation). NO ids ⇒ operators only, NO remote audience — an untargeted
     // event must never become remote broadcast (adopted policy); classified.
     const intents: NotificationAudienceIntent[] = [{ kind: "habitat_operators" }];
-    // The remote intent requires a persisted task row (the intent module's
-    // task-scope validation throws on a synthetic/unresolvable id); a payload
-    // id without a row classifies as no supported target — operators only.
-    if (targetId && taskRepo.getTaskById(targetId)) {
+    // The remote intent requires a persisted task row IN THIS HABITAT (the
+    // intent module's task-scope validation throws on a synthetic id AND on a
+    // cross-habitat id — which would drop the whole event, operators
+    // included); a payload id without a row in the habitat classifies as no
+    // supported target — operators only.
+    if (targetId && taskRepo.getHabitatIdForTask(targetId) === habitatId) {
       intents.push({ kind: "remote_visible", targetType: "task", targetId });
     } else {
       logger.warn({ eventType, habitatId }, "Recovery notification has no supported task target — remote audience omitted");

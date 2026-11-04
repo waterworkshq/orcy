@@ -108,6 +108,23 @@ describe("P6 recovery — operators UNION task-targeted remote pool", () => {
   // GROUND: MIGRATION-TASKS §0 P6 policy + TASKS T8 bullet 2 — no task ids
   // ⇒ operators only, NO remote audience (adopted: never untargeted
   // broadcast), classified and logged.
+  // Review pr-168: the task existence probe must be habitat-scoped — a
+  // payload id naming a task in another habitat classifies as no supported
+  // target (operators-only degrade), never a foreign remote pool and never
+  // a thrown-away event.
+  it("foreign-habitat task id ⇒ operators only, event still emitted, no remote audience", () => {
+    const h = seedTeamHabitat([{ userId: "op-1", memberRole: "admin" }]);
+    const other = seedTeamHabitat([{ userId: "op-2", memberRole: "admin" }]);
+    seedDefault(h, "workflow.recovery_succeeded");
+    const foreignTask = seedTaskInHabitat(other);
+    const gh = seedParticipant(h, "foreign-grant");
+    seedGrant(h, gh.podId, gh.participantId, { targetType: "task", targetId: foreignTask }); // local grant aimed at foreign task — must not leak
+    emitRecoveryNotification(h, "workflow.recovery_succeeded", "Done", { recoveryTaskId: foreignTask });
+    const { deliveries } = deliveriesOfLastEvent(h); // throws if the event was dropped wholesale
+    expect(deliveries.map((d) => d.recipientId)).toContain("op-1");
+    expect(deliveries.every((d) => !d.recipientType.startsWith("remote"))).toBe(true);
+    expect(deliveries.map((d) => d.recipientId)).not.toContain("op-2"); // foreign habitat's operators never enlisted
+  });
   it("no task ids in payload ⇒ operators only, NO remote audience (adopted: never untargeted broadcast), classified", () => {
     const h = seedTeamHabitat([{ userId: "op-1", memberRole: "admin" }]);
     seedDefault(h, "workflow.recovery_unrecoverable");
