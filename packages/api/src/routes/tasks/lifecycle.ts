@@ -526,6 +526,10 @@ export async function taskLifecycleRoutes(fastify: FastifyInstance): Promise<voi
         // Failed-lane/background retries keep the historical clear.
         const retryOptions: retryService.ExecuteRetryOptions = {
           expected: { status: task.status, version: task.version },
+          // Attribution (agent lane only): the retry_executed event names the
+          // authenticated agent principal. The human lane stays unattributed
+          // (historical system actor) until human-lane verification lands.
+          actor: principal && !humanRetry ? { type: "agent", id: principal.id } : undefined,
         };
         if (humanRetry) {
           retryOptions.requireClaimHeadroom = true;

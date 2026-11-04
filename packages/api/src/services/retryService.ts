@@ -117,6 +117,14 @@ export interface ExecuteRetryOptions {
    * {@link RetryTransitionOptions.authorize}.
    */
   authorize?: RetryTransitionOptions["authorize"];
+  /**
+   * Actor attribution for the emitted `retry_executed` event: the manual
+   * agent lane passes the authenticated agent principal so the audit trail
+   * names who triggered the retry. Absent (background lanes, human lane)
+   * keeps the historical system/retry-service actor. Attribution only —
+   * never authorizes and never alters transition-budget accounting.
+   */
+  actor?: { type: "agent" | "human"; id: string };
 }
 
 /** Distinguishes execution, budget refusal, and a stale manual-retry preimage. */
@@ -166,8 +174,8 @@ export function executeRetryWithOutcome(
       opts?.preserveRejectionReason === true ? (task.rejectionReason ?? undefined) : undefined;
 
     emitTransition(task.id, "retry_executed", habitatId, {
-      actorType: "system",
-      actorId: "retry-service",
+      actorType: opts?.actor ? opts.actor.type : "system",
+      actorId: opts?.actor ? opts.actor.id : "retry-service",
       oldStatus: task.status,
       newStatus: "pending",
       retryCount: newRetryCount,
