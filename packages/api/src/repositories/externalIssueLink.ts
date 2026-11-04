@@ -80,6 +80,24 @@ export function findByConnectionAndExternalId(
   return (row as ExternalIssueLink) ?? null;
 }
 
+export function findByProviderAndExternalId(
+  provider: IntegrationProvider,
+  externalId: string,
+): ExternalIssueLink | null {
+  const db = getDb();
+  const row = db
+    .select()
+    .from(externalIssueLinks)
+    .where(
+      and(
+        eq(externalIssueLinks.provider, provider),
+        eq(externalIssueLinks.externalId, externalId),
+      ),
+    )
+    .get();
+  return (row as ExternalIssueLink) ?? null;
+}
+
 export function listByMissionId(missionId: string): ExternalIssueLink[] {
   const db = getDb();
   return db

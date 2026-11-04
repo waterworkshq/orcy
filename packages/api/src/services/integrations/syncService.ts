@@ -5,6 +5,7 @@ import * as candidateRepo from "../../repositories/externalIntakeCandidate.js";
 import * as missionRepo from "../../repositories/mission.js";
 import * as taskRepo from "../../repositories/task.js";
 import { resolveImportColumn } from "../../repositories/column.js";
+import { admitWorkSourceMission } from "./missionAdmission.js";
 import { emitMissionAuditEvent } from "../auditEventEmitter.js";
 import type { IntegrationConnection } from "@orcy/shared";
 import type {
@@ -152,30 +153,11 @@ export function syncExternalIssue(
     throw badRequest(`No non-terminal column found for habitat ${connection.habitatId}`);
   }
 
-  const labels = [...issue.labels, `external:${issue.provider}`];
-
-  const mission = missionRepo.createMission({
-    habitatId: connection.habitatId,
-    columnId: col.columnId,
-    title: issue.title,
-    description: issue.body || "",
-    priority: "medium",
-    labels,
-    createdBy: connection.createdBy,
-  });
-
-  const link = linkRepo.create({
-    connectionId: connection.id,
-    habitatId: connection.habitatId,
-    missionId: mission.id,
-    provider: issue.provider,
-    externalId: issue.externalId,
-    externalKey: issue.externalKey,
-    externalUrl: issue.url,
-    externalStatus: issue.status,
-    externalUpdatedAt: issue.updatedAt,
-    providerLabels: issue.labels,
-  });
+  const admitted = admitWorkSourceMission({ kind: "automatic", connection, issue, columnId: col.columnId });
+  if (admitted.kind === "existing") {
+    return updateLinkedMission(connection, issue, admitted.link.missionId, admitted.link.id, syncRunId);
+  }
+  const { mission, link } = admitted;
 
   emitMissionAuditEvent({
     missionId: mission.id,
@@ -401,45 +383,7 @@ export interface PromoteIntakeCandidateResult {
 export function promoteIntakeCandidate(
   input: PromoteIntakeCandidateInput,
 ): PromoteIntakeCandidateResult {
-  const candidate = candidateRepo.getById(input.candidateId);
-  if (!candidate) throw notFound("Candidate not found");
-
-  input.verifyAccess(candidate.habitatId);
-
-  if (candidate.reviewStatus === "promoted") {
-    throw badRequest("Candidate has already been promoted");
-  }
-
-  const col = resolveImportColumn(candidate.habitatId);
-  if (!col) throw badRequest("No import column found for habitat");
-
-  const labels = [...candidate.sourceLabels, `external:${candidate.provider}`];
-  const mission = missionRepo.createMission({
-    habitatId: candidate.habitatId,
-    columnId: col.columnId,
-    title: candidate.sourceTitle,
-    description: candidate.sourceBody || "",
-    priority: "medium",
-    labels,
-    createdBy: input.createdBy,
-  });
-
-  const link = linkRepo.create({
-    connectionId: candidate.connectionId,
-    habitatId: candidate.habitatId,
-    missionId: mission.id,
-    provider: candidate.provider,
-    externalId: candidate.externalId,
-    externalKey: candidate.externalKey,
-    externalUrl: candidate.externalUrl,
-    externalStatus: candidate.sourceStatus === "closed" ? "closed" : "open",
-    providerLabels: candidate.sourceLabels,
-  });
-
-  candidateRepo.update(candidate.id, {
-    reviewStatus: "promoted",
-    promotedMissionId: mission.id,
-  });
-
-  return { mission, link, candidate: candidateRepo.getById(candidate.id)! };
+  const result = admitWorkSourceMission({ kind: "promotion", ...input });
+  if (result.kind !== "created") throw new Error("Unexpected existing admission");
+  return { mission: result.mission, link: result.link, candidate: result.candidate };
 }
