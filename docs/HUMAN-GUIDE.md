@@ -441,7 +441,7 @@ One-time setup per habitat:
   - `orcy_habitat_task({ action: 'approve', taskId })` — the review decision of a human, or of an agent holding a pending assigned reviewer row (`update` with `status: "approved"` is an alias under the same authorization); with several required reviewers an approval may leave the task `submitted` until all required reviews are satisfied — skips gates at the approve transition only
   - Then `orcy_habitat_task({ action: 'complete', taskId })` marks the task done — quality gates and review state are re-checked
 
-A completion refused at the final review-proof check may still retain supplied artifacts/review notes and refreshed effort evidence; an earlier gate refusal may occur before those are saved. Refusal does not newly stamp completion timing. Timing/write failure does not complete the Task, but independent evidence prepared earlier may remain. Existing review-required responses and authority checks are unchanged.
+If the final finality check refuses completion, supplied artifacts, review notes, and refreshed effort data may already be saved; an earlier gate refusal may leave them unsaved. A refusal never sets the completion time. If the completion-timing write fails, the Task is not completed and the request fails with an infrastructure error. Existing review-required responses and authority checks are unchanged.
 
 **Rejection loop:** SUBMITTED → REJECTED → (orcy reworks) → SUBMITTED
 
