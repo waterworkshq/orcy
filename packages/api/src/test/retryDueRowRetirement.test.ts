@@ -85,8 +85,9 @@ function rejectIt(taskId: string): void {
 type ArmExtra = FixtureTaskUpdateInput & { retryPolicy?: RetryPolicy | null };
 
 async function armAndForceDue(taskId: string, extra: ArmExtra = {}): Promise<void> {
-  await processEffectReceipts(); // workflow_gates / failure_context siblings first
-  await processEffectReceipts(); // then retry_ladder arms nextRetryAt
+  await processEffectReceipts(); // workflow_gates / skill siblings first
+  await processEffectReceipts(); // failure_context after workflow_gates
+  await processEffectReceipts(); // retry_ladder after failure_context; arms nextRetryAt
   // `retryPolicy` goes through the generic writer: it is declared on taskCrud's
   // UpdateTaskInput but NOT on FixtureTaskUpdateInput — the fixture writer's
   // copy-all-keys loop is not a declared part of its contract.
