@@ -207,6 +207,11 @@ describe("automation notify authoring guard (N4)", () => {
   it("rejects channel notify recipient with replacement guidance", () => {
     const res = automationRuleDraftSchema.safeParse(ruleBody([notifyAction([{ type: "channel", channelId: "c1" }])]));
     expect(res.success).toBe(false);
+    if (!res.success) {
+      const issue = res.error.issues.find((i) => i.path.join(".") === "actions.0.recipients.0.type");
+      expect(issue?.message).toContain("channel recipients are not supported");
+      expect(issue?.message).toContain("address human/agent recipients explicitly");
+    }
   });
 
   // GROUND: PRD N4 — nonempty per-notify channel override rejected; the
