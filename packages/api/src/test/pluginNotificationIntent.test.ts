@@ -33,7 +33,7 @@ beforeEach(async () => {
   subscriptionRepo.createSubscription({ habitatId, scope: "habitat_default", eventType: "task.blocked",
     enabled: true, required: false, channels: ["in_app"], cadence: "immediate" });
 });
-afterEach(async () => { await closeDb(); });
+afterEach(async () => { await closeDb(); delete process.env.ORCY_PLUGIN_WRITE_CAP; });
 
 function sender() {
   const ctx = buildPluginContext({ pluginId: "p1", contributionId: "c1", habitatId, runId: "r1",
@@ -86,9 +86,12 @@ describe("plugin notificationSender → exact intent (P8)", () => {
   // scoped/capped/provenance-stamped"; pins the write-cap gate staying ABOVE the
   // enqueue call in the 9.2 patch ordering (cap enforced before any enqueue).
   it("write cap still enforced before any enqueue", async () => {
+    // Pin the cap explicitly: an ambient ORCY_PLUGIN_WRITE_CAP (e.g. a non-numeric
+    // value → NaN) would silently skip the loop and defang the expected rejection.
+    process.env.ORCY_PLUGIN_WRITE_CAP = "3";
     const ctx = buildPluginContext({ pluginId: "p1", contributionId: "c1", habitatId, runId: "r1",
       requires: ["notificationSender"] });
-    for (let i = 0; i < Number(process.env.ORCY_PLUGIN_WRITE_CAP ?? "50"); i++) {
+    for (let i = 0; i < 3; i++) {
       await ctx.notificationSender!.notify({ eventType: "task.blocked",
         recipients: [{ recipientType: "human", recipientId: memberUserId }], template: "T" });
     }
