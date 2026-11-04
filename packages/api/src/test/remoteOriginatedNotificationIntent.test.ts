@@ -92,12 +92,18 @@ describe("remote lifecycle → remote_visible (P5)", () => {
   it("explicit acting participant with no effective eligible grant is classified suppressed ineligible_remote — adopted delta, no blind union, no throw", () => {
     const taskId = seedTaskInHabitat(habitatId);
     const ungranted = seedParticipant("x");   // active participant, NO grant row: no effective authority for the target
-    emitRemoteOriginatedNotification(baseOpts({
-      targetId: taskId,
-      explicitRecipients: [{ recipientType: "remote_human", recipientId: ungranted.participantId }],
-    }));
-    const event = eventRepo.listNotificationEventsByHabitat(habitatId).events[0]!;
-    expect(deliveryRepo.getDeliveriesByEvent(event.id).map((d) => d.recipientId)).not.toContain(ungranted.participantId);
+    const enqueue = vi.spyOn(intentCommand, "enqueueNotificationWithIntents"); // passthrough: capture the result
+    try {
+      emitRemoteOriginatedNotification(baseOpts({
+        targetId: taskId,
+        explicitRecipients: [{ recipientType: "remote_human", recipientId: ungranted.participantId }],
+      }));
+      const event = eventRepo.listNotificationEventsByHabitat(habitatId).events[0]!;
+      expect(deliveryRepo.getDeliveriesByEvent(event.id).map((d) => d.recipientId)).not.toContain(ungranted.participantId);
+      expect(enqueue.mock.results[0]!.value.suppressed).toContainEqual(
+        { recipientType: "remote_human", recipientId: ungranted.participantId, reason: "ineligible_remote" },
+      );
+    } finally { enqueue.mockRestore(); }
   });
 
   // GROUND: MIGRATION-TASKS T6 6.3 — a missing target must not degrade to an
