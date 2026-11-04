@@ -1495,6 +1495,7 @@ Per-recipient trackable delivery of a notification event with lifecycle status.
 | `cleared_at` | TEXT | DEFAULT NULL | When cleared from inbox |
 | `clear_after` | TEXT | DEFAULT NULL | Scheduled auto-clear time |
 | `push_epoch` | TEXT | NOT NULL DEFAULT 'restored' | Migration 0077 upgrade marker: rows existing before the epoch backfill carry `legacy` (never pushed); every later insert defaults to `restored` |
+| `cadence` | TEXT | NOT NULL DEFAULT 'immediate' | Migration 0087: resolved cadence at enqueue; downstream digest grouping authority for the required-default path |
 | `created_at` | TEXT | NOT NULL DEFAULT (datetime('now')) | Creation timestamp |
 | `updated_at` | TEXT | NOT NULL DEFAULT (datetime('now')) | Last update timestamp |
 
@@ -3022,6 +3023,7 @@ entries are:
 | `0084` | `0084_scheduled_occurrence_history.sql` | Adds non-FK whole-history entitlement summaries, the nonunique schedule/ordinal index, exact legacy backfill, normal-DML maintenance triggers, and sticky conflict invalidation for every affected schedule. No occurrence or due-pointer rewrite; migration work scales with retained history. |
 | `0085` | `0085_notification_monitor_query_indexes.sql` | Adds nonunique covering indexes for the admin monitor: attempt chronology, channel chronology, and exact delivery/Habitat lookup. Retains the complete-query fallback and all existing indexes; index construction scales with retained history and adds ongoing write/storage cost. |
 | `0086` | `0086_mission_dependencies_source_fk.sql` | Source-side foreign key on `mission_dependencies.mission_id` → `missions(id)` ON DELETE CASCADE (symmetric with the existing `depends_on_id` cascade; closes the dangling source-edge gap — mission deletion previously left owned edges behind forever). Table rebuild via the archive-then-mirror pattern: rows with a missing endpoint Mission are preserved in `mission_dependencies_orphans_0086` (normally empty; anything captured needs explicit remediation) and excluded from the mirrored copy, so no replacement key can abort the rebuild. Drizzle parity via `missionDependencies` in `db/schema/habitat.ts`; archive/copy/cascade proven by `missionDependencySourceFk.test.ts` on the production better-sqlite3 driver. |
+| `0087` | `0087_notification_delivery_cadence.sql` | Notification delivery cadence: additive notification_deliveries.cadence (TEXT NOT NULL DEFAULT 'immediate') persists each delivery's resolved cadence at enqueue; digest grouping unions the persisted cadence with recipient-specific subscription cadences. No table, index, or further column was added; hand-authored .sql with a hand-appended journal entry per the post-0053 convention (no per-migration snapshot). |
 
 The gap `0003`–`0026` is **intentional**. Those migrations were consolidated
 into `0000_schema.sql` at the boundary commit and are deliberately NOT in the
