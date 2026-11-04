@@ -80,6 +80,16 @@ export const notificationDeliveries = sqliteTable(
     ),
     index("idx_notification_deliveries_event").on(table.eventId),
     index("idx_notification_deliveries_scope_lookup").on(table.id, table.habitatId),
+    // Migration 0088: covering index for the digest-cadence source lookup
+    // (listDigestCandidateRecipientsByCadence) — eq(cadence) + IN(status)
+    // prefix, grouped (habitat, recipient) columns carried in the index.
+    index("idx_notification_deliveries_digest_cadence").on(
+      table.cadence,
+      table.status,
+      table.habitatId,
+      table.recipientType,
+      table.recipientId,
+    ),
     index("idx_notification_deliveries_clearance").on(
       table.habitatId,
       table.clearAfter,

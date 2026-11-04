@@ -1499,7 +1499,7 @@ Per-recipient trackable delivery of a notification event with lifecycle status.
 | `created_at` | TEXT | NOT NULL DEFAULT (datetime('now')) | Creation timestamp |
 | `updated_at` | TEXT | NOT NULL DEFAULT (datetime('now')) | Last update timestamp |
 
-**Indexes:** `idx_notification_deliveries_recipient_active(habitat_id, recipient_type, recipient_id, status, created_at)`, `idx_notification_deliveries_event(event_id)`, `idx_notification_deliveries_clearance(habitat_id, clear_after, status)`, `idx_notification_deliveries_scope_lookup(id, habitat_id)` (migration 0085)
+**Indexes:** `idx_notification_deliveries_recipient_active(habitat_id, recipient_type, recipient_id, status, created_at)`, `idx_notification_deliveries_event(event_id)`, `idx_notification_deliveries_clearance(habitat_id, clear_after, status)`, `idx_notification_deliveries_scope_lookup(id, habitat_id)` (migration 0085), `idx_notification_deliveries_digest_cadence(cadence, status, habitat_id, recipient_type, recipient_id)` (migration 0088, covering the digest-cadence source lookup)
 
 #### `notification_delivery_channel_states`
 
