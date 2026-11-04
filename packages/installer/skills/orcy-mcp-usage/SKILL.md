@@ -460,6 +460,8 @@ Output: { "success": true, "task": { "status": "done" }, "message": "Task comple
 
 **Quality gates enforced:** All checklist items complete, dependencies resolved, time tracking calculated, artifacts merged.
 
+A completion refused at the final review-proof check may still retain supplied artifacts/review notes and refreshed effort evidence; an earlier gate refusal may occur before those are saved. Refusal does not newly stamp completion timing. Timing/write failure does not complete the Task, but independent evidence prepared earlier may remain. Existing review-required responses and authority checks are unchanged.
+
 ### Approve Task (Review Decision)
 
 Reviewer approves a submitted task under existing review authorization (`POST /tasks/:id/approve`). Admits a human reviewer or an agent holding a pending agent-typed reviewer row (reviewer identity from authenticated principal; no executionToken required; normal authentication and reviewer authorization still apply; no quality gates). A pending row alone never approves: assignee self-review is refused and task-state checks still apply.

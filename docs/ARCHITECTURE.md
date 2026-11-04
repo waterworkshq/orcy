@@ -794,6 +794,8 @@ project it as unknown rather than an identified human
 
 Tasks use the following state machine. Completion reaches `done` only through the **gated path** (`POST /tasks/:id/complete`), which validates quality gates and dependencies — including after an approval. From `submitted`, two review decisions exist: approval (`POST /tasks/:id/approve`) moves the task to `approved` — or leaves it `submitted` while required reviews remain — and skips quality gates at its own transition only; rejection (`POST /tasks/:id/reject`) returns the task for rework. Decisions are made by a human or by an agent holding a pending assigned reviewer row (agent self-review is denied server-side); a separately opted-in system merge-approval webhook can also approve.
 
+Task completion retains existing early claimant/reviewer/dependency/quality checks and pre-veto before evidence preparation. Once preparation is reached, supplied artifacts/review notes and best-effort effort recalculation are independent of later finality refusal. The review-finality reservation validates current requirements/proof and commits done plus completion timing as one bundle; a timing/readback failure rolls back that bundle and emits no success effects. The returned Task is reread after metrics. External effects remain postcommit and are not replay/atomic-delivery guaranteed. Mission timing rollup observes the done state; approved Tasks already satisfied its existing done/approved predicate before this change.
+
                     ┌──────────────────────────────────────────────┐
                     │                                              │
                     ▼                                              │
