@@ -6952,7 +6952,7 @@ Workflow automation engine — event-driven and scheduled rules with conditions,
 | POST | `/automation-rules/:rid/simulate` | Simulate (agent path: the restricted contract above — constrained read-only simulation; human simulation retains existing behavior, including registered plugin-condition evaluation) |
 | POST | `/automation-rules/:rid/run` | Manual run |
 
-Rule create/update (including the draft alias): validation rejects notify actions using `mission_owner` or `channel` recipients, or a nonempty `channels` override, with a 400 naming the supported replacement; request payloads are otherwise unchanged (no new required field).
+Rule create/update routes: validation rejects notify actions using `mission_owner` or `channel` recipients, or a nonempty `channels` override, with a 400 naming the supported replacement; request payloads are otherwise unchanged (no new required field). The same authoring validation applies to machine-readable rule drafts — `automationRuleDraftSchema` is an internal extraction-validation schema aliasing the create schema, not a distinct HTTP route.
 
 ### Run History
 
@@ -6961,7 +6961,7 @@ Rule create/update (including the draft alias): validation rejects notify action
 | GET | `/automation-rules/:rid/runs` | Runs for rule — agent path: allowlisted run view |
 | GET | `/habitats/:hid/automation-runs` | All habitat runs — agent path: allowlisted run view |
 
-Run responses: notify action results now carry `outcome` (`enqueued`|`event_only`), `deliveryCount`, `suppressedCount` and `emptyReasons`, and unsupported stored recipient/channel forms record `failed` with zero notification writes. `outcome` and `emptyReasons` are new; `deliveryCount` and `suppressedCount` are retained.
+Run responses: a **succeeded** notify action result carries `outcome` (`enqueued`|`event_only`), `deliveryCount`, `suppressedCount` and `emptyReasons` (alongside the pre-existing `eventId`). Unsupported stored recipient/channel forms fail the whole action at a pre-write preflight: the action result records `status: "failed"` with an `error` and omits `result` entirely, with zero notification writes. `outcome` and `emptyReasons` are new; `deliveryCount` and `suppressedCount` are retained.
 
 ### Inbox & Delivery Disposition (v0.40)
 
