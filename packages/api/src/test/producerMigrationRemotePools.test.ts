@@ -81,6 +81,12 @@ function deliveriesOfLastEvent(habitatId: string) {
   const event = eventRepo.listNotificationEventsByHabitat(habitatId).events[0]!;
   return { event, deliveries: deliveryRepo.getDeliveriesByEvent(event.id) };
 }
+// Recipient-set comparator: Array#sort with no comparator stringifies objects
+// (all "[object Object]") and reorders nothing — sort by a stable key instead.
+const byRecipientKey = (
+  a: { recipientType: string; recipientId: string },
+  b: { recipientType: string; recipientId: string },
+) => `${a.recipientType}:${a.recipientId}`.localeCompare(`${b.recipientType}:${b.recipientId}`);
 
 describe("P6 recovery — operators UNION task-targeted remote pool", () => {
   // GROUND: TASKS T8 bullet 1/3 — recovery operators union supported task
@@ -95,7 +101,7 @@ describe("P6 recovery — operators UNION task-targeted remote pool", () => {
     const { deliveries } = deliveriesOfLastEvent(h);
     const expected = findRemoteRecipientsForEvent({ habitatId: h, eventType: "workflow.recovery_started", targetType: "task", targetId: taskId });
     const remoteGot = deliveries.filter((d) => d.recipientType.startsWith("remote")).map((d) => ({ recipientType: d.recipientType, recipientId: d.recipientId }));
-    expect(remoteGot.sort()).toEqual([...expected].sort());
+    expect([...remoteGot].sort(byRecipientKey)).toEqual([...expected].sort(byRecipientKey));
     expect(deliveries.map((d) => d.recipientId)).toContain("op-1");   // additive local operator
     expect(deliveries.map((d) => d.recipientId)).not.toContain("mem-2"); // members are not operators
   });
@@ -118,7 +124,7 @@ describe("P3 budget breach — operators + task-targeted pool", () => {
   // GROUND: TASKS T8 bullet 3 — no all-admin broadcast when scoped
   // responsibility exists (fallback only when unserved); task pool
   // preserved byte-equal; members-only audience becomes operators (adopted).
-  it("scoped operators (not all members) receive breach; task pool preserved; unserved habitat falls back to global admins", () => {
+  it("scoped operators (not all members) receive breach; task pool preserved; served habitat does not fall back", () => {
     const h = seedTeamHabitat([{ userId: "op-1", memberRole: "owner" }, { userId: "mem-2", memberRole: "member" }]);
     seedUser("global-admin", "admin");
     seedDefault(h, "task.blocked");
@@ -135,6 +141,21 @@ describe("P3 budget breach — operators + task-targeted pool", () => {
     expect(ids).not.toContain("global-admin"); // fallback only when unserved
     const expected = findRemoteRecipientsForEvent({ habitatId: h, eventType: "task.blocked", targetType: "task", targetId: taskId });
     const remoteGot = deliveries.filter((d) => d.recipientType.startsWith("remote")).map((d) => ({ recipientType: d.recipientType, recipientId: d.recipientId }));
-    expect(remoteGot.sort()).toEqual([...expected].sort());
+    expect([...remoteGot].sort(byRecipientKey)).toEqual([...expected].sort(byRecipientKey));
+  });
+  // Same escalation path, habitat deliberately unserved (no owner/admin team
+  // roles) ⇒ resolveHabitatOperators scoped set is empty and the N2 fallback
+  // to global admins is the only audience.
+  it("unserved habitat (no owner/admin team roles) falls back to global admins", () => {
+    const h = seedTeamHabitat([{ userId: "mem-1", memberRole: "member" }]);
+    seedUser("global-admin", "admin");
+    seedDefault(h, "task.blocked");
+    const taskId = seedTaskInHabitat(h);
+    const refused = { ceiling: 5, count: 5 } as BudgetRefusedOutcome;
+    escalateTransitionBudgetBreach(taskId, h, refused, "submitted", "agent");
+    const { deliveries } = deliveriesOfLastEvent(h);
+    const ids = deliveries.map((d) => d.recipientId);
+    expect(ids).toContain("global-admin"); // unserved ⇒ N2 fallback fires
+    expect(ids).not.toContain("mem-1");    // members never inherit operator duty
   });
 });
