@@ -117,6 +117,14 @@ export interface ExecuteRetryOptions {
    * {@link RetryTransitionOptions.authorize}.
    */
   authorize?: RetryTransitionOptions["authorize"];
+  /**
+   * Actor attribution for the emitted `retry_executed` event: the manual
+   * agent lane passes the authenticated agent principal so the audit trail
+   * names who triggered the retry. Absent (background lanes, human lane)
+   * keeps the historical system/retry-service actor. Attribution only —
+   * never authorizes and never alters transition-budget accounting.
+   */
+  actor?: { type: "agent" | "human"; id: string };
 }
 
 /** Distinguishes execution, budget refusal, and a stale manual-retry preimage. */
@@ -166,8 +174,8 @@ export function executeRetryWithOutcome(
       opts?.preserveRejectionReason === true ? (task.rejectionReason ?? undefined) : undefined;
 
     emitTransition(task.id, "retry_executed", habitatId, {
-      actorType: "system",
-      actorId: "retry-service",
+      actorType: opts?.actor ? opts.actor.type : "system",
+      actorId: opts?.actor ? opts.actor.id : "retry-service",
       oldStatus: task.status,
       newStatus: "pending",
       retryCount: newRetryCount,
@@ -270,7 +278,10 @@ export function processPendingRetries(): void {
   const pendingTasks = taskRepo.getTasksPendingRetry();
   for (const task of pendingTasks) {
     const policy = getEffectivePolicy(task);
-    if (!policy) continue;
+    if (!policy) {
+      retireDueRow(task, "policy_absent");
+      continue;
+    }
 
     if (task.retryCount < (policy.maxRetries ?? 3)) {
       // The scheduler snapshot's preimage is pinned into the writer: a row
@@ -285,8 +296,28 @@ export function processPendingRetries(): void {
       });
     } else if (policy.escalateToHuman) {
       escalateToHuman(task);
+    } else {
+      retireDueRow(task, "exhausted_no_escalation");
     }
   }
+}
+
+/**
+ * A due row whose effective policy will never act on it (policy absent, or
+ * exhausted with escalation explicitly disabled) is retired from the due scan
+ * by clearing ONLY the ETA — no status change, no counter consumption, no
+ * escalation event (`escalateToHuman:false` is an explicit disable), and no
+ * re-arming of automatic retry (the row leaves the selection predicate).
+ * Write posture: the due pass is a synchronous single-threaded loop in one API
+ * process (no await between selection and this clear).
+ */
+function retireDueRow(task: Task, cause: "policy_absent" | "exhausted_no_escalation"): void {
+  const result = taskRepo.updateTask(task.id, { nextRetryAt: null });
+  if (!result.success) {
+    logger.warn({ taskId: task.id, cause }, "Due-row retirement write failed; row remains due");
+    return;
+  }
+  logger.info({ taskId: task.id, cause }, "Retired due retry row; effective policy will not act");
 }
 
 /** Starts an interval timer that periodically runs {@link processPendingRetries} and returns the handle. */
