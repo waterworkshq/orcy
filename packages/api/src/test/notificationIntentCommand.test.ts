@@ -849,6 +849,29 @@ describe("intent core — remote_visible (N1/P5)", () => {
       "MISSING_CONTEXT_TARGET",
     );
   });
+
+  // GROUND: DESIGN §3 `remote_visible` row (supported-target existence precedes recipient attention);
+  // review — the habitat branch must require the persisted habitat row, never persist an event for a nonexistent habitat.
+  it("nonexistent command habitat on the habitat target ⇒ MISSING_CONTEXT_TARGET", () => {
+    expectIntentError(
+      () => resolveAudience({ habitatId: "no-such-habitat", eventType: "task.blocked", intents: [{ kind: "remote_visible", targetType: "habitat", targetId: "no-such-habitat" }] }),
+      "MISSING_CONTEXT_TARGET",
+    );
+  });
+
+  // GROUND: DESIGN §6 ("Distinguish enqueued, intentional Event-only, supported empty audience") + CORE-TASKS §1 correction 5;
+  // review — a fully-ineligible named-remote request is NOT an intentional empty audience.
+  it("named-remote-only ineligibility classifies all_remote_suppressed, not no_recipients", () => {
+    const habitatId = setupTeamHabitat([{ userId: "owner-1", role: "owner" }]);
+    const { task } = seedTask(habitatId);
+    const r = enqueue(habitatId, [{
+      kind: "remote_visible", targetType: "task", targetId: task.id,
+      explicitRemote: [{ recipientType: "remote_orcy", recipientId: "ungranted-actor" }],
+    }]);
+    expect(r.outcome).toBe("event_only");
+    expect(r.emptyReasons).toEqual(["all_remote_suppressed"]);
+    expect(r.suppressed).toEqual([{ recipientType: "remote_orcy", recipientId: "ungranted-actor", reason: "ineligible_remote" }]);
+  });
 });
 
 /* ---------- T4: atomic enqueue + classified outcomes, BOTH backends ---------- */

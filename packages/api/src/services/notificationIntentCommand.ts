@@ -77,7 +77,7 @@ export interface AudienceResolution {
   /** Named remote identities that failed effective-target eligibility (classified, not thrown). */
   suppressedRemote: Candidate[];
   /** Legitimate-empty classification when candidates is empty. */
-  emptyReason?: "no_recipients" | "system_creator";
+  emptyReason?: "no_recipients" | "system_creator" | "all_remote_suppressed";
 }
 
 /* ------------------------------------------------------------------ */
@@ -395,6 +395,8 @@ export function resolveAudience(input: {
           }
         } else if (intent.targetId !== input.habitatId) {
           throw new NotificationIntentError("MISSING_CONTEXT_TARGET", `habitat target ${intent.targetId} does not match ${input.habitatId}`);
+        } else if (!habitatRow(input.habitatId)) {
+          throw new NotificationIntentError("MISSING_CONTEXT_TARGET", `habitat ${input.habitatId} not found`);
         }
         // Accepted pool, verbatim — effective grants/participants/visibility
         // authority is the existing discovery helper (ADR-0043 invariant).
@@ -433,7 +435,14 @@ export function resolveAudience(input: {
   return {
     candidates,
     suppressedRemote,
-    emptyReason: candidates.length === 0 ? (systemCreator ? "system_creator" : "no_recipients") : undefined,
+    emptyReason:
+      candidates.length === 0
+        ? systemCreator
+          ? "system_creator"
+          : suppressedRemote.length > 0
+            ? "all_remote_suppressed"
+            : "no_recipients"
+        : undefined,
   };
 }
 
