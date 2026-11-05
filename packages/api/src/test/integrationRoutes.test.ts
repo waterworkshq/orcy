@@ -62,8 +62,9 @@ function captureIntegrationRoutes(): CapturedRoute[] {
   return routes;
 }
 
-const { mockSyncConnection } = vi.hoisted(() => ({
+const { mockSyncConnection, mockPromoteIntakeCandidate } = vi.hoisted(() => ({
   mockSyncConnection: vi.fn(),
+  mockPromoteIntakeCandidate: vi.fn(),
 }));
 
 vi.mock("../repositories/integrationConnection.js", () => ({
@@ -103,6 +104,7 @@ vi.mock("../services/integrations/syncService.js", async (importOriginal) => {
     ...actual,
     syncConnection: (...args: unknown[]) => mockSyncConnection(...args),
     syncExternalIssue: vi.fn(),
+    promoteIntakeCandidate: (...args: unknown[]) => mockPromoteIntakeCandidate(...args),
   };
 });
 
@@ -903,66 +905,49 @@ describe("GET /intake-candidates/:candidateId", () => {
 });
 
 describe("POST /intake-candidates/:candidateId/promote", () => {
-  it("promotes a candidate and returns 201", async () => {
-    const routes = captureIntegrationRoutes();
-    const route = routes.find(
+  // GROUND: PRD A5 — route forwards the access callback and returns 201 on the
+  // admission result; unit-level callback forwarding only (T3 covers real HTTP
+  // authorization), so the service is mocked here.
+  beforeEach(() => { mockPromoteIntakeCandidate.mockReset(); });
+  it("passes the access callback and returns the admission result", async () => {
+    const route = captureIntegrationRoutes().find(
       (r) => r.method === "POST" && r.path === "/intake-candidates/:candidateId/promote",
     )!;
-    const candRepo = await import("../repositories/externalIntakeCandidate.js");
-    const missionRepo = await import("../repositories/mission.js");
-    const linkRepo = await import("../repositories/externalIssueLink.js");
-
-    const candidate = {
-      id: "cand-1",
-      habitatId: "hab-1",
-      connectionId: "conn-1",
-      provider: "jira",
-      externalId: "EXT-1",
-      externalKey: "PROJ-1",
-      externalUrl: "https://jira/1",
-      sourceTitle: "Bug",
-      sourceBody: "Desc",
-      sourceStatus: "open",
-      sourceLabels: ["bug"],
-      reviewStatus: "new",
-    };
-    (candRepo.getById as any).mockReturnValue(candidate);
-    (candRepo.update as any).mockReturnValue({
-      ...candidate,
-      reviewStatus: "promoted",
-      promotedMissionId: "mis-new",
+    const result = { mission: { id: "mis-new" }, link: { id: "link-1" }, candidate: { id: "cand-1" } };
+    mockPromoteIntakeCandidate.mockImplementationOnce((input: { verifyAccess: (id: string) => void }) => {
+      input.verifyAccess("hab-1");
+      return result;
     });
-    (linkRepo.create as any).mockReturnValue({ id: "link-1" });
-
     const reply = makeMockReply();
     await route.handler(makeMockRequest({ params: { candidateId: "cand-1" } }), reply);
-
-    expect(missionRepo.createMission).toHaveBeenCalled();
-    expect(linkRepo.create).toHaveBeenCalled();
-    expect(candRepo.update).toHaveBeenCalledWith(
-      "cand-1",
-      expect.objectContaining({ reviewStatus: "promoted" }),
-    );
+    expect(mockPromoteIntakeCandidate).toHaveBeenCalledWith(expect.objectContaining({
+      candidateId: "cand-1", createdBy: "user-1", verifyAccess: expect.any(Function),
+    }));
     expect(reply.code).toHaveBeenCalledWith(201);
+    expect(reply.send).toHaveBeenCalledWith(result);
   });
 
-  it("rejects double promote", async () => {
-    const routes = captureIntegrationRoutes();
-    const route = routes.find(
+  it("does not send success when the forwarded access callback denies", async () => {
+    const route = captureIntegrationRoutes().find(
+      (entry) => entry.method === "POST" && entry.path === "/intake-candidates/:candidateId/promote",
+    )!;
+    mockPromoteIntakeCandidate.mockImplementationOnce((input: { verifyAccess: (id: string) => void }) => {
+      input.verifyAccess("hab-1");
+      return { mission: { id: "must-not-return" } };
+    });
+    const reply = makeMockReply();
+    await expect(route.handler(makeMockRequest({ user: undefined, params: { candidateId: "cand-1" } }), reply))
+      .rejects.toMatchObject({ statusCode: 401 });
+    expect(reply.send).not.toHaveBeenCalled();
+  });
+
+  it("propagates promotion refusal", async () => {
+    const route = captureIntegrationRoutes().find(
       (r) => r.method === "POST" && r.path === "/intake-candidates/:candidateId/promote",
     )!;
-    const candRepo = await import("../repositories/externalIntakeCandidate.js");
-
-    (candRepo.getById as any).mockReturnValue({
-      id: "cand-1",
-      habitatId: "hab-1",
-      reviewStatus: "promoted",
-    });
-
-    const reply = makeMockReply();
-    await expect(() =>
-      route.handler(makeMockRequest({ params: { candidateId: "cand-1" } }), reply),
-    ).rejects.toBeDefined();
+    mockPromoteIntakeCandidate.mockImplementationOnce(() => { throw new Error("already promoted"); });
+    await expect(route.handler(makeMockRequest({ params: { candidateId: "cand-1" } }), makeMockReply()))
+      .rejects.toThrow("already promoted");
   });
 });
 

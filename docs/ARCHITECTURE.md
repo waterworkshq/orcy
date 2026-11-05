@@ -68,6 +68,8 @@ This document covers the system architecture, design decisions, key flows, and i
 | SSE | `src/sse/` | Event registry (membership-aware projection matrix) |
 | Types | `src/types/` | TypeScript interfaces |
 
+Mission Create/Edit share the Mission-specific `lib/missionAuthoring.ts` rules for draft prefill and field serialization. Create-only Column/acceptance criteria remain local; Create omits empty optional values, while Edit clears regular empty values and release fields only when release authoring is enabled. In feature mode, Edit omits release fields to preserve persisted gates. An Edit session captures its Mission id/version and retains that baseline and input across same-record refetches. Conflict reconciliation remains server-authoritative through the existing mutation hooks; no durable client store or automatic draft rebase is introduced.
+
 ### MCP (`packages/mcp`)
 
 | File | Responsibility |
@@ -1169,6 +1171,8 @@ This is pull-first and downstream: `external issue → Orcy mission`. No default
 | Linear | Intake candidate | Product/roadmap context, not always execution-ready |
 
 GitHub can be configured for direct import (`autoImport: true`) during connection setup. Jira and Linear default to intake candidates that a human/orcy reviews before promoting to missions. The `external_intake_candidates` table holds reviewable source evidence — titles, descriptions, priority, labels, assignees, and raw provider payloads — without automatically creating missions.
+
+New automatic-import Missions and their external issue links commit in one SQLite transaction; promotion also commits the candidate disposition in that transaction. Existing provider/external and connection/external uniqueness constraints remain authoritative. An identity owned by another connection is refused without attaching its Mission. Automatic-import Mission audit remains post-commit: an audit failure is propagated even though Mission and link have committed, and retry follows the existing-link update path. Human promotion does not emit a Mission audit event. This is not a multi-process or exactly-once guarantee.
 
 ### Source Evidence vs. Orcy Execution Authority
 

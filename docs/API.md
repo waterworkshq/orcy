@@ -4660,6 +4660,10 @@ A successful multi-reviewer approval that does not finalize the task replies tha
 
 Manage external provider connections (GitHub Issues, Jira, Linear) for importing work into habitats. All connection management endpoints require human auth. Token values are never returned in API responses — the `hasAccessToken` / `hasRefreshToken` / `hasWebhookSecret` booleans indicate presence without exposing values.
 
+### POST /intake-candidates/:candidateId/promote
+
+Requires a human JWT and access to the candidate's Habitat. On success returns `201` with `{ mission, link, candidate }`. An already-promoted candidate is `400`. If its external identity is already linked, the response is `409` with `{ "error": "External issue is already linked", "code": "CONFLICT" }`; the existing owner's identity is not returned. A new Mission, link and candidate disposition commit together. Human promotion does not add a Mission audit event.
+
 ### GET /habitats/:habitatId/integrations
 
 List all integration connections for a habitat. Connections are returned in **masked view** — token fields are replaced with boolean presence indicators. Disabled connections are still returned (soft disable). Requires agent or human auth.
