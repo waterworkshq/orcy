@@ -1168,6 +1168,8 @@ This is pull-first and downstream: `external issue → Orcy mission`. No default
 
 GitHub can be configured for direct import (`autoImport: true`) during connection setup. Jira and Linear default to intake candidates that a human/orcy reviews before promoting to missions. The `external_intake_candidates` table holds reviewable source evidence — titles, descriptions, priority, labels, assignees, and raw provider payloads — without automatically creating missions.
 
+New automatic-import Missions and their external issue links commit in one SQLite transaction; promotion also commits the candidate disposition in that transaction. Existing provider/external and connection/external uniqueness constraints remain authoritative. An identity owned by another connection is refused without attaching its Mission. Automatic-import Mission audit remains post-commit: an audit failure is propagated even though Mission and link have committed, and retry follows the existing-link update path. Human promotion does not emit a Mission audit event. This is not a multi-process or exactly-once guarantee.
+
 ### Source Evidence vs. Orcy Execution Authority
 
 An external issue link (`external_issue_links`) is durable provenance, not canonical execution state. The Orcy mission owns its own lifecycle: status, priority, labels, task decomposition. External issue edits update linked missions (title, body, labels) but never overwrite Orcy-only state. The guarded close rule protects active work: an upstream issue closure only marks a mission `done` if all its tasks are terminal; otherwise it adds an `external-closed` label and sync warning.
