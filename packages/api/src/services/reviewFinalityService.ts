@@ -33,6 +33,8 @@ import {
   type ProjectedReviewerStatus,
   type ReviewRequirementRow,
 } from "../repositories/reviewSafety.js";
+import { calculateAndSetCompletionMetrics } from "./timeTrackingService.js";
+import { getPersistedEffortMetricsForTask } from "../repositories/effortEntry.js";
 
 export interface PreVetoDecision {
   allow: false;
@@ -429,7 +431,31 @@ export function completeWithReservation(taskId: string): CompletionReservationOu
       const ctx = mintTerminal(tx, taskId, requirement.reviewGeneration);
       const done = terminalDoneCas(ctx);
       if (!done) return { outcome: "refused", reason: "cas_lost" } as const;
-      return { outcome: "done", task: done } as const;
+      const calculationStarted = Date.now();
+      const expectedEffort = getPersistedEffortMetricsForTask(taskId, done.estimatedMinutes);
+      calculateAndSetCompletionMetrics(taskId);
+      const calculationFinished = Date.now();
+      const refreshed = tx.select().from(tasks).where(eq(tasks.id, taskId)).get();
+      if (!refreshed || refreshed.status !== "done" || refreshed.version !== done.version + 1) {
+        throw new Error("Completion metric postimage mismatch");
+      }
+      const roundedMinutes = (now: number, start: string) =>
+        Math.round((now - new Date(start).getTime()) / 60_000);
+      const inWindow = (actual: number | null, start: string | null) =>
+        start === null
+          ? actual === null
+          : actual !== null &&
+            actual >= roundedMinutes(calculationStarted, start) &&
+            actual <= roundedMinutes(calculationFinished, start);
+      if (
+        !inWindow(refreshed.cycleTimeMinutes, done.createdAt) ||
+        !inWindow(refreshed.leadTimeMinutes, done.startedAt) ||
+        refreshed.actualMinutes !== expectedEffort.actualMinutes ||
+        refreshed.estimationAccuracy !== expectedEffort.estimationAccuracy
+      ) {
+        throw new Error("Completion metric postimage mismatch");
+      }
+      return { outcome: "done", task: refreshed as unknown as Task } as const;
     },
     { behavior: "immediate" },
   );

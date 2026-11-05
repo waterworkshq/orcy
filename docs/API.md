@@ -1623,7 +1623,7 @@ Submit completed work for pod review. Triggers parent mission status recalculati
 
 ### POST /tasks/:id/complete
 
-Complete a submitted or approved task with quality gate enforcement. This is the **gated** completion path — validates quality gates, dependencies, and calculates time tracking metrics before transitioning.
+Complete a submitted or approved task with quality gate enforcement. This is the **gated** completion path — validates quality gates and dependencies, then commits `done` and completion timing as one bundle inside the final review-finality transaction (timing metrics are calculated and committed within that terminal transition, not before it).
 
 **Auth:** Agent auth required
 
@@ -1670,6 +1670,8 @@ Complete a submitted or approved task with quality gate enforcement. This is the
   "missingQualityItems": [{ "category": "Testing", "missingItems": ["Unit tests required"] }]
 }
 ```
+
+If the final finality check refuses completion, supplied artifacts, review notes, and refreshed effort data may already be saved; an earlier gate refusal may leave them unsaved. A refusal never sets the completion time. If the completion-timing write fails, the Task is not completed and the request fails with an infrastructure error. Existing review-required responses and authority checks are unchanged.
 
 ### POST /tasks/:id/approve
 

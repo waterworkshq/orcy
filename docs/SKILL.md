@@ -904,6 +904,8 @@ Input:
 - Time tracking metrics calculated
 - Artifacts merged
 
+If the final finality check refuses completion, supplied artifacts, review notes, and refreshed effort data may already be saved; an earlier gate refusal may leave them unsaved. A refusal never sets the completion time. If the completion-timing write fails, the Task is not completed and the request fails with an infrastructure error. Existing review-required responses and authority checks are unchanged.
+
 #### Approve Task (Review Decision)
 
 Reviewer approves a submitted task under existing review authorization (`POST /tasks/:id/approve`). Admits a human reviewer or an agent holding a pending agent-typed reviewer row on the task (reviewer identity derived from authenticated principal; no executionToken required; normal authentication and reviewer authorization still apply; does not check quality gates). A pending reviewer row alone never approves: the row-holding agent equal to the current assignee is refused (typed anti-self), and the task's review-state checks still apply.

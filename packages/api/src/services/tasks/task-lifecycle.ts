@@ -403,8 +403,9 @@ export function completeTask(
     if (veto) throw new InterceptorVetoError(veto);
   }
 
-  timeTrackingService.calculateAndSetCompletionMetrics(taskId);
-
+  // Evidence preparation is independent of later finality: effort is best-effort,
+  // supplied artifacts and review notes may persist on a late refusal.
+  // Completion timing belongs to completeWithReservation's terminal transaction.
   try {
     effortRepo.recalculateTaskEffortMetrics(taskId);
   } catch (err) {
