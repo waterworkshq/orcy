@@ -175,6 +175,7 @@ describe("CreateMissionForm", () => {
           }),
         );
       });
+      await waitFor(() => expect(mockNotifySuccess).toHaveBeenCalled());
     });
 
     it("invalidates RQ cache after successful creation", async () => {
@@ -196,6 +197,7 @@ describe("CreateMissionForm", () => {
           expect.objectContaining({ queryKey: ["habitats", "detail", "habitat-1"] }),
         );
       });
+      await waitFor(() => expect(mockNotifySuccess).toHaveBeenCalled());
 
       invalidateSpy.mockRestore();
     });

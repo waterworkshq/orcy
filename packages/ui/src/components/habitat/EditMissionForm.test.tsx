@@ -8,21 +8,12 @@ import { notify } from "../../lib/toast.js";
 import type { MissionWithProgress } from "../../types/index.js";
 
 const mockMutateAsync = vi.fn();
-
+const habitatMode = vi.hoisted(() => ({ value: "release" as "release" | "feature" }));
 vi.mock("../../lib/useHabitatData.js", () => ({
   useHabitat: () => ({
-    data: {
-      board: {
-        id: "b1",
-        name: "B",
-        roadmapSettings: { scoringAlgorithm: "fanout", mode: "release" },
-      },
-    },
+    data: { habitat: { id: "b1", name: "B", roadmapSettings: { scoringAlgorithm: "fanout", mode: habitatMode.value } } },
   }),
-  useUpdateMission: () => ({
-    mutateAsync: mockMutateAsync,
-    isPending: false,
-  }),
+  useUpdateMission: () => ({ mutateAsync: mockMutateAsync, isPending: false }),
 }));
 
 vi.mock("../../lib/toast.js", () => ({
@@ -96,9 +87,18 @@ function renderForm(overrides: Partial<MissionWithProgress> = {}) {
 describe("EditMissionForm (RM-13)", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    habitatMode.value = "release";
   });
   afterEach(() => {
     cleanup();
+  });
+
+  // GROUND: T1 Step 2 / PRD M4+M7 (feature-mode hiding through the real habitat response key) / DESIGN §5.1
+  it("hides release authoring in feature mode using the real habitat response key", () => {
+    habitatMode.value = "feature";
+    renderForm();
+    expect(screen.queryByText("Release Gate")).not.toBeInTheDocument();
+    expect(screen.queryByText("Release Deadline")).not.toBeInTheDocument();
   });
 
   it("renders pre-filled from the mission and shows release-gate authoring in release mode", () => {
