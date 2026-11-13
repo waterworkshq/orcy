@@ -2,8 +2,9 @@ import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
 import * as taskService from "../../services/tasks/index.js";
-import { updateTaskSchema } from "../../models/schemas.js";
-import { notFound, forbidden, conflict, badRequest } from "../../errors.js";
+import { updateTaskSchema, updateTaskMetadataSchema } from "../../models/schemas.js";
+import { notFound, forbidden, conflict, badRequest, conflictWithCode, AppError, ErrorCodes } from "../../errors.js";
+import { saveTaskMetadata } from "../../services/tasks/humanTaskMetadata.js";
 import { applyDeclaredAuthPolicies } from "../../authPolicy.js";
 import { authorizeTaskAccess } from "../../middleware/realtimeAuth.js";
 
@@ -52,6 +53,34 @@ export async function taskCrudRoutes(fastify: FastifyInstance): Promise<void> {
           throw badRequest("Update failed");
         }
         return { task: result.task };
+      },
+    );
+
+  fastify
+    .withTypeProvider<ZodTypeProvider>()
+    .patch(
+      "/tasks/:id/metadata",
+      { schema: { params: taskParamsSchema, body: updateTaskMetadataSchema }, config: { authPolicy: "human" } },
+      async (request, _reply) => {
+        const body = request.body;
+        const outcome = saveTaskMetadata({
+          taskId: request.params.id,
+          userId: request.user!.id,
+          expectedVersion: body.expectedVersion,
+          expectedTaskIdentity: body.expectedTaskIdentity,
+          ...(body.title !== undefined ? { title: body.title } : {}),
+          ...(body.description !== undefined ? { description: body.description } : {}),
+          ...(body.priority !== undefined ? { priority: body.priority } : {}),
+          ...(body.expectedPriority !== undefined ? { expectedPriority: body.expectedPriority } : {}),
+        });
+        if (!outcome.ok) {
+          if (outcome.code === "NOT_FOUND") throw notFound("Task not found");
+          if (outcome.code === "FORBIDDEN") throw forbidden("Cannot edit this task's metadata", "TASK_METADATA_EDIT_FORBIDDEN");
+          if (outcome.code === "NOT_EDITABLE") throw conflictWithCode("TASK_METADATA_NOT_EDITABLE", outcome.message);
+          if (outcome.code === "CONTENTION") throw new AppError(503, ErrorCodes.SERVICE_UNAVAILABLE, "Task metadata writer is busy; retry shortly");
+          throw conflictWithCode("VERSION_CONFLICT", outcome.message, { currentVersion: outcome.currentVersion, expectedVersion: body.expectedVersion });
+        }
+        return { task: outcome.task, habitatId: outcome.habitatId };
       },
     );
 

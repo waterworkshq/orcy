@@ -592,6 +592,7 @@
 | GET | `/tasks/:param/events` | `local_actor` | current + deprecated twin |
 | POST | `/tasks/:param/fail` | `agent` | current + deprecated twin |
 | GET | `/tasks/:param/failure-context` | `local_actor` | current + deprecated twin |
+| PATCH | `/tasks/:param/metadata` | `human` | current + deprecated twin |
 | GET | `/tasks/:param/pipeline-events` | `human` | current + deprecated twin |
 | GET | `/tasks/:param/pull-requests` | `human` | current + deprecated twin |
 | GET | `/tasks/:param/quality-checklist` | `local_actor` | current + deprecated twin |
@@ -691,4 +692,4 @@
 
 ---
 
-Total operations (generated HEAD and framework preflight excluded; twins deduplicated): 485 across 40 families.
+Total operations (generated HEAD and framework preflight excluded; twins deduplicated): 486 across 40 families.

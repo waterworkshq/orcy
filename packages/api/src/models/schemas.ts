@@ -475,6 +475,35 @@ export const updateTaskSchema = z
   })
   .strict();
 
+/**
+ * Body for the human-only `PATCH /tasks/:id/metadata`. Strict: unknown keys and
+ * null field values are invalid. `expectedPriority` is required if and only if
+ * `priority` is supplied (fence against the non-versioned prioritization
+ * writer). At least one editable field must be present.
+ */
+export const updateTaskMetadataSchema = z
+  .object({
+    expectedVersion: z.number().int(),
+    expectedTaskIdentity: z.string().regex(/^[0-9a-f]{64}$/),
+    title: z.string().min(1).max(200).optional(),
+    description: z.string().max(5000).optional(),
+    priority: z.enum(["low", "medium", "high", "critical"]).optional(),
+    expectedPriority: z.enum(["low", "medium", "high", "critical"]).optional(),
+  })
+  .strict()
+  .superRefine((body, ctx) => {
+    if (body.title === undefined && body.description === undefined && body.priority === undefined) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: "At least one of title, description, or priority is required" });
+    }
+    if (body.priority === undefined && body.expectedPriority !== undefined) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: "expectedPriority is valid only with priority" });
+    }
+    if (body.priority !== undefined && body.expectedPriority === undefined) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: "expectedPriority is required when priority is supplied" });
+    }
+  });
+export type UpdateTaskMetadataInput = z.infer<typeof updateTaskMetadataSchema>;
+
 export const claimTaskSchema = z.object({
   agentId: z.string().uuid().optional(),
 });

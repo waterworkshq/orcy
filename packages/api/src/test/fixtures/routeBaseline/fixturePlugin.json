@@ -11147,6 +11147,18 @@
     },
     {
       "method": "PATCH",
+      "path": "/api/tasks/:id/metadata",
+      "surface": "api-deprecated",
+      "guards": [
+        "humanAuth"
+      ],
+      "authKind": "human",
+      "rawBodyEligible": false,
+      "source": "core",
+      "generatedTwin": false
+    },
+    {
+      "method": "PATCH",
       "path": "/api/tasks/:taskId/subtasks/:subtaskId",
       "surface": "api-deprecated",
       "guards": [
@@ -11458,6 +11470,18 @@
         "agentAuth"
       ],
       "authKind": "agent",
+      "rawBodyEligible": false,
+      "source": "core",
+      "generatedTwin": false
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/v1/tasks/:id/metadata",
+      "surface": "api-v1",
+      "guards": [
+        "humanAuth"
+      ],
+      "authKind": "human",
       "rawBodyEligible": false,
       "source": "core",
       "generatedTwin": false
