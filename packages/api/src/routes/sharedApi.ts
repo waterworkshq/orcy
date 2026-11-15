@@ -487,7 +487,13 @@ export async function sharedApiRoutes(fastify: FastifyInstance): Promise<void> {
           if (result.reason === "not_owned") {
             throw forbidden("Task is not claimed by this participant", "TASK_NOT_OWNED");
           }
-          throw conflict("Cannot submit task in current state", "TASK_SUBMIT_FAILED");
+          throw conflictWithCode(
+            "TASK_SUBMIT_FAILED",
+            "Cannot submit task in current state",
+            result.reason === "transition_budget_exhausted"
+              ? { reason: "transition_budget_exhausted" }
+              : undefined,
+          );
         }
         const responseBody = {
           success: true,
@@ -532,7 +538,13 @@ export async function sharedApiRoutes(fastify: FastifyInstance): Promise<void> {
           if (result.reason === "not_owned") {
             throw forbidden("Task is not claimed by this participant", "TASK_NOT_OWNED");
           }
-          throw conflict("Cannot release task in current state", "TASK_RELEASE_FAILED");
+          throw conflictWithCode(
+            "TASK_RELEASE_FAILED",
+            "Cannot release task in current state",
+            result.reason === "transition_budget_exhausted"
+              ? { reason: "transition_budget_exhausted" }
+              : undefined,
+          );
         }
         const responseBody = { task: result.task };
         completeRemoteIdempotency(request, 200, responseBody);

@@ -903,14 +903,9 @@ describe("Phase D — Shared Habitat API", () => {
         payload: { result: "x" },
       });
       expect(res.statusCode).toBe(409);
-      // The ACTUAL unchanged shared-route error object: `conflict(message,
-      // details)` pins code to CONFLICT and carries the seam's reason in
-      // `details`. The seam's TASK_SUBMIT_FAILED identity lives in details, not
-      // in the code field.
       expect(JSON.parse(res.body)).toEqual({
         error: "Cannot submit task in current state",
-        code: "CONFLICT",
-        details: "TASK_SUBMIT_FAILED",
+        code: "TASK_SUBMIT_FAILED",
       });
       // The Task row is unchanged by the denial.
       expect(taskRepo.getTaskById(task.id)!.status).toBe("claimed");
@@ -938,12 +933,9 @@ describe("Phase D — Shared Habitat API", () => {
         payload: { reason: "x" },
       });
       expect(res.statusCode).toBe(409);
-      // Complete actual conflict object (code CONFLICT; the seam's
-      // TASK_RELEASE_FAILED identity is the details argument).
       expect(JSON.parse(res.body)).toEqual({
         error: "Cannot release task in current state",
-        code: "CONFLICT",
-        details: "TASK_RELEASE_FAILED",
+        code: "TASK_RELEASE_FAILED",
       });
       expect(taskRepo.getTaskById(task.id)!.status).toBe("submitted");
     });

@@ -7204,6 +7204,8 @@ Submits a claimed task for review.
 
 **Response:** `{ "success": true, "task": { "id", "status", "submittedAt" } }`
 
+**Errors:** A task that is not claimed by the caller returns 403 `TASK_NOT_OWNED`. Other lifecycle refusals return 409 `TASK_SUBMIT_FAILED` with the message `Cannot submit task in current state`. When the caller still owns an in-progress task at transaction time and its transition budget is exhausted, that same 409 code and message include `details: { "reason": "transition_budget_exhausted" }`; no transition count or ceiling is disclosed. Ownership and status are revalidated inside the transaction before the budget guard, so a raced reassignment or wrong-state refusal never carries the budget reason. Every non-budget refusal omits `details`.
+
 #### POST /api/shared/tasks/:id/release
 
 Releases a claimed task back to pending.
@@ -7213,6 +7215,10 @@ Releases a claimed task back to pending.
 **Body:** `{ "reason": "Cannot complete" }`
 
 **Response:** `{ "task": Task }` (status: `pending`)
+
+**Errors:** A task that is not claimed by the caller returns 403 `TASK_NOT_OWNED`. Other lifecycle refusals return 409 `TASK_RELEASE_FAILED` with the message `Cannot release task in current state`. When the caller still owns a claimed or in-progress task at transaction time and its transition budget is exhausted, that same 409 code and message include `details: { "reason": "transition_budget_exhausted" }`; no transition count or ceiling is disclosed. Every non-budget refusal omits `details`.
+
+For both submit and release, a same-key retry after a refused request returns the stored `IDEMPOTENCY_KEY_PRIOR_FAILURE` outcome, not the original budget `details`.
 
 ---
 
@@ -7386,12 +7392,14 @@ All Shared Habitat API errors follow the standard Orcy error format:
 | `GRANT_FROZEN` | 403 | Grant frozen — actions blocked pending host review |
 | `TARGET_NOT_VISIBLE` | 403 | Task/mission not covered by any active grant |
 | `TASK_NOT_OWNED` | 403 | Task not claimed by this participant |
+| `TASK_SUBMIT_FAILED` | 409 | Generic remote submit refusal; only an owned-at-transaction-time budget refusal adds `details.reason: "transition_budget_exhausted"` |
+| `TASK_RELEASE_FAILED` | 409 | Generic remote release refusal; only an owned-at-transaction-time budget refusal adds `details.reason: "transition_budget_exhausted"` |
 | `HABITAT_MISMATCH` | 403 | Target belongs to a different habitat |
 | `IDEMPOTENCY_KEY_REQUIRED` | 409 | Missing `Idempotency-Key` header on write route |
 | `IDEMPOTENCY_KEY_MISMATCH` | 409 | Same key, different request body |
 | `IDEMPOTENCY_KEY_IN_FLIGHT` | 409 | Concurrent request with same key still running |
 
-**Note:** Error messages are intentionally generic to callers. Detailed reasons (which grant failed, which scopes are missing, which standing is required) are logged server-side only to prevent probing attacks.
+**Note:** Error messages are intentionally generic to callers. Detailed reasons (which grant failed, which scopes are missing, which standing is required) are logged server-side only to prevent probing attacks. The sole lifecycle-diagnostic exception is the bounded budget `details.reason` on remote submit/release described above; it is available only for a task the caller owns at transaction time and never includes numeric budget diagnostics.
 
 ---
 
