@@ -627,6 +627,32 @@ describe("Task metadata editing real modal/store/transport journeys", () => {
     });
   });
 
+  // GROUND: review round 2 — the unknown-outcome gate must also open when the
+  // editor-driven refetch returns DEEP-EQUAL data: structural sharing keeps the
+  // same data reference, so no observer notification re-renders the editor and
+  // the non-reactive refreshReady read would stay frozen without an explicit
+  // re-evaluation once the fresh read settles.
+  it("an unknown outcome re-enables Save even when the editor refetch returns equal data", async () => {
+    rejectOnce("PATCH", "/api/tasks/t-1/metadata");
+    await openTaskA();
+    await enterEdit();
+    fireEvent.change(descriptionField(), { target: { value: "transport draft" } });
+    save();
+    await waitFor(() => expect(patchCalls().length).toBe(1));
+    await screen.findByText(/refresh/i);
+    expect(screen.getByRole("button", { name: "Save Changes" })).toBeDisabled();
+    // detailsForA is NOT swapped: the refetch returns the identical envelope.
+    await waitFor(() => expect(getCalls("/api/tasks/t-1/details").length).toBeGreaterThan(1));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Save Changes" })).toBeEnabled());
+    save();
+    await waitFor(() => expect(patchCalls().length).toBe(2));
+    expect(patchCalls()[1].body).toEqual({
+      expectedVersion: 7,
+      expectedTaskIdentity: IDENTITY_A,
+      description: "transport draft",
+    });
+  });
+
   // GROUND: T5 Step 1 refusal codes; PRD E10/Step 4 (401/403/404 block Save with
   // the draft left copyable).
   it.each([401, 403, 404])("a %d metadata failure blocks Save and keeps the draft copyable", async (status) => {
