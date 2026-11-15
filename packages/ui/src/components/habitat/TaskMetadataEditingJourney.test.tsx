@@ -596,11 +596,14 @@ describe("Task metadata editing real modal/store/transport journeys", () => {
   });
 
   // GROUND: T5 Step 1 unknown transport outcome; PRD E10 (refresh-and-compare
-  // before another attempt; original baseline kept; no auto-retry).
+  // before another attempt; original baseline kept; no auto-retry). The
+  // editor-driven refresh read is HELD until the blocked phase is asserted, so
+  // the gate boundary is deterministic rather than frame-coincident.
   it("an unknown transport outcome gates retry behind a refresh and keeps the version-7 baseline", async () => {
     rejectOnce("PATCH", "/api/tasks/t-1/metadata");
     await openTaskA();
     await enterEdit();
+    const refresh = deferOnce("GET", "/api/tasks/t-1/details");
     fireEvent.change(descriptionField(), { target: { value: "transport draft" } });
     save();
     await waitFor(() => expect(patchCalls().length).toBe(1));
@@ -615,8 +618,11 @@ describe("Task metadata editing real modal/store/transport journeys", () => {
     // error of unknown outcome refreshes before allowing another attempt") —
     // no external actor invalidates the query, and staleTime alone would
     // never produce the required fresh dataUpdatedAt.
+    expect(getCalls("/api/tasks/t-1/details").length).toBeGreaterThan(1);
     detailsForA = envelope({ task: makeTask({ version: 8, description: "server state" }) });
-    await waitFor(() => expect(getCalls("/api/tasks/t-1/details").length).toBeGreaterThan(1));
+    await act(async () => {
+      refresh.resolve(jsonResponse(detailsForA));
+    });
     await waitFor(() => expect(screen.getByRole("button", { name: "Save Changes" })).toBeEnabled());
     save();
     await waitFor(() => expect(patchCalls().length).toBe(2));
@@ -630,19 +636,23 @@ describe("Task metadata editing real modal/store/transport journeys", () => {
   // GROUND: review round 2 — the unknown-outcome gate must also open when the
   // editor-driven refetch returns DEEP-EQUAL data: structural sharing keeps the
   // same data reference, so no observer notification re-renders the editor and
-  // the non-reactive refreshReady read would stay frozen without an explicit
-  // re-evaluation once the fresh read settles.
+  // a pull-based refreshReady read would stay frozen — the editor observes the
+  // cache directly. The read is held until the blocked phase is asserted.
   it("an unknown outcome re-enables Save even when the editor refetch returns equal data", async () => {
     rejectOnce("PATCH", "/api/tasks/t-1/metadata");
     await openTaskA();
     await enterEdit();
+    const refresh = deferOnce("GET", "/api/tasks/t-1/details");
     fireEvent.change(descriptionField(), { target: { value: "transport draft" } });
     save();
     await waitFor(() => expect(patchCalls().length).toBe(1));
     await screen.findByText(/refresh/i);
     expect(screen.getByRole("button", { name: "Save Changes" })).toBeDisabled();
     // detailsForA is NOT swapped: the refetch returns the identical envelope.
-    await waitFor(() => expect(getCalls("/api/tasks/t-1/details").length).toBeGreaterThan(1));
+    expect(getCalls("/api/tasks/t-1/details").length).toBeGreaterThan(1);
+    await act(async () => {
+      refresh.resolve(jsonResponse(detailsForA));
+    });
     await waitFor(() => expect(screen.getByRole("button", { name: "Save Changes" })).toBeEnabled());
     save();
     await waitFor(() => expect(patchCalls().length).toBe(2));
@@ -717,6 +727,47 @@ describe("Task metadata editing real modal/store/transport journeys", () => {
     act(() => finishAnimation());
     expect(useModalStore.getState().isOpen).toBe(true);
     expect(useModalStore.getState().selectedTaskId).toBe("t-1");
+  });
+
+  // GROUND: the modal fades in exactly once per presentation and never
+  // re-shows during the 200 ms scheduled fade-out. Dirtying the draft inside
+  // the close delay re-runs the open effect through its handleClose dep —
+  // flushing every pending animation frame must not re-show the modal, and
+  // the scheduled close still completes.
+  it("the modal does not re-fade during a scheduled close", async () => {
+    await openTaskA();
+    await waitFor(() => {
+      expect(document.querySelector('[role="dialog"]')?.className).toContain("opacity-100");
+    });
+    const rafCallbacks: FrameRequestCallback[] = [];
+    vi.spyOn(globalThis, "requestAnimationFrame").mockImplementation(((callback: FrameRequestCallback) => {
+      rafCallbacks.push(callback);
+      return rafCallbacks.length;
+    }) as typeof requestAnimationFrame);
+    let finishAnimation!: () => void;
+    const schedule = globalThis.setTimeout;
+    vi.spyOn(globalThis, "setTimeout").mockImplementation(((callback: () => void, delay?: number, ...args: unknown[]) => {
+      if (delay === 200) {
+        finishAnimation = callback;
+        return 0;
+      }
+      return schedule(callback, delay, ...args);
+    }) as typeof setTimeout);
+    fireEvent.click(screen.getByLabelText("Close modal"));
+    expect(finishAnimation).toBeTypeOf("function");
+    expect(document.querySelector('[role="dialog"]')?.className).toContain("opacity-0");
+    // The state change that used to re-arm the open effect's fade: a draft
+    // dirtied while the close is still scheduled.
+    fireEvent.click(await screen.findByRole("button", { name: "Edit" }));
+    fireEvent.change(await screen.findByLabelText("Description"), { target: { value: "mid-close draft" } });
+    act(() => {
+      for (const callback of rafCallbacks.splice(0)) callback(0);
+    });
+    const overlay = document.querySelector('[role="dialog"]');
+    expect(overlay).toBeTruthy();
+    expect(overlay!.className).toContain("opacity-0");
+    act(() => finishAnimation());
+    await waitFor(() => expect(useModalStore.getState().isOpen).toBe(false));
   });
 
   // GROUND: T5 Step 4 retirement fence; PRD E9 (a save settling after account

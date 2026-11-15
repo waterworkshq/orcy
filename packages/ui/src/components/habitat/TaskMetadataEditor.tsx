@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useSessionLiveness } from "../../lib/sessionState.js";
 import { useModalStore } from "../../store/modalStore.js";
@@ -72,8 +72,28 @@ export function TaskMetadataEditor({
   const dirty = title !== opening.title || description !== opening.description || priority !== opening.priority;
   const titleValid = title.length >= 1 && title.length <= 200;
   const descriptionValid = description.length <= 5000;
-  const detailsState = qc.getQueryState(presentedKey);
-  const refreshReady = refreshGate > 0 && (detailsState?.dataUpdatedAt ?? 0) > refreshGate;
+  // The retry gate must react to the presented row's dataUpdatedAt directly: a
+  // refetch returning deep-equal data keeps the same reference (structural
+  // sharing), so no data-driven render re-evaluates the gate — only this cache
+  // subscription observes the fresh read.
+  const detailsUpdatedAt = useSyncExternalStore(
+    useCallback((onStoreChange: () => void) => qc.getQueryCache().subscribe(onStoreChange), [qc]),
+    useCallback(() => qc.getQueryState(presentedKey)?.dataUpdatedAt ?? 0, [qc, presentedKey]),
+  );
+  const freshReadLanded = refreshGate > 0 && detailsUpdatedAt > refreshGate;
+  // The gate opens one frame AFTER the read that satisfied it: the commit
+  // presenting the unknown outcome (Save blocked) always lands before the
+  // gate re-opens, regardless of how the renders batch.
+  const [retryGateOpen, setRetryGateOpen] = useState(false);
+  useEffect(() => {
+    if (refreshGate === 0) return;
+    if (!freshReadLanded) {
+      setRetryGateOpen(false);
+      return;
+    }
+    const raf = requestAnimationFrame(() => setRetryGateOpen(true));
+    return () => cancelAnimationFrame(raf);
+  }, [refreshGate, freshReadLanded]);
   const saveBlocked =
     saving ||
     !dirty ||
@@ -82,7 +102,7 @@ export function TaskMetadataEditor({
     outcome?.kind === "version-conflict" ||
     outcome?.kind === "not-editable" ||
     outcome?.kind === "refused" ||
-    (outcome?.kind === "unknown" && !refreshReady);
+    (outcome?.kind === "unknown" && !retryGateOpen);
 
   // Register draft liveness so the store can gate closes/switches without
   // holding the draft itself. The save-start registration is synchronous
