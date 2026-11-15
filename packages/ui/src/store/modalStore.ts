@@ -91,6 +91,9 @@ export const useModalStore = create<ModalStore>((set, get) => ({
         return;
       }
       if (!s.draftStatus?.dirty) {
+        // The draft became clean while a close request was outstanding: settle
+        // it false (superseded) — an awaiting caller can never be left hanging.
+        s.pending?.resolve(false);
         set({
           isOpen: false,
           selectedTaskId: null,
@@ -101,9 +104,12 @@ export const useModalStore = create<ModalStore>((set, get) => ({
         resolve(true);
         return;
       }
+      // A close request supersedes any switch confirmation: settle the prior
+      // request and clear the intent so the dialog and the resolved action
+      // cannot diverge.
       s.pending?.resolve(false);
       const seq = s.requestSeq + 1;
-      set({ requestSeq: seq, pending: { seq, resolve } });
+      set({ requestSeq: seq, pending: { seq, resolve }, switchIntent: null });
     }),
   resolveRequest: (seq, accepted) => {
     const s = get();

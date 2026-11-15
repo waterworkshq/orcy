@@ -483,7 +483,7 @@ export const updateTaskSchema = z
  */
 export const updateTaskMetadataSchema = z
   .object({
-    expectedVersion: z.number().int(),
+    expectedVersion: z.number().int().min(1),
     expectedTaskIdentity: z.string().regex(/^[0-9a-f]{64}$/),
     title: z.string().min(1).max(200).optional(),
     description: z.string().max(5000).optional(),

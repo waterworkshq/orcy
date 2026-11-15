@@ -215,19 +215,20 @@ describe("human task metadata route", () => {
   });
 
   // GROUND: PRD E2 / DESIGN §2 — personal-habitat predicate reads persisted rows (owner role, global admin, legacy ownerless), never the JWT claim.
+  // The actor is a row field, never derived from the test title.
   it.each([
-    ["personal owner editor allows", () => personalFixture("editor"), 200],
-    ["personal owner viewer denies", () => personalFixture("viewer"), 403],
-    ["personal non-owner editor denies", (make = () => personalFixture("editor")) => make(), 403],
-    ["persisted global admin allows on a personal habitat", () => personalFixture("editor"), 200],
-    ["legacy ownerless personal habitat denies a non-admin editor", () => personalFixture("editor", false), 403],
-    ["persisted global admin allows on a legacy ownerless personal habitat", () => personalFixture("editor", false), 200],
-  ] as const)("%s", async (_name, make, status) => {
+    ["personal owner editor allows", "owner", () => personalFixture("editor"), 200],
+    ["personal owner viewer denies", "owner", () => personalFixture("viewer"), 403],
+    ["personal non-owner editor denies", "non-owner", () => personalFixture("editor"), 403],
+    ["persisted global admin allows on a personal habitat", "admin", () => personalFixture("editor"), 200],
+    ["legacy ownerless personal habitat denies a non-admin editor", "owner", () => personalFixture("editor", false), 403],
+    ["persisted global admin allows on a legacy ownerless personal habitat", "admin", () => personalFixture("editor", false), 200],
+  ] as const)("%s", async (_name, actor, make, status) => {
     const f = make();
     let bearer: string;
-    if (_name.startsWith("persisted global")) {
+    if (actor === "admin") {
       const admin = user("admin"); bearer = token(admin, "admin");
-    } else if (_name.startsWith("personal non-owner")) {
+    } else if (actor === "non-owner") {
       const other = user("editor"); bearer = token(other);
     } else {
       // Owner cases: JWT carries an editor claim even when the persisted row is
@@ -298,6 +299,9 @@ describe("human task metadata route", () => {
     const bearer = token(member);
     expect((await patch(f.task.id, { ...b, priority: "high" }, bearer)).statusCode).toBe(400);
     expect((await patch(f.task.id, { ...b, expectedPriority: "medium" }, bearer)).statusCode).toBe(400);
+    // Tasks start at version 1 — a zero/negative baseline is invalid input, not a conflict.
+    expect((await patch(f.task.id, { ...b, title: "T", expectedVersion: 0 }, bearer)).statusCode).toBe(400);
+    expect((await patch(f.task.id, { ...b, title: "T", expectedVersion: -1 }, bearer)).statusCode).toBe(400);
     expect((await patch(f.task.id, { ...b, labels: ["x"] }, bearer)).statusCode).toBe(400);
     expect((await patch(f.task.id, { ...b, title: null }, bearer)).statusCode).toBe(400);
     expect((await patch(f.task.id, { expectedTaskIdentity: b.expectedTaskIdentity, title: "T" }, bearer)).statusCode).toBe(400);

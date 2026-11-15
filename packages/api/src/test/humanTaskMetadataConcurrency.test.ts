@@ -381,7 +381,11 @@ describe("human task metadata save — real cross-process write overlap", () => 
       releaseAfterResult: true,
     });
     expect(order.indexOf("HELD")).toBeLessThan(order.indexOf("SAVING"));
-    expect(order.indexOf("RESULT")).toBeLessThan(order.indexOf("RELEASED")); // the hold outlasted the bounded wait
+    // Overlap proof, mechanically: CONTENTION is reachable ONLY while another
+    // connection holds the write lock (busyLike at BEGIN), and the refusal
+    // (RESULT) arrives before the holder released — so the saver's BEGIN
+    // attempt demonstrably ran inside the held reservation.
+    expect(order.indexOf("RESULT")).toBeLessThan(order.indexOf("RELEASED"));
     expect(result).toEqual({ ok: false, code: "CONTENTION" });
     await initDb(join(dir, "overlap.sqlite"));
     expect(taskRow(f.taskId)).toMatchObject({ title: "Task", version: f.expectedVersion });
@@ -419,6 +423,9 @@ describe("human task metadata save — real cross-process write overlap", () => 
       });
       expect(response.statusCode).toBe(503);
       expect(response.json().code).toBe("SERVICE_UNAVAILABLE");
+      // The message tells clients to retry — the Retry-After hint must be present
+      // (pulse.ts contention precedent; absent retryAfterMs emits no header).
+      expect(Number(response.headers["retry-after"])).toBeGreaterThan(0);
 
       // No retry: the refused request left the row and events untouched.
       expect(taskRow(f.taskId)).toMatchObject({ title: "Task", version: f.expectedVersion });

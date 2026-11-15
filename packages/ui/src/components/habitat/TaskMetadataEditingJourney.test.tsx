@@ -362,9 +362,12 @@ describe("Task metadata editing real modal/store/transport journeys", () => {
     });
   });
 
-  // GROUND: T5 Step 1 version-8 read mode; PRD E9/E10 (return to read mode on
-  // the same Task at the new version purely from the save path — no SSE).
-  it("successful save returns the modal to version-8 read mode without SSE", async () => {
+  // GROUND: T5 Step 1 version-8 read mode; PRD E9/E10 (the save path alone
+  // drives the read-mode return: the save response updates the presented Task
+  // immediately — held details refetches cannot regress it). useSSE is mocked
+  // in this file, so this journey pins the no-SSE-required save path, not
+  // EventSource behavior itself.
+  it("successful save returns the modal to version-8 read mode from the save path alone", async () => {
     await openTaskA();
     await enterEdit();
     fireEvent.change(descriptionField(), { target: { value: "changed" } });
@@ -373,7 +376,6 @@ describe("Task metadata editing real modal/store/transport journeys", () => {
     await waitFor(() => expect(patchCalls().length).toBe(1));
     await screen.findByText("v8");
     expect(screen.queryByLabelText("Description")).toBeNull();
-    expect(EventSource).not.toHaveBeenCalled();
   });
 
   // GROUND: T5 Step 1 wrong-habitat owner invalidation; PRD E10 (filtered
@@ -609,11 +611,12 @@ describe("Task metadata editing real modal/store/transport journeys", () => {
       await Promise.resolve();
     });
     expect(patchCalls().length).toBe(1);
-    // The refresh lands a fresh read; only then is another attempt allowed.
+    // The editor itself must trigger the fresh read (PRD E10: "a transport
+    // error of unknown outcome refreshes before allowing another attempt") —
+    // no external actor invalidates the query, and staleTime alone would
+    // never produce the required fresh dataUpdatedAt.
     detailsForA = envelope({ task: makeTask({ version: 8, description: "server state" }) });
-    await act(async () => {
-      await activeClient.invalidateQueries({ queryKey: queryKeys.tasks.details("t-1") });
-    });
+    await waitFor(() => expect(getCalls("/api/tasks/t-1/details").length).toBeGreaterThan(1));
     await waitFor(() => expect(screen.getByRole("button", { name: "Save Changes" })).toBeEnabled());
     save();
     await waitFor(() => expect(patchCalls().length).toBe(2));
@@ -635,6 +638,20 @@ describe("Task metadata editing real modal/store/transport journeys", () => {
     await waitFor(() => expect(patchCalls().length).toBe(1));
     expect(screen.getByRole("button", { name: "Save Changes" })).toBeDisabled();
     expect(descriptionField().value).toBe("refused draft");
+  });
+
+  // GROUND: review round 1 — PRD E9 ("Discard applies the intended
+  // close/replacement once", discarding the draft): a same-ID switch
+  // confirmation resolved as Discard must exit Edit mode even though the
+  // presented Task ID never changed, so no selectedTaskId effect can clear it.
+  it("Discard on a same-ID switch confirmation exits edit mode", async () => {
+    await openTaskA();
+    await enterEdit();
+    fireEvent.change(descriptionField(), { target: { value: "dirty draft" } });
+    act(() => useModalStore.getState().openModal("t-1"));
+    fireEvent.click(await screen.findByRole("button", { name: "Discard" }));
+    await waitFor(() => expect(screen.queryByLabelText("Description")).toBeNull());
+    expect(screen.getByText("Original title")).toBeTruthy();
   });
 
   // GROUND: T5 Step 4 synchronous in-flight latch; PRD E9 (double-Save issues one request).
@@ -898,5 +915,49 @@ describe("Task metadata editing real modal/store/transport journeys", () => {
     await screen.findByText("v8");
     expect(useModalStore.getState().isOpen).toBe(true);
     expect(patchCalls().length).toBe(1);
+  });
+});
+
+// GROUND: review round 1 — store-level request lifecycle invariants that the
+// rendered journeys cannot observe directly (promise settlement and
+// superseded-intent state).
+describe("modal store request lifecycle", () => {
+  function settled(promise: Promise<boolean>): Promise<boolean | "pending"> {
+    return Promise.race([
+      promise.then((value: boolean) => value),
+      new Promise<"pending">((resolve) => setTimeout(() => resolve("pending"), 50)),
+    ]);
+  }
+  beforeEach(() => {
+    useModalStore.getState().closeModal();
+    act(() => {
+      useModalStore.setState({ isOpen: true, selectedTaskId: "t-1" });
+      useModalStore.getState().setDraftStatus({ dirty: true, saving: false });
+    });
+  });
+  afterEach(() => {
+    useModalStore.getState().closeModal();
+    useModalStore.getState().setDraftStatus(null);
+  });
+
+  // A close request superseded by the draft becoming clean must settle false —
+  // an awaiting caller (Bulk Select) can never be left hanging.
+  it("settles a superseded pending close false when the draft becomes clean", async () => {
+    const first = modalStore().requestClose();
+    act(() => useModalStore.getState().setDraftStatus({ dirty: false, saving: false }));
+    const second = modalStore().requestClose();
+    expect(await settled(first)).toBe(false);
+    expect(await settled(second)).toBe(true);
+  });
+
+  // A close request landing during a switch confirmation must clear the stale
+  // switch intent so the dialog and the resolved action cannot diverge.
+  it("clears a pending switch intent when a close request supersedes it", async () => {
+    act(() => useModalStore.getState().openModal("t-2"));
+    const raw = useModalStore.getState() as unknown as { switchIntent: unknown };
+    expect(raw.switchIntent).toBeTruthy();
+    const close = modalStore().requestClose();
+    expect((useModalStore.getState() as unknown as { switchIntent: unknown }).switchIntent).toBeNull();
+    expect(await settled(close)).toBe("pending"); // dirty: awaits the user's confirmation
   });
 });

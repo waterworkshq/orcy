@@ -97,6 +97,15 @@ export function HabitatPage() {
   // route the user already left while the modal close was being confirmed).
   const habitatIdRef = useRef(habitatId);
   habitatIdRef.current = habitatId;
+  // The page can unmount while a dirty-close confirmation is pending; the
+  // continuation after the await must not engage bulk mode for a gone page.
+  const mountedRef = useRef(true);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
 
   // Bulk mode and the mobile menu change only after the modal's acknowledged
   // close request — a dirty draft is confirmed first, and a save in flight
@@ -106,6 +115,7 @@ export function HabitatPage() {
     if (!targetHabitat) return;
     const accepted = await useModalStore.getState().requestClose();
     if (!accepted || !isSessionActive()) return;
+    if (!mountedRef.current) return;
     if (habitatIdRef.current !== targetHabitat) return;
     setBulkSelectMode(true, targetHabitat);
     setMobileMenuOpen(false);

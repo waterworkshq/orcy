@@ -213,6 +213,11 @@ export function saveTaskMetadataWithClient(
     // Direct-caller mirror of the route schema's iff-rule; worker/test callers bypass Zod.
     throw new Error("expectedPriority requires priority");
   }
+  if (input.priority !== undefined && input.expectedPriority === undefined) {
+    // The other half of the iff-rule: an opening priority is required whenever
+    // priority is edited, or the write would misreport as a version conflict.
+    throw new Error("priority requires expectedPriority");
+  }
   try {
     client.run(sql`BEGIN IMMEDIATE`);
   } catch (error) {

@@ -77,7 +77,13 @@ export async function taskCrudRoutes(fastify: FastifyInstance): Promise<void> {
           if (outcome.code === "NOT_FOUND") throw notFound("Task not found");
           if (outcome.code === "FORBIDDEN") throw forbidden("Cannot edit this task's metadata", "TASK_METADATA_EDIT_FORBIDDEN");
           if (outcome.code === "NOT_EDITABLE") throw conflictWithCode("TASK_METADATA_NOT_EDITABLE", outcome.message);
-          if (outcome.code === "CONTENTION") throw new AppError(503, ErrorCodes.SERVICE_UNAVAILABLE, "Task metadata writer is busy; retry shortly");
+          if (outcome.code === "CONTENTION") {
+            // Same Retry-After hint as the pulse contention precedent: the
+            // message asks clients to retry, so give them the backoff header.
+            const busy = new AppError(503, ErrorCodes.SERVICE_UNAVAILABLE, "Task metadata writer is busy; retry shortly");
+            busy.retryAfterMs = 500;
+            throw busy;
+          }
           throw conflictWithCode("VERSION_CONFLICT", outcome.message, { currentVersion: outcome.currentVersion, expectedVersion: body.expectedVersion });
         }
         return { task: outcome.task, habitatId: outcome.habitatId };

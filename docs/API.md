@@ -1469,7 +1469,7 @@ The body is strict: at least one of `title`, `description`, `priority` must be p
 }
 ```
 
-The `task` is the full committed postimage (the conditional update's `RETURNING` row re-read and proven equal before the response); `habitatId` is the owning Habitat, from the same reservation. A changed save commits exactly one `updated` Task event with the authenticated human actor and `changedFields` = the actual changes; post-commit notification failures are logged, never fatal.
+The `task` is the full committed postimage; the conditional update's `RETURNING` row must be present, and a separately re-read postimage is proven deep-equal to the reserved preimage plus the allowed diff before the response. `habitatId` is the owning Habitat, from the same reservation. A changed save commits exactly one `updated` Task event with the authenticated human actor and `changedFields` = the actual changes; post-commit notification failures are logged, never fatal.
 
 ### DELETE /tasks/:id
 

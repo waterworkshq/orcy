@@ -242,6 +242,9 @@ export function TaskDetailModal() {
     else if (switchIntent) acknowledgeSwitch(switchIntent.seq, false);
   };
   const discardDraft = () => {
+    // A same-ID switch never changes selectedTaskId, so the reset effects cannot
+    // clear the session — Discard must exit edit mode itself.
+    setEditing(null);
     if (pending) resolveRequest(pending.seq, true);
     else if (switchIntent) acknowledgeSwitch(switchIntent.seq, true);
   };

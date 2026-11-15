@@ -236,6 +236,9 @@ for (const driver of ["sqljs", "native"] as const) {
         const before = taskRow(f.taskId);
         const result = save(f, { title: "Postlude" });
         expect(result).toMatchObject({ ok: true, changed: true });
+        // The injected failure must actually have fired — otherwise this test
+        // pins nothing about the post-commit path.
+        expect(spy).toHaveBeenCalledTimes(1);
         const after = taskRow(f.taskId);
         expect(after).toEqual({ ...before, title: "Postlude", updatedAt: after.updatedAt, version: before.version + 1 });
         expect(updatedEvents(f.taskId)).toHaveLength(1);
@@ -250,6 +253,17 @@ for (const driver of ["sqljs", "native"] as const) {
       const f = setup();
       const before = taskRow(f.taskId);
       expect(() => save(f, { title: "Stray", expectedPriority: "medium" })).toThrow("expectedPriority requires priority");
+      expect(taskRow(f.taskId)).toEqual(before);
+      expect(updatedEvents(f.taskId)).toHaveLength(0);
+    });
+
+    // GROUND: review round 1 — the iff rule guards BOTH directions at the core:
+    // priority without an opening expectedPriority is invalid input (the route
+    // schema says 400), never a misreported version conflict.
+    it("throws for a direct caller supplying priority without expectedPriority", () => {
+      const f = setup();
+      const before = taskRow(f.taskId);
+      expect(() => save(f, { title: "Stray", priority: "high" })).toThrow("priority requires expectedPriority");
       expect(taskRow(f.taskId)).toEqual(before);
       expect(updatedEvents(f.taskId)).toHaveLength(0);
     });

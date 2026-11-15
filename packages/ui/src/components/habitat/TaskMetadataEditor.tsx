@@ -170,10 +170,12 @@ export function TaskMetadataEditor({
         } else {
           setRefreshGate(Date.now());
           setOutcome({ kind: "unknown", message: UNKNOWN_OUTCOME_MESSAGE });
+          void refreshAfterUnknownOutcome();
         }
       } else {
         setRefreshGate(Date.now());
         setOutcome({ kind: "unknown", message: UNKNOWN_OUTCOME_MESSAGE });
+        void refreshAfterUnknownOutcome();
       }
     } finally {
       saveLatch.current = false;
@@ -184,8 +186,21 @@ export function TaskMetadataEditor({
     }
   }
 
+  /** An unknown transport outcome may have committed: the retry gate requires a
+   * FRESH details read (dataUpdatedAt past the gate), and nothing else will
+   * produce one — staleTime alone would leave Save disabled indefinitely. */
+  function refreshAfterUnknownOutcome() {
+    void qc.invalidateQueries({ queryKey: queryKeys.tasks.details(taskId) });
+    if (presentedKey.join() !== queryKeys.tasks.details(taskId).join()) {
+      void qc.invalidateQueries({ queryKey: presentedKey });
+    }
+  }
+
   function discardAndReload() {
     void qc.invalidateQueries({ queryKey: queryKeys.tasks.details(taskId) });
+    if (presentedKey.join() !== queryKeys.tasks.details(taskId).join()) {
+      void qc.invalidateQueries({ queryKey: presentedKey });
+    }
     onCancel();
   }
 
