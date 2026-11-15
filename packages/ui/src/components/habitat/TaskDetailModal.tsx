@@ -1,10 +1,12 @@
-import React, { useEffect, useCallback } from "react";
+import React, { useEffect, useCallback, useRef } from "react";
 import { createPortal } from "react-dom";
 import { useSessionLiveness } from "../../lib/sessionState.js";
-import { X, Calendar, User, CheckSquare, Share2, Archive, Save } from "lucide-react";
+import { X, Calendar, User, CheckSquare, Share2, Archive } from "lucide-react";
 import { useModalStore } from "../../store/modalStore.js";
 import { useTaskDetails } from "../../lib/useTaskData.js";
 import { useAgents, useMissionTasks } from "../../lib/useHabitatData.js";
+import { queryKeys } from "../../lib/queryKeys.js";
+import { TaskMetadataEditor, type MetadataEditOpening } from "./TaskMetadataEditor.js";
 import { TaskArtifacts } from "./TaskArtifacts.js";
 import { TaskDependencies } from "./TaskDependencies.js";
 import { TaskActivityFeed } from "./TaskActivityFeed.js";
@@ -136,12 +138,35 @@ function mapTaskEventToActivityEvent(event: TaskEvent, agents: Agent[]): Activit
   };
 }
 
+/** An in-progress metadata edit session: the opening baseline captured when
+ * Edit mode was entered, bound to the Task it belongs to. */
+interface EditingSession extends MetadataEditOpening {
+  taskId: string;
+}
+
 export function TaskDetailModal() {
   const isSessionActive = useSessionLiveness();
-  const { isOpen, selectedTaskId, closeModal } = useModalStore();
+  const {
+    isOpen,
+    selectedTaskId,
+    requestSeq,
+    pending,
+    switchIntent,
+    draftStatus,
+    closeModal,
+    requestClose,
+    resolveRequest,
+    acknowledgeSwitch,
+  } = useModalStore();
   const { data: agentsData } = useAgents();
   const agents = agentsData ?? [];
   const [visible, setVisible] = React.useState(false);
+  const [editing, setEditing] = React.useState<EditingSession | null>(null);
+  // Delayed-close fence state: the 200 ms fade timer carries the request
+  // generation it was scheduled for; a replacement, reopen, retirement, or
+  // unmount inside the delay must not let it close the newer presentation.
+  const closeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const seqRef = useRef<number | undefined>(requestSeq);
 
   const { data: taskDetails, isLoading: detailsLoading } = useTaskDetails(
     isOpen ? (selectedTaskId ?? undefined) : undefined,
@@ -158,13 +183,84 @@ export function TaskDetailModal() {
   const blocking = taskDetails?.blocking ?? [];
   const crossHabitatDependsOn = taskDetails?.crossHabitatDependsOn ?? [];
 
-  const handleClose = useCallback(() => {
+  const dirty = draftStatus?.dirty === true;
+  const confirming = !!pending || !!switchIntent;
+  const canEditMetadata =
+    taskDetails?.canEditMetadata === true && !!taskDetails?.metadataEditIdentity;
+
+  useEffect(() => {
+    seqRef.current = requestSeq;
+  }, [requestSeq]);
+
+  useEffect(() => () => {
+    if (closeTimer.current !== null) clearTimeout(closeTimer.current);
+  }, []);
+
+  const scheduleClose = useCallback(() => {
     setVisible(false);
-    setTimeout(() => {
+    const seq = seqRef.current;
+    if (closeTimer.current !== null) clearTimeout(closeTimer.current);
+    closeTimer.current = setTimeout(() => {
+      closeTimer.current = null;
       if (!isSessionActive()) return;
+      if (seqRef.current !== seq) return; // fenced against a newer presentation
       closeModal();
     }, 200);
   }, [closeModal, isSessionActive]);
+
+  // Ordinary internal closes (Escape, backdrop, header Close) confirm through
+  // the store's acknowledged request while a draft is dirty; a clean modal
+  // takes the fenced fade path. Saves in flight are settled false by the store.
+  const handleClose = useCallback(() => {
+    if (confirming) return; // already acknowledging one intent
+    if (dirty && requestClose) {
+      void requestClose();
+      return;
+    }
+    scheduleClose();
+  }, [confirming, dirty, requestClose, scheduleClose]);
+
+  // Re-fade on a new presentation generation (same-ID reopen included).
+  useEffect(() => {
+    if (isOpen) requestAnimationFrame(() => setVisible(true));
+  }, [requestSeq, isOpen]);
+
+  // The edit session belongs to the presented Task; a close or an acknowledged
+  // switch discards it.
+  useEffect(() => {
+    setEditing(null);
+  }, [selectedTaskId]);
+  useEffect(() => {
+    if (!isOpen) {
+      setEditing(null);
+      setVisible(false);
+    }
+  }, [isOpen]);
+
+  const keepEditing = () => {
+    if (pending) resolveRequest(pending.seq, false);
+    else if (switchIntent) acknowledgeSwitch(switchIntent.seq, false);
+  };
+  const discardDraft = () => {
+    // A same-ID switch never changes selectedTaskId, so the reset effects cannot
+    // clear the session — Discard must exit edit mode itself.
+    setEditing(null);
+    if (pending) resolveRequest(pending.seq, true);
+    else if (switchIntent) acknowledgeSwitch(switchIntent.seq, true);
+  };
+
+  const startEditing = () => {
+    if (!taskDetails?.task || !taskDetails.metadataEditIdentity) return;
+    setEditing({
+      taskId: taskDetails.task.id,
+      identity: taskDetails.metadataEditIdentity,
+      version: taskDetails.task.version,
+      title: taskDetails.task.title,
+      description: taskDetails.task.description ?? "",
+      priority: taskDetails.task.priority,
+      missionId: taskDetails.task.missionId,
+    });
+  };
 
   useEffect(() => {
     if (!isOpen) return;
@@ -232,6 +328,17 @@ export function TaskDetailModal() {
               </button>
             </div>
 
+            {editing && editing.taskId === task.id ? (
+              <TaskMetadataEditor
+                key={`${editing.taskId}:${editing.identity}`}
+                taskId={editing.taskId}
+                opening={editing}
+                presentedKey={queryKeys.tasks.details(selectedTaskId ?? editing.taskId)}
+                onDone={() => setEditing(null)}
+                onCancel={() => setEditing(null)}
+              />
+            ) : (
+            <>
             <div className="relative px-10 py-5 flex flex-wrap gap-10 bg-surface-container-low/30 border-y border-outline-variant/10">
               <div className="flex flex-col gap-2">
                 <span className="text-[10px] font-label uppercase tracking-widest text-on-surface-variant">
@@ -472,26 +579,26 @@ export function TaskDetailModal() {
                 </button>
               </div>
               <div className="flex items-center gap-3 sm:justify-end">
+                {canEditMetadata && (
+                  <button
+                    type="button"
+                    onClick={startEditing}
+                    className="px-6 py-3 text-sm font-bold text-on-surface hover:bg-surface-variant/50 transition-all rounded-sm border border-outline-variant/20"
+                  >
+                    Edit
+                  </button>
+                )}
                 <button
                   type="button"
                   onClick={handleClose}
                   className="px-6 py-3 text-sm font-bold text-on-surface hover:bg-surface-variant/50 transition-all rounded-sm border border-outline-variant/20"
                 >
-                  Cancel
-                </button>
-                <button
-                  type="button"
-                  disabled
-                  title="Coming soon"
-                  aria-label="Save Changes - Coming soon"
-                  className="task-save-gradient-glow px-8 py-3 bg-primary-container text-on-primary-container text-sm font-bold rounded-sm shadow-[0_0_20px_rgba(62,86,97,0.4)] opacity-60 cursor-not-allowed transition-all flex items-center gap-2 relative overflow-hidden"
-                >
-                  <span className="absolute inset-0 bg-gradient-to-tr from-primary/20 via-primary/5 to-transparent opacity-80" />
-                  <Save className="relative h-4 w-4" />
-                  <span className="relative">Save Changes</span>
+                  Close
                 </button>
               </div>
             </div>
+            </>
+            )}
           </>
         )}
 
@@ -502,6 +609,40 @@ export function TaskDetailModal() {
               <button onClick={handleClose} className="text-primary text-sm hover:underline">
                 Close
               </button>
+            </div>
+          </div>
+        )}
+
+        {confirming && (
+          <div className="absolute inset-0 z-30 flex items-center justify-center bg-surface-container-lowest/80 p-4">
+            <div
+              className="glass-modal relative w-full max-w-md p-6 space-y-4"
+              role="alertdialog"
+              aria-modal="true"
+              aria-label="Unsaved changes"
+            >
+              <h2 className="text-lg font-headline font-bold text-on-surface">Unsaved changes</h2>
+              <p className="text-sm text-on-surface-variant">
+                {switchIntent
+                  ? "Discard the unsaved edits and open the new Task?"
+                  : "Discard the unsaved edits and close?"}
+              </p>
+              <div className="flex justify-end gap-3">
+                <button
+                  type="button"
+                  onClick={keepEditing}
+                  className="px-4 py-2 text-sm font-bold text-on-surface hover:bg-surface-variant/50 transition-all rounded-sm border border-outline-variant/20"
+                >
+                  Keep editing
+                </button>
+                <button
+                  type="button"
+                  onClick={discardDraft}
+                  className="px-4 py-2 text-sm font-bold bg-primary-container text-on-primary-container rounded-sm transition-all"
+                >
+                  Discard
+                </button>
+              </div>
             </div>
           </div>
         )}

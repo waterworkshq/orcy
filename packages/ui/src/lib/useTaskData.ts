@@ -50,12 +50,15 @@ export interface TaskDetailsData {
   blockedBy: Task[];
   blocking: Task[];
   habitatContext: { name: string; columns: { name: string; missionCount: number }[] };
+  /** Human-only edit affordance hint from the details read; never write authority. */
+  canEditMetadata?: boolean;
+  metadataEditIdentity?: string;
 }
 
 export function useTaskDetails(taskId: string | undefined) {
   return useQuery({
     queryKey: queryKeys.tasks.details(taskId ?? ""),
-    queryFn: () => api.tasks.details(taskId!),
+    queryFn: ({ signal }: { signal?: AbortSignal }) => api.tasks.details(taskId!, signal),
     enabled: !!taskId,
     staleTime: 30 * 1000,
   });
@@ -64,7 +67,7 @@ export function useTaskDetails(taskId: string | undefined) {
 export function useTaskContext(taskId: string | undefined) {
   return useQuery({
     queryKey: queryKeys.tasks.detail(taskId ?? ""),
-    queryFn: () => api.tasks.get(taskId!),
+    queryFn: ({ signal }: { signal?: AbortSignal }) => api.tasks.get(taskId!, signal),
     enabled: !!taskId,
     staleTime: 2 * 60 * 1000,
   });
@@ -153,7 +156,7 @@ export function usePrefetchTask(taskId: string | undefined) {
   if (taskId) {
     qc.prefetchQuery({
       queryKey: queryKeys.tasks.detail(taskId),
-      queryFn: () => api.tasks.get(taskId),
+      queryFn: ({ signal }: { signal?: AbortSignal }) => api.tasks.get(taskId, signal),
       staleTime: 2 * 60 * 1000,
     });
   }
