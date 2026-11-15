@@ -209,6 +209,10 @@ export function saveTaskMetadataWithClient(
   client: MetadataDbClient,
   input: MetadataSaveInput,
 ): MetadataSaveOutcome {
+  if (input.expectedPriority !== undefined && input.priority === undefined) {
+    // Direct-caller mirror of the route schema's iff-rule; worker/test callers bypass Zod.
+    throw new Error("expectedPriority requires priority");
+  }
   try {
     client.run(sql`BEGIN IMMEDIATE`);
   } catch (error) {

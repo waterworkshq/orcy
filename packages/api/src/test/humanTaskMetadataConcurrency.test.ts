@@ -83,18 +83,34 @@ function forkWorker(label: string, argv: string[], order: string[]): Forked {
     console.warn(`[metadata-overlap worker-${label} stderr]:`, chunk.toString());
   });
   const ready = new Promise<void>((resolve, reject) => {
+    let settled = false;
+    const timer = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      child.off("message", onMessage);
+      child.off("exit", onExit);
+      reject(new Error(`timeout (30000ms) waiting for worker-${label} READY`));
+    }, 30_000);
     const onMessage = (msg: WorkerMessage): void => {
+      if (settled) return;
       if (msg?.type === "READY") {
+        settled = true;
+        clearTimeout(timer);
         child.off("message", onMessage);
         child.off("exit", onExit);
         resolve();
       } else if (msg?.type === "WORKER_ERROR") {
+        settled = true;
+        clearTimeout(timer);
         child.off("message", onMessage);
         child.off("exit", onExit);
         reject(new Error(`worker-${label} failed at boot: ${msg.message}`));
       }
     };
     const onExit = (code: number | null, signal: string | null): void => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
       reject(new Error(`worker-${label} exited (code=${code}, signal=${signal}) before READY`));
     };
     child.on("message", onMessage);
@@ -410,6 +426,11 @@ describe("human task metadata save — real cross-process write overlap", () => 
 
       holder.child.send({ type: "RELEASE", payload: { kind: "none" } });
       await waitFor(holder.child, "RELEASED", "holder", order);
+
+      // Still untouched after the reservation lifted: a delayed retry would
+      // have applied the write once the lock freed.
+      expect(taskRow(f.taskId)).toMatchObject({ title: "Task", version: f.expectedVersion });
+      expect(updatedEvents(f.taskId)).toHaveLength(0);
     } finally {
       if (holder.child.exitCode === null && !holder.child.killed) holder.child.kill("SIGKILL");
     }

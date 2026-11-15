@@ -29,6 +29,7 @@ import * as agentRepo from "../repositories/agent.js";
 import * as remotePodRepo from "../repositories/remotePod.js";
 import * as remoteParticipantRepo from "../repositories/remoteParticipant.js";
 import * as remoteCredentialService from "../services/remoteCredentialService.js";
+import { onTransition } from "../services/tasks/transition-emitter.js";
 import { createHash } from "node:crypto";
 
 let app: HttpRuntimeHandle;
@@ -390,5 +391,48 @@ describe("human task metadata route", () => {
     const b = baseline(f.task.id);
     getDb().delete(membersTable).where(eq(membersTable.userId, member)).run();
     expect((await patch(f.task.id, { ...b, title: "T" }, token(member))).statusCode).toBe(403);
+  });
+
+  // GROUND: PRD E1 — positive control: the existing agent PATCH route still serves
+  // a valid, separately seeded agent request while the metadata route denies the same key.
+  it("serves a valid agent PATCH on the existing task route", async () => {
+    const f = teamFixture();
+    const { plainApiKey } = agentRepo.createAgent({ name: `meta-agent-${randomUUID()}`, type: "claude-code", domain: "fullstack", capabilities: [] });
+    const response = await app.inject({
+      method: "PATCH",
+      url: `/api/v1/tasks/${f.task.id}`,
+      payload: JSON.stringify({ title: "Agent edit" }),
+      headers: { "content-type": "application/json", "X-Agent-API-Key": plainApiKey },
+    });
+    expect(response.statusCode).toBe(200);
+    expect(taskRepo.getTaskById(f.task.id)!.title).toBe("Agent edit");
+  });
+
+  // GROUND: seed slice 2 real-seam variant — a failing onTransition subscriber
+  // (watcher seam) with the REAL emitter active: HTTP succeeds, the row and
+  // exactly one updated event persist. The emitter swallows the hook failure.
+  it("keeps the HTTP save successful when a real post-commit subscriber fails", async () => {
+    const f = teamFixture();
+    const member = user();
+    memberRepo.addMember({ teamId: f.team.id, userId: member, role: "member" });
+    const b = baseline(f.task.id);
+    const before = taskRepo.getTaskById(f.task.id)!;
+    let hookRuns = 0;
+    const unsubscribe = onTransition(() => {
+      hookRuns += 1;
+      throw new Error("watcher seam boom");
+    });
+    try {
+      const response = await patch(f.task.id, { ...b, title: "Seam" }, token(member));
+      expect(response.statusCode).toBe(200);
+      expect(hookRuns).toBeGreaterThan(0);
+      const saved = taskRepo.getTaskById(f.task.id)!;
+      expect(saved).toEqual({ ...before, title: "Seam", updatedAt: saved.updatedAt, version: before.version + 1 });
+      expect(
+        getDb().select().from(taskEvents).where(eq(taskEvents.taskId, f.task.id)).all().filter((event) => event.action === "updated"),
+      ).toHaveLength(1);
+    } finally {
+      unsubscribe();
+    }
   });
 });

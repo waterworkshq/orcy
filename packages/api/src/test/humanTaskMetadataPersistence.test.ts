@@ -192,7 +192,7 @@ for (const driver of ["sqljs", "native"] as const) {
     });
 
     // GROUND: PRD E6 ("exactly one updated event commits with the row") — aborting the event insert rolls the task write back with it: atomicity, not best-effort events.
-    it("rolls the task row back when the event insert aborts", () => {
+    it("rolls the task row back when the event insert aborts, then releases the reservation", () => {
       const f = setup();
       const before = taskRow(f.taskId);
       const eventsBefore = allEvents(f.taskId);
@@ -206,6 +206,8 @@ for (const driver of ["sqljs", "native"] as const) {
       expectCause(failure, "metadata event veto");
       expect(taskRow(f.taskId)).toEqual(before);
       expect(allEvents(f.taskId)).toEqual(eventsBefore);
+      getDb().run(sql`DROP TRIGGER metadata_event_abort`);
+      expect(save(f, { title: "Edited" })).toMatchObject({ ok: true, changed: true });
     });
 
     // GROUND: DESIGN §5 expectedPriority fence — the write below is applyAction's set_priority shape (prioritizationService.ts:301): priority+updatedAt, no version bump. A stale priority edit is refused while versions still match; a title-only save from that same version succeeds and retains the raced priority.
@@ -240,6 +242,16 @@ for (const driver of ["sqljs", "native"] as const) {
       } finally {
         spy.mockRestore();
       }
+    });
+
+    // GROUND: schema iff-rule mirrored in the core — a direct caller supplying
+    // expectedPriority without priority throws before any reservation is taken.
+    it("throws for a direct caller supplying expectedPriority without priority", () => {
+      const f = setup();
+      const before = taskRow(f.taskId);
+      expect(() => save(f, { title: "Stray", expectedPriority: "medium" })).toThrow("expectedPriority requires priority");
+      expect(taskRow(f.taskId)).toEqual(before);
+      expect(updatedEvents(f.taskId)).toHaveLength(0);
     });
 
     // GROUND: PRD E6 (recognized native busy/lock acquisition failures map to CONTENTION) + DESIGN §4 last paragraph — direct messages, cause-wrapped errors, and native `code` values with unrelated messages all classify at acquisition.
