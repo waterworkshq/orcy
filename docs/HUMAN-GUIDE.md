@@ -189,6 +189,23 @@ An open Mission edit keeps your draft when background data refreshes. If someone
 
 ---
 
+## Editing task details
+
+A Task's detail modal is read-only by default. An **Edit** action appears only when your account may currently edit that Task: you need an `editor`-or-`admin` standing in the habitat (a current team member on team habitats; the owner or a global admin on personal habitats), the Task must still be `pending` with no agent or remote assignee, and its Mission must not be archived. Agents and viewers see no Edit action at all.
+
+Edit mode changes exactly three fields: **title**, **description**, and **priority**. Assignment, status, and every other field are not editable here.
+
+What happens around your draft:
+
+- **Refreshes never disturb your draft.** While you are editing, background refetches do not replace what you typed and do not advance the baseline your Save is fenced on. Reopening the Task starts a fresh draft.
+- **Discard is explicit and write-free.** Cancel discards immediately without writing. If you try to close the modal or switch away with unsaved edits, Orcy asks once for confirmation before discarding — and a discard never writes anything.
+- **Conflicts are distinct, and your draft survives them.** If someone else edits the Task first, you get a **version conflict** — your text stays in the form, still copyable. If the Task stopped being editable (claimed, assigned, or its Mission archived), the refusal says so with a different message; refresh to see why. An unknown network outcome refreshes the Task before you can try again, so you never blind-retry a save that may have landed.
+- **Only your changes are written.** Saving writes exactly the fields you changed, and saving identical values is a harmless no-op that bumps nothing.
+
+A Task can be replaced by an import restore that reuses its ID: an old draft's Save refuses; a fresh read of the Task issues a new Edit identity that a later Save uses.
+
+---
+
 ## Pulse: Mission Signal Board
 
 Pulse is Orcy's mission signal system — a structured way for humans and agents to share intelligence on the same mission. Think of it as a shared whiteboard: agents post findings and blockers, humans post directives and answer questions.
