@@ -1,10 +1,11 @@
-import React, { useEffect, useState, useRef, useMemo, Suspense } from "react";
+import React, { useEffect, useState, useRef, useMemo, useCallback, Suspense } from "react";
 import { useParams, Link, useNavigate, useSearchParams } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
 import { HealthScoreWidget } from "./HealthScoreWidget.js";
 import { useHabitatStore } from "../../store/habitatStore.js";
 import { useHabitat } from "../../lib/useHabitatData.js";
 import { queryKeys } from "../../lib/queryKeys.js";
+import { useSessionLiveness } from "../../lib/sessionState.js";
 import { useModalStore } from "../../store/modalStore.js";
 import { useSSE } from "../../hooks/useSSE.js";
 import { useSSENotifications } from "../../hooks/useSSENotifications.js";
@@ -91,6 +92,24 @@ export function HabitatPage() {
   const searchRef = useRef<HTMLInputElement>(null);
   const isMobile = useIsMobile();
   const registerDrawerBridge = useRegisterDrawerBridge();
+  const isSessionActive = useSessionLiveness();
+  // Latest Habitat for post-await guards (the handler closure must not act on a
+  // route the user already left while the modal close was being confirmed).
+  const habitatIdRef = useRef(habitatId);
+  habitatIdRef.current = habitatId;
+
+  // Bulk mode and the mobile menu change only after the modal's acknowledged
+  // close request — a dirty draft is confirmed first, and a save in flight
+  // settles the request false without touching the save.
+  const engageBulkSelect = useCallback(async () => {
+    const targetHabitat = habitatIdRef.current;
+    if (!targetHabitat) return;
+    const accepted = await useModalStore.getState().requestClose();
+    if (!accepted || !isSessionActive()) return;
+    if (habitatIdRef.current !== targetHabitat) return;
+    setBulkSelectMode(true, targetHabitat);
+    setMobileMenuOpen(false);
+  }, [isSessionActive, setBulkSelectMode]);
 
   useSSE(habitatId ?? "");
   useSSENotifications();
@@ -341,8 +360,7 @@ export function HabitatPage() {
                     variant="outline"
                     size="sm"
                     onClick={() => {
-                      useModalStore.getState().closeModal();
-                      setBulkSelectMode(true, habitatId);
+                      void engageBulkSelect();
                     }}
                   >
                     <Square className="h-4 w-4" />
@@ -402,9 +420,7 @@ export function HabitatPage() {
               <button
                 type="button"
                 onClick={() => {
-                  useModalStore.getState().closeModal();
-                  setBulkSelectMode(true, habitatId);
-                  setMobileMenuOpen(false);
+                  void engageBulkSelect();
                 }}
                 className="flex items-center gap-2 rounded border border-outline-variant px-3 py-1.5 text-sm text-on-surface"
               >

@@ -6,21 +6,31 @@ import type {
   Artifact,
   TaskEvent,
   TaskWatcher,
+  TaskPriority,
   DecompositionResult,
   BatchTaskRequest,
   BatchTaskResponse,
 } from "../../types/index.js";
 import type { TaskDetailsData } from "../../lib/useTaskData.js";
 
+export interface UpdateTaskMetadataInput {
+  expectedVersion: number;
+  expectedTaskIdentity: string;
+  title?: string;
+  description?: string;
+  priority?: TaskPriority;
+  expectedPriority?: TaskPriority;
+}
+
 export const tasksApi = {
-  get: (id: string) =>
+  get: (id: string, signal?: AbortSignal) =>
     request<{
       task: Task;
       dependencies: Task[];
       blockedBy: Task[];
       blocking: Task[];
       habitatContext: TaskContext["habitatContext"];
-    }>(`/tasks/${id}`),
+    }>(`/tasks/${id}`, signal ? { signal } : {}),
   update: (id: string, data: Partial<Task> & { version?: number }) =>
     request<{ task: Task }>(`/tasks/${id}`, {
       method: "PATCH",
@@ -86,7 +96,14 @@ export const tasksApi = {
       `/tasks/${id}/events${qs ? `?${qs}` : ""}`,
     );
   },
-  details: (id: string) => request<TaskDetailsData>(`/tasks/${id}/details`),
+  details: (id: string, signal?: AbortSignal) =>
+    request<TaskDetailsData>(`/tasks/${id}/details`, signal ? { signal } : {}),
+  updateMetadata: (id: string, data: UpdateTaskMetadataInput, signal?: AbortSignal) =>
+    request<{ task: Task; habitatId: string }>(`/tasks/${id}/metadata`, {
+      method: "PATCH",
+      body: JSON.stringify(data),
+      ...(signal ? { signal } : {}),
+    }),
   decompose: (id: string) =>
     request<DecompositionResult>(`/tasks/${id}/decompose`, {
       method: "POST",

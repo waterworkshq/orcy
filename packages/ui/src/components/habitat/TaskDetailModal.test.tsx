@@ -381,7 +381,10 @@ describe("TaskDetailModal", () => {
     expect(screen.getByTestId("task-dependencies")).toBeTruthy();
   });
 
-  it("renders footer actions with disabled save placeholder and glow class", () => {
+  // GROUND: T5 Step 5 read-mode footer (placeholder assertion update): the
+  // disabled Save placeholder is replaced by Close; Edit appears only with the
+  // server's edit hint, which this fixture does not provide. PRD E9 journey 1.
+  it("renders footer actions with Close and no save placeholder in read mode", () => {
     modalStoreState.isOpen = true;
     modalStoreState.selectedTaskId = "task-1";
 
@@ -393,11 +396,9 @@ describe("TaskDetailModal", () => {
 
     expect(screen.getByRole("button", { name: "Share" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Archive" })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Cancel" })).toBeTruthy();
-    const saveButton = screen.getByRole("button", { name: /save changes/i });
-    expect(saveButton).toBeDisabled();
-    expect(saveButton).toHaveAttribute("title", "Coming soon");
-    expect(saveButton).toHaveClass("task-save-gradient-glow");
+    expect(screen.getByRole("button", { name: "Close" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /save changes/i })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Edit" })).toBeNull();
   });
 
   it("close button calls closeModal", () => {
