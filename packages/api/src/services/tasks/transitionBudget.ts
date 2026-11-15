@@ -30,11 +30,12 @@
  * the human notification (never the NOTIFY_TASK_EVENT_ACTIONS hook bus — the
  * v0.17.1 consumer-audit rule). A HEADROOM-ONLY refusal (a `required > 1`
  * reservation that no longer fits while `count + 1 <= ceiling`) stays silent —
- * no escalation, no notification — so the emit-once escalation is never spent
- * before real exhaustion. Repeat refusals do not duplicate the
- * escalation: emit-once is scoped by the {@link BUDGET_BREACH_MARKER} metadata
- * key, so a prior retry-ladder `escalated` event never suppresses a budget
- * escalation. The escalation side effects live in
+ * no escalation, no notification — so the per-ceiling escalation is never spent
+ * before real exhaustion. Repeat refusals at the same or a lower ceiling do
+ * not duplicate the escalation; a refusal above every prior breached ceiling
+ * escalates again with the new ceiling. Dedup is scoped by the
+ * {@link BUDGET_BREACH_MARKER} metadata key, so a prior retry-ladder
+ * `escalated` event never suppresses a budget escalation. The side effects live in
  * `transitionBudgetEscalation.ts`, loaded via dynamic import inside the
  * post-commit microtask ({@link scheduleBreachEscalation}) so they never join
  * the refusing caller's open transaction — and so this module's many
@@ -149,8 +150,8 @@ export type TransitionBudgetOutcome =
 export type BudgetRefusedOutcome = Extract<TransitionBudgetOutcome, { outcome: "refused" }>;
 
 /**
- * Metadata key scoping budget-breach escalations. The emit-once existence
- * check keys on THIS marker, never on "any prior escalated event": a task
+ * Metadata key scoping budget-breach escalations. The per-ceiling dedup check
+ * keys on THIS marker, never on "any prior escalated event": a task
  * that already escalated via the retry ladder (metadata
  * `{retryCount, maxRetries, rejectionReason}` — no marker) must still
  * receive its budget-breach escalation.
@@ -161,20 +162,28 @@ export const BUDGET_BREACH_MARKER = "transitionBudget";
 export const BUDGET_ESCALATION_ACTOR_ID = "transition-budget";
 
 /**
- * Whether the task already carries a budget-breach escalation: an
- * `escalated` event whose metadata carries the {@link BUDGET_BREACH_MARKER}.
- * Retry-ladder escalations never match.
+ * Whether the task already carries a budget-breach escalation at or above
+ * `ceiling`. Only `escalated` events whose {@link BUDGET_BREACH_MARKER} records
+ * a finite prior ceiling participate; retry-ladder escalations never match.
  */
 export function hasBudgetBreachEscalation(
   client: TransitionBudgetClient,
   taskId: string,
+  ceiling: number,
 ): boolean {
   const rows = client
     .select({ metadata: taskEvents.metadata })
     .from(taskEvents)
     .where(and(eq(taskEvents.taskId, taskId), eq(taskEvents.action, "escalated")))
     .all() as Array<{ metadata: Record<string, unknown> | null }>;
-  return rows.some((row) => row.metadata?.[BUDGET_BREACH_MARKER] !== undefined);
+  return rows.some((row) => {
+    const marker = row.metadata?.[BUDGET_BREACH_MARKER];
+    if (!marker || typeof marker !== "object" || Array.isArray(marker)) return false;
+    const priorCeiling = (marker as Record<string, unknown>).ceiling;
+    return (
+      typeof priorCeiling === "number" && Number.isFinite(priorCeiling) && ceiling <= priorCeiling
+    );
+  });
 }
 
 /**
@@ -187,8 +196,8 @@ export function hasBudgetBreachEscalation(
  * a queueMicrotask callback fires strictly after the outermost transaction
  * has committed — the run-outside-the-tx position the emitter requires
  * everywhere else (remote wrapper invariant #9). FIFO microtask order keeps
- * emit-once sound: two refusals in one tick drain sequentially, and the
- * second sees the first's persisted event.
+ * per-ceiling dedup sound: two refusals in one tick drain sequentially, and
+ * the second sees the first's persisted event.
  *
  * The escalation module is imported dynamically HERE so its emitter +
  * notification graph is never an eager dependency of this module's consumers

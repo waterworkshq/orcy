@@ -3207,7 +3207,7 @@ Agent self-deletion (uninstall compensation). Same atomic semantics as above;
 the transition actor is the agent's own id — the releases are **metered**, so
 a budget-exhausted holding refuses the whole deletion with
 `409 deletion_blocked_budget` — task and agent state are unchanged, though
-the emit-once breach escalation may still post a post-settle escalation
+the per-ceiling breach escalation may still post a post-settle escalation
 event with SSE/notification as disclosure; the internal `AGENT_TEARDOWN_REFERENCES_REMAIN`
 refusal (rolled-back deletion) maps to the same blocked-uninstall handling.
 Auth: agent auth, `:id` must equal the caller's own

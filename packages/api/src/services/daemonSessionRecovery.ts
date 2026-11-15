@@ -160,7 +160,7 @@ export function driveDaemonSessionOutcome(sessionId: string): DriveOutcome {
 function driveFail(task: Task, preImage: Task, habitatId: string, reason: string): DriveOutcome {
   // Budget guard FIRST (refusal → no-op; never release a budget-refused
   // task). Refusals are write-free by construction apart from the guard's
-  // own emit-once first-breach escalation.
+  // own per-ceiling breach escalation.
   const budget = guardTransitionTop(task.id, habitatId, "system", "failed");
   if (budget.outcome === "refused") return "budget_refused";
 

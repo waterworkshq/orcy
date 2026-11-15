@@ -506,7 +506,7 @@ The crash-atomic post-commit record of a fenced automation delivery's completion
 _Avoid_: Delivery guarantee for all automation side effects (the outbox covers completion events only)
 
 **Transition Budget**:
-A per-task count of metered Execute↔Review transitions measured against a habitat-configured ceiling (`lifecycleSettings.taskTransitionCeiling`; null = default 21, 0 = opt-out), counted from the audit trail itself; humans are unmetered. Guarded transition attempts at the ceiling are refused; the first breach attempt schedules a best-effort escalation to habitat humans — its emission failures are logged, not durably retried, so escalation is not promised. Not every metered emission is pre-write guarded — the retry scheduler's `retry_scheduled` event is counted without passing the guard.
+A per-task count of metered Execute↔Review transitions measured against a habitat-configured ceiling (`lifecycleSettings.taskTransitionCeiling`; null = default 21, 0 = opt-out), counted from the audit trail itself; humans are unmetered. Guarded transition attempts at the ceiling are refused; the first breach at a ceiling strictly above every prior breached ceiling schedules a best-effort escalation to habitat humans, while same-ceiling or lower-ceiling repeats stay silent. Emission failures are logged, not durably retried, so escalation is not promised. Not every metered emission is pre-write guarded — the retry scheduler's `retry_scheduled` event is counted without passing the guard.
 _Avoid_: Rate limit (it meters a specific task's Execute↔Review cycles, not request volume), WIP limit
 
 ## Example Dialogue

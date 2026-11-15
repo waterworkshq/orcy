@@ -16,6 +16,14 @@ describe("audit projection normalizer", () => {
       actor: { type: "system", id: "system:github-ci" },
       source: "webhook",
     });
+
+    expect(
+      normalizeAuditActorAndSource({ actorType: "system", actorId: "transition-budget" }),
+    ).toMatchObject({
+      actor: { type: "system", id: "system:transition-budget" },
+      source: "system",
+      provenance: {},
+    });
   });
 
   it("prefers explicit audit metadata source and provenance", () => {

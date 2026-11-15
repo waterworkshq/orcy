@@ -491,7 +491,7 @@ All three must be set. If `ORCY_API_KEY` or `ORCY_AGENT_ID` is empty, the server
 
 1. The daemon row's `last_heartbeat_at` — a daemon heartbeating again inside the window is spared (an in-tx freshness recheck closes the revival race); NULL is treated as stale, unparseable/future-dated values skip the reap with a fixed-code log (`daemon_recovery_heartbeat_*`).
 2. Effect delivery — recovery outcomes land through the durable receipt outbox; a crash between the release/fail act-tx and delivery is resumed or scheduled by the boot reconciliation and interval passes within the consumers' bounded attempt budgets; dead-letter is possible and completion is not promised. Verify `effect_receipts.state` and the `released`/`failed` event rather than assuming from the event row alone.
-3. Budget refusals — a transition-budget-refused recovery performs no task/effect-bundle writes and retries write-free on later sweeps; the only possible write is the guard's own emit-once first-breach escalation (an `escalated` task-event row authored by the system actor `transition-budget` — the actor id of the event row, not metadata; later refusals see that row and stay write-free).
+3. Budget refusals — a transition-budget-refused recovery performs no task/effect-bundle writes and retries write-free on later sweeps; the only possible write is the guard's own per-ceiling breach escalation (an `escalated` task-event row authored by the system actor `transition-budget` — the actor id of the event row, not metadata). Later refusals at the same or a lower ceiling stay write-free; a strictly higher ceiling can produce one new escalation.
 
 ---
 
