@@ -29,7 +29,7 @@ function setupTeamWithUsers(habId: string, userNames: string[]) {
   const userIds: string[] = [];
   for (const name of userNames) {
     const uid = `user-${name}-${ts}-${userIds.length}`;
-    db.insert(users).values({ id: uid, username: `${name}-${ts}-${userIds.length}`, passwordHash: 'hash', displayName: name }).run();
+    db.insert(users).values({ id: uid, username: `${name}-${ts}-${userIds.length}`, passwordHash: 'hash', displayName: name, role: 'admin' }).run();
     db.insert(teamMembers).values({ id: `tm-${uid}`, teamId, userId: uid }).run();
     userIds.push(uid);
   }

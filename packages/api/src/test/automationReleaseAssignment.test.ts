@@ -252,7 +252,7 @@ describe("automation release_assignment — canonical release restoration", () =
     await initTestDb();
     // Exact notify recipients are validated (intent migration): the frozen-rule
     // fixture's `human user-1` must exist; personal habitats admit any existing user.
-    getDb().insert(users).values({ id: "user-1", username: "user-1", passwordHash: "fixture" }).run();
+    getDb().insert(users).values({ id: "user-1", username: "user-1", passwordHash: "fixture", role: "admin" }).run();
   });
   afterEach(() => {
     vi.unstubAllEnvs();

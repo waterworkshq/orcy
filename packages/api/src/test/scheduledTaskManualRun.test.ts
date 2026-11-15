@@ -342,7 +342,7 @@ describe.each(["/api/v1", "/api"])("manual admission and replay controls at %s",
     expect((await app.inject({ method: "POST", url: `${prefix}/scheduled-tasks/${saved.id}/run`, payload: { expectedScheduledFor: scheduledFor } })).statusCode).toBe(401);
     expect((await run(saved.id, scheduledFor, prefix)).statusCode).toBe(403);
     expect(durableState()).toEqual(before);
-    createUser({ id: "manual-run-user", username: "operator", passwordHash: "fixture", createdAt: now, updatedAt: now });
+    createUser({ id: "manual-run-user", username: "operator", passwordHash: "fixture", role: "admin", createdAt: now, updatedAt: now });
     addMember({ teamId: team.id, userId: "manual-run-user" });
     expect((await run(saved.id, scheduledFor, prefix)).json().success).toBe(true);
     removeMember(team.id, "manual-run-user");

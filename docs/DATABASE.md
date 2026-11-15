@@ -445,7 +445,7 @@ Within-mission sibling task dependencies only. Cross-mission dependencies use `m
 | `username` | TEXT | NOT NULL UNIQUE | Login username |
 | `password_hash` | TEXT | NOT NULL | bcrypt hash of password |
 | `display_name` | TEXT | NOT NULL DEFAULT '' | Display name |
-| `role` | TEXT | NOT NULL DEFAULT 'admin' CHECK (IN 'admin','editor','viewer') | User role |
+| `role` | TEXT | NOT NULL DEFAULT 'editor' CHECK (IN 'admin','editor','viewer') | User role; migration 0089 preserves existing roles |
 | `created_at` | TEXT | NOT NULL DEFAULT (datetime('now')) | Creation timestamp |
 | `updated_at` | TEXT | NOT NULL DEFAULT (datetime('now')) | Last update timestamp |
 | `last_login_at` | TEXT | DEFAULT NULL | Last successful login |
@@ -3025,6 +3025,7 @@ entries are:
 | `0086` | `0086_mission_dependencies_source_fk.sql` | Source-side foreign key on `mission_dependencies.mission_id` → `missions(id)` ON DELETE CASCADE (symmetric with the existing `depends_on_id` cascade; closes the dangling source-edge gap — mission deletion previously left owned edges behind forever). Table rebuild via the archive-then-mirror pattern: rows with a missing endpoint Mission are preserved in `mission_dependencies_orphans_0086` (normally empty; anything captured needs explicit remediation) and excluded from the mirrored copy, so no replacement key can abort the rebuild. Drizzle parity via `missionDependencies` in `db/schema/habitat.ts`; archive/copy/cascade proven by `missionDependencySourceFk.test.ts` on the production better-sqlite3 driver. |
 | `0087` | `0087_notification_delivery_cadence.sql` | Notification delivery cadence: additive notification_deliveries.cadence (TEXT NOT NULL DEFAULT 'immediate') persists each delivery's resolved cadence at enqueue; digest grouping unions the persisted cadence with recipient-specific subscription cadences. No table, index, or further column was added; hand-authored .sql with a hand-appended journal entry per the post-0053 convention (no per-migration snapshot). |
 | `0088` | `0088_notification_delivery_cadence_index.sql` | Digest-cadence source lookup index: adds the covering index `idx_notification_deliveries_digest_cadence(cadence, status, habitat_id, recipient_type, recipient_id)` so the digest candidate query filters on the `(cadence, status)` prefix and groups the `(habitat, recipient)` columns without touching the table. Index-only — no column or table change; Drizzle parity via the `notificationDeliveries` index in `db/schema/notification.ts`; covering-plan behavior pinned by `notificationDeliveryQuery.test.ts`. |
+| `0089` | `0089_user_role_default_editor.sql` | Changes `users.role` from `DEFAULT 'admin'` to `DEFAULT 'editor'`. Existing roles are backed up and restored unchanged; only the role column is replaced, leaving the `users` table and inbound foreign keys intact. New rows that omit a role are editors unless explicitly elevated. |
 
 The gap `0003`–`0026` is **intentional**. Those migrations were consolidated
 into `0000_schema.sql` at the boundary commit and are deliberately NOT in the

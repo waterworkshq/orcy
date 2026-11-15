@@ -10,7 +10,7 @@ export const users = sqliteTable(
     displayName: text("display_name").notNull().default(""),
     role: text("role", { enum: ["admin", "editor", "viewer"] })
       .notNull()
-      .default("admin"),
+      .default("editor"),
     createdAt: text("created_at").notNull().default("(datetime('now'))"),
     updatedAt: text("updated_at").notNull().default("(datetime('now'))"),
     lastLoginAt: text("last_login_at"),

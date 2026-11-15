@@ -111,7 +111,7 @@ async function seed(
   columnRepo.createColumn({ habitatId: h.id, name: "Backlog", order: 0, requiresClaim: false });
   // Exact notify recipients are validated (intent migration): the frozen rule's
   // `human user-1` must exist; personal habitats admit any existing user.
-  getDb().insert(users).values({ id: "user-1", username: "user-1", passwordHash: "fixture" }).run();
+  getDb().insert(users).values({ id: "user-1", username: "user-1", passwordHash: "fixture", role: "admin" }).run();
   ruleRepo.createAutomationRule({
     habitatId: h.id,
     name: "Fencing Rule",

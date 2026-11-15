@@ -111,7 +111,7 @@ function insertAgentRaw(id: string, name: string, domain: string, createdAt: str
 }
 
 function insertUser(id: string, username: string): void {
-  getDb().insert(users).values({ id, username, passwordHash: "x", displayName: username }).run();
+  getDb().insert(users).values({ id, username, passwordHash: "x", displayName: username, role: "admin" }).run();
 }
 
 function attachHumanTeam(fixture: Fixture, names: string[]): string[] {

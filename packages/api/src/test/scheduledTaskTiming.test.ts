@@ -297,7 +297,7 @@ describe.each(["/api/v1", "/api"])("one-shot timing through %s", (prefix) => {
       expect(scheduledTaskRepo.getScheduledTaskById(saved.id)).toEqual(before);
       expect(occurrences(saved.id)).toEqual([]);
     }
-    createUser({ id: "schedule-user", username: "scheduler", passwordHash: "unused", createdAt: start, updatedAt: start });
+    createUser({ id: "schedule-user", username: "scheduler", passwordHash: "unused", role: "admin", createdAt: start, updatedAt: start });
     addMember({ teamId: team.id, userId: "schedule-user", role: "member" });
     const edited = await app.inject({ method: "PATCH", url: `${prefix}/scheduled-tasks/${saved.id}`, headers,
       payload: { scheduledAt: newDue } });

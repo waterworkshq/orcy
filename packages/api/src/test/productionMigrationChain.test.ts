@@ -30,6 +30,7 @@ import { createHash } from "node:crypto";
 import Database from "better-sqlite3";
 import { sql } from "drizzle-orm";
 import * as schema from "../db/schema/index.js";
+import { createUser } from "../repositories/user.js";
 
 const PACKAGE_ROOT = join(import.meta.dirname, "..", "..");
 const DRIZZLE_DIR = join(PACKAGE_ROOT, "drizzle");
@@ -343,6 +344,56 @@ describe("F2: Production Drizzle migration chain", () => {
         .where(sql`id = ${sentinels.userId}`)
         .all();
       expect(user2).toHaveLength(1);
+    });
+
+    it("defaults omitted user roles to editor while preserving existing admins and memberships", async () => {
+      cleanupDb(dbPath);
+      prepareV029Database(dbPath);
+      const sentinels = seedSentinelData(dbPath);
+
+      const pre = new Database(dbPath);
+      pre.exec(`
+        INSERT INTO organizations (id, name, slug) VALUES ('role-default-org', 'Role Default Org', 'role-default-org');
+        INSERT INTO teams (id, organization_id, name, slug) VALUES ('role-default-team', 'role-default-org', 'Role Default Team', 'role-default-team');
+      `);
+      pre
+        .prepare("INSERT INTO team_members (id, team_id, user_id) VALUES (?, ?, ?)")
+        .run("role-default-membership", "role-default-team", sentinels.userId);
+      pre.close();
+
+      await initDb(dbPath);
+
+      const raw = new Database(dbPath);
+      raw.pragma("foreign_keys = ON");
+      expect(raw.prepare("SELECT role FROM users WHERE id = ?").get(sentinels.userId)).toEqual({
+        role: "admin",
+      });
+      expect(
+        raw.prepare("SELECT user_id FROM team_members WHERE id = 'role-default-membership'").get(),
+      ).toEqual({ user_id: sentinels.userId });
+
+      raw.prepare("INSERT INTO users (id, username, password_hash) VALUES (?, ?, ?)").run(
+        "role-default-editor",
+        "role-default-editor",
+        "unused-hash",
+      );
+      expect(raw.prepare("SELECT role FROM users WHERE id = 'role-default-editor'").get()).toEqual({
+        role: "editor",
+      });
+
+      const now = new Date().toISOString();
+      createUser({
+        id: "role-default-repo-editor",
+        username: "role-default-repo-editor",
+        passwordHash: "unused-hash",
+        createdAt: now,
+        updatedAt: now,
+      });
+      expect(raw.prepare("SELECT role FROM users WHERE id = 'role-default-repo-editor'").get()).toEqual({
+        role: "editor",
+      });
+      expect(raw.pragma("foreign_key_check")).toEqual([]);
+      raw.close();
     });
   });
 

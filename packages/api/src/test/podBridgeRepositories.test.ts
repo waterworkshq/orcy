@@ -215,6 +215,7 @@ describe("externalIdentity repository", () => {
         username: "local-user-1",
         passwordHash: "hash",
         displayName: "Local",
+        role: "admin",
       })
       .run();
 

@@ -430,7 +430,7 @@ describe("FU2: outbox-delivered completion advances a real workflow gate", () =>
     await initTestDb();
     // Exact notify recipients are validated (intent migration): the notifyAction
     // fixture's `human user-1` must exist; personal habitats admit any existing user.
-    getDb().insert(users).values({ id: "user-1", username: "user-1", passwordHash: "fixture" }).run();
+    getDb().insert(users).values({ id: "user-1", username: "user-1", passwordHash: "fixture", role: "admin" }).run();
   });
 
   afterEach(() => closeDb());
