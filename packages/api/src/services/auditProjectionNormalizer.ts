@@ -6,6 +6,7 @@ const AUDIT_SOURCE_SET = new Set<AuditSource>(AUDIT_SOURCES);
 
 const SYSTEM_ACTOR_MAP: Record<string, { id: string; source: AuditSource }> = {
   "status-engine": { id: "system:status-engine", source: "system" },
+  "transition-budget": { id: "system:transition-budget", source: "system" },
   scheduler: { id: "system:scheduler", source: "scheduler" },
   "scheduled-task": { id: "system:scheduled-task", source: "scheduler" },
   "github-ci": { id: "system:github-ci", source: "webhook" },

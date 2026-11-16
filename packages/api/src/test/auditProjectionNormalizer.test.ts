@@ -16,6 +16,16 @@ describe("audit projection normalizer", () => {
       actor: { type: "system", id: "system:github-ci" },
       source: "webhook",
     });
+
+    const projected = normalizeAuditActorAndSource({
+      actorType: "system",
+      actorId: "transition-budget",
+    });
+    expect(projected).toMatchObject({
+      actor: { type: "system", id: "system:transition-budget" },
+      source: "system",
+    });
+    expect(projected.provenance).toEqual({});
   });
 
   it("prefers explicit audit metadata source and provenance", () => {

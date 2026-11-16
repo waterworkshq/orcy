@@ -26,13 +26,13 @@ import {
 import * as taskRepo from "../../repositories/task.js";
 
 /**
- * THE breach site (plan §6): on the first refusal, emit the existing
- * `escalated` TaskAction with breach metadata, then direct-call the human
- * notification — the `retryService.escalateToHuman` / `recoveryNotifications`
- * direct-call precedent (`escalated` is deliberately absent from
- * NOTIFY_TASK_EVENT_ACTIONS per the v0.17.1 consumer-audit rule). Emit-once
- * via {@link hasBudgetBreachEscalation}. Never throws into the refusing
- * caller: escalation failure is logged and swallowed.
+ * THE breach site (plan §6): on the first refusal above every prior breached
+ * ceiling, emit the existing `escalated` TaskAction with breach metadata, then
+ * direct-call the human notification — the `retryService.escalateToHuman` /
+ * `recoveryNotifications` direct-call precedent (`escalated` is deliberately
+ * absent from NOTIFY_TASK_EVENT_ACTIONS per the v0.17.1 consumer-audit rule).
+ * Same/lower-ceiling dedup goes through {@link hasBudgetBreachEscalation}.
+ * Never throws into the refusing caller: escalation failure is logged and swallowed.
  *
  * Runs OUTSIDE the refusing caller's transaction (the guard schedules this
  * post-commit via queueMicrotask) — the emitter's mission-recalc and
@@ -46,7 +46,7 @@ export function escalateTransitionBudgetBreach(
   attemptedActorType: BudgetActorType,
 ): void {
   try {
-    if (hasBudgetBreachEscalation(getDb(), taskId)) return;
+    if (hasBudgetBreachEscalation(getDb(), taskId, refused.ceiling)) return;
 
     const task = taskRepo.getTaskById(taskId);
     emitTransition(taskId, "escalated", habitatId, {

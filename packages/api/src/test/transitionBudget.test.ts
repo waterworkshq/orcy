@@ -28,19 +28,22 @@
  *   - first breach: refusal + exactly one `escalated` event with breach
  *     metadata (attempted action / actor / ceiling / count) + notification +
  *     SSE `task.escalated` [RED]
- *   - repeat attempts: refusal, NO second escalation or notification [RED]
+ *   - same/lower-ceiling repeats: refusal, NO second escalation or notification [RED]
+ *   - higher-ceiling breach: one new escalation + notification at the new ceiling [RED]
  *   - human transitions still succeed post-breach, without re-escalating [RED]
- *   - breach event's actor/metadata survive the audit projection [RED]
+ *   - breach event's normalized actor and metadata survive the audit projection [RED]
  *   - a prior retry-ladder escalation does NOT suppress the budget escalation
- *     (emit-once is scoped by the metadata.transitionBudget marker) [RED]
+ *     (dedup is scoped by the metadata.transitionBudget marker) [RED]
  *   - over-budget human approval succeeds with zero escalations [GREEN-stays]
  *   - notification DELIVERED to habitat team humans on first breach [RED]
  *   - submitTask typed refusal carries count/ceiling diagnostics [RED]
  *   - remote submit refusal carries count/ceiling diagnostics [RED]
  */
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { and, eq } from "drizzle-orm";
 import { closeDb, getDb, initTestDb } from "../db/index.js";
+import { logger } from "../lib/logger.js";
+import * as intentCommand from "../services/notificationIntentCommand.js";
 import {
   habitats,
   notificationDeliveries,
@@ -666,14 +669,14 @@ describe("transition budget — remote wrapper wiring", () => {
 
 // ---------------------------------------------------------------------------
 // Ticket 3 — escalation closure (plan §6: refuse + escalated event + human
-// notification, emit-once, no status change)
+// notification, per-ceiling dedup, no status change)
 // ---------------------------------------------------------------------------
 
 describe("transition budget — escalation module contract", () => {
-  it("hasBudgetBreachEscalation: only marker-carrying escalated events count", async () => {
+  it("hasBudgetBreachEscalation: marker family and prior ceilings jointly control dedup", async () => {
     const mod = await import("../services/tasks/transitionBudget.js");
     const task = seedTask("marker-contract");
-    expect(mod.hasBudgetBreachEscalation(getDb(), task.id)).toBe(false);
+    expect(mod.hasBudgetBreachEscalation(getDb(), task.id, 2)).toBe(false);
 
     // A retry-ladder escalation (no marker) is a distinct population.
     eventRepo.createEvent({
@@ -683,9 +686,8 @@ describe("transition budget — escalation module contract", () => {
       action: "escalated",
       metadata: { retryCount: 3, maxRetries: 3, rejectionReason: "keep failing" },
     });
-    expect(mod.hasBudgetBreachEscalation(getDb(), task.id)).toBe(false);
+    expect(mod.hasBudgetBreachEscalation(getDb(), task.id, 2)).toBe(false);
 
-    // A budget-marked escalation is the discriminator.
     eventRepo.createEvent({
       taskId: task.id,
       actorType: "system",
@@ -693,7 +695,19 @@ describe("transition budget — escalation module contract", () => {
       action: "escalated",
       metadata: { transitionBudget: { attemptedAction: "claimed", ceiling: 2, count: 2 } },
     });
-    expect(mod.hasBudgetBreachEscalation(getDb(), task.id)).toBe(true);
+    expect(mod.hasBudgetBreachEscalation(getDb(), task.id, 1)).toBe(true);
+    expect(mod.hasBudgetBreachEscalation(getDb(), task.id, 2)).toBe(true);
+    expect(mod.hasBudgetBreachEscalation(getDb(), task.id, 3)).toBe(false);
+
+    eventRepo.createEvent({
+      taskId: task.id,
+      actorType: "system",
+      actorId: "transition-budget",
+      action: "escalated",
+      metadata: { transitionBudget: { attemptedAction: "claimed", ceiling: 5, count: 5 } },
+    });
+    expect(mod.hasBudgetBreachEscalation(getDb(), task.id, 4)).toBe(true);
+    expect(mod.hasBudgetBreachEscalation(getDb(), task.id, 6)).toBe(false);
   });
 });
 
@@ -763,6 +777,81 @@ describe("transition budget — breach escalation closure", () => {
     expect(countEvents(task.id)).toBe(22);
   });
 
+  it("re-escalates only at a ceiling above every prior budget-breach marker", async () => {
+    setLifecycle({ taskTransitionCeiling: 2 });
+    const agent = seedAgent("breach-ceiling-raise");
+    const task = seedTask("breach-ceiling-raise");
+    seedEvents(task.id, 2, "claimed", "agent");
+
+    expect(taskStateMachine.claimTask(task.id, agent.id).success).toBe(false);
+    await flushEscalations();
+    expect(taskStateMachine.claimTask(task.id, agent.id).success).toBe(false);
+    await flushEscalations();
+
+    setLifecycle({ taskTransitionCeiling: 1 });
+    expect(taskStateMachine.claimTask(task.id, agent.id).success).toBe(false);
+    await flushEscalations();
+    expect(budgetBreachEscalations(task.id)).toHaveLength(1);
+
+    setLifecycle({ taskTransitionCeiling: 4 });
+    seedEvents(task.id, 2, "claimed", "agent");
+    expect(taskStateMachine.claimTask(task.id, agent.id).success).toBe(false);
+    await flushEscalations();
+
+    const breaches = budgetBreachEscalations(task.id);
+    expect(breaches.map(breachMetadata)).toEqual([
+      expect.objectContaining({ ceiling: 2, count: 2 }),
+      expect.objectContaining({ ceiling: 4, count: 4 }),
+    ]);
+    const notes = notificationEventRows(habitatId).filter((n) => n.targetId === task.id);
+    expect(notes).toHaveLength(2);
+    expect(notes[1].body ?? "").toContain("4 of 4");
+
+    setLifecycle({ taskTransitionCeiling: 3 });
+    expect(taskStateMachine.claimTask(task.id, agent.id).success).toBe(false);
+    await flushEscalations();
+    setLifecycle({ taskTransitionCeiling: 4 });
+    expect(taskStateMachine.claimTask(task.id, agent.id).success).toBe(false);
+    await flushEscalations();
+
+    expect(budgetBreachEscalations(task.id)).toHaveLength(2);
+    expect(notificationEventRows(habitatId).filter((n) => n.targetId === task.id)).toHaveLength(2);
+    expect(taskCrud.getTaskById(task.id)?.status).toBe("pending");
+  });
+
+  it("keeps the refusal and durable escalation when notification enqueue fails", async () => {
+    const agent = seedAgent("breach-notification-failure");
+    const task = seedTask("breach-notification-failure");
+    seedEvents(task.id, 21, "claimed", "agent");
+    const enqueue = vi
+      .spyOn(intentCommand, "enqueueNotificationWithIntents")
+      .mockImplementation(() => {
+        throw new Error("injected notification failure");
+      });
+    const warn = vi.spyOn(logger, "warn").mockImplementation(() => {});
+
+    try {
+      enqueue.mockClear();
+      warn.mockClear();
+      const result = taskStateMachine.claimTask(task.id, agent.id);
+      expect(result.success).toBe(false);
+      await flushEscalations();
+
+      expect(result.success).toBe(false);
+      expect(taskCrud.getTaskById(task.id)?.status).toBe("pending");
+      expect(budgetBreachEscalations(task.id)).toHaveLength(1);
+      expect(notificationEventRows(habitatId).filter((n) => n.targetId === task.id)).toHaveLength(0);
+      expect(enqueue).toHaveBeenCalledTimes(1);
+      expect(warn).toHaveBeenCalledWith(
+        expect.objectContaining({ taskId: task.id, habitatId }),
+        "Transition-budget breach notification failed",
+      );
+    } finally {
+      enqueue.mockRestore();
+      warn.mockRestore();
+    }
+  });
+
   it("headroom-only refusal (required=4 at ceiling-3) escalates NOTHING; true exhaustion escalates exactly once", async () => {
     const mod = await import("../services/tasks/transitionBudget.js");
     const task = seedTask("headroom-vs-exhaustion");
@@ -787,7 +876,7 @@ describe("transition budget — breach escalation closure", () => {
     // here would suppress the TRUE exhaustion notification below.
     expect(budgetBreachEscalations(task.id)).toHaveLength(0);
     expect(escalatedEvents(task.id)).toHaveLength(0);
-    expect(mod.hasBudgetBreachEscalation(getDb(), task.id)).toBe(false);
+    expect(mod.hasBudgetBreachEscalation(getDb(), task.id, 21)).toBe(false);
     expect(
       notificationEventRows(habitatId).filter((n) => n.targetId === task.id),
     ).toHaveLength(0);
@@ -855,7 +944,8 @@ describe("transition budget — breach escalation closure", () => {
     const projected = audit.events.filter((e) => e.action === "escalated");
     expect(projected).toHaveLength(1);
     expect(projected[0].actor.type).toBe("system");
-    expect(projected[0].actor.id).toBe("transition-budget");
+    expect(projected[0].actor.id).toBe("system:transition-budget");
+    expect(projected[0].source).toBe("system");
     expect((projected[0].metadata as Record<string, unknown>).transitionBudget).toMatchObject({
       attemptedAction: "claimed",
       ceiling: 21,
