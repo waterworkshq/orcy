@@ -663,6 +663,46 @@ describe("Task metadata editing real modal/store/transport journeys", () => {
     });
   });
 
+  // GROUND: review round on the retry gate's lifecycle — a SECOND unknown
+  // outcome re-arms the gate: Save stays blocked until that outcome's own
+  // fresh read lands, then the retry goes through on the version-7 baseline.
+  // (The gate is also closed synchronously at save start; that one-commit
+  // guarantee is not directly observable under jsdom poll timing.)
+  it("a second unknown outcome keeps the retry gate closed until its own refresh lands", async () => {
+    rejectOnce("PATCH", "/api/tasks/t-1/metadata");
+    await openTaskA();
+    await enterEdit();
+    const firstRefresh = deferOnce("GET", "/api/tasks/t-1/details");
+    fireEvent.change(descriptionField(), { target: { value: "retry draft" } });
+    save();
+    await waitFor(() => expect(patchCalls().length).toBe(1));
+    await screen.findByText(/refresh/i);
+    expect(screen.getByRole("button", { name: "Save Changes" })).toBeDisabled();
+    await act(async () => {
+      firstRefresh.resolve(jsonResponse(detailsForA));
+    });
+    await waitFor(() => expect(screen.getByRole("button", { name: "Save Changes" })).toBeEnabled());
+    // The allowed retry fails unknown again; its own refresh read is held so
+    // nothing but a stale open gate could re-enable Save here.
+    rejectOnce("PATCH", "/api/tasks/t-1/metadata");
+    const secondRefresh = deferOnce("GET", "/api/tasks/t-1/details");
+    save();
+    await waitFor(() => expect(patchCalls().length).toBe(2));
+    await screen.findByText(/refresh/i);
+    expect(screen.getByRole("button", { name: "Save Changes" })).toBeDisabled();
+    await act(async () => {
+      secondRefresh.resolve(jsonResponse(detailsForA));
+    });
+    await waitFor(() => expect(screen.getByRole("button", { name: "Save Changes" })).toBeEnabled());
+    save();
+    await waitFor(() => expect(patchCalls().length).toBe(3));
+    expect(patchCalls()[2].body).toEqual({
+      expectedVersion: 7,
+      expectedTaskIdentity: IDENTITY_A,
+      description: "retry draft",
+    });
+  });
+
   // GROUND: T5 Step 1 refusal codes; PRD E10/Step 4 (401/403/404 block Save with
   // the draft left copyable).
   it.each([401, 403, 404])("a %d metadata failure blocks Save and keeps the draft copyable", async (status) => {
