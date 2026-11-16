@@ -826,7 +826,7 @@ Toggle-based reactions on pulse signals. Three fixed reaction types. Reactions a
 | `review_status` | TEXT | DEFAULT 'pending' | Review status |
 | `branch_id` | TEXT | FK → code_branches(id) ON DELETE SET NULL | Linked code evidence branch |
 | `repository_id` | TEXT | FK → habitat_code_repositories(id) ON DELETE SET NULL | Linked code repository |
-| `verification_state` | TEXT | NOT NULL DEFAULT 'unverified' | Verification state (Drizzle enum + application validation, no SQL CHECK) |
+| `verification_state` | TEXT | DEFAULT NULL | Verification state (Drizzle enum + application validation, no SQL CHECK) |
 | `metadata` | TEXT | JSON, nullable | Additional PR metadata |
 | `created_at` | TEXT | DEFAULT (datetime('now')) | Creation timestamp |
 | `updated_at` | TEXT | DEFAULT (datetime('now')) | Last update timestamp |
@@ -848,7 +848,7 @@ Toggle-based reactions on pulse signals. Three fixed reaction types. Reactions a
 | `repository_id` | TEXT | FK → habitat_code_repositories(id) ON DELETE SET NULL | Linked code repository |
 | `commit_id` | TEXT | FK → code_commits(id) ON DELETE SET NULL | Linked code evidence commit |
 | `branch_evidence_id` | TEXT | FK → code_branches(id) ON DELETE SET NULL | Linked code evidence branch |
-| `verification_state` | TEXT | NOT NULL DEFAULT 'unverified' | Verification state (Drizzle enum + application validation, no SQL CHECK) |
+| `verification_state` | TEXT | DEFAULT NULL | Verification state (Drizzle enum + application validation, no SQL CHECK) |
 | `metadata` | TEXT | JSON, nullable | Additional pipeline metadata |
 | `created_at` | TEXT | DEFAULT (datetime('now')) | Creation timestamp |
 | `updated_at` | TEXT | DEFAULT (datetime('now')) | Last update timestamp |
