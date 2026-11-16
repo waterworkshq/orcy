@@ -445,7 +445,7 @@ Within-mission sibling task dependencies only. Cross-mission dependencies use `m
 | `username` | TEXT | NOT NULL UNIQUE | Login username |
 | `password_hash` | TEXT | NOT NULL | bcrypt hash of password |
 | `display_name` | TEXT | NOT NULL DEFAULT '' | Display name |
-| `role` | TEXT | NOT NULL DEFAULT 'editor' | User role (enum enforced in Drizzle schema, not by SQL CHECK); migration 0089 preserves existing roles |
+| `role` | TEXT | NOT NULL DEFAULT 'editor' | User role (Drizzle enum + application validation, no SQL CHECK); migration 0089 preserves existing roles |
 | `created_at` | TEXT | NOT NULL DEFAULT (datetime('now')) | Creation timestamp |
 | `updated_at` | TEXT | NOT NULL DEFAULT (datetime('now')) | Last update timestamp |
 | `last_login_at` | TEXT | DEFAULT NULL | Last successful login |
