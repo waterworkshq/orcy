@@ -729,11 +729,12 @@ describe("Task metadata editing real modal/store/transport journeys", () => {
     expect(useModalStore.getState().selectedTaskId).toBe("t-1");
   });
 
-  // GROUND: the modal fades in exactly once per presentation and never
-  // re-shows during the 200 ms scheduled fade-out. Dirtying the draft inside
-  // the close delay re-runs the open effect through its handleClose dep —
-  // flushing every pending animation frame must not re-show the modal, and
-  // the scheduled close still completes.
+  // GROUND: the modal fades in exactly once per presentation — [requestSeq,
+  // isOpen] is the only fade trigger — and never re-shows during the 200 ms
+  // scheduled fade-out. Dirtying the draft inside the close delay re-runs the
+  // open effect through its handleClose dep (the historical second fade path):
+  // flushing every pending animation frame must not re-show the modal, and the
+  // scheduled close still completes.
   it("the modal does not re-fade during a scheduled close", async () => {
     await openTaskA();
     await waitFor(() => {

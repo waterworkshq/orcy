@@ -133,6 +133,10 @@ export function TaskMetadataEditor({
     useModalStore.getState().setDraftStatus({ dirty: true, saving: true });
     setSaving(true);
     setOutcome(null);
+    // A new attempt closes the retry gate synchronously: the render that
+    // commits a later unknown outcome must never inherit the previous gate's
+    // open state while its own refresh has not landed.
+    setRetryGateOpen(false);
     try {
       const result = await api.tasks.updateMetadata(taskId, buildPayload());
       // Fences before the awaited cache work: the originating account must
