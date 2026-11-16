@@ -355,11 +355,11 @@ Tasks are work units inside missions. Every task belongs to exactly one mission.
 | `mission_id` | TEXT | NOT NULL FK → missions(id) ON DELETE CASCADE | Parent mission |
 | `title` | TEXT | NOT NULL | Task title |
 | `description` | TEXT | NOT NULL DEFAULT '' | Detailed description |
-| `priority` | TEXT | NOT NULL DEFAULT 'medium' CHECK (IN 'low','medium','high','critical') | Priority level |
+| `priority` | TEXT | NOT NULL DEFAULT 'medium' | Priority level (Drizzle enum + application validation, no SQL CHECK) |
 | `assigned_agent_id` | TEXT | FK → agents(id) | Currently assigned agent |
 | `required_domain` | TEXT | DEFAULT NULL | Required agent domain |
 | `required_capabilities` | TEXT | NOT NULL DEFAULT '[]' (JSON) | JSON array of strings |
-| `status` | TEXT | NOT NULL DEFAULT 'pending' CHECK (IN 'pending','claimed','in_progress','submitted','approved','rejected','done','failed') | Task status |
+| `status` | TEXT | NOT NULL DEFAULT 'pending' | Task status (Drizzle enum + application validation, no SQL CHECK) |
 | `claimed_at` | TEXT | DEFAULT NULL | When task was claimed |
 | `started_at` | TEXT | DEFAULT NULL | When work started |
 | `submitted_at` | TEXT | DEFAULT NULL | When submitted for review |
@@ -392,10 +392,10 @@ Tasks are work units inside missions. Every task belongs to exactly one mission.
 |--------|------|-------------|-------------|
 | `id` | TEXT | PK | Agent identifier (UUID) |
 | `name` | TEXT | NOT NULL UNIQUE | Display name |
-| `type` | TEXT | NOT NULL CHECK (IN 'claude-code','codex','opencode') | Agent type |
+| `type` | TEXT | NOT NULL | Agent type (Drizzle enum + application validation, no SQL CHECK) |
 | `domain` | TEXT | NOT NULL | Agent domain (e.g., `backend`) |
 | `capabilities` | TEXT | NOT NULL DEFAULT '[]' (JSON) | JSON array of capability strings |
-| `status` | TEXT | NOT NULL DEFAULT 'idle' CHECK (IN 'idle','working','offline') | Agent status |
+| `status` | TEXT | NOT NULL DEFAULT 'idle' | Agent status (Drizzle enum + application validation, no SQL CHECK) |
 | `current_task_id` | TEXT | DEFAULT NULL | Currently assigned task |
 | `api_key` | TEXT | NOT NULL UNIQUE | SHA-256 hash of the API key |
 | `created_at` | TEXT | NOT NULL DEFAULT (datetime('now')) | Creation timestamp |
@@ -411,9 +411,9 @@ Tasks are work units inside missions. Every task belongs to exactly one mission.
 |--------|------|-------------|-------------|
 | `id` | TEXT | PK | Event identifier (UUID) |
 | `task_id` | TEXT | NOT NULL FK → tasks(id) ON DELETE CASCADE | Related task |
-| `actor_type` | TEXT | NOT NULL CHECK (IN 'human','agent','system') | Actor type |
+| `actor_type` | TEXT | NOT NULL | Actor type (Drizzle enum + application validation, no SQL CHECK) |
 | `actor_id` | TEXT | NOT NULL | UUID of the actor |
-| `action` | TEXT | NOT NULL CHECK (IN 'created','claimed','started','submitted','approved','rejected','completed','failed','moved','released','dependency_resolved','updated','delegated','effort_logged','effort_corrected','cloned','retry_scheduled','retry_executed','escalated','code_evidence_linked','code_evidence_corrected','code_evidence_gap_reported','code_evidence_gap_resolved','code_evidence_marked_not_applicable','code_evidence_cleared_not_applicable') | Event action |
+| `action` | TEXT | NOT NULL | Event action (Drizzle enum + application validation, no SQL CHECK) |
 | `from_column_id` | TEXT | DEFAULT NULL | Source column |
 | `to_column_id` | TEXT | DEFAULT NULL | Target column |
 | `from_status` | TEXT | DEFAULT NULL | Previous status |
@@ -460,7 +460,7 @@ Within-mission sibling task dependencies only. Cross-mission dependencies use `m
 | `id` | TEXT | PK | Comment identifier (UUID) |
 | `task_id` | TEXT | NOT NULL FK → tasks(id) ON DELETE CASCADE | Parent task |
 | `parent_id` | TEXT | FK → task_comments(id) ON DELETE CASCADE | Parent comment for threading |
-| `author_type` | TEXT | NOT NULL CHECK (IN 'human','agent') | Actor type |
+| `author_type` | TEXT | NOT NULL | Actor type (Drizzle enum + application validation, no SQL CHECK) |
 | `author_id` | TEXT | NOT NULL | UUID of the author |
 | `content` | TEXT | NOT NULL | Comment content (markdown) |
 | `created_at` | TEXT | NOT NULL DEFAULT (datetime('now')) | Creation timestamp |
@@ -500,7 +500,7 @@ Within-mission sibling task dependencies only. Cross-mission dependencies use `m
 |--------|------|-------------|-------------|
 | `id` | TEXT | PK | Mention identifier (UUID) |
 | `comment_id` | TEXT | NOT NULL FK → task_comments(id) ON DELETE CASCADE | Source comment |
-| `mentioned_type` | TEXT | NOT NULL CHECK (IN 'human','agent') | Type of mentioned entity |
+| `mentioned_type` | TEXT | NOT NULL | Type of mentioned entity (Drizzle enum + application validation, no SQL CHECK) |
 | `mentioned_id` | TEXT | NOT NULL | UUID of mentioned entity |
 | `mention_text` | TEXT | NOT NULL | The @mention text |
 | `created_at` | TEXT | NOT NULL DEFAULT (datetime('now')) | Creation timestamp |
@@ -585,7 +585,7 @@ Within-mission sibling task dependencies only. Cross-mission dependencies use `m
 |--------|------|-------------|-------------|
 | `id` | TEXT | PK | Integration identifier (UUID) |
 | `habitat_id` | TEXT | NOT NULL FK → habitats(id) ON DELETE CASCADE | Subscribed habitat |
-| `provider` | TEXT | NOT NULL CHECK (IN 'slack','discord') | Chat provider |
+| `provider` | TEXT | NOT NULL | Chat provider (Drizzle enum + application validation, no SQL CHECK) |
 | `webhook_url` | TEXT | NOT NULL | Webhook URL |
 | `channel_id` | TEXT | DEFAULT NULL | Provider channel ID |
 | `provider_workspace_id` | TEXT | DEFAULT NULL | Trusted workspace anchor (Slack `team_id` / Discord `guild_id`); `NULL` rows are push-only and never resolve review decisions (migration 0081) |
@@ -606,7 +606,7 @@ Explicit attribution of one provider speaker (workspace-scoped) to a local user 
 | `id` | TEXT | PK | Mapping identifier (UUID) |
 | `habitat_id` | TEXT | NOT NULL FK → habitats(id) ON DELETE CASCADE | Derived from the integration row (never the request) |
 | `integration_id` | TEXT | NOT NULL FK → chat_integrations(id) ON DELETE CASCADE | Owning chat integration |
-| `provider` | TEXT | NOT NULL CHECK (IN 'slack','discord') | Chat provider |
+| `provider` | TEXT | NOT NULL | Chat provider (Drizzle enum + application validation, no SQL CHECK) |
 | `provider_workspace_id` | TEXT | NOT NULL | Slack team id / Discord guild id |
 | `provider_speaker_id` | TEXT | NOT NULL | Workspace-scoped provider user id |
 | `local_user_id` | TEXT | NOT NULL FK → users(id) ON DELETE RESTRICT | The real local human the speaker maps to |
@@ -626,7 +626,7 @@ Explicit attribution of one provider speaker (workspace-scoped) to a local user 
 | `secret` | TEXT | DEFAULT NULL | Plain webhook secret (shown once at creation) |
 | `events` | TEXT | NOT NULL DEFAULT '[]' (JSON) | JSON array of event types |
 | `headers` | TEXT | NOT NULL DEFAULT '{}' (JSON) | Custom HTTP headers JSON |
-| `format` | TEXT | NOT NULL CHECK (IN 'standard','slack','discord') | Payload format |
+| `format` | TEXT | NOT NULL | Payload format (Drizzle enum + application validation, no SQL CHECK) |
 | `enabled` | INTEGER | NOT NULL DEFAULT 1 | Active or paused |
 | `created_at` | TEXT | NOT NULL DEFAULT (datetime('now')) | Creation timestamp |
 | `updated_at` | TEXT | NOT NULL DEFAULT (datetime('now')) | Last update timestamp |
@@ -641,7 +641,7 @@ Explicit attribution of one provider speaker (workspace-scoped) to a local user 
 | `subscription_id` | TEXT | NOT NULL FK → webhook_subscriptions(id) ON DELETE CASCADE | Related subscription |
 | `event_type` | TEXT | NOT NULL | Event that triggered delivery |
 | `payload` | TEXT | NOT NULL | JSON payload sent |
-| `status` | TEXT | NOT NULL CHECK (IN 'pending','success','failed') | Delivery status |
+| `status` | TEXT | NOT NULL | Delivery status (Drizzle enum + application validation, no SQL CHECK) |
 | `status_code` | INTEGER | DEFAULT NULL | HTTP response status code |
 | `response_body` | TEXT | DEFAULT NULL | Truncated response body |
 | `attempts` | INTEGER | NOT NULL DEFAULT 0 | Send reservations consumed (max 3, spent at claim/insert time — not at outcome time). Legacy rows preserve their pre-migration outcome-time accounting |
@@ -665,8 +665,8 @@ Explicit attribution of one provider speaker (workspace-scoped) to a local user 
 | `task_id` | TEXT | FK → tasks(id) ON DELETE CASCADE | Related task (optional) |
 | `subject` | TEXT | NOT NULL | Message subject |
 | `body` | TEXT | NOT NULL | Message body |
-| `message_type` | TEXT | NOT NULL DEFAULT 'info' CHECK (IN 'info','request','response','alert') | Message type |
-| `priority` | TEXT | NOT NULL DEFAULT 'normal' CHECK (IN 'low','normal','high','urgent') | Priority |
+| `message_type` | TEXT | NOT NULL DEFAULT 'info' | Message type (Drizzle enum + application validation, no SQL CHECK) |
+| `priority` | TEXT | NOT NULL DEFAULT 'normal' | Priority (Drizzle enum + application validation, no SQL CHECK) |
 | `read_at` | TEXT | DEFAULT NULL | When message was read |
 | `created_at` | TEXT | NOT NULL DEFAULT (datetime('now')) | Creation timestamp |
 
@@ -681,12 +681,12 @@ Structured signals for agent-to-agent and human-to-agent communication. Supports
 | `id` | TEXT | PK | Pulse identifier (UUID) |
 | `mission_id` | TEXT | FK → missions(id) ON DELETE CASCADE | Mission scope (NULL when scope is `"habitat"`) |
 | `habitat_id` | TEXT | NOT NULL FK → habitats(id) ON DELETE CASCADE | Habitat |
-| `scope` | TEXT | NOT NULL DEFAULT 'mission' CHECK (IN 'mission','habitat') | Signal scope |
-| `from_type` | TEXT | NOT NULL CHECK (IN 'human','agent','system') | Author type |
+| `scope` | TEXT | NOT NULL DEFAULT 'mission' | Signal scope (Drizzle enum + application validation, no SQL CHECK) |
+| `from_type` | TEXT | NOT NULL | Author type (Drizzle enum + application validation, no SQL CHECK) |
 | `from_id` | TEXT | NOT NULL | Author identifier (user.id, agent.id, or 'system') |
-| `to_type` | TEXT | CHECK (IN 'human','agent') | Target type (NULL = broadcast) |
+| `to_type` | TEXT | | Target type (NULL = broadcast) (Drizzle enum + application validation, no SQL CHECK) |
 | `to_id` | TEXT | | Target identifier (NULL = broadcast) |
-| `signal_type` | TEXT | NOT NULL CHECK (IN 10 types) | finding, blocker, offer, warning, question, answer, directive, context, handoff, experience (v0.20) |
+| `signal_type` | TEXT | NOT NULL | finding, blocker, offer, warning, question, answer, directive, context, handoff, experience (v0.20; Drizzle enum + application validation, no SQL CHECK) |
 | `subject` | TEXT | NOT NULL | Brief signal subject |
 | `body` | TEXT | NOT NULL DEFAULT '' | Full signal body |
 | `task_id` | TEXT | FK → tasks(id) ON DELETE SET NULL | Related task |
@@ -716,8 +716,8 @@ Lightweight read-tracking: one row per reader per scope (mission or habitat) sto
 | Column | Type | Constraints | Description |
 |--------|------|-------------|-------------|
 | `scope_key` | TEXT | NOT NULL | Mission UUID or habitat UUID |
-| `scope` | TEXT | NOT NULL DEFAULT 'mission' CHECK (IN 'mission','habitat') | Scope type |
-| `reader_type` | TEXT | NOT NULL CHECK (IN 'human','agent') | Reader type |
+| `scope` | TEXT | NOT NULL DEFAULT 'mission' | Scope type (Drizzle enum + application validation, no SQL CHECK) |
+| `reader_type` | TEXT | NOT NULL | Reader type (Drizzle enum + application validation, no SQL CHECK) |
 | `reader_id` | TEXT | NOT NULL | Reader identifier |
 | `last_checked_at` | TEXT | NOT NULL DEFAULT (datetime('now')) | Last check timestamp |
 
@@ -733,7 +733,7 @@ Institutional memory for a habitat. Insights are promoted from high-value pulse 
 | `habitat_id` | TEXT | NOT NULL FK → habitats(id) ON DELETE CASCADE | Habitat |
 | `title` | TEXT | NOT NULL | Insight title |
 | `body` | TEXT | NOT NULL DEFAULT '' | Full insight body |
-| `source` | TEXT | NOT NULL DEFAULT 'manual' CHECK (IN 'signal','manual','auto') | How the insight was created |
+| `source` | TEXT | NOT NULL DEFAULT 'manual' | How the insight was created |
 | `source_pulse_id` | TEXT | FK → pulses(id) ON DELETE SET NULL | Originating pulse signal (if promoted) |
 | `relevance_tags` | TEXT | NOT NULL DEFAULT '[]' (JSON) | JSON array of tag strings for relevance matching |
 | `created_by` | TEXT | NOT NULL | Creator identifier |
@@ -750,9 +750,9 @@ Toggle-based reactions on pulse signals. Three fixed reaction types. Reactions a
 |--------|------|-------------|-------------|
 | `id` | TEXT | PK | Reaction identifier (UUID) |
 | `pulse_id` | TEXT | NOT NULL FK → pulses(id) ON DELETE CASCADE | Target signal |
-| `reactor_type` | TEXT | NOT NULL CHECK (IN 'human','agent') | Reactor type |
+| `reactor_type` | TEXT | NOT NULL | Reactor type (Drizzle enum + application validation, no SQL CHECK) |
 | `reactor_id` | TEXT | NOT NULL | Reactor identifier |
-| `reaction` | TEXT | NOT NULL CHECK (IN 'seen','ack','question') | Reaction type |
+| `reaction` | TEXT | NOT NULL | Reaction type (Drizzle enum + application validation, no SQL CHECK) |
 | `created_at` | TEXT | NOT NULL DEFAULT (datetime('now')) | Creation timestamp |
 
 **Unique constraint:** `(pulse_id, reactor_type, reactor_id, reaction)`
@@ -788,7 +788,7 @@ Toggle-based reactions on pulse signals. Three fixed reaction types. Reactions a
 | `id` | TEXT | PK | Membership identifier (UUID) |
 | `team_id` | TEXT | NOT NULL FK → teams(id) ON DELETE CASCADE | Team |
 | `user_id` | TEXT | NOT NULL FK → users(id) ON DELETE CASCADE | User |
-| `role` | TEXT | NOT NULL DEFAULT 'member' CHECK (IN 'owner','admin','member') | Member role |
+| `role` | TEXT | NOT NULL DEFAULT 'member' | Member role (Drizzle enum + application validation, no SQL CHECK) |
 | `joined_at` | TEXT | NOT NULL DEFAULT (datetime('now')) | Join timestamp |
 
 **Constraints:** `PRIMARY KEY (team_id, user_id)`
@@ -800,7 +800,7 @@ Toggle-based reactions on pulse signals. Three fixed reaction types. Reactions a
 |--------|------|-------------|-------------|
 | `id` | TEXT | PK | PR identifier (UUID) |
 | `task_id` | TEXT | NOT NULL FK → tasks(id) ON DELETE CASCADE | Linked task |
-| `provider` | TEXT | NOT NULL CHECK (IN 'github','gitlab') | Repository provider |
+| `provider` | TEXT | NOT NULL | Repository provider (Drizzle enum + application validation, no SQL CHECK) |
 | `repo` | TEXT | NOT NULL | Repository full name |
 | `pr_number` | INTEGER | NOT NULL | Pull request number |
 | `pr_title` | TEXT | DEFAULT NULL | PR title |
@@ -819,10 +819,10 @@ Toggle-based reactions on pulse signals. Three fixed reaction types. Reactions a
 |--------|------|-------------|-------------|
 | `id` | TEXT | PK | Event identifier (UUID) |
 | `task_id` | TEXT | NOT NULL FK → tasks(id) ON DELETE CASCADE | Linked task |
-| `provider` | TEXT | NOT NULL CHECK (IN 'github','gitlab') | CI/CD provider |
+| `provider` | TEXT | NOT NULL | CI/CD provider (Drizzle enum + application validation, no SQL CHECK) |
 | `repo` | TEXT | NOT NULL | Repository full name |
 | `run_id` | TEXT | NOT NULL | Pipeline run ID |
-| `status` | TEXT | NOT NULL CHECK (IN 'queued','in_progress','success','failure','cancelled') | Run status |
+| `status` | TEXT | NOT NULL | Run status (Drizzle enum + application validation, no SQL CHECK) |
 | `branch` | TEXT | NOT NULL | Branch name |
 | `commit_sha` | TEXT | DEFAULT NULL | Commit SHA |
 | `commit_id` | TEXT | FK → code_commits(id) | Linked code evidence commit |
@@ -840,8 +840,8 @@ Daily cumulative-flow snapshot rows for chart reads. Stored snapshots are author
 | `snapshot_date` | TEXT | NOT NULL | Snapshot date (`YYYY-MM-DD`) |
 | `counts_by_column` | TEXT | NOT NULL DEFAULT '{}' (JSON) | Mission/task counts keyed by column id/name |
 | `counts_by_status` | TEXT | NOT NULL DEFAULT '{}' (JSON) | Counts keyed by lifecycle status |
-| `source` | TEXT | NOT NULL DEFAULT 'generated' CHECK (IN 'generated','backfilled','current_state') | Snapshot origin |
-| `completeness` | TEXT | NOT NULL DEFAULT 'complete' CHECK (IN 'complete','partial') | Whether the point is complete or caveated |
+| `source` | TEXT | NOT NULL DEFAULT 'generated' | Snapshot origin (Drizzle enum + application validation, no SQL CHECK) |
+| `completeness` | TEXT | NOT NULL DEFAULT 'complete' | Whether the point is complete or caveated (Drizzle enum + application validation, no SQL CHECK) |
 | `warnings` | TEXT | NOT NULL DEFAULT '[]' (JSON) | Warning objects with code, message, and severity |
 | `created_at` | TEXT | NOT NULL DEFAULT (datetime('now')) | Creation timestamp |
 
@@ -962,14 +962,14 @@ Recurring scheduled creation of missions and tasks from templates. Supports cron
 | `template_id` | TEXT | FK → mission_templates(id) ON DELETE SET NULL | Mission template reference (nullable) |
 | `name` | TEXT | NOT NULL | Schedule display name |
 | `description` | TEXT | NOT NULL DEFAULT '' | Schedule description |
-| `schedule_type` | TEXT | NOT NULL CHECK (IN 'once','interval','cron') | Schedule type |
+| `schedule_type` | TEXT | NOT NULL | Schedule type (Drizzle enum + application validation, no SQL CHECK) |
 | `cron_expression` | TEXT | DEFAULT NULL | Cron expression (when schedule_type is `cron`) |
 | `interval_minutes` | INTEGER | DEFAULT NULL | Interval in minutes (when schedule_type is `interval`) |
 | `scheduled_at` | TEXT | DEFAULT NULL | One-time run time (when schedule_type is `once`) |
 | `timezone` | TEXT | NOT NULL DEFAULT 'UTC' | Timezone for schedule evaluation |
 | `mission_title` | TEXT | NOT NULL | Title for created missions |
 | `mission_description` | TEXT | NOT NULL DEFAULT '' | Description for created missions |
-| `mission_priority` | TEXT | NOT NULL DEFAULT 'medium' CHECK (IN 'low','medium','high','critical') | Priority for created missions |
+| `mission_priority` | TEXT | NOT NULL DEFAULT 'medium' | Priority for created missions (Drizzle type + application validation, no SQL CHECK) |
 | `mission_labels` | TEXT | NOT NULL DEFAULT '[]' (JSON) | JSON array of label strings |
 | `mission_domain` | TEXT | DEFAULT NULL | Domain for created missions |
 | `tasks_template` | TEXT | NOT NULL DEFAULT '[]' (JSON) | JSON array of child task definitions |
@@ -1126,7 +1126,7 @@ Integration connections to external providers (GitHub, Jira, Linear). Each conne
 |--------|------|-------------|-------------|
 | `id` | TEXT | PK | Connection identifier (UUID) |
 | `habitat_id` | TEXT | NOT NULL FK → habitats(id) ON DELETE CASCADE | Parent habitat |
-| `provider` | TEXT | NOT NULL CHECK (IN 'github','jira','linear') | Provider type |
+| `provider` | TEXT | NOT NULL | Provider type (Drizzle enum + application validation, no SQL CHECK) |
 | `name` | TEXT | NOT NULL | User-facing connection name |
 | `auth_method` | TEXT | NOT NULL | Auth method: 'oauth_device', 'oauth_code', 'pat', 'api_key', etc. |
 | `access_token` | TEXT | DEFAULT NULL | Stored OAuth access token or PAT (not returned in API) |
@@ -1246,9 +1246,9 @@ One row per habitat establishing canonical repository identity. Provides the anc
 |--------|------|-------------|-------------|
 | `id` | TEXT | PK | Repository record identifier (UUID) |
 | `habitat_id` | TEXT | NOT NULL UNIQUE FK → habitats(id) ON DELETE CASCADE | Parent habitat (1:1) |
-| `provider` | TEXT | NOT NULL CHECK (IN 'github','gitlab') | Git provider |
+| `provider` | TEXT | NOT NULL | Git provider (no SQL CHECK) |
 | `repo_slug` | TEXT | NOT NULL | Canonical repository identifier (e.g., `owner/repo`) |
-| `verification_state` | TEXT | NOT NULL DEFAULT 'unverified' CHECK (IN 'unverified','verified','failed') | Whether the repository connection has been verified |
+| `verification_state` | TEXT | NOT NULL DEFAULT 'unverified' | Whether the repository connection has been verified (Drizzle enum + application validation, no SQL CHECK) |
 | `verified_at` | TEXT | DEFAULT NULL | Last successful verification timestamp |
 | `created_at` | TEXT | NOT NULL DEFAULT (datetime('now')) | Creation timestamp |
 | `updated_at` | TEXT | NOT NULL DEFAULT (datetime('now')) | Last update timestamp |
@@ -1286,7 +1286,7 @@ Commit evidence records. Stores normalized commit metadata extracted from provid
 | `message` | TEXT | DEFAULT NULL | Commit message |
 | `author_name` | TEXT | DEFAULT NULL | Commit author name |
 | `author_email` | TEXT | DEFAULT NULL | Commit author email |
-| `verification_state` | TEXT | NOT NULL DEFAULT 'unverified' CHECK (IN 'unverified','verified','failed') | Commit signature verification state |
+| `verification_state` | TEXT | NOT NULL DEFAULT 'unverified' | Commit signature verification state (Drizzle enum + application validation, no SQL CHECK) |
 | `committed_at` | TEXT | DEFAULT NULL | Commit timestamp |
 | `created_at` | TEXT | NOT NULL DEFAULT (datetime('now')) | Record creation timestamp |
 
@@ -1302,7 +1302,7 @@ Changed file snapshots per commit. Tracks file-level diff metadata.
 | `commit_id` | TEXT | NOT NULL FK → code_commits(id) ON DELETE CASCADE | Parent commit |
 | `path` | TEXT | NOT NULL | File path after change |
 | `previous_path` | TEXT | DEFAULT NULL | Original path (for renames) |
-| `change_type` | TEXT | NOT NULL CHECK (IN 'added','modified','deleted','renamed') | Type of change |
+| `change_type` | TEXT | NOT NULL | Type of change (Drizzle enum + application validation, no SQL CHECK) |
 | `additions` | INTEGER | DEFAULT NULL | Lines added |
 | `deletions` | INTEGER | DEFAULT NULL | Lines deleted |
 | `created_at` | TEXT | NOT NULL DEFAULT (datetime('now')) | Record creation timestamp |
@@ -1317,9 +1317,9 @@ Review evidence records. Captures review status and reviewer metadata.
 |--------|------|-------------|-------------|
 | `id` | TEXT | PK | Review record identifier (UUID) |
 | `repository_id` | TEXT | NOT NULL FK → habitat_code_repositories(id) ON DELETE CASCADE | Parent repository |
-| `review_type` | TEXT | NOT NULL CHECK (IN 'pr_review','mr_review') | Review type |
+| `review_type` | TEXT | NOT NULL | Review type |
 | `external_id` | TEXT | DEFAULT NULL | Provider-side review identifier |
-| `review_status` | TEXT | NOT NULL CHECK (IN 'pending','approved','changes_requested','dismissed') | Review status |
+| `review_status` | TEXT | NOT NULL | Review status (Drizzle enum + application validation, no SQL CHECK) |
 | `reviewer_name` | TEXT | DEFAULT NULL | Reviewer display name |
 | `reviewed_at` | TEXT | DEFAULT NULL | Review timestamp |
 | `created_at` | TEXT | NOT NULL DEFAULT (datetime('now')) | Record creation timestamp |
@@ -1334,13 +1334,13 @@ Core polymorphic link table connecting Orcy entities (missions, tasks, subtasks)
 | Column | Type | Constraints | Description |
 |--------|------|-------------|-------------|
 | `id` | TEXT | PK | Link identifier (UUID) |
-| `target_type` | TEXT | NOT NULL CHECK (IN 'mission','task','subtask') | Polymorphic target type |
+| `target_type` | TEXT | NOT NULL | Polymorphic target type (Drizzle enum + application validation, no SQL CHECK) |
 | `target_id` | TEXT | NOT NULL | Target entity UUID |
-| `evidence_type` | TEXT | NOT NULL CHECK (IN 'branch','commit','changed_file','review','pr','pipeline') | Evidence entity type |
+| `evidence_type` | TEXT | NOT NULL | Evidence entity type (Drizzle enum + application validation, no SQL CHECK) |
 | `evidence_id` | TEXT | NOT NULL | Evidence entity UUID |
-| `status` | TEXT | NOT NULL DEFAULT 'active' CHECK (IN 'active','superseded','incorrect','removed') | Link status (corrections overwrite this same row's value) |
+| `status` | TEXT | NOT NULL DEFAULT 'active' | Link status (corrections overwrite this same row's value) (Drizzle enum + application validation, no SQL CHECK) |
 | `confidence` | REAL | NOT NULL DEFAULT 1.0 | Confidence score 0-1 |
-| `link_source` | TEXT | NOT NULL CHECK (IN 'webhook','branch_pattern','commit_trailer','agent_reported','human_manual','migration','api','artifact_mirror') | How the link was established |
+| `link_source` | TEXT | NOT NULL | How the link was established (Drizzle enum + application validation, no SQL CHECK) |
 | `replacement_link_id` | TEXT | DEFAULT NULL FK → code_evidence_links(id) ON DELETE SET NULL | **Reference only** to the superseding link. No target/active/generation constraint: it may point at any existing link (same or another Task/Mission/Habitat, nonactive, itself, or one in a cycle). The enforced FK is what supplies reference existence — a pointer to a missing link aborts the statement — and deleting the referenced link later sets this column to NULL, so no durable-reference history is kept |
 | `correction_reason` | TEXT | DEFAULT NULL | Why this link was corrected (latest correction only — repeating a correction overwrites it) |
 | `corrected_by_type` / `corrected_by_id` | TEXT | DEFAULT NULL | Typed actor (`agent`/`human`/`system`) and id of the **latest** corrector; earlier correction metadata is not kept as an immutable ledger |
@@ -1357,9 +1357,9 @@ Per-target completeness overrides and derived status. Stores `not_applicable` ov
 | Column | Type | Constraints | Description |
 |--------|------|-------------|-------------|
 | `id` | TEXT | PK | Completeness record identifier (UUID) |
-| `target_type` | TEXT | NOT NULL CHECK (IN 'mission','task','subtask') | Polymorphic target type |
+| `target_type` | TEXT | NOT NULL | Polymorphic target type (Drizzle enum + application validation, no SQL CHECK) |
 | `target_id` | TEXT | NOT NULL | Target entity UUID |
-| `status` | TEXT | NOT NULL CHECK (IN 'complete','partial','missing','not_applicable','unknown') | Derived completeness status |
+| `status` | TEXT | NOT NULL | Derived completeness status (Drizzle enum + application validation, no SQL CHECK) |
 | `reason_code` | TEXT | DEFAULT NULL | Machine-readable reason for the status |
 | `reason_detail` | TEXT | DEFAULT NULL | Human-readable explanation |
 | `evaluated_at` | TEXT | NOT NULL DEFAULT (datetime('now')) | Last evaluation timestamp |
@@ -1376,12 +1376,12 @@ Gap lifecycle tracking. Records identified evidence gaps (missing branches, comm
 |--------|------|-------------|-------------|
 | `id` | TEXT | PK | Gap identifier (UUID) |
 | `habitat_id` | TEXT | NOT NULL FK → habitats(id) ON DELETE CASCADE | Parent habitat |
-| `target_type` | TEXT | NOT NULL CHECK (IN 'mission','task','subtask') | Polymorphic target type |
+| `target_type` | TEXT | NOT NULL | Polymorphic target type (Drizzle enum + application validation, no SQL CHECK) |
 | `target_id` | TEXT | NOT NULL | Target entity UUID |
-| `gap_type` | TEXT | NOT NULL CHECK (IN 'missing_branch','missing_commit','missing_review','missing_pipeline','incomplete_evidence') | Category of the gap |
+| `gap_type` | TEXT | NOT NULL | Category of the gap |
 | `reason_code` | TEXT | NOT NULL | Machine-readable gap reason |
 | `reason_detail` | TEXT | DEFAULT NULL | Human-readable gap description |
-| `status` | TEXT | NOT NULL DEFAULT 'active' CHECK (IN 'active','resolved','dismissed') | Gap lifecycle status |
+| `status` | TEXT | NOT NULL DEFAULT 'active' | Gap lifecycle status (Drizzle enum + application validation, no SQL CHECK) |
 | `resolution_reason` | TEXT | DEFAULT NULL | How the gap was resolved |
 | `resolved_by` | TEXT | DEFAULT NULL | Who resolved the gap |
 | `resolved_at` | TEXT | DEFAULT NULL | Resolution timestamp |
@@ -1619,7 +1619,7 @@ Provider-backed identity configuration per habitat.
 |--------|------|-------------|-------------|
 | `id` | TEXT | PK | Provider identifier (UUID) |
 | `habitat_id` | TEXT | NOT NULL FK → habitats(id) ON DELETE CASCADE | Parent habitat |
-| `kind` | TEXT | NOT NULL CHECK (IN 'github','oidc') | Provider kind |
+| `kind` | TEXT | NOT NULL | Provider kind (application validation only, no SQL CHECK) |
 | `name` | TEXT | NOT NULL | Display name |
 | `issuer` | TEXT | DEFAULT NULL | OIDC issuer URL |
 | `config` | TEXT | DEFAULT '{}' NOT NULL | Provider-specific config JSON |
@@ -1659,11 +1659,11 @@ Provider-first or manual invite records.
 |--------|------|-------------|-------------|
 | `id` | TEXT | PK | Invite identifier (UUID) |
 | `habitat_id` | TEXT | NOT NULL FK → habitats(id) ON DELETE CASCADE | Parent habitat |
-| `invite_type` | TEXT | NOT NULL CHECK (IN 'provider','manual') | Invite kind |
+| `invite_type` | TEXT | NOT NULL | Invite kind (application validation only, no SQL CHECK) |
 | `provider_id` | TEXT | DEFAULT NULL FK → identity_providers(id) ON DELETE SET NULL | Linked provider for provider invites |
 | `baseline_standing` | TEXT | NOT NULL DEFAULT 'remote_observer' | Participant standing at acceptance |
 | `baseline_scopes` | TEXT | DEFAULT '[]' NOT NULL | Baseline action scopes JSON |
-| `status` | TEXT | NOT NULL DEFAULT 'pending' CHECK (IN 'pending','accepted','revoked','expired') | Invite lifecycle status |
+| `status` | TEXT | NOT NULL DEFAULT 'pending' | Invite lifecycle status (application validation only, no SQL CHECK) |
 | `token_hash` | TEXT | DEFAULT NULL | SHA-256 hash of manual invite token |
 | `expires_at` | TEXT | DEFAULT NULL | Optional expiry timestamp |
 | `accepted_by` | TEXT | DEFAULT NULL | Who accepted the invite |
@@ -1688,7 +1688,7 @@ Trusted external pod/admin group records.
 | `name` | TEXT | NOT NULL | Display name |
 | `description` | TEXT | DEFAULT '' NOT NULL | Description |
 | `default_standing` | TEXT | NOT NULL DEFAULT 'remote_observer' | Default standing for participants |
-| `status` | TEXT | NOT NULL DEFAULT 'pending' CHECK (IN 'pending','active','suspended','revoked') | Pod lifecycle status |
+| `status` | TEXT | NOT NULL DEFAULT 'pending' | Pod lifecycle status (application validation only, no SQL CHECK) |
 | `invite_id` | TEXT | DEFAULT NULL FK → remote_invites(id) ON DELETE SET NULL | Invite that created the pod |
 | `provider_pod_identity` | TEXT | DEFAULT NULL | Provider-specific pod identifier |
 | `created_by` | TEXT | DEFAULT NULL | Who created the pod |
@@ -1709,14 +1709,14 @@ Remote humans/orcys under a remote pod.
 | `id` | TEXT | PK | Participant identifier (UUID) |
 | `remote_pod_id` | TEXT | NOT NULL FK → remote_pods(id) ON DELETE CASCADE | Parent pod |
 | `habitat_id` | TEXT | NOT NULL FK → habitats(id) ON DELETE CASCADE | Parent habitat |
-| `participant_type` | TEXT | NOT NULL CHECK (IN 'remote_human','remote_orcy') | Participant type |
+| `participant_type` | TEXT | NOT NULL | Participant type (application validation only, no SQL CHECK) |
 | `display_name` | TEXT | NOT NULL | Display name |
-| `standing` | TEXT | NOT NULL DEFAULT 'remote_observer' CHECK (IN 'local_member','remote_observer','remote_contributor','remote_reviewer','trusted_remote_pod') | Current standing |
+| `standing` | TEXT | NOT NULL DEFAULT 'remote_observer' | Current standing (application validation only, no SQL CHECK) |
 | `proposed_capabilities` | TEXT | DEFAULT '[]' NOT NULL | Proposed capabilities JSON |
 | `proposed_domains` | TEXT | DEFAULT '[]' NOT NULL | Proposed domains JSON |
 | `approved_capabilities` | TEXT | DEFAULT '[]' NOT NULL | Host-approved capabilities JSON |
 | `approved_domains` | TEXT | DEFAULT '[]' NOT NULL | Host-approved domains JSON |
-| `status` | TEXT | NOT NULL DEFAULT 'pending' CHECK (IN 'pending','active','suspended','revoked') | Lifecycle status |
+| `status` | TEXT | NOT NULL DEFAULT 'pending' | Lifecycle status (application validation only, no SQL CHECK) |
 | `external_identity_id` | TEXT | DEFAULT NULL | Provider-specific identity ID |
 | `registered_by` | TEXT | DEFAULT NULL | Who registered the participant |
 | `created_at` | TEXT | NOT NULL DEFAULT (datetime('now')) | Record creation timestamp |
@@ -1735,10 +1735,10 @@ SHA-256 hashed credentials for remote participants.
 | `id` | TEXT | PK | Credential identifier (UUID) |
 | `remote_participant_id` | TEXT | NOT NULL FK → remote_participants(id) ON DELETE CASCADE | Owner participant |
 | `habitat_id` | TEXT | NOT NULL FK → habitats(id) ON DELETE CASCADE | Parent habitat |
-| `credential_type` | TEXT | NOT NULL CHECK (IN 'api','mcp') | Credential type |
+| `credential_type` | TEXT | NOT NULL | Credential type (application validation only, no SQL CHECK) |
 | `secret_hash` | TEXT | NOT NULL UNIQUE | SHA-256 hash of the credential secret |
 | `label` | TEXT | DEFAULT '' NOT NULL | Credential label |
-| `status` | TEXT | NOT NULL DEFAULT 'active' CHECK (IN 'active','rotated','revoked','expired') | Lifecycle status |
+| `status` | TEXT | NOT NULL DEFAULT 'active' | Lifecycle status (application validation only, no SQL CHECK) |
 | `expires_at` | TEXT | DEFAULT NULL | Optional expiry timestamp |
 | `last_used_at` | TEXT | DEFAULT NULL | Last verification timestamp |
 | `revoked_by` | TEXT | DEFAULT NULL | Who revoked the credential |
@@ -1759,16 +1759,16 @@ Scoped access grants for remote participants and pods.
 | `habitat_id` | TEXT | NOT NULL FK → habitats(id) ON DELETE CASCADE | Parent habitat |
 | `remote_pod_id` | TEXT | NOT NULL FK → remote_pods(id) ON DELETE CASCADE | Target pod |
 | `remote_participant_id` | TEXT | DEFAULT NULL FK → remote_participants(id) ON DELETE CASCADE | Target participant (NULL = pod-wide) |
-| `grant_type` | TEXT | NOT NULL CHECK (IN 'baseline_observer','scoped_elevation','permanent_execution') | Grant type |
+| `grant_type` | TEXT | NOT NULL | Grant type (application validation only, no SQL CHECK) |
 | `standing` | TEXT | NOT NULL | Effective standing for this grant |
 | `action_scopes` | TEXT | DEFAULT '[]' NOT NULL | Allowed action scopes JSON |
-| `eligibility_mode` | TEXT | NOT NULL DEFAULT 'allowlist' CHECK (IN 'allowlist','rule_based') | Target eligibility mode |
+| `eligibility_mode` | TEXT | NOT NULL DEFAULT 'allowlist' | Target eligibility mode (application validation only, no SQL CHECK) |
 | `include_future_matches` | INTEGER | DEFAULT 0 NOT NULL | Whether rule-based grants match future tasks |
 | `grace_window_hours` | INTEGER | DEFAULT 24 NOT NULL | Grace window in hours after expiry |
-| `status` | TEXT | NOT NULL DEFAULT 'active' CHECK (IN 'active','expired','soft_revoked','hard_revoked','frozen','grace') | Grant lifecycle status |
+| `status` | TEXT | NOT NULL DEFAULT 'active' | Grant lifecycle status (application validation only, no SQL CHECK) |
 | `expires_at` | TEXT | DEFAULT NULL | Optional expiry timestamp |
 | `expired_at` | TEXT | DEFAULT NULL | When the grant expired |
-| `revocation_mode` | TEXT | DEFAULT NULL CHECK (IN 'soft','hard','freeze') | Revocation mode |
+| `revocation_mode` | TEXT | DEFAULT NULL | Revocation mode (application validation only, no SQL CHECK) |
 | `revoked_at` | TEXT | DEFAULT NULL | Revocation timestamp |
 | `revoked_by` | TEXT | DEFAULT NULL | Who revoked the grant |
 | `revoke_reason` | TEXT | DEFAULT NULL | Reason for revocation |
@@ -1790,7 +1790,7 @@ Explicit allowlist targets for grant eligibility.
 |--------|------|-------------|-------------|
 | `id` | TEXT | PK | Target identifier (UUID) |
 | `grant_id` | TEXT | NOT NULL FK → remote_grants(id) ON DELETE CASCADE | Parent grant |
-| `target_type` | TEXT | NOT NULL CHECK (IN 'habitat','mission','task') | Target type |
+| `target_type` | TEXT | NOT NULL | Target type (application validation only, no SQL CHECK) |
 | `target_id` | TEXT | NOT NULL | Target entity UUID |
 | `created_at` | TEXT | NOT NULL DEFAULT (datetime('now')) | Record creation timestamp |
 
@@ -1837,7 +1837,7 @@ Idempotency records for remote write retries.
 | `action` | TEXT | NOT NULL | Action being retried |
 | `idempotency_key` | TEXT | NOT NULL | Client-provided key |
 | `request_hash` | TEXT | NOT NULL | SHA-256 of request body+path |
-| `status` | TEXT | NOT NULL DEFAULT 'pending' CHECK (IN 'pending','completed','failed') | Lifecycle status |
+| `status` | TEXT | NOT NULL DEFAULT 'pending' | Lifecycle status (application validation only, no SQL CHECK) |
 | `response_status` | INTEGER | DEFAULT NULL | HTTP status of completed request |
 | `response_body` | TEXT | DEFAULT NULL | Response body JSON |
 | `error_message` | TEXT | DEFAULT NULL | Error message if failed |
@@ -1859,7 +1859,7 @@ Host-approved remote pod webhook endpoints.
 | `url` | TEXT | NOT NULL | Webhook URL |
 | `description` | TEXT | DEFAULT '' NOT NULL | Description |
 | `events` | TEXT | DEFAULT '[]' NOT NULL | Subscribed event types JSON |
-| `status` | TEXT | NOT NULL DEFAULT 'pending' CHECK (IN 'pending','approved','enabled','disabled','rejected') | Lifecycle status |
+| `status` | TEXT | NOT NULL DEFAULT 'pending' | Lifecycle status (application validation only, no SQL CHECK) |
 | `secret_hash` | TEXT | DEFAULT NULL | SHA-256 hash of signing secret |
 | `last_test_at` | TEXT | DEFAULT NULL | Last test timestamp |
 | `last_test_status` | TEXT | DEFAULT NULL | Last test result |
@@ -1887,7 +1887,7 @@ Delivery records for compact remote webhook payloads.
 | `event_type` | TEXT | NOT NULL | Event type delivered |
 | `payload` | TEXT | NOT NULL | Compact payload JSON |
 | `signature` | TEXT | NOT NULL | HMAC-SHA256 signature |
-| `status` | TEXT | NOT NULL DEFAULT 'pending' CHECK (IN 'pending','success','failed') | Delivery status |
+| `status` | TEXT | NOT NULL DEFAULT 'pending' | Delivery status (Drizzle enum + application validation, no SQL CHECK) |
 | `status_code` | INTEGER | DEFAULT NULL | HTTP status code |
 | `response_body` | TEXT | DEFAULT NULL | Response body |
 | `attempts` | INTEGER | DEFAULT 0 NOT NULL | Number of delivery attempts |
@@ -1920,7 +1920,7 @@ Mission-scoped workflow definition. A mission has at most one active workflow. G
 | `resolved_variables` | TEXT | NOT NULL DEFAULT '{}' (JSON) | Snapshot of template variables resolved at attachment time (for audit) |
 | `join_specs` | TEXT | NOT NULL DEFAULT '{}' (JSON) | Per-task join specs keyed by downstream task ID. Each entry: `{ mode: "all_of" | "any_of" | "n_of", n?: number }`. Added in migration `0032`. |
 | `failure_handler` | TEXT | JSON, nullable | Optional workflow-level failure handler config (`WorkflowFailureHandlerConfig`). Individual tasks may override via `matchConfig.failureHandlerOverride` on their gate. |
-| `status` | TEXT | NOT NULL DEFAULT 'active' CHECK (IN 'active','detached') | `active` = gates enforce; `detached` = gates no longer enforce, kept for audit |
+| `status` | TEXT | NOT NULL DEFAULT 'active' | `active` = gates enforce; `detached` = gates no longer enforce, kept for audit (Drizzle enum + application validation, no SQL CHECK) |
 | `created_by` | TEXT | NOT NULL | Creator identifier |
 | `created_at` | TEXT | NOT NULL DEFAULT (datetime('now')) | Creation timestamp |
 | `detached_at` | TEXT | DEFAULT NULL | When workflow was detached |
@@ -1944,7 +1944,7 @@ Typed dependency edges between tasks with satisfaction state. Each gate declares
 | `habitat_id` | TEXT | NOT NULL FK → habitats(id) ON DELETE CASCADE | Parent habitat (denormalized) |
 | `upstream_task_id` | TEXT | NOT NULL FK → tasks(id) ON DELETE CASCADE | The task whose lifecycle event satisfies this gate |
 | `downstream_task_id` | TEXT | NOT NULL FK → tasks(id) ON DELETE CASCADE | The task that is blocked until this gate is satisfied |
-| `gate_type` | TEXT | NOT NULL CHECK (IN 'on_complete','on_approve','on_signal','on_automation','on_manual','on_fail') | Gate type. Note: `on_automation` is deferred to v0.20.1 (pre-existing v0.18 executor bug). 5 types ship in v0.20. |
+| `gate_type` | TEXT | NOT NULL | Gate type. Note: `on_automation` is deferred to v0.20.1 (pre-existing v0.18 executor bug). 5 types ship in v0.20. (Drizzle enum + application validation, no SQL CHECK) |
 | `match_config` | TEXT | JSON | Gate-type-specific match configuration. For `on_signal`: `{ signalType, experience?, subjectContains?, matchScope? }`. For `on_fail`: may contain `failureHandlerOverride` (null = disable, object = override). |
 | `condition` | TEXT | JSON, nullable | Optional predicate from v0.18 AutomationCondition language. Gate fires only when matchConfig matches AND condition evaluates true. |
 | `satisfied` | INTEGER | NOT NULL DEFAULT 0 (boolean) | Whether this gate has been satisfied. The only mutable field at runtime. |
@@ -1971,7 +1971,7 @@ Structured failure bundle captured when a task fails (`failed`, `rejected`, or `
 | `failed_task_id` | TEXT | NOT NULL FK → tasks(id) ON DELETE CASCADE | The task that failed |
 | `workflow_id` | TEXT | FK → workflows(id) ON DELETE SET NULL | Active workflow at time of failure (null if detached or no workflow) |
 | `habitat_id` | TEXT | NOT NULL FK → habitats(id) ON DELETE CASCADE | Parent habitat |
-| `failure_kind` | TEXT | NOT NULL CHECK (IN 'lifecycle_failed','lifecycle_rejected','heartbeat_lost','manual') | How the failure was detected. `failed` action → `lifecycle_failed`, `rejected` → `lifecycle_rejected`, `released` → `heartbeat_lost`. |
+| `failure_kind` | TEXT | NOT NULL | How the failure was detected. `failed` action → `lifecycle_failed`, `rejected` → `lifecycle_rejected`, `released` → `heartbeat_lost`. (Drizzle enum + application validation, no SQL CHECK) |
 | `failure_reason` | TEXT | NOT NULL DEFAULT '' | Extracted from task metadata (rejection reason or failure reason) |
 | `failed_at` | TEXT | NOT NULL DEFAULT (datetime('now')) | When the failure was captured |
 | `failed_by_agent_id` | TEXT | DEFAULT NULL | Agent that was assigned when the task failed |
@@ -1980,7 +1980,7 @@ Structured failure bundle captured when a task fails (`failed`, `rejected`, or `
 | `recovery_task_id` | TEXT | FK → tasks(id) ON DELETE SET NULL | Recovery task spawned to address this failure |
 | `recovery_depth` | INTEGER | NOT NULL DEFAULT 0 | Denormalized from `task_workflow_gates.recovery_depth` (which is authoritative). For query convenience only. |
 | `resolved_at` | TEXT | DEFAULT NULL | When this context was resolved (redeemed, unrecoverable, etc.) |
-| `resolution_kind` | TEXT | CHECK (IN 'redeemed','unrecoverable','superseded','manual_intervention') | How the failure was resolved. `redeemed` = recovery task succeeded, downstream gates fired. |
+| `resolution_kind` | TEXT | | How the failure was resolved. `redeemed` = recovery task succeeded, downstream gates fired. (Drizzle enum + application validation, no SQL CHECK) |
 | `source_event_id` | TEXT | DEFAULT NULL | Per-event capture key (migration 0079): the causal failed Task Event row id. Capture is conditional (only when the frozen on-fail gate set carries the durable satisfied-stamp — a distinct failure event does not unconditionally produce a context row); the partial unique (`WHERE source_event_id IS NOT NULL`) makes capture at-most-once per event — same-event replay hits the unique. NULL on pre-0079 contexts. |
 
 **Indexes:** `idx_failure_contexts_task(failed_task_id)`, `idx_failure_contexts_workflow(workflow_id)`, `idx_failure_contexts_unresolved(resolved_at)`, `idx_failure_contexts_source_event(source_event_id) WHERE source_event_id IS NOT NULL` (partial unique)
@@ -2001,7 +2001,7 @@ Durable recovery-intent rows written atomically in the advancement transaction w
 | `trigger_event_id` | TEXT | NOT NULL | The causal event id that satisfied the gate (the lifecycle Task Event id, pulse id, or automation run id). |
 | `frozen_handler_config` | TEXT | NOT NULL (JSON) | Immutable snapshot of `resolveEffectiveFailureHandler` output at advancement time. Fork B (ADR-0042): the coordinator uses this frozen config on resume, never re-resolves live configuration. |
 | `handler_fingerprint` | TEXT | NOT NULL | `stableHash(stableStringify(frozen_handler_config))` — for drift detection if the live config changes after handoff creation. |
-| `status` | TEXT | NOT NULL DEFAULT 'expected', CHECK (IN 'expected','consumed','blocked') | `expected` = recovery intent recorded, coordinator action pending. `consumed` = recovery published+linked. `blocked` = terminal refusal (vetoed/rejected_validation/rejected_fingerprint/batch_rejected). No `spawned` state — the coordinator consumes the publication-attempt ledger for in-flight tracking. |
+| `status` | TEXT | NOT NULL DEFAULT 'expected' | `expected` = recovery intent recorded, coordinator action pending. `consumed` = recovery published+linked. `blocked` = terminal refusal (vetoed/rejected_validation/rejected_fingerprint/batch_rejected). No `spawned` state — the coordinator consumes the publication-attempt ledger for in-flight tracking. (Drizzle enum + application validation, no SQL CHECK) |
 | `blocked_reason` | TEXT | DEFAULT NULL | Present iff `status = 'blocked'`. The terminal publication outcome that blocked recovery. |
 | `created_at` | TEXT | NOT NULL DEFAULT (datetime('now')) | Handoff creation timestamp. |
 | `consumed_at` | TEXT | DEFAULT NULL | Present iff `status = 'consumed'`. |
@@ -2434,12 +2434,12 @@ depends on the ownership rows persisting while the habitat does.
 | Column | Type | Constraints | Description |
 |--------|------|-------------|-------------|
 | `id` | TEXT | PK | Receipt identifier (UUID) |
-| `subject_type` | TEXT | NOT NULL CHECK (IN 'task_event','pulse') | Subject kind; `task_event` rows key on the Task Event ROW id |
+| `subject_type` | TEXT | NOT NULL | Subject kind; `task_event` rows key on the Task Event ROW id (Drizzle enum + application validation, no SQL CHECK) |
 | `subject_id` | TEXT | NOT NULL | The Task Event row id (or pulse id for failure-generated detected batches) |
 | `habitat_id` | TEXT | NOT NULL FK → habitats(id) ON DELETE CASCADE | Habitat scope |
 | `task_id` | TEXT | DEFAULT NULL | Denormalized task reference (NULL for pulse subjects) |
-| `consumer` | TEXT | NOT NULL CHECK (IN 'workflow_gates','failure_context','retry_ladder','detector_dispatch','skill_ingestion','pulse_workflow_gates','pulse_skill_ingest') | Required-effect consumer |
-| `state` | TEXT | NOT NULL DEFAULT 'pending' CHECK (IN 'pending','delivered','dead_letter') | Delivery state. No other states exist |
+| `consumer` | TEXT | NOT NULL | Required-effect consumer (Drizzle enum + application validation, no SQL CHECK) |
+| `state` | TEXT | NOT NULL DEFAULT 'pending' | Delivery state. No other states exist (Drizzle enum + application validation, no SQL CHECK) |
 | `attempts` | INTEGER | NOT NULL DEFAULT 0 | Reservation count (cap 8 — `EFFECT_RECEIPT_MAX_ATTEMPTS` constant, not env-configurable). Barrier waits burn nothing |
 | `last_error_code` | TEXT | DEFAULT NULL | Fixed allowlisted code only (`consumer_threw`, `write_error`, `evaluation_error`, `lease_expired`, `rate_limited`, `recovery_deferred`, `start_failed`, `outcome_unrecovered`, `deadline`, `plugin_removed_or_disabled`) — never a raw handler message |
 | `lease_owner` / `lease_token` / `lease_expires_at` | TEXT | DEFAULT NULL | Fenced deliverer lease (30 s); a fresh uuid per acquisition supersedes prior holders |
@@ -2463,7 +2463,7 @@ reserved, never leased).
 | `habitat_id` | TEXT | NOT NULL FK → habitats(id) ON DELETE CASCADE | Habitat scope |
 | `target_key` | TEXT | NOT NULL | Canonical JSON `["signalDetector",<pluginId>,<contributionId>]` (same collision guarantee as the run-row dispatch key) |
 | `plugin_id` / `contribution_id` | TEXT | NOT NULL | Frozen detector identity |
-| `state` | TEXT | NOT NULL DEFAULT 'pending' CHECK (IN 'pending','delivered','dead_letter') | Per-target delivery state |
+| `state` | TEXT | NOT NULL DEFAULT 'pending' | Per-target delivery state (Drizzle enum + application validation, no SQL CHECK) |
 | `attempts` | INTEGER | NOT NULL DEFAULT 0 | Reservation count (same cap 8) |
 | `last_error_code` | TEXT | DEFAULT NULL | Fixed code only (authorized skips carry `plugin_removed_or_disabled`) |
 | `lease_owner` / `lease_token` / `lease_expires_at` | TEXT | DEFAULT NULL | Fenced per-target lease |
@@ -2496,7 +2496,7 @@ Append-only admin action history (requeue). Audited with actor provenance.
 | `id` | TEXT | PK | Row identifier (UUID) |
 | `receipt_id` | TEXT | NOT NULL FK → effect_receipts(id) ON DELETE CASCADE | Owning receipt |
 | `target_id` | TEXT | DEFAULT NULL | Per-target scope when applicable |
-| `action` | TEXT | NOT NULL CHECK (IN 'requeue') | Admin action |
+| `action` | TEXT | NOT NULL | Admin action (Drizzle enum + application validation, no SQL CHECK) |
 | `actor_type` / `actor_id` | TEXT | NOT NULL | Acting admin |
 | `occurred_at` | TEXT | NOT NULL | Timestamp |
 
