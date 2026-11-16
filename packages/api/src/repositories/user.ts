@@ -134,7 +134,7 @@ export function createUser(input: {
       username: input.username,
       passwordHash: input.passwordHash,
       displayName: input.displayName ?? "",
-      role: input.role ?? "admin",
+      role: input.role ?? "editor",
       createdAt: input.createdAt,
       updatedAt: input.updatedAt,
     })

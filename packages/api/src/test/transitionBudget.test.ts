@@ -268,6 +268,7 @@ function seedDeliveryTargets(): void {
     username: "budget-user",
     passwordHash: "x",
     displayName: "Budget User",
+    role: "admin",
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
   });

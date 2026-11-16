@@ -62,6 +62,7 @@ function setupTeamWithUsers(habId: string, userNames: string[]) {
         username: `${name}-${ts}-${userIds.length}`,
         passwordHash: "hash",
         displayName: name,
+        role: "admin",
       })
       .run();
     db.insert(teamMembers)

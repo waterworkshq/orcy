@@ -146,6 +146,7 @@ function seedEverything(fixture: ReturnType<typeof createFixture>) {
       username: "user-1",
       passwordHash: "hash",
       displayName: "User One",
+      role: "admin",
     })
     .run();
 

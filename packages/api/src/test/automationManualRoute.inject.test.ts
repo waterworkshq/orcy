@@ -116,7 +116,7 @@ describe("CS-56 cold-review m3.2 — POST /automation-rules/:ruleId/run inject t
     await initTestDb();
     // Exact notify recipients are validated (intent migration): the simulation
     // rule's `human admin-1` must exist; personal habitats admit any existing user.
-    getDb().insert(users).values({ id: "admin-1", username: "admin-1", passwordHash: "fixture" }).run();
+    getDb().insert(users).values({ id: "admin-1", username: "admin-1", passwordHash: "fixture", role: "admin" }).run();
     setJwtSecret(JWT_SECRET);
   });
   afterEach(async () => {

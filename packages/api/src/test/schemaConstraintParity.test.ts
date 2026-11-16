@@ -60,6 +60,7 @@ import {
   governanceAudit,
 } from "../db/schema/roleFoundation.js";
 import { scheduledOccurrences, scheduledOccurrenceHistory } from "../db/schema/taskPublication.js";
+import { users } from "../db/schema/user.js";
 import {
   ENFORCEMENT_MIGRATION_TAG,
   ADDITIVE_WATERMARK_TAG,
@@ -394,6 +395,15 @@ describe("Drizzle ↔ migration SQL constraint parity", () => {
       )
       .get();
     expect(idx).toBeDefined();
+  });
+
+  it("keeps the users.role default aligned with migration 0089", () => {
+    const physicalRole = (db.prepare("PRAGMA table_info(users)").all() as { name: string; dflt_value: string | null }[])
+      .find((column) => column.name === "role");
+    const drizzleRole = getTableConfig(users).columns.find((column) => column.name === "role");
+
+    expect(physicalRole?.dflt_value).toBe("'editor'");
+    expect(drizzleRole?.default).toBe("editor");
   });
 
   for (const { table, name } of SCOPED_TABLES) {
