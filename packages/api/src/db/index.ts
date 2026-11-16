@@ -10,7 +10,7 @@ import { v4 as uuidv4 } from "uuid";
 import { seedGlobalTemplates } from "../repositories/template.js";
 import { sql } from "drizzle-orm";
 import { logger } from "../lib/logger.js";
-import { runStagedProductionMigrations, ENFORCEMENT_MIGRATION_TAG } from "./stagedMigrations.js";
+import { runStagedProductionMigrations, ENFORCEMENT_MIGRATION_TAGS } from "./stagedMigrations.js";
 
 type DrizzleDb = BetterSQLite3Database<typeof schema>;
 
@@ -364,17 +364,12 @@ async function getAdminHash(): Promise<string> {
 }
 
 function applyMigrations(testSqlite: any, migrationFolder: string): void {
-  // The enforcement migration (0068) is DELIBERATELY excluded from the test
-  // build BY TAG (not by number): it requires a preflight attestation the
-  // file-scanner path never writes, and its partial UNIQUE indexes would make
-  // dirty-data fixtures (duplicate active identities, duplicate Finding
-  // resolutions — the exact anomalies the preflight reports) impossible to
-  // seed. Enforcement is proven on the production better-sqlite3 path
-  // (stagedEnforcementMigration.test.ts). Every OTHER journaled migration —
-  // including later additive ones (0069+) — IS applied, so the sql.js test
-  // schema tracks the production additive schema.
+  // Guarded enforcement migrations are excluded BY TAG: 0068 needs a
+  // preflight attestation and blocks dirty-data fixtures, while 0090's
+  // per-column guard aborts a raw cold build on the first dirty fixture.
+  // Their constraints are proven on the production better-sqlite3 path.
   const isEnforcementMigration = (file: string) =>
-    file === `${ENFORCEMENT_MIGRATION_TAG}.sql`;
+    ENFORCEMENT_MIGRATION_TAGS.some((tag) => file === `${tag}.sql`);
 
   const schemaFile = join(migrationFolder, "0000_schema.sql");
   if (existsSync(schemaFile)) {

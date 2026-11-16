@@ -1,4 +1,5 @@
-import { sqliteTable, text, integer, index } from "drizzle-orm/sqlite-core";
+import { sqliteTable, text, integer, index, check } from "drizzle-orm/sqlite-core";
+import { sql } from "drizzle-orm";
 import { habitats } from "./habitat.js";
 import { tasks } from "./task.js";
 
@@ -32,6 +33,11 @@ export const agents = sqliteTable(
     index("idx_agents_domain").on(table.domain),
     index("idx_agents_status").on(table.status),
     index("idx_agents_current_task").on(table.currentTaskId),
+    check(
+      "agents_type_check",
+      sql`type IS NOT NULL AND type IN ('claude-code', 'codex', 'opencode', 'cursor', 'gemini')`,
+    ),
+    check("agents_status_check", sql`status IN ('idle', 'working', 'offline')`),
   ],
 );
 

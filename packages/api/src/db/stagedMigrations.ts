@@ -1,39 +1,17 @@
 /**
- * Staged production migration runner for the Finding Triage lifecycle
- * enforcement (canonical plan: "Preflight and later enforcement", step 3).
+ * Journal/hash/timestamp-compatible staged production migration runner.
  *
- * Replaces the one-shot production call to Drizzle `migrate()` with a
- * journal/hash/timestamp-compatible staged runner:
+ * Finding Triage enforcement (0068) keeps its additive watermark, versioned
+ * preflight, and all-or-nothing enforcement gate. Documented enum CHECKs (0090)
+ * use marked per-column sections: each clean section commits independently,
+ * while a dirty section rolls back at its SQL guard, persists an attestation,
+ * and leaves only that column unenforced. The 0090 ledger row is recorded only
+ * after all seven checks exist, so remediation + restart retries dirty columns
+ * without repeating completed swaps.
  *
- *   Stage 1 — apply + commit every pending journal entry through the declared
- *   additive watermark (0067). Ledger rows are written exactly like Drizzle
- *   does: (hash = sha256(raw SQL file), created_at = journal `when`).
- *
- *   Preflight gate — run the versioned preflight against the now-present
- *   schema and write a database-local attestation (preflight version,
- *   additive schema version, and the deterministic SHA-256 anomaly-query
- *   CONTRACT digest — a data-independent constant for the current preflight
- *   construction, which the enforcement migration's guard pins). Blocking
- *   anomalies (the uniqueness-collision classes the enforcement constraints
- *   cannot be created over) STOP before enforcement: the failure is logged
- *   with the stable code TRIAGE_ENFORCEMENT_PREFLIGHT_DIRTY, the full
- *   machine-readable anomaly report is persisted in the attestation row, the
- *   server keeps booting on the additive schema (service-level guards remain
- *   the first line), and enforcement is retried on the next startup after
- *   remediation. Advisory diagnostics never block.
- *
- *   Stage 2 — apply + commit the enforcement entry and every later entry.
- *
- * Preserved semantics (same as the previous one-shot path):
- *   - legacy `__migrations` ledger bridging and prerelease marker
- *     reconciliation happen before the stages (owned by initDb);
- *   - strictly increasing journal `when` timestamps recorded as created_at;
- *   - `sha256(raw SQL)` ledger hashes — a database migrated by this runner is
- *     indistinguishable from one migrated by Drizzle `migrate()`;
- *   - each committed stage is one transaction, so an interrupted stage leaves
- *     the ledger at the previous committed boundary and restarts cleanly;
- *   - current-schema startup is a no-op (nothing pending);
- *   - the same workspace / compiled migration folder resolution as before.
+ * Ledger rows retain Drizzle semantics (sha256(raw SQL), journal `when`), all
+ * write reservations use BEGIN IMMEDIATE, current-schema startup is a no-op,
+ * and later entries remain pending whenever an enforcement stage is deferred.
  */
 
 import { existsSync, readFileSync } from "fs";
@@ -61,19 +39,39 @@ import {
 export const ADDITIVE_WATERMARK_TAG = "0067_release_projection_epochs";
 
 /**
- * The enforcement migration this runner gates. Also the attestation key in
- * `migration_preflight_attestations.enforcement_migration_id`.
+ * Finding Triage's preflight-gated tag, retained for its attestation and test
+ * harnesses. ENFORCEMENT_MIGRATION_TAGS lists every guarded test exclusion.
  */
 export const ENFORCEMENT_MIGRATION_TAG = "0068_finding_triage_lifecycle_enforcement";
+export const ENUM_CHECK_MIGRATION_TAG = "0090_documented_enum_check_constraints";
+export const ENFORCEMENT_MIGRATION_TAGS = [
+  ENFORCEMENT_MIGRATION_TAG,
+  ENUM_CHECK_MIGRATION_TAG,
+] as const;
 
 /** Stable operator-facing error code when blocking anomalies stop enforcement. */
 export const TRIAGE_ENFORCEMENT_PREFLIGHT_DIRTY_CODE = "TRIAGE_ENFORCEMENT_PREFLIGHT_DIRTY";
+export const ENUM_CHECK_ENFORCEMENT_DIRTY_CODE = "ENUM_CHECK_ENFORCEMENT_DIRTY";
+
+const ENUM_CHECK_SCHEMA_VERSION = "0089";
+const ENUM_CHECK_PREFLIGHT_VERSION = "001";
+const ENUM_CHECK_QUERY_DIGEST = createHash("sha256")
+  .update("per-column-restore-guard-v1")
+  .digest("hex");
+
+interface GuardedColumn {
+  key: string;
+  table: string;
+  checkName: string;
+  statements: string[];
+}
 
 interface MigrationEntry {
   tag: string;
   when: number;
   hash: string;
   statements: string[];
+  guardedColumns?: GuardedColumn[];
 }
 
 /**
@@ -81,6 +79,33 @@ interface MigrationEntry {
  * (hash, created_at, statement split) Drizzle's `readMigrationFiles` +
  * `migrate()` would use.
  */
+function splitStatements(raw: string): string[] {
+  return raw
+    .split("--> statement-breakpoint")
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0 && !/^(?:--[^\n]*(?:\n|$)|\s)+$/.test(s));
+}
+
+function readGuardedColumns(raw: string): GuardedColumn[] | undefined {
+  const marker = /^-- orcy-guarded-column: ([a-z_]+)\.([a-z_]+) ([a-z0-9_]+)[\t ]*$/gm;
+  const matches = [...raw.matchAll(marker)];
+  if (matches.length === 0) return undefined;
+  return matches.map((match, index) => {
+    const start = match.index! + match[0].length;
+    const end = matches[index + 1]?.index ?? raw.length;
+    const statements = splitStatements(raw.slice(start, end));
+    if (statements.length === 0) {
+      throw new Error(`Guarded column '${match[1]}.${match[2]}' has no statements`);
+    }
+    return {
+      key: `${match[1]}.${match[2]}`,
+      table: match[1],
+      checkName: match[3],
+      statements,
+    };
+  });
+}
+
 function readMigrationEntries(migrationFolder: string): MigrationEntry[] {
   const journalPath = join(migrationFolder, "meta", "_journal.json");
   if (!existsSync(journalPath)) {
@@ -98,10 +123,8 @@ function readMigrationEntries(migrationFolder: string): MigrationEntry[] {
       tag: journalEntry.tag,
       when: Number(journalEntry.when),
       hash: createHash("sha256").update(raw).digest("hex"),
-      statements: raw
-        .split("--> statement-breakpoint")
-        .map((s) => s.trim())
-        .filter((s) => s.length > 0),
+      statements: splitStatements(raw),
+      guardedColumns: readGuardedColumns(raw),
     });
   }
   return entries;
@@ -115,6 +138,9 @@ function readMigrationEntries(migrationFolder: string): MigrationEntry[] {
  */
 function applyStage(sqlite: SqliteDatabase, stage: MigrationEntry[]): void {
   if (stage.length === 0) return;
+  if (stage.some((entry) => entry.guardedColumns !== undefined)) {
+    throw new Error("Guarded column migrations require per-column transactions");
+  }
   // BEGIN IMMEDIATE (not the default deferred transaction): the stage list
   // was read BEFORE any lock, so a concurrently-started process could have
   // committed these entries while we waited for the writer lock. Re-read the
@@ -190,6 +216,100 @@ function writeAttestation(
     );
 }
 
+function writeEnumCheckAttestation(
+  sqlite: SqliteDatabase,
+  column: string,
+  clean: boolean,
+): void {
+  writeAttestation(sqlite, {
+    enforcementMigrationId: `${ENUM_CHECK_MIGRATION_TAG}:${column}`,
+    schemaVersion: ENUM_CHECK_SCHEMA_VERSION,
+    preflightVersion: ENUM_CHECK_PREFLIGHT_VERSION,
+    digest: ENUM_CHECK_QUERY_DIGEST,
+    clean,
+    report: JSON.stringify({
+      code: clean ? undefined : ENUM_CHECK_ENFORCEMENT_DIRTY_CODE,
+      column,
+    }),
+  });
+}
+
+function hasNamedCheck(sqlite: SqliteDatabase, table: string, checkName: string): boolean {
+  const row = sqlite
+    .prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = ?")
+    .get(table) as { sql: string } | undefined;
+  return row?.sql.includes(checkName) ?? false;
+}
+
+function isCheckConstraintError(err: unknown): boolean {
+  const message = String((err as { message?: unknown } | null)?.message ?? err ?? "");
+  return /CHECK constraint failed/i.test(message);
+}
+
+function recordMigrationEntry(sqlite: SqliteDatabase, entry: MigrationEntry): void {
+  sqlite.exec("BEGIN IMMEDIATE");
+  try {
+    if (pendingEntries(sqlite, [entry]).length > 0) {
+      sqlite
+        .prepare("INSERT INTO __drizzle_migrations (hash, created_at) VALUES (?, ?)")
+        .run(entry.hash, entry.when);
+    }
+    sqlite.exec("COMMIT");
+  } catch (err) {
+    sqlite.exec("ROLLBACK");
+    throw err;
+  }
+}
+
+function applyGuardedColumnEntry(sqlite: SqliteDatabase, entry: MigrationEntry): boolean {
+  const columns = entry.guardedColumns;
+  if (columns === undefined) throw new Error(`Migration '${entry.tag}' has no guarded columns`);
+
+  for (const column of columns) {
+    sqlite.exec("BEGIN IMMEDIATE");
+    try {
+      if (pendingEntries(sqlite, [entry]).length === 0) {
+        sqlite.exec("COMMIT");
+        return true;
+      }
+      if (hasNamedCheck(sqlite, column.table, column.checkName)) {
+        sqlite.exec("COMMIT");
+        continue;
+      }
+      for (const statement of column.statements) {
+        sqlite.prepare(statement).run();
+      }
+      writeEnumCheckAttestation(sqlite, column.key, true);
+      sqlite.exec("COMMIT");
+    } catch (err) {
+      try {
+        sqlite.exec("ROLLBACK");
+      } catch {
+        // already rolled back (defensive)
+      }
+      if (!isCheckConstraintError(err)) throw err;
+      writeEnumCheckAttestation(sqlite, column.key, false);
+      logger.error(
+        {
+          code: ENUM_CHECK_ENFORCEMENT_DIRTY_CODE,
+          column: column.key,
+          enforcementMigrationId: ENUM_CHECK_MIGRATION_TAG,
+        },
+        "Enum CHECK enforcement deferred for a dirty legacy column. " +
+          "Remediate the reported column and restart to retry; other columns remain enforced.",
+      );
+    } finally {
+      sqlite.pragma("ignore_check_constraints = OFF");
+    }
+  }
+
+  const complete = columns.every((column) =>
+    hasNamedCheck(sqlite, column.table, column.checkName),
+  );
+  if (complete) recordMigrationEntry(sqlite, entry);
+  return complete;
+}
+
 /**
  * Run the staged production migration protocol on the raw better-sqlite3
  * connection. See the module docblock for the stage boundaries.
@@ -201,85 +321,91 @@ export function runStagedProductionMigrations(
   const entries = readMigrationEntries(migrationFolder);
   const watermarkIdx = entries.findIndex((e) => e.tag === ADDITIVE_WATERMARK_TAG);
   const enforcementIdx = entries.findIndex((e) => e.tag === ENFORCEMENT_MIGRATION_TAG);
+  const enumCheckIdx = entries.findIndex((e) => e.tag === ENUM_CHECK_MIGRATION_TAG);
 
   ensureLedgerTable(sqlite);
 
   const pending = pendingEntries(sqlite, entries);
-  if (pending.length === 0) return; // current-schema startup no-op
+  if (pending.length === 0) return;
 
   if (enforcementIdx === -1) {
-    // The resolved journal predates the staged pair (older compiled package).
-    // Preserve the historical one-shot semantics for every pending entry.
+    if (enumCheckIdx !== -1) {
+      throw new Error("Enum CHECK enforcement requires the Finding Triage staged migration");
+    }
     applyStage(sqlite, pending);
     return;
   }
   if (watermarkIdx === -1 || watermarkIdx > enforcementIdx) {
-    // Misconfigured constants must never silently fall back to one-shot —
-    // that would apply enforcement without the preflight gate.
     throw new Error(
       `Staged migration misconfiguration: additive watermark '${ADDITIVE_WATERMARK_TAG}' ` +
         `must exist in the journal before enforcement '${ENFORCEMENT_MIGRATION_TAG}'`,
     );
   }
-
-  const enforcementPending = pending.some((e) => e.tag === ENFORCEMENT_MIGRATION_TAG);
-  if (!enforcementPending) {
-    // Enforcement already applied; later entries run with one-shot semantics.
-    applyStage(sqlite, pending);
-    return;
+  if (enumCheckIdx !== -1 && enumCheckIdx < enforcementIdx) {
+    throw new Error("Enum CHECK enforcement must follow Finding Triage enforcement");
   }
 
-  // --- STAGE 1: additive entries through the declared watermark, committed
-  // alone so the preflight runs against a durable, restart-safe schema state.
-  const watermarkWhen = entries[watermarkIdx].when;
-  const stage1 = pending.filter((e) => e.when <= watermarkWhen);
-  applyStage(sqlite, stage1);
-
-  // --- Preflight gate: versioned preflight + database-local attestation.
-  const result = runPreflight();
-  // Contract digest: data-independent constant pinning the CURRENT preflight
-  // construction; the enforcement migration's guard verifies this exact value.
-  const digest = computeAnomalyQueryDigest();
-  const blocking = result.anomalies.filter((a) => BLOCKING_ANOMALY_CODES.has(a.code));
-  const clean = blocking.length === 0;
-  writeAttestation(sqlite, {
-    enforcementMigrationId: ENFORCEMENT_MIGRATION_TAG,
-    schemaVersion: ADDITIVE_SCHEMA_VERSION,
-    preflightVersion: PREFLIGHT_VERSION,
-    digest,
-    clean,
-    report: JSON.stringify({
-      code: clean ? undefined : TRIAGE_ENFORCEMENT_PREFLIGHT_DIRTY_CODE,
-      preflightVersion: result.version,
-      schemaVersion: result.schemaVersion,
-      anomalyCount: result.anomalyCount,
-      anomaliesByCode: result.anomaliesByCode,
-      blockingAnomalies: blocking,
-      anomalies: result.anomalies,
-    }),
-  });
-
-  if (!clean) {
-    // STOP before enforcement. Keep booting on the additive schema; the
-    // service-level guards remain the first line. Retry on next startup.
-    logger.error(
-      {
-        code: TRIAGE_ENFORCEMENT_PREFLIGHT_DIRTY_CODE,
-        blockingCount: blocking.length,
-        blockingByCode: blocking.reduce<Record<string, number>>((acc, a) => {
-          acc[a.code] = (acc[a.code] ?? 0) + 1;
-          return acc;
-        }, {}),
-        enforcementMigrationId: ENFORCEMENT_MIGRATION_TAG,
-      },
-      "Finding Triage enforcement deferred: blocking preflight anomalies present. " +
-        "Remediate the reported anomalies (see migration_preflight_attestations.anomaly_report) " +
-        "and restart to retry enforcement. The API continues on the additive schema.",
+  if (pending.some((e) => e.tag === ENFORCEMENT_MIGRATION_TAG)) {
+    const watermarkWhen = entries[watermarkIdx].when;
+    applyStage(
+      sqlite,
+      pending.filter((e) => e.when <= watermarkWhen),
     );
+
+    const result = runPreflight();
+    const digest = computeAnomalyQueryDigest();
+    const blocking = result.anomalies.filter((a) => BLOCKING_ANOMALY_CODES.has(a.code));
+    const clean = blocking.length === 0;
+    writeAttestation(sqlite, {
+      enforcementMigrationId: ENFORCEMENT_MIGRATION_TAG,
+      schemaVersion: ADDITIVE_SCHEMA_VERSION,
+      preflightVersion: PREFLIGHT_VERSION,
+      digest,
+      clean,
+      report: JSON.stringify({
+        code: clean ? undefined : TRIAGE_ENFORCEMENT_PREFLIGHT_DIRTY_CODE,
+        preflightVersion: result.version,
+        schemaVersion: result.schemaVersion,
+        anomalyCount: result.anomalyCount,
+        anomaliesByCode: result.anomaliesByCode,
+        blockingAnomalies: blocking,
+        anomalies: result.anomalies,
+      }),
+    });
+
+    if (!clean) {
+      logger.error(
+        {
+          code: TRIAGE_ENFORCEMENT_PREFLIGHT_DIRTY_CODE,
+          blockingCount: blocking.length,
+          blockingByCode: blocking.reduce<Record<string, number>>((acc, a) => {
+            acc[a.code] = (acc[a.code] ?? 0) + 1;
+            return acc;
+          }, {}),
+          enforcementMigrationId: ENFORCEMENT_MIGRATION_TAG,
+        },
+        "Finding Triage enforcement deferred: blocking preflight anomalies present. " +
+          "Remediate the reported anomalies (see migration_preflight_attestations.anomaly_report) " +
+          "and restart to retry enforcement. The API continues on the additive schema.",
+      );
+      return;
+    }
+  }
+
+  if (enumCheckIdx === -1) {
+    applyStage(sqlite, pendingEntries(sqlite, entries));
     return;
   }
 
-  // --- STAGE 2: enforcement entry and every later entry, one transaction.
-  const pending2 = pendingEntries(sqlite, entries);
-  applyStage(sqlite, pending2);
+  const beforeEnumChecks = pendingEntries(sqlite, entries).filter(
+    (entry) => entry.when < entries[enumCheckIdx].when,
+  );
+  applyStage(sqlite, beforeEnumChecks);
+
+  const enumEntry = entries[enumCheckIdx];
+  if (pendingEntries(sqlite, [enumEntry]).length > 0 && !applyGuardedColumnEntry(sqlite, enumEntry)) {
+    return;
+  }
+
+  applyStage(sqlite, pendingEntries(sqlite, entries));
 }

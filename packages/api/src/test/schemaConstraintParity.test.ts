@@ -1,7 +1,7 @@
 /**
  * Drizzle-declaration ↔ physical-schema constraint parity.
  *
- * The hand-written migration SQL (0064–0084) is the migration source of
+ * The hand-written migration SQL (0064–0090) is the migration source of
  * truth, but the Drizzle exports are the `drizzle-kit generate` baseline —
  * any constraint that exists in one and not the other is drift: generate
  * would either drop it or emit a spurious diff for it. This test builds a
@@ -60,7 +60,9 @@ import {
   governanceAudit,
 } from "../db/schema/roleFoundation.js";
 import { scheduledOccurrences, scheduledOccurrenceHistory } from "../db/schema/taskPublication.js";
-import { users } from "../db/schema/user.js";
+import { users, teamMembers } from "../db/schema/user.js";
+import { agents } from "../db/schema/agent.js";
+import { tasks, taskEvents } from "../db/schema/task.js";
 import {
   ENFORCEMENT_MIGRATION_TAG,
   ADDITIVE_WATERMARK_TAG,
@@ -105,6 +107,14 @@ const SCOPED_TABLES: readonly { table: SQLiteTable; name: string }[] = [
   { table: governanceAudit, name: "governance_audit" },
   { table: scheduledOccurrences, name: "scheduled_occurrences" },
   { table: scheduledOccurrenceHistory, name: "scheduled_occurrence_history" },
+];
+
+const ENUM_CHECK_TABLES: readonly { table: SQLiteTable; name: string }[] = [
+  { table: tasks, name: "tasks" },
+  { table: agents, name: "agents" },
+  { table: teamMembers, name: "team_members" },
+  { table: users, name: "users" },
+  { table: taskEvents, name: "task_events" },
 ];
 
 // ---------------------------------------------------------------------------
@@ -405,6 +415,12 @@ describe("Drizzle ↔ migration SQL constraint parity", () => {
     expect(physicalRole?.dflt_value).toBe("'editor'");
     expect(drizzleRole?.default).toBe("editor");
   });
+
+  for (const { table, name } of ENUM_CHECK_TABLES) {
+    it(`declares the 0090 CHECK constraints of ${name} identically in Drizzle`, () => {
+      expect(drizzleCheckBodies(table).toSorted()).toEqual(sqlCheckBodies(db, name).toSorted());
+    });
+  }
 
   for (const { table, name } of SCOPED_TABLES) {
     it(`declares every physical constraint of ${name} in Drizzle (and nothing extra)`, () => {

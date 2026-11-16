@@ -6,6 +6,7 @@ import {
   index,
   uniqueIndex,
   primaryKey,
+  check,
   type AnySQLiteColumn,
 } from "drizzle-orm/sqlite-core";
 import { sql } from "drizzle-orm";
@@ -111,6 +112,11 @@ export const tasks = sqliteTable(
     index("idx_tasks_remote_assigned_participant").on(table.remoteAssignedParticipantId),
     index("idx_tasks_last_failure_event").on(table.lastFailureEventId),
     index("idx_tasks_last_release_event").on(table.lastReleaseEventId),
+    check("tasks_priority_check", sql`priority IN ('low', 'medium', 'high', 'critical')`),
+    check(
+      "tasks_status_check",
+      sql`status IN ('pending', 'claimed', 'in_progress', 'submitted', 'approved', 'rejected', 'done', 'failed')`,
+    ),
   ],
 );
 
@@ -180,6 +186,10 @@ export const taskEvents = sqliteTable(
       table.fromColumnId,
       table.toColumnId,
       table.timestamp,
+    ),
+    check(
+      "task_events_actor_type_check",
+      sql`actor_type IN ('human', 'agent', 'system', 'remote_human', 'remote_orcy', 'remote_pod')`,
     ),
   ],
 );

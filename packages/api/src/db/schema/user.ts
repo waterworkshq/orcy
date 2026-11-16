@@ -1,4 +1,5 @@
-import { sqliteTable, text, integer, index, uniqueIndex } from "drizzle-orm/sqlite-core";
+import { sqliteTable, text, integer, index, uniqueIndex, check } from "drizzle-orm/sqlite-core";
+import { sql } from "drizzle-orm";
 import { habitats } from "./habitat.js";
 
 export const users = sqliteTable(
@@ -16,7 +17,7 @@ export const users = sqliteTable(
     lastLoginAt: text("last_login_at"),
     email: text("email"),
   },
-  () => [],
+  () => [check("users_role_check", sql`role IN ('admin', 'editor', 'viewer')`)],
 );
 
 export const notificationPreferences = sqliteTable(
@@ -84,5 +85,6 @@ export const teamMembers = sqliteTable(
     uniqueIndex("idx_team_members_unique").on(table.teamId, table.userId),
     index("idx_team_members_team_id").on(table.teamId),
     index("idx_team_members_user_id").on(table.userId),
+    check("team_members_role_check", sql`role IN ('owner', 'admin', 'member')`),
   ],
 );
