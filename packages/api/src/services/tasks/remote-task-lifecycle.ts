@@ -280,6 +280,7 @@ export function submitTaskForRemote(
   }
 
   // 4. Atomic tx — ownership/status re-gate + budget guard + submitWithAuthorityClient + createEventWithClient
+  //    BEGIN IMMEDIATE fences the re-gate, meter read, and submit write against concurrent reassignment.
   //    (invariant #8 — only client-scoped primitives inside the tx)
   const { submittedTask, eventId, budgetRefused } = getDb().transaction((tx) => {
     type TaskRow = typeof tasks.$inferSelect;
