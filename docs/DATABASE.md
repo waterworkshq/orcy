@@ -366,12 +366,12 @@ Tasks are work units inside missions. Every task belongs to exactly one mission.
 | `title` | TEXT | NOT NULL | Task title |
 | `description` | TEXT | NOT NULL DEFAULT '' | Detailed description |
 | `labels` | TEXT | NOT NULL DEFAULT '[]' (JSON) | JSON array of label strings |
-| `priority` | TEXT | NOT NULL DEFAULT 'medium' | Priority level (Drizzle enum + application validation, no SQL CHECK) |
+| `priority` | TEXT | NOT NULL DEFAULT 'medium'; CHECK (`priority IN ('low','medium','high','critical')`) | Priority level (migration 0090) |
 | `assigned_agent_id` | TEXT | FK → agents(id) | Currently assigned agent |
 | `remote_assigned_participant_id` | TEXT | DEFAULT NULL | Remote participant currently holding the assignment (plain reference; no FK, preserving the local-only analytics boundary) |
 | `required_domain` | TEXT | DEFAULT NULL | Required agent domain |
 | `required_capabilities` | TEXT | NOT NULL DEFAULT '[]' (JSON) | JSON array of strings |
-| `status` | TEXT | NOT NULL DEFAULT 'pending' | Task status (Drizzle enum + application validation, no SQL CHECK) |
+| `status` | TEXT | NOT NULL DEFAULT 'pending'; CHECK (`status IN ('pending','claimed','in_progress','submitted','approved','rejected','done','failed')`) | Task status (migration 0090) |
 | `claimed_at` | TEXT | DEFAULT NULL | When task was claimed |
 | `started_at` | TEXT | DEFAULT NULL | When work started |
 | `submitted_at` | TEXT | DEFAULT NULL | When submitted for review |
@@ -410,10 +410,10 @@ Tasks are work units inside missions. Every task belongs to exactly one mission.
 |--------|------|-------------|-------------|
 | `id` | TEXT | PK | Agent identifier (UUID) |
 | `name` | TEXT | NOT NULL UNIQUE | Display name |
-| `type` | TEXT | NOT NULL | Agent type (Drizzle enum + application validation, no SQL CHECK) |
+| `type` | TEXT | CHECK (`type IS NOT NULL AND type IN ('claude-code','codex','opencode','cursor','gemini')`); physically nullable by SQLite in-place-swap necessity, with NOT NULL enforced by the CHECK | Agent type (migration 0090) |
 | `domain` | TEXT | NOT NULL | Agent domain (e.g., `backend`) |
 | `capabilities` | TEXT | NOT NULL DEFAULT '[]' (JSON) | JSON array of capability strings |
-| `status` | TEXT | NOT NULL DEFAULT 'idle' | Agent status (Drizzle enum + application validation, no SQL CHECK) |
+| `status` | TEXT | NOT NULL DEFAULT 'idle'; CHECK (`status IN ('idle','working','offline')`) | Agent status (migration 0090) |
 | `current_task_id` | TEXT | DEFAULT NULL | Currently assigned task |
 | `api_key` | TEXT | NOT NULL UNIQUE | SHA-256 hash of the API key |
 | `created_at` | TEXT | NOT NULL DEFAULT (datetime('now')) | Creation timestamp |
@@ -429,7 +429,7 @@ Tasks are work units inside missions. Every task belongs to exactly one mission.
 |--------|------|-------------|-------------|
 | `id` | TEXT | PK | Event identifier (UUID) |
 | `task_id` | TEXT | NOT NULL FK → tasks(id) ON DELETE CASCADE | Related task |
-| `actor_type` | TEXT | NOT NULL | Actor type (Drizzle enum + application validation, no SQL CHECK) |
+| `actor_type` | TEXT | NOT NULL; CHECK (`actor_type IN ('human','agent','system','remote_human','remote_orcy','remote_pod')`) | Actor type (migration 0090) |
 | `actor_id` | TEXT | NOT NULL | UUID of the actor |
 | `action` | TEXT | NOT NULL | Event action (Drizzle enum + application validation, no SQL CHECK) |
 | `from_column_id` | TEXT | DEFAULT NULL | Source column |
@@ -442,6 +442,8 @@ Tasks are work units inside missions. Every task belongs to exactly one mission.
 | `execution_token` | TEXT | DEFAULT NULL | The claim-epoch token stamped on the failed event at creation time (migration 0079): written once by the fail act-tx, immutable; no other current writer sets it. NULL on all pre-0079 rows (non-failed events under current writers stay NULL) |
 
 **Indexes:** `idx_task_events_task_id`, `idx_task_events_timestamp(timestamp)`, `idx_task_events_actor(actor_type, actor_id)`, `idx_task_events_from_column_time(from_column_id, timestamp)`, `idx_task_events_to_column_time(to_column_id, timestamp)`, `idx_task_events_transition_time(from_column_id, to_column_id, timestamp)`
+
+**Legacy orphan preservation (migration 0090):** rows whose `task_id` has no matching `tasks.id` are copied into `task_events_orphans_0090` in a separate committed archive step before the guarded rebuild. Any source orphan withholds only the `actor_type` CHECK with a dirty attestation whose evidence includes `orphanTable` and `orphanCount`; the rebuild copies only rows with matching Tasks. The original rows and archive remain available for remediation, and the archive is retained after later enforcement succeeds.
 
 #### `task_dependencies`
 
@@ -463,7 +465,7 @@ Within-mission sibling task dependencies only. Cross-mission dependencies use `m
 | `username` | TEXT | NOT NULL UNIQUE | Login username |
 | `password_hash` | TEXT | NOT NULL | bcrypt hash of password |
 | `display_name` | TEXT | NOT NULL DEFAULT '' | Display name |
-| `role` | TEXT | NOT NULL DEFAULT 'editor' | User role (Drizzle enum + application validation, no SQL CHECK); migration 0089 preserves existing roles |
+| `role` | TEXT | NOT NULL DEFAULT 'editor'; CHECK (`role IN ('admin','editor','viewer')`) | User role; migrations 0089 and 0090 preserve existing roles |
 | `created_at` | TEXT | NOT NULL DEFAULT (datetime('now')) | Creation timestamp |
 | `updated_at` | TEXT | NOT NULL DEFAULT (datetime('now')) | Last update timestamp |
 | `last_login_at` | TEXT | DEFAULT NULL | Last successful login |
@@ -804,7 +806,7 @@ Toggle-based reactions on pulse signals. Three fixed reaction types. Reactions a
 | `id` | TEXT | PK | Membership identifier (UUID) |
 | `team_id` | TEXT | NOT NULL FK → teams(id) ON DELETE CASCADE | Team |
 | `user_id` | TEXT | NOT NULL FK → users(id) ON DELETE CASCADE | User |
-| `role` | TEXT | NOT NULL DEFAULT 'member' | Member role (Drizzle enum + application validation, no SQL CHECK) |
+| `role` | TEXT | NOT NULL DEFAULT 'member'; CHECK (`role IN ('owner','admin','member')`) | Member role (migration 0090) |
 | `joined_at` | TEXT | NOT NULL DEFAULT (datetime('now')) | Join timestamp |
 
 **Constraints:** `UNIQUE (team_id, user_id)` (`idx_team_members_unique`)
@@ -3032,19 +3034,19 @@ The restored lifecycle added storage in four additive migrations and enforcement
 
 #### `migration_preflight_attestations`
 
-Database-local record that THIS database passed the versioned preflight immediately before enforcement. NOT a fleet or operator-memory assertion. Keyed `(enforcement_migration_id, schema_version)`.
+Database-local attestation for staged enforcement. For `0068`, this records the versioned preflight immediately before enforcement. For `0090`, a row keyed `<migration>:<table.column>` records that column's guard outcome. NOT a fleet or operator-memory assertion. Keyed `(enforcement_migration_id, schema_version)`.
 
 | Column | Type | Description |
 |--------|------|-------------|
-| `enforcement_migration_id` | TEXT | The enforcement migration tag (`0068_finding_triage_lifecycle_enforcement`) |
-| `schema_version` | TEXT | Additive watermark the preflight ran against (`0067`) |
-| `preflight_version` | TEXT | Preflight query version (`003`) |
-| `anomaly_query_digest` | TEXT | SHA-256 of the deterministic anomaly-query serialization |
-| `clean` | INTEGER | 1 = no BLOCKING anomalies (safe to enforce); 0 = enforcement deferred |
-| `anomaly_report` | TEXT | Full machine-readable preflight report (JSON), including blocking anomalies |
+| `enforcement_migration_id` | TEXT | The `0068` migration tag, or the `0090` migration tag plus `:tasks.priority`-style column key |
+| `schema_version` | TEXT | Schema watermark (`0067` for Finding Triage; `0089` for enum CHECKs) |
+| `preflight_version` | TEXT | Preflight/guard version (`003` for Finding Triage; `001` for enum CHECKs) |
+| `anomaly_query_digest` | TEXT | SHA-256 of the deterministic anomaly-query or guard-contract serialization |
+| `clean` | INTEGER | 1 = safe/enforced; 0 = enforcement deferred for this migration or column |
+| `anomaly_report` | TEXT | Machine-readable JSON: full preflight report for `0068`; stable code and column for a deferred `0090` guard, plus `orphanTable`/`orphanCount` evidence for archived Task Event orphans |
 | `attested_at` | TEXT | Attestation time |
 
-**Source:** `packages/api/src/db/schema/triage.ts` — **Migrations:** `0064`, `0068`
+**Source:** `packages/api/src/db/schema/triage.ts` — **Migrations:** `0064`, `0068`, `0090`
 
 ---
 
@@ -3103,6 +3105,7 @@ entries are:
 | `0087` | `0087_notification_delivery_cadence.sql` | Notification delivery cadence: additive notification_deliveries.cadence (TEXT NOT NULL DEFAULT 'immediate') persists each delivery's resolved cadence at enqueue; digest grouping unions the persisted cadence with recipient-specific subscription cadences. No table, index, or further column was added; hand-authored .sql with a hand-appended journal entry per the post-0053 convention (no per-migration snapshot). |
 | `0088` | `0088_notification_delivery_cadence_index.sql` | Digest-cadence source lookup index: adds the covering index `idx_notification_deliveries_digest_cadence(cadence, status, habitat_id, recipient_type, recipient_id)` so the digest candidate query filters on the `(cadence, status)` prefix and groups the `(habitat, recipient)` columns without touching the table. Index-only — no column or table change; Drizzle parity via the `notificationDeliveries` index in `db/schema/notification.ts`; covering-plan behavior pinned by `notificationDeliveryQuery.test.ts`. |
 | `0089` | `0089_user_role_default_editor.sql` | Changes `users.role` from `DEFAULT 'admin'` to `DEFAULT 'editor'`. Existing roles are backed up and restored unchanged; only the role column is replaced, leaving the `users` table and inbound foreign keys intact. New rows that omit a role are editors unless explicitly elevated. |
+| `0090` | `0090_documented_enum_check_constraints.sql` | Adds physical domain CHECKs to `tasks.priority`/`status`, `agents.type`/`status`, `team_members.role`, `users.role`, and `task_events.actor_type`, preserving every legacy value. Five columns use independent 0089-style swaps; `agents.type` uses a nullable re-add whose CHECK explicitly enforces both `IS NOT NULL` and its domain (no default added, physical `notnull=0` by SQLite necessity); zero-inbound-FK `task_events` alone is rebuilt last with full row/index preservation; legacy orphaned Task Events are first preserved in `task_events_orphans_0090` by an idempotent separately committed archive step and excluded from the mirrored copy, with their inventory recorded in the attestation. Each column has its own transaction and zero-anomaly guard: dirty data persists an `ENUM_CHECK_ENFORCEMENT_DIRTY` attestation and withholds only that column's enforcement while clean columns commit. The migration ledger entry is recorded only after all seven CHECKs exist, so remediation + restart retries pending columns without repeating completed swaps. Raw `initTestDb()` builds exclude this guarded migration by tag; production-driver tests prove enforcement and child-row preservation. |
 
 The gap `0003`–`0026` is **intentional**. Those migrations were consolidated
 into `0000_schema.sql` at the boundary commit and are deliberately NOT in the
@@ -3118,41 +3121,39 @@ journaled `0001_green_shadowcat.sql` and `0002_purple_fallen_one.sql`.
 all migrations through 0053 and serves as Drizzle's diff baseline for the next
 `drizzle-kit generate`.
 
-### Staged Production Migration Runner (0068 enforcement protocol)
+### Staged Production Migration Runner (0068 + 0090 enforcement protocols)
 
 The one-shot production call to Drizzle `migrate()` is replaced (in
 `packages/api/src/db/stagedMigrations.ts`) by a journal/hash/timestamp-compatible
-staged runner. When the enforcement entry is pending it:
+staged runner.
 
-1. **Stage 1** — applies and commits every pending journal entry through the
-   declared additive watermark (`0067_release_projection_epochs`). Ledger rows
-   are written exactly like Drizzle does: `(sha256(raw SQL), journal when)`.
-2. **Preflight gate** — runs the versioned preflight
-   (`services/findingTriagePreflight.ts`, version `002`) against the
-   now-present schema and writes a database-local attestation into
-   `migration_preflight_attestations`. Only the BLOCKING anomaly classes (the
-   uniqueness collisions the enforcement indexes cannot be created over —
-   `active_identity_duplicate`, `finding_resolution_duplicate`) stop
-   enforcement; advisory diagnostics (e.g. pre-cutover terminal rows without
-   Resolution Records) never block. Dirty data stops BEFORE enforcement with
-   the stable log code `TRIAGE_ENFORCEMENT_PREFLIGHT_DIRTY` and the full
-   machine-readable report persisted in the attestation row; the server keeps
-   booting on the additive schema, and enforcement retries on the next
-   startup after remediation.
-3. **Stage 2** — applies the enforcement entry and every later entry in one
-   transaction. The enforcement SQL itself re-verifies the attestation and
-   anomaly counts through the temporary-table `CHECK (anomaly_count = 0)`
-   guard, so anomalies introduced after the attestation abort INSIDE the
-   transaction before any table rebuild.
+1. **Stage 1** — when `0068` is pending, applies and commits every pending
+   journal entry through the declared additive watermark
+   (`0067_release_projection_epochs`). Ledger rows are written exactly like
+   Drizzle does: `(sha256(raw SQL), journal when)`.
+2. **Finding Triage preflight gate** — runs the versioned preflight
+   (`services/findingTriagePreflight.ts`, version `003`) and writes a
+   database-local attestation. Only blocking uniqueness collisions stop
+   enforcement; advisory diagnostics never block. Dirty data persists
+   `TRIAGE_ENFORCEMENT_PREFLIGHT_DIRTY`, keeps the server bootable on the
+   additive schema, and retries on restart after remediation.
+3. **Finding Triage enforcement** — applies `0068` and the entries before
+   `0090` in one transaction. The `0068` SQL re-verifies its attestation and
+   anomaly counts through a temporary-table zero-anomaly CHECK, including
+   against anomalies introduced after the attestation.
+4. **Per-column enum CHECK enforcement** — executes each marked `0090`
+   section in its own `BEGIN IMMEDIATE` transaction. A dirty column rolls
+   back at its zero-anomaly guard or checked restore, persists
+   `ENUM_CHECK_ENFORCEMENT_DIRTY`, and does not block clean columns. Already
+   committed CHECKs are skipped on restart. The `0090` ledger row is written
+   only after all seven CHECKs exist; later entries then resume normally.
 
 Preserved semantics: legacy `__migrations` ledger bridging, prerelease marker
 reconciliation, strictly increasing journal `when` timestamps recorded as
 `created_at`, `sha256(raw SQL)` hashes, workspace/compiled folder resolution,
-per-stage transaction atomicity (an interrupted stage restarts at the last
-committed ledger boundary), and current-schema startup no-op. A raw one-shot
-`migrate()` against a journal containing `0068` on a database without an
-attestation aborts at the CHECK guard by design — only the staged runner can
-legally apply enforcement. Remediation runbook: see
+per-stage/column transaction atomicity, and current-schema startup no-op. A
+raw one-shot `migrate()` against `0068` without an attestation aborts at its
+CHECK guard by design. Remediation runbook: see
 [TROUBLESHOOTING.md](TROUBLESHOOTING.md).
 
 ### File Types and What They Mean
@@ -3173,8 +3174,8 @@ The schema is materialized through two distinct code paths in
 
 | Path | Function | What runs |
 |------|----------|-----------|
-| **Test databases** | `initTestDb()` | `applyMigrations()` reads `0000_schema.sql` first, then every other `NNNN_*.sql` file sorted alphabetically. `runMigrationSql()` splits on `--> statement-breakpoint` and tolerantly swallows "already exists" errors, so the consolidated baseline provides the full schema and subsequent files are effectively idempotent. Uses the `sql.js` WASM driver on an in-memory DB. |
-| **Production databases** | `initDb()` | The staged production runner (see below) reads `meta/_journal.json` and applies the journaled entries (`0000`, `0001`, `0002`, `0027` onward) in `when`-timestamp order — Stage 1 through the additive watermark, the preflight gate, then Stage 2 for the enforcement entry and everything after — tracking applied state via the `__drizzle_migrations` table. A legacy `__migrations`-ledger bridge (`bridgeLegacyMigrationsLedger`) and a prerelease 0053 marker reconciliation step run before migration on every boot. Uses `better-sqlite3` on a file. |
+| **Test databases** | `initTestDb()` | `applyMigrations()` reads `0000_schema.sql` first, then additive `NNNN_*.sql` files sorted alphabetically, excluding guarded `0068` and `0090` by tag. `runMigrationSql()` splits on `--> statement-breakpoint` and tolerantly swallows "already exists" errors. Uses the `sql.js` WASM driver on an in-memory DB. |
+| **Production databases** | `initDb()` | The staged runner reads `meta/_journal.json` in `when`-timestamp order and tracks applied state via `__drizzle_migrations`, including the `0068` preflight gate and independent `0090` column transactions. A legacy `__migrations`-ledger bridge and prerelease 0053 marker reconciliation run first on every boot. Uses `better-sqlite3` on a file. |
 
 This split is intentional. Test DBs get the fastest possible setup from the
 pre-built baseline. Production DBs get safe, ordered, data-preserving migrations
