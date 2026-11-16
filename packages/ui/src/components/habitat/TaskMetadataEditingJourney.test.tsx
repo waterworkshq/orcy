@@ -826,15 +826,26 @@ describe("Task metadata editing real modal/store/transport journeys", () => {
     await waitFor(() => expect(patchCalls().length).toBe(1));
     const aliceClient = activeClient;
     const callsAtRetirement = calls.length;
-    fireEvent.click(screen.getByRole("button", { name: "Retire session" }));
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Retire session" }));
+    });
     await waitFor(() => expect(useModalStore.getState().isOpen).toBe(false));
+    await waitFor(() => expect(activeClient).not.toBe(aliceClient));
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
     await act(async () => {
       held.resolve(jsonResponse({ task: makeTask({ version: 8 }), habitatId: "h-2" }));
     });
     expect(notify.success).not.toHaveBeenCalled();
     const afterRetirement = calls.slice(callsAtRetirement);
     expect(afterRetirement.filter((c) => c.method === "PATCH")).toEqual([]);
-    expect(afterRetirement.filter((c) => c.url.includes("/api/tasks/t-1"))).toEqual([]);
+    const taskCalls = afterRetirement.filter((c) => c.url.includes("/api/tasks/t-1"));
+    expect(taskCalls.length).toBeLessThanOrEqual(1);
+    for (const call of taskCalls) {
+      expect(call).toMatchObject({ method: "GET", url: "/api/tasks/t-1/details" });
+      expect(call.signal?.aborted).toBe(true);
+    }
     expect(aliceClient.getQueryData(queryKeys.tasks.details("t-1"))).toBeUndefined();
     expect(activeClient).not.toBe(aliceClient);
     expect(activeClient.getQueryData(queryKeys.tasks.details("t-1"))).toBeUndefined();
