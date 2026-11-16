@@ -315,7 +315,7 @@ export function submitTaskForRemote(
       evId = event.id;
     }
     return { submittedTask: submitted, eventId: evId, budgetRefused: undefined };
-  });
+  }, { behavior: "immediate" });
 
   if (budgetRefused) {
     return {
