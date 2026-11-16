@@ -220,7 +220,11 @@ export function TaskDetailModal() {
     scheduleClose();
   }, [confirming, dirty, requestClose, scheduleClose]);
 
-  // Re-fade on a new presentation generation (same-ID reopen included).
+  // Fade in exactly once per presentation: the closed→open edge and a requestSeq
+  // advance while open (a same-ID or new-task reopen, including one landing
+  // inside the close delay). The 200 ms fade-out timer alone never re-fades —
+  // only a presentation edge does, legitimately re-presenting the modal and
+  // fencing the stale close.
   useEffect(() => {
     if (isOpen) requestAnimationFrame(() => setVisible(true));
   }, [requestSeq, isOpen]);
@@ -264,7 +268,6 @@ export function TaskDetailModal() {
 
   useEffect(() => {
     if (!isOpen) return;
-    requestAnimationFrame(() => setVisible(true));
 
     const handleKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") handleClose();
