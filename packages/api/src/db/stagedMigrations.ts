@@ -5,7 +5,8 @@
  * preflight, and all-or-nothing enforcement gate. Documented enum CHECKs (0090)
  * use marked per-column sections: each clean section commits independently,
  * while a dirty section rolls back at its SQL guard, persists an attestation,
- * and leaves only that column unenforced. The 0090 ledger row is recorded only
+ * and leaves only that column unenforced. Marked orphan archives commit before
+ * their section's guard so preservation survives the rollback. The 0090 ledger row is recorded only
  * after all seven checks exist, so remediation + restart retries dirty columns
  * without repeating completed swaps.
  *
@@ -63,6 +64,8 @@ interface GuardedColumn {
   key: string;
   table: string;
   checkName: string;
+  archiveTable?: string;
+  archiveStatements: string[];
   statements: string[];
 }
 
@@ -87,20 +90,31 @@ function splitStatements(raw: string): string[] {
 }
 
 function readGuardedColumns(raw: string): GuardedColumn[] | undefined {
-  const marker = /^-- orcy-guarded-column: ([a-z_]+)\.([a-z_]+) ([a-z0-9_]+)[\t ]*$/gm;
+  const marker = /^-- orcy-guarded-column: ([a-z_]+)\.([a-z_]+) ([a-z0-9_]+)(?: ([a-z0-9_]+))?[\t ]*$/gm;
   const matches = [...raw.matchAll(marker)];
   if (matches.length === 0) return undefined;
   return matches.map((match, index) => {
     const start = match.index! + match[0].length;
     const end = matches[index + 1]?.index ?? raw.length;
-    const statements = splitStatements(raw.slice(start, end));
+    const sectionStatements = splitStatements(raw.slice(start, end));
+    const archiveStatements = sectionStatements.filter((statement) =>
+      statement.startsWith("-- orcy-archive-statement"),
+    );
+    const statements = sectionStatements.filter(
+      (statement) => !statement.startsWith("-- orcy-archive-statement"),
+    );
     if (statements.length === 0) {
       throw new Error(`Guarded column '${match[1]}.${match[2]}' has no statements`);
+    }
+    if ((match[4] === undefined) !== (archiveStatements.length === 0)) {
+      throw new Error(`Guarded column '${match[1]}.${match[2]}' has inconsistent archive metadata`);
     }
     return {
       key: `${match[1]}.${match[2]}`,
       table: match[1],
       checkName: match[3],
+      archiveTable: match[4],
+      archiveStatements,
       statements,
     };
   });
@@ -218,18 +232,23 @@ function writeAttestation(
 
 function writeEnumCheckAttestation(
   sqlite: SqliteDatabase,
-  column: string,
+  column: GuardedColumn,
   clean: boolean,
 ): void {
+  const orphanCount = column.archiveTable
+    ? (sqlite.prepare(`SELECT COUNT(*) AS n FROM ${column.archiveTable}`).get() as { n: number }).n
+    : undefined;
   writeAttestation(sqlite, {
-    enforcementMigrationId: `${ENUM_CHECK_MIGRATION_TAG}:${column}`,
+    enforcementMigrationId: `${ENUM_CHECK_MIGRATION_TAG}:${column.key}`,
     schemaVersion: ENUM_CHECK_SCHEMA_VERSION,
     preflightVersion: ENUM_CHECK_PREFLIGHT_VERSION,
     digest: ENUM_CHECK_QUERY_DIGEST,
     clean,
     report: JSON.stringify({
       code: clean ? undefined : ENUM_CHECK_ENFORCEMENT_DIRTY_CODE,
-      column,
+      column: column.key,
+      orphanTable: column.archiveTable,
+      orphanCount,
     }),
   });
 }
@@ -267,11 +286,35 @@ export function recordMigrationEntry(sqlite: SqliteDatabase, entry: MigrationEnt
   }
 }
 
+function applyDirtyArchives(sqlite: SqliteDatabase, entry: MigrationEntry, column: GuardedColumn): void {
+  if (column.archiveStatements.length === 0) return;
+  sqlite.exec("BEGIN IMMEDIATE");
+  try {
+    if (
+      pendingEntries(sqlite, [entry]).length > 0 &&
+      !hasNamedCheck(sqlite, column.table, column.checkName)
+    ) {
+      for (const statement of column.archiveStatements) {
+        sqlite.prepare(statement).run();
+      }
+    }
+    sqlite.exec("COMMIT");
+  } catch (err) {
+    try {
+      sqlite.exec("ROLLBACK");
+    } catch {
+      // already rolled back (defensive)
+    }
+    throw err;
+  }
+}
+
 function applyGuardedColumnEntry(sqlite: SqliteDatabase, entry: MigrationEntry): boolean {
   const columns = entry.guardedColumns;
   if (columns === undefined) throw new Error(`Migration '${entry.tag}' has no guarded columns`);
 
   for (const column of columns) {
+    applyDirtyArchives(sqlite, entry, column);
     sqlite.exec("BEGIN IMMEDIATE");
     try {
       if (pendingEntries(sqlite, [entry]).length === 0) {
@@ -285,7 +328,7 @@ function applyGuardedColumnEntry(sqlite: SqliteDatabase, entry: MigrationEntry):
       for (const statement of column.statements) {
         sqlite.prepare(statement).run();
       }
-      writeEnumCheckAttestation(sqlite, column.key, true);
+      writeEnumCheckAttestation(sqlite, column, true);
       sqlite.exec("COMMIT");
     } catch (err) {
       try {
@@ -294,7 +337,7 @@ function applyGuardedColumnEntry(sqlite: SqliteDatabase, entry: MigrationEntry):
         // already rolled back (defensive)
       }
       if (!isCheckConstraintError(err)) throw err;
-      writeEnumCheckAttestation(sqlite, column.key, false);
+      writeEnumCheckAttestation(sqlite, column, false);
       logger.error(
         {
           code: ENUM_CHECK_ENFORCEMENT_DIRTY_CODE,

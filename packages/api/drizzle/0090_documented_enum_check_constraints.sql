@@ -210,15 +210,46 @@ DROP TABLE __enum_check_guard_0090;
 
 -- task_events is deliberately last: it is the largest table and has zero inbound
 -- FKs, making this the one table where a full rebuild cannot cascade children.
--- orcy-guarded-column: task_events.actor_type task_events_actor_type_check
+-- orcy-guarded-column: task_events.actor_type task_events_actor_type_check task_events_orphans_0090
+-- orcy-archive-statement
+-- The runner commits these idempotent archive statements BEFORE the guarded
+-- rebuild so a dirty guard cannot roll back the preservation inventory.
+CREATE TABLE IF NOT EXISTS task_events_orphans_0090 (
+  id TEXT PRIMARY KEY NOT NULL,
+  task_id TEXT NOT NULL,
+  actor_type TEXT NOT NULL,
+  actor_id TEXT NOT NULL,
+  action TEXT NOT NULL,
+  from_column_id TEXT,
+  to_column_id TEXT,
+  from_status TEXT,
+  to_status TEXT,
+  metadata TEXT NOT NULL,
+  execution_token TEXT,
+  timestamp TEXT DEFAULT '(datetime(''now''))' NOT NULL
+);
+--> statement-breakpoint
+-- orcy-archive-statement
+INSERT INTO task_events_orphans_0090 (
+  id, task_id, actor_type, actor_id, action, from_column_id, to_column_id,
+  from_status, to_status, metadata, execution_token, timestamp
+)
+SELECT
+  id, task_id, actor_type, actor_id, action, from_column_id, to_column_id,
+  from_status, to_status, metadata, execution_token, timestamp
+FROM task_events e
+WHERE NOT EXISTS (SELECT 1 FROM tasks t WHERE t.id = e.task_id)
+  AND NOT EXISTS (SELECT 1 FROM task_events_orphans_0090 o WHERE o.id = e.id);
+--> statement-breakpoint
 CREATE TEMP TABLE __enum_check_guard_0090 (
   anomaly_count INTEGER NOT NULL CHECK (anomaly_count = 0)
 );
 --> statement-breakpoint
 INSERT INTO __enum_check_guard_0090 (anomaly_count)
-SELECT COUNT(*) FROM task_events
-WHERE actor_type IS NULL OR actor_type NOT IN
-  ('human', 'agent', 'system', 'remote_human', 'remote_orcy', 'remote_pod');
+SELECT COUNT(*) FROM task_events e
+WHERE e.actor_type IS NULL OR e.actor_type NOT IN
+  ('human', 'agent', 'system', 'remote_human', 'remote_orcy', 'remote_pod')
+  OR NOT EXISTS (SELECT 1 FROM tasks t WHERE t.id = e.task_id);
 --> statement-breakpoint
 CREATE TABLE task_events_new (
   id TEXT PRIMARY KEY NOT NULL,
@@ -243,7 +274,9 @@ INSERT INTO task_events_new (
 SELECT
   id, task_id, actor_type, actor_id, action, from_column_id, to_column_id,
   from_status, to_status, metadata, execution_token, timestamp
-FROM task_events;
+FROM task_events e
+-- Mirror the orphan archive predicate so no replacement FK can abort the copy.
+WHERE EXISTS (SELECT 1 FROM tasks t WHERE t.id = e.task_id);
 --> statement-breakpoint
 DROP TABLE task_events;
 --> statement-breakpoint

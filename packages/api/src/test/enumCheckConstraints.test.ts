@@ -216,6 +216,72 @@ describe("documented enum CHECK constraints", () => {
     }
   });
 
+  it("archives orphaned task events, defers their actor CHECK, and keeps booting", async () => {
+    const dbPath = join(TEMP_DIR, "orphaned-task-event.db");
+    prepareLedgerThrough0089(dbPath);
+    const seed = new Database(dbPath);
+    seed.pragma("foreign_keys = OFF");
+    seedTaskWorld(seed, false);
+    seed.prepare(
+      `INSERT INTO task_events (id, task_id, actor_type, actor_id, action, metadata)
+       VALUES ('orphan-event', 'missing-task', 'system', 'system', 'created', '{}')`,
+    ).run();
+    seed.close();
+
+    await expect(initDb(dbPath)).resolves.toBeDefined();
+
+    const raw = openRaw(dbPath);
+    expect(hasCheck(raw, "task_events.actor_type")).toBe(false);
+    expect(hasCheck(raw, "tasks.priority")).toBe(true);
+    expect(raw.prepare("SELECT COUNT(*) AS n FROM task_events").get()).toEqual({ n: 2 });
+    expect(
+      raw.prepare("SELECT task_id FROM task_events_orphans_0090 WHERE id = 'orphan-event'").get(),
+    ).toEqual({ task_id: "missing-task" });
+    const attestation = raw
+      .prepare(
+        `SELECT clean, anomaly_report FROM migration_preflight_attestations
+         WHERE enforcement_migration_id = ? AND schema_version = '0089'`,
+      )
+      .get(`${ENUM_CHECK_MIGRATION_TAG}:task_events.actor_type`) as {
+      clean: number;
+      anomaly_report: string;
+    };
+    expect(attestation.clean).toBe(0);
+    expect(JSON.parse(attestation.anomaly_report)).toMatchObject({
+      code: ENUM_CHECK_ENFORCEMENT_DIRTY_CODE,
+      column: "task_events.actor_type",
+      orphanCount: 1,
+      orphanTable: "task_events_orphans_0090",
+    });
+    raw.close();
+
+    closeDb();
+    const remediate = new Database(dbPath);
+    remediate.pragma("foreign_keys = OFF");
+    remediate.prepare("DELETE FROM task_events WHERE id = 'orphan-event'").run();
+    remediate.close();
+    await initDb(dbPath);
+
+    const enforced = openRaw(dbPath);
+    expect(hasCheck(enforced, "task_events.actor_type")).toBe(true);
+    expect(enforced.prepare("SELECT COUNT(*) AS n FROM task_events").get()).toEqual({ n: 1 });
+    expect(enforced.prepare("SELECT COUNT(*) AS n FROM task_events_orphans_0090").get()).toEqual({
+      n: 1,
+    });
+    const cleanAttestation = enforced
+      .prepare(
+        `SELECT clean, anomaly_report FROM migration_preflight_attestations
+         WHERE enforcement_migration_id = ? AND schema_version = '0089'`,
+      )
+      .get(`${ENUM_CHECK_MIGRATION_TAG}:task_events.actor_type`) as {
+      clean: number;
+      anomaly_report: string;
+    };
+    expect(cleanAttestation.clean).toBe(1);
+    expect(JSON.parse(cleanAttestation.anomaly_report).orphanCount).toBe(1);
+    enforced.close();
+  });
+
   it("defers only the dirty column, preserves child rows, and enforces after remediation", async () => {
     const dbPath = join(TEMP_DIR, "dirty-upgrade.db");
     prepareLedgerThrough0089(dbPath);
