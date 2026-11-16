@@ -825,13 +825,15 @@ describe("Task metadata editing real modal/store/transport journeys", () => {
     save();
     await waitFor(() => expect(patchCalls().length).toBe(1));
     const aliceClient = activeClient;
-    const callsAtRetirement = calls.length;
-    const clearAliceClient = aliceClient.clear.bind(aliceClient);
-    vi.spyOn(aliceClient, "clear").mockImplementation(() => {
-      queueMicrotask(clearAliceClient);
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Retire session" }));
     });
-    fireEvent.click(screen.getByRole("button", { name: "Retire session" }));
     await waitFor(() => expect(useModalStore.getState().isOpen).toBe(false));
+    await waitFor(() => expect(activeClient).not.toBe(aliceClient));
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    const callsAtRetirement = calls.length;
     await act(async () => {
       held.resolve(jsonResponse({ task: makeTask({ version: 8 }), habitatId: "h-2" }));
     });
