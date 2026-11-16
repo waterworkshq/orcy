@@ -241,9 +241,19 @@ The diagram below is illustrative, not a full catalog; the [Schema Index](#schem
 | `ci_cd_settings` | TEXT | JSON | CI/CD integration settings |
 | `git_worktree_settings` | TEXT | JSON | Git worktree configuration |
 | `prioritization_settings` | TEXT | JSON, nullable | Dynamic prioritization rules configuration (`PrioritizationSettings | null`) |
+| `automation_settings` | TEXT | JSON, nullable | Per-habitat automation settings (`AutomationSettings | null`), incl. the per-habitat `executeActions` arm of the automation kill switch |
+| `remote_governance_settings` | TEXT | JSON, nullable | Remote-governance settings (`RemoteGovernanceSettings | null`; migration 0061) |
+| `wiki_settings` | TEXT | JSON, nullable | Wiki cadence settings (`WikiSettings | null`; migration 0036) |
+| `triage_settings` | TEXT | JSON, nullable | Triage settings (`TriageSettings | null`) |
+| `release_settings` | TEXT | JSON, nullable | Release activation settings (`ReleaseSettings | null`; migration 0049) |
+| `roadmap_settings` | TEXT | JSON, nullable | Roadmap-focus settings (`RoadmapSettings | null`) |
+| `lifecycle_settings` | TEXT | JSON, nullable | Per-habitat lifecycle settings for the task transition budget (`LifecycleSettings | null`; migration 0075) |
 | `team_id` | TEXT | FK → teams(id) ON DELETE SET NULL | Owning team |
+| `owner_user_id` | TEXT | FK → users(id) ON DELETE RESTRICT, nullable | Explicit personal owner (migration 0083); global-admin-assigned only, never backfilled |
+| `carry_over_policy` | TEXT | NOT NULL DEFAULT 'backlog' | Carry-over policy applied to missions at sprint rollover |
 
-**Indexes:** `idx_habitats_name`, `idx_habitats_team_id`
+**Constraint:** `habitats_owner_team_exclusive_chk` — `owner_user_id IS NULL OR team_id IS NULL`
+**Indexes:** `idx_habitats_name`, `idx_habitats_team_id`, `idx_habitats_owner`
 
 #### `columns`
 
@@ -274,7 +284,7 @@ The habitat-level cards. Missions flow through columns and contain tasks. Missio
 | `title` | TEXT | NOT NULL | Mission title |
 | `description` | TEXT | NOT NULL DEFAULT '' | Detailed description (mission brief) |
 | `acceptance_criteria` | TEXT | NOT NULL DEFAULT '' | What defines this mission as complete |
-| `priority` | TEXT | NOT NULL DEFAULT 'medium' (one of 'low','medium','high','critical') | Priority level |
+| `priority` | TEXT | NOT NULL DEFAULT 'medium' | Priority level |
 | `labels` | TEXT | NOT NULL DEFAULT '[]' (JSON) | JSON array of strings |
 | `status` | TEXT | NOT NULL DEFAULT 'not_started' | Auto-derived from tasks |
 | `display_order` | INTEGER | NOT NULL DEFAULT 0 | Sort order within column |
@@ -355,8 +365,10 @@ Tasks are work units inside missions. Every task belongs to exactly one mission.
 | `mission_id` | TEXT | NOT NULL FK → missions(id) ON DELETE CASCADE | Parent mission |
 | `title` | TEXT | NOT NULL | Task title |
 | `description` | TEXT | NOT NULL DEFAULT '' | Detailed description |
+| `labels` | TEXT | NOT NULL DEFAULT '[]' (JSON) | JSON array of label strings |
 | `priority` | TEXT | NOT NULL DEFAULT 'medium'; CHECK (`priority IN ('low','medium','high','critical')`) | Priority level (migration 0090) |
 | `assigned_agent_id` | TEXT | FK → agents(id) | Currently assigned agent |
+| `remote_assigned_participant_id` | TEXT | DEFAULT NULL | Remote participant currently holding the assignment (plain reference; no FK, preserving the local-only analytics boundary) |
 | `required_domain` | TEXT | DEFAULT NULL | Required agent domain |
 | `required_capabilities` | TEXT | NOT NULL DEFAULT '[]' (JSON) | JSON array of strings |
 | `status` | TEXT | NOT NULL DEFAULT 'pending'; CHECK (`status IN ('pending','claimed','in_progress','submitted','approved','rejected','done','failed')`) | Task status (migration 0090) |
@@ -371,6 +383,7 @@ Tasks are work units inside missions. Every task belongs to exactly one mission.
 | `created_by` | TEXT | NOT NULL | Creator identifier |
 | `created_at` | TEXT | NOT NULL DEFAULT (datetime('now')) | Creation timestamp |
 | `updated_at` | TEXT | NOT NULL DEFAULT (datetime('now')) | Last update timestamp |
+| `last_activity_at` | TEXT | DEFAULT NULL | Last activity timestamp (migration 0062) |
 | `version` | INTEGER | NOT NULL DEFAULT 1 | Optimistic locking version |
 | `order` | INTEGER | NOT NULL DEFAULT 0 | Sort order within mission |
 | `delegated_to_agent_id` | TEXT | FK → agents(id) | Agent task was delegated to |
@@ -378,6 +391,11 @@ Tasks are work units inside missions. Every task belongs to exactly one mission.
 | `retry_policy` | TEXT | JSON | Retry configuration |
 | `retry_count` | INTEGER | NOT NULL DEFAULT 0 | Number of retries attempted |
 | `next_retry_at` | TEXT | DEFAULT NULL | Next retry scheduled time |
+| `actual_minutes` | INTEGER | DEFAULT NULL | Actual time spent |
+| `cycle_time_minutes` | INTEGER | DEFAULT NULL | Cycle time in minutes |
+| `lead_time_minutes` | INTEGER | DEFAULT NULL | Lead time in minutes |
+| `estimation_accuracy` | REAL | DEFAULT NULL | Estimation accuracy percentage |
+| `creation_integrity` | INTEGER | NOT NULL DEFAULT 0 | Task creation-integrity version: 0 = pre-cutover task (legacy partial history, observation gate open); later versions mark tasks that traversed the full publication boundary |
 | `execution_token` | TEXT | DEFAULT NULL | Claim-epoch identity: fresh uuid minted in each successful claim transaction (claim authority); NULL = pre-migration / released / terminal. Not settable via task PATCH (migration 0078) |
 | `last_failure_event_id` | TEXT | DEFAULT NULL | Failure-provenance pointer (migration 0079): the failed event row id written atomically by the fail act-tx. Pointer-fenced retry/escalation consumers CAS on this column; set with the failure; cleared by the documented ownership/lifecycle resets (see the Failure Effect Receipts section for the full reset list and the receipt-path escalation caveat) — never by inference |
 | `last_release_event_id` | TEXT | DEFAULT NULL | Release-provenance pointer (migration 0080): the `released` event row id written atomically by the release act-tx (`releaseTaskWithEffects` — an independent provenance stream from the failure pointer). The receipt-path `workflow_gates` consumer fences the release's gate/spawn mutation on `status='pending' AND execution_token IS NULL AND last_release_event_id` = the released event; the ownership/lifecycle reset paths clear it (claim mints, releases, terminal writes, retry/escalation resets, agent-delete bulk reset, import execution-state reset) — never by inference. |
@@ -423,7 +441,7 @@ Tasks are work units inside missions. Every task belongs to exactly one mission.
 
 | `execution_token` | TEXT | DEFAULT NULL | The claim-epoch token stamped on the failed event at creation time (migration 0079): written once by the fail act-tx, immutable; no other current writer sets it. NULL on all pre-0079 rows (non-failed events under current writers stay NULL) |
 
-**Indexes:** `idx_task_events_task_id`, `idx_task_events_timestamp(timestamp DESC)`, `idx_task_events_actor(actor_type, actor_id)`, `idx_task_events_from_column_time(from_column_id, timestamp)`, `idx_task_events_to_column_time(to_column_id, timestamp)`, `idx_task_events_transition_time(from_column_id, to_column_id, timestamp)`
+**Indexes:** `idx_task_events_task_id`, `idx_task_events_timestamp(timestamp)`, `idx_task_events_actor(actor_type, actor_id)`, `idx_task_events_from_column_time(from_column_id, timestamp)`, `idx_task_events_to_column_time(to_column_id, timestamp)`, `idx_task_events_transition_time(from_column_id, to_column_id, timestamp)`
 
 #### `task_dependencies`
 
@@ -450,8 +468,6 @@ Within-mission sibling task dependencies only. Cross-mission dependencies use `m
 | `updated_at` | TEXT | NOT NULL DEFAULT (datetime('now')) | Last update timestamp |
 | `last_login_at` | TEXT | DEFAULT NULL | Last successful login |
 | `email` | TEXT | DEFAULT NULL | User email address |
-
-**Index:** `idx_users_username`
 
 #### `task_comments`
 
@@ -542,8 +558,6 @@ Within-mission sibling task dependencies only. Cross-mission dependencies use `m
 | `is_builtin` | INTEGER | DEFAULT 0 (boolean) | System-provided filter |
 | `created_at` | TEXT | DEFAULT (datetime('now')) | Creation timestamp |
 
-**Index:** (habitat_id)
-
 #### `task_attachments`
 
 | Column | Type | Constraints | Description |
@@ -573,6 +587,8 @@ Within-mission sibling task dependencies only. Cross-mission dependencies use `m
 | `task_overdue` | INTEGER | NOT NULL DEFAULT 1 | Notify on overdue |
 | `task_mentioned` | INTEGER | NOT NULL DEFAULT 1 | Notify on mention |
 | `task_watching` | INTEGER | NOT NULL DEFAULT 1 | Notify on watching updates |
+| `task_review_assigned` | INTEGER | NOT NULL DEFAULT 1 | Notify on review assignment |
+| `task_priority_changed` | INTEGER | NOT NULL DEFAULT 1 | Notify on priority change |
 | `created_at` | TEXT | NOT NULL DEFAULT (datetime('now')) | Creation timestamp |
 | `updated_at` | TEXT | NOT NULL DEFAULT (datetime('now')) | Last update timestamp |
 
@@ -683,7 +699,7 @@ Structured signals for agent-to-agent and human-to-agent communication. Supports
 | `habitat_id` | TEXT | NOT NULL FK → habitats(id) ON DELETE CASCADE | Habitat |
 | `scope` | TEXT | NOT NULL DEFAULT 'mission' | Signal scope (Drizzle enum + application validation, no SQL CHECK) |
 | `from_type` | TEXT | NOT NULL | Author type (Drizzle enum + application validation, no SQL CHECK) |
-| `from_id` | TEXT | NOT NULL | Author identifier (user.id, agent.id, or 'system') |
+| `from_id` | TEXT | NOT NULL | Author identifier (the id of the `from_type` actor, or `'system'`) |
 | `to_type` | TEXT | | Target type (NULL = broadcast) (Drizzle enum + application validation, no SQL CHECK) |
 | `to_id` | TEXT | | Target identifier (NULL = broadcast) |
 | `signal_type` | TEXT | NOT NULL | finding, blocker, offer, warning, question, answer, directive, context, handoff, experience (v0.20), detected (v0.22); Drizzle enum + application validation, no SQL CHECK |
@@ -697,7 +713,7 @@ Structured signals for agent-to-agent and human-to-agent communication. Supports
 | `pinned` | INTEGER | NOT NULL DEFAULT 0 | Pinned signals |
 | `is_auto` | INTEGER | NOT NULL DEFAULT 0 | System-generated (1) vs intentional (0) |
 
-**Indexes:** `idx_pulses_mission`, `idx_pulses_habitat`, `idx_pulses_signal_type`, `idx_pulses_from`, `idx_pulses_to`, `idx_pulses_task`, `idx_pulses_created`, `idx_pulses_reply_to`, `idx_pulses_scope`
+**Indexes:** `idx_pulses_mission`, `idx_pulses_habitat`, `idx_pulses_scope`, `idx_pulses_habitat_scope(habitat_id, scope)`, `idx_pulses_signal_type`, `idx_pulses_from`, `idx_pulses_to`, `idx_pulses_task`, `idx_pulses_created`, `idx_pulses_reply_to`, `idx_pulses_thread(reply_to_id, created_at)`
 
 **Deep Linking:**
 
@@ -721,7 +737,7 @@ Lightweight read-tracking: one row per reader per scope (mission or habitat) sto
 | `reader_id` | TEXT | NOT NULL | Reader identifier |
 | `last_checked_at` | TEXT | NOT NULL DEFAULT (datetime('now')) | Last check timestamp |
 
-**Primary Key:** `(scope_key, scope, reader_type, reader_id)`
+**Primary Key:** `(scope_key, reader_type, reader_id)`
 
 #### `project_insights`
 
@@ -731,15 +747,18 @@ Institutional memory for a habitat. Insights are promoted from high-value pulse 
 |--------|------|-------------|-------------|
 | `id` | TEXT | PK | Insight identifier (UUID) |
 | `habitat_id` | TEXT | NOT NULL FK → habitats(id) ON DELETE CASCADE | Habitat |
-| `title` | TEXT | NOT NULL | Insight title |
-| `body` | TEXT | NOT NULL DEFAULT '' | Full insight body |
 | `source_pulse_id` | TEXT | FK → pulses(id) ON DELETE SET NULL | Originating pulse signal (if promoted) |
+| `source_mission` | TEXT | DEFAULT NULL | Mission the source pulse belonged to (plain reference) |
+| `signal_type` | TEXT | NOT NULL | Signal type carried from the source pulse |
+| `subject` | TEXT | NOT NULL | Insight subject |
+| `body` | TEXT | NOT NULL DEFAULT '' | Full insight body |
 | `relevance_tags` | TEXT | NOT NULL DEFAULT '[]' (JSON) | JSON array of tag strings for relevance matching |
-| `created_by` | TEXT | NOT NULL | Creator identifier |
+| `promoted_by` | TEXT | NOT NULL | Actor who promoted/created the insight |
+| `promoted_at` | TEXT | NOT NULL | Promotion timestamp (also the listing order key) |
+| `is_active` | INTEGER | NOT NULL DEFAULT 1 (boolean) | Active flag — retired insights are kept with `0` and excluded from reads |
 | `created_at` | TEXT | NOT NULL DEFAULT (datetime('now')) | Creation timestamp |
-| `updated_at` | TEXT | NOT NULL DEFAULT (datetime('now')) | Last update timestamp |
 
-**Indexes:** `idx_insights_habitat`, `idx_insights_source_pulse`
+**Indexes:** `idx_insights_habitat`, `idx_insights_active`, `idx_insights_type`
 
 #### `pulse_reactions`
 
@@ -755,7 +774,7 @@ Toggle-based reactions on pulse signals. Three fixed reaction types. Reactions a
 | `created_at` | TEXT | NOT NULL DEFAULT (datetime('now')) | Creation timestamp |
 
 **Unique constraint:** `(pulse_id, reactor_type, reactor_id, reaction)`
-**Indexes:** `idx_pulse_reactions_pulse`
+**Index:** `idx_reactions_pulse`
 
 #### `organizations`
 
@@ -765,8 +784,6 @@ Toggle-based reactions on pulse signals. Three fixed reaction types. Reactions a
 | `name` | TEXT | NOT NULL | Organization name |
 | `slug` | TEXT | NOT NULL UNIQUE | URL-safe identifier |
 | `created_at` | TEXT | NOT NULL DEFAULT (datetime('now')) | Creation timestamp |
-
-**Index:** `idx_organizations_slug`
 
 #### `teams`
 
@@ -778,7 +795,7 @@ Toggle-based reactions on pulse signals. Three fixed reaction types. Reactions a
 | `slug` | TEXT | NOT NULL UNIQUE | URL-safe identifier |
 | `created_at` | TEXT | NOT NULL DEFAULT (datetime('now')) | Creation timestamp |
 
-**Indexes:** `idx_teams_organization_id`, `idx_teams_slug`
+**Index:** `idx_teams_organization_id`
 
 #### `team_members`
 
@@ -790,7 +807,7 @@ Toggle-based reactions on pulse signals. Three fixed reaction types. Reactions a
 | `role` | TEXT | NOT NULL DEFAULT 'member'; CHECK (`role IN ('owner','admin','member')`) | Member role (migration 0090) |
 | `joined_at` | TEXT | NOT NULL DEFAULT (datetime('now')) | Join timestamp |
 
-**Constraints:** `PRIMARY KEY (team_id, user_id)`
+**Constraints:** `UNIQUE (team_id, user_id)` (`idx_team_members_unique`)
 **Indexes:** `idx_team_members_team_id`, `idx_team_members_user_id`
 
 #### `pull_requests`
@@ -807,10 +824,14 @@ Toggle-based reactions on pulse signals. Three fixed reaction types. Reactions a
 | `branch_name` | TEXT | DEFAULT NULL | Branch name |
 | `state` | TEXT | DEFAULT 'open' | PR state |
 | `review_status` | TEXT | DEFAULT 'pending' | Review status |
-| `branch_id` | TEXT | FK → code_branches(id) | Linked code evidence branch |
-| `repository_id` | TEXT | FK → habitat_code_repositories(id) | Linked code repository |
+| `branch_id` | TEXT | FK → code_branches(id) ON DELETE SET NULL | Linked code evidence branch |
+| `repository_id` | TEXT | FK → habitat_code_repositories(id) ON DELETE SET NULL | Linked code repository |
+| `verification_state` | TEXT | DEFAULT NULL | Verification state (Drizzle enum + application validation, no SQL CHECK) |
+| `metadata` | TEXT | JSON, nullable | Additional PR metadata |
 | `created_at` | TEXT | DEFAULT (datetime('now')) | Creation timestamp |
 | `updated_at` | TEXT | DEFAULT (datetime('now')) | Last update timestamp |
+
+**Indexes:** `idx_pull_requests_task_id(task_id)`, `idx_pull_requests_repository_id(repository_id)`, `idx_pull_requests_branch_id(branch_id)`
 
 #### `pipeline_events`
 
@@ -824,9 +845,15 @@ Toggle-based reactions on pulse signals. Three fixed reaction types. Reactions a
 | `status` | TEXT | NOT NULL | Run status (Drizzle enum + application validation, no SQL CHECK) |
 | `branch` | TEXT | NOT NULL | Branch name |
 | `commit_sha` | TEXT | DEFAULT NULL | Commit SHA |
-| `commit_id` | TEXT | FK → code_commits(id) | Linked code evidence commit |
-| `branch_id` | TEXT | FK → code_branches(id) | Linked code evidence branch |
+| `repository_id` | TEXT | FK → habitat_code_repositories(id) ON DELETE SET NULL | Linked code repository |
+| `commit_id` | TEXT | FK → code_commits(id) ON DELETE SET NULL | Linked code evidence commit |
+| `branch_evidence_id` | TEXT | FK → code_branches(id) ON DELETE SET NULL | Linked code evidence branch |
+| `verification_state` | TEXT | DEFAULT NULL | Verification state (Drizzle enum + application validation, no SQL CHECK) |
+| `metadata` | TEXT | JSON, nullable | Additional pipeline metadata |
 | `created_at` | TEXT | DEFAULT (datetime('now')) | Creation timestamp |
+| `updated_at` | TEXT | DEFAULT (datetime('now')) | Last update timestamp |
+
+**Indexes:** `idx_pipeline_events_task_id(task_id)`, `idx_pipeline_events_repository_id(repository_id)`, `idx_pipeline_events_commit_id(commit_id)`
 
 #### `cumulative_flow_snapshots`
 
@@ -845,7 +872,6 @@ Daily cumulative-flow snapshot rows for chart reads. Stored snapshots are author
 | `created_at` | TEXT | NOT NULL DEFAULT (datetime('now')) | Creation timestamp |
 
 **Unique index:** `idx_cumulative_flow_snapshot_unique(habitat_id, snapshot_date)`
-**Index:** `idx_cumulative_flow_snapshots_habitat_date(habitat_id, snapshot_date)`
 
 #### `task_time_records`
 
@@ -870,7 +896,7 @@ Explicit effort logging entries for tasks. Unlike heartbeat-inferred `task_time_
 |--------|------|-------------|-------------|
 | `id` | TEXT | PK | Entry identifier (UUID) |
 | `task_id` | TEXT | NOT NULL FK → tasks(id) ON DELETE CASCADE | Parent task |
-| `actor_type` | TEXT | NOT NULL | Actor type: `human`, `agent`, or `system` |
+| `actor_type` | TEXT | NOT NULL | Actor type: `human`, `agent`, `system`, `remote_human`, `remote_orcy`, or `remote_pod` |
 | `actor_id` | TEXT | DEFAULT NULL | UUID of the actor |
 | `minutes` | INTEGER | NOT NULL | Minutes logged (positive for reports, can be negative for corrections) |
 | `source` | TEXT | NOT NULL | Entry source: `human_manual`, `agent_reported`, or `correction_adjustment` |
@@ -925,7 +951,7 @@ Per-task checklist instances created from templates.
 | `id` | TEXT | PK | Checklist instance identifier (UUID) |
 | `task_id` | TEXT | NOT NULL FK → tasks(id) ON DELETE CASCADE | Parent task |
 | `template_id` | TEXT | FK → quality_checklist_templates(id) ON DELETE SET NULL | Source template |
-| `status` | TEXT | NOT NULL DEFAULT 'pending' | Checklist status (pending, complete) |
+| `status` | TEXT | NOT NULL DEFAULT 'pending' | Checklist status |
 | `completed_at` | TEXT | DEFAULT NULL | When all items were completed |
 | `completed_by` | TEXT | DEFAULT NULL | Who completed the final item |
 | `notes` | TEXT | NOT NULL DEFAULT '' | Free-text notes |
@@ -971,6 +997,7 @@ Recurring scheduled creation of missions and tasks from templates. Supports cron
 | `mission_priority` | TEXT | NOT NULL DEFAULT 'medium' | Priority for created missions (Drizzle type + application validation, no SQL CHECK) |
 | `mission_labels` | TEXT | NOT NULL DEFAULT '[]' (JSON) | JSON array of label strings |
 | `mission_domain` | TEXT | DEFAULT NULL | Domain for created missions |
+| `handler_key` | TEXT | DEFAULT NULL | Handler key for custom schedule handlers |
 | `tasks_template` | TEXT | NOT NULL DEFAULT '[]' (JSON) | JSON array of child task definitions |
 | `enabled` | INTEGER | NOT NULL DEFAULT 1 (boolean) | Whether schedule is active |
 | `last_run_at` | TEXT | DEFAULT NULL | Last execution timestamp |
@@ -1043,7 +1070,7 @@ Individual knowledge signals clustered by topic. Signals are ingested from pulse
 | `id` | TEXT | PK | Signal identifier (UUID) |
 | `habitat_id` | TEXT | NOT NULL FK → habitats(id) ON DELETE CASCADE | Parent habitat |
 | `cluster_key` | TEXT | NOT NULL | Normalized topic key for clustering (e.g., "auth-jwt-signing") |
-| `skill_category` | TEXT | NOT NULL | Category: `domain_knowledge`, `convention`, `pattern`, or `anti_pattern` |
+| `skill_category` | TEXT | NOT NULL | Category: `convention`, `pattern`, `pitfall`, `domain_knowledge`, `agent_insight`, `anti_patterns`, or `detected_patterns` |
 | `source_signal_type` | TEXT | NOT NULL | Origin: `pulse`, `task_event`, `task_comment` |
 | `source_type` | TEXT | NOT NULL DEFAULT 'pulse' | Signal type from pulse (finding, blocker, etc.) |
 | `subject` | TEXT | NOT NULL | Brief subject line |
@@ -1127,7 +1154,7 @@ Integration connections to external providers (GitHub, Jira, Linear). Each conne
 | `habitat_id` | TEXT | NOT NULL FK → habitats(id) ON DELETE CASCADE | Parent habitat |
 | `provider` | TEXT | NOT NULL | Provider type (Drizzle enum + application validation, no SQL CHECK) |
 | `name` | TEXT | NOT NULL | User-facing connection name |
-| `auth_method` | TEXT | NOT NULL | Auth method: 'oauth_device', 'oauth_code', 'pat', 'api_key', etc. |
+| `auth_method` | TEXT | NOT NULL | Auth method: `oauth_device`, `oauth_code`, `oauth_pkce`, `gh_cli`, `pat`, or `api_key` |
 | `access_token` | TEXT | DEFAULT NULL | Stored OAuth access token or PAT (not returned in API) |
 | `refresh_token` | TEXT | DEFAULT NULL | OAuth refresh token (not returned in API) |
 | `token_expires_at` | TEXT | DEFAULT NULL | OAuth token expiry timestamp |
@@ -1153,7 +1180,7 @@ Integration connections to external providers (GitHub, Jira, Linear). Each conne
 | `created_at` | TEXT | NOT NULL DEFAULT (datetime('now')) | Creation timestamp |
 | `updated_at` | TEXT | NOT NULL DEFAULT (datetime('now')) | Last update timestamp |
 
-**Indexes:** `idx_integration_connections_provider(provider)`, `idx_integration_connections_habitat(habitat_id)`, `idx_integration_connections_provider_repo(provider, repository_owner, repository_name)`
+**Indexes:** `idx_integration_connections_provider(provider)`, `idx_integration_connections_habitat(habitat_id)`, `idx_integration_connections_enabled(enabled)`
 
 **Deletion/retention:** Disabled via `enabled = 0` rather than hard-deleted. External issue links referencing the connection are preserved for mission provenance.
 
@@ -1180,8 +1207,8 @@ Durable mapping between an external issue and an Orcy mission. This is the idemp
 | `created_at` | TEXT | NOT NULL DEFAULT (datetime('now')) | Creation timestamp |
 | `updated_at` | TEXT | NOT NULL DEFAULT (datetime('now')) | Last update timestamp |
 
-**Unique indexes:** `idx_external_issue_links_connection_issue(connection_id, external_id)` — guarantees one link per connection/external-issue pair.
-**Additional indexes:** `idx_external_issue_links_mission(mission_id)`
+**Unique indexes:** `idx_external_issue_links_connection_external(connection_id, external_id)` — guarantees one link per connection/external-issue pair; `idx_external_issue_links_provider_external(provider, external_id)`
+**Additional indexes:** `idx_external_issue_links_connection(connection_id)`, `idx_external_issue_links_habitat(habitat_id)`, `idx_external_issue_links_mission(mission_id)`
 
 #### `external_intake_candidates`
 
@@ -1214,7 +1241,7 @@ Reviewable source items that may become missions after human/orcy clarification.
 | `created_at` | TEXT | NOT NULL DEFAULT (datetime('now')) | Creation timestamp |
 | `updated_at` | TEXT | NOT NULL DEFAULT (datetime('now')) | Last update timestamp |
 
-**Indexes:** `idx_external_intake_candidates_connection(connection_id)`, `idx_external_intake_candidates_review(review_status)`
+**Indexes:** `idx_external_intake_candidates_connection(connection_id)`, `idx_external_intake_candidates_habitat(habitat_id)`, `idx_external_intake_candidates_review_status(review_status)`, `idx_external_intake_candidates_connection_external(connection_id, external_id)` UNIQUE
 
 #### `integration_sync_runs`
 
@@ -1235,7 +1262,7 @@ Record of each sync attempt. Used for user-facing status, debugging, and future 
 | `failed_count` | INTEGER | NOT NULL DEFAULT 0 | Issues that failed to sync |
 | `error` | TEXT | DEFAULT NULL | Error summary if status is 'failed' |
 
-**Indexes:** `idx_integration_sync_runs_connection(connection_id)`, `idx_integration_sync_runs_started(started_at DESC)`
+**Indexes:** `idx_integration_sync_runs_connection(connection_id)`, `idx_integration_sync_runs_habitat(habitat_id)`, `idx_integration_sync_runs_started(started_at)`
 
 #### `habitat_code_repositories`
 
@@ -1246,13 +1273,16 @@ One row per habitat establishing canonical repository identity. Provides the anc
 | `id` | TEXT | PK | Repository record identifier (UUID) |
 | `habitat_id` | TEXT | NOT NULL UNIQUE FK → habitats(id) ON DELETE CASCADE | Parent habitat (1:1) |
 | `provider` | TEXT | NOT NULL | Git provider (no SQL CHECK) |
-| `repo_slug` | TEXT | NOT NULL | Canonical repository identifier (e.g., `owner/repo`) |
+| `provider_base_url` | TEXT | DEFAULT NULL | Provider API base URL (null = default) |
+| `external_id` | TEXT | DEFAULT NULL | Provider-side repository identifier |
+| `repo_slug` | TEXT | DEFAULT NULL | Canonical repository identifier (e.g., `owner/repo`); null on request-local unverified records |
+| `display_name` | TEXT | DEFAULT NULL | Human-readable repository name |
+| `local_path` | TEXT | DEFAULT NULL | Local clone path |
 | `verification_state` | TEXT | NOT NULL DEFAULT 'unverified' | Whether the repository connection has been verified (Drizzle enum + application validation, no SQL CHECK) |
-| `verified_at` | TEXT | DEFAULT NULL | Last successful verification timestamp |
 | `created_at` | TEXT | NOT NULL DEFAULT (datetime('now')) | Creation timestamp |
 | `updated_at` | TEXT | NOT NULL DEFAULT (datetime('now')) | Last update timestamp |
 
-**Indexes:** `idx_code_repos_habitat(habitat_id)`, `idx_code_repos_provider_slug(provider, repo_slug)`
+**Indexes:** `idx_habitat_code_repo_habitat(habitat_id)` UNIQUE, `idx_habitat_code_repo_provider_slug(provider, repo_slug)`
 
 **Evidence storage-selection semantics (local Task/Mission reports):** the reporting repository domain is the ORIGIN target's habitat configuration, never a trailer destination's. Cardinality is load-bearing: zero configured rows means the report creates fresh request-local unverified null records (one per exact branch name/commit SHA per request — no global name/SHA reuse, and null or formerly-bound rows are never selected); exactly one row selects that configuration domain; two or more rows (possible on legacy/dirty installations predating the consolidated UNIQUE index — historical migration 0018 created an ordinary index under the same name) refuse `409 EVIDENCE_REPOSITORY_AMBIGUOUS` before any write. Inside a configured domain, duplicate same-key branch/commit rows or a sole incompatible-provider row refuse `409 EVIDENCE_RECORD_AMBIGUOUS` — the branch/commit `(repository_id, name|sha)` indexes are NONUNIQUE by design, so this is a read-time refusal, not a constraint; the write bundle's selected interval is fenced transactionally, but later out-of-scope writers can still create the duplicates the next report then refuses. A selected existing record attaches **without refreshing** any stored metadata, verification state, or `updated_at` (repository-id deletion SET NULLs dependent rows, erasing the originally-bound vs local-null distinction — a nulled row is treated as formerly-bound and is never reused as fresh). A novel commit record is created once from its main report source (unverified even in a verified repository) while a commit-trailer link may be verified; record and link verification may differ and are never reconciled on attach. No schema change is involved in any of these semantics.
 
@@ -1263,15 +1293,19 @@ Branch evidence records. Each branch is scoped to a repository and optionally li
 | Column | Type | Constraints | Description |
 |--------|------|-------------|-------------|
 | `id` | TEXT | PK | Branch identifier (UUID) |
-| `repository_id` | TEXT | NOT NULL FK → habitat_code_repositories(id) ON DELETE CASCADE | Parent repository |
+| `repository_id` | TEXT | FK → habitat_code_repositories(id) ON DELETE SET NULL | Parent repository |
+| `provider` | TEXT | NOT NULL | Git provider |
+| `repo_slug` | TEXT | DEFAULT NULL | Canonical repository identifier |
 | `name` | TEXT | NOT NULL | Branch name |
-| `head_sha` | TEXT | DEFAULT NULL | Current HEAD commit SHA |
 | `base_branch` | TEXT | DEFAULT NULL | Target/base branch name |
+| `head_sha` | TEXT | DEFAULT NULL | Current HEAD commit SHA |
+| `url` | TEXT | DEFAULT NULL | Provider branch URL |
 | `created_from_task_id` | TEXT | FK → tasks(id) ON DELETE SET NULL | Task that triggered branch creation |
+| `verification_state` | TEXT | NOT NULL DEFAULT 'unverified' | Verification state (Drizzle enum + application validation, no SQL CHECK) |
 | `created_at` | TEXT | NOT NULL DEFAULT (datetime('now')) | Creation timestamp |
 | `updated_at` | TEXT | NOT NULL DEFAULT (datetime('now')) | Last update timestamp |
 
-**Indexes:** `idx_code_branches_repo(repository_id)`, `idx_code_branches_name(repository_id, name)`, `idx_code_branches_task(created_from_task_id)`
+**Indexes:** `idx_code_branches_repo_name(repository_id, name)`, `idx_code_branches_task(created_from_task_id)`
 
 #### `code_commits`
 
@@ -1280,16 +1314,22 @@ Commit evidence records. Stores normalized commit metadata extracted from provid
 | Column | Type | Constraints | Description |
 |--------|------|-------------|-------------|
 | `id` | TEXT | PK | Commit record identifier (UUID) |
-| `repository_id` | TEXT | NOT NULL FK → habitat_code_repositories(id) ON DELETE CASCADE | Parent repository |
+| `repository_id` | TEXT | FK → habitat_code_repositories(id) ON DELETE SET NULL | Parent repository |
+| `provider` | TEXT | NOT NULL | Git provider |
+| `repo_slug` | TEXT | DEFAULT NULL | Canonical repository identifier |
 | `sha` | TEXT | NOT NULL | Full commit SHA |
+| `branch_id` | TEXT | FK → code_branches(id) ON DELETE SET NULL | Branch the commit was observed on |
 | `message` | TEXT | DEFAULT NULL | Commit message |
 | `author_name` | TEXT | DEFAULT NULL | Commit author name |
 | `author_email` | TEXT | DEFAULT NULL | Commit author email |
+| `authored_at` | TEXT | DEFAULT NULL | Authoring timestamp |
+| `url` | TEXT | DEFAULT NULL | Provider commit URL |
 | `verification_state` | TEXT | NOT NULL DEFAULT 'unverified' | Commit signature verification state (Drizzle enum + application validation, no SQL CHECK) |
-| `committed_at` | TEXT | DEFAULT NULL | Commit timestamp |
+| `metadata` | TEXT | NOT NULL DEFAULT '{}' (JSON) | Additional commit metadata |
 | `created_at` | TEXT | NOT NULL DEFAULT (datetime('now')) | Record creation timestamp |
+| `updated_at` | TEXT | NOT NULL DEFAULT (datetime('now')) | Last update timestamp |
 
-**Indexes:** `idx_code_commits_repo(repository_id)`, `idx_code_commits_sha(repository_id, sha)`
+**Indexes:** `idx_code_commits_repo_sha(repository_id, sha)`, `idx_code_commits_sha(sha)`, `idx_code_commits_branch(branch_id)`
 
 #### `code_changed_files`
 
@@ -1298,15 +1338,21 @@ Changed file snapshots per commit. Tracks file-level diff metadata.
 | Column | Type | Constraints | Description |
 |--------|------|-------------|-------------|
 | `id` | TEXT | PK | File change identifier (UUID) |
-| `commit_id` | TEXT | NOT NULL FK → code_commits(id) ON DELETE CASCADE | Parent commit |
+| `repository_id` | TEXT | FK → habitat_code_repositories(id) ON DELETE SET NULL | Parent repository |
+| `commit_id` | TEXT | FK → code_commits(id) ON DELETE SET NULL | Parent commit |
+| `pull_request_id` | TEXT | FK → pull_requests(id) ON DELETE SET NULL | Parent pull request (when captured from a PR) |
+| `provider` | TEXT | NOT NULL | Git provider |
+| `repo_slug` | TEXT | DEFAULT NULL | Canonical repository identifier |
 | `path` | TEXT | NOT NULL | File path after change |
 | `previous_path` | TEXT | DEFAULT NULL | Original path (for renames) |
 | `change_type` | TEXT | NOT NULL | Type of change (Drizzle enum + application validation, no SQL CHECK) |
 | `additions` | INTEGER | DEFAULT NULL | Lines added |
 | `deletions` | INTEGER | DEFAULT NULL | Lines deleted |
-| `created_at` | TEXT | NOT NULL DEFAULT (datetime('now')) | Record creation timestamp |
+| `source` | TEXT | NOT NULL | Capture source of the change record |
+| `captured_at` | TEXT | NOT NULL DEFAULT (datetime('now')) | Capture timestamp |
+| `metadata` | TEXT | NOT NULL DEFAULT '{}' (JSON) | Additional change metadata |
 
-**Indexes:** `idx_code_changed_files_commit(commit_id)`, `idx_code_changed_files_path(path)`
+**Indexes:** `idx_code_changed_files_repo_path(repository_id, path)`, `idx_code_changed_files_commit(commit_id)`, `idx_code_changed_files_pr(pull_request_id)`
 
 #### `code_reviews`
 
@@ -1315,19 +1361,25 @@ Review evidence records. Captures review status and reviewer metadata.
 | Column | Type | Constraints | Description |
 |--------|------|-------------|-------------|
 | `id` | TEXT | PK | Review record identifier (UUID) |
-| `repository_id` | TEXT | NOT NULL FK → habitat_code_repositories(id) ON DELETE CASCADE | Parent repository |
-| `external_id` | TEXT | DEFAULT NULL | Provider-side review identifier |
+| `pull_request_id` | TEXT | FK → pull_requests(id) ON DELETE SET NULL | Reviewed pull request |
+| `repository_id` | TEXT | FK → habitat_code_repositories(id) ON DELETE SET NULL | Parent repository |
+| `provider` | TEXT | NOT NULL | Git provider |
+| `repo_slug` | TEXT | DEFAULT NULL | Canonical repository identifier |
+| `review_url` | TEXT | DEFAULT NULL | Provider review URL |
 | `review_status` | TEXT | NOT NULL | Review status (Drizzle enum + application validation, no SQL CHECK) |
 | `reviewer_name` | TEXT | DEFAULT NULL | Reviewer display name |
-| `reviewed_at` | TEXT | DEFAULT NULL | Review timestamp |
+| `reviewer_id` | TEXT | DEFAULT NULL | Provider-side reviewer identifier |
+| `submitted_at` | TEXT | DEFAULT NULL | Review submission timestamp |
+| `verification_state` | TEXT | NOT NULL DEFAULT 'unverified' | Verification state (Drizzle enum + application validation, no SQL CHECK) |
+| `metadata` | TEXT | NOT NULL DEFAULT '{}' (JSON) | Additional review metadata |
 | `created_at` | TEXT | NOT NULL DEFAULT (datetime('now')) | Record creation timestamp |
 | `updated_at` | TEXT | NOT NULL DEFAULT (datetime('now')) | Last update timestamp |
 
-**Indexes:** `idx_code_reviews_repo(repository_id)`, `idx_code_reviews_external(repository_id, external_id)`
+**Indexes:** `idx_code_reviews_pr(pull_request_id)`, `idx_code_reviews_repo_status(repository_id, review_status)`
 
 #### `code_evidence_links`
 
-Core polymorphic link table connecting Orcy entities (missions, tasks, subtasks) to code evidence records (branches, commits, changed files, reviews). Corrections are same-envelope updates, not appended rows: a correction rewrites the *same* link's `status`, latest correction actor/time/reason and optional replacement pointer on that row, so the row count does not grow and no second link record is created. Links are never deleted by a correction. `target_type`/`target_id` are plain polymorphic columns with **no** FK to the target, so target identity is a `(target_type, target_id)` pair rather than an id string.
+Core polymorphic link table connecting Orcy entities (tasks, missions) to code evidence records (branches, pull requests, commits, changed files, pipeline runs, reviews, external URLs). Corrections are same-envelope updates, not appended rows: a correction rewrites the *same* link's `status`, latest correction actor/time/reason and optional replacement pointer on that row, so the row count does not grow and no second link record is created. Links are never deleted by a correction. `target_type`/`target_id` are plain polymorphic columns with **no** FK to the target, so target identity is a `(target_type, target_id)` pair rather than an id string.
 
 | Column | Type | Constraints | Description |
 |--------|------|-------------|-------------|
@@ -1335,18 +1387,27 @@ Core polymorphic link table connecting Orcy entities (missions, tasks, subtasks)
 | `target_type` | TEXT | NOT NULL | Polymorphic target type (Drizzle enum + application validation, no SQL CHECK) |
 | `target_id` | TEXT | NOT NULL | Target entity UUID |
 | `evidence_type` | TEXT | NOT NULL | Evidence entity type (Drizzle enum + application validation, no SQL CHECK) |
-| `evidence_id` | TEXT | NOT NULL | Evidence entity UUID |
+| `evidence_id` | TEXT | DEFAULT NULL | Evidence entity UUID (NULL for `external_url` evidence) |
+| `external_url` | TEXT | DEFAULT NULL | Raw external URL for `external_url` evidence |
+| `normalized_external_url` | TEXT | DEFAULT NULL | Normalized external URL (dedup key for URL evidence) |
+| `title` | TEXT | DEFAULT NULL | Evidence title |
+| `description` | TEXT | DEFAULT NULL | Evidence description |
 | `status` | TEXT | NOT NULL DEFAULT 'active' | Link status (corrections overwrite this same row's value) (Drizzle enum + application validation, no SQL CHECK) |
-| `confidence` | REAL | NOT NULL DEFAULT 1.0 | Confidence score 0-1 |
+| `confidence` | REAL | DEFAULT NULL | Confidence score 0-1 |
 | `link_source` | TEXT | NOT NULL | How the link was established (Drizzle enum + application validation, no SQL CHECK) |
+| `link_sources` | TEXT | NOT NULL DEFAULT '[]' (JSON) | JSON array accumulating every link source that established this link |
+| `linked_by_type` | TEXT | NOT NULL | Typed actor that created the link (Drizzle enum + application validation, no SQL CHECK) |
+| `linked_by_id` | TEXT | NOT NULL | Id of the linking actor |
+| `linked_at` | TEXT | NOT NULL DEFAULT (datetime('now')) | When the link was created |
+| `verification_state` | TEXT | NOT NULL DEFAULT 'unverified' | Evidence verification state (Drizzle enum + application validation, no SQL CHECK) |
 | `replacement_link_id` | TEXT | DEFAULT NULL FK → code_evidence_links(id) ON DELETE SET NULL | **Reference only** to the superseding link. No target/active/generation constraint: it may point at any existing link (same or another Task/Mission/Habitat, nonactive, itself, or one in a cycle). The enforced FK is what supplies reference existence — a pointer to a missing link aborts the statement — and deleting the referenced link later sets this column to NULL, so no durable-reference history is kept |
 | `correction_reason` | TEXT | DEFAULT NULL | Why this link was corrected (latest correction only — repeating a correction overwrites it) |
 | `corrected_by_type` / `corrected_by_id` | TEXT | DEFAULT NULL | Typed actor (`agent`/`human`/`system`) and id of the **latest** corrector; earlier correction metadata is not kept as an immutable ledger |
+| `corrected_at` | TEXT | DEFAULT NULL | When the latest correction was applied |
+| `allow_external_repository` | INTEGER | NOT NULL DEFAULT 0 (boolean) | Whether the link may point at evidence outside the habitat's configured repository |
 | `metadata` | TEXT | NOT NULL DEFAULT '{}' (JSON) | Additional link context |
-| `created_at` | TEXT | NOT NULL DEFAULT (datetime('now')) | Record creation timestamp |
-| `updated_at` | TEXT | NOT NULL DEFAULT (datetime('now')) | Last update timestamp |
 
-**Indexes:** `idx_code_evidence_links_target(target_type, target_id)`, `idx_code_evidence_links_evidence(evidence_type, evidence_id)`, `idx_code_evidence_links_status(status)`, `idx_code_evidence_links_source(link_source)`
+**Indexes:** `idx_evidence_links_target_status(target_type, target_id, status)`, `idx_evidence_links_evidence(evidence_type, evidence_id)`, `idx_code_evidence_links_linked_by(linked_by_type, linked_by_id)`
 
 #### `code_evidence_completeness`
 
@@ -1354,17 +1415,17 @@ Per-target completeness overrides and derived status. Stores `not_applicable` ov
 
 | Column | Type | Constraints | Description |
 |--------|------|-------------|-------------|
-| `id` | TEXT | PK | Completeness record identifier (UUID) |
 | `target_type` | TEXT | NOT NULL | Polymorphic target type (Drizzle enum + application validation, no SQL CHECK) |
 | `target_id` | TEXT | NOT NULL | Target entity UUID |
 | `status` | TEXT | NOT NULL | Derived completeness status (Drizzle enum + application validation, no SQL CHECK) |
 | `reason_code` | TEXT | DEFAULT NULL | Machine-readable reason for the status |
-| `reason_detail` | TEXT | DEFAULT NULL | Human-readable explanation |
-| `evaluated_at` | TEXT | NOT NULL DEFAULT (datetime('now')) | Last evaluation timestamp |
-| `created_at` | TEXT | NOT NULL DEFAULT (datetime('now')) | Record creation timestamp |
+| `reason_note` | TEXT | DEFAULT NULL | Human-readable explanation |
+| `marked_by_type` | TEXT | NOT NULL | Typed actor that set the override/status (Drizzle enum + application validation, no SQL CHECK) |
+| `marked_by_id` | TEXT | NOT NULL | Id of the marking actor |
 | `updated_at` | TEXT | NOT NULL DEFAULT (datetime('now')) | Last update timestamp |
+| `created_at` | TEXT | NOT NULL DEFAULT (datetime('now')) | Record creation timestamp |
 
-**Unique index:** `idx_code_evidence_completeness_target(target_type, target_id)`
+**Unique index:** `idx_evidence_completeness_target(target_type, target_id)`
 
 #### `code_evidence_gaps`
 
@@ -1373,19 +1434,21 @@ Gap lifecycle tracking. Records identified evidence gaps (missing branches, comm
 | Column | Type | Constraints | Description |
 |--------|------|-------------|-------------|
 | `id` | TEXT | PK | Gap identifier (UUID) |
-| `habitat_id` | TEXT | NOT NULL FK → habitats(id) ON DELETE CASCADE | Parent habitat |
 | `target_type` | TEXT | NOT NULL | Polymorphic target type (Drizzle enum + application validation, no SQL CHECK) |
 | `target_id` | TEXT | NOT NULL | Target entity UUID |
 | `reason_code` | TEXT | NOT NULL | Machine-readable gap reason |
-| `reason_detail` | TEXT | DEFAULT NULL | Human-readable gap description |
+| `reason_note` | TEXT | DEFAULT NULL | Human-readable gap description |
 | `status` | TEXT | NOT NULL DEFAULT 'active' | Gap lifecycle status (Drizzle enum + application validation, no SQL CHECK) |
+| `reported_by_type` | TEXT | NOT NULL | Typed actor that reported the gap (Drizzle enum + application validation, no SQL CHECK) |
+| `reported_by_id` | TEXT | NOT NULL | Id of the reporting actor |
+| `reported_at` | TEXT | NOT NULL DEFAULT (datetime('now')) | Report timestamp |
 | `resolution_reason` | TEXT | DEFAULT NULL | How the gap was resolved |
-| `resolved_by` | TEXT | DEFAULT NULL | Who resolved the gap |
+| `resolved_by_type` | TEXT | DEFAULT NULL | Typed actor that resolved the gap |
+| `resolved_by_id` | TEXT | DEFAULT NULL | Id of the resolving actor |
 | `resolved_at` | TEXT | DEFAULT NULL | Resolution timestamp |
-| `created_at` | TEXT | NOT NULL DEFAULT (datetime('now')) | Record creation timestamp |
-| `updated_at` | TEXT | NOT NULL DEFAULT (datetime('now')) | Last update timestamp |
+| `metadata` | TEXT | NOT NULL DEFAULT '{}' (JSON) | Additional gap metadata |
 
-**Indexes:** `idx_code_evidence_gaps_habitat(habitat_id)`, `idx_code_evidence_gaps_target(target_type, target_id)`, `idx_code_evidence_gaps_status(status)`
+**Indexes:** `idx_evidence_gaps_target_status(target_type, target_id, status)`, `idx_evidence_gaps_reason_status(reason_code, status)`, `idx_code_evidence_gaps_reported_by(reported_by_type, reported_by_id)`
 
 ---
 
@@ -1431,6 +1494,7 @@ Audit trail of every automation rule execution attempt and its outcome.
 | `target_type` | TEXT | DEFAULT NULL | Type of target acted on |
 | `target_id` | TEXT | DEFAULT NULL | Target identifier |
 | `fingerprint` | TEXT | NOT NULL | Dedup key for the run |
+| `event_dedupe_key` | TEXT | DEFAULT NULL | Stable dedup key of the triggering inbox event (partial-unique with `rule_id`) |
 | `status` | TEXT | NOT NULL | Run outcome status |
 | `skip_reason` | TEXT | DEFAULT NULL | Why the run was skipped |
 | `condition_result` | TEXT | DEFAULT NULL (JSON) | Evaluated condition output |
@@ -1439,7 +1503,7 @@ Audit trail of every automation rule execution attempt and its outcome.
 | `started_at` | TEXT | NOT NULL | Run start timestamp |
 | `finished_at` | TEXT | DEFAULT NULL | Run finish timestamp |
 
-**Indexes:** `idx_automation_runs_rule(rule_id, started_at)`, `idx_automation_runs_habitat(habitat_id, started_at)`, `idx_automation_runs_fingerprint(fingerprint, started_at)`, `idx_automation_runs_status(habitat_id, status)`
+**Indexes:** `idx_automation_runs_rule(rule_id, started_at)`, `idx_automation_runs_habitat(habitat_id, started_at)`, `idx_automation_runs_fingerprint(fingerprint, started_at)`, `idx_automation_runs_status(habitat_id, status)`, `uq_automation_runs_event_dedupe(event_dedupe_key, rule_id) WHERE event_dedupe_key IS NOT NULL` UNIQUE
 
 ---
 
@@ -1638,15 +1702,15 @@ OAuth/OIDC state records for PKCE flow safety.
 | `habitat_id` | TEXT | NOT NULL FK → habitats(id) ON DELETE CASCADE | Parent habitat |
 | `state` | TEXT | NOT NULL UNIQUE | OAuth state parameter |
 | `nonce` | TEXT | DEFAULT NULL | OIDC nonce |
-| `code_verifier` | TEXT | DEFAULT NULL | PKCE code verifier |
+| `pkce_verifier` | TEXT | DEFAULT NULL | PKCE code verifier |
 | `invite_id` | TEXT | DEFAULT NULL | Linked invite for context |
-| `redirect_uri` | TEXT | DEFAULT NULL | Redirect URI |
+| `context` | TEXT | NOT NULL DEFAULT '{}' (JSON) | Flow context JSON |
+| `status` | TEXT | NOT NULL DEFAULT 'pending' | Auth-state lifecycle status |
 | `expires_at` | TEXT | NOT NULL | Expiry timestamp (10 min TTL) |
-| `consumed` | INTEGER | DEFAULT 0 NOT NULL | Whether state was consumed |
 | `consumed_at` | TEXT | DEFAULT NULL | Consumption timestamp |
 | `created_at` | TEXT | NOT NULL DEFAULT (datetime('now')) | Record creation timestamp |
 
-**Indexes:** `idx_ipas_provider(provider_id)`, `idx_ipas_habitat(habitat_id)`, `idx_ipas_state(state) UNIQUE`
+**Indexes:** `idx_identity_provider_auth_states_state(state)` UNIQUE, `idx_identity_provider_auth_states_provider(provider_id, status)`, `idx_identity_provider_auth_states_expires(status, expires_at)`
 
 #### `remote_invites`
 
@@ -1657,8 +1721,8 @@ Provider-first or manual invite records.
 | `id` | TEXT | PK | Invite identifier (UUID) |
 | `habitat_id` | TEXT | NOT NULL FK → habitats(id) ON DELETE CASCADE | Parent habitat |
 | `invite_type` | TEXT | NOT NULL | Invite kind (application validation only, no SQL CHECK) |
-| `provider_id` | TEXT | DEFAULT NULL FK → identity_providers(id) ON DELETE SET NULL | Linked provider for provider invites |
-| `baseline_standing` | TEXT | NOT NULL DEFAULT 'remote_observer' | Participant standing at acceptance |
+| `provider_id` | TEXT | DEFAULT NULL | Linked provider for provider invites (plain reference; no declared FK) |
+| `baseline_standing` | TEXT | NOT NULL | Participant standing at acceptance |
 | `baseline_scopes` | TEXT | DEFAULT '[]' NOT NULL | Baseline action scopes JSON |
 | `status` | TEXT | NOT NULL DEFAULT 'pending' | Invite lifecycle status (application validation only, no SQL CHECK) |
 | `token_hash` | TEXT | DEFAULT NULL | SHA-256 hash of manual invite token |
@@ -1672,7 +1736,7 @@ Provider-first or manual invite records.
 | `created_at` | TEXT | NOT NULL DEFAULT (datetime('now')) | Record creation timestamp |
 | `updated_at` | TEXT | NOT NULL DEFAULT (datetime('now')) | Last update timestamp |
 
-**Indexes:** `idx_remote_invites_habitat(habitat_id)`, `idx_remote_invites_provider(provider_id)`, `idx_remote_invites_status(status)`, `idx_remote_invites_token_hash(token_hash)`
+**Indexes:** `idx_remote_invites_habitat_status(habitat_id, status)`, `idx_remote_invites_token_hash(token_hash)`, `idx_remote_invites_provider(provider_id)`
 
 #### `remote_pods`
 
@@ -1684,18 +1748,18 @@ Trusted external pod/admin group records.
 | `habitat_id` | TEXT | NOT NULL FK → habitats(id) ON DELETE CASCADE | Parent habitat |
 | `name` | TEXT | NOT NULL | Display name |
 | `description` | TEXT | DEFAULT '' NOT NULL | Description |
+| `trust_metadata` | TEXT | NOT NULL DEFAULT '{}' (JSON) | Trust-establishment metadata JSON |
 | `default_standing` | TEXT | NOT NULL DEFAULT 'remote_observer' | Default standing for participants |
 | `status` | TEXT | NOT NULL DEFAULT 'pending' | Pod lifecycle status (application validation only, no SQL CHECK) |
-| `invite_id` | TEXT | DEFAULT NULL FK → remote_invites(id) ON DELETE SET NULL | Invite that created the pod |
+| `invite_id` | TEXT | DEFAULT NULL | Invite that created the pod (plain reference; no declared FK) |
 | `provider_pod_identity` | TEXT | DEFAULT NULL | Provider-specific pod identifier |
 | `created_by` | TEXT | DEFAULT NULL | Who created the pod |
 | `created_at` | TEXT | NOT NULL DEFAULT (datetime('now')) | Record creation timestamp |
 | `updated_at` | TEXT | NOT NULL DEFAULT (datetime('now')) | Last update timestamp |
-| `suspended_at` | TEXT | DEFAULT NULL | Suspension timestamp |
 | `revoked_at` | TEXT | DEFAULT NULL | Revocation timestamp |
 | `revoke_reason` | TEXT | DEFAULT NULL | Reason for revocation |
 
-**Indexes:** `idx_remote_pods_habitat(habitat_id)`, `idx_remote_pods_status(status)`, `idx_remote_pods_invite(invite_id)`
+**Indexes:** `idx_remote_pods_habitat_status(habitat_id, status)`, `idx_remote_pods_invite(invite_id)`
 
 #### `remote_participants`
 
@@ -1721,7 +1785,7 @@ Remote humans/orcys under a remote pod.
 | `suspended_at` | TEXT | DEFAULT NULL | Suspension timestamp |
 | `revoked_at` | TEXT | DEFAULT NULL | Revocation timestamp |
 
-**Indexes:** `idx_remote_participants_pod(remote_pod_id)`, `idx_remote_participants_habitat(habitat_id)`, `idx_remote_participants_status(status)`
+**Indexes:** `idx_remote_participants_pod(remote_pod_id, status)`, `idx_remote_participants_habitat(habitat_id, status)`, `idx_remote_participants_standing(habitat_id, standing)`
 
 #### `remote_credentials`
 
@@ -1733,18 +1797,21 @@ SHA-256 hashed credentials for remote participants.
 | `remote_participant_id` | TEXT | NOT NULL FK → remote_participants(id) ON DELETE CASCADE | Owner participant |
 | `habitat_id` | TEXT | NOT NULL FK → habitats(id) ON DELETE CASCADE | Parent habitat |
 | `credential_type` | TEXT | NOT NULL | Credential type (application validation only, no SQL CHECK) |
-| `secret_hash` | TEXT | NOT NULL UNIQUE | SHA-256 hash of the credential secret |
+| `secret_hash` | TEXT | NOT NULL | SHA-256 hash of the credential secret |
 | `label` | TEXT | DEFAULT '' NOT NULL | Credential label |
 | `status` | TEXT | NOT NULL DEFAULT 'active' | Lifecycle status (application validation only, no SQL CHECK) |
 | `expires_at` | TEXT | DEFAULT NULL | Optional expiry timestamp |
 | `last_used_at` | TEXT | DEFAULT NULL | Last verification timestamp |
+| `rotated_from_id` | TEXT | DEFAULT NULL | Credential this one rotated from |
+| `rotated_at` | TEXT | DEFAULT NULL | Rotation timestamp |
+| `rotated_by` | TEXT | DEFAULT NULL | Who rotated the credential |
 | `revoked_by` | TEXT | DEFAULT NULL | Who revoked the credential |
 | `revoke_reason` | TEXT | DEFAULT NULL | Reason for revocation |
 | `created_by` | TEXT | DEFAULT NULL | Who created the credential |
 | `created_at` | TEXT | NOT NULL DEFAULT (datetime('now')) | Record creation timestamp |
 | `updated_at` | TEXT | NOT NULL DEFAULT (datetime('now')) | Last update timestamp |
 
-**Indexes:** `idx_remote_credentials_participant(remote_participant_id)`, `idx_remote_credentials_habitat(habitat_id)`, `idx_remote_credentials_hash(secret_hash) UNIQUE`, `idx_remote_credentials_status(status)`
+**Indexes:** `idx_remote_credentials_participant(remote_participant_id, status)`, `idx_remote_credentials_type(habitat_id, credential_type, status)`, `idx_remote_credentials_hash(secret_hash)`
 
 #### `remote_grants`
 
@@ -1773,7 +1840,7 @@ Scoped access grants for remote participants and pods.
 | `created_at` | TEXT | NOT NULL DEFAULT (datetime('now')) | Record creation timestamp |
 | `updated_at` | TEXT | NOT NULL DEFAULT (datetime('now')) | Last update timestamp |
 
-**Indexes:** `idx_remote_grants_habitat(habitat_id)`, `idx_remote_grants_pod(remote_pod_id)`, `idx_remote_grants_participant(remote_participant_id)`, `idx_remote_grants_status(status)`
+**Indexes:** `idx_remote_grants_habitat(habitat_id, status)`, `idx_remote_grants_pod(remote_pod_id, status)`, `idx_remote_grants_participant(remote_participant_id, status)`, `idx_remote_grants_type(habitat_id, grant_type, status)`, `idx_remote_grants_expires(status, expires_at)`
 
 **Grant types:** `baseline_observer` (long-lived, read-only), `scoped_elevation` (time-boxed, action-scoped), `permanent_execution` (explicitly dangerous, high-trust pods only)
 
@@ -1791,7 +1858,7 @@ Explicit allowlist targets for grant eligibility.
 | `target_id` | TEXT | NOT NULL | Target entity UUID |
 | `created_at` | TEXT | NOT NULL DEFAULT (datetime('now')) | Record creation timestamp |
 
-**Indexes:** `idx_remote_grant_targets_grant(grant_id)`
+**Indexes:** `idx_remote_grant_targets_grant(grant_id)`, `idx_remote_grant_targets_unique(grant_id, target_type, target_id)` UNIQUE
 
 #### `remote_grant_rules`
 
@@ -1818,8 +1885,11 @@ Snapshot of tasks matched by rule-based grants at creation time.
 | `id` | TEXT | PK | Snapshot identifier (UUID) |
 | `grant_id` | TEXT | NOT NULL FK → remote_grants(id) ON DELETE CASCADE | Parent grant |
 | `task_id` | TEXT | NOT NULL | Matched task UUID |
-| `match_reason` | TEXT | DEFAULT NULL | Why the task matched |
+| `matched_at` | TEXT | NOT NULL | When the task matched |
+| `match_reason` | TEXT | NOT NULL DEFAULT '' | Why the task matched |
 | `created_at` | TEXT | NOT NULL DEFAULT (datetime('now')) | Record creation timestamp |
+
+**Indexes:** `idx_remote_grant_task_snapshots_grant(grant_id)`, `idx_remote_grant_task_snapshots_unique(grant_id, task_id)` UNIQUE
 
 #### `remote_idempotency_keys`
 
@@ -1829,8 +1899,8 @@ Idempotency records for remote write retries.
 |--------|------|-------------|-------------|
 | `id` | TEXT | PK | Key identifier (UUID) |
 | `habitat_id` | TEXT | NOT NULL FK → habitats(id) ON DELETE CASCADE | Parent habitat |
-| `remote_participant_id` | TEXT | NOT NULL FK → remote_participants(id) ON DELETE CASCADE | Acting participant |
-| `remote_credential_id` | TEXT | DEFAULT NULL FK → remote_credentials(id) ON DELETE SET NULL | Credential used |
+| `remote_participant_id` | TEXT | NOT NULL | Acting participant (plain reference; no declared FK) |
+| `remote_credential_id` | TEXT | DEFAULT NULL | Credential used (plain reference; no declared FK) |
 | `action` | TEXT | NOT NULL | Action being retried |
 | `idempotency_key` | TEXT | NOT NULL | Client-provided key |
 | `request_hash` | TEXT | NOT NULL | SHA-256 of request body+path |
@@ -1842,7 +1912,7 @@ Idempotency records for remote write retries.
 | `created_at` | TEXT | NOT NULL DEFAULT (datetime('now')) | Record creation timestamp |
 | `completed_at` | TEXT | DEFAULT NULL | Completion timestamp |
 
-**Indexes:** `idx_idempotency_keys_participant_action(remote_participant_id, action, idempotency_key) UNIQUE`, `idx_idempotency_keys_expires(expires_at)`
+**Indexes:** `idx_remote_idempotency_keys_key(remote_participant_id, action, idempotency_key)` UNIQUE, `idx_remote_idempotency_keys_expires(status, expires_at)`
 
 #### `remote_webhook_endpoints`
 
@@ -1858,6 +1928,7 @@ Host-approved remote pod webhook endpoints.
 | `events` | TEXT | DEFAULT '[]' NOT NULL | Subscribed event types JSON |
 | `status` | TEXT | NOT NULL DEFAULT 'pending' | Lifecycle status (application validation only, no SQL CHECK) |
 | `secret_hash` | TEXT | DEFAULT NULL | SHA-256 hash of signing secret |
+| `encrypted_secret` | TEXT | DEFAULT NULL | Encrypted signing secret (used for signing deliveries) |
 | `last_test_at` | TEXT | DEFAULT NULL | Last test timestamp |
 | `last_test_status` | TEXT | DEFAULT NULL | Last test result |
 | `approved_by` | TEXT | DEFAULT NULL | Who approved the endpoint |
@@ -1870,7 +1941,7 @@ Host-approved remote pod webhook endpoints.
 | `created_at` | TEXT | NOT NULL DEFAULT (datetime('now')) | Record creation timestamp |
 | `updated_at` | TEXT | NOT NULL DEFAULT (datetime('now')) | Last update timestamp |
 
-**Indexes:** `idx_remote_webhook_endpoints_pod(remote_pod_id)`, `idx_remote_webhook_endpoints_habitat(habitat_id)`, `idx_remote_webhook_endpoints_status(status)`
+**Indexes:** `idx_remote_webhook_endpoints_pod(remote_pod_id, status)`, `idx_remote_webhook_endpoints_habitat(habitat_id, status)`
 
 #### `remote_webhook_deliveries`
 
@@ -1915,7 +1986,7 @@ Mission-scoped workflow definition. A mission has at most one active workflow. G
 | `mission_id` | TEXT | NOT NULL FK → missions(id) ON DELETE CASCADE | Parent mission |
 | `habitat_id` | TEXT | NOT NULL FK → habitats(id) ON DELETE CASCADE | Parent habitat |
 | `resolved_variables` | TEXT | NOT NULL DEFAULT '{}' (JSON) | Snapshot of template variables resolved at attachment time (for audit) |
-| `join_specs` | TEXT | NOT NULL DEFAULT '{}' (JSON) | Per-task join specs keyed by downstream task ID. Each entry: `{ mode: "all_of" | "any_of" | "n_of", n?: number }`. Added in migration `0032`. |
+| `join_specs` | TEXT | JSON, nullable | Per-task join specs keyed by downstream task ID. Each entry: `{ mode: "all_of" | "any_of" | "n_of", n?: number }`. Added in migration `0032`. |
 | `failure_handler` | TEXT | JSON, nullable | Optional workflow-level failure handler config (`WorkflowFailureHandlerConfig`). Individual tasks may override via `matchConfig.failureHandlerOverride` on their gate. |
 | `status` | TEXT | NOT NULL DEFAULT 'active' | `active` = gates enforce; `detached` = gates no longer enforce, kept for audit (Drizzle enum + application validation, no SQL CHECK) |
 | `created_by` | TEXT | NOT NULL | Creator identifier |
@@ -2003,7 +2074,7 @@ Durable recovery-intent rows written atomically in the advancement transaction w
 | `created_at` | TEXT | NOT NULL DEFAULT (datetime('now')) | Handoff creation timestamp. |
 | `consumed_at` | TEXT | DEFAULT NULL | Present iff `status = 'consumed'`. |
 
-**Indexes:** `idx_recovery_handoffs_gate(gate_id)`, `idx_recovery_handoffs_status(status)`
+**Indexes:** `idx_task_recovery_handoffs_gate(gate_id)`, `idx_task_recovery_handoffs_status(status)`
 
 ---
 
@@ -2061,7 +2132,7 @@ Polymorphic citations (ADR-0007). No FK on target — dangling links detected at
 |---|---|---|---|
 | `id` | TEXT | PRIMARY KEY | UUID |
 | `page_id` | TEXT | NOT NULL FK → wiki_pages(id) ON DELETE CASCADE | Citing page |
-| `target_type` | TEXT | NOT NULL | `mission` \| `task` \| `pulse` \| `insight` \| `skill_signal` \| `commit` \| `pull_request` \| `evidence_link` \| `external_issue` |
+| `target_type` | TEXT | NOT NULL | `mission` \| `task` \| `pulse` \| `insight` \| `skill_signal` \| `commit` \| `pull_request` \| `evidence_link` \| `external_issue` \| `extracted_finding` |
 | `target_id` | TEXT | NOT NULL | UUID of the target entity |
 | `link_note` | TEXT | | Optional author annotation |
 | `created_by` | TEXT | NOT NULL | Orcy ID |
@@ -2202,16 +2273,7 @@ Every table declared in the Drizzle schema files under `packages/api/src/db/sche
 | `saved_filters` | Per-user saved board filter configurations | ✓ |
 | `chat_integrations` | Chat provider integrations (webhook-style channels) | ✓ |
 | `chat_speaker_mappings` | Workspace-scoped provider-speaker → local-user attribution for chat review decisions (migration 0081) | ✓ |
-| `task_review_requirements` | Durable per-task review requirement state machine (migration 0082) — floors, effective count, typed claimant, approval proof, generation/round | ✓ |
-| `task_review_snapshots` | Immutable claim-policy evidence, one per successful-claim generation (migration 0082) | ✓ |
-| `task_review_decisions` | Append-only typed reviewer decisions keyed to (generation, round) (migration 0082) | ✓ |
-| `task_review_overrides` | Append-only human resolution/relaxation evidence (migration 0082) | ✓ |
 | `audit_export_schedules` | Scheduled audit exports (format, filters, destination) | ✗ |
-| `governance_scopes` | Four-kind (team/habitat/mission/task) governance scope ledger with incarnations; at most one materialized active incarnation per scope (a live, never-materialized scope reads as virtual until first mutation), retired history retained (migration 0083) | ✓ |
-| `role_definitions` | Built-in (server-owned, fixed-ID) and custom Team/Habitat-namespaced role definitions (migration 0083) | — see SQL |
-| `role_revisions` | Insert-only immutable permission revisions; assignments pin (definition_id, revision_id) via composite FK (migration 0083) | — see SQL |
-| `role_assignments` | Typed human/agent scoped role assignments with pinned revision, active/revoked state, decision-time expiry, retained history (migration 0083) | — see SQL |
-| `governance_audit` | Append-only governance audit evidence with plain retained citations surviving scope/principal retirement (migration 0083) | — see SQL |
 | `scheduled_tasks` | Recurring mission creation schedules (cron/interval/once) | ✓ |
 | `habitat_health_snapshots` | Point-in-time habitat health scores, dimensions, recommendations | ✗ |
 | `cumulative_flow_snapshots` | Daily cumulative flow metrics per column | ✓ |
@@ -2324,6 +2386,25 @@ Relationship declarations only — no tables.
 | `review_rules` | Habitat review-assignment rules (matchers, strategy, required reviews) | ✗ |
 | `task_reviewers` | Reviewers assigned to a task with review status | ✗ |
 
+#### `reviewSafety.ts`
+
+| Table | Purpose | Detailed section |
+|-------|---------|------------------|
+| `task_review_requirements` | Durable per-task review requirement state machine (migration 0082) — floors, effective count, typed claimant, approval proof, generation/round | ✗ (see the migration 0082 row) |
+| `task_review_snapshots` | Immutable claim-policy evidence, one per successful-claim generation (migration 0082) | ✗ (see the migration 0082 row) |
+| `task_review_decisions` | Append-only typed reviewer decisions keyed to (generation, round) (migration 0082) | ✗ (see the migration 0082 row) |
+| `task_review_overrides` | Append-only human resolution/relaxation evidence (migration 0082) | ✗ (see the migration 0082 row) |
+
+#### `roleFoundation.ts`
+
+| Table | Purpose | Detailed section |
+|-------|---------|------------------|
+| `governance_scopes` | Four-kind (team/habitat/mission/task) governance scope ledger with incarnations; at most one materialized active incarnation per scope (a live, never-materialized scope reads as virtual until first mutation), retired history retained (migration 0083) | — see SQL |
+| `role_definitions` | Built-in (server-owned, fixed-ID) and custom Team/Habitat-namespaced role definitions (migration 0083) | — see SQL |
+| `role_revisions` | Insert-only immutable permission revisions; assignments pin (definition_id, revision_id) via composite FK (migration 0083) | — see SQL |
+| `role_assignments` | Typed human/agent scoped role assignments with pinned revision, active/revoked state, decision-time expiry, retained history (migration 0083) | — see SQL |
+| `governance_audit` | Append-only governance audit evidence with plain retained citations surviving scope/principal retirement (migration 0083) | — see SQL |
+
 #### `task.ts`
 
 | Table | Purpose | Detailed section |
@@ -2416,11 +2497,12 @@ dateDayExpr(column)               // Truncate to day
 
 Durable failure-effect completion: every `failed`
 event produced by the restored fail path lands with a receipt outbox in the SAME
-transaction — receipt-owned from birth. Five required consumers
+transaction — receipt-owned from birth. Seven required consumers
 (`workflow_gates`, `failure_context`, `retry_ladder`, `detector_dispatch`,
-`skill_ingestion`) drain through a boot-owned deliverer with finite attempt
-budgets (8), fenced leases, fixed allowlisted error codes, and a dead-letter →
-admin-requeue lifecycle. Receipt and target state are updated during delivery
+`skill_ingestion`, `pulse_workflow_gates`, `pulse_skill_ingest`) drain through
+a boot-owned deliverer with finite attempt budgets (8), fenced leases, fixed
+allowlisted error codes, and a dead-letter → admin-requeue lifecycle. Receipt
+and target state are updated during delivery
 and requeue. No time-based retention cleanup or manual receipt-delete API
 exists; the attempt/admin history is append-only while the habitat exists, and
 habitat deletion cascades all four tables (schema FKs). Scanner delegation
@@ -2584,7 +2666,7 @@ npx drizzle-kit studio
 # Stop the API
 rm orcy.db
 # Start the API — database is created automatically
-bun run --watch packages/api/src/index.ts
+corepack pnpm dev
 ```
 
 ### Monitoring Database Size
@@ -2757,7 +2839,7 @@ Habitat-scoped enrollment and schedule per extractor. One row per `(habitat_id, 
 | `min_sample_size` | INTEGER | | Minimum sample size threshold |
 | `config` | TEXT | NOT NULL DEFAULT '{}' | JSON extractor config blob |
 | `version` | INTEGER | NOT NULL DEFAULT 1 | Optimistic-concurrency version for CAS updates |
-| `created_by_type` / `created_by_id` | TEXT | | Creation attribution |
+| `created_by_type` / `created_by_id` | TEXT | NOT NULL DEFAULT 'human' / NULL | Creation attribution |
 | `created_at`, `updated_at` | TEXT | NOT NULL DEFAULT datetime('now') | Timestamps |
 
 **Indexes:** UNIQUE `(habitat_id, extractor_key)`, `(habitat_id)`, `(habitat_id, enabled)`
@@ -2929,7 +3011,7 @@ At-most-once destination promotion records. The successful promotion row — key
 | `error` | TEXT | | Error message on failure |
 | `created_at`, `updated_at`, `completed_at` | TEXT | | Lifecycle timestamps |
 
-**Indexes:** UNIQUE `(finding_id, destination_type, destination_key)`, `(status)`
+**Indexes:** UNIQUE `(finding_id, destination_type, destination_key)`, `(status)`, `(target_id, status)`
 
 ---
 
@@ -2978,15 +3060,13 @@ column, and index declarations:
 ```
 packages/api/src/db/schema/    ← Edit these files
 ├── index.ts                   ← Barrel export
-├── board.ts                   ← Habitats, missions, columns, tasks, events
-├── agent.ts                   ← Agents
+├── habitat.ts                 ← Habitats, missions, columns, chat integrations, schedules
+├── task.ts                    ← Tasks, events, comments, effort entries
+├── agent.ts                   ← Agents, agent messages
 ├── user.ts                    ← Users, organizations, teams
 ├── cicd.ts                    ← Pull requests, pipeline events
 ├── code-evidence.ts           ← Code branches, commits, evidence, gaps
-├── effort.ts                  ← Effort entries
-├── sprint.ts                  ← Sprints
-├── audit.ts                   ← Audit export schedules, health snapshots
-└── ...                        ← Other domain files
+└── ...                        ← Other domain files (one per domain; see Schema Index)
 ```
 
 Migration SQL files are **authored artifacts**, not throwaway generated outputs.
@@ -3103,7 +3183,7 @@ driven by the journal authority.
 
 **Example: add a `priority` column to `webhook_subscriptions`**
 
-1. **Edit the Drizzle schema file** (`packages/api/src/db/schema/audit.ts` or wherever the table lives):
+1. **Edit the Drizzle schema file** (`packages/api/src/db/schema/webhook.ts` or wherever the table lives):
 
 ```typescript
 export const webhookSubscriptions = sqliteTable(
