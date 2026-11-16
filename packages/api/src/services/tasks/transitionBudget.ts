@@ -241,9 +241,9 @@ function scheduleBreachEscalation(
  *                                          (`required > 1` reservation that
  *                                          no longer fits while
  *                                          `count + 1 <= ceiling`) stays
- *                                          SILENT: the escalation is
- *                                          emit-once, and spending it on an
- *                                          un-exhausted task would suppress
+ *                                          SILENT: dedup is per-ceiling, and
+ *                                          spending that ceiling's escalation on
+ *                                          an un-exhausted task would suppress
  *                                          the true-exhaustion notification.
  *
  * `required` (default 1) is the reservation size: how many metered slots
@@ -278,7 +278,7 @@ export function guardTransition(
       ceiling,
     };
     // Escalate only on TRUE exhaustion (count+1 > ceiling): a headroom-only
-    // refusal still refuses, but spending the emit-once escalation there
+    // refusal still refuses, but spending the ceiling's escalation there
     // would suppress the real exhaustion notification later. For the
     // default required=1 this is identical to the refusal predicate.
     if (attemptedAction && count + 1 > ceiling) {
