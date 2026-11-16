@@ -234,11 +234,13 @@ function writeEnumCheckAttestation(
   });
 }
 
-function hasNamedCheck(sqlite: SqliteDatabase, table: string, checkName: string): boolean {
+export function hasNamedCheck(sqlite: SqliteDatabase, table: string, checkName: string): boolean {
   const row = sqlite
     .prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = ?")
     .get(table) as { sql: string } | undefined;
-  return row?.sql.includes(checkName) ?? false;
+  if (!row) return false;
+  const escapedName = checkName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(`\\bCONSTRAINT\\s+${escapedName}\\s+CHECK\\b`, "i").test(row.sql);
 }
 
 function isCheckConstraintError(err: unknown): boolean {
@@ -246,7 +248,7 @@ function isCheckConstraintError(err: unknown): boolean {
   return /CHECK constraint failed/i.test(message);
 }
 
-function recordMigrationEntry(sqlite: SqliteDatabase, entry: MigrationEntry): void {
+export function recordMigrationEntry(sqlite: SqliteDatabase, entry: MigrationEntry): void {
   sqlite.exec("BEGIN IMMEDIATE");
   try {
     if (pendingEntries(sqlite, [entry]).length > 0) {
@@ -256,7 +258,11 @@ function recordMigrationEntry(sqlite: SqliteDatabase, entry: MigrationEntry): vo
     }
     sqlite.exec("COMMIT");
   } catch (err) {
-    sqlite.exec("ROLLBACK");
+    try {
+      sqlite.exec("ROLLBACK");
+    } catch {
+      // already rolled back (defensive)
+    }
     throw err;
   }
 }

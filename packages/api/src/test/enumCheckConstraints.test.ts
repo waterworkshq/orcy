@@ -5,7 +5,11 @@ import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { closeDb, initDb } from "../db/index.js";
-import { ENFORCEMENT_MIGRATION_TAG } from "../db/stagedMigrations.js";
+import {
+  ENFORCEMENT_MIGRATION_TAG,
+  hasNamedCheck,
+  recordMigrationEntry,
+} from "../db/stagedMigrations.js";
 import {
   ADDITIVE_SCHEMA_VERSION,
   PREFLIGHT_VERSION,
@@ -163,6 +167,53 @@ describe("documented enum CHECK constraints", () => {
       db.exec("INSERT INTO sample SELECT id, value FROM sample_backup"),
     ).toThrow(/CHECK constraint failed/i);
     db.close();
+  });
+
+  it("matches a named CHECK as a delimited constraint token", () => {
+    const db = new Database(":memory:");
+    db.exec(`
+      CREATE TABLE tasks (
+        id TEXT PRIMARY KEY,
+        verification_status TEXT,
+        status TEXT CONSTRAINT tasks_status_check_aux CHECK (status IN ('pending'))
+      )
+    `);
+    expect(hasNamedCheck(db, "tasks", "tasks_status_check")).toBe(false);
+    expect(hasNamedCheck(db, "tasks", "status")).toBe(false);
+
+    db.exec(
+      "ALTER TABLE tasks ADD COLUMN priority TEXT CONSTRAINT tasks_status_check CHECK (priority IN ('low'))",
+    );
+    expect(hasNamedCheck(db, "tasks", "tasks_status_check")).toBe(true);
+    db.close();
+  });
+
+  it("preserves the ledger write failure when rollback also fails", () => {
+    const db = new Database(":memory:");
+    db.exec(
+      "CREATE TABLE __drizzle_migrations (id INTEGER PRIMARY KEY AUTOINCREMENT, hash TEXT NOT NULL, created_at NUMERIC)",
+    );
+    const exec = db.exec.bind(db);
+    (db as any).exec = (sql: string) => {
+      if (sql === "ROLLBACK") throw new Error("simulated rollback failure");
+      return exec(sql);
+    };
+
+    try {
+      expect(() =>
+        recordMigrationEntry(db, {
+          tag: "0099_write_failure",
+          when: 1,
+          hash: null as unknown as string,
+          statements: [],
+        }),
+      ).toThrow(/NOT NULL constraint failed/i);
+      expect(db.inTransaction).toBe(true);
+    } finally {
+      (db as any).exec = exec;
+      if (db.inTransaction) db.exec("ROLLBACK");
+      db.close();
+    }
   });
 
   it("defers only the dirty column, preserves child rows, and enforces after remediation", async () => {
