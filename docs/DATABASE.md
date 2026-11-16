@@ -686,7 +686,7 @@ Structured signals for agent-to-agent and human-to-agent communication. Supports
 | `from_id` | TEXT | NOT NULL | Author identifier (user.id, agent.id, or 'system') |
 | `to_type` | TEXT | | Target type (NULL = broadcast) (Drizzle enum + application validation, no SQL CHECK) |
 | `to_id` | TEXT | | Target identifier (NULL = broadcast) |
-| `signal_type` | TEXT | NOT NULL | finding, blocker, offer, warning, question, answer, directive, context, handoff, experience (v0.20; Drizzle enum + application validation, no SQL CHECK) |
+| `signal_type` | TEXT | NOT NULL | finding, blocker, offer, warning, question, answer, directive, context, handoff, experience (v0.20), detected (v0.22); Drizzle enum + application validation, no SQL CHECK |
 | `subject` | TEXT | NOT NULL | Brief signal subject |
 | `body` | TEXT | NOT NULL DEFAULT '' | Full signal body |
 | `task_id` | TEXT | FK → tasks(id) ON DELETE SET NULL | Related task |
@@ -733,7 +733,6 @@ Institutional memory for a habitat. Insights are promoted from high-value pulse 
 | `habitat_id` | TEXT | NOT NULL FK → habitats(id) ON DELETE CASCADE | Habitat |
 | `title` | TEXT | NOT NULL | Insight title |
 | `body` | TEXT | NOT NULL DEFAULT '' | Full insight body |
-| `source` | TEXT | NOT NULL DEFAULT 'manual' | How the insight was created |
 | `source_pulse_id` | TEXT | FK → pulses(id) ON DELETE SET NULL | Originating pulse signal (if promoted) |
 | `relevance_tags` | TEXT | NOT NULL DEFAULT '[]' (JSON) | JSON array of tag strings for relevance matching |
 | `created_by` | TEXT | NOT NULL | Creator identifier |
@@ -1317,7 +1316,6 @@ Review evidence records. Captures review status and reviewer metadata.
 |--------|------|-------------|-------------|
 | `id` | TEXT | PK | Review record identifier (UUID) |
 | `repository_id` | TEXT | NOT NULL FK → habitat_code_repositories(id) ON DELETE CASCADE | Parent repository |
-| `review_type` | TEXT | NOT NULL | Review type |
 | `external_id` | TEXT | DEFAULT NULL | Provider-side review identifier |
 | `review_status` | TEXT | NOT NULL | Review status (Drizzle enum + application validation, no SQL CHECK) |
 | `reviewer_name` | TEXT | DEFAULT NULL | Reviewer display name |
@@ -1378,7 +1376,6 @@ Gap lifecycle tracking. Records identified evidence gaps (missing branches, comm
 | `habitat_id` | TEXT | NOT NULL FK → habitats(id) ON DELETE CASCADE | Parent habitat |
 | `target_type` | TEXT | NOT NULL | Polymorphic target type (Drizzle enum + application validation, no SQL CHECK) |
 | `target_id` | TEXT | NOT NULL | Target entity UUID |
-| `gap_type` | TEXT | NOT NULL | Category of the gap |
 | `reason_code` | TEXT | NOT NULL | Machine-readable gap reason |
 | `reason_detail` | TEXT | DEFAULT NULL | Human-readable gap description |
 | `status` | TEXT | NOT NULL DEFAULT 'active' | Gap lifecycle status (Drizzle enum + application validation, no SQL CHECK) |
@@ -1388,7 +1385,7 @@ Gap lifecycle tracking. Records identified evidence gaps (missing branches, comm
 | `created_at` | TEXT | NOT NULL DEFAULT (datetime('now')) | Record creation timestamp |
 | `updated_at` | TEXT | NOT NULL DEFAULT (datetime('now')) | Last update timestamp |
 
-**Indexes:** `idx_code_evidence_gaps_habitat(habitat_id)`, `idx_code_evidence_gaps_target(target_type, target_id)`, `idx_code_evidence_gaps_status(status)`, `idx_code_evidence_gaps_type(gap_type)`
+**Indexes:** `idx_code_evidence_gaps_habitat(habitat_id)`, `idx_code_evidence_gaps_target(target_type, target_id)`, `idx_code_evidence_gaps_status(status)`
 
 ---
 
