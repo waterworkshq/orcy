@@ -222,8 +222,11 @@ export function TaskDetailModal() {
 
   // Fade in exactly once per presentation: the closed→open edge and a new
   // generation while open (same-ID reopen, reopen inside the close delay).
-  // This is the ONLY fade-in trigger — during the 200 ms scheduled fade-out no
-  // presentation edge fires, so the modal can never re-show itself.
+  // This is the ONLY fade-in trigger: no presentation edge (openModal /
+  // acknowledgeSwitch) fires during the 200 ms scheduled fade-out, and the one
+  // mid-delay generation advance that can — a close request on a draft dirtied
+  // after the fade started — intentionally re-fades to present the
+  // confirmation over visible content.
   useEffect(() => {
     if (isOpen) requestAnimationFrame(() => setVisible(true));
   }, [requestSeq, isOpen]);
