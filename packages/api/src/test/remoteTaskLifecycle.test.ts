@@ -353,6 +353,18 @@ describe("submitTaskForRemote", () => {
     expect(result.task.result).toBe("Work completed");
   });
 
+  it("opens the submit transaction as an immediate writer reservation", () => {
+    const { ctx } = setupRemoteFixture();
+    const task = seedTask(ctx.habitatId);
+    claimAndStart(task.id, ctx.participant.id);
+    const transactionSpy = vi.spyOn(getDb(), "transaction");
+
+    const result = submitTaskForRemote(task.id, ctx, "Work completed", []);
+
+    expect(result.success).toBe(true);
+    expect(transactionSpy.mock.calls[0]?.[1]).toEqual({ behavior: "immediate" });
+  });
+
   it("returns not_found when the task does not exist", () => {
     const { ctx } = setupRemoteFixture();
 

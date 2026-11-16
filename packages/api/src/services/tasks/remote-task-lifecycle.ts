@@ -279,9 +279,20 @@ export function submitTaskForRemote(
     };
   }
 
-  // 4. Atomic tx — budget guard + submitWithAuthorityClient + createEventWithClient
+  // 4. Atomic tx — ownership/status re-gate + budget guard + submitWithAuthorityClient + createEventWithClient
+  //    BEGIN IMMEDIATE fences the re-gate, meter read, and submit write against concurrent reassignment.
   //    (invariant #8 — only client-scoped primitives inside the tx)
   const { submittedTask, eventId, budgetRefused } = getDb().transaction((tx) => {
+    type TaskRow = typeof tasks.$inferSelect;
+    const row = tx.select().from(tasks).where(eq(tasks.id, taskId)).get() as TaskRow | undefined;
+    if (
+      !row ||
+      row.status !== "in_progress" ||
+      row.remoteAssignedParticipantId !== participantId
+    ) {
+      return { submittedTask: null as Task | null, eventId: undefined, budgetRefused: undefined };
+    }
+
     // Transition budget (plan §5): submit by a remote_orcy participant is
     // metered; remote_human participants are exempt (plan §2 human exemption).
     // The refused outcome rides out of the tx for the operator-actionable
@@ -305,7 +316,7 @@ export function submitTaskForRemote(
       evId = event.id;
     }
     return { submittedTask: submitted, eventId: evId, budgetRefused: undefined };
-  });
+  }, { behavior: "immediate" });
 
   if (budgetRefused) {
     return {
