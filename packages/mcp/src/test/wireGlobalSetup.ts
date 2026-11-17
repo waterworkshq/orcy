@@ -35,14 +35,19 @@ function slash(value: string): string {
  * an input EDITED IN PLACE inside the build window — the path sits in both
  * snapshots and no watcher event predates the watch — so the baseline vs
  * post-build comparison is content-sensitive (same shape as the compiled-api
- * artifact's input hash). An unreadable file reads as "" ("changed"), never
- * as a crash: a file can vanish between the directory read and this read.
+ * artifact's input hash). An unreadable file reads as the UNREADABLE_INPUT
+ * sentinel, never as a crash: a file can vanish between the directory read
+ * and this read. The comparison treats the sentinel on EITHER side as
+ * changed, so a file unreadable in both snapshots is never mistaken for
+ * unchanged.
  */
+const UNREADABLE_INPUT = "";
+
 function inputFingerprint(file: string): string {
   try {
     return createHash("sha256").update(readFileSync(file)).digest("hex");
   } catch {
-    return "";
+    return UNREADABLE_INPUT;
   }
 }
 
@@ -163,11 +168,16 @@ export default async function setup(project: TestProject): Promise<() => void> {
   // — arm now so the FIRST rerun rebuilds instead of executing against a
   // dist that lacks them. Membership deltas cover inputs that appeared or
   // vanished; the fingerprint comparison also catches an input EDITED IN
-  // PLACE (present in both snapshots, different content).
+  // PLACE (present in both snapshots, different content). Equal
+  // fingerprints prove unchanged only when BOTH sides were readable — the
+  // unreadable sentinel on either side is an input whose content was never
+  // verified and must arm rather than pass silently.
   const inputChangedDuringBuild =
-    [...knownInputs].some(
-      ([input, fingerprint]) => productionInputs.test(input) && baselineInputs.get(input) !== fingerprint,
-    ) ||
+    [...knownInputs].some(([input, fingerprint]) => {
+      if (!productionInputs.test(input)) return false;
+      const baseline = baselineInputs.get(input);
+      return baseline !== fingerprint || baseline === UNREADABLE_INPUT || fingerprint === UNREADABLE_INPUT;
+    }) ||
     [...baselineInputs].some(([input]) => productionInputs.test(input) && !knownInputs.has(input));
   let productionInputChanged = inputChangedDuringBuild;
   const markProductionInputChange = (file: string): void => {

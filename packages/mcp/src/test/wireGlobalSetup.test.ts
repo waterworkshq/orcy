@@ -27,7 +27,7 @@
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { EventEmitter } from "node:events";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -266,6 +266,20 @@ describe("wire coordinator watch gating", () => {
     buildWireTargets.mockImplementationOnce(() => {
       writeFileSync(input, "export const sharedFixtureInput = false;\n");
     });
+    const { rerun, teardown } = await armedSetup();
+    rerun();
+    expect(buildWireTargets).toHaveBeenCalledTimes(1);
+    teardown();
+  });
+
+  it("arms the rebuild when an input is UNREADABLE across both snapshots, not unchanged", async () => {
+    // A persistently unreadable input (e.g. EACCES) fingerprints as the
+    // unreadable sentinel in BOTH snapshots. Equal sentinels are NOT
+    // evidence of unchanged content — the input was never verified, and
+    // passing silently would let the watcher run against an unverified
+    // build — so the comparison must treat the sentinel on either side as
+    // changed.
+    chmodSync(fixturePath("shared", "src", "index.ts"), 0o000);
     const { rerun, teardown } = await armedSetup();
     rerun();
     expect(buildWireTargets).toHaveBeenCalledTimes(1);
