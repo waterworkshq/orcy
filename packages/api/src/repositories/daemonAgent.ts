@@ -2,6 +2,9 @@ import { getDb } from "../db/index.js";
 import { daemonAgents } from "../db/schema/index.js";
 import { eq, and } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
+import { AGENT_TYPES } from "@orcy/shared";
+import type { AgentType } from "../models/index.js";
+import { logger } from "../lib/logger.js";
 import {
   repositoryCreateError,
   repositoryNotFoundError,
@@ -11,7 +14,7 @@ import {
 export interface CreateDaemonAgentInput {
   daemonId: string;
   agentId: string;
-  cliType: string;
+  cliType: AgentType;
   cliVersion: string | null;
   cliPath: string;
 }
@@ -20,13 +23,33 @@ export interface DaemonAgentRow {
   id: string;
   daemonId: string;
   agentId: string;
-  cliType: string;
+  cliType: AgentType;
   cliVersion: string | null;
   cliPath: string;
   status: string;
   lastSeenAt: string | null;
   createdAt: string;
   updatedAt: string;
+}
+
+const AGENT_TYPE_SET: ReadonlySet<string> = new Set(AGENT_TYPES);
+
+/**
+ * `daemon_agents.cli_type` has no physical CHECK (0090 covered `agents.type`
+ * only), so a legacy or directly-written foreign value can sit in the column.
+ * Validate before asserting the `AgentType`-typed row shape: skip the row as
+ * not-a-daemon-agent and log it, so the poll path never claims tasks for a
+ * CLI with no adapter (previously one task was claimed and failed per tick).
+ */
+function toDaemonAgentRow(row: DaemonAgentRow): DaemonAgentRow | null {
+  if (!AGENT_TYPE_SET.has(row.cliType)) {
+    logger.warn(
+      { cliType: row.cliType, daemonId: row.daemonId, agentId: row.agentId },
+      "daemon_agents row has an unsupported cli_type; skipping row",
+    );
+    return null;
+  }
+  return row;
 }
 
 const daemonAgentFields = {
@@ -53,7 +76,7 @@ export function createDaemonAgent(input: CreateDaemonAgentInput): DaemonAgentRow
         id,
         daemonId: input.daemonId,
         agentId: input.agentId,
-        cliType: input.cliType as any,
+        cliType: input.cliType,
         cliVersion: input.cliVersion,
         cliPath: input.cliPath,
         status: "idle",
@@ -74,7 +97,8 @@ export function createDaemonAgent(input: CreateDaemonAgentInput): DaemonAgentRow
 export function getDaemonAgentById(id: string): DaemonAgentRow | null {
   const db = getDb();
   const rows = db.select(daemonAgentFields).from(daemonAgents).where(eq(daemonAgents.id, id)).all();
-  return rows.length > 0 ? rows[0] : null;
+  const row = rows.length > 0 ? rows[0] : null;
+  return row === null ? null : toDaemonAgentRow(row);
 }
 
 export function getDaemonAgentsByDaemonId(daemonId: string): DaemonAgentRow[] {
@@ -83,7 +107,9 @@ export function getDaemonAgentsByDaemonId(daemonId: string): DaemonAgentRow[] {
     .select(daemonAgentFields)
     .from(daemonAgents)
     .where(eq(daemonAgents.daemonId, daemonId))
-    .all();
+    .all()
+    .map(toDaemonAgentRow)
+    .filter((row): row is DaemonAgentRow => row !== null);
 }
 
 export function getDaemonAgentByAgentId(agentId: string): DaemonAgentRow | null {
@@ -93,7 +119,8 @@ export function getDaemonAgentByAgentId(agentId: string): DaemonAgentRow | null 
     .from(daemonAgents)
     .where(eq(daemonAgents.agentId, agentId))
     .all();
-  return rows.length > 0 ? rows[0] : null;
+  const row = rows.length > 0 ? rows[0] : null;
+  return row === null ? null : toDaemonAgentRow(row);
 }
 
 export function updateDaemonAgentStatus(

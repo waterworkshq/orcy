@@ -1,16 +1,20 @@
 import { sqliteTable, text, integer, index, check } from "drizzle-orm/sqlite-core";
 import { sql } from "drizzle-orm";
+import { AGENT_TYPES } from "@orcy/shared";
 import { habitats } from "./habitat.js";
 import { tasks } from "./task.js";
+
+// The TS union, the column enums, and this Drizzle CHECK body derive from
+// AGENT_TYPES; the physical CHECK (migration 0090) is hard-coded — drift
+// between any of them is detected by schemaConstraintParity.
+const AGENT_TYPE_CHECK = `type IS NOT NULL AND type IN (${AGENT_TYPES.map((t) => `'${t}'`).join(", ")})`;
 
 export const agents = sqliteTable(
   "agents",
   {
     id: text("id").primaryKey(),
     name: text("name").notNull().unique(),
-    type: text("type", {
-      enum: ["claude-code", "codex", "opencode", "cursor", "gemini"],
-    }).notNull(),
+    type: text("type", { enum: AGENT_TYPES }).notNull(),
     domain: text("domain").notNull(),
     capabilities: text("capabilities", { mode: "json" })
       .$type<string[]>()
@@ -33,10 +37,7 @@ export const agents = sqliteTable(
     index("idx_agents_domain").on(table.domain),
     index("idx_agents_status").on(table.status),
     index("idx_agents_current_task").on(table.currentTaskId),
-    check(
-      "agents_type_check",
-      sql`type IS NOT NULL AND type IN ('claude-code', 'codex', 'opencode', 'cursor', 'gemini')`,
-    ),
+    check("agents_type_check", sql.raw(AGENT_TYPE_CHECK)),
     check("agents_status_check", sql`status IN ('idle', 'working', 'offline')`),
   ],
 );

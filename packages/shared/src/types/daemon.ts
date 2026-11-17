@@ -1,12 +1,10 @@
 import type { AgentType } from "./agent.js";
 
 export type { AgentType, AgentStatus } from "./agent.js";
+export { AGENT_TYPES } from "./agent.js";
 
 /** Alias of {@link AgentType} used in the daemon seam for the CLI binary backing an agent. */
 export type CliType = AgentType;
-
-/** Exhaustive readonly list of supported agent/CLI types. Used for Zod schema derivation and CLI detection. */
-export const AGENT_TYPES = ["claude-code", "codex", "opencode", "cursor", "gemini"] as const;
 
 /** Result of probing the host for an installed CLI. Produced by {@link ICliDetector}. */
 export interface DetectedCli {

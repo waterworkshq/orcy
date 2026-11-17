@@ -62,7 +62,10 @@ import {
 import { scheduledOccurrences, scheduledOccurrenceHistory } from "../db/schema/taskPublication.js";
 import { users, teamMembers } from "../db/schema/user.js";
 import { agents } from "../db/schema/agent.js";
+import { daemonAgents } from "../db/schema/daemon.js";
 import { tasks, taskEvents } from "../db/schema/task.js";
+import { AGENT_TYPES } from "@orcy/shared";
+import type { AgentType } from "@orcy/shared";
 import {
   ENFORCEMENT_MIGRATION_TAG,
   ADDITIVE_WATERMARK_TAG,
@@ -421,6 +424,26 @@ describe("Drizzle ↔ migration SQL constraint parity", () => {
       expect(drizzleCheckBodies(table).toSorted()).toEqual(sqlCheckBodies(db, name).toSorted());
     });
   }
+
+  it("keeps the agent-type TS domain in lockstep with the physical agents.type CHECK", () => {
+    // Compile-time: the Drizzle column types ARE the shared union, both directions.
+    type Exact<T, U> = [T] extends [U] ? ([U] extends [T] ? true : never) : never;
+    const agentsColumnIsUnion: Exact<typeof agents.$inferInsert.type, AgentType> = true;
+    const daemonCliColumnIsUnion: Exact<typeof daemonAgents.$inferInsert.cliType, AgentType> = true;
+    expect([agentsColumnIsUnion, daemonCliColumnIsUnion]).toEqual([true, true]);
+
+    // Runtime: the physical CHECK domain (migration 0090) equals AGENT_TYPES exactly.
+    const typeCheckBody = sqlCheckBodies(db, "agents").find((body) =>
+      body.startsWith("type is not null and type in("),
+    );
+    expect(typeCheckBody).toBeDefined();
+    const domain = typeCheckBody!
+      .replace(/^type is not null and type in\(/, "")
+      .replace(/\)$/, "")
+      .split(",")
+      .map((value) => value.replace(/^'|'$/g, ""));
+    expect(domain.toSorted()).toEqual([...AGENT_TYPES].toSorted());
+  });
 
   for (const { table, name } of SCOPED_TABLES) {
     it(`declares every physical constraint of ${name} in Drizzle (and nothing extra)`, () => {

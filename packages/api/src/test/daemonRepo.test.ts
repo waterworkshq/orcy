@@ -140,7 +140,9 @@ import {
   setDaemonStatus,
   listDaemons,
   createDaemonAgent,
+  getDaemonAgentById,
   getDaemonAgentByAgentId,
+  getDaemonAgentsByDaemonId,
   isAgentOwnedByDaemon,
   updateDaemonAgentStatus,
   createDaemonSession,
@@ -248,13 +250,28 @@ describe("daemonRepository", () => {
     });
 
     it("getDaemonAgentByAgentId returns agent", () => {
-      _selectResult = [{ id: "da1", agentId: "a1" } as any];
+      _selectResult = [{ id: "da1", agentId: "a1", cliType: "claude-code" } as any];
       expect(getDaemonAgentByAgentId("a1")!.id).toBe("da1");
     });
 
     it("getDaemonAgentByAgentId returns null when not found", () => {
       _selectResult = [];
       expect(getDaemonAgentByAgentId("x")).toBeNull();
+    });
+
+    it("skips rows with an unsupported cli_type (column has no physical CHECK)", () => {
+      _selectResult = [{ id: "da9", daemonId: "d1", agentId: "a9", cliType: "warp" } as any];
+      expect(getDaemonAgentById("da9")).toBeNull();
+      expect(getDaemonAgentByAgentId("a9")).toBeNull();
+    });
+
+    it("filters unsupported cli_type rows out of the daemon agent listing", () => {
+      _selectResult = [
+        { id: "da1", daemonId: "d1", agentId: "a1", cliType: "claude-code" } as any,
+        { id: "da2", daemonId: "d1", agentId: "a2", cliType: "warp" } as any,
+      ];
+      const rows = getDaemonAgentsByDaemonId("d1");
+      expect(rows.map((r) => r.id)).toEqual(["da1"]);
     });
 
     it("isAgentOwnedByDaemon returns true when owned", () => {
