@@ -327,10 +327,9 @@ checkout's only main-push protections are the post-push CI workflow and the
 branch ruleset below. Other branch pushes are not gated.
 
 **Editing CI workflows.** The repository's gitignore excludes dot-directories,
-so `.github/` is ignored: workflow files are tracked exceptions, force-added
-like the originals (`git add -f .github/workflows/<file>.yml`). A plain
-`git add` on a new workflow file refuses with an "ignored by .gitignore"
-hint — that is expected, not a permissions problem.
+with a root-anchored exception for `.github/` (`!/.github/`): new workflow
+files are visible to a plain `git add .github/workflows/<file>.yml` — no
+`-f` needed.
 
 Run the same suites on demand:
 

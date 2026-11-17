@@ -25,4 +25,7 @@ test("new files under .github/ are not ignored", () => {
 test("the blanket dot-directory rule still holds outside the .github negation", () => {
   assert.equal(isIgnored(".guard-probe-dir/x"), true);
   assert.equal(isIgnored(".github/.guard-probe-cache/x"), true);
+  // The negation is root-anchored (`!/.github/`): a dot-dir of the same name
+  // nested under a package stays ignored by the blanket `.*/` rule.
+  assert.equal(isIgnored("packages/guard-probe/.github/x"), true);
 });

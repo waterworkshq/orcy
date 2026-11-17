@@ -58,4 +58,4 @@ archives/
 
 # Ignore dot directories at any depth; already tracked files remain tracked.
 .*/
-!.github/
+!/.github/
