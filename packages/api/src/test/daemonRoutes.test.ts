@@ -187,6 +187,30 @@ describe("daemonRoutes", () => {
         ),
       ).rejects.toThrow(`Habitat ${BAD_HAB} not found`);
     });
+
+    it("rejects a foreign detectedClis type at the schema boundary (no daemon/agent writes)", async () => {
+      const reply = mockReply();
+
+      await expect(
+        routes.get("POST /daemon/register")!.handler(
+          {
+            body: {
+              name: "ws",
+              hostname: "h",
+              maxConcurrent: 4,
+              daemonVersion: "0.14",
+              detectedClis: [{ type: "warp", path: "/bin/warp" }],
+              habitatIds: [HAB],
+            },
+          } as any,
+          reply,
+        ),
+      ).rejects.toThrow("Validation failed");
+
+      expect(mocks.daemonRepo.createDaemon).not.toHaveBeenCalled();
+      expect(mocks.agentService.createAgent).not.toHaveBeenCalled();
+      expect(mocks.daemonRepo.createDaemonAgent).not.toHaveBeenCalled();
+    });
   });
 
   describe("POST /daemon/heartbeat", () => {
