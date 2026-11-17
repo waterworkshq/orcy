@@ -45,7 +45,7 @@ export function ThroughputChart({ data }: ThroughputChartProps) {
             color: 'var(--on-surface)',
           }}
           labelFormatter={(value) => {
-            const date = new Date(value);
+            const date = new Date(String(value));
             return date.toLocaleDateString();
           }}
         />

@@ -56,7 +56,7 @@ export function CycleTimeChart({ data }: CycleTimeChartProps) {
             color: 'var(--on-surface)',
           }}
           labelFormatter={(value) => {
-            const date = new Date(value);
+            const date = new Date(String(value));
             return date.toLocaleDateString();
           }}
           formatter={(value) => [typeof value === 'number' ? formatMinutes(value) : value, '']}
