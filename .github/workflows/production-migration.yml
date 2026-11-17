@@ -22,8 +22,12 @@ permissions:
 
 jobs:
   gate:
-    name: Production migration gate
+    name: Production migration gate (Node ${{ matrix.node-version }})
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node-version: ['24', '26']
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -31,7 +35,7 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v7
         with:
-          node-version: '24'
+          node-version: ${{ matrix.node-version }}
           # No built-in `cache: pnpm`: setup-node's pnpm cache resolves the
           # store path by invoking pnpm, which would run a runner-global pnpm
           # before the Corepack step activates the pinned pnpm below.
