@@ -197,6 +197,76 @@ it("retires profile, team, reviewer and detail keys on direct account replacemen
   expect(apiMock.list).toHaveBeenCalledTimes(2);
 });
 
+it("defers then clears every retired client when StrictMode rehearses effects", async () => {
+  const retired: QueryClient[] = [];
+  const cleared: QueryClient[] = [];
+  let retainedBeforeDrain: unknown;
+  vi.spyOn(QueryClient.prototype, "cancelQueries").mockImplementation(function (this: QueryClient) {
+    retired.push(this);
+    return Promise.resolve();
+  });
+  const clear = QueryClient.prototype.clear;
+  vi.spyOn(QueryClient.prototype, "clear").mockImplementation(function (this: QueryClient) {
+    cleared.push(this);
+    clear.call(this);
+  });
+  function SwitchAccounts() {
+    const session = useAccountSession();
+    return <button onClick={() => {
+      session.logout();
+      session.completeAuthentication(session.beginAuthentication(), "bob-token");
+      session.completeAuthentication(session.beginAuthentication(), "charlie-token");
+      retainedBeforeDrain = retired[0].getQueryData(queryKeys.user.profile());
+    }}>Switch accounts</button>;
+  }
+  render(<React.StrictMode><SessionStateProvider><ClientProbe /><SwitchAccounts /></SessionStateProvider></React.StrictMode>);
+  act(() => { activeClient.setQueryData(queryKeys.user.profile(), "Alice private data"); });
+  fireEvent.click(screen.getByRole("button", { name: "Switch accounts" }));
+  expect(retired).toHaveLength(3);
+  expect(retainedBeforeDrain).toBe("Alice private data");
+  await waitFor(() => expect(cleared).toEqual(retired));
+  for (const client of retired) expect(client.getQueryCache().getAll()).toEqual([]);
+  expect(retired).not.toContain(activeClient);
+  expect(localStorage.getItem("orcy_token")).toBe("charlie-token");
+});
+
+it("does not clear a newer client from an earlier generation cleanup", async () => {
+  const clients: QueryClient[] = [];
+  const cleared: QueryClient[] = [];
+  let mountedNewer: QueryClient | null = null;
+  let clearedWhileMounted = false;
+  const clear = QueryClient.prototype.clear;
+  vi.spyOn(QueryClient.prototype, "clear").mockImplementation(function (this: QueryClient) {
+    if (this === mountedNewer) clearedWhileMounted = true;
+    cleared.push(this);
+    clear.call(this);
+  });
+  function SwitchAccount() {
+    const session = useAccountSession();
+    return <button onClick={() => session.logout()}>Switch once</button>;
+  }
+  function RetireSecondClientInLayout() {
+    const session = useAccountSession();
+    const client = useQueryClient();
+    React.useLayoutEffect(() => {
+      clients.push(client);
+      if (clients.length !== 2) return;
+      mountedNewer = client;
+      client.setQueryData(queryKeys.user.profile(), "Bob private data");
+      React.startTransition(() => {
+        session.completeAuthentication(session.beginAuthentication(), "charlie-token");
+      });
+      return () => { mountedNewer = null; };
+    }, [client, session]);
+    return null;
+  }
+  render(<SessionStateProvider><SwitchAccount /><RetireSecondClientInLayout /></SessionStateProvider>);
+  fireEvent.click(screen.getByRole("button", { name: "Switch once" }));
+  expect(clients).toHaveLength(3);
+  await waitFor(() => expect(cleared).toEqual(expect.arrayContaining(clients.slice(0, -1))));
+  expect(clearedWhileMounted).toBe(false);
+});
+
 it("retires the previous account on successful registration", async () => {
   apiMock.setupStatus.mockResolvedValue({ needsSetup: true });
   apiMock.register.mockResolvedValue({ token: "new-account-token" });
