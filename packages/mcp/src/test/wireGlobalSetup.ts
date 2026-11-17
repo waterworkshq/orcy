@@ -18,7 +18,7 @@
 import { readFileSync } from "node:fs";
 import { relative } from "node:path";
 import { parseCLI, type TestProject } from "vitest/node";
-import { buildWireTargets } from "./wireBuild.js";
+import { buildWireTargets, WIRE_BUILD_DONE_ENV } from "./wireBuild.js";
 
 /**
  * A test file is a wire consumer when it imports the shared build seam. The
@@ -38,7 +38,12 @@ function isWireConsumer(file: string): boolean {
 /** The file filters this run was started with, exactly as vitest parsed them. */
 function cliFilters(): string[] {
   try {
-    return parseCLI(["vitest", ...process.argv.slice(2)]).filter;
+    return parseCLI(["vitest", ...process.argv.slice(2)]).filter.map((filter) =>
+      // A line filter ("file.test.ts:42", "file.test.ts:10-20") narrows within
+      // a file — globbing must see the bare file path or the match returns
+      // nothing and a selected wire consumer would look unselected.
+      filter.replace(/:\d+(-\d+)?$/, ""),
+    );
   } catch {
     return [];
   }
@@ -58,5 +63,16 @@ export default async function setup(project: TestProject): Promise<() => void> {
 
   buildWireTargets(project.config.root);
   console.log(`[mcp-wire] compiled wire targets once for ${consumers.length} consumer(s): ${consumers.join(", ")}`);
+
+  // Watch contract — vitest never re-runs global setup on reruns, and the
+  // workers' env handshake would keep serving the initial build. Rebuild
+  // before the rerun dispatches (vitest awaits this hook), so a wire test
+  // never executes against a stale dist after a source edit.
+  project.onTestsRerun(() => {
+    delete process.env[WIRE_BUILD_DONE_ENV];
+    buildWireTargets(project.config.root);
+    console.log("[mcp-wire] rebuilt wire targets for watch rerun");
+  });
+
   return () => {};
 }
