@@ -15,13 +15,18 @@
  * (workers inherit the main process env after global setup); the wire files'
  * `buildWireTargets` call becomes a no-op.
  */
-import { readFileSync } from "node:fs";
-import { relative, resolve } from "node:path";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
+import { join, relative, resolve } from "node:path";
 import { parseCLI, type TestProject } from "vitest/node";
 import { buildWireTargets, WIRE_BUILD_DONE_ENV } from "./wireBuild.js";
 
 function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/** Watcher event paths carry platform separators; the patterns below are slash-anchored. */
+function slash(value: string): string {
+  return value.replace(/\\/g, "/");
 }
 
 /**
@@ -63,15 +68,44 @@ export default async function setup(project: TestProject): Promise<() => void> {
     return () => {};
   }
 
-  buildWireTargets(project.config.root);
-  console.log(`[mcp-wire] compiled wire targets once for ${consumers.length} consumer(s): ${consumers.join(", ")}`);
-
   // Vitest's source-import graph does not know the wire consumers depend on
   // the COMPILED output, so a production-input edit schedules no rerun at all.
   // Route the four built packages' inputs to the selected consumers (mirrors
   // the api coordinator's watch trigger). Vitest ids use forward slashes —
   // normalize the workspace root so the anchored pattern matches on Windows.
   const workspaceRoot = resolve(project.config.root, "..", "..").replace(/\\/g, "/");
+  const snapshotInputsPrecedingRun = (): Set<string> => {
+    const known = new Set<string>();
+    const walk = (directory: string): void => {
+      for (const entry of readdirSync(directory, { withFileTypes: true })) {
+        const full = join(directory, entry.name);
+        if (entry.isDirectory()) {
+          walk(full);
+          continue;
+        }
+        if (!entry.isFile()) continue;
+        known.add(slash(full));
+      }
+    };
+    for (const pkg of ["api", "mcp", "daemon", "shared"]) {
+      const pkgDir = resolve(workspaceRoot, "packages", pkg);
+      const srcDir = join(pkgDir, "src");
+      if (existsSync(srcDir)) walk(srcDir);
+      for (const entry of readdirSync(pkgDir, { withFileTypes: true })) {
+        if (!entry.isFile()) continue;
+        if (entry.name.startsWith("tsconfig") && entry.name.endsWith(".json")) known.add(slash(join(pkgDir, entry.name)));
+      }
+    }
+    return known;
+  };
+  // Baseline BEFORE the build: the initial build runs for a while, and a
+  // production input that appears (or vanishes) inside that window is absent
+  // from dist yet predates the watch — no watcher event will ever surface
+  // it. Only the pre-build baseline makes such inputs distinguishable.
+  const baselineInputs = snapshotInputsPrecedingRun();
+  buildWireTargets(project.config.root);
+  console.log(`[mcp-wire] compiled wire targets once for ${consumers.length} consumer(s): ${consumers.join(", ")}`);
+
   const productionInputs = new RegExp(
     `^${escapeRegExp(workspaceRoot)}/packages/(?:api|mcp|daemon|shared)/(?:src/(?!test/)(?!.*\\.test\\.ts$)|tsconfig[^/]*\\.json$)`,
   );
@@ -80,26 +114,59 @@ export default async function setup(project: TestProject): Promise<() => void> {
     { pattern: productionInputs, testsToRun: () => consumerFiles },
   ];
   // The project watcher only covers this package by default; the wire targets
-  // compile three sibling packages too, so put their sources under watch for
-  // the trigger and the change flag below.
+  // compile three sibling packages too, so put those package ROOTS under
+  // watch — the productionInputs pattern above also counts their root-level
+  // tsconfig*.json, and an unwatched match means the edit silently schedules
+  // nothing. (Vite's watcher ignores node_modules; dist/ writes match neither
+  // the trigger nor the change flag, so they stay inert.)
   project.vite.watcher.add([
-    resolve(project.config.root, "..", "api", "src"),
-    resolve(project.config.root, "..", "daemon", "src"),
-    resolve(project.config.root, "..", "shared", "src"),
+    resolve(project.config.root, "..", "api"),
+    resolve(project.config.root, "..", "daemon"),
+    resolve(project.config.root, "..", "shared"),
   ]);
   // A production-input edit must rebuild before the rerun dispatches, but a
   // test-file-only save must not pay the four-package build. The change flag
-  // is set by the watcher events themselves (change and unlink) and consumed
-  // by the rerun hook below.
-  let productionInputChanged = false;
+  // is set by the watcher events themselves (change, add, and unlink) and
+  // consumed by the rerun hook below. Event paths are slash-normalized — the
+  // anchored pattern must also match the backslash-separated paths chokidar
+  // delivers on Windows.
+  //
+  // Every production input on disk once the watch is up. watcher.add() of
+  // the sibling roots rescans them; chokidar v5 silences that scan through
+  // ignoreInitial, but add() returns the watcher (no settle promise) and
+  // "ready" never re-fires — so instead of racing the scan, an "add" for a
+  // path the snapshot already knows is treated as scan noise and must not
+  // arm the rebuild. "unlink" below keeps the snapshot current, so a
+  // delete-and-recreate still arms.
+  const knownInputs = snapshotInputsPrecedingRun();
+  // Inputs that changed while the initial build ran are real changes the
+  // watcher will never report (they predate the watch and the silent rescan)
+  // — arm now so the FIRST rerun rebuilds instead of executing against a
+  // dist that lacks them.
+  const inputChangedDuringBuild =
+    [...knownInputs].some((input) => !baselineInputs.has(input) && productionInputs.test(input)) ||
+    [...baselineInputs].some((input) => !knownInputs.has(input) && productionInputs.test(input));
+  let productionInputChanged = inputChangedDuringBuild;
   const markProductionInputChange = (file: string): void => {
-    if (productionInputs.test(file)) productionInputChanged = true;
+    if (productionInputs.test(slash(file))) productionInputChanged = true;
   };
   project.vite.watcher.on("change", markProductionInputChange);
+  // A NEWLY CREATED input emits chokidar "add", not "change" — the trigger
+  // machinery routes adds to a rerun, so without arming here that rerun would
+  // execute against the stale dist.
+  const markNewProductionInput = (file: string): void => {
+    const normalized = slash(file);
+    if (!productionInputs.test(normalized) || knownInputs.has(normalized)) return;
+    knownInputs.add(normalized);
+    productionInputChanged = true;
+  };
+  project.vite.watcher.on("add", markNewProductionInput);
   // A DELETED input is not routed through the trigger machinery, so route it
   // explicitly to schedule the consumer rerun (and still count as a change).
   const onProductionInputRemoved = (file: string): void => {
-    if (!productionInputs.test(file)) return;
+    const normalized = slash(file);
+    if (!productionInputs.test(normalized)) return;
+    knownInputs.delete(normalized);
     productionInputChanged = true;
     project.vitest.watcher.onFileChange(file);
   };
@@ -132,6 +199,7 @@ export default async function setup(project: TestProject): Promise<() => void> {
 
   return () => {
     project.vite.watcher.off("change", markProductionInputChange);
+    project.vite.watcher.off("add", markNewProductionInput);
     project.vite.watcher.off("unlink", onProductionInputRemoved);
   };
 }
