@@ -27,11 +27,16 @@
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { EventEmitter } from "node:events";
-import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { TestProject } from "vitest/node";
+
+vi.mock(import("node:fs"), async (importOriginal) => {
+  const fs = await importOriginal();
+  return { ...fs, readFileSync: vi.fn(fs.readFileSync) };
+});
 
 vi.mock("./wireBuild.js", () => ({
   WIRE_BUILD_DONE_ENV: "ORCY_MCP_WIRE_BUILD_DONE",
@@ -279,11 +284,20 @@ describe("wire coordinator watch gating", () => {
     // passing silently would let the watcher run against an unverified
     // build — so the comparison must treat the sentinel on either side as
     // changed.
-    chmodSync(fixturePath("shared", "src", "index.ts"), 0o000);
-    const { rerun, teardown } = await armedSetup();
-    rerun();
-    expect(buildWireTargets).toHaveBeenCalledTimes(1);
-    teardown();
+    const input = fixturePath("shared", "src", "index.ts");
+    const fs = await vi.importActual<typeof import("node:fs")>("node:fs");
+    await vi.mocked(readFileSync).withImplementation((path, options) => {
+      if (path === input) throw Object.assign(new Error("Permission denied"), { code: "EACCES" });
+      return fs.readFileSync(path, options);
+    }, async () => {
+      const { rerun, teardown } = await armedSetup();
+      try {
+        rerun();
+        expect(buildWireTargets).toHaveBeenCalledTimes(1);
+      } finally {
+        teardown();
+      }
+    });
   });
 
   it("does not arm when the production tree is unchanged across setup", async () => {
