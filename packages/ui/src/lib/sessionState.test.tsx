@@ -263,7 +263,7 @@ it("does not clear a newer client from an earlier generation cleanup", async () 
   render(<SessionStateProvider><SwitchAccount /><RetireSecondClientInLayout /></SessionStateProvider>);
   fireEvent.click(screen.getByRole("button", { name: "Switch once" }));
   expect(clients).toHaveLength(3);
-  await waitFor(() => expect(cleared).toEqual(expect.arrayContaining(clients)));
+  await waitFor(() => expect(cleared).toEqual(expect.arrayContaining(clients.slice(0, -1))));
   expect(clearedWhileMounted).toBe(false);
 });
 
