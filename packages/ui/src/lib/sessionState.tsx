@@ -33,20 +33,25 @@ const AccountSessionContext = createContext<AccountSession | null>(null);
 export function SessionStateProvider({ children }: { children: React.ReactNode }) {
   const [state, setState] = useState(() => ({ client: createSessionClient(), generation: 0 }));
   const current = useRef(state);
-  const retired = useRef<QueryClient[]>([]);
+  const retired = useRef<{ client: QueryClient; generation: number }[]>([]);
   const authEpoch = useRef(0);
   useEffect(() => {
-    const clearRetired = () => {
-      for (const client of retired.current.splice(0)) client.clear();
+    const clearRetiredBefore = (generation: number) => {
+      const pending = retired.current;
+      retired.current = [];
+      for (const entry of pending) {
+        if (entry.generation < generation) entry.client.clear();
+        else retired.current.push(entry);
+      }
     };
-    clearRetired();
-    return clearRetired;
+    clearRetiredBefore(state.generation);
+    return () => clearRetiredBefore(state.generation + 1);
   }, [state.generation]);
   function replace(token: string | null) {
     authEpoch.current++;
     const previous = current.current;
     void previous.client.cancelQueries();
-    retired.current.push(previous.client);
+    retired.current.push({ client: previous.client, generation: previous.generation });
     const theme = useHabitatStore.getState().theme;
     useHabitatStore.setState({ ...useHabitatStore.getInitialState(), theme }, true);
     useModalStore.getState().closeModal();
