@@ -16,15 +16,15 @@ Thank you for contributing! This guide covers setting up your dev environment, c
 
 ## Supported Node.js versions
 
-Orcy supports the latest Node.js LTS major and the latest Current major. The current matrix is **Node 24 (LTS)** and **Node 26 (Current)**. Development uses the LTS pin in `.node-version`; the root `engines.node` range describes the supported majors rather than pinning one exact release.
+Orcy supports the latest Node.js LTS major and the latest Current major. The current matrix is **Node 24 (LTS)** and **Node 26 (Current)**. Development uses the LTS pin in `.node-version` for fnm/Volta and `.nvmrc` for nvm; the root `engines.node` range describes the supported majors rather than pinning one exact release.
 
 CI rebuilds `better-sqlite3` and runs a real in-memory query on every supported major. The full main test suite runs on the LTS major, while the focused production-migration suite runs on both majors.
 
 The matrix rolls forward deliberately:
 
 - When Node.js publishes a new stable Current major, add it to the CI matrix and update `engines.node`; it replaces the previous Current major after the native and production-migration checks pass.
-- When a major is promoted to LTS, move `.node-version` and the full main suite to that major. The previous LTS leaves the matrix in the same update, once its replacement is green.
-- Keep `.node-version`, `engines.node`, and both workflow matrices in sync. Do not wait for an ABI mismatch or a failing local install before adding a future major.
+- When a major is promoted to LTS, move `.node-version`, `.nvmrc`, and the full main suite to that major. The previous LTS leaves the matrix in the same update, once its replacement is green.
+- Keep `.node-version`, `.nvmrc`, `engines.node`, and both workflow matrices in sync. Do not wait for an ABI mismatch or a failing local install before adding a future major.
 
 ---
 
@@ -32,7 +32,7 @@ The matrix rolls forward deliberately:
 
 ### 1. Install dependencies
 
-Use your Node version manager to select the version in `.node-version` (`fnm use` or `nvm use`), then install with the pnpm version pinned by Corepack:
+Use your Node version manager to select the LTS pin: `fnm use` reads `.node-version`, while `nvm use` reads `.nvmrc`. Then install with the pnpm version pinned by Corepack:
 
 ```bash
 corepack enable
