@@ -360,7 +360,11 @@ export type ClaimNextDaemonTaskResult =
  * Claims the next available task for an agent on a given daemon and habitat, returning a {@link ClaimNextDaemonTaskResult} that is `{ claimed: false }` when the daemon is at capacity, the agent is already busy, or no suggestion can be claimed, and throwing `forbidden`/`badRequest` if the agent or habitat is invalid.
  */
 export function claimNextDaemonTask(input: ClaimNextDaemonTaskInput): ClaimNextDaemonTaskResult {
-  if (!daemonRepo.isAgentOwnedByDaemon(input.agentId, input.daemonId)) {
+  // Authorize through the VALIDATED row read: daemon_agents.cli_type has no
+  // physical CHECK, so bare ownership would let a legacy/foreign-type row
+  // claim tasks it can never run (claim-and-fail churn on every poll).
+  const daemonAgent = daemonRepo.getDaemonAgentByAgentId(input.agentId);
+  if (!daemonAgent || daemonAgent.daemonId !== input.daemonId) {
     throw forbidden("Agent does not belong to this daemon");
   }
 

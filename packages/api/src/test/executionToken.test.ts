@@ -838,6 +838,42 @@ describe("R1 — daemon seam preserves the service claim contract", () => {
     expect(taskToken(task.id)).toBeNull();
   });
 
+  it("unsupported cli_type row is rejected BEFORE claiming (foreign daemon_agents value, no claim-and-fail churn)", async () => {
+    const { claimNextDaemonTask } = await import("../services/daemonEngine.js");
+    const { agent, daemon } = seedDaemonAndAgent();
+    daemonRepo.createDaemonAgent({
+      daemonId: daemon.id,
+      agentId: agent.id,
+      cliType: "claude-code",
+      cliVersion: null,
+      cliPath: "/bin/claude",
+    });
+    // Legacy/direct write: daemon_agents.cli_type has no physical CHECK, so a
+    // foreign value can sit in the column.
+    getDb().run(dsql`UPDATE daemon_agents SET cli_type = 'warp' WHERE agent_id = ${agent.id}`);
+    const task = seedTask("r1-warp-cli");
+    // No suggestion mock is queued: the guard must reject before suggestions
+    // are consulted (and a queued mockReturnValueOnce would leak into the
+    // next test if the throw happened first).
+    expect(() =>
+      claimNextDaemonTask({
+        daemonId: daemon.id,
+        agentId: agent.id,
+        habitatId,
+        maxConcurrent: 4,
+      }),
+    ).toThrow(/does not belong to this daemon/i);
+    // Row-level proof: the claim never happened.
+    const row = getDb().select().from(tasks).where(eq(tasks.id, task.id)).get() as {
+      status: string;
+      assignedAgentId: string | null;
+    };
+    expect(row.status).toBe("pending");
+    expect(row.assignedAgentId).toBeNull();
+    expect(taskToken(task.id)).toBeNull();
+    expect(sessionToken(task.id)).toHaveLength(0);
+  });
+
   it("successful daemon claim mints token, creates the session with SAME token, and emits a claimed task_event (service chain intact)", async () => {
     const { claimNextDaemonTask } = await import("../services/daemonEngine.js");
     const { agent, daemon } = seedDaemonAndAgent();

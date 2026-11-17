@@ -235,7 +235,7 @@ describe("daemonRoutes", () => {
 
   describe("POST /daemon/tasks/claim-next", () => {
     it("claims a task and returns it with worktree settings", async () => {
-      mocks.daemonRepo.isAgentOwnedByDaemon.mockReturnValue(true);
+      mocks.daemonRepo.getDaemonAgentByAgentId.mockReturnValue({ id: "da-1", daemonId: D1 });
       mocks.habitatRepo.getHabitatById.mockReturnValue({
         id: HAB,
         gitWorktreeSettings: { repoPath: "/repo", branchPrefix: "task/", autoCleanup: true },
@@ -277,7 +277,7 @@ describe("daemonRoutes", () => {
     });
 
     it("returns 204 when no task can be claimed", async () => {
-      mocks.daemonRepo.isAgentOwnedByDaemon.mockReturnValue(true);
+      mocks.daemonRepo.getDaemonAgentByAgentId.mockReturnValue({ id: "da-1", daemonId: D1 });
       mocks.habitatRepo.getHabitatById.mockReturnValue({ id: HAB });
       mocks.suggestionService.getSuggestionsForAgent.mockReturnValue({
         suggestions: [{ taskId: T1 }],
@@ -297,7 +297,7 @@ describe("daemonRoutes", () => {
     });
 
     it("tries second suggestion when first fails", async () => {
-      mocks.daemonRepo.isAgentOwnedByDaemon.mockReturnValue(true);
+      mocks.daemonRepo.getDaemonAgentByAgentId.mockReturnValue({ id: "da-1", daemonId: D1 });
       mocks.habitatRepo.getHabitatById.mockReturnValue({ id: HAB });
       mocks.suggestionService.getSuggestionsForAgent.mockReturnValue({
         suggestions: [{ taskId: T1 }, { taskId: T2 }],
@@ -332,7 +332,7 @@ describe("daemonRoutes", () => {
     });
 
     it("rejects non-owned agent", async () => {
-      mocks.daemonRepo.isAgentOwnedByDaemon.mockReturnValue(false);
+      mocks.daemonRepo.getDaemonAgentByAgentId.mockReturnValue({ id: "da-1", daemonId: "other" });
       const reply = mockReply();
 
       await expect(
@@ -347,7 +347,7 @@ describe("daemonRoutes", () => {
     });
 
     it("rejects invalid habitat", async () => {
-      mocks.daemonRepo.isAgentOwnedByDaemon.mockReturnValue(true);
+      mocks.daemonRepo.getDaemonAgentByAgentId.mockReturnValue({ id: "da-1", daemonId: D1 });
       mocks.habitatRepo.getHabitatById.mockReturnValue(null);
       const reply = mockReply();
 
@@ -363,7 +363,7 @@ describe("daemonRoutes", () => {
     });
 
     it("returns 204 when no suggestions available", async () => {
-      mocks.daemonRepo.isAgentOwnedByDaemon.mockReturnValue(true);
+      mocks.daemonRepo.getDaemonAgentByAgentId.mockReturnValue({ id: "da-1", daemonId: D1 });
       mocks.habitatRepo.getHabitatById.mockReturnValue({ id: HAB });
       mocks.suggestionService.getSuggestionsForAgent.mockReturnValue({ suggestions: [] });
 
@@ -380,7 +380,7 @@ describe("daemonRoutes", () => {
     });
 
     it("returns 204 when daemon is at max concurrency", async () => {
-      mocks.daemonRepo.isAgentOwnedByDaemon.mockReturnValue(true);
+      mocks.daemonRepo.getDaemonAgentByAgentId.mockReturnValue({ id: "da-1", daemonId: D1 });
       mocks.habitatRepo.getHabitatById.mockReturnValue({ id: HAB });
       mocks.daemonRepo.getActiveSessionsByDaemonId.mockReturnValue([
         { id: "s1", agentId: AG2 },
@@ -401,7 +401,7 @@ describe("daemonRoutes", () => {
     });
 
     it("returns 204 when the daemon agent already has an active session", async () => {
-      mocks.daemonRepo.isAgentOwnedByDaemon.mockReturnValue(true);
+      mocks.daemonRepo.getDaemonAgentByAgentId.mockReturnValue({ id: "da-1", daemonId: D1 });
       mocks.habitatRepo.getHabitatById.mockReturnValue({ id: HAB });
       mocks.daemonRepo.getActiveSessionsByDaemonId.mockReturnValue([{ id: "s1", agentId: AG1 }]);
 
