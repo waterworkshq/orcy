@@ -1,4 +1,5 @@
 import { sqliteTable, text, integer, index, uniqueIndex } from "drizzle-orm/sqlite-core";
+import { AGENT_TYPES } from "@orcy/shared";
 import { agents } from "./agent.js";
 import { tasks } from "./task.js";
 import { habitats } from "./habitat.js";
@@ -36,9 +37,7 @@ export const daemonAgents = sqliteTable(
     agentId: text("agent_id")
       .notNull()
       .references(() => agents.id, { onDelete: "cascade" }),
-    cliType: text("cli_type", {
-      enum: ["claude-code", "codex", "opencode", "cursor", "gemini"],
-    }).notNull(),
+    cliType: text("cli_type", { enum: AGENT_TYPES }).notNull(),
     cliVersion: text("cli_version"),
     cliPath: text("cli_path").notNull(),
     status: text("status", { enum: ["idle", "working", "offline"] })

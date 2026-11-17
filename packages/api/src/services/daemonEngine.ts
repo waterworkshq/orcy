@@ -4,6 +4,7 @@ import type {
   RegisteredAgent,
   ISessionManager,
   IClaimStrategy,
+  CliType,
 } from "@orcy/shared/types";
 import { runPollTick } from "@orcy/shared";
 import * as daemonRepo from "../repositories/daemon.js";
@@ -85,7 +86,7 @@ export function register(
     const agentName = `daemon-${name}-${cli.type}`;
     const created = agentService.createAgent({
       name: agentName,
-      type: cli.type as any,
+      type: cli.type,
       domain: "fullstack",
       capabilities: [],
       metadata: { daemonId: daemon.id, cliPath: cli.path, cliVersion: cli.version },
@@ -137,7 +138,7 @@ export function start(daemonId: string, dataDir: string = "/tmp/orcy-daemon"): v
   const agents: RegisteredAgent[] = daemonAgents.map((da) => ({
     id: da.agentId,
     name: `daemon-agent-${da.cliType}`,
-    type: da.cliType as any,
+    type: da.cliType,
     apiKey: credentials.get(da.agentId)?.apiKey ?? "",
     binPath: da.cliPath ?? undefined,
   }));
@@ -253,7 +254,7 @@ export interface RegisterHttpDaemonInput {
   maxConcurrent: number;
   daemonVersion: string;
   habitatIds: string[];
-  detectedClis: Array<{ type: string; path: string; version?: string | null }>;
+  detectedClis: Array<{ type: CliType; path: string; version?: string | null }>;
 }
 
 /** Result of HTTP-based daemon registration: the daemon id, the one-time daemon token, the heartbeat cadence, and per-agent credentials to deliver out-of-band. */
@@ -291,7 +292,7 @@ export function registerHttpDaemon(input: RegisterHttpDaemonInput): RegisterHttp
     const agentName = `daemon-${input.name}-${cli.type}`;
     const created = agentService.createAgent({
       name: agentName,
-      type: cli.type as any,
+      type: cli.type,
       domain: "fullstack",
       capabilities: [],
       metadata: { daemonId: daemon.id, cliPath: cli.path, cliVersion: cli.version },

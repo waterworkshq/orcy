@@ -2,6 +2,7 @@ import { getDb } from "../db/index.js";
 import { daemonAgents } from "../db/schema/index.js";
 import { eq, and } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
+import type { AgentType } from "../models/index.js";
 import {
   repositoryCreateError,
   repositoryNotFoundError,
@@ -11,7 +12,7 @@ import {
 export interface CreateDaemonAgentInput {
   daemonId: string;
   agentId: string;
-  cliType: string;
+  cliType: AgentType;
   cliVersion: string | null;
   cliPath: string;
 }
@@ -20,7 +21,7 @@ export interface DaemonAgentRow {
   id: string;
   daemonId: string;
   agentId: string;
-  cliType: string;
+  cliType: AgentType;
   cliVersion: string | null;
   cliPath: string;
   status: string;
@@ -53,7 +54,7 @@ export function createDaemonAgent(input: CreateDaemonAgentInput): DaemonAgentRow
         id,
         daemonId: input.daemonId,
         agentId: input.agentId,
-        cliType: input.cliType as any,
+        cliType: input.cliType,
         cliVersion: input.cliVersion,
         cliPath: input.cliPath,
         status: "idle",
