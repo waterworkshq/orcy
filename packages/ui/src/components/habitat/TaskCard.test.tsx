@@ -30,11 +30,11 @@ vi.mock("../../store/modalStore.js", () => ({
   useModalStore: (selector: any) => selector({ openModal: mockOpenModal }),
 }));
 
-let selectorCallLog: Array<{ selector: any; equalityFn?: any }> = [];
+let selectorCallLog: Array<{ selector: any }> = [];
 
-const useHabitatStoreMock = vi.fn((selectorOrState?: any, equalityFn?: any) => {
+const useHabitatStoreMock = vi.fn((selectorOrState?: any) => {
   if (typeof selectorOrState === "function") {
-    selectorCallLog.push({ selector: selectorOrState, equalityFn });
+    selectorCallLog.push({ selector: selectorOrState });
     return selectorOrState(mockBoardState);
   }
   return mockBoardState;
@@ -44,31 +44,16 @@ vi.mock("../../store/habitatStore.js", () => ({
   useHabitatStore: (...args: any[]) => useHabitatStoreMock(...args),
 }));
 
-vi.mock("zustand/shallow", () => ({
-  shallow: (a: any, b: any) => {
-    if (a === b) return true;
-    if (Array.isArray(a) && Array.isArray(b)) {
-      if (a.length !== b.length) return false;
-      return a.every((item, i) => {
-        if (
-          typeof item === "object" &&
-          item !== null &&
-          typeof b[i] === "object" &&
-          b[i] !== null
-        ) {
-          return Object.keys(item).every((k) => item[k] === b[i][k]);
-        }
-        return item === b[i];
-      });
-    }
-    if (typeof a === "object" && typeof b === "object" && a !== null && b !== null) {
-      const aKeys = Object.keys(a);
-      const bKeys = Object.keys(b);
-      if (aKeys.length !== bKeys.length) return false;
-      return aKeys.every((k) => a[k] === b[k]);
-    }
-    return false;
-  },
+// Tag the wrapped selector so tests can prove a store subscription went
+// through useShallow (zustand v5 removed the hook's equalityFn argument).
+const useShallowMock = vi.fn((selector: any) => {
+  const wrapped = (state: any) => selector(state);
+  (wrapped as any).__useShallow = true;
+  return wrapped;
+});
+
+vi.mock("zustand/react/shallow", () => ({
+  useShallow: (selector: any) => useShallowMock(selector),
 }));
 
 vi.mock("../ui/Badge.js", () => ({
@@ -315,11 +300,14 @@ describe("TaskCard filtered presence selector", () => {
     expect(presenceSelectors.length).toBeGreaterThanOrEqual(1);
   });
 
-  it("uses shallow equality function for filtered presence selector", () => {
+  it("wraps the filtered presence selector in useShallow", () => {
     render(<TaskCard task={makeTask({ id: "task-shallow" })} />);
 
-    const selectorsWithShallow = selectorCallLog.filter((call) => call.equalityFn !== undefined);
-    expect(selectorsWithShallow.length).toBeGreaterThanOrEqual(1);
+    expect(useShallowMock).toHaveBeenCalled();
+    const shallowWrapped = selectorCallLog.filter(
+      (call) => typeof call.selector === "function" && (call.selector as any).__useShallow === true,
+    );
+    expect(shallowWrapped.length).toBeGreaterThanOrEqual(1);
   });
 
   it("shows viewer count for task viewers", () => {

@@ -2,7 +2,7 @@ import React, { memo } from "react";
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { useQuery } from "@tanstack/react-query";
-import { shallow } from "zustand/shallow";
+import { useShallow } from "zustand/react/shallow";
 import { Badge } from "../ui/Badge.js";
 import { Tooltip } from "../ui/Tooltip.js";
 import { AgentAvatar } from "./AgentAvatar.js";
@@ -53,8 +53,7 @@ export const TaskCard = memo(function TaskCard({
   const openModal = useModalStore((s) => s.openModal);
   const isBulkSelectMode = useHabitatStore((s) => s.isBulkSelectMode);
   const taskViewers = useHabitatStore(
-    (s) => s.presence.filter((p) => p.viewingTaskId === task.id),
-    shallow,
+    useShallow((s) => s.presence.filter((p) => p.viewingTaskId === task.id)),
   );
   const borderClass = PRIORITY_BORDER_CLASS[task.priority] ?? PRIORITY_BORDER_CLASS.medium;
 

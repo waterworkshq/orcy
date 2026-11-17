@@ -22,16 +22,8 @@ vi.mock("../ui/Tooltip.js", () => ({
   Tooltip: ({ children }: any) => <div>{children}</div>,
 }));
 
-vi.mock("zustand/shallow", () => ({
-  shallow: (a: any, b: any) => {
-    if (a === b) return true;
-    if (a == null || b == null) return a === b;
-    if (typeof a !== "object" || typeof b !== "object") return a === b;
-    const keysA = Object.keys(a);
-    const keysB = Object.keys(b);
-    if (keysA.length !== keysB.length) return false;
-    return keysA.every((key) => a[key] === b[key]);
-  },
+vi.mock("zustand/react/shallow", () => ({
+  useShallow: (selector: any) => selector,
 }));
 
 const mockColumn: ColumnType = {

@@ -6,7 +6,7 @@ import { Tooltip } from '../ui/Tooltip.js';
 import type { MissionWithProgress, Column as ColumnType } from '../../types/index.js';
 import { Settings, ChevronDown, ChevronRight } from 'lucide-react';
 import { useHabitatStore } from '../../store/habitatStore.js';
-import { shallow } from 'zustand/shallow';
+import { useShallow } from 'zustand/react/shallow';
 
 const INITIAL_VISIBLE = 10;
 const LOAD_STEP = 10;
@@ -21,8 +21,7 @@ interface ColumnProps {
 export const Column = React.memo(function Column({ column, features, onSettingsClick, isMobile }: ColumnProps) {
   const { setNodeRef, isOver } = useDroppable({ id: column.id });
   const wipAlert = useHabitatStore(
-    (s) => s.wipAlerts[column.id] ?? null,
-    shallow
+    useShallow((s) => s.wipAlerts[column.id] ?? null),
   );
   const isCollapsed = useHabitatStore((s) => s.collapsedColumns[column.id] ?? false);
   const toggleColumnCollapsed = useHabitatStore((s) => s.toggleColumnCollapsed);
