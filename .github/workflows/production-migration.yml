@@ -45,7 +45,7 @@ jobs:
       - name: Install Corepack if missing
         # Node 25+ no longer bundles Corepack. The current setup-node
         # distribution provides it, but the matrix must not depend on that.
-        run: command -v corepack >/dev/null 2>&1 || npm install -g corepack
+        run: command -v corepack >/dev/null 2>&1 || npm install -g corepack@0.34.2
 
       - name: Enable Corepack (pin derived from packageManager)
         # Corepack resolves pnpm from the root `packageManager` field — the
