@@ -15,6 +15,7 @@
  * (workers inherit the main process env after global setup); the wire files'
  * `buildWireTargets` call becomes a no-op.
  */
+import { createHash } from "node:crypto";
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { join, relative, resolve } from "node:path";
 import { parseCLI, type TestProject } from "vitest/node";
@@ -27,6 +28,22 @@ function escapeRegExp(value: string): string {
 /** Watcher event paths carry platform separators; the patterns below are slash-anchored. */
 function slash(value: string): string {
   return value.replace(/\\/g, "/");
+}
+
+/**
+ * Content fingerprint of one walked input. Set membership alone cannot see
+ * an input EDITED IN PLACE inside the build window — the path sits in both
+ * snapshots and no watcher event predates the watch — so the baseline vs
+ * post-build comparison is content-sensitive (same shape as the compiled-api
+ * artifact's input hash). An unreadable file reads as "" ("changed"), never
+ * as a crash: a file can vanish between the directory read and this read.
+ */
+function inputFingerprint(file: string): string {
+  try {
+    return createHash("sha256").update(readFileSync(file)).digest("hex");
+  } catch {
+    return "";
+  }
 }
 
 /**
@@ -74,8 +91,8 @@ export default async function setup(project: TestProject): Promise<() => void> {
   // the api coordinator's watch trigger). Vitest ids use forward slashes —
   // normalize the workspace root so the anchored pattern matches on Windows.
   const workspaceRoot = resolve(project.config.root, "..", "..").replace(/\\/g, "/");
-  const snapshotInputsPrecedingRun = (): Set<string> => {
-    const known = new Set<string>();
+  const snapshotInputsPrecedingRun = (): Map<string, string> => {
+    const known = new Map<string, string>();
     const walk = (directory: string): void => {
       for (const entry of readdirSync(directory, { withFileTypes: true })) {
         const full = join(directory, entry.name);
@@ -84,7 +101,7 @@ export default async function setup(project: TestProject): Promise<() => void> {
           continue;
         }
         if (!entry.isFile()) continue;
-        known.add(slash(full));
+        known.set(slash(full), inputFingerprint(full));
       }
     };
     for (const pkg of ["api", "mcp", "daemon", "shared"]) {
@@ -93,7 +110,9 @@ export default async function setup(project: TestProject): Promise<() => void> {
       if (existsSync(srcDir)) walk(srcDir);
       for (const entry of readdirSync(pkgDir, { withFileTypes: true })) {
         if (!entry.isFile()) continue;
-        if (entry.name.startsWith("tsconfig") && entry.name.endsWith(".json")) known.add(slash(join(pkgDir, entry.name)));
+        if (entry.name.startsWith("tsconfig") && entry.name.endsWith(".json")) {
+          known.set(slash(join(pkgDir, entry.name)), inputFingerprint(join(pkgDir, entry.name)));
+        }
       }
     }
     return known;
@@ -142,10 +161,14 @@ export default async function setup(project: TestProject): Promise<() => void> {
   // Inputs that changed while the initial build ran are real changes the
   // watcher will never report (they predate the watch and the silent rescan)
   // — arm now so the FIRST rerun rebuilds instead of executing against a
-  // dist that lacks them.
+  // dist that lacks them. Membership deltas cover inputs that appeared or
+  // vanished; the fingerprint comparison also catches an input EDITED IN
+  // PLACE (present in both snapshots, different content).
   const inputChangedDuringBuild =
-    [...knownInputs].some((input) => !baselineInputs.has(input) && productionInputs.test(input)) ||
-    [...baselineInputs].some((input) => !knownInputs.has(input) && productionInputs.test(input));
+    [...knownInputs].some(
+      ([input, fingerprint]) => productionInputs.test(input) && baselineInputs.get(input) !== fingerprint,
+    ) ||
+    [...baselineInputs].some(([input]) => productionInputs.test(input) && !knownInputs.has(input));
   let productionInputChanged = inputChangedDuringBuild;
   const markProductionInputChange = (file: string): void => {
     if (productionInputs.test(slash(file))) productionInputChanged = true;
@@ -157,7 +180,7 @@ export default async function setup(project: TestProject): Promise<() => void> {
   const markNewProductionInput = (file: string): void => {
     const normalized = slash(file);
     if (!productionInputs.test(normalized) || knownInputs.has(normalized)) return;
-    knownInputs.add(normalized);
+    knownInputs.set(normalized, inputFingerprint(normalized));
     productionInputChanged = true;
   };
   project.vite.watcher.on("add", markNewProductionInput);

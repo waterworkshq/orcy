@@ -257,6 +257,21 @@ describe("wire coordinator watch gating", () => {
     expect(() => removeMidSetupProbe(probe)).not.toThrow();
   });
 
+  it("arms the rebuild when an existing input is EDITED IN PLACE during the build window", async () => {
+    const input = fixturePath("shared", "src", "index.ts");
+    // An in-place edit leaves set membership identical across the two
+    // snapshots and no watcher event predates the watch — only a
+    // content-sensitive baseline/post-build comparison can surface it, or
+    // the first rerun executes against a stale dist.
+    buildWireTargets.mockImplementationOnce(() => {
+      writeFileSync(input, "export const sharedFixtureInput = false;\n");
+    });
+    const { rerun, teardown } = await armedSetup();
+    rerun();
+    expect(buildWireTargets).toHaveBeenCalledTimes(1);
+    teardown();
+  });
+
   it("does not arm when the production tree is unchanged across setup", async () => {
     const { rerun, teardown } = await armedSetup();
 
