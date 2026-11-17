@@ -15,8 +15,12 @@ export const WIRE_BUILD_DONE_ENV = "ORCY_MCP_WIRE_BUILD_DONE";
 
 export function buildWireTargets(packageDir: string): void {
   if (process.env[WIRE_BUILD_DONE_ENV] === "1") return;
+  // --noEmitOnError keeps a failing rebuild from partially rewriting dist:
+  // the coordinator's watch path promises consumers the last good output, and
+  // plain tsc would emit despite type errors. (No `--` separator — pnpm
+  // forwards it literally and tsc rejects it.)
   execSync(
-    "corepack pnpm --filter @orcy/shared --filter @orcy/daemon --filter @orcy/api --filter @orcy/mcp build",
+    "corepack pnpm --filter @orcy/shared --filter @orcy/daemon --filter @orcy/api --filter @orcy/mcp build --noEmitOnError",
     {
       cwd: packageDir,
       stdio: "pipe",

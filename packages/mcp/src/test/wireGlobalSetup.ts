@@ -66,11 +66,54 @@ export default async function setup(project: TestProject): Promise<() => void> {
   buildWireTargets(project.config.root);
   console.log(`[mcp-wire] compiled wire targets once for ${consumers.length} consumer(s): ${consumers.join(", ")}`);
 
+  // Vitest's source-import graph does not know the wire consumers depend on
+  // the COMPILED output, so a production-input edit schedules no rerun at all.
+  // Route the four built packages' inputs to the selected consumers (mirrors
+  // the api coordinator's watch trigger). Vitest ids use forward slashes —
+  // normalize the workspace root so the anchored pattern matches on Windows.
+  const workspaceRoot = resolve(project.config.root, "..", "..").replace(/\\/g, "/");
+  const productionInputs = new RegExp(
+    `^${escapeRegExp(workspaceRoot)}/packages/(?:api|mcp|daemon|shared)/(?:src/(?!test/)(?!.*\\.test\\.ts$)|tsconfig[^/]*\\.json$)`,
+  );
+  project.vitest.config.watchTriggerPatterns = [
+    ...(project.vitest.config.watchTriggerPatterns ?? []),
+    { pattern: productionInputs, testsToRun: () => consumerFiles },
+  ];
+  // The project watcher only covers this package by default; the wire targets
+  // compile three sibling packages too, so put their sources under watch for
+  // the trigger and the change flag below.
+  project.vite.watcher.add([
+    resolve(project.config.root, "..", "api", "src"),
+    resolve(project.config.root, "..", "daemon", "src"),
+    resolve(project.config.root, "..", "shared", "src"),
+  ]);
+  // A production-input edit must rebuild before the rerun dispatches, but a
+  // test-file-only save must not pay the four-package build. The change flag
+  // is set by the watcher events themselves (change and unlink) and consumed
+  // by the rerun hook below.
+  let productionInputChanged = false;
+  const markProductionInputChange = (file: string): void => {
+    if (productionInputs.test(file)) productionInputChanged = true;
+  };
+  project.vite.watcher.on("change", markProductionInputChange);
+  // A DELETED input is not routed through the trigger machinery, so route it
+  // explicitly to schedule the consumer rerun (and still count as a change).
+  const onProductionInputRemoved = (file: string): void => {
+    if (!productionInputs.test(file)) return;
+    productionInputChanged = true;
+    project.vitest.watcher.onFileChange(file);
+  };
+  project.vite.watcher.on("unlink", onProductionInputRemoved);
+
   // Watch contract — vitest never re-runs global setup on reruns, and the
   // workers' env handshake would keep serving the initial build. Rebuild
-  // before the rerun dispatches (vitest awaits this hook), so a wire test
-  // never executes against a stale dist after a source edit.
+  // before the rerun dispatches (vitest awaits this hook), but only when a
+  // production input actually changed. buildWireTargets passes
+  // --noEmitOnError, so a failed rebuild leaves the previous dist in place
+  // and the rerun below runs against the last good output.
   project.onTestsRerun(() => {
+    if (!productionInputChanged) return;
+    productionInputChanged = false;
     delete process.env[WIRE_BUILD_DONE_ENV];
     try {
       buildWireTargets(project.config.root);
@@ -79,35 +122,16 @@ export default async function setup(project: TestProject): Promise<() => void> {
       // A failed rebuild (e.g. a compile error mid-watch) must not abort the
       // rerun. execSync's message is a bare "Command failed" — the compiler
       // diagnostics live in stderr, so surface those. The flag is restored so
-      // consumers keep the last good dist: a half-emitted failure artifact
-      // would serve torn modules, and worker fallback rebuilds would race.
+      // consumers keep the last good dist (noEmitOnError left it untouched):
+      // worker fallback rebuilds would only race and re-fail.
       const detail = ((error as { stderr?: Buffer }).stderr?.toString() ?? String(error)).trim();
       process.env[WIRE_BUILD_DONE_ENV] = "1";
-      console.error(`[mcp-wire] wire target rebuild failed — dist may be inconsistent until the next successful build:\n${detail}`);
+      console.error(`[mcp-wire] wire target rebuild failed — keeping the previous dist:\n${detail}`);
     }
   });
 
-  // Vitest's source-import graph does not know the wire consumers depend on
-  // the COMPILED output, so a production-input edit schedules no rerun at all.
-  // Route the four built packages' inputs to the selected consumers (mirrors
-  // the api coordinator's watch trigger).
-  const workspaceRoot = resolve(project.config.root, "..", "..");
-  const productionInputs = new RegExp(
-    `^${escapeRegExp(workspaceRoot)}/packages/(?:api|mcp|daemon|shared)/(?:src/(?!test/)(?!.*\\.test\\.ts$)|tsconfig[^/]*\\.json$)`,
-  );
-  project.vitest.config.watchTriggerPatterns = [
-    ...(project.vitest.config.watchTriggerPatterns ?? []),
-    { pattern: productionInputs, testsToRun: () => consumerFiles },
-  ];
-  // A DELETED input is not routed through the trigger machinery, so route it
-  // explicitly to schedule the consumer rerun.
-  const onProductionInputRemoved = (file: string): void => {
-    if (!productionInputs.test(file)) return;
-    project.vitest.watcher.onFileChange(file);
-  };
-  project.vite.watcher.on("unlink", onProductionInputRemoved);
-
   return () => {
+    project.vite.watcher.off("change", markProductionInputChange);
     project.vite.watcher.off("unlink", onProductionInputRemoved);
   };
 }
