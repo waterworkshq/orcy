@@ -41,7 +41,7 @@ function Home() {
   return <>{showModal && <TaskDetailModal />}{showStream && <Stream />}<MutationTrigger /><TopAppBar /><TaskBulkActionBar habitatId="h" />{showMissionBulk && <section data-testid="mission-bulk"><BulkActionBar habitatId="h" /></section>}<div>{data?.map((h) => h.name).join(",")}</div><Link to="/login">Change account</Link></>;
 }
 function renderSession() {
-  return render(<MemoryRouter><Link to="/">Workspace</Link><SessionStateProvider><ClientProbe /><BoundaryProbe /><Routes>
+  return render(<MemoryRouter useTransitions={false}><Link to="/">Workspace</Link><SessionStateProvider><ClientProbe /><BoundaryProbe /><Routes>
     <Route path="/" element={<Home />} /><Route path="/login" element={<AuthPage />} />
   </Routes></SessionStateProvider></MemoryRouter>);
 }

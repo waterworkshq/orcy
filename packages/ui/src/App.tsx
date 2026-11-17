@@ -42,7 +42,7 @@ export default function App() {
   return (
     <>
       <ThemeInitializer />
-      <BrowserRouter basename={import.meta.env.BASE_URL.replace(/\/$/, "")}>
+      <BrowserRouter basename={import.meta.env.BASE_URL.replace(/\/$/, "")} useTransitions={false}>
         <SessionStateProvider>
           <ErrorBoundary>
             <Routes>
