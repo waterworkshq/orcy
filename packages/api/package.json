@@ -45,7 +45,7 @@
     "fastify-raw-body": "^5.0.0",
     "fastify-type-provider-zod": "^4.0.2",
     "jsonwebtoken": "^9.0.3",
-    "nodemailer": "^8.0.5",
+    "nodemailer": "^10.1.4",
     "pino": "^9.0.0",
     "undici": "^8.12.4",
     "uuid": "^14.0.3",
