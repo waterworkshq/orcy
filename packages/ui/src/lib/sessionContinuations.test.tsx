@@ -61,7 +61,7 @@ function NotificationSettings() {
   return <><NotificationsTab ref={ref} habitatId="h" /><button onClick={() => void ref.current?.save()}>Save preferences</button></>;
 }
 function renderWorkspace(initialPath = "/list") {
-  return render(<MemoryRouter initialEntries={[initialPath]}><SessionStateProvider><AccountControls /><Routes>
+  return render(<MemoryRouter initialEntries={[initialPath]} useTransitions={false}><SessionStateProvider><AccountControls /><Routes>
     <Route path="/" element={<p>Home workspace</p>} /><Route path="/settings" element={<SettingsRoute />} />
     <Route path="/download-audit" element={<DownloadForm kind="audit" />} /><Route path="/download-habitat" element={<DownloadForm kind="habitat" />} /><Route path="/download-attachment" element={<DownloadForm kind="attachment" />} />
     <Route path="/create-task" element={<PublicationForm />} /><Route path="/clone-task" element={<PublicationForm clone />} />
