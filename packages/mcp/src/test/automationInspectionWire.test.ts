@@ -28,7 +28,7 @@
  *    habitat list, 404 on rule-id reads (uniform with cross-habitat).
  */
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
-import { execSync, spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
+import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -36,6 +36,7 @@ import { createServer } from "node:net";
 import { createRequire } from "node:module";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
+import { buildWireTargets } from "./wireBuild.js";
 
 const MCP_PKG = join(import.meta.dirname, "..", "..");
 const API_DIST = join(MCP_PKG, "..", "api", "dist", "index.js");
@@ -135,13 +136,7 @@ function expectNoWireSecrets(payload: unknown) {
 }
 
 beforeAll(async () => {
-  execSync(
-    "corepack pnpm --filter @orcy/shared --filter @orcy/daemon --filter @orcy/api --filter @orcy/mcp build",
-    {
-      cwd: MCP_PKG,
-      stdio: "pipe",
-    },
-  );
+  buildWireTargets(MCP_PKG);
 
   apiPort = await getFreePort();
   dbDir = await mkdtemp(join(tmpdir(), "orcy-auto-wire-"));

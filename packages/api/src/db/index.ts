@@ -445,6 +445,16 @@ export async function initTestDb() {
 
   applyMigrations(testSqlite, migrationFolder);
 
+  // The migration table-rebuilds toggle `PRAGMA foreign_keys` OFF/ON, and the
+  // toggle semantics of multi-statement chunks differ across sql.js builds:
+  // 1.14.x left the connection with FK OFF after the chain, while 1.16.0
+  // honors every toggle and leaves it ON. Tests were written against the
+  // cold-build state (FK OFF — wire-test bootstraps insert FK children for
+  // JWT-minted identities that have no row), so pin it explicitly instead of
+  // inheriting driver-dependent residue. The restore path above re-enables FK
+  // per connection for the cascade-dependent tests.
+  testSqlite.run("PRAGMA foreign_keys = OFF");
+
   await seedDefaultUser();
   seedGlobalTemplates();
 

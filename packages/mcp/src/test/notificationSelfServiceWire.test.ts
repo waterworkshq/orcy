@@ -16,18 +16,19 @@
  * messageId, ...), `createdBy*`, or `historySummary`.
  *
  * Order-independent: every test fetches its own delivery ids via get_inbox.
- * Cost note: beforeAll builds shared/daemon/api/mcp once (tsc) — this file is
- * the only package-building test in @orcy/mcp; builds are not repeated
- * per-test.
+ * Cost note: the run-scoped wire coordinator (`wireGlobalSetup.ts`) builds
+ * shared/daemon/api/mcp once per run before any worker starts; this file's
+ * build seam call is a no-op afterwards.
  */
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
-import { execSync, spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
+import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createServer } from "node:net";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
+import { buildWireTargets } from "./wireBuild.js";
 
 const MCP_PKG = join(import.meta.dirname, "..", "..");
 const API_DIST = join(MCP_PKG, "..", "api", "dist", "index.js");
@@ -92,13 +93,7 @@ async function ownDeliveryIds(): Promise<string[]> {
 }
 
 beforeAll(async () => {
-  execSync(
-    "corepack pnpm --filter @orcy/shared --filter @orcy/daemon --filter @orcy/api --filter @orcy/mcp build",
-    {
-      cwd: MCP_PKG,
-      stdio: "pipe",
-    },
-  );
+  buildWireTargets(MCP_PKG);
 
   apiPort = await getFreePort();
   dbDir = await mkdtemp(join(tmpdir(), "orcy-notif-wire-"));
