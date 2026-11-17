@@ -138,6 +138,48 @@ describe("wire coordinator watch gating", () => {
     teardown();
   });
 
+  it("arms from Windows-separated event paths (slash normalization)", async () => {
+    const { watcher, rerun, teardown } = await armedSetup();
+
+    // Real workspace-root paths with Windows separators, exactly as chokidar
+    // delivers them on win32 — the anchored pattern must match after
+    // normalization, for edits and for new files alike.
+    watcher.emit("change", join(REPO_ROOT, "packages/api/tsconfig.build.json").replace(/\//g, "\\"));
+    watcher.emit("add", join(REPO_ROOT, "packages/shared/src/newModule.ts").replace(/\//g, "\\"));
+    rerun();
+
+    expect(buildWireTargets).toHaveBeenCalledTimes(1);
+    teardown();
+  });
+
+  it("ignores add events for inputs that predate the run (rescan noise)", async () => {
+    const { watcher, rerun, teardown } = await armedSetup();
+
+    // watcher.add() of the sibling roots rescans them; an "add" surfacing a
+    // pre-existing input is scan noise and must not arm a needless rebuild.
+    watcher.emit("add", join(REPO_ROOT, "packages/api/src/index.ts"));
+    rerun();
+
+    expect(buildWireTargets).not.toHaveBeenCalled();
+    teardown();
+  });
+
+  it("arms again when a pre-existing input is deleted and recreated", async () => {
+    const { watcher, rerun, teardown } = await armedSetup();
+    const input = join(REPO_ROOT, "packages/daemon/src/index.ts");
+
+    watcher.emit("unlink", input);
+    rerun();
+    expect(buildWireTargets).toHaveBeenCalledTimes(1);
+
+    // The unlink dropped the path from the pre-run snapshot, so the recreate
+    // is a genuine new input and must arm again.
+    watcher.emit("add", input);
+    rerun();
+    expect(buildWireTargets).toHaveBeenCalledTimes(2);
+    teardown();
+  });
+
   it("does not rebuild when only a test file changed", async () => {
     const { watcher, rerun, teardown } = await armedSetup();
 
