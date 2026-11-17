@@ -16,9 +16,13 @@
  * `buildWireTargets` call becomes a no-op.
  */
 import { readFileSync } from "node:fs";
-import { relative } from "node:path";
+import { relative, resolve } from "node:path";
 import { parseCLI, type TestProject } from "vitest/node";
 import { buildWireTargets, WIRE_BUILD_DONE_ENV } from "./wireBuild.js";
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
 
 /**
  * A test file is a wire consumer when it imports the shared build seam. The
@@ -51,10 +55,8 @@ function cliFilters(): string[] {
 
 export default async function setup(project: TestProject): Promise<() => void> {
   const { testFiles } = await project.globTestFiles(cliFilters());
-  const consumers = testFiles
-    .filter(isWireConsumer)
-    .map((file) => relative(project.config.root, file))
-    .toSorted();
+  const consumerFiles = testFiles.filter(isWireConsumer);
+  const consumers = consumerFiles.map((file) => relative(project.config.root, file)).toSorted();
 
   if (consumers.length === 0) {
     console.log("[mcp-wire] no wire consumer selected — nothing was compiled");
@@ -70,9 +72,42 @@ export default async function setup(project: TestProject): Promise<() => void> {
   // never executes against a stale dist after a source edit.
   project.onTestsRerun(() => {
     delete process.env[WIRE_BUILD_DONE_ENV];
-    buildWireTargets(project.config.root);
-    console.log("[mcp-wire] rebuilt wire targets for watch rerun");
+    try {
+      buildWireTargets(project.config.root);
+      console.log("[mcp-wire] rebuilt wire targets for watch rerun");
+    } catch (error) {
+      // A failed rebuild (e.g. a compile error mid-watch) must not abort the
+      // rerun. execSync's message is a bare "Command failed" — the compiler
+      // diagnostics live in stderr, so surface those. The flag is restored so
+      // consumers keep the last good dist: a half-emitted failure artifact
+      // would serve torn modules, and worker fallback rebuilds would race.
+      const detail = ((error as { stderr?: Buffer }).stderr?.toString() ?? String(error)).trim();
+      process.env[WIRE_BUILD_DONE_ENV] = "1";
+      console.error(`[mcp-wire] wire target rebuild failed — dist may be inconsistent until the next successful build:\n${detail}`);
+    }
   });
 
-  return () => {};
+  // Vitest's source-import graph does not know the wire consumers depend on
+  // the COMPILED output, so a production-input edit schedules no rerun at all.
+  // Route the four built packages' inputs to the selected consumers (mirrors
+  // the api coordinator's watch trigger).
+  const workspaceRoot = resolve(project.config.root, "..", "..");
+  const productionInputs = new RegExp(
+    `^${escapeRegExp(workspaceRoot)}/packages/(?:api|mcp|daemon|shared)/(?:src/(?!test/)(?!.*\\.test\\.ts$)|tsconfig[^/]*\\.json$)`,
+  );
+  project.vitest.config.watchTriggerPatterns = [
+    ...(project.vitest.config.watchTriggerPatterns ?? []),
+    { pattern: productionInputs, testsToRun: () => consumerFiles },
+  ];
+  // A DELETED input is not routed through the trigger machinery, so route it
+  // explicitly to schedule the consumer rerun.
+  const onProductionInputRemoved = (file: string): void => {
+    if (!productionInputs.test(file)) return;
+    project.vitest.watcher.onFileChange(file);
+  };
+  project.vite.watcher.on("unlink", onProductionInputRemoved);
+
+  return () => {
+    project.vite.watcher.off("unlink", onProductionInputRemoved);
+  };
 }
