@@ -19,6 +19,7 @@
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { EventEmitter } from "node:events";
+import { rmSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { TestProject } from "vitest/node";
@@ -138,17 +139,54 @@ describe("wire coordinator watch gating", () => {
     teardown();
   });
 
-  it("arms from Windows-separated event paths (slash normalization)", async () => {
+  it("arms a tsconfig edit from a Windows-separated change event", async () => {
     const { watcher, rerun, teardown } = await armedSetup();
 
-    // Real workspace-root paths with Windows separators, exactly as chokidar
-    // delivers them on win32 — the anchored pattern must match after
-    // normalization, for edits and for new files alike.
+    // Real workspace-root path with Windows separators, exactly as chokidar
+    // delivers them on win32 — only the change path is exercised here.
     watcher.emit("change", join(REPO_ROOT, "packages/api/tsconfig.build.json").replace(/\//g, "\\"));
+    rerun();
+
+    expect(buildWireTargets).toHaveBeenCalledTimes(1);
+    teardown();
+  });
+
+  it("arms a new input from a Windows-separated add event", async () => {
+    const { watcher, rerun, teardown } = await armedSetup();
+
+    // Independent setup so a broken normalization in the add handler fails
+    // this test even when the change handler is fine (and vice versa).
     watcher.emit("add", join(REPO_ROOT, "packages/shared/src/newModule.ts").replace(/\//g, "\\"));
     rerun();
 
     expect(buildWireTargets).toHaveBeenCalledTimes(1);
+    teardown();
+  });
+
+  it("arms the rebuild when a production input appears during the build window", async () => {
+    const probe = join(REPO_ROOT, "packages/shared/src/__midSetupProbe.ts");
+    // The mocked initial build "runs" while a new input lands mid-window:
+    // the baseline is captured before the build, the post-watch snapshot
+    // after, and the coordinator must arm the first rerun for the newcomer.
+    buildWireTargets.mockImplementationOnce(() => {
+      writeFileSync(probe, "export const midSetupProbe = true;\n");
+    });
+    try {
+      const { rerun, teardown } = await armedSetup();
+      rerun();
+      expect(buildWireTargets).toHaveBeenCalledTimes(1);
+      teardown();
+    } finally {
+      rmSync(probe);
+    }
+  });
+
+  it("does not arm when the production tree is unchanged across setup", async () => {
+    const { rerun, teardown } = await armedSetup();
+
+    rerun();
+
+    expect(buildWireTargets).not.toHaveBeenCalled();
     teardown();
   });
 
