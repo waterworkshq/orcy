@@ -80,22 +80,30 @@ export default async function setup(project: TestProject): Promise<() => void> {
     { pattern: productionInputs, testsToRun: () => consumerFiles },
   ];
   // The project watcher only covers this package by default; the wire targets
-  // compile three sibling packages too, so put their sources under watch for
-  // the trigger and the change flag below.
+  // compile three sibling packages too, so put those package ROOTS under
+  // watch — the productionInputs pattern above also counts their root-level
+  // tsconfig*.json, and an unwatched match means the edit silently schedules
+  // nothing. (Vite's watcher ignores node_modules; dist/ writes match neither
+  // the trigger nor the change flag, so they stay inert.)
   project.vite.watcher.add([
-    resolve(project.config.root, "..", "api", "src"),
-    resolve(project.config.root, "..", "daemon", "src"),
-    resolve(project.config.root, "..", "shared", "src"),
+    resolve(project.config.root, "..", "api"),
+    resolve(project.config.root, "..", "daemon"),
+    resolve(project.config.root, "..", "shared"),
   ]);
   // A production-input edit must rebuild before the rerun dispatches, but a
   // test-file-only save must not pay the four-package build. The change flag
-  // is set by the watcher events themselves (change and unlink) and consumed
-  // by the rerun hook below.
+  // is set by the watcher events themselves (change, add, and unlink) and
+  // consumed by the rerun hook below.
   let productionInputChanged = false;
   const markProductionInputChange = (file: string): void => {
     if (productionInputs.test(file)) productionInputChanged = true;
   };
   project.vite.watcher.on("change", markProductionInputChange);
+  // A NEWLY CREATED input emits chokidar "add", not "change" — the trigger
+  // machinery routes adds to a rerun, so without arming here that rerun would
+  // execute against the stale dist. (The initial watcher.add() scan is
+  // suppressed by ignoreInitial and cannot arm the flag.)
+  project.vite.watcher.on("add", markProductionInputChange);
   // A DELETED input is not routed through the trigger machinery, so route it
   // explicitly to schedule the consumer rerun (and still count as a change).
   const onProductionInputRemoved = (file: string): void => {
@@ -132,6 +140,7 @@ export default async function setup(project: TestProject): Promise<() => void> {
 
   return () => {
     project.vite.watcher.off("change", markProductionInputChange);
+    project.vite.watcher.off("add", markProductionInputChange);
     project.vite.watcher.off("unlink", onProductionInputRemoved);
   };
 }
