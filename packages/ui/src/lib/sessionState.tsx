@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useRef, useState } from "react";
+import React, { createContext, useContext, useEffect, useRef, useState } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { ApiError } from "../api/transport.js";
 import { useHabitatStore } from "../store/habitatStore.js";
@@ -33,12 +33,20 @@ const AccountSessionContext = createContext<AccountSession | null>(null);
 export function SessionStateProvider({ children }: { children: React.ReactNode }) {
   const [state, setState] = useState(() => ({ client: createSessionClient(), generation: 0 }));
   const current = useRef(state);
+  const retired = useRef<QueryClient[]>([]);
   const authEpoch = useRef(0);
+  useEffect(() => {
+    const clearRetired = () => {
+      for (const client of retired.current.splice(0)) client.clear();
+    };
+    clearRetired();
+    return clearRetired;
+  }, [state.generation]);
   function replace(token: string | null) {
     authEpoch.current++;
     const previous = current.current;
     void previous.client.cancelQueries();
-    previous.client.clear();
+    retired.current.push(previous.client);
     const theme = useHabitatStore.getState().theme;
     useHabitatStore.setState({ ...useHabitatStore.getInitialState(), theme }, true);
     useModalStore.getState().closeModal();

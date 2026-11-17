@@ -841,11 +841,7 @@ describe("Task metadata editing real modal/store/transport journeys", () => {
     const afterRetirement = calls.slice(callsAtRetirement);
     expect(afterRetirement.filter((c) => c.method === "PATCH")).toEqual([]);
     const taskCalls = afterRetirement.filter((c) => c.url.includes("/api/tasks/t-1"));
-    expect(taskCalls.length).toBeLessThanOrEqual(1);
-    for (const call of taskCalls) {
-      expect(call).toMatchObject({ method: "GET", url: "/api/tasks/t-1/details" });
-      expect(call.signal?.aborted).toBe(true);
-    }
+    expect(taskCalls).toEqual([]);
     expect(aliceClient.getQueryData(queryKeys.tasks.details("t-1"))).toBeUndefined();
     expect(activeClient).not.toBe(aliceClient);
     expect(activeClient.getQueryData(queryKeys.tasks.details("t-1"))).toBeUndefined();
