@@ -16,7 +16,7 @@ Thank you for contributing! This guide covers setting up your dev environment, c
 
 ## Supported Node.js versions
 
-Orcy supports the latest Node.js LTS major and the latest Current major. The current matrix is **Node 24 (LTS)** and **Node 26 (Current)**. Development uses the LTS pin in `.node-version` for fnm/Volta and `.nvmrc` for nvm; the root `engines.node` range describes the supported majors rather than pinning one exact release.
+Orcy supports the latest Node.js LTS major and the latest Current major. The current matrix is **Node 24 (LTS)** and **Node 26 (Current)**. Development uses the LTS pin in `.node-version` for fnm and `.nvmrc` for nvm; the root `engines.node` range describes the supported majors rather than pinning one exact release.
 
 CI rebuilds `better-sqlite3` and runs a real in-memory query on every supported major. The full main test suite runs on the LTS major, while the focused production-migration suite runs on both majors.
 
