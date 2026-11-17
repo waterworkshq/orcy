@@ -1,4 +1,4 @@
-/** Exhaustive list of supported agent/CLI types; single source for the {@link AgentType} union, the Drizzle column enums, and the parity-tested `agents_type_check` domain (migration 0090). */
+/** Exhaustive list of supported agent/CLI types; single source for the {@link AgentType} union and the Drizzle column enums. The physical CHECK (migration 0090) is hard-coded — lockstep is detected by schemaConstraintParity. */
 export const AGENT_TYPES = ["claude-code", "codex", "opencode", "cursor", "gemini"] as const;
 
 /** Identifier of the CLI binary backing an {@link Agent} (claude-code, codex, opencode, cursor, or gemini). */

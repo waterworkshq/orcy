@@ -4,8 +4,9 @@ import { AGENT_TYPES } from "@orcy/shared";
 import { habitats } from "./habitat.js";
 import { tasks } from "./task.js";
 
-// Derived from AGENT_TYPES so the TS union, the column enum, and the physical
-// CHECK domain (migration 0090) cannot drift apart (parity-tested).
+// The TS union, the column enums, and this Drizzle CHECK body derive from
+// AGENT_TYPES; the physical CHECK (migration 0090) is hard-coded — drift
+// between any of them is detected by schemaConstraintParity.
 const AGENT_TYPE_CHECK = `type IS NOT NULL AND type IN (${AGENT_TYPES.map((t) => `'${t}'`).join(", ")})`;
 
 export const agents = sqliteTable(
