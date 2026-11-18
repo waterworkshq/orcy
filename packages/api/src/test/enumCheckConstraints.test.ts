@@ -1,5 +1,6 @@
 import { afterAll, afterEach, describe, expect, it, vi } from "vitest";
 import Database from "better-sqlite3";
+import { writeSqliteFixture } from "./helpers/writeSqliteFixture.js";
 import { createHash } from "node:crypto";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -49,11 +50,10 @@ function applyMigrationSql(db: Database.Database, sqlText: string): void {
   }
 }
 
-function prepareLedgerThrough0089(dbPath: string): void {
+function prepareLedgerThrough0089(db: Database.Database): void {
   const journal = readJournal();
   const through = journal.entries.findIndex(({ tag }) => tag === "0089_user_role_default_editor");
   expect(through).toBeGreaterThan(0);
-  const db = new Database(dbPath);
   db.pragma("foreign_keys = ON");
   db.exec(
     "CREATE TABLE __drizzle_migrations (id INTEGER PRIMARY KEY AUTOINCREMENT, hash TEXT NOT NULL, created_at NUMERIC)",
@@ -79,7 +79,6 @@ function prepareLedgerThrough0089(dbPath: string): void {
     applyMigrationSql(db, sqlText);
     record.run(createHash("sha256").update(sqlText).digest("hex"), entry.when);
   }
-  db.close();
 }
 
 function openRaw(dbPath: string): Database.Database {
@@ -218,7 +217,7 @@ describe("documented enum CHECK constraints", () => {
 
   it("archives orphaned task events, defers their actor CHECK, and keeps booting", async () => {
     const dbPath = join(TEMP_DIR, "orphaned-task-event.db");
-    prepareLedgerThrough0089(dbPath);
+    writeSqliteFixture(dbPath, prepareLedgerThrough0089);
     const seed = new Database(dbPath);
     seed.pragma("foreign_keys = OFF");
     seedTaskWorld(seed, false);
@@ -284,7 +283,7 @@ describe("documented enum CHECK constraints", () => {
 
   it("defers only the dirty column, preserves child rows, and enforces after remediation", async () => {
     const dbPath = join(TEMP_DIR, "dirty-upgrade.db");
-    prepareLedgerThrough0089(dbPath);
+    writeSqliteFixture(dbPath, prepareLedgerThrough0089);
     const seed = openRaw(dbPath);
     seedTaskWorld(seed, true);
     const beforeChildren = childCounts(seed);
