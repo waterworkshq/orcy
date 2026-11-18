@@ -24,7 +24,7 @@ vi.mock("../sse/broadcaster.js", () => ({
 
 /**
  * Applies a single migration .sql file to the current test DB. Mirrors the
- * `runMigrationSql` helper in db/index.ts but is scoped to one named file
+ * `runMigrationSql` helper in db/sqlJsTestSchema.ts but is scoped to one named file
  * so we can re-run only the T2 reset.
  */
 function applyMigrationFile(fileName: string): void {

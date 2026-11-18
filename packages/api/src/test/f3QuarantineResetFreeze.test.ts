@@ -127,28 +127,32 @@ function applyMigrationSql(db: Database.Database, sqlText: string): void {
  * timestamps. Simulates a database that booted under the pre-F2 journal.
  */
 function prepareV029Database(dbPath: string): void {
-  const db = new Database(dbPath);
-  db.pragma("foreign_keys = ON");
-  for (const tag of ["0000_schema", "0001_green_shadowcat", "0002_purple_fallen_one"]) {
-    const sqlPath = join(DRIZZLE_DIR, `${tag}.sql`);
-    if (existsSync(sqlPath)) applyMigrationSql(db, readFileSync(sqlPath, "utf-8"));
-  }
-  const journal = JSON.parse(readFileSync(join(DRIZZLE_DIR, "meta", "_journal.json"), "utf-8"));
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS __drizzle_migrations (
-      id INTEGER PRIMARY KEY AUTOINCREMENT, hash TEXT NOT NULL, created_at NUMERIC
-    )
-  `);
-  const insertHash = db.prepare(
-    "INSERT OR IGNORE INTO __drizzle_migrations (hash, created_at) VALUES (?, ?)",
-  );
-  for (const entry of journal.entries.slice(0, 3)) {
-    const sqlPath = join(DRIZZLE_DIR, `${entry.tag}.sql`);
-    if (existsSync(sqlPath)) {
-      insertHash.run(hashMigration(readFileSync(sqlPath, "utf-8")), entry.when);
+  const db = new Database(":memory:");
+  try {
+    db.pragma("foreign_keys = ON");
+    for (const tag of ["0000_schema", "0001_green_shadowcat", "0002_purple_fallen_one"]) {
+      const sqlPath = join(DRIZZLE_DIR, `${tag}.sql`);
+      if (existsSync(sqlPath)) applyMigrationSql(db, readFileSync(sqlPath, "utf-8"));
     }
+    const journal = JSON.parse(readFileSync(join(DRIZZLE_DIR, "meta", "_journal.json"), "utf-8"));
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS __drizzle_migrations (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, hash TEXT NOT NULL, created_at NUMERIC
+      )
+    `);
+    const insertHash = db.prepare(
+      "INSERT OR IGNORE INTO __drizzle_migrations (hash, created_at) VALUES (?, ?)",
+    );
+    for (const entry of journal.entries.slice(0, 3)) {
+      const sqlPath = join(DRIZZLE_DIR, `${entry.tag}.sql`);
+      if (existsSync(sqlPath)) {
+        insertHash.run(hashMigration(readFileSync(sqlPath, "utf-8")), entry.when);
+      }
+    }
+    writeFileSync(dbPath, db.serialize(), { flag: "wx" });
+  } finally {
+    db.close();
   }
-  db.close();
 }
 
 describe("F3: Freeze migration 0053 and prove one-shot quarantine reset", () => {

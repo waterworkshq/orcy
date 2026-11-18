@@ -2,7 +2,8 @@
  * RUN-SCOPED COORDINATOR — the vitest `globalSetup` that owns the shared
  * compiled artifact for one test run.
  *
- * The coordinator runs once per vitest process, before any worker is spawned:
+ * This global setup also prepares the SQL.js test schema for eligible batches.
+ * The compiled artifact coordinator runs before any worker is spawned:
  *
  *  1. it reclaims run roots whose owner is provably dead (never a prefix
  *     sweep — two simultaneous runs keep each other's artifacts);
@@ -19,8 +20,10 @@
  *     compiler tree instead of leaking it.
  */
 import { readFileSync } from "node:fs";
-import { relative } from "node:path";
+import { join, relative } from "node:path";
 import { parseCLI, type TestProject } from "vitest/node";
+import { TEST_SCHEMA_PATH_ENV } from "../db/sqlJsTestSchema.js";
+import { prepareSqlJsTestSchema } from "./sqlJsTestSchemaSetup.js";
 import {
   COMPILED_API_ARTIFACT_ENV,
   CompiledApiCancelledError,
@@ -64,6 +67,16 @@ function cliFilters(): string[] {
 }
 
 export default async function setup(project: TestProject): Promise<() => void> {
+  const { testFiles } = await project.globTestFiles(cliFilters());
+  // Scope the path to this project's workers, including nested Vitest invocations.
+  // Watch workers read migrations directly so reruns see edits outside Vite's import graph.
+  project.config.env = {
+    ...project.config.env,
+    [TEST_SCHEMA_PATH_ENV]: project.globalConfig.watch
+      ? ""
+      : await prepareSqlJsTestSchema(testFiles, join(project.config.root, "drizzle"), project.tmpDir),
+  };
+
   const startedAt = new Date().toISOString();
   reclaimAbandonedCompiledApiRuns();
 
@@ -85,7 +98,6 @@ export default async function setup(project: TestProject): Promise<() => void> {
   process.prependListener("SIGINT", onSigint);
   process.prependListener("SIGTERM", onSigterm);
 
-  const { testFiles } = await project.globTestFiles(cliFilters());
   const consumers = testFiles
     .filter(isCompiledConsumer)
     .map((file) => relative(project.config.root, file))

@@ -40,7 +40,7 @@ import { vi, describe, it, expect, beforeEach, afterEach, afterAll } from "vites
 vi.setConfig({ testTimeout: 60_000 });
 import { closeDb, initDb } from "../db/index.js";
 import { join } from "node:path";
-import { constants, copyFileSync, existsSync, readFileSync, renameSync, unlinkSync, mkdirSync, rmSync } from "node:fs";
+import { constants, copyFileSync, existsSync, readFileSync, renameSync, unlinkSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { createHash } from "node:crypto";
 import Database from "better-sqlite3";
 import {
@@ -129,7 +129,7 @@ function buildLedgerThrough(dbPath: string, throughTag: string): void {
   const journal = readJournal();
   const idx = journal.entries.findIndex((e) => e.tag === throughTag);
   if (idx === -1) throw new Error(`unknown journal tag ${throughTag}`);
-  const db = new Database(dbPath);
+  const db = new Database(":memory:");
   try {
     db.pragma("foreign_keys = ON");
     db.exec(`
@@ -147,6 +147,7 @@ function buildLedgerThrough(dbPath: string, throughTag: string): void {
       applyMigrationSql(db, sql);
       insert.run(hashMigration(sql), entry.when);
     }
+    writeFileSync(dbPath, db.serialize(), { flag: "wx" });
   } finally {
     db.close();
   }

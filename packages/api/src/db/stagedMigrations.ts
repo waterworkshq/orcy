@@ -19,6 +19,13 @@ import { existsSync, readFileSync } from "fs";
 import { join } from "path";
 import { createHash } from "crypto";
 import { logger } from "../lib/logger.js";
+import { ENFORCEMENT_MIGRATION_TAG, ENUM_CHECK_MIGRATION_TAG } from "./enforcementMigrationTags.js";
+
+export {
+  ENFORCEMENT_MIGRATION_TAG,
+  ENUM_CHECK_MIGRATION_TAG,
+  ENFORCEMENT_MIGRATION_TAGS,
+} from "./enforcementMigrationTags.js";
 
 /** Instance type of the production better-sqlite3 driver. */
 type SqliteDatabase = import("better-sqlite3").Database;
@@ -38,17 +45,6 @@ import {
  * preflight attestation against this watermark's schema.
  */
 export const ADDITIVE_WATERMARK_TAG = "0067_release_projection_epochs";
-
-/**
- * Finding Triage's preflight-gated tag, retained for its attestation and test
- * harnesses. ENFORCEMENT_MIGRATION_TAGS lists every guarded test exclusion.
- */
-export const ENFORCEMENT_MIGRATION_TAG = "0068_finding_triage_lifecycle_enforcement";
-export const ENUM_CHECK_MIGRATION_TAG = "0090_documented_enum_check_constraints";
-export const ENFORCEMENT_MIGRATION_TAGS = [
-  ENFORCEMENT_MIGRATION_TAG,
-  ENUM_CHECK_MIGRATION_TAG,
-] as const;
 
 /** Stable operator-facing error code when blocking anomalies stop enforcement. */
 export const TRIAGE_ENFORCEMENT_PREFLIGHT_DIRTY_CODE = "TRIAGE_ENFORCEMENT_PREFLIGHT_DIRTY";

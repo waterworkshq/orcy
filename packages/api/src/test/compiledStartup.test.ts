@@ -70,7 +70,7 @@ function getFreePort(): Promise<number> {
 
 /**
  * Execute migration SQL on a better-sqlite3 connection, suppressing the same
- * benign error class as the test helper `runMigrationSql` in `db/index.ts`
+ * benign error class as the test helper `runMigrationSql` in `db/sqlJsTestSchema.ts`
  * (0000_schema.sql consolidates tables/columns that later migrations also touch).
  */
 function applyMigrationSql(db: Database.Database, sqlText: string): void {

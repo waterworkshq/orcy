@@ -1,7 +1,7 @@
 import type { BetterSQLite3Database } from "drizzle-orm/better-sqlite3";
 import * as schema from "./schema/index.js";
 import { join, dirname } from "path";
-import { existsSync, readFileSync, mkdirSync, readdirSync } from "fs";
+import { existsSync, readFileSync, mkdirSync } from "fs";
 import { ORCY_PATHS } from "@orcy/shared";
 import { createHash } from "crypto";
 import { setDriver } from "./dialect-helpers.js";
@@ -10,7 +10,8 @@ import { v4 as uuidv4 } from "uuid";
 import { seedGlobalTemplates } from "../repositories/template.js";
 import { sql } from "drizzle-orm";
 import { logger } from "../lib/logger.js";
-import { runStagedProductionMigrations, ENFORCEMENT_MIGRATION_TAGS } from "./stagedMigrations.js";
+import { runStagedProductionMigrations } from "./stagedMigrations.js";
+import { createSqlJsTestSchema, TEST_SCHEMA_PATH_ENV } from "./sqlJsTestSchema.js";
 
 type DrizzleDb = BetterSQLite3Database<typeof schema>;
 
@@ -341,7 +342,7 @@ export async function initDb(dbPath?: string) {
 //   _snapshot    -> bytes of a freshly built+seeded DB; restored via `new SQL.Database(bytes)`
 //                   which copies the bytes, so per-test isolation is preserved.
 // Vitest isolates the module registry per file, so the snapshot is naturally scoped per
-// file (first test in a file pays the cold build, the rest restore from the snapshot).
+// file (the first call seeds a private database; subsequent calls restore its snapshot).
 // Do NOT remove these caches or call clearTestDbCache() in beforeEach/afterEach — that
 // defeats the entire optimization and reintroduces the ~150s suite runtime.
 let _sqlFactory: any = null;
@@ -363,63 +364,8 @@ async function getAdminHash(): Promise<string> {
   return _adminHash;
 }
 
-function applyMigrations(testSqlite: any, migrationFolder: string): void {
-  // Guarded enforcement migrations are excluded BY TAG: 0068 needs a
-  // preflight attestation and blocks dirty-data fixtures, while 0090's
-  // per-column guard aborts a raw cold build on the first dirty fixture.
-  // Their constraints are proven on the production better-sqlite3 path.
-  const isEnforcementMigration = (file: string) =>
-    ENFORCEMENT_MIGRATION_TAGS.some((tag) => file === `${tag}.sql`);
-
-  const schemaFile = join(migrationFolder, "0000_schema.sql");
-  if (existsSync(schemaFile)) {
-    runMigrationSql(testSqlite, readFileSync(schemaFile, "utf-8"));
-  }
-  const incrementalMigrations = readdirSync(migrationFolder)
-    .filter((f) => /^\d{4}_.*\.sql$/.test(f) && f !== "0000_schema.sql")
-    .filter((f) => !isEnforcementMigration(f))
-    .toSorted();
-  for (const migrationFile of incrementalMigrations) {
-    runMigrationSql(testSqlite, readFileSync(join(migrationFolder, migrationFile), "utf-8"));
-  }
-}
-
-function runMigrationSql(testSqlite: any, sqlText: string): void {
-  let fts5Available = true;
-  const statements = sqlText
-    .split("--> statement-breakpoint")
-    .map((s) => s.trim())
-    .filter((s) => s.length > 0);
-  for (const stmt of statements) {
-    if (!fts5Available && stmt.includes("wiki_pages_fts")) {
-      continue;
-    }
-    try {
-      testSqlite.run(stmt);
-    } catch (err: any) {
-      const msg = String(err?.message ?? err ?? "");
-      if (/no such module.*fts5/i.test(msg)) {
-        // Some SQLite builds, including sql.js in tests, omit FTS5. Base wiki tables still
-        // migrate successfully; FTS-dependent statements are skipped and search uses LIKE.
-        fts5Available = false;
-        continue;
-      }
-      if (
-        !msg.includes("already exists") &&
-        !msg.includes("no such table") &&
-        !msg.includes("no such column") &&
-        !msg.includes("no such index") &&
-        !msg.includes("duplicate column name")
-      )
-        throw err;
-    }
-  }
-}
-
 export async function initTestDb() {
   const { drizzle } = await import("drizzle-orm/sql-js");
-  const migrationFolder = join(getWorkspaceRoot(), "packages", "api", "drizzle");
-
   // Fast path: restore a previously snapshotted schema+seed DB. `new SQL.Database(bytes)`
   // copies the bytes, so each test gets an isolated mutable copy.
   if (_snapshot) {
@@ -435,15 +381,16 @@ export async function initTestDb() {
     return _drizzleDb;
   }
 
-  // Cold path: build schema, seed, then snapshot for fast subsequent resets.
+  // The run image includes migration-owned data (such as the built-in roles).
+  // Each file still seeds its own admin ID, timestamps and global templates.
   const SQL = await getSqlFactory();
-  const testSqlite = new SQL.Database();
-  testSqlite.run("PRAGMA foreign_keys = ON");
+  const schemaPath = process.env[TEST_SCHEMA_PATH_ENV];
+  const testSqlite = schemaPath
+    ? new SQL.Database(new Uint8Array(readFileSync(schemaPath)))
+    : createSqlJsTestSchema(SQL, join(getWorkspaceRoot(), "packages", "api", "drizzle"));
   _sqlite = testSqlite as any;
   _drizzleDb = drizzle(testSqlite, { schema }) as any;
   setDriver("sqlite");
-
-  applyMigrations(testSqlite, migrationFolder);
 
   // The migration table-rebuilds toggle `PRAGMA foreign_keys` OFF/ON, and the
   // toggle semantics of multi-statement chunks differ across sql.js builds:
