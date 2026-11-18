@@ -7,11 +7,9 @@ name: lint-and-tests
 #
 # - lint: `pnpm lint` (oxlint over packages/*/src). Exits nonzero on errors
 #   only — the known warning backlog is triaged separately (issue #105).
-# - test: a matrix over the supported Node majors. Both majors rebuild and
-#   execute a query with better-sqlite3. The LTS major also runs the root
-#   `pnpm test` script — scripts' node:test suite plus every workspace
-#   package's default vitest suite (perf/e2e suites are excluded by the
-#   package scripts themselves) — and the serial concurrency proof.
+# - test: Node 24 runs the default API suite on two shards. A third runner
+#   covers root scripts, the remaining workspace packages, and the serial
+#   concurrency proof. Both supported Node majors exercise better-sqlite3.
 on:
   pull_request:
     branches: [main]
@@ -88,13 +86,24 @@ jobs:
         run: pnpm lint
 
   test:
-    name: Tests and native compatibility (Node ${{ matrix.node-version }})
+    name: ${{ matrix.name }} (Node ${{ matrix.node-version }})
     runs-on: ubuntu-latest
     timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
-        node-version: ['24', '26']
+        include:
+          - name: API shard 1/2
+            node-version: '24'
+            shard: '1/2'
+          - name: API shard 2/2
+            node-version: '24'
+            shard: '2/2'
+          - name: Workspace tests
+            node-version: '24'
+            workspace: true
+          - name: Native compatibility
+            node-version: '26'
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -134,22 +143,30 @@ jobs:
             console.log("better-sqlite3 loaded on Node " + process.version + " (ABI " + process.versions.modules + ")");
           '
 
+      - name: Build API and workspace dependencies
+        if: matrix.shard
+        # Some API tests launch workers from dist/ on a fresh checkout.
+        run: pnpm --filter '@orcy/api...' build
+
+      - name: Run API shard
+        if: matrix.shard
+        run: pnpm --filter @orcy/api test --shard=${{ matrix.shard }}
+
       - name: Build shared (type dependency)
-        if: matrix.node-version == '24'
-        # @orcy/api / @orcy/mcp / @orcy/daemon resolve @orcy/shared via the
-        # pnpm workspace symlink to the built dist/ directory. Without this
-        # build step the dependent suites cannot resolve it on a fresh CI
-        # checkout.
+        if: matrix.workspace
         run: pnpm --filter @orcy/shared build
 
-      - name: Run main test suite
-        if: matrix.node-version == '24'
-        # Root script: `test:scripts` (node --test over scripts/*.test.mjs)
-        # followed by every workspace package's default vitest suite.
-        run: pnpm test
+      - name: Run root script tests
+        if: matrix.workspace
+        run: pnpm test:scripts
+
+      - name: Run remaining workspace tests
+        if: matrix.workspace
+        # Exclude the root package too: its test script recursively runs the whole suite.
+        run: pnpm -r --filter '!@orcy/api' --filter '!orcy' test
 
       - name: Run the multi-process concurrency proof serially
-        if: matrix.node-version == '24'
+        if: matrix.workspace
         # Fork-worker proofs are load-sensitive under file parallelism (the
         # cold file DB boots the full migration chain); run it in its own
         # serial vitest pass, mirroring the local test:extraction-concurrency
