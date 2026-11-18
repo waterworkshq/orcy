@@ -150,7 +150,7 @@ jobs:
 
       - name: Run API shard
         if: matrix.shard
-        run: pnpm --filter @orcy/api test --shard=${{ matrix.shard }}
+        run: pnpm --filter @orcy/api test --shard=${{ matrix.shard }} --maxWorkers=4
 
       - name: Build shared (type dependency)
         if: matrix.workspace
