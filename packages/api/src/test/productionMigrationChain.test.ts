@@ -25,7 +25,7 @@ import { vi, describe, it, expect, afterEach, afterAll, beforeEach } from "vites
 vi.setConfig({ testTimeout: 60_000 });
 import { closeDb, initDb, getDb } from "../db/index.js";
 import { join } from "node:path";
-import { existsSync, readFileSync, unlinkSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { existsSync, readFileSync, unlinkSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { createHash } from "node:crypto";
 import Database from "better-sqlite3";
 import { sql } from "drizzle-orm";
@@ -91,30 +91,34 @@ function applyMigrationSql(db: Database.Database, sqlText: string): void {
  * timestamps. Simulates a database that booted under the pre-F2 journal.
  */
 function prepareV029Database(dbPath: string): void {
-  const db = new Database(dbPath);
-  db.pragma("foreign_keys = ON");
+  const db = new Database(":memory:");
+  try {
+    db.pragma("foreign_keys = ON");
 
-  for (const tag of ["0000_schema", "0001_green_shadowcat", "0002_purple_fallen_one"]) {
-    const sqlPath = join(DRIZZLE_DIR, `${tag}.sql`);
-    if (existsSync(sqlPath)) applyMigrationSql(db, readFileSync(sqlPath, "utf-8"));
-  }
-
-  const journal = JSON.parse(readFileSync(join(DRIZZLE_DIR, "meta", "_journal.json"), "utf-8"));
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS __drizzle_migrations (
-      id INTEGER PRIMARY KEY AUTOINCREMENT, hash TEXT NOT NULL, created_at NUMERIC
-    )
-  `);
-  const insertHash = db.prepare(
-    "INSERT OR IGNORE INTO __drizzle_migrations (hash, created_at) VALUES (?, ?)",
-  );
-  for (const entry of journal.entries.slice(0, 3)) {
-    const sqlPath = join(DRIZZLE_DIR, `${entry.tag}.sql`);
-    if (existsSync(sqlPath)) {
-      insertHash.run(hashMigration(readFileSync(sqlPath, "utf-8")), entry.when);
+    for (const tag of ["0000_schema", "0001_green_shadowcat", "0002_purple_fallen_one"]) {
+      const sqlPath = join(DRIZZLE_DIR, `${tag}.sql`);
+      if (existsSync(sqlPath)) applyMigrationSql(db, readFileSync(sqlPath, "utf-8"));
     }
+
+    const journal = JSON.parse(readFileSync(join(DRIZZLE_DIR, "meta", "_journal.json"), "utf-8"));
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS __drizzle_migrations (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, hash TEXT NOT NULL, created_at NUMERIC
+      )
+    `);
+    const insertHash = db.prepare(
+      "INSERT OR IGNORE INTO __drizzle_migrations (hash, created_at) VALUES (?, ?)",
+    );
+    for (const entry of journal.entries.slice(0, 3)) {
+      const sqlPath = join(DRIZZLE_DIR, `${entry.tag}.sql`);
+      if (existsSync(sqlPath)) {
+        insertHash.run(hashMigration(readFileSync(sqlPath, "utf-8")), entry.when);
+      }
+    }
+    writeFileSync(dbPath, db.serialize(), { flag: "wx" });
+  } finally {
+    db.close();
   }
-  db.close();
 }
 
 /**
@@ -123,20 +127,24 @@ function prepareV029Database(dbPath: string): void {
  * 0000_schema hash, and then `migrate()` runs every journal entry after it.
  */
 function prepareLegacyMigrationsDatabase(dbPath: string): void {
-  const db = new Database(dbPath);
-  db.pragma("foreign_keys = ON");
-  applyMigrationSql(db, readFileSync(join(DRIZZLE_DIR, "0000_schema.sql"), "utf-8"));
-  db.exec(`
-    CREATE TABLE __migrations (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      filename TEXT NOT NULL UNIQUE,
-      applied_at TEXT NOT NULL DEFAULT (datetime('now'))
-    )
-  `);
-  const insertLegacy = db.prepare("INSERT OR IGNORE INTO __migrations (filename) VALUES (?)");
-  insertLegacy.run("0001_initial.sql");
-  insertLegacy.run("0002_tasks.sql");
-  db.close();
+  const db = new Database(":memory:");
+  try {
+    db.pragma("foreign_keys = ON");
+    applyMigrationSql(db, readFileSync(join(DRIZZLE_DIR, "0000_schema.sql"), "utf-8"));
+    db.exec(`
+      CREATE TABLE __migrations (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        filename TEXT NOT NULL UNIQUE,
+        applied_at TEXT NOT NULL DEFAULT (datetime('now'))
+      )
+    `);
+    const insertLegacy = db.prepare("INSERT OR IGNORE INTO __migrations (filename) VALUES (?)");
+    insertLegacy.run("0001_initial.sql");
+    insertLegacy.run("0002_tasks.sql");
+    writeFileSync(dbPath, db.serialize(), { flag: "wx" });
+  } finally {
+    db.close();
+  }
 }
 
 /** Insert sentinel application data into a v0.29-era database. */

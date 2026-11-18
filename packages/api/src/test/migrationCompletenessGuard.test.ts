@@ -14,6 +14,7 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
+import { ENFORCEMENT_MIGRATION_TAGS } from "../db/enforcementMigrationTags.js";
 
 const DRIZZLE_DIR = join(import.meta.dirname, "..", "..", "drizzle");
 
@@ -42,6 +43,15 @@ describe("F2: migration completeness guard", () => {
           `\nAdd them to meta/_journal.json or they will be invisible to production migrate().`,
       );
     }
+  });
+
+  it("excludes every migration with guarded-column sections from the SQL.js fixture", () => {
+    const markedTags = readdirSync(DRIZZLE_DIR)
+      .filter((file) => file.endsWith(".sql"))
+      .filter((file) => /^-- orcy-guarded-column:/m.test(readFileSync(join(DRIZZLE_DIR, file), "utf8")))
+      .map((file) => file.slice(0, -".sql".length));
+
+    expect(ENFORCEMENT_MIGRATION_TAGS).toEqual(expect.arrayContaining(markedTags));
   });
 
   it("every journal entry has a corresponding SQL file on disk", () => {
