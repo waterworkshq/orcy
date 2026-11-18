@@ -40,7 +40,7 @@ import { vi, describe, it, expect, beforeEach, afterEach, afterAll } from "vites
 vi.setConfig({ testTimeout: 60_000 });
 import { closeDb, initDb } from "../db/index.js";
 import { join } from "node:path";
-import { existsSync, readFileSync, unlinkSync, mkdirSync, rmSync } from "node:fs";
+import { constants, copyFileSync, existsSync, readFileSync, renameSync, unlinkSync, mkdirSync, rmSync } from "node:fs";
 import { createHash } from "node:crypto";
 import Database from "better-sqlite3";
 import {
@@ -110,26 +110,46 @@ function applyMigrationSql(db: Database.Database, sqlText: string): void {
  * that release. Everything after it is pending.
  */
 function prepareLedgerThrough(dbPath: string, throughTag: string): void {
+  const templatePath = join(RUN_DIR, `ledger-${throughTag}.db`);
+  if (!existsSync(templatePath)) {
+    const stagingPath = `${templatePath}.tmp`;
+    try {
+      buildLedgerThrough(stagingPath, throughTag);
+      renameSync(stagingPath, templatePath);
+    } finally {
+      rmSync(stagingPath, { force: true });
+    }
+  }
+  // Only the closed historical fixture is shared. Each case owns its DB and
+  // still runs its own pending migrations, writes, and restarts.
+  copyFileSync(templatePath, dbPath, constants.COPYFILE_EXCL);
+}
+
+function buildLedgerThrough(dbPath: string, throughTag: string): void {
   const journal = readJournal();
   const idx = journal.entries.findIndex((e) => e.tag === throughTag);
   if (idx === -1) throw new Error(`unknown journal tag ${throughTag}`);
   const db = new Database(dbPath);
-  db.pragma("foreign_keys = ON");
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS __drizzle_migrations (
-      id INTEGER PRIMARY KEY AUTOINCREMENT, hash TEXT NOT NULL, created_at NUMERIC
-    )
-  `);
-  const insert = db.prepare(
-    "INSERT OR IGNORE INTO __drizzle_migrations (hash, created_at) VALUES (?, ?)",
-  );
-  for (const entry of journal.entries.slice(0, idx + 1)) {
-    const sqlPath = join(DRIZZLE_DIR, `${entry.tag}.sql`);
-    if (!existsSync(sqlPath)) continue; // pre-consolidation orphans
-    applyMigrationSql(db, readFileSync(sqlPath, "utf-8"));
-    insert.run(hashMigration(readFileSync(sqlPath, "utf-8")), entry.when);
+  try {
+    db.pragma("foreign_keys = ON");
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS __drizzle_migrations (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, hash TEXT NOT NULL, created_at NUMERIC
+      )
+    `);
+    const insert = db.prepare(
+      "INSERT OR IGNORE INTO __drizzle_migrations (hash, created_at) VALUES (?, ?)",
+    );
+    for (const entry of journal.entries.slice(0, idx + 1)) {
+      const sqlPath = join(DRIZZLE_DIR, `${entry.tag}.sql`);
+      if (!existsSync(sqlPath)) continue; // pre-consolidation orphans
+      const sql = readFileSync(sqlPath, "utf-8");
+      applyMigrationSql(db, sql);
+      insert.run(hashMigration(sql), entry.when);
+    }
+  } finally {
+    db.close();
   }
-  db.close();
 }
 
 interface TriageWorldIds {
