@@ -34,6 +34,7 @@ import { createHash } from "node:crypto";
 import net from "node:net";
 import { tmpdir } from "node:os";
 import Database from "better-sqlite3";
+import { writeSqliteFixture } from "./helpers/writeSqliteFixture.js";
 import { ENFORCEMENT_MIGRATION_TAG } from "../db/stagedMigrations.js";
 import {
   ADDITIVE_SCHEMA_VERSION,
@@ -103,8 +104,7 @@ function applyMigrationSql(db: Database.Database, sqlText: string): void {
  * isolates F1's module/path correctness from the journal-baseline gap (N2)
  * owned by F2.
  */
-function prepareCurrentSchemaDatabase(dbPath: string): void {
-  const db = new Database(dbPath);
+function prepareCurrentSchemaDatabase(db: Database.Database): void {
   db.pragma("foreign_keys = ON");
 
   const schemaFile = join(DRIZZLE_DIR, "0000_schema.sql");
@@ -156,8 +156,6 @@ function prepareCurrentSchemaDatabase(dbPath: string): void {
       insertHash.run(hash, entry.when);
     }
   }
-
-  db.close();
 }
 
 /**
@@ -172,8 +170,7 @@ function prepareCurrentSchemaDatabase(dbPath: string): void {
  * migration as "none", and re-runs the non-idempotent `0000_schema.sql`
  * (`CREATE TABLE` — no `IF NOT EXISTS`), failing on the first duplicate table.
  */
-function prepareLegacyLedgerDatabase(dbPath: string): void {
-  const db = new Database(dbPath);
+function prepareLegacyLedgerDatabase(db: Database.Database): void {
   db.pragma("foreign_keys = ON");
 
   // Consolidated baseline only — every table in 0000_schema now exists.
@@ -216,8 +213,6 @@ function prepareLegacyLedgerDatabase(dbPath: string): void {
     .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='__drizzle_migrations'")
     .get();
   expect(hasDrizzle).toBeUndefined();
-
-  db.close();
 }
 
 /**
@@ -430,7 +425,7 @@ describe("F1 — ESM-safe compiled API startup", () => {
       try {
         const dbPath = join(tempDir, "smoke.db");
         const port = await getFreePort();
-        prepareCurrentSchemaDatabase(dbPath);
+        writeSqliteFixture(dbPath, prepareCurrentSchemaDatabase);
 
         await launchAndWaitForHealth(compiledApi.entrypoint, {
           ...process.env,
@@ -469,7 +464,7 @@ describe("F1 — ESM-safe compiled API startup", () => {
 
         const dbPath = join(tempRoot, "smoke.db");
         const port = await getFreePort();
-        prepareCurrentSchemaDatabase(dbPath);
+        writeSqliteFixture(dbPath, prepareCurrentSchemaDatabase);
 
         await launchAndWaitForHealth(installed.entrypoint, {
           ...process.env,
@@ -593,7 +588,7 @@ describe("F1 — ESM-safe compiled API startup", () => {
           .digest("hex");
 
         const dbPath = join(tempRoot, "legacy.db");
-        prepareLegacyLedgerDatabase(dbPath);
+        writeSqliteFixture(dbPath, prepareLegacyLedgerDatabase);
 
         const baseEnv = {
           ...process.env,
@@ -740,7 +735,7 @@ describe("F1 — ESM-safe compiled API startup", () => {
 
         const dbPath = join(tempDir, "char.db");
         const port = await getFreePort();
-        prepareCurrentSchemaDatabase(dbPath);
+        writeSqliteFixture(dbPath, prepareCurrentSchemaDatabase);
 
         await launchAndWaitForHealth(
           compiledApi.entrypoint,

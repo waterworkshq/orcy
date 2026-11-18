@@ -10,7 +10,7 @@
  * delivery + authorized registry destination) must be claimed and delivered
  * to a LOCAL CONTROLLED RECEIVER (127.0.0.1 HTTP server owned by this test,
  * allowlisted through the documented ORCY_SSRF_ALLOWLIST seam — production
- * SSRF validation itself is untouched) within one worker tick (60 s). The
+ * SSRF validation itself is untouched) within the test delivery budget. The
  * received request must carry the signed-standard-envelope contract: stable
  * delivery id, `X-Kanban-Signature` verifiable with the subscription secret,
  * `notification:<type>` event name — and the delivery must aggregate to
@@ -31,6 +31,7 @@ import net from "node:net";
 import http from "node:http";
 import { tmpdir } from "node:os";
 import Database from "better-sqlite3";
+import { writeSqliteFixture } from "./helpers/writeSqliteFixture.js";
 import { ENFORCEMENT_MIGRATION_TAG } from "../db/stagedMigrations.js";
 import {
   ADDITIVE_SCHEMA_VERSION,
@@ -87,8 +88,7 @@ function applyMigrationSql(db: Database.Database, sqlText: string): void {
 }
 
 /** Current-schema database with a complete Drizzle ledger (compiledStartup pattern). */
-function prepareCurrentSchemaDatabase(dbPath: string): void {
-  const db = new Database(dbPath);
+function prepareCurrentSchemaDatabase(db: Database.Database): void {
   db.pragma("foreign_keys = ON");
 
   const schemaFile = join(DRIZZLE_DIR, "0000_schema.sql");
@@ -133,8 +133,6 @@ function prepareCurrentSchemaDatabase(dbPath: string): void {
       insertHash.run(createHash("sha256").update(content).digest("hex"), entry.when);
     }
   }
-
-  db.close();
 }
 
 interface ReceivedRequest {
@@ -180,7 +178,7 @@ describe("notification V2 push restoration — production boot smoke", () => {
     const DELIVERY_ID = "notify-smoke-delivery-0001";
 
     try {
-      prepareCurrentSchemaDatabase(dbPath);
+      writeSqliteFixture(dbPath, prepareCurrentSchemaDatabase);
       const db = new Database(dbPath);
       db.pragma("foreign_keys = ON");
 
@@ -206,10 +204,8 @@ describe("notification V2 push restoration — production boot smoke", () => {
       expect(compiledApi.entrypoint).toBeTruthy();
 
       const apiPort = await getFreePort();
-      // Test-only fast tick (lib/workerTick.ts): the worker cadence shrinks
-      // from the frozen 60 s production default; budgets below are expressed
-      // in ticks, never wall-clock.
-      const WORKER_TICK_MS = 1_500;
+      // Exercise the real worker on a short test cadence, including several ticks after delivery.
+      const WORKER_TICK_MS = 200;
       const child = spawn(process.execPath, [compiledApi.entrypoint], {
         env: {
           ...process.env,
@@ -267,9 +263,8 @@ describe("notification V2 push restoration — production boot smoke", () => {
         }
         expect(ready, `API never reached /health.\nstdout:\n${stdout}\nstderr:\n${stderr}`).toBe(true);
 
-        // The worker's first tick fires one (fast) interval after boot; the
-        // budget is six ticks, so slow machines degrade instead of flaking.
-        const DELIVERY_TIMEOUT = WORKER_TICK_MS * 6;
+        // Keep the delivery deadline independent of the test tick on slow runners.
+        const DELIVERY_TIMEOUT = 9_000;
         const deliveryDeadline = Date.now() + DELIVERY_TIMEOUT;
         while (Date.now() < deliveryDeadline) {
           if (received.length > 0) break;
@@ -305,6 +300,7 @@ describe("notification V2 push restoration — production boot smoke", () => {
         // Settled database state: fenced success, reservation spent, lease
         // released, aggregate delivery completion recorded.
         await new Promise((r) => setTimeout(r, 1_000));
+        expect(received).toHaveLength(1);
         const verify = new Database(dbPath);
         const unit = verify
           .prepare(

@@ -447,9 +447,9 @@ describe("Agent review terminal races (cross-process, real connections)", () => 
           child,
           (m) => (m?.type === "RESULT" ? { ok: m.ok === true } : null),
           "result-wait",
-          2000,
+          200,
         ).promise,
-      ).rejects.toThrow(/timed out after 2000ms/);
+      ).rejects.toThrow(/timed out after 200ms/);
       await expect(waitForExit(child, 5000).promise).resolves.toBeUndefined();
       expect([child.exitCode, child.signalCode]).not.toEqual([null, null]);
     } finally {

@@ -48,6 +48,7 @@ parentPort.postMessage({ status: result.status });
 let workDir: string;
 
 describe("merge approval concurrency — file SQLite IPC barrier", () => {
+  const workers: Worker[] = [];
   let dbPath: string;
   let taskId: string;
   let baseVersion: number;
@@ -155,8 +156,12 @@ describe("merge approval concurrency — file SQLite IPC barrier", () => {
     };
   });
 
-  afterEach(() => {
-    rmSync(workDir, { recursive: true, force: true });
+  afterEach(async () => {
+    try {
+      await Promise.all(workers.splice(0).map((worker) => worker.terminate()));
+    } finally {
+      rmSync(workDir, { recursive: true, force: true });
+    }
   });
 
   it("two concurrent signed merged deliveries → one approval event, one version bump", async () => {
@@ -164,26 +169,33 @@ describe("merge approval concurrency — file SQLite IPC barrier", () => {
     writeFileSync(workerFile, WORKER_SOURCE, "utf8");
     const gateFile = join(workDir, "gate.lock");
 
+    const bothReady = Promise.withResolvers<void>();
+    let readyWorkers = 0;
     const spawn = () =>
       new Promise<{ status: string }>((resolve, reject) => {
         const worker = new Worker(workerFile, {
           workerData: { dbPath, gateFile, payload, ingress },
         });
-        worker.on("message", (m: unknown) => {
-          if (m === "ready") return;
-          resolve(m as { status: string });
+        workers.push(worker);
+        worker.once("message", (message: unknown) => {
+          if (message !== "ready") {
+            reject(new Error("Expected worker readiness before its result"));
+            return;
+          }
+          worker.once("message", resolve);
+          readyWorkers += 1;
+          if (readyWorkers === 2) bothReady.resolve();
         });
-        worker.on("error", reject);
-        worker.on("exit", (code) => {
-          if (code !== 0) reject(new Error(`worker exited ${code}`));
+        worker.once("error", reject);
+        worker.once("exit", (code) => {
+          reject(new Error(`Worker exited before reporting a result (code ${code})`));
         });
       });
 
-    const results = [spawn(), spawn()];
-    // Give both workers time to init and reach the gate.
-    await new Promise((r) => setTimeout(r, 1500));
-    writeFileSync(gateFile, "go", "utf8");
-    const settled = await Promise.all(results);
+    const [settled] = await Promise.all([
+      Promise.all([spawn(), spawn()]),
+      bothReady.promise.then(() => writeFileSync(gateFile, "go", "utf8")),
+    ]);
     expect(settled.map((r) => r.status)).toEqual(["closed", "closed"]);
     const dbModule = await import(dbModuleUrl);
     await dbModule.initDb(dbPath);

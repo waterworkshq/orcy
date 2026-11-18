@@ -29,6 +29,7 @@ import { join } from "node:path";
 import { existsSync, readFileSync, unlinkSync, mkdtempSync, rmSync } from "node:fs";
 import { createHash } from "node:crypto";
 import Database from "better-sqlite3";
+import { writeSqliteFixture } from "./helpers/writeSqliteFixture.js";
 
 const PACKAGE_ROOT = join(import.meta.dirname, "..", "..");
 const DRIZZLE_DIR = join(PACKAGE_ROOT, "drizzle");
@@ -86,8 +87,7 @@ function applyMigrationSql(db: Database.Database, sqlText: string): void {
  * (which listed only three entries). When `initDb()` boots this database, it
  * will run every post-consolidation migration 0027–0053 for the first time.
  */
-function prepareV029Database(dbPath: string): void {
-  const db = new Database(dbPath);
+function prepareV029Database(db: Database.Database): void {
   db.pragma("foreign_keys = ON");
 
   for (const tag of ["0000_schema", "0001_green_shadowcat", "0002_purple_fallen_one"]) {
@@ -114,8 +114,6 @@ function prepareV029Database(dbPath: string): void {
       insertHash.run(hashMigration(readFileSync(sqlPath, "utf-8")), entry.when);
     }
   }
-
-  db.close();
 }
 
 describe("ADR-0039 R1 / F2: Production quarantine reset via Drizzle migrate()", () => {
@@ -136,7 +134,7 @@ describe("ADR-0039 R1 / F2: Production quarantine reset via Drizzle migrate()", 
   it("clears legacy quarantine rows on upgrade via the production migration path", async () => {
     // --- Phase 1: Prepare a v0.29-era database ---
     cleanupTempDb();
-    prepareV029Database(TEMP_DB);
+    writeSqliteFixture(TEMP_DB, prepareV029Database);
 
     // --- Phase 2: Simulate legacy quarantine rows ---
     const raw = new Database(TEMP_DB);
