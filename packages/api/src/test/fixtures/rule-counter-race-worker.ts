@@ -251,29 +251,38 @@ async function go(): Promise<void> {
     // request is then held at a TEST-OWNED seam BEFORE the command opens its
     // IMMEDIATE reservation — interposing on the singleton's .transaction
     // BEFORE the server starts, so the first transaction any handler opens
-    // (this PATCH's updateRuleCommand) blocks at the filesystem gate. Revocation
-    // or expiry-crossing commits on an independent peer connection while the
-    // SAME request is held; releasing the gate lets the reservation's fresh
-    // evaluator read decide. argv: <dbPath> <ruleId> admwait <gateDir> <release>
+    // (this PATCH's updateRuleCommand) blocks at the filesystem gate. The
+    // parent can revoke the grant or have this worker advance its clock before
+    // the reservation rechecks the SAME request's authority.
     printDriverReceipt();
     mkdirSync(gateDir!, { recursive: true });
     const port = Number(process.env.WORKER_HTTP_PORT);
     const apiKey = process.env.WORKER_API_KEY;
     if (!port || !apiKey) throw new Error("admwait mode requires WORKER_HTTP_PORT and WORKER_API_KEY");
+    const advanceClockTo = process.env.WORKER_ADVANCE_CLOCK_TO;
 
     type TxFn = (cb: (tx: unknown) => unknown, cfg?: unknown) => unknown;
     const holder = getDb() as unknown as { transaction: TxFn };
     const originalTransaction: TxFn = holder.transaction.bind(holder);
-    let blockedOnce = false;
+    let admittedAt: number | undefined;
     holder.transaction = function blockingTransaction(
       cb: (tx: unknown) => unknown,
       cfg?: unknown,
     ) {
-      if (!blockedOnce) {
-        blockedOnce = true;
-        blockUntilReleased();
+      if (admittedAt !== undefined) return originalTransaction(cb, cfg);
+      admittedAt = Date.now();
+      blockUntilReleased();
+      if (advanceClockTo === undefined) return originalTransaction(cb, cfg);
+
+      // Scope the fake clock to this worker's synchronous reservation, not
+      // HTTP admission, the barrier timeout, or any other test process.
+      const realNow = Date.now;
+      Date.now = () => Number(advanceClockTo);
+      try {
+        return originalTransaction(cb, cfg);
+      } finally {
+        Date.now = realNow;
       }
-      return originalTransaction(cb, cfg);
     } as TxFn;
 
     const { createHttpApplication } = await import("../../httpApp.js");
@@ -289,33 +298,12 @@ async function go(): Promise<void> {
         body: JSON.stringify({ name: "held-window-attempt" }),
       });
       const bodyText = await res.text();
-      process.send?.({ kind: "http", status: res.status, body: bodyText });
+      process.send?.({ kind: "http", status: res.status, body: bodyText, admittedAt });
     } finally {
       await app.close();
       await closeDb();
       process.exit(0);
     }
-  }
-
-  if (mode === "waitonly") {
-    // B's deadline-crossing waiter: sleeps until WORKER_CROSS_AT (epoch ms) —
-    // a deadline that was in the FUTURE when the held request was admitted —
-    // then verifies the wall clock has actually reached/passed it and signals
-    // via the existing marker protocol. It performs NO database write: the
-    // stored expiresAt bytes are never touched, and the refusal under proof
-    // comes from the evaluator comparing the UNCHANGED stored deadline
-    // against a now-later wall clock. argv: <dbPath> <ruleId> waitonly <gateDir> <gateRelease>; env WORKER_CROSS_AT.
-    const crossAt = Number(process.env.WORKER_CROSS_AT);
-    if (!crossAt) throw new Error("waitonly requires WORKER_CROSS_AT");
-    mkdirSync(gateDir!, { recursive: true });
-    while (Date.now() < crossAt) {
-      spawnSync(process.execPath, ["-e", "Atomics.wait(new Int32Array(new SharedArrayBuffer(4)),0,0,50);"], { timeout: 1000 });
-    }
-    if (Date.now() < crossAt) throw new Error("waitonly exited before its deadline");
-    writeFileSync(join(gateDir!, "deadline-crossed"), String(crossAt));
-    process.send?.({ kind: "ok", version: null });
-    await closeDb();
-    process.exit(0);
   }
 
   throw new Error(`unknown mode ${mode}`);

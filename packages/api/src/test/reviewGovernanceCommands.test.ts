@@ -884,6 +884,7 @@ interface WorkerMsg {
   message?: string;
   status?: number;
   body?: string;
+  admittedAt?: number;
   driver?: string;
 }
 
@@ -1245,10 +1246,12 @@ describe("B. SAME-request admission→mutation window (reviewGovernanceCommands)
     gateD: string,
     release: string,
     port: number,
+    advanceClockTo?: number,
   ) {
     const carrier = forkCommandWorker(fileDbPath, ruleId, "admwait", undefined, gateD, release, {
       WORKER_HTTP_PORT: String(port),
       WORKER_API_KEY: apiKey,
+      ...(advanceClockTo === undefined ? {} : { WORKER_ADVANCE_CLOCK_TO: String(advanceClockTo) }),
     });
     await waitFor("carrier READY after initDb", carrier.isReady, 30_000);
     carrier.send({ type: "GO" });
@@ -1367,7 +1370,7 @@ describe("B. SAME-request admission→mutation window (reviewGovernanceCommands)
     }
   }, 60_000);
 
-  it("wall clock crosses the grant's UNCHANGED stored deadline while the SAME authenticated request is held: refused, no write, bytes identical", async () => {
+  it("refuses the same admitted request after its unchanged grant expires, without writing", async () => {
     const admin = makeUser("admin");
     const habitatId = makePersonalHabitat(admin);
     const { agent, plainApiKey } = agentRepo.createAgent({
@@ -1382,16 +1385,9 @@ describe("B. SAME-request admission→mutation window (reviewGovernanceCommands)
       .where(and(eq(roleAssignments.principalId, agent.id), eq(roleAssignments.state, "active")))
       .get()!.id;
 
-    // SHORT FUTURE deadline with startup margin: +30s. Carrier fork +
-    // initDb + Fastify assembly + socket admission can exceed 8s on a loaded
-    // CI runner, which would fail the admission-instant check before the
-    // deadline-crossing wait (the actual subject) ever runs. The margin only
-    // needs to exceed worst-case startup; the deadline-crossing wait stays
-    // bounded by WORKER_CROSS_AT, so the test does not get slower on a
-    // healthy runner. If admission somehow eats the whole margin, the
-    // admission-instant check below FAILS the fixture — an initially-expired
-    // denial never counts.
-    const deadlineMs = Date.now() + 30_000;
+    // Keep the grant live throughout startup. The worker advances its clock
+    // only after the request is admitted and the parent releases the gate.
+    const deadlineMs = Date.now() + 60 * 60_000;
     const storedExpiry = new Date(deadlineMs).toISOString();
     getDb()
       .update(roleAssignments)
@@ -1413,48 +1409,22 @@ describe("B. SAME-request admission→mutation window (reviewGovernanceCommands)
     expect(JSON.parse(assignmentBefore).expiresAt).toBe(storedExpiry);
 
     const port = await freePort();
-    const carrier = await admittedHeldRequest(rule.id, plainApiKey, gateDir, gateRelease, port);
+    const carrier = await admittedHeldRequest(rule.id, plainApiKey, gateDir, gateRelease, port, deadlineMs + 1);
     try {
-      // Admission gate: the SAME request was authenticated and held while
-      // now < deadline — otherwise this fixture proves nothing.
-      expect(Date.now(), "admission must precede the stored deadline").toBeLessThan(deadlineMs);
       expect(
         JSON.stringify(
           getDb().select().from(roleAssignments).where(eq(roleAssignments.id, assignmentId)).get(),
         ),
       ).toBe(assignmentBefore);
 
-      // Deadline crossing, NO expiry rewrite: the waitonly waiter sleeps
-      // until the stored deadline on wall clock and signals via the existing
-      // marker protocol. The grant's bytes are never touched.
-      const waiter = forkCommandWorker(
-        fileDbPath,
-        rule.id,
-        "waitonly",
-        undefined,
-        gateDir,
-        `x-${Math.random()}`,
-        {
-          WORKER_CROSS_AT: String(deadlineMs),
-        },
-      );
-      try {
-        waiter.send({ type: "GO" });
-        const crossed = await waiter.next();
-        expect(crossed.kind).toBe("ok");
-      } finally {
-        await waiter.dispose();
-      }
-      expect(Date.now(), "deadline must have genuinely passed").toBeGreaterThanOrEqual(deadlineMs);
-
-      // Release: the SAME request enters its reservation; the evaluator
-      // compares the UNCHANGED stored deadline against the now-later wall
-      // clock and must refuse.
+      // The carrier advances only its own clock after this release, before
+      // the same request opens its reservation. The grant is never rewritten.
       writeFileSync(join(gateDir, gateRelease), "1");
       const result = await carrier.next();
       expect(result.kind).toBe("http");
       expect(result.status).toBe(403);
       expect(result.body).toContain("AUTHORIZATION_DENIED");
+      expect(result.admittedAt, "admission must precede the stored deadline").toBeLessThan(deadlineMs);
 
       // No mutation: rule frozen, no audit for the attempt, and the FULL
       // assignment row — expiresAt bytes included — identical throughout.
