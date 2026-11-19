@@ -3165,7 +3165,7 @@ CHECK guard by design. Remediation runbook: see
 | `packages/api/drizzle/00NN_*.sql` (journaled) | Active production migrations applied in journal order by `migrate()` | **No** — immutable once applied |
 | `packages/api/drizzle/00NN_*.sql` (legacy, unjournaled) | Pre-consolidation files (`0001_pulse`, `0002_task_labels`, `0003`–`0026`); consolidated into `0000_schema` | **No** — historical artifacts, not in the journal |
 | `packages/api/drizzle/meta/*_snapshot.json` | Drizzle diff baselines (latest is `0053_snapshot.json`) | **No** — managed by `drizzle-kit generate` |
-| `packages/api/drizzle/meta/_journal.json` | The ordered migration authority for production `migrate()` | **No** — managed by `drizzle-kit generate`; hand-repair is documented in code comments only |
+| `packages/api/drizzle/meta/_journal.json` | The ordered migration authority for the production runner and SQL.js test schema | **No** — managed by `drizzle-kit generate`; hand-repair is documented in code comments only |
 
 ### Database Initialization Paths
 
@@ -3174,7 +3174,7 @@ The schema is materialized through two distinct code paths in
 
 | Path | Function | What runs |
 |------|----------|-----------|
-| **Test databases** | `initTestDb()` | `applyMigrations()` reads `0000_schema.sql` first, then additive `NNNN_*.sql` files sorted alphabetically, excluding guarded `0068` and `0090` by tag. `runMigrationSql()` splits on `--> statement-breakpoint` and tolerantly swallows "already exists" errors. Uses the `sql.js` WASM driver on an in-memory DB. |
+| **Test databases** | `initTestDb()` | The SQL.js schema builder replays `meta/_journal.json` in entry order, ignoring unjournaled files and excluding guarded `0068` and `0090` by tag. It splits SQL on `--> statement-breakpoint` and retains the fallback for SQL.js builds without FTS5. Uses the `sql.js` WASM driver on an in-memory DB. |
 | **Production databases** | `initDb()` | The staged runner reads `meta/_journal.json` in `when`-timestamp order and tracks applied state via `__drizzle_migrations`, including the `0068` preflight gate and independent `0090` column transactions. A legacy `__migrations`-ledger bridge and prerelease 0053 marker reconciliation run first on every boot. Uses `better-sqlite3` on a file. |
 
 This split is intentional. Test DBs get the fastest possible setup from the
