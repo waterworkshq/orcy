@@ -22,10 +22,9 @@
  * to the publish path + hit `PublicationCheckpointConsistencyError` (a 500).
  * Post-T9B-05 the loser gets a TYPED outcome (`retry_in_progress` / etc.).
  *
- * Each worker reports the retry number bound to its first real coordination
- * lookup and waits for a shared release file before executing that lookup.
- * This guarantees the contenders derived the same slot without replacing
- * any reads or writes or pausing inside a SQLite transaction.
+ * Each worker runs the real coordination lookup and reports the retry number
+ * only after SQLite returns no row. Both wait for release before either can
+ * insert, forcing the unique-key race without pausing inside a transaction.
  */
 import { existsSync } from "node:fs";
 import type { Database, Statement } from "better-sqlite3";
@@ -63,9 +62,11 @@ async function main(): Promise<void> {
       if (/^select\b/i.test(source) && source.includes('from "task_creation_attempts"') && source.includes('"attempt_key" = ?')) {
         const get = statement.get.bind(statement);
         statement.get = (...bindings: unknown[]) => {
+          const row = get(...bindings);
           const key = bindings[3];
           const retry = typeof key === "string" ? /^occurrence-retry-(\d+)-coordination$/.exec(key) : null;
           if (!reachedBarrier && bindings[2] === occurrenceId && retry) {
+            if (row !== undefined) throw new Error("Expected the retry coordination slot to be empty");
             if (sqlite.inTransaction) throw new Error("Retry barrier must not hold a SQLite transaction");
             reachedBarrier = true;
             send?.({ type: "AT_RETRY", retryNumber: Number(retry[1]) });
@@ -76,7 +77,7 @@ async function main(): Promise<void> {
               Atomics.wait(sleeper, 0, 0, 10);
             }
           }
-          return get(...bindings);
+          return row;
         };
       }
       return statement;
