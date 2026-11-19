@@ -300,8 +300,8 @@ The MCP server uses a **consolidated dispatch pattern**. New actions are added t
 
 **Two initialization paths:**
 
-- **Test DBs** (`initTestDb()`) apply `0000_schema.sql` (frozen consolidated baseline) then all other `NNNN_*.sql` files sorted, tolerantly swallowing "already exists" errors
-- **Production DBs** (`initDb()`) apply the journal chain (`0000`, `0001`, `0002`, `0027`–`0053`) in order via Drizzle `migrate()`, preserving data
+- **Test DBs** (`initTestDb()`) use the SQL.js schema built from `meta/_journal.json` in entry order. Unjournaled files and explicitly guarded production-only migrations are skipped; SQL.js without FTS5 uses the test fallback.
+- **Production DBs** (`initDb()`) use the staged SQLite migration runner and the same journal, with production enforcement and upgrade handling enabled.
 
 **Common mistakes to avoid:**
 
