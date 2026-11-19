@@ -22,18 +22,14 @@
  * to the publish path + hit `PublicationCheckpointConsistencyError` (a 500).
  * Post-T9B-05 the loser gets a TYPED outcome (`retry_in_progress` / etc.).
  *
- * # Protocol (IPC) — mirrors the T9A-11 worker
- *
- *   1. WORKER: dynamic-imports + calls `initDb(dbPath)` to set up ITS global
- *      DB connection (the retry uses `getDb()` internally).
- *   2. WORKER: emits `{ type: "READY" }`.
- *   3. PARENT: waits for BOTH workers' READY, then sends `{ type: "GO" }`.
- *   4. WORKER: on GO, calls `repairScheduledOccurrence({ occurrenceId, actorId })`.
- *   5. WORKER: emits the typed outcome (or `{ type: "ERROR" }`).
- *   6. WORKER: closes its connection in `finally` BEFORE the RESULT message.
- *
- * Usage: forked with argv `[dbPath, occurrenceId, actorId]`.
+ * Each worker reports the retry number bound to its first real coordination
+ * lookup and waits for a shared release file before executing that lookup.
+ * This guarantees the contenders derived the same slot without replacing
+ * any reads or writes or pausing inside a SQLite transaction.
  */
+import { existsSync } from "node:fs";
+import type { Database, Statement } from "better-sqlite3";
+
 const [dbPath, occurrenceId, actorId] = process.argv.slice(2);
 
 const send = typeof process.send === "function" ? process.send.bind(process) : null;
@@ -54,34 +50,38 @@ async function main(): Promise<void> {
     message: "worker: unreachable — main() did not produce a message",
   };
 
-  // Load the module graph BEFORE the race window (no import-time skew).
-  const { initDb, closeDb } = await import("../../db/index.js");
+  const { initDb, closeDb, getDb } = await import("../../db/index.js");
   const { repairScheduledOccurrence } = await import("../../services/scheduledOccurrenceRepair.js");
-
-  // Open the worker's OWN connection via initDb (the retry uses getDb()
-  // internally — initDb sets the global connection). The parent already
-  // applied migrations; re-running them is idempotent (drizzle tracks the
-  // migration ledger).
   await initDb(dbPath);
 
   try {
-    // 1. Signal READY. Parent waits for both workers before sending GO.
-    if (send) send({ type: "READY" });
+    const sqlite = (getDb() as unknown as { $client: Database }).$client;
+    const prepare = sqlite.prepare;
+    let reachedBarrier = false;
+    sqlite.prepare = ((source: string) => {
+      const statement = prepare.call(sqlite, source) as Statement<unknown[]>;
+      if (/^select\b/i.test(source) && source.includes('from "task_creation_attempts"') && source.includes('"attempt_key" = ?')) {
+        const get = statement.get.bind(statement);
+        statement.get = (...bindings: unknown[]) => {
+          const key = bindings[3];
+          const retry = typeof key === "string" ? /^occurrence-retry-(\d+)-coordination$/.exec(key) : null;
+          if (!reachedBarrier && bindings[2] === occurrenceId && retry) {
+            if (sqlite.inTransaction) throw new Error("Retry barrier must not hold a SQLite transaction");
+            reachedBarrier = true;
+            send?.({ type: "AT_RETRY", retryNumber: Number(retry[1]) });
+            const deadline = Date.now() + 20_000;
+            const sleeper = new Int32Array(new SharedArrayBuffer(4));
+            while (!existsSync(`${dbPath}.retry-release`)) {
+              if (Date.now() >= deadline) throw new Error("Timed out waiting for the retry barrier release");
+              Atomics.wait(sleeper, 0, 0, 10);
+            }
+          }
+          return get(...bindings);
+        };
+      }
+      return statement;
+    }) as typeof sqlite.prepare;
 
-    // 2. Wait for GO.
-    await new Promise<void>((resolve) => {
-      const onMessage = (msg: { type: string }): void => {
-        if (msg?.type === "GO") {
-          process.off("message", onMessage);
-          resolve();
-        }
-      };
-      process.on("message", onMessage);
-    });
-
-    // 3. THE RACE: call repairScheduledOccurrence. The coordination attempt's
-    //    UNIQUE index defends — one worker wins (`created`), the other gets
-    //    `replayed` → a typed outcome (NOT the 500).
     const result = repairScheduledOccurrence({ occurrenceId, actorId });
 
     message = {
