@@ -27,9 +27,9 @@
  * (set by `initDb`) handles transient SQLITE_BUSY.
  */
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { fork, type ChildProcess } from "node:child_process";
+import { fork } from "node:child_process";
 import { join } from "node:path";
-import { existsSync, unlinkSync, mkdirSync } from "node:fs";
+import { existsSync, unlinkSync, mkdirSync, writeFileSync } from "node:fs";
 import { eq } from "drizzle-orm";
 import { closeDb, getDb, initDb } from "../db/index.js";
 import { scheduledOccurrences, scheduledTasks } from "../db/schema/index.js";
@@ -48,14 +48,14 @@ const NOW_ISO = "2026-07-19T12:00:00.000Z";
 const NEXT_RUN_INTERVAL = "2026-07-19T13:00:00.000Z";
 
 interface WorkerMessage {
-  type: "READY" | "RESULT" | "ERROR";
+  type: "AT_RETRY" | "RESULT" | "ERROR";
   outcome?: string;
   retryNumber?: number | null;
   message?: string;
 }
 
 function cleanupDb(dbPath: string): void {
-  for (const suffix of ["", "-wal", "-shm"]) {
+  for (const suffix of ["", "-wal", "-shm", ".retry-release"]) {
     if (existsSync(`${dbPath}${suffix}`)) {
       try {
         unlinkSync(`${dbPath}${suffix}`);
@@ -143,89 +143,62 @@ describe("repairScheduledOccurrence — real cross-process concurrency (T9B-05)"
     // Close the PARENT's connection before forking.
     closeDb();
 
-    // ----- FORK TWO WORKERS --------------------------------------------
-    const forkWorker = (
-      label: string,
-    ): {
-      child: ChildProcess;
-      ready: Promise<void>;
-      result: Promise<WorkerMessage>;
-    } => {
+    const forkWorker = (label: string) => {
       const child = fork(WORKER, [dbPath, occurrenceId, `operator-${label}`], {
         execArgv: ["--import", "tsx"],
-        stdio: ["pipe", "pipe", "pipe", "ipc"],
+        stdio: ["ignore", "ignore", "pipe", "ipc"],
       });
+      const ready = Promise.withResolvers<number>();
+      const result = Promise.withResolvers<WorkerMessage>();
+      const exited = new Promise<void>((resolve) => child.once("close", () => resolve()));
       child.stderr?.on("data", (chunk: Buffer) => {
         console.warn(`[T9B-05 worker-${label} stderr]:`, chunk.toString());
       });
-      const ready = new Promise<void>((resolve, reject) => {
-        const onMessage = (msg: WorkerMessage): void => {
-          if (msg?.type === "READY") {
-            child.off("message", onMessage);
-            resolve();
-          }
-        };
-        child.on("message", onMessage);
-        child.on("exit", (code, signal) => {
-          reject(new Error(`worker exited (code=${code}, signal=${signal}) before READY`));
-        });
+      child.on("message", (message: WorkerMessage) => {
+        if (message.type === "AT_RETRY") {
+          ready.resolve(message.retryNumber!);
+        } else {
+          ready.reject(new Error(`worker ${label} did not reach the retry barrier: ${JSON.stringify(message)}`));
+          result.resolve(message);
+        }
       });
-      const result = new Promise<WorkerMessage>((resolve) => {
-        const onMessage = (msg: WorkerMessage): void => {
-          if (msg?.type === "RESULT" || msg?.type === "ERROR") {
-            child.off("message", onMessage);
-            resolve(msg);
-          }
-        };
-        child.on("message", onMessage);
+      const fail = (error: Error) => {
+        ready.reject(error);
+        result.reject(error);
+      };
+      child.once("error", fail);
+      child.once("exit", (code, signal) => {
+        fail(new Error(`worker ${label} exited before reporting (code=${code}, signal=${signal})`));
       });
-      return { child, ready, result };
+      return { child, ready: ready.promise, result: result.promise, exited };
     };
 
-    const w1 = forkWorker("1");
-    const w2 = forkWorker("2");
-
+    const workers = [forkWorker("1"), forkWorker("2")];
     try {
-      await Promise.all([w1.ready, w2.ready]);
+      const release = Promise.all(workers.map((worker) => worker.ready)).then((retryNumbers) => {
+        expect(retryNumbers, "both workers must reach the reservation for retry 1").toEqual([1, 1]);
+        writeFileSync(`${dbPath}.retry-release`, "", { flag: "wx" });
+      });
+      const [[r1, r2]] = await Promise.all([
+        Promise.all(workers.map((worker) => worker.result)),
+        release,
+      ]);
 
-      // Fire BOTH as close to simultaneously as the event loop allows.
-      w1.child.send({ type: "GO" });
-      w2.child.send({ type: "GO" });
+      expect([r1.type, r2.type], JSON.stringify([r1, r2])).toEqual(["RESULT", "RESULT"]);
+      expect([r1.retryNumber, r2.retryNumber], "both workers must contend for retry 1").toEqual([1, 1]);
 
-      const [r1, r2] = await Promise.all([w1.result, w2.result]);
-
-      if (r1.type === "ERROR") console.warn("[T9B-05 worker-1 ERROR]:", r1.message);
-      if (r2.type === "ERROR") console.warn("[T9B-05 worker-2 ERROR]:", r2.message);
-
-      // Neither worker should error — the race outcomes are typed.
-      expect(r1.type).toBe("RESULT");
-      expect(r2.type).toBe("RESULT");
-
-      // ----- THE LOAD-BEARING ASSERTION: one winner, one typed loser ---
-      // Exactly ONE worker won (repaired / retry_failed_*). The other got a
-      // TYPED concurrency outcome (retry_in_progress / retry_already_completed
-      // / retry_concurrent_conflict) — NOT a thrown 500.
       const outcomes = [r1.outcome!, r2.outcome!];
-      const winnerOutcomes = outcomes.filter(
-        (o) => o === "repaired" || o.startsWith("retry_failed"),
-      );
+      const winnerOutcomes = outcomes.filter((o) => o === "repaired" || o.startsWith("retry_failed"));
       const typedLoserOutcomes = outcomes.filter(
-        (o) =>
-          o === "retry_in_progress" ||
-          o === "retry_already_completed" ||
-          o === "retry_concurrent_conflict",
+        (o) => o === "retry_in_progress" || o === "retry_already_completed" || o === "retry_concurrent_conflict",
       );
       expect(winnerOutcomes).toHaveLength(1);
       expect(typedLoserOutcomes).toHaveLength(1);
-
-      // **Failure mode (pre-T9B-05)**: both callers would proceed to the
-      // publish path + the loser would throw `PublicationCheckpointConsistencyError`
-      // (a 500, surfaced as an ERROR here). Post-T9B-05 the loser gets a
-      // typed outcome.
     } finally {
-      for (const w of [w1, w2]) {
-        if (w.child.exitCode === null && !w.child.killed) w.child.kill("SIGKILL");
+      for (const { child } of workers) {
+        if (child.exitCode === null && child.signalCode === null) child.kill("SIGKILL");
       }
+      await Promise.all(workers.map((worker) => worker.exited));
     }
 
     // ----- PARENT POST-RACE ASSERTIONS: durable DB state ----------------
