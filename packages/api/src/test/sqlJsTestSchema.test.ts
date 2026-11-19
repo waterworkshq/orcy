@@ -60,6 +60,23 @@ it("replays only journaled migrations in entry order, excluding production enfor
   }
 });
 
+it("fails when a journaled migration references a table before it exists", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "orcy-test-migrations-"));
+  try {
+    mkdirSync(join(dir, "meta"));
+    writeFileSync(join(dir, "meta", "_journal.json"), JSON.stringify({
+      entries: [{ tag: "0001_insert" }, { tag: "0002_create" }],
+    }));
+    writeFileSync(join(dir, "0001_insert.sql"), "INSERT INTO migration_probe VALUES (1);");
+    writeFileSync(join(dir, "0002_create.sql"), "CREATE TABLE migration_probe (value INTEGER);");
+    const SQL = await initSqlJs();
+
+    expect(() => createSqlJsTestSchema(SQL, dir).close()).toThrow("no such table: migration_probe");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 it("seeds a private copy of the run schema and resets to that file's seed", async () => {
   const dir = mkdtempSync(join(tmpdir(), "orcy-test-schema-"));
   try {

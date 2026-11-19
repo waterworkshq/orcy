@@ -50,14 +50,7 @@ function runMigrationSql(testSqlite: Database, sqlText: string): void {
         fts5Available = false;
         continue;
       }
-      if (
-        !msg.includes("already exists") &&
-        !msg.includes("no such table") &&
-        !msg.includes("no such column") &&
-        !msg.includes("no such index") &&
-        !msg.includes("duplicate column name")
-      )
-        throw err;
+      throw err;
     }
   }
 }
