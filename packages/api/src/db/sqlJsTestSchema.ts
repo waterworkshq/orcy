@@ -1,4 +1,4 @@
-import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { Database, SqlJsStatic } from "sql.js";
 import { ENFORCEMENT_MIGRATION_TAGS } from "./enforcementMigrationTags.js";
@@ -6,7 +6,7 @@ import { ENFORCEMENT_MIGRATION_TAGS } from "./enforcementMigrationTags.js";
 export const TEST_SCHEMA_PATH_ENV = "ORCY_TEST_SQLJS_SCHEMA";
 
 // Guarded migrations require production preflight checks and are tested with better-sqlite3.
-const enforcementFiles = new Set(ENFORCEMENT_MIGRATION_TAGS.map((tag) => `${tag}.sql`));
+const enforcementTags = new Set<string>(ENFORCEMENT_MIGRATION_TAGS);
 
 export function createSqlJsTestSchema(SQL: SqlJsStatic, migrationFolder: string): Database {
   const db = new SQL.Database();
@@ -21,16 +21,12 @@ export function createSqlJsTestSchema(SQL: SqlJsStatic, migrationFolder: string)
 }
 
 function applyMigrations(testSqlite: Database, migrationFolder: string): void {
-  const schemaFile = join(migrationFolder, "0000_schema.sql");
-  if (existsSync(schemaFile)) {
-    runMigrationSql(testSqlite, readFileSync(schemaFile, "utf-8"));
-  }
-  const incrementalMigrations = readdirSync(migrationFolder)
-    .filter((f) => /^\d{4}_.*\.sql$/.test(f) && f !== "0000_schema.sql")
-    .filter((f) => !enforcementFiles.has(f))
-    .toSorted();
-  for (const migrationFile of incrementalMigrations) {
-    runMigrationSql(testSqlite, readFileSync(join(migrationFolder, migrationFile), "utf-8"));
+  const journal: { entries: { tag: string }[] } = JSON.parse(
+    readFileSync(join(migrationFolder, "meta", "_journal.json"), "utf-8"),
+  );
+  for (const { tag } of journal.entries) {
+    if (enforcementTags.has(tag)) continue;
+    runMigrationSql(testSqlite, readFileSync(join(migrationFolder, `${tag}.sql`), "utf-8"));
   }
 }
 
