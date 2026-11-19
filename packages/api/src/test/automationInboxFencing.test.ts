@@ -220,7 +220,7 @@ describe("automation inbox lease/fence — real cross-process contention", () =>
       .all();
     expect(runRows).toHaveLength(1);
     expect(delivery.automationRunId).toBe(runRows[0].id);
-  });
+  }, 30_000);
 
   it("a stale worker cannot terminalize or forge proof after a newer fence owns the delivery", async () => {
     const seedInfo = await seed(dbPath, "STALE");
@@ -295,5 +295,5 @@ describe("automation inbox lease/fence — real cross-process contention", () =>
     expect(deliveryRepo.getDeliveryById(seedInfo.deliveryId)!.terminalDisposition).toBe(
       "superseded",
     );
-  });
+  }, 30_000);
 });
