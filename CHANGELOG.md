@@ -2,6 +2,104 @@
 
 > Older releases: see [git tags](https://github.com/waterworkshq/orcy/tags) and [GitHub Releases](https://github.com/waterworkshq/orcy/releases).
 
+## 0.48.1 — 2026-11-20
+
+### Bug Fixes
+
+#### adapt board selectors to zustand v5 hook API ([`e000be2`](https://github.com/waterworkshq/orcy/commit/e000be20802f885a5e6d3c1523a093390786625f))
+
+- zustand v5 removed the store hook's equalityFn argument; wrap the Column wipAlert and TaskCard presence-filter selectors in useShallow from zustand/react/shallow (same shallow-result memoization) and move the component test mocks to the new subpath, keeping the shallow-usage assertion discriminating.
+
+#### keep session navigation atomic on router v7 ([`1053d3f`](https://github.com/waterworkshq/orcy/commit/1053d3f5c1ef1309553ee55100f2ee08d8c480e5))
+
+- React Router v7 wraps declarative navigation in startTransition by default. Opt out so account cache replacement and route changes commit together, and mirror the production setting in session regression journeys.
+
+#### declare the @testing-library/dom peer required by jest-dom v7 ([`cf0c3b1`](https://github.com/waterworkshq/orcy/commit/cf0c3b147c71b56237de1f15fc6916dd2f9891b4))
+
+- jest-dom v7.0.0 makes @testing-library/dom (>=10 <11) a required peer dependency; declare it as an explicit ui devDependency instead of relying on pnpm's implicit peer auto-install, which resolves an unconstrained version.
+
+#### override @ungap/structured-clone to 1.3.1 ([`051d1a4`](https://github.com/waterworkshq/orcy/commit/051d1a4df1bb136b3fc333288846b4dc76a46a99))
+
+- The transitive pin sat at 1.3.0, which carries a recorded CWE-502 deprecation and runs in production markdown sanitization via mdast-util-to-hast and hast-util-sanitize; the override forces the patched 1.3.1 resolution.
+
+#### raise the declared @dnd-kit/core floor to 6.3.1 ([`a4b906e`](https://github.com/waterworkshq/orcy/commit/a4b906eb74e11737da6363b8522712d80263b1b9))
+
+- sortable 10 requires core >=6.3.0 as its peer; the declared ^6.1.0 floor sat below it even though the lockfile already resolved 6.3.1. Align the specifier with the resolution.
+
+#### catch in-place wire input edits during the build window ([`d96f0af`](https://github.com/waterworkshq/orcy/commit/d96f0af03e0d02e5da41591a744ba9ef6995d2fd))
+
+- The baseline and post-build input snapshots compared set membership only, so an input edited in place while the initial build ran produced no set delta and no watcher event ever surfaced it — the first watch rerun then executed against stale dist. Fingerprint every walked input with a sha256 content hash (the compiled-api artifact pattern) and arm the first rerun when a production input's fingerprint differs between the two snapshots.
+
+#### treat an unreadable wire input as changed across both snapshots ([`c0583e9`](https://github.com/waterworkshq/orcy/commit/c0583e9a9cf4eba8df57f1c746c6e21bf6441d45))
+
+- An input that failed to read in BOTH setup snapshots fingerprinted as the empty sentinel on each side, and equal sentinels compared as unchanged — an input whose content was never verified could pass the build-window check silently. Name the sentinel and arm the first rerun when it appears on either side of the comparison, not only when the fingerprints differ.
+
+### Documentation
+
+#### describe journal-based SQL.js test fixtures ([`8d65f8f`](https://github.com/waterworkshq/orcy/commit/8d65f8fb5dcafff61684c5f0446e676b6e5ea2dc))
+
+- Document the shared migration journal, production-only enforcement exclusions, and SQL.js FTS5 fallback.
+
+#### add v0.48.1 operator notes ([`d962ebc`](https://github.com/waterworkshq/orcy/commit/d962ebcf88badbab7d147ccd7b75daf9b7bde24a))
+
+- Record the UI dependency updates, CI and test maintenance, and roadmap reconciliation.
+
+### Tests
+
+#### run the wire coordinator watch tests against a temp workspace ([`7f9f77a`](https://github.com/waterworkshq/orcy/commit/7f9f77a8727b75f138333f87fdcaa12b2b9c30ed))
+
+- Inject a mkdtemp workspace root (packages/<pkg>/src layout) as the coordinator's resolved root so the snapshot walk, the anchored productionInputs pattern and the set-delta logic exercise the real code paths against a fixture tree instead of the real packages/ checkout, whose LIVE coordinator reacts to probe writes during watch sessions, and make the mid-setup probe cleanup force-tolerant of a probe that never landed instead of masking the run with ENOENT.
+
+#### simulate unreadable wire inputs without chmod ([`2486c12`](https://github.com/waterworkshq/orcy/commit/2486c12ed15e1584d26d6caba22fbc2a4588084b))
+
+- Inject a read failure for the fixture input so the regression test exercises both snapshots regardless of platform or runner permissions.
+
+#### clone staged migration fixtures ([`5c9bfa6`](https://github.com/waterworkshq/orcy/commit/5c9bfa64d1d839ad3df5b5cacbd4de1ec75401b9))
+
+- Replay each historical migration prefix once per run and clone the closed database for each case. Keep pending migrations and failure recovery isolated to each case.
+
+#### remove the review governance expiry wait ([`a534691`](https://github.com/waterworkshq/orcy/commit/a534691042a266a1e03a0915b81818765919888a))
+
+- Advance the test worker clock only within the held request’s mutation reservation. Keep the real HTTP request and the unchanged grant, rule, and audit assertions.
+
+#### reduce database fixture and module loading overhead ([`9d59d8f`](https://github.com/waterworkshq/orcy/commit/9d59d8fff25450ba1cb7cc165ddd3588c05d930d))
+
+- Reuse the migrated SQL.js schema across Vitest workers, prebundle the Drizzle entry points, and write historical migration fixtures once before exercising the file-backed upgrades.
+
+#### guard SQL.js exclusions for marked migrations ([`912b319`](https://github.com/waterworkshq/orcy/commit/912b319e5f6f28abc131b5f85d6a36dfff6eb2ed))
+
+- Scan the migration files for guarded-column sections so an unregistered migration is caught before the shared SQL.js fixture replays it.
+
+#### reduce SQLite fixture writes and fixed waits ([`ecd02f1`](https://github.com/waterworkshq/orcy/commit/ecd02f1ff9ef448e4c26c8842604dff599060a65))
+
+- Build synthetic starting databases in memory and serialize each fixture once before exercising file-backed behavior. Synchronize the merge-approval workers on readiness and shorten test-only retry cadences and the wedged-child watchdog.
+
+#### allow for worker startup in inbox fencing tests ([`371896b`](https://github.com/waterworkshq/orcy/commit/371896bd1027cde9e8b08621eb4ad956c3fd2c22))
+
+#### make scheduled occurrence retry contention deterministic ([`d337552`](https://github.com/waterworkshq/orcy/commit/d337552109f97acdc50e2544aa9556d45db4a3d8))
+
+- Hold both workers before their real SQLite coordination lookup until they report the same retry slot. Preserve the one-winner, typed-loser, and retry-history checks without changing production code.
+
+#### force the retry coordination insert race ([`1d23f93`](https://github.com/waterworkshq/orcy/commit/1d23f93be5981dfd306503a23493b6060a0e6e88))
+
+- Release the contenders only after both real SQLite lookups return no row, so the loser exercises the UNIQUE conflict rather than finding a committed row in the precheck.
+
+#### build SQL.js fixtures from the migration journal ([`fc862ff`](https://github.com/waterworkshq/orcy/commit/fc862ffe41e1eecdba65f4af891a2f049b236f69))
+
+- Replay only journaled migrations in entry order for both SQL.js fixture paths. Preserve production-only enforcement exclusions, FTS5 fallback and per-file seeding and reset behavior.
+
+#### fail on unexpected SQL.js migration errors ([`00f9d02`](https://github.com/waterworkshq/orcy/commit/00f9d029e12eebe7953b650952c60715bbad55ae))
+
+- Keep the FTS5 fallback, but surface other migration errors during fixture setup. Cover a journal entry that references a table before it exists.
+
+### ci
+
+#### split the API suite across two parallel runners ([`e6c6073`](https://github.com/waterworkshq/orcy/commit/e6c6073377436e645468a6919b468236f72ec98a))
+
+- Run the default API test command on two Node 24 shards and build the API and its workspace dependencies in each checkout. Run root scripts, the remaining packages, and the serial concurrency proof on a separate runner.
+
+#### use four Vitest workers per API shard ([`753ae9a`](https://github.com/waterworkshq/orcy/commit/753ae9a67f50714235dd89c5c84cb2bdae45c9f0))
+
 ## 0.48.0 — 2026-11-17
 
 ### Bug Fixes
@@ -375,41 +473,3 @@
 #### validate the seeded Learning Loop in isolation (#160) ([`8f8df08`](https://github.com/waterworkshq/orcy/commit/8f8df08b34c0a5e1ba556bc876e3bb577b7f85c6))
 
 - Exercise the mounted Learning Loop controls with real authenticated lifecycle data and verify durable review decisions through the live API seams. Keep the harness local-only with explicit temporary databases, failure-safe cleanup, exact test discovery and retained hostile-environment regressions; production defaults and CI coverage remain unchanged.
-
-## 0.46.1 — 2026-10-24
-
-### Chores
-
-#### dedupe merge-era bullets in the changelog trimmer (#117) ([`976aede`](https://github.com/waterworkshq/orcy/commit/976aedecc56d27e4b986024d82688b717748c524))
-
-- trim-changelog now removes repeated identical body bullets within each retained release section (merge-commit landings emitted the same paragraph once per landing — 13 copies of one such bullet lived in the v0.45.0 section) and drops cliff's empty-body placeholder bullets, on top of the existing 3-section cap. The transform is exported as a pure function with node:test coverage under test:scripts, and the committed CHANGELOG is re-trimmed once so the retained sections are clean now rather than at the next release.
-
-#### triage the warning backlog to zero (#118) ([`0706920`](https://github.com/waterworkshq/orcy/commit/0706920f6783f997f7682d8da6317c8c2914f182))
-
-- 402 warnings to 0. Real cleanups: 30 dead imports/variables, 5 in-place reverses to toReversed, string-concat merges, caught-error causes in fixtures, a side-effect construction named, and 13 shadowing bindings renamed. Intentional patterns moved to config: the underscore-prefix convention and in-place sort idiom are off globally (the old name-by-name allow list accreted for years and still left ~90 warnings), and test/fixture locality keeps consistent-function-scoping, no-shadow, and no-unused-vars off for test code. Two files get scoped no-shadow overrides (the notification delivery creation pair and the inline occurrence publication kernel) where the flagged bindings are module-level siblings or the publication-kernel db-signature convention, so no semantic shadow exists. Five small pure helpers were hoisted to module scope where the rule was right.
-
-#### bump pnpm to 10.34.8 with the better-sqlite3 build allowlist (#121) ([`fa1374f`](https://github.com/waterworkshq/orcy/commit/fa1374f74f3815e38d92493d9fd37531e80bfd24))
-
-- The packageManager pin moves from 9.15.9 to the newest 10.x. pnpm 10 blocks dependency lifecycle scripts by default, so pnpm-workspace.yaml allowlists better-sqlite3's install script — the native production driver binding. Nothing else requested a build script during install, the lockfile is unchanged (both majors use lockfileVersion 9), and the full canonical gate set passes under the new pin: shared build, recursive typecheck across all seven packages, lint, the full workspace test suite (api 9359 passed, scripts 25), and the production-migration suite on the real better-sqlite3 driver.
-
-### Documentation
-
-#### record v0.46.0 delivery ([`16540ff`](https://github.com/waterworkshq/orcy/commit/16540ff9682f41c17298b6f54d52ac1aa25db3f4))
-
-### Tests
-
-#### run the extraction rerun concurrency proof in its own serial pass (#120) ([`9820b55`](https://github.com/waterworkshq/orcy/commit/9820b55be3a9acbe70216e0572e60de2170d90f6))
-
-- The fork-worker proof boots a cold file DB through the full migration chain and forks two child processes, so under default file parallelism (~500 sibling files competing for cores) it intermittently exceeded vitest's 5s default timeout and false-failed the suite. It now runs as pnpm test:extraction-concurrency with --fileParallelism=false (the perfWorkflow pattern), is excluded from the default api suite, and the CI test job runs it as its own step after the main suite, so the proof stays machine-gated without sharing the parallel pool.
-
-### ci
-
-#### typecheck every package on PRs and document the workflow force-add (#119) ([`307b4ad`](https://github.com/waterworkshq/orcy/commit/307b4ad76c08540ea29511037639718a62988d4a))
-
-- ci: typecheck every package on PRs and document the workflow force-add
-
-- The lint-and-tests workflow gains a typecheck job that builds @orcy/shared then runs every workspace package's typecheck script in one pass, so type errors surface at PR time instead of waiting for the production-migration gate's api-only step (the gap that let a fixture-type miss reach CI on the migration PR). CONTRIBUTING now documents that .github is gitignored and workflow files are force-added, so the next contributor does not trip on the plain-git-add refusal.
-
-- ci: build the daemon before the workspace typecheck
-
-- The cli package's typecheck resolves @orcy/daemon through the workspace symlink to its built dist/index.js, which does not exist on a fresh checkout — the first CI run of the job failed on exactly that while local runs passed against a stale local build. The dependency-build step now builds daemon (and shared, topologically) via the daemon... filter, and the failure was reproduced and cleared locally by removing and rebuilding exactly that dist.
