@@ -143,6 +143,10 @@ All errors follow this JSON structure:
 
 ### Validation Error Example
 
+Request validation uses Zod 4. Identifier fields validated with `.uuid()` require RFC 4122 / 9562 versioned UUIDs (plus the nil UUID `00000000-0000-0000-0000-000000000000` and max UUID `ffffffff-ffff-ffff-ffff-ffffffffffff`); synthetic 8-4-4-4-12 hex strings with invalid version or variant nibbles are rejected. Timestamp fields validated with `.datetime()` require explicit seconds (`YYYY-MM-DDTHH:MM:SSZ`, with optional fractional seconds); endpoints that accept numeric timezone offsets (`.datetime({ offset: true })`, such as `GET /habitats/:id/events?since=...`) also require the colon in the offset (e.g. `+05:30`, not `+0530` or `+05`). Default validation messages follow Zod 4 wording (custom schema messages are unchanged).
+
+Handler-side validation (`safeParse` / `flatten()`) returns `details` with `fieldErrors` (and optional `formErrors`):
+
 ```json
 {
   "error": "Validation failed",
@@ -153,6 +157,28 @@ All errors follow this JSON structure:
       "priority": ["Invalid option: expected one of \"low\"|\"medium\"|\"high\"|\"critical\""]
     }
   }
+}
+```
+
+Routes that declare Fastify `schema` validation (`fastify-type-provider-zod` 5.x) return `details` as an array of Fastify validation error items. Each item has `keyword` (the Zod 4 issue code, such as `invalid_format`, `invalid_type`, `too_small`, `unrecognized_keys`, or `invalid_union`), `instancePath`, `schemaPath`, `message`, and `params` (remaining Zod 4 issue fields spread directly into `params`, without a nested `params.issue` wrapper; format errors include `origin`, `format`, and `pattern`):
+
+```json
+{
+  "error": "Validation failed",
+  "code": "VALIDATION_ERROR",
+  "details": [
+    {
+      "keyword": "invalid_format",
+      "instancePath": "/dueAt",
+      "schemaPath": "#/dueAt/invalid_format",
+      "message": "Invalid ISO datetime",
+      "params": {
+        "origin": "string",
+        "format": "datetime",
+        "pattern": "/^...$/"
+      }
+    }
+  ]
 }
 ```
 

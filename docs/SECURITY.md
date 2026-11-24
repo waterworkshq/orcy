@@ -430,7 +430,7 @@ A grant's persisted `status` records what a writer last did. It is **not** autho
 - `expiresAt` is the configured natural deadline. `expiredAt` is a sweep/legacy stamp and can neither shorten nor extend it when `expiresAt` exists — a late sweep stamp cannot reopen a window the deadline already closed.
 - `revokedAt`, when evaluated, may only *shorten* an established window; it never restarts one.
 - A row **stored as `expired` or `grace`** with no `expiresAt` must carry a usable `expiredAt` to have any grace; a missing, malformed, or future start blocks that grant, with no `now` fallback fabricating grace. This requirement is scoped to those two statuses only: an `active` row with a null `expiresAt` is simply non-expiring, and a `soft_revoked` row with a null `expiresAt` and a valid `revokedAt` measures its window from the revocation with no `expiredAt` needed.
-- Evaluated timestamps must satisfy the **same grammar provisioning accepts** (`z.string().datetime()`). Date-only strings, numeric strings, and explicit non-`Z` offsets are rejected rather than coerced. A field the evaluator ignores is never parsed, so a malformed or future-dated historical stamp cannot veto restored `active` authority.
+- Evaluated timestamps must satisfy the **same grammar provisioning accepts** (`z.string().datetime()`, which requires explicit seconds and UTC `Z`), with one narrow read-compatibility exception: legacy stored `expiresAt` values written before Zod 4 in UTC minute precision (`YYYY-MM-DDTHH:MMZ`) are normalized on read to `:00Z` and still validated through `z.string().datetime()` so calendar and clock-range checks stay fail-closed. Server-generated `expiredAt`/`revokedAt` stamps, new provisioning requests, date-only strings, numeric strings, and explicit non-`Z` offsets remain rejected rather than coerced. A field the evaluator ignores is never parsed, so a malformed or future-dated historical stamp cannot veto restored `active` authority.
 - The grace window is validated only once a grace start exists, so a malformed window can never remove active authority before expiry. The window is half-open (`start <= now < start + hours`): the exact end is blocked, and a zero-hour window grants no grace.
 - A malformed evaluated field blocks **that grant only**. Another qualifying grant held by the same participant may still authorize, so expiry is never a participant-wide revocation.
 - Self and administrative metadata continue to show **persisted** state and expiry. That display is not authority; this section is the distinction.
@@ -635,12 +635,13 @@ await fastify.register(cors, {
 
 ## Input Validation
 
-All user input is validated using Zod schemas:
+All user input is validated using Zod 4 schemas:
 
 - String length limits enforced (title max 200, description max 5000)
-- UUID validation for all ID parameters
+- Strict RFC 4122 / 9562 UUID validation for ID fields validated with `.uuid()` (versioned UUIDs plus nil/max UUID; non-RFC 8-4-4-4-12 hex strings are rejected)
+- Strict ISO 8601 datetime validation for timestamp fields validated with `.datetime()` (explicit seconds required, e.g. `YYYY-MM-DDTHH:MM:SSZ`, and colon-separated numeric offsets `±HH:MM` where `.datetime({ offset: true })` is used)
 - Enum validation for status, priority, agent type
-- Array size limits for labels, capabilities, artifacts
+- Array size limits for labels, capabilities, artifacts (bounded arrays check size bounds before parsing elements)
 
 SQL injection is prevented through parameterized queries via Drizzle ORM.
 
