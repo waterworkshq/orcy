@@ -135,7 +135,8 @@ const REGEX_KEYWORDS = new Set([
  * Blanks comments and the text of string, template, and regex literals.
  * Interpolation code inside template literals stays code. A `/` is division
  * after a value (identifier, number, closing bracket, or literal) and a regex
- * opener otherwise.
+ * opener otherwise; after a closing parenthesis it is a regex only when the
+ * parenthesis closed the head of `if`, `while`, `for`, or `with`.
  */
 function blankNonCode(source: string): Lexed {
   const out = source.split("");
@@ -143,6 +144,7 @@ function blankNonCode(source: string): Lexed {
   let i = 0;
   let state: LexState = "code";
   let lastSignificant = "";
+  let lastSignificantAt = -1;
   let inCharacterClass = false;
 
   const blank = (count: number): void => {
@@ -152,14 +154,28 @@ function blankNonCode(source: string): Lexed {
   };
   const closesValue = (): void => {
     state = "code";
-    lastSignificant = ")";
+    // A literal never precedes a regex, and neither can `"`.
+    lastSignificant = '"';
   };
   const opensRegex = (): boolean => {
     if (/[\w$]/.test(lastSignificant)) {
       const keyword = /([A-Za-z_$][\w$]*)\s*$/.exec(source.slice(0, i))?.[1];
       return keyword !== undefined && REGEX_KEYWORDS.has(keyword);
     }
-    return !/[\d)\]]/.test(lastSignificant);
+    // After a closing parenthesis a regex opens only when that parenthesis
+    // closed the head of a control statement (`if (…) /re/`), never after a
+    // call or a plain group (`f() / 2`).
+    if (lastSignificant === ")") {
+      let depth = 1;
+      for (let j = lastSignificantAt - 1; j >= 0; j -= 1) {
+        if (source[j] === ")") depth += 1;
+        else if (source[j] === "(" && --depth === 0) {
+          return /\b(?:if|while|for|with)\s*$/.test(source.slice(Math.max(0, j - 6), j));
+        }
+      }
+      return false;
+    }
+    return !/[\d\]"]/.test(lastSignificant);
   };
 
   while (i < source.length) {
@@ -189,7 +205,10 @@ function blankNonCode(source: string): Lexed {
           i += 1;
           state = "template";
         } else {
-          if (!/\s/.test(char)) lastSignificant = char;
+          if (!/\s/.test(char)) {
+            lastSignificant = char;
+            lastSignificantAt = i;
+          }
           if (templateBraces.length > 0) {
             const depth = templateBraces.length - 1;
             if (char === "{") templateBraces[depth] += 1;
@@ -465,11 +484,15 @@ describe("unbounded-array guard — what the scan reads", () => {
       "/* const a = z.array(z.string()) */ const keep = 1;",
       'const doc = "labels: z.array(z.string())";',
       "const re = /z.array(/;",
+      // A regex that opens right after the head of a control statement.
+      "if (ok) /z.array(/.test(s);",
+      // Division after a plain group must not open a regex and swallow it.
+      "const ratio = (a + b) / 2; const kept = z.array(z.string());",
       "const text = `z.array(${z.array(z.string())})`;",
     ].join("\n");
     const { sites, desync } = scan(source);
     expect(desync).toEqual([]);
-    expect(sites.map((site) => site.anchor)).toEqual(["(top)"]);
+    expect(sites.map((site) => site.anchor)).toEqual(["kept", "(top)"]);
   });
 
   it("names a new unbounded array by file and anchor, never by line", () => {
