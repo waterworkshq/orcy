@@ -156,6 +156,41 @@ All errors follow this JSON structure:
 }
 ```
 
+### Request Collection Cap
+
+Every request is checked before its schema is validated and before it is
+authenticated. The check answers `400 VALIDATION_ERROR` when the parsed body,
+or the query string, contains at any nesting level:
+
+- an array with more than **256** elements, or
+- an object with more than **256** keys, or
+- nesting deeper than **64** levels.
+
+```json
+{
+  "error": "Request contains a collection with more than 256 items",
+  "code": "VALIDATION_ERROR"
+}
+```
+
+A request that is nested too deeply reads
+`Request is nested more than 64 levels deep`.
+
+The two board import routes allow up to **16,384** elements or keys per
+collection, because they carry a whole exported board. They answer with the
+same message and their own number.
+
+The message is fixed for a route: it names no field and carries no
+`details`, so it never echoes the request. No element of an oversized
+collection is validated, whether the route declares its schema or parses the
+body inside its handler. A request exactly at the cap is accepted.
+
+The cap is a constant per route kind, not a configuration setting. It bounds
+each collection on its own, not the sum of nested collections; the request
+body size limit of 1 MiB applies separately. Bodies that are not JSON
+objects or arrays (form posts, multipart uploads, raw bytes) are not checked
+by the cap.
+
 ### Rate Limit Headers
 
 Every response includes rate limit information:
@@ -398,6 +433,10 @@ emits `habitat.created` after commit.
 
 **Request:** `HabitatExportData` payload (see `GET /habitats/:id/export`).
 
+This route raises the request collection cap to 16,384 elements or keys per
+collection (see [Request Collection Cap](#request-collection-cap)), so that a
+whole exported board fits.
+
 **Response `201`:**
 
 ```json
@@ -418,7 +457,8 @@ emits `habitat.created` after commit.
 
 Import an export document into an existing Habitat. Deletes the existing
 Habitat data first, then reconstructs from the export. Returns the same
-canonical shape as `POST /habitats/import`.
+canonical shape as `POST /habitats/import`, and raises the request collection
+cap to 16,384 per collection in the same way.
 
 ### GET /habitats/:id/events
 
