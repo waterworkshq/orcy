@@ -27,6 +27,7 @@ import {
   taskIdParamsSchema,
 } from "./shared.js";
 import { applyDeclaredAuthPolicies } from "../../authPolicy.js";
+import { CODE_EVIDENCE_REQUEST_COLLECTION_CAP } from "../../middleware/requestCollectionCap.js";
 import { authorizeTaskAccess } from "../../middleware/realtimeAuth.js";
 import {
   admitReportDestinations,
@@ -69,7 +70,12 @@ export async function taskCodeEvidenceRoutes(fastify: FastifyInstance): Promise<
     "/tasks/:taskId/code-evidence",
     {
       schema: { params: taskIdParamsSchema, body: linkCodeSchema },
-      config: { authPolicy: "local_actor" },
+      // A pull request's files and commits can outgrow the default request
+      // collection cap.
+      config: {
+        authPolicy: "local_actor",
+        requestCollectionCap: CODE_EVIDENCE_REQUEST_COLLECTION_CAP,
+      },
     },
     async (request) => {
       // Origin admission is target-derived (settled owner decision): the

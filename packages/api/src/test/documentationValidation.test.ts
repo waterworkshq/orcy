@@ -2,6 +2,12 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'fs';
 import { resolve } from 'path';
 import { AUTH_POLICY_IDS } from '../authPolicy.js';
+import {
+  BOARD_REQUEST_COLLECTION_CAP,
+  CODE_EVIDENCE_REQUEST_COLLECTION_CAP,
+  DEFAULT_REQUEST_COLLECTION_CAP,
+  MAX_REQUEST_DEPTH,
+} from '../middleware/requestCollectionCap.js';
 
 const DOCS_DIR = resolve(import.meta.dirname, '../../../..', 'docs');
 const ROOT_DIR = resolve(import.meta.dirname, '../../../..');
@@ -328,6 +334,69 @@ describe('Documentation validation', () => {
       for (const pattern of weakDefaults) {
         expect(doc).not.toMatch(pattern);
       }
+    });
+  });
+
+  describe('request collection cap', () => {
+    // Every number comes from the production constants, never a copied
+    // literal, so changing a cap without changing the docs fails here.
+    const apiDoc = readDoc('API.md');
+    const securityDoc = readDoc('SECURITY.md');
+    const thousands = (value: number) => value.toLocaleString('en-US');
+
+    it('API.md documents every cap, the depth bound, and the fixed error', () => {
+      const start = apiDoc.indexOf('### Request Collection Cap');
+      const end = apiDoc.indexOf('### Rate Limit Headers');
+      expect(start, 'API.md must keep its ### Request Collection Cap heading').toBeGreaterThan(-1);
+      expect(end).toBeGreaterThan(start);
+      const section = apiDoc.substring(start, end);
+      for (const fact of [
+        thousands(DEFAULT_REQUEST_COLLECTION_CAP),
+        thousands(BOARD_REQUEST_COLLECTION_CAP),
+        thousands(CODE_EVIDENCE_REQUEST_COLLECTION_CAP),
+        MAX_REQUEST_DEPTH,
+        `Request contains a collection with more than ${DEFAULT_REQUEST_COLLECTION_CAP} items`,
+        'VALIDATION_ERROR',
+        'never echoes the request',
+        'not configuration settings',
+      ]) {
+        expect(section, `API.md collection-cap section must state ${fact}`).toContain(String(fact));
+      }
+    });
+
+    it('SECURITY.md states the central collection cap, not array limits the schemas do not have', () => {
+      const start = securityDoc.indexOf('## Input Validation');
+      const end = securityDoc.indexOf('## Audit Trail');
+      expect(start, 'SECURITY.md must keep its ## Input Validation heading').toBeGreaterThan(-1);
+      expect(end).toBeGreaterThan(start);
+      const section = securityDoc.substring(start, end);
+      for (const fact of [
+        'Request collection cap',
+        `longer than ${thousands(DEFAULT_REQUEST_COLLECTION_CAP)} elements`,
+        `workflow routes ${thousands(BOARD_REQUEST_COLLECTION_CAP)}`,
+        `code-evidence link routes ${thousands(CODE_EVIDENCE_REQUEST_COLLECTION_CAP)}`,
+        'no element of an oversized collection is validated',
+        'bounds one collection, not the sum',
+        'after `preValidation` hooks and before `preHandler` hooks',
+        'bounded by the URL length limit',
+        'sized for records',
+      ]) {
+        expect(section, `SECURITY.md Input Validation must state ${fact}`).toContain(fact);
+      }
+      // The claim the schemas never backed: labels, capabilities, and
+      // artifacts carry no schema-level upper bound.
+      expect(securityDoc).not.toContain('Array size limits for labels, capabilities, artifacts');
+    });
+
+    it('SECURITY.md places rate limiting after declared-schema validation', () => {
+      const start = securityDoc.indexOf('## Rate Limiting');
+      const end = securityDoc.indexOf('## CORS Policy');
+      expect(start, 'SECURITY.md must keep its ## Rate Limiting heading').toBeGreaterThan(-1);
+      expect(end).toBeGreaterThan(start);
+      const section = securityDoc.substring(start, end);
+      expect(section).toMatch(/after a route's declared schema is validated/);
+      expect(section).toContain('before authentication');
+      expect(section).toContain('/api/shared');
     });
   });
 });

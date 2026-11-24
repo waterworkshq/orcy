@@ -605,7 +605,11 @@ Worker-thread isolation is not implemented; ADR-0012 rejected it for that design
 
 ## Rate Limiting
 
-Rate limiting is a custom in-process middleware (`packages/api/src/middleware/rateLimit.ts`), not `@fastify/rate-limit`. It is a sliding 60-second window backed by an in-memory `Map` — **process-local**: limits are enforced per API process and are not shared across instances. The hook is installed on selected API scopes (`packages/api/src/httpApp.ts`), so coverage depends on middleware placement and key strategy — this is not a distributed or credential-stuffing control.
+Rate limiting is a custom in-process middleware (`packages/api/src/middleware/rateLimit.ts`), not `@fastify/rate-limit`. It is a sliding 60-second window backed by an in-memory `Map` — **process-local**: limits are enforced per API process and are not shared across instances. This is not a distributed or credential-stuffing control.
+
+**Where it runs.** The limiter is a `preHandler` hook. The assembly (`packages/api/src/httpApp.ts`) installs it on the `/api/v1` group, the deprecated `/api` group, `/sse`, and the two plugin-route namespaces. It is not installed on the root routes, the static UI, or the Remote Participant API under `/api/shared`.
+
+**What it bounds.** `preHandler` runs after a route's declared schema is validated and before the handler. The limiter therefore bounds how often a handler, and any parsing the handler does itself, is reached. It does not bound the work that declared-schema validation does, and on a route that declares a schema that work runs before authentication. The request collection cap (see [Input Validation](#input-validation)) is what bounds validation work; it runs ahead of the limiter on every scope.
 
 | Dimension | Value |
 |-----------|-------|
@@ -635,12 +639,20 @@ await fastify.register(cors, {
 
 ## Input Validation
 
-All user input is validated using Zod schemas:
+Request input is validated with Zod schemas, in one of two styles: declared on the route, which Fastify validates after `preValidation` hooks and before `preHandler` hooks, or parsed inside the handler. Neither style bounds on its own how many elements a request may carry. Zod validates every element of an array and records one issue per failing element, so the work a request triggers follows the request's shape rather than what the schema would accept (CWE-770). That holds on every Zod version, so the bound comes from outside the schemas.
 
-- String length limits enforced (title max 200, description max 5000)
-- UUID validation for all ID parameters
-- Enum validation for status, priority, agent type
-- Array size limits for labels, capabilities, artifacts
+**Request collection cap.** A root `preValidation` hook (`packages/api/src/middleware/requestCollectionCap.ts`) rejects a request whose parsed body or query string contains, at any nesting level, an array longer than 2,048 elements or an object with more than 2,048 keys. Routes whose legitimate payload is larger allow more: board import and workflow routes 16,384, code-evidence link routes 32,768. The hook also rejects nesting deeper than 64 levels. It answers `400 VALIDATION_ERROR` with a fixed-size body that echoes nothing. It runs before any schema — so no element of an oversized collection is validated — and before authentication and rate limiting, on every route the assembly mounts, including routes added later. The body walk is one pass over data that is already parsed, bounded by the request body limit; the query-string walk is bounded by the URL length limit. The caps are constants, not configuration. The wire contract is in [API.md](API.md#request-collection-cap).
+
+**Where the numbers come from.** 2,048 stays an order of magnitude above every size the repository defines for a request collection — the largest upper bound a request array schema declares is 100 (batch task ids and the remote-access routes), and 200 is the largest page the task, mission, and event lists serve — and above the collections that grow with a board and have no route of their own, such as a board's column order or a mission's dependency list. At the cap one flat collection can still hold 2,048 elements; the densest array the 1 MiB request body limit admits holds 524,288, so the cap cuts that by 256. The larger caps follow from what that body limit holds for the smallest record each schema accepts. One exported collection holds at most 13,443 records (the smallest record an exporter writes is a legacy webhook entry, 78 bytes on the wire). One workflow holds at most 15,196 gates (69 bytes). One changed-file list holds at most 31,775 files (33 bytes). Each cap is the next power of two.
+
+**What the schemas enforce.** String length limits on the fields that declare them (for example Task title 200 and description 5000), enum validation, and UUID validation where a schema asks for it. A minority of request arrays carry a schema-level upper bound of their own (batch operations, triage dependencies, automation actions, the remote access and remote participant routes). The rest rely on the collection cap alone. `unboundedArraySchemaGuard.test.ts` fails when a schema declares an array with no upper bound that is not on its explicit list, so a new unbounded array is a review decision.
+
+**Accepted limits.**
+
+- The cap bounds one collection, not the sum of nested collections: where a schema nests arrays, collections that are each under the cap can still add up to what the request body limit admits, most of all on the routes with a larger cap.
+- The larger caps are sized for records. An export also carries plain string arrays — a mission's labels and dependency titles, a task's or template's capabilities — that are authored per entity and have no schema-level bound; a document with more than 16,384 entries in one of them is rejected although it fits the body limit. The same holds for any document written by another tool with smaller records than the exporters write. On the code-evidence routes, a commit list is another case the cap rejects although the schema accepts it: the smallest commit record is 11 bytes, so a body can hold up to 95,325, and a list with more than 32,768 such records is rejected on purpose, because schema validation on the code-evidence routes runs before authentication and a cap that admitted that minimum would give up most of the bound. None of these describes a real board or pull request.
+- Bodies that are not objects or arrays (plain text, raw bytes, multipart uploads) carry no collections and are skipped.
+- Schema-level upper bounds on the remaining unbounded arrays are follow-up work.
 
 SQL injection is prevented through parameterized queries via Drizzle ORM.
 
@@ -671,6 +683,8 @@ The API uses `@fastify/helmet` for security headers. `Content-Security-Policy` i
 | File uploads not virus-scanned | Medium | Add malware scanning in production |
 | No agent board-scoping (agents access all boards) | Medium | Add board allowlist if multi-user |
 | Attachment filename not RFC 5987 encoded | Low | Use safe ASCII fallback with `filename*=`
+| Request collections are bounded one collection at a time, not in total: nested collections that are each under the cap can still add up to what the request body limit admits, and most request arrays have no schema-level upper bound of their own | Medium | Add schema-level upper bounds (`.max(n)`) to the arrays on the unbounded-array guard's list |
+| The larger collection caps are sized for the records a real board, workflow, or pull request carries; a document with much smaller elements can reach one inside the body limit and be rejected | Low | Report it if a real payload is rejected; raise that route's cap in `requestCollectionCap.ts` or bound the schema |
 | Habitat settings (incl. PR/MR repository allowlist, `autoApproveOnMerge`, and webhook secrets) writable by ANY team member — viewer role included — on team habitats, and by ANY authenticated human on personal habitats; habitat-access guard present but the sensitive write authority is membership-level, not role-governed (no admin/settings-scoped tier) | Medium | Add an admin/settings-scoped authority tier before multi-user exposure |
 | Task-ID routes still without the target-task habitat-membership check the other operations now enforce: the unguarded writes `PATCH /tasks/:id` (agent-only metadata), `POST /tasks/:taskId/code-evidence` (linking), `POST`/`DELETE /tasks/:taskId/code-evidence/not-applicable`, and `POST /tasks/:taskId/code-evidence/gaps` — the human-only `PATCH /tasks/:id/metadata` enforces membership inside its own writer reservation (a stronger transactional fence, see API.md), and the agent-only comment and subtask writes are guarded by their own URL-Task ancestry and final-SQL containment contracts, not by this predicate | Medium | Bound and guard the remaining adjunct/mutation inventory in a separately authorized follow-up census |
 
