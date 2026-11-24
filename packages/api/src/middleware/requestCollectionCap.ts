@@ -25,15 +25,23 @@
  * bounds the sum. Bodies that are not objects or arrays (text, raw bytes,
  * multipart streams) carry no collections and are skipped.
  *
- * The caps are constants on purpose, not configuration. The default is
- * evidence-derived: 256 is the largest upper bound any request schema in this
- * repository declares (the remote-access and shared-API route schemas), and
- * board import is the one legitimate payload that outgrows it.
+ * The caps are constants on purpose, not configuration; each one's
+ * documentation says what it is derived from. Board import is the one
+ * legitimate payload that outgrows the default.
  */
 import type { FastifyReply, FastifyRequest, HookHandlerDoneFunction } from "fastify";
 import { badRequest } from "../errors.js";
 
-/** Largest collection (array elements or object keys) a request may carry at any nesting level. */
+/**
+ * Largest collection (array elements or object keys) a request may carry at
+ * any nesting level.
+ *
+ * Evidence, not a tuning knob: the largest upper bound a request array schema
+ * in this repository declares is 100 (batch task ids and the remote-access
+ * routes), and 200 is the largest page the task, mission, and event lists
+ * serve. 256 is the smallest power of two above that, leaving headroom for
+ * the unbounded arrays whose size follows a board or a pull request.
+ */
 export const DEFAULT_REQUEST_COLLECTION_CAP = 256;
 
 /**
