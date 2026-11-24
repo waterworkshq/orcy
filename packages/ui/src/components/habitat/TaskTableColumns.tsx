@@ -1,11 +1,12 @@
 import * as React from "react";
 import { type ColumnDef } from "@tanstack/react-table";
 import { Badge } from "../ui/Badge.js";
+import { DATA_TABLE_FEATURES } from "../ui/DataTable.js";
 import { AgentAvatar } from "./AgentAvatar.js";
 import { PRIORITY_VARIANT, TASK_STATUS_VARIANT, formatMinutes } from "../../lib/formatting.js";
 import type { Task, TaskPriority, TaskStatus } from "../../types/index.js";
 
-export function getTaskTableColumns(): ColumnDef<Task, unknown>[] {
+export function getTaskTableColumns(): ColumnDef<typeof DATA_TABLE_FEATURES, Task, unknown>[] {
   return [
     {
       id: "select",
@@ -27,7 +28,6 @@ export function getTaskTableColumns(): ColumnDef<Task, unknown>[] {
       ),
       enableSorting: false,
       enableHiding: false,
-      size: 40,
     },
     {
       accessorKey: "priority",
@@ -36,7 +36,6 @@ export function getTaskTableColumns(): ColumnDef<Task, unknown>[] {
         const priority = getValue() as TaskPriority;
         return <Badge variant={PRIORITY_VARIANT[priority] ?? "medium"}>{priority}</Badge>;
       },
-      size: 100,
       filterFn: (row, _columnId, filterValue) => {
         if (!filterValue || filterValue === "all") return true;
         return row.original.priority === filterValue;
@@ -46,7 +45,6 @@ export function getTaskTableColumns(): ColumnDef<Task, unknown>[] {
       accessorKey: "title",
       header: "Title",
       cell: ({ getValue }) => <span className="font-medium">{getValue() as string}</span>,
-      size: 300,
     },
     {
       accessorKey: "status",
@@ -59,7 +57,6 @@ export function getTaskTableColumns(): ColumnDef<Task, unknown>[] {
           </Badge>
         );
       },
-      size: 120,
       filterFn: (row, _columnId, filterValue) => {
         if (!filterValue || filterValue === "all") return true;
         return row.original.status === filterValue;
@@ -80,7 +77,6 @@ export function getTaskTableColumns(): ColumnDef<Task, unknown>[] {
         );
       },
       enableSorting: false,
-      size: 100,
       filterFn: (row, _columnId, filterValue) => {
         if (!filterValue || filterValue === "all") return true;
         return row.original.assignedAgentId === filterValue;
@@ -95,7 +91,6 @@ export function getTaskTableColumns(): ColumnDef<Task, unknown>[] {
           return <span className="text-xs text-[var(--on-surface-variant)]">—</span>;
         return <span className="text-xs">{formatMinutes(minutes)}</span>;
       },
-      size: 80,
     },
     {
       accessorKey: "createdAt",
@@ -109,7 +104,6 @@ export function getTaskTableColumns(): ColumnDef<Task, unknown>[] {
           </span>
         );
       },
-      size: 100,
     },
   ];
 }

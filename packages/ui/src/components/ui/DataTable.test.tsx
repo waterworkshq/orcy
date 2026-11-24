@@ -4,7 +4,7 @@ import '@testing-library/jest-dom/vitest';
 import {
   type ColumnDef,
 } from '@tanstack/react-table';
-import { DataTable } from './DataTable.js';
+import { DATA_TABLE_FEATURES, DataTable } from './DataTable.js';
 
 interface TestRow {
   id: string;
@@ -19,7 +19,7 @@ const sampleData: TestRow[] = [
   { id: '3', name: 'Task C', status: 'done', priority: 'low' },
 ];
 
-const columns: ColumnDef<TestRow, unknown>[] = [
+const columns: ColumnDef<typeof DATA_TABLE_FEATURES, TestRow, unknown>[] = [
   {
     accessorKey: 'name',
     header: 'Name',
@@ -64,18 +64,44 @@ describe('DataTable', () => {
   });
 
   it('clicking sortable column header toggles sort direction', () => {
-    render(<DataTable columns={columns} data={sampleData} />);
+    // Mixed text/number names resolve the registered `alphanumeric` sort.
+    const data: TestRow[] = [
+      { id: '1', name: 'Task 2', status: 'pending', priority: 'high' },
+      { id: '2', name: 'Task 10', status: 'pending', priority: 'high' },
+      { id: '3', name: 'Task 1', status: 'pending', priority: 'high' },
+    ];
+    const { container } = render(<DataTable columns={columns} data={data} />);
     const nameHeader = screen.getByText('Name');
+    const names = () =>
+      Array.from(container.querySelectorAll('tbody tr td:first-child'), (td) => td.textContent);
 
     fireEvent.click(nameHeader);
+    expect(names()).toEqual(['Task 1', 'Task 2', 'Task 10']);
 
     fireEvent.click(nameHeader);
+    expect(names()).toEqual(['Task 10', 'Task 2', 'Task 1']);
 
     fireEvent.click(nameHeader);
+    expect(names()).toEqual(['Task 2', 'Task 10', 'Task 1']);
+  });
+
+  it('applies column filters through the built-in auto filter', () => {
+    render(
+      <DataTable
+        columns={columns}
+        data={sampleData}
+        columnFilters={[{ id: 'name', value: 'Task A' }]}
+        onColumnFiltersChange={() => {}}
+      />
+    );
+
+    expect(screen.getByText('Task A')).toBeInTheDocument();
+    expect(screen.queryByText('Task B')).not.toBeInTheDocument();
+    expect(screen.queryByText('Task C')).not.toBeInTheDocument();
   });
 
   it('row selection checkbox toggles row selection state', () => {
-    const selectionColumns: ColumnDef<TestRow, unknown>[] = [
+    const selectionColumns: ColumnDef<typeof DATA_TABLE_FEATURES, TestRow, unknown>[] = [
       {
         id: 'select',
         header: ({ table }) => (
@@ -112,7 +138,7 @@ describe('DataTable', () => {
   });
 
   it('select-all checkbox selects and deselects all rows', () => {
-    const selectionColumns: ColumnDef<TestRow, unknown>[] = [
+    const selectionColumns: ColumnDef<typeof DATA_TABLE_FEATURES, TestRow, unknown>[] = [
       {
         id: 'select',
         header: ({ table }) => (
@@ -155,7 +181,7 @@ describe('DataTable', () => {
   });
 
   it('selected row has primary-container background class', () => {
-    const selectionColumns: ColumnDef<TestRow, unknown>[] = [
+    const selectionColumns: ColumnDef<typeof DATA_TABLE_FEATURES, TestRow, unknown>[] = [
       {
         id: 'select',
         header: ({ table }) => (
@@ -280,7 +306,7 @@ describe('DataTable', () => {
 
   it('accepts controlled row selection state', () => {
     const onRowSelectionChange = vi.fn();
-    const selectionColumns: ColumnDef<TestRow, unknown>[] = [
+    const selectionColumns: ColumnDef<typeof DATA_TABLE_FEATURES, TestRow, unknown>[] = [
       {
         id: 'select',
         header: ({ table }) => (
