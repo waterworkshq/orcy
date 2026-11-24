@@ -3,8 +3,9 @@ import { readFileSync } from 'fs';
 import { resolve } from 'path';
 import { AUTH_POLICY_IDS } from '../authPolicy.js';
 import {
+  BOARD_REQUEST_COLLECTION_CAP,
+  CODE_EVIDENCE_REQUEST_COLLECTION_CAP,
   DEFAULT_REQUEST_COLLECTION_CAP,
-  IMPORT_REQUEST_COLLECTION_CAP,
   MAX_REQUEST_DEPTH,
 } from '../middleware/requestCollectionCap.js';
 
@@ -341,21 +342,23 @@ describe('Documentation validation', () => {
     // literal, so changing a cap without changing the docs fails here.
     const apiDoc = readDoc('API.md');
     const securityDoc = readDoc('SECURITY.md');
+    const thousands = (value: number) => value.toLocaleString('en-US');
 
-    it('API.md documents the caps, the depth bound, and the fixed error', () => {
+    it('API.md documents every cap, the depth bound, and the fixed error', () => {
       const start = apiDoc.indexOf('### Request Collection Cap');
       const end = apiDoc.indexOf('### Rate Limit Headers');
       expect(start, 'API.md must keep its ### Request Collection Cap heading').toBeGreaterThan(-1);
       expect(end).toBeGreaterThan(start);
       const section = apiDoc.substring(start, end);
       for (const fact of [
-        DEFAULT_REQUEST_COLLECTION_CAP,
-        IMPORT_REQUEST_COLLECTION_CAP.toLocaleString('en-US'),
+        thousands(DEFAULT_REQUEST_COLLECTION_CAP),
+        thousands(BOARD_REQUEST_COLLECTION_CAP),
+        thousands(CODE_EVIDENCE_REQUEST_COLLECTION_CAP),
         MAX_REQUEST_DEPTH,
         `Request contains a collection with more than ${DEFAULT_REQUEST_COLLECTION_CAP} items`,
         'VALIDATION_ERROR',
         'never echoes the request',
-        'not a configuration setting',
+        'not configuration settings',
       ]) {
         expect(section, `API.md collection-cap section must state ${fact}`).toContain(String(fact));
       }
@@ -367,11 +370,19 @@ describe('Documentation validation', () => {
       expect(start, 'SECURITY.md must keep its ## Input Validation heading').toBeGreaterThan(-1);
       expect(end).toBeGreaterThan(start);
       const section = securityDoc.substring(start, end);
-      expect(section).toContain('Request collection cap');
-      expect(section).toContain(`longer than ${DEFAULT_REQUEST_COLLECTION_CAP} elements`);
-      expect(section).toContain(`allow ${IMPORT_REQUEST_COLLECTION_CAP.toLocaleString('en-US')}`);
-      expect(section).toContain('no element of an oversized collection is validated');
-      expect(section).toMatch(/bounds one collection, not the sum/);
+      for (const fact of [
+        'Request collection cap',
+        `longer than ${thousands(DEFAULT_REQUEST_COLLECTION_CAP)} elements`,
+        `workflow routes ${thousands(BOARD_REQUEST_COLLECTION_CAP)}`,
+        `code-evidence link routes ${thousands(CODE_EVIDENCE_REQUEST_COLLECTION_CAP)}`,
+        'no element of an oversized collection is validated',
+        'bounds one collection, not the sum',
+        'after `preValidation` hooks and before `preHandler` hooks',
+        'bounded by the URL length limit',
+        'sized for records',
+      ]) {
+        expect(section, `SECURITY.md Input Validation must state ${fact}`).toContain(fact);
+      }
       // The claim the schemas never backed: labels, capabilities, and
       // artifacts carry no schema-level upper bound.
       expect(securityDoc).not.toContain('Array size limits for labels, capabilities, artifacts');

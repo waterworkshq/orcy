@@ -162,13 +162,14 @@ Every request is checked before its schema is validated and before it is
 authenticated. The check answers `400 VALIDATION_ERROR` when the parsed body,
 or the query string, contains at any nesting level:
 
-- an array with more than **256** elements, or
-- an object with more than **256** keys, or
-- nesting deeper than **64** levels.
+- an array with more than **2,048** elements,
+- an object with more than **2,048** keys, or
+- nesting more than **64** levels of arrays and objects below the top-level
+  value.
 
 ```json
 {
-  "error": "Request contains a collection with more than 256 items",
+  "error": "Request contains a collection with more than 2048 items",
   "code": "VALIDATION_ERROR"
 }
 ```
@@ -176,20 +177,29 @@ or the query string, contains at any nesting level:
 A request that is nested too deeply reads
 `Request is nested more than 64 levels deep`.
 
-The two board import routes allow up to **16,384** elements or keys per
-collection, because they carry a whole exported board. They answer with the
-same message and their own number.
+Routes whose legitimate payload is larger allow more per collection:
+
+| Routes | Cap |
+|--------|-----|
+| `POST /habitats/import`, `POST /habitats/:id/import` | **16,384** |
+| `POST /missions/:id/workflow`, `PATCH /workflows/:id` | **16,384** |
+| `POST /tasks/:taskId/code-evidence`, `POST /missions/:missionId/code-evidence` | **32,768** |
+
+They answer with the same message and their own number. Each cap is sized
+from what the request body limit holds for the records that route carries,
+so a real board, workflow, or pull request fits. A document whose elements
+are much smaller than those records can still reach it.
 
 The message is fixed for a route: it names no field and carries no
 `details`, so it never echoes the request. No element of an oversized
 collection is validated, whether the route declares its schema or parses the
 body inside its handler. A request exactly at the cap is accepted.
 
-The cap is a constant per route kind, not a configuration setting. It bounds
-each collection on its own, not the sum of nested collections; the request
-body size limit of 1 MiB applies separately. Bodies that are not objects
-or arrays (plain text, raw bytes, multipart uploads) carry no collections
-and are skipped.
+The caps are constants per route kind, not configuration settings. A cap
+bounds each collection on its own, not the sum of nested collections; the
+request body size limit of 1 MiB applies separately. Bodies that are not
+objects or arrays (plain text, raw bytes, multipart uploads) carry no
+collections and are skipped.
 
 ### Rate Limit Headers
 
@@ -435,7 +445,9 @@ emits `habitat.created` after commit.
 
 This route raises the request collection cap to 16,384 elements or keys per
 collection (see [Request Collection Cap](#request-collection-cap)), so that a
-whole exported board fits.
+whole exported board fits. That cap is sized for the records an export
+writes; a document from another tool whose elements are much smaller can
+reach it inside the body limit.
 
 **Response `201`:**
 
