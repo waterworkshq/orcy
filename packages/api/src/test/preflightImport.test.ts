@@ -1412,4 +1412,20 @@ describe("importManifestSchema — strict shape (Fix 1 cold-review)", () => {
     const result = importManifestSchema.safeParse(withUnknownEnvelopeField);
     expect(result.success).toBe(false);
   });
+
+  it("ACCEPTS preserve and reset domain envelopes when data is omitted in JSON", () => {
+    const manifest = v3Manifest();
+    const withOmittedData = JSON.parse(
+      JSON.stringify({
+        ...manifest,
+        domains: {
+          ...manifest.domains,
+          columns: { disposition: "preserve" },
+          comments: { disposition: "reset" },
+        },
+      }),
+    );
+    const result = importManifestSchema.safeParse(withOmittedData);
+    expect(result.success).toBe(true);
+  });
 });

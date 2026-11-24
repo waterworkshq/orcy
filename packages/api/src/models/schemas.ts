@@ -305,7 +305,7 @@ export const importHabitatSchema = z.preprocess((data) => {
 const importManifestDomainEnvelopeSchema = z
   .object({
     disposition: z.enum(["replace", "preserve", "reset"]),
-    data: z.unknown(),
+    data: z.unknown().optional(),
   })
   .strict();
 

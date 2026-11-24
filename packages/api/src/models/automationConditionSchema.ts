@@ -115,7 +115,7 @@ function makeDiscriminatedUnion(): z.ZodType<AutomationCondition> {
             },
           ),
         operator: z.enum(FIELD_COMPARISON_OPERATORS),
-        value: z.unknown(),
+        value: z.unknown().optional(),
       }),
       z.object({
         type: z.literal("priority_above"),
