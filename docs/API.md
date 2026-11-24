@@ -149,8 +149,8 @@ All errors follow this JSON structure:
   "code": "VALIDATION_ERROR",
   "details": {
     "fieldErrors": {
-      "title": ["String must contain at least 1 character(s)"],
-      "priority": ["Invalid enum value"]
+      "title": ["Too small: expected string to have >=1 characters"],
+      "priority": ["Invalid option: expected one of \"low\"|\"medium\"|\"high\"|\"critical\""]
     }
   }
 }

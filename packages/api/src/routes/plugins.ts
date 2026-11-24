@@ -10,12 +10,12 @@ import type { MarkRunLostActor } from "../services/pluginEnrollmentService.js";
 const createEnrollmentBody = z.object({
   pluginId: z.string().min(1),
   contributionId: z.string().min(1),
-  config: z.record(z.unknown()).optional(),
+  config: z.record(z.string(), z.unknown()).optional(),
 });
 
 const updateEnrollmentBody = z.object({
   enabled: z.boolean().optional(),
-  config: z.record(z.unknown()).optional(),
+  config: z.record(z.string(), z.unknown()).optional(),
 });
 
 const listRunsQuery = z.object({

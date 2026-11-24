@@ -6,12 +6,12 @@ import { applyDeclaredAuthPolicies } from "../authPolicy.js";
 
 const createSavedFilterSchema = z.object({
   name: z.string().min(1).max(100),
-  filterConfig: z.record(z.unknown()),
+  filterConfig: z.record(z.string(), z.unknown()),
 });
 
 const updateSavedFilterSchema = z.object({
   name: z.string().min(1).max(100),
-  filterConfig: z.record(z.unknown()),
+  filterConfig: z.record(z.string(), z.unknown()),
 });
 
 export async function savedFilterRoutes(fastify: FastifyInstance): Promise<void> {

@@ -40,7 +40,7 @@ const summaryQuerySchema = z.object({
 const scheduleBodySchema = z.object({
   name: z.string().min(1),
   format: z.enum(["csv", "json", "jsonl"]),
-  filters: z.record(z.unknown()).optional(),
+  filters: z.record(z.string(), z.unknown()).optional(),
   schedule: z.string().min(1),
 });
 

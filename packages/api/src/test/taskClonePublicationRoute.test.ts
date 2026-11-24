@@ -938,10 +938,9 @@ describe("T7P2 POST body schema — NO includeSubtasks / includeComments / order
 
   it("body schema does not declare `includeSubtasks`, `includeComments`, or `order`", async () => {
     const { clonePublicationSchema } = await import("../models/schemas.js");
-    // The schema is `ZodEffects` (wrapped by `.superRefine`); reach into
-    // the inner `ZodObject`'s shape via `_def.schema.shape`. The Zod
-    // runtime stores the refined schema on `_def.schema`.
-    const shape = (clonePublicationSchema._def.schema as { shape: Record<string, unknown> }).shape;
+    // Zod v4 keeps refinements on the object schema itself, so the accepted
+    // fields are the schema's own `.shape`.
+    const shape: Record<string, unknown> = clonePublicationSchema.shape;
 
     // The Zod schema's `.shape` carries only the fields the route
     // accepts. Retired legacy options must be ABSENT (not merely

@@ -30,11 +30,11 @@ describe("Mission Zod Schemas", () => {
         acceptanceCriteria: "AC1, AC2",
         priority: "critical",
         labels: ["backend", "api"],
-        dependsOn: ["00000000-0000-0000-0000-000000000001"],
-        blocks: ["00000000-0000-0000-0000-000000000002"],
+        dependsOn: ["00000000-0000-4000-8000-000000000001"],
+        blocks: ["00000000-0000-4000-8000-000000000002"],
         dueAt: "2026-05-01T00:00:00Z",
         slaMinutes: 120,
-        columnId: "00000000-0000-0000-0000-000000000003",
+        columnId: "00000000-0000-4000-8000-000000000003",
       };
       const result = createMissionSchema.safeParse(input);
       expect(result.success).toBe(true);
@@ -140,7 +140,7 @@ describe("Mission Zod Schemas", () => {
   describe("moveMissionSchema", () => {
     it("accepts valid columnId and expectedVersion", () => {
       const result = moveMissionSchema.safeParse({
-        columnId: "00000000-0000-0000-0000-000000000001",
+        columnId: "00000000-0000-4000-8000-000000000001",
         expectedVersion: 3,
       });
       expect(result.success).toBe(true);
@@ -161,14 +161,14 @@ describe("Mission Zod Schemas", () => {
 
     it("rejects missing expectedVersion", () => {
       const result = moveMissionSchema.safeParse({
-        columnId: "00000000-0000-0000-0000-000000000001",
+        columnId: "00000000-0000-4000-8000-000000000001",
       });
       expect(result.success).toBe(false);
     });
 
     it("rejects non-positive expectedVersion", () => {
       const result = moveMissionSchema.safeParse({
-        columnId: "00000000-0000-0000-0000-000000000001",
+        columnId: "00000000-0000-4000-8000-000000000001",
         expectedVersion: 0,
       });
       expect(result.success).toBe(false);
@@ -197,7 +197,7 @@ describe("Mission Zod Schemas", () => {
         requiredDomain: "backend",
         requiredCapabilities: ["typescript", "node"],
         estimatedMinutes: 120,
-        dependsOn: ["00000000-0000-0000-0000-000000000001"],
+        dependsOn: ["00000000-0000-4000-8000-000000000001"],
         order: 5,
       };
       const result = createTaskInMissionSchema.safeParse(input);

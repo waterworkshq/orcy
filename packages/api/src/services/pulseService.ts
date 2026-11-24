@@ -182,8 +182,8 @@ function checkReplyScope(replyToId: string | undefined, habitatId: string, scope
   if (parent.scope !== scope) throw forbidden("Cannot reply across scopes");
 }
 
-function formatFindingMetadataError(error: { errors: Array<{ message: string }> }): string {
-  return error.errors.map((issue) => issue.message).join("; ");
+function formatFindingMetadataError(error: { issues: Array<{ message: string }> }): string {
+  return error.issues.map((issue) => issue.message).join("; ");
 }
 
 function validateMetadata(signalType: string, metadata: Record<string, unknown> | undefined): void {

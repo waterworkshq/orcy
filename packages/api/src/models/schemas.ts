@@ -252,7 +252,7 @@ const importHabitatSchemaBody = z.object({
           name: z.string(),
           url: z.string(),
           events: z.array(z.string()).optional().default([]),
-          headers: z.record(z.string()).optional().default({}),
+          headers: z.record(z.string(), z.string()).optional().default({}),
           format: z.enum(["standard", "slack", "discord"]).optional().default("standard"),
           enabled: z.boolean().optional().default(true),
         }),
@@ -591,7 +591,7 @@ export const createAgentSchema = z.object({
   type: z.enum(AGENT_TYPES),
   domain: z.string().min(1).max(50),
   capabilities: z.array(z.string()).optional(),
-  metadata: z.record(z.unknown()).optional(),
+  metadata: z.record(z.string(), z.unknown()).optional(),
 });
 
 export const updateAgentSchema = z.object({
@@ -599,7 +599,7 @@ export const updateAgentSchema = z.object({
   type: z.enum(AGENT_TYPES).optional(),
   domain: z.string().min(1).max(50).optional(),
   capabilities: z.array(z.string()).optional(),
-  metadata: z.record(z.unknown()).optional(),
+  metadata: z.record(z.string(), z.unknown()).optional(),
   rateLimitPerMinute: z.number().int().min(1).max(10000).optional(),
 });
 

@@ -674,7 +674,7 @@ When `code` is `VALIDATION_ERROR`, the `details` field contains Zod validation e
   "code": "VALIDATION_ERROR",
   "details": {
     "fieldErrors": {
-      "title": ["String must contain at least 1 character(s)"]
+      "title": ["Too small: expected string to have >=1 characters"]
     }
   }
 }
