@@ -34,6 +34,15 @@ export const MAX_GRACE_WINDOW_HOURS = 720;
 const PROVISIONED_DATETIME = z.string().datetime();
 
 /**
+ * Legacy UTC minute-precision shape (`YYYY-MM-DDTHH:MMZ`) that zod 3's
+ * `z.string().datetime()` accepted for `createGrantSchema.expiresAt` before
+ * zod 4 made seconds mandatory. Normalized on read to `:00Z` for stored
+ * `expiresAt` values only, then validated through `PROVISIONED_DATETIME` so
+ * calendar and clock-range checks remain fail-closed.
+ */
+const LEGACY_SECONDSLESS_UTC = /^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2})Z$/;
+
+/**
  * The persisted fields this evaluator reads. `RemoteGrantRow` satisfies this
  * structurally, so no cast is needed at any consumer.
  */
@@ -74,11 +83,14 @@ type Stamp = { kind: "absent" } | { kind: "invalid" } | { kind: "at"; ms: number
  * (fail-closed). A field the caller marks ignored is never passed here, so it
  * cannot affect the result even when malformed or future-dated.
  */
-function readStamp(value: string | null): Stamp {
+function readStamp(value: string | null, allowLegacySecondslessUtc = false): Stamp {
   if (value === null) return { kind: "absent" };
   if (typeof value !== "string") return { kind: "invalid" };
-  if (!PROVISIONED_DATETIME.safeParse(value).success) return { kind: "invalid" };
-  const ms = Date.parse(value);
+  const candidate = allowLegacySecondslessUtc
+    ? value.replace(LEGACY_SECONDSLESS_UTC, "$1:00Z")
+    : value;
+  if (!PROVISIONED_DATETIME.safeParse(candidate).success) return { kind: "invalid" };
+  const ms = Date.parse(candidate);
   return Number.isFinite(ms) ? { kind: "at", ms } : { kind: "invalid" };
 }
 
@@ -134,7 +146,7 @@ function graceFrom(
  * veto restored authority. `expiresAt` is the only configured deadline.
  */
 function evaluateActive(grant: GrantTimeInput, now: number): EffectiveGrantTime {
-  const expires = readStamp(grant.expiresAt);
+  const expires = readStamp(grant.expiresAt, true);
 
   if (expires.kind === "absent") {
     return result("active", "active_non_expiring");
@@ -157,7 +169,7 @@ function evaluateActive(grant: GrantTimeInput, now: number): EffectiveGrantTime 
  * present `revokedAt` is evaluated and may only SHORTEN the window.
  */
 function evaluateExpiredOrGrace(grant: GrantTimeInput, now: number): EffectiveGrantTime {
-  const expires = readStamp(grant.expiresAt);
+  const expires = readStamp(grant.expiresAt, true);
 
   if (expires.kind === "absent") {
     // Legacy rows with no configured deadline must carry a usable sweep stamp,
@@ -202,7 +214,7 @@ function evaluateSoftRevoked(grant: GrantTimeInput, now: number): EffectiveGrant
   if (revoked.kind === "invalid") return blocked("revoked_at_invalid");
   if (revoked.ms > now) return blocked("revoked_at_in_future");
 
-  const expires = readStamp(grant.expiresAt);
+  const expires = readStamp(grant.expiresAt, true);
   if (expires.kind === "invalid") return blocked("expires_at_invalid");
 
   if (expires.kind === "absent") {
