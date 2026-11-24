@@ -1,16 +1,31 @@
 import * as React from 'react';
 import {
+  columnFilteringFeature,
+  columnVisibilityFeature,
+  createFilteredRowModel,
+  createSortedRowModel,
+  filterFn_arrIncludes,
+  filterFn_equals,
+  filterFn_inDateRange,
+  filterFn_includesString,
+  filterFn_inNumberRange,
+  filterFn_weakEquals,
   flexRender,
-  getCoreRowModel,
-  getFilteredRowModel,
-  getSortedRowModel,
-  useReactTable,
+  rowSelectionFeature,
+  rowSortingFeature,
+  sortFn_alphanumeric,
+  sortFn_datetime,
+  sortFn_text,
+  tableFeatures,
+  useTable,
   type ColumnDef,
   type ColumnFiltersState,
+  type ColumnVisibilityState,
   type OnChangeFn,
+  type RowData,
   type RowSelectionState,
+  type ReactTable,
   type SortingState,
-  type VisibilityState,
 } from '@tanstack/react-table';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { clsx } from 'clsx';
@@ -19,8 +34,33 @@ import { Tooltip } from './Tooltip.js';
 const VIRTUALIZE_THRESHOLD = 100;
 const ESTIMATED_ROW_HEIGHT = 48;
 
-interface DataTableProps<TData> {
-  columns: ColumnDef<TData, unknown>[];
+// TanStack Table v9 registers features and their function slots explicitly.
+// The registries cover every built-in `auto` can resolve to, so default
+// client-side sorting and filtering keep their v8 behavior.
+export const DATA_TABLE_FEATURES = tableFeatures({
+  columnFilteringFeature,
+  rowSortingFeature,
+  filteredRowModel: createFilteredRowModel(),
+  sortedRowModel: createSortedRowModel(),
+  filterFns: {
+    arrIncludes: filterFn_arrIncludes,
+    equals: filterFn_equals,
+    inDateRange: filterFn_inDateRange,
+    includesString: filterFn_includesString,
+    inNumberRange: filterFn_inNumberRange,
+    weakEquals: filterFn_weakEquals,
+  },
+  sortFns: {
+    alphanumeric: sortFn_alphanumeric,
+    datetime: sortFn_datetime,
+    text: sortFn_text,
+  },
+  rowSelectionFeature,
+  columnVisibilityFeature,
+});
+
+interface DataTableProps<TData extends RowData> {
+  columns: ColumnDef<typeof DATA_TABLE_FEATURES, TData, unknown>[];
   data: TData[];
   sorting?: SortingState;
   onSortingChange?: OnChangeFn<SortingState>;
@@ -28,8 +68,8 @@ interface DataTableProps<TData> {
   enableRowSelection?: boolean;
   rowSelection?: RowSelectionState;
   onRowSelectionChange?: OnChangeFn<RowSelectionState>;
-  columnVisibility?: VisibilityState;
-  onColumnVisibilityChange?: OnChangeFn<VisibilityState>;
+  columnVisibility?: ColumnVisibilityState;
+  onColumnVisibilityChange?: OnChangeFn<ColumnVisibilityState>;
   columnFilters?: ColumnFiltersState;
   onColumnFiltersChange?: OnChangeFn<ColumnFiltersState>;
   getRowId?: (row: TData, index: number) => string;
@@ -55,10 +95,10 @@ function SortIndicator({ sorted, desc }: { sorted: boolean; desc: boolean }) {
   );
 }
 
-function ColumnVisibilityDropdown<TData>({
+function ColumnVisibilityDropdown<TData extends RowData>({
   table,
 }: {
-  table: ReturnType<typeof useReactTable<TData>>;
+  table: ReactTable<typeof DATA_TABLE_FEATURES, TData>;
 }) {
   const [open, setOpen] = React.useState(false);
   const ref = React.useRef<HTMLDivElement>(null);
@@ -112,7 +152,7 @@ function ColumnVisibilityDropdown<TData>({
   );
 }
 
-export function DataTable<TData>({
+export function DataTable<TData extends RowData>({
   columns,
   data,
   sorting,
@@ -133,7 +173,7 @@ export function DataTable<TData>({
   const [internalRowSelection, setInternalRowSelection] =
     React.useState<RowSelectionState>({});
   const [internalColumnVisibility, setInternalColumnVisibility] =
-    React.useState<VisibilityState>({});
+    React.useState<ColumnVisibilityState>({});
   const [internalColumnFilters, setInternalColumnFilters] =
     React.useState<ColumnFiltersState>([]);
 
@@ -148,7 +188,8 @@ export function DataTable<TData>({
   const setActiveColumnFilters =
     onColumnFiltersChange ?? setInternalColumnFilters;
 
-  const table = useReactTable({
+  const table = useTable({
+    features: DATA_TABLE_FEATURES,
     data,
     columns,
     state: {
@@ -161,9 +202,6 @@ export function DataTable<TData>({
     onRowSelectionChange: setActiveRowSelection,
     onColumnVisibilityChange: setActiveColumnVisibility,
     onColumnFiltersChange: setActiveColumnFilters,
-    getCoreRowModel: getCoreRowModel(),
-    getSortedRowModel: manualSorting ? undefined : getSortedRowModel(),
-    getFilteredRowModel: getFilteredRowModel(),
     manualSorting,
     enableRowSelection,
     getRowId,
