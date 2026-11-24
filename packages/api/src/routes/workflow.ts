@@ -8,6 +8,7 @@ import * as missionRepo from "../repositories/mission.js";
 import { badRequest, conflict, notFound } from "../errors.js";
 import { applyDeclaredAuthPolicies } from "../authPolicy.js";
 import { authorizeTaskAccess } from "../middleware/realtimeAuth.js";
+import { BOARD_REQUEST_COLLECTION_CAP } from "../middleware/requestCollectionCap.js";
 
 const joinSpecSchema = z.object({
   mode: z.enum(["all_of", "any_of", "n_of"]),
@@ -94,7 +95,12 @@ export async function workflowRoutes(fastify: FastifyInstance): Promise<void> {
   /** POST /missions/:id/workflow - Attach a workflow DAG to a mission. Auth: humanAuth + adminOnly. Returns { workflow } or 404/400. */
   fastify.post<{ Params: { id: string }; Body: z.infer<typeof attachWorkflowSchema> }>(
     "/missions/:id/workflow",
-    { preHandler: [adminOnly], config: { authPolicy: "human" } },
+    {
+      preHandler: [adminOnly],
+      // A mission's whole DAG: one gate per dependency edge, which can outgrow
+      // the default request collection cap.
+      config: { authPolicy: "human", requestCollectionCap: BOARD_REQUEST_COLLECTION_CAP },
+    },
     async (
       request: FastifyRequest<{
         Params: { id: string };
@@ -158,7 +164,11 @@ export async function workflowRoutes(fastify: FastifyInstance): Promise<void> {
   /** PATCH /workflows/:id - Update workflow config (failureHandler/joinSpecs) with OCC. Auth: humanAuth + adminOnly. Returns { workflow } or 404/409. */
   fastify.patch<{ Params: { id: string }; Body: z.infer<typeof updateWorkflowSchema> }>(
     "/workflows/:id",
-    { preHandler: [adminOnly], config: { authPolicy: "human" } },
+    {
+      preHandler: [adminOnly],
+      // One join spec per task key: the same scale as the attach route.
+      config: { authPolicy: "human", requestCollectionCap: BOARD_REQUEST_COLLECTION_CAP },
+    },
     async (
       request: FastifyRequest<{
         Params: { id: string };
