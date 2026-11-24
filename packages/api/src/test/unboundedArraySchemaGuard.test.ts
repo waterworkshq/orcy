@@ -4,10 +4,12 @@
  * Zod validates every element of an array before it reports, so an array
  * schema with no upper bound lets a request's shape drive validation work.
  * The central request collection cap (`middleware/requestCollectionCap.ts`)
- * bounds what reaches validation today; a schema's own upper bound is the
- * explicit contract that follows. Until a schema carries one, every unbounded
- * array it declares must be counted on the explicit list below — so a new
- * unbounded array is a review decision, never an accident.
+ * bounds what reaches validation. Every unbounded array a schema declares
+ * must be counted on the explicit list below — so a new unbounded array is a
+ * review decision, never an accident. Schema-level upper bounds for the
+ * listed arrays are not planned (#232): a bound limits one collection at a
+ * time, like the cap, and the repository states no limit for those arrays
+ * that a bound could encode.
  *
  * Scope: every production `.ts`/`.tsx` file under `packages/api/src` and
  * `packages/shared/src` (test directories excluded). That is a superset of
@@ -43,10 +45,11 @@ const ARRAY_CALL = /(?<![\w$.])z\s*\.\s*array\s*\(|\.\s*array\s*\(\s*\)/g;
 const UPPER_BOUNDS = new Set(["max", "length", "size"]);
 
 /**
- * Unbounded array schemas accepted for now, each covered only by the central
- * request collection cap. Key `<file>::<anchor>`, value the number of such
- * sites. To change it: bound the array in its schema (`.max(n)`) and remove
- * the entry, or add the entry deliberately in a review-visible diff.
+ * Unbounded array schemas accepted on purpose. The central request collection
+ * cap limits the elements in each; the request body limit bounds the payload.
+ * Key `<file>::<anchor>`, value the number of such sites. To change it: bound
+ * the array in its schema (`.max(n)`) when a product limit warrants it and
+ * remove the entry, or add the entry deliberately in a review-visible diff.
  */
 const KNOWN_UNBOUNDED_ARRAY_SITES: Readonly<Record<string, number>> = {
   "packages/api/src/models/automationConditionSchema.ts::children": 1,
