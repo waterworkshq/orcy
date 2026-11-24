@@ -58,18 +58,19 @@ export const DEFAULT_REQUEST_COLLECTION_CAP = 2_048;
  * workflow routes (`POST /missions/:id/workflow`, `PATCH /workflows/:id`).
  *
  * Derived from what the 1 MiB request body limit holds, record by record.
- * The smallest record either exporter writes is a legacy webhook entry, 83
- * bytes on the wire with its separator, so one exported collection holds at
- * most ⌊1,048,576 / 83⌋ = 12,633 records. The smallest workflow gate record
- * is 73 bytes, so one workflow holds at most 14,364. 16,384 is the next
- * power of two above both.
+ * The smallest record either exporter writes is a legacy webhook entry: 81
+ * bytes on the wire with its separator, counting the smallest values the
+ * import schema accepts, so one exported collection holds at most
+ * ⌊1,048,576 / 81⌋ = 12,945 records. The smallest gate record the workflow
+ * schema accepts is 69 bytes (`on_fail` is its shortest gate type), so one
+ * workflow holds at most 15,196. 16,384 is the next power of two above both.
  *
  * That is a ceiling on records, not on every array these schemas accept. The
  * plain string arrays an export carries — a mission's labels and dependency
  * titles, a task's or template's capabilities — are authored per entity and
  * have no schema-level bound, so a document with more than 16,384 entries in
  * one of them is rejected although it fits the body limit. The same holds
- * for a workflow's variable records (29 bytes) and for a document written by
+ * for a workflow's variable records (28 bytes) and for a document written by
  * another tool with smaller records than the exporters write.
  */
 export const BOARD_REQUEST_COLLECTION_CAP = 16_384;
@@ -79,13 +80,17 @@ export const BOARD_REQUEST_COLLECTION_CAP = 16_384;
  * `POST /missions/:id/code-evidence`), which carry a pull request's files
  * and commits.
  *
- * The smallest changed-file record the schema accepts is 34 bytes on the
- * wire (`{"path":"a","changeType":"added"}` and its separator), so the 1 MiB
- * body limit holds at most ⌊1,048,576 / 34⌋ = 30,840 of them; 32,768 is the
- * next power of two, so no changed-file array the body admits is rejected.
- * Commit records can be smaller — 51 bytes for a commit that carries only a
- * full sha, 12 for a one-character one — so a body with more than 32,768 such
- * records is rejected.
+ * The smallest changed-file record the schema accepts is 33 bytes on the
+ * wire (`{"path":"","changeType":"added"}` and its separator), so the 1 MiB
+ * body limit holds at most ⌊1,048,576 / 33⌋ = 31,775 of them. 32,768 is the
+ * next power of two, so no changed-file list the body admits is rejected.
+ *
+ * Commit records are not covered that far. The smallest the schema accepts
+ * is 11 bytes (`{"sha":""}` and its separator), so a body can hold up to
+ * 95,325 of them, and a commit list with more than 32,768 such records is
+ * rejected on purpose: schema validation on these routes runs before
+ * authentication, and a cap high enough to admit that minimum would give up
+ * most of the bound.
  */
 export const CODE_EVIDENCE_REQUEST_COLLECTION_CAP = 32_768;
 
