@@ -58,7 +58,7 @@ async function askApiConfig(
   const portStr = await text({
     message: "API port?",
     defaultValue: "4000",
-    validate: (v: string) => (/^\d+$/.test(v) ? undefined : "Must be a number"),
+    validate: (v) => (/^\d+$/.test(v ?? "") ? undefined : "Must be a number"),
   });
   const host = await text({ message: "API host?", defaultValue: "127.0.0.1" });
   const autostart = await confirm({
