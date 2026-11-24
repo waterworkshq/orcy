@@ -22,7 +22,7 @@ import {
 } from "./helpers/importPublicationHttp.js";
 import type { AuditActorRef } from "@orcy/shared";
 import { applyDeclaredAuthPolicies } from "../authPolicy.js";
-import { IMPORT_REQUEST_COLLECTION_CAP } from "../middleware/requestCollectionCap.js";
+import { BOARD_REQUEST_COLLECTION_CAP } from "../middleware/requestCollectionCap.js";
 
 const habitatIdParamsSchema = z.object({ habitatId: z.string() });
 
@@ -93,9 +93,9 @@ export async function habitatExportRoutes(fastify: FastifyInstance): Promise<voi
       "/habitats/import",
       {
         schema: { body: importRouteBodySchema },
-        // A whole exported board: the one payload that outgrows the default
+        // A whole exported board: a payload that outgrows the default
         // request collection cap.
-        config: { authPolicy: "human", requestCollectionCap: IMPORT_REQUEST_COLLECTION_CAP },
+        config: { authPolicy: "human", requestCollectionCap: BOARD_REQUEST_COLLECTION_CAP },
       },
       async (request, reply) => {
         await handleManifestImportRequest(request, reply, {
@@ -111,7 +111,7 @@ export async function habitatExportRoutes(fastify: FastifyInstance): Promise<voi
     {
       schema: { params: habitatIdParamsSchema, body: importRouteBodySchema },
       preHandler: [requireHabitatAccess],
-      config: { authPolicy: "human", requestCollectionCap: IMPORT_REQUEST_COLLECTION_CAP },
+      config: { authPolicy: "human", requestCollectionCap: BOARD_REQUEST_COLLECTION_CAP },
     },
     async (request, reply) => {
       const habitatResult = habitatService.getHabitat(request.params.habitatId);

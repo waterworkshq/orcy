@@ -17,13 +17,15 @@
  *     fixture a few elements over the cap (no load test, no large fixture);
  *   - a request exactly at the cap is accepted and fully validated;
  *   - the production assembly installs the guard for real routes, for the
- *     query string, ahead of authentication, and gives the board import
- *     routes their explicit higher cap (a board export round trip larger
- *     than the default cap passes).
+ *     query string, and ahead of authentication;
+ *   - the routes that carry a whole board, a workflow, or a pull request's
+ *     evidence accept more than the default cap, exactly up to their own cap
+ *     and not one past it, and a real board export round trip passes.
  */
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { mkdtemp, rm } from "node:fs/promises";
 import path from "node:path";
+import { randomUUID } from "node:crypto";
 import Fastify from "fastify";
 import jwt from "jsonwebtoken";
 import { z } from "zod";
@@ -33,8 +35,9 @@ import {
   type ZodTypeProvider,
 } from "fastify-type-provider-zod";
 import {
+  BOARD_REQUEST_COLLECTION_CAP,
+  CODE_EVIDENCE_REQUEST_COLLECTION_CAP,
   DEFAULT_REQUEST_COLLECTION_CAP,
-  IMPORT_REQUEST_COLLECTION_CAP,
   MAX_REQUEST_DEPTH,
   findOversizedCollection,
   requestCollectionCap,
@@ -45,10 +48,14 @@ import { badRequest } from "../errors.js";
 import { setJwtSecret } from "../middleware/jwt-verification.js";
 import { closeDb, initTestDb } from "../db/index.js";
 import { exportHabitatManifest } from "../services/habitatManifestExporter.js";
+import * as taskRepo from "../repositories/task.js";
 
 const CAP = DEFAULT_REQUEST_COLLECTION_CAP;
+const BOARD_CAP = BOARD_REQUEST_COLLECTION_CAP;
+const CODE_EVIDENCE_CAP = CODE_EVIDENCE_REQUEST_COLLECTION_CAP;
 const OVER_CAP = `Request contains a collection with more than ${CAP} items`;
-const OVER_IMPORT_CAP = `Request contains a collection with more than ${IMPORT_REQUEST_COLLECTION_CAP} items`;
+const OVER_BOARD_CAP = `Request contains a collection with more than ${BOARD_CAP} items`;
+const OVER_CODE_EVIDENCE_CAP = `Request contains a collection with more than ${CODE_EVIDENCE_CAP} items`;
 const TOO_DEEP = `Request is nested more than ${MAX_REQUEST_DEPTH} levels deep`;
 const VALIDATION_ERROR = "VALIDATION_ERROR";
 
@@ -232,7 +239,9 @@ describe("requestCollectionCap with a counting element schema", () => {
 
   it("answers one fixed-size body that never echoes the request", async () => {
     const { app } = await buildCapApp();
-    const marker = `NEVER-ECHO-${"x".repeat(512)}`;
+    // Long enough that one leaked marker would show, short enough that the
+    // largest payload stays under the request body limit.
+    const marker = `NEVER-ECHO-${"x".repeat(64)}`;
     const oversized = [
       // A top-level array.
       strings(CAP + 1).map(() => marker),
@@ -376,6 +385,13 @@ describe("requestCollectionCap with a counting element schema", () => {
 
 const JWT_SECRET = "dev-secret-change-in-production";
 
+/**
+ * The assembly tests boot the real application and write to a real database.
+ * A four-worker CI runner is several times slower than a local one, so every
+ * step here gets the same explicit budget instead of vitest's 5 s default.
+ */
+const ASSEMBLY_TIMEOUT_MS = 60_000;
+
 /** Deterministic API-only mode: no UI directory exists. */
 let noUiDir: string;
 let priorUiPath: string | undefined;
@@ -407,7 +423,7 @@ function exportDocument(count: number): Record<string, unknown> {
     version: 2,
     exportedAt: new Date(Date.UTC(2026, 10, 25, 0, 0, exportSeq)).toISOString(),
     habitat: {
-      name: "Large import",
+      name: "Collection cap import",
       description: "",
       columns: [
         { name: "Todo", order: 0, wipLimit: null, nextColumnName: null, isTerminal: false },
@@ -466,77 +482,87 @@ describe("request collection cap in the production assembly", () => {
     });
     expect(created.statusCode).toBe(201);
     habitatId = (created.json() as { habitat: { id: string } }).habitat.id;
-  });
+  }, ASSEMBLY_TIMEOUT_MS);
 
   afterAll(async () => {
     await app.close();
     closeDb();
     if (priorUiPath === undefined) delete process.env.ORCY_UI_PATH;
     else process.env.ORCY_UI_PATH = priorUiPath;
-  });
+  }, ASSEMBLY_TIMEOUT_MS);
+
+  /** A mission in the test habitat with `taskCount` tasks: the real create route, then the repository. */
+  async function missionWithTasks(
+    title: string,
+    taskCount: number,
+  ): Promise<{ missionId: string; taskIds: string[] }> {
+    const created = await app.inject({
+      method: "POST",
+      url: `/api/v1/habitats/${habitatId}/missions`,
+      headers: auth,
+      payload: { title },
+    });
+    expect(created.statusCode).toBe(201);
+    const missionId = (created.json() as { mission: { id: string } }).mission.id;
+    const taskIds = Array.from({ length: taskCount }, (_, i) =>
+      taskRepo.createTask({ missionId, title: `Task ${i}`, createdBy: "admin-1" }).id,
+    );
+    return { missionId, taskIds };
+  }
+
+  const post = (url: string, payload: object, authenticated = true) =>
+    app.inject({ method: "POST", url, headers: authenticated ? auth : undefined, payload });
+
+  /** Imports a one-task board, then exports it as a manifest-v3 replacement whose mission carries `labels`. */
+  async function replacementExport(
+    labels: string[],
+  ): Promise<NonNullable<ReturnType<typeof exportHabitatManifest>>> {
+    const imported = await post("/api/v1/habitats/import", exportDocument(1));
+    expect(imported.statusCode).toBe(201);
+    const manifest = exportHabitatManifest((imported.json() as { habitatId: string }).habitatId, {
+      mode: "replacement",
+    });
+    if (manifest === null) throw new Error("exportHabitatManifest returned null");
+    exportSeq += 1;
+    manifest.manifestId = `collection-cap-${exportSeq}`;
+    manifest.domains.missions!.data[0]!.labels = labels;
+    return manifest;
+  }
 
   it("runs ahead of authentication on a route that declares its schema", async () => {
     const url = `/api/v1/habitats/${habitatId}/missions`;
-    const over = await app.inject({
-      method: "POST",
-      url,
-      // No credentials: the guard answers first.
-      payload: { title: "x", labels: strings(CAP + 1) },
-    });
+    // No credentials: the guard answers first.
+    const over = await post(url, { title: "x", labels: strings(CAP + 1) }, false);
     expect(over.statusCode).toBe(400);
     expect(over.json()).toEqual({ error: OVER_CAP, code: VALIDATION_ERROR });
 
     // Control: at the cap the guard stays silent and authentication speaks.
-    const atCap = await app.inject({
-      method: "POST",
-      url,
-      payload: { title: "x", labels: strings(CAP) },
-    });
+    const atCap = await post(url, { title: "x", labels: strings(CAP) }, false);
     expect(atCap.statusCode).toBe(401);
-  });
+  }, ASSEMBLY_TIMEOUT_MS);
 
   it("declared-schema route: at the cap is created, one past it is rejected before validation", async () => {
     const url = `/api/v1/habitats/${habitatId}/missions`;
-    const atCap = await app.inject({
-      method: "POST",
-      url,
-      headers: auth,
-      payload: { title: "At cap", labels: strings(CAP) },
-    });
+    const atCap = await post(url, { title: "At cap", labels: strings(CAP) });
     expect(atCap.statusCode).toBe(201);
     expect((atCap.json() as { mission: { labels: string[] } }).mission.labels).toHaveLength(CAP);
 
-    const over = await app.inject({
-      method: "POST",
-      url,
-      headers: auth,
-      // Every element is invalid for the schema: one issue per element if validated.
-      payload: { title: "Over cap", labels: strings(CAP + 1).map(() => 0) },
-    });
+    // Every element is invalid for the schema: one issue per element if validated.
+    const over = await post(url, { title: "Over cap", labels: strings(CAP + 1).map(() => 0) });
     expect(over.statusCode).toBe(400);
     // The guard's fixed body, not the schema's per-element `details`.
     expect(over.json()).toEqual({ error: OVER_CAP, code: VALIDATION_ERROR });
-  });
+  }, ASSEMBLY_TIMEOUT_MS);
 
   it("handler-parsed route: at the cap is created, one past it never reaches the handler", async () => {
     const url = `/api/v1/habitats/${habitatId}/wiki/pages`;
-    const atCap = await app.inject({
-      method: "POST",
-      url,
-      headers: auth,
-      payload: { title: "At cap", content: "", tags: strings(CAP) },
-    });
+    const atCap = await post(url, { title: "At cap", content: "", tags: strings(CAP) });
     expect(atCap.statusCode).toBe(201);
 
-    const over = await app.inject({
-      method: "POST",
-      url,
-      headers: auth,
-      payload: { title: "Over cap", content: "", tags: strings(CAP + 1) },
-    });
+    const over = await post(url, { title: "Over cap", content: "", tags: strings(CAP + 1) });
     expect(over.statusCode).toBe(400);
     expect(over.json()).toEqual({ error: OVER_CAP, code: VALIDATION_ERROR });
-  });
+  }, ASSEMBLY_TIMEOUT_MS);
 
   it("covers query-string collections", async () => {
     const repeat = (count: number) => strings(count).map((_, i) => `ids=${i}`).join("&");
@@ -554,18 +580,10 @@ describe("request collection cap in the production assembly", () => {
       headers: auth,
     });
     expect(atCap.statusCode).toBe(200);
-  });
+  }, ASSEMBLY_TIMEOUT_MS);
 
-  it("board import: an export round trip larger than the default cap passes on both import routes", async () => {
-    const count = CAP + 40;
-    expect(count).toBeGreaterThan(CAP);
-
-    const imported = await app.inject({
-      method: "POST",
-      url: "/api/v1/habitats/import",
-      headers: auth,
-      payload: exportDocument(count),
-    });
+  it("board import: a real export round trip passes on both import routes", async () => {
+    const imported = await post("/api/v1/habitats/import", exportDocument(40));
     expect(imported.statusCode).toBe(201);
     expect((imported.json() as { outcome: string }).outcome).toBe("published");
     const importedHabitatId = (imported.json() as { habitatId: string }).habitatId;
@@ -578,34 +596,35 @@ describe("request collection cap in the production assembly", () => {
     });
     expect(exported.statusCode).toBe(200);
     const roundTrip = exported.json() as { habitat: { missions: { tasks: unknown[] }[] } };
-    expect(roundTrip.habitat.missions[0]!.tasks).toHaveLength(count);
+    expect(roundTrip.habitat.missions[0]!.tasks).toHaveLength(40);
 
-    const reimported = await app.inject({
-      method: "POST",
-      url: "/api/v1/habitats/import",
-      headers: auth,
-      payload: roundTrip,
-    });
+    const reimported = await post("/api/v1/habitats/import", roundTrip);
     expect(reimported.statusCode).toBe(201);
-    expect((reimported.json() as { outcome: string }).outcome).toBe("published");
     const reimportedHabitatId = (reimported.json() as { habitatId: string }).habitatId;
 
-    // A manifest-v3 export of the re-imported board, this time replacing an
-    // existing board (the replacement route's format).
+    // A manifest-v3 export of the re-imported board, replacing an existing one
+    // (the replacement route's format).
     const manifest = exportHabitatManifest(reimportedHabitatId, { mode: "replacement" });
     if (manifest === null) throw new Error("exportHabitatManifest returned null");
-    expect(manifest.domains.tasks?.data).toHaveLength(count);
-    const replaced = await app.inject({
-      method: "POST",
-      url: `/api/v1/habitats/${habitatId}/import`,
-      headers: auth,
-      payload: manifest,
-    });
+    const replaced = await post(`/api/v1/habitats/${habitatId}/import`, manifest);
     expect(replaced.statusCode).toBe(201);
     expect((replaced.json() as { outcome: string }).outcome).toBe("published");
-  });
+  }, ASSEMBLY_TIMEOUT_MS);
 
-  it("board import: exactly at the import cap passes, one past it is rejected", async () => {
+  it("board import: a collection larger than the default cap passes on both import routes", async () => {
+    const legacy = exportDocument(1);
+    (legacy.habitat as { missions: { labels: string[] }[] }).missions[0]!.labels = strings(CAP + 1);
+    const intoNewHabitat = await post("/api/v1/habitats/import", legacy);
+    expect(intoNewHabitat.statusCode).toBe(201);
+
+    const replacing = await post(
+      `/api/v1/habitats/${habitatId}/import`,
+      await replacementExport(strings(CAP + 1)),
+    );
+    expect(replacing.statusCode).toBe(201);
+  }, ASSEMBLY_TIMEOUT_MS);
+
+  it("board import: exactly at the board cap passes, one past it is rejected", async () => {
     const withLabels = (count: number): Record<string, unknown> => {
       const document = exportDocument(1);
       const habitat = document.habitat as { missions: { labels: string[] }[] };
@@ -613,21 +632,99 @@ describe("request collection cap in the production assembly", () => {
       return document;
     };
 
-    const atCap = await app.inject({
-      method: "POST",
-      url: "/api/v1/habitats/import",
+    const atCap = await post("/api/v1/habitats/import", withLabels(BOARD_CAP));
+    expect(atCap.statusCode).toBe(201);
+
+    const over = await post("/api/v1/habitats/import", withLabels(BOARD_CAP + 1));
+    expect(over.statusCode).toBe(400);
+    expect(over.json()).toEqual({ error: OVER_BOARD_CAP, code: VALIDATION_ERROR });
+
+    const replacingAtCap = await post(
+      `/api/v1/habitats/${habitatId}/import`,
+      await replacementExport(strings(BOARD_CAP)),
+    );
+    expect(replacingAtCap.statusCode).toBe(201);
+
+    const replacingOver = await post(
+      `/api/v1/habitats/${habitatId}/import`,
+      await replacementExport(strings(BOARD_CAP + 1)),
+    );
+    expect(replacingOver.statusCode).toBe(400);
+    expect(replacingOver.json()).toEqual({ error: OVER_BOARD_CAP, code: VALIDATION_ERROR });
+  }, ASSEMBLY_TIMEOUT_MS);
+
+  it("workflow routes: a DAG larger than the default cap attaches; at the board cap passes, one past it is rejected", async () => {
+    // One gate per dependency edge: more edges than the default cap allows,
+    // attached in one request and written for real.
+    const dag = await missionWithTasks("DAG mission", 2);
+    const gate = (taskIds: string[]) => ({
+      upstreamTaskKey: taskIds[0],
+      downstreamTaskKey: taskIds[1],
+      gateType: "on_complete",
+    });
+    const attached = await post(`/api/v1/missions/${dag.missionId}/workflow`, {
+      definition: { gates: Array.from({ length: CAP + 1 }, () => gate(dag.taskIds)) },
+    });
+    expect(attached.statusCode).toBe(201);
+
+    // One join spec per task key, on the workflow the DAG just created.
+    const workflow = (attached.json() as { workflow: { id: string; version: number } }).workflow;
+    const joinSpecs = (count: number) =>
+      Object.fromEntries(Array.from({ length: count }, (_, i) => [`key-${i}`, { mode: "all_of" }]));
+    const patched = await app.inject({
+      method: "PATCH",
+      url: `/api/v1/workflows/${workflow.id}`,
       headers: auth,
-      payload: withLabels(IMPORT_REQUEST_COLLECTION_CAP),
+      payload: { expectedVersion: workflow.version, joinSpecs: joinSpecs(BOARD_CAP) },
+    });
+    expect(patched.statusCode).toBe(200);
+    const overPatched = await app.inject({
+      method: "PATCH",
+      url: `/api/v1/workflows/${workflow.id}`,
+      headers: auth,
+      payload: { expectedVersion: workflow.version, joinSpecs: joinSpecs(BOARD_CAP + 1) },
+    });
+    expect(overPatched.statusCode).toBe(400);
+    expect(overPatched.json()).toEqual({ error: OVER_BOARD_CAP, code: VALIDATION_ERROR });
+
+    // The attach route's own boundary, on its cheapest collection.
+    const small = await missionWithTasks("Two-gate mission", 2);
+    const variables = (count: number) =>
+      Array.from({ length: count }, (_, i) => ({ key: `variable-${i}`, description: "" }));
+    const definition = (count: number) => ({
+      gates: [gate(small.taskIds)],
+      variables: variables(count),
+    });
+    const atCap = await post(`/api/v1/missions/${small.missionId}/workflow`, {
+      definition: definition(BOARD_CAP),
     });
     expect(atCap.statusCode).toBe(201);
 
-    const over = await app.inject({
-      method: "POST",
-      url: "/api/v1/habitats/import",
-      headers: auth,
-      payload: withLabels(IMPORT_REQUEST_COLLECTION_CAP + 1),
+    const over = await post(`/api/v1/missions/${small.missionId}/workflow`, {
+      definition: definition(BOARD_CAP + 1),
     });
     expect(over.statusCode).toBe(400);
-    expect(over.json()).toEqual({ error: OVER_IMPORT_CAP, code: VALIDATION_ERROR });
-  });
+    expect(over.json()).toEqual({ error: OVER_BOARD_CAP, code: VALIDATION_ERROR });
+  }, ASSEMBLY_TIMEOUT_MS);
+
+  it("code-evidence link routes: at the cap reaches the handler, one past it is rejected", async () => {
+    const commits = (count: number) => Array.from({ length: count }, (_, i) => ({ sha: `s${i}` }));
+    const targets = [
+      `/api/v1/tasks/${randomUUID()}/code-evidence`,
+      `/api/v1/missions/${randomUUID()}/code-evidence`,
+    ];
+    for (const url of targets) {
+      // Past the guard and past the declared schema (every commit validated);
+      // the handler then answers for a target that does not exist.
+      const atCap = await post(url, { commits: commits(CODE_EVIDENCE_CAP) });
+      expect(atCap.statusCode, url).toBe(404);
+
+      const over = await post(url, { commits: commits(CODE_EVIDENCE_CAP + 1) });
+      expect(over.statusCode, url).toBe(400);
+      expect(over.json(), url).toEqual({
+        error: OVER_CODE_EVIDENCE_CAP,
+        code: VALIDATION_ERROR,
+      });
+    }
+  }, ASSEMBLY_TIMEOUT_MS);
 });

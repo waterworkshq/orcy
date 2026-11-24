@@ -27,6 +27,7 @@ import {
   notApplicableSchema,
 } from "./shared.js";
 import { applyDeclaredAuthPolicies } from "../../authPolicy.js";
+import { CODE_EVIDENCE_REQUEST_COLLECTION_CAP } from "../../middleware/requestCollectionCap.js";
 import {
   admitReportDestinations,
   buildReportPlan,
@@ -61,7 +62,12 @@ export async function missionCodeEvidenceRoutes(fastify: FastifyInstance): Promi
     "/missions/:missionId/code-evidence",
     {
       schema: { params: missionIdParamsSchema, body: linkCodeSchema },
-      config: { authPolicy: "local_actor" },
+      // A pull request's files and commits can outgrow the default request
+      // collection cap.
+      config: {
+        authPolicy: "local_actor",
+        requestCollectionCap: CODE_EVIDENCE_REQUEST_COLLECTION_CAP,
+      },
     },
     async (request) => {
       // Mission ORIGIN admission is unchanged: local_actor plus existence,

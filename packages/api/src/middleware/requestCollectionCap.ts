@@ -20,14 +20,15 @@
  *   - nesting deeper than {@link MAX_REQUEST_DEPTH}.
  *
  * The walk is iterative and visits each container once, so its own cost stays
- * proportional to what the request body limit already admits. It bounds ONE
- * collection, never the sum of nested collections: the body limit is what
- * bounds the sum. Bodies that are not objects or arrays (text, raw bytes,
- * multipart streams) carry no collections and are skipped.
+ * proportional to the size of what it reads: the request body limit for the
+ * body, the URL length limit for the query string. It bounds ONE collection,
+ * never the sum of nested collections: the body limit is what bounds the sum.
+ * Bodies that are not objects or arrays (text, raw bytes, multipart streams)
+ * carry no collections and are skipped.
  *
  * The caps are constants on purpose, not configuration; each one's
- * documentation says what it is derived from. Board import is the one
- * legitimate payload that outgrows the default.
+ * documentation says what it is derived from. A route whose legitimate
+ * payload outgrows the default raises it through `config.requestCollectionCap`.
  */
 import type { FastifyReply, FastifyRequest, HookHandlerDoneFunction } from "fastify";
 import { badRequest } from "../errors.js";
@@ -36,25 +37,57 @@ import { badRequest } from "../errors.js";
  * Largest collection (array elements or object keys) a request may carry at
  * any nesting level.
  *
- * Evidence, not a tuning knob: the largest upper bound a request array schema
- * in this repository declares is 100 (batch task ids and the remote-access
- * routes), and 200 is the largest page the task, mission, and event lists
- * serve. 256 is the smallest power of two above that, leaving headroom for
- * the unbounded arrays whose size follows a board or a pull request.
+ * Evidence, not a tuning knob. It has to stay above the collections that grow
+ * with the size of a board or a repository and have no route of their own —
+ * a board's column order, a mission's dependency list, a daemon's agent
+ * statuses. Every size the repository itself defines is far below it: the
+ * largest upper bound a request array schema declares is 100 (batch task ids
+ * and the remote-access routes), and 200 is the largest page the task,
+ * mission, and event lists serve. 2,048 is the nearest power of two that
+ * keeps an order of magnitude over both.
+ *
+ * What the cap still costs, in elements: one flat collection can hold 2,048
+ * elements before it is rejected. The densest array the 1 MiB request body
+ * limit admits is 524,288 two-byte elements, so the cap cuts that by 256.
  */
-export const DEFAULT_REQUEST_COLLECTION_CAP = 256;
+export const DEFAULT_REQUEST_COLLECTION_CAP = 2_048;
 
 /**
- * Collection cap for the board import routes, which carry a whole exported
- * board (`POST /habitats/import`, `POST /habitats/:habitatId/import`).
+ * Collection cap for the routes that carry a whole board: the import routes
+ * (`POST /habitats/import`, `POST /habitats/:habitatId/import`) and the
+ * workflow routes (`POST /missions/:id/workflow`, `PATCH /workflows/:id`).
  *
- * The only ceiling a legitimate import has is the 1 MiB request body limit.
+ * Derived from what the 1 MiB request body limit holds, record by record.
  * The smallest record either exporter writes is a legacy webhook entry, 83
- * bytes on the wire with its separator, so no exported collection can hold
- * more than ⌊1,048,576 / 83⌋ = 12,633 records inside that limit. This is the
- * next power of two above it.
+ * bytes on the wire with its separator, so one exported collection holds at
+ * most ⌊1,048,576 / 83⌋ = 12,633 records. The smallest workflow gate record
+ * is 73 bytes, so one workflow holds at most 14,364. 16,384 is the next
+ * power of two above both.
+ *
+ * That is a ceiling on records, not on every array these schemas accept. The
+ * plain string arrays an export carries — a mission's labels and dependency
+ * titles, a task's or template's capabilities — are authored per entity and
+ * have no schema-level bound, so a document with more than 16,384 entries in
+ * one of them is rejected although it fits the body limit. The same holds
+ * for a workflow's variable records (29 bytes) and for a document written by
+ * another tool with smaller records than the exporters write.
  */
-export const IMPORT_REQUEST_COLLECTION_CAP = 16_384;
+export const BOARD_REQUEST_COLLECTION_CAP = 16_384;
+
+/**
+ * Collection cap for the code-evidence link routes (`POST /tasks/:id/code-evidence`,
+ * `POST /missions/:id/code-evidence`), which carry a pull request's files
+ * and commits.
+ *
+ * The smallest changed-file record the schema accepts is 34 bytes on the
+ * wire (`{"path":"a","changeType":"added"}` and its separator), so the 1 MiB
+ * body limit holds at most ⌊1,048,576 / 34⌋ = 30,840 of them; 32,768 is the
+ * next power of two, so no changed-file array the body admits is rejected.
+ * Commit records can be smaller — 51 bytes for a commit that carries only a
+ * full sha, 12 for a one-character one — so a body with more than 32,768 such
+ * records is rejected.
+ */
+export const CODE_EVIDENCE_REQUEST_COLLECTION_CAP = 32_768;
 
 /** Deepest container level the walk descends to; a container below it is rejected. */
 export const MAX_REQUEST_DEPTH = 64;
@@ -63,8 +96,8 @@ declare module "fastify" {
   interface FastifyContextConfig {
     /**
      * Per-route collection cap in place of {@link DEFAULT_REQUEST_COLLECTION_CAP}
-     * — for a route whose legitimate payload is a whole exported board. Any
-     * other value than a positive integer falls back to the default.
+     * — for a route whose legitimate payload outgrows the default. Any value
+     * other than a positive integer falls back to the default.
      */
     requestCollectionCap?: number;
   }
