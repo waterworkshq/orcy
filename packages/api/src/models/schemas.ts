@@ -302,12 +302,20 @@ export const importHabitatSchema = z.preprocess((data) => {
 // (`routes/board-export.ts` → `prepareImport`).
 // ---------------------------------------------------------------------------
 
-const importManifestDomainEnvelopeSchema = z
-  .object({
-    disposition: z.enum(["replace", "preserve", "reset"]),
-    data: z.unknown().optional(),
-  })
-  .strict();
+// `data` is required only where it is read. A `replace` envelope is
+// dereferenced by its domain handler (`envelope.data.sourceId`), so it must
+// carry data. `preserve` and `reset` carry none, and an envelope without the
+// key stays accepted for them, as it was under zod 3 (where a bare
+// `z.unknown()` key was optional for every disposition).
+const importManifestDomainEnvelopeSchema = z.discriminatedUnion("disposition", [
+  z.object({ disposition: z.literal("replace"), data: z.unknown() }).strict(),
+  z
+    .object({
+      disposition: z.enum(["preserve", "reset"]),
+      data: z.unknown().optional(),
+    })
+    .strict(),
+]);
 
 export const importManifestSchema = z
   .object({
