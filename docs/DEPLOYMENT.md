@@ -196,6 +196,25 @@ A consistent backup uses one of:
 
 ---
 
+## Upgrading
+
+### Pre-Upgrade Stored Data Audit (Zod 4)
+
+Request validation on Zod 4 enforces RFC 4122 / 9562 versioned UUIDs (plus nil/max UUID) and ISO 8601 timestamps with explicit seconds (and colons in numeric timezone offsets). Before upgrading an existing instance, operators can run the read-only stored-data audit script to check whether persisted text columns contain legacy identifiers or timestamps that Zod 4 would reject:
+
+```bash
+node scripts/audit-zod4-stored-data.mjs /path/to/orcy.db
+# Or machine-readable JSON counts:
+node scripts/audit-zod4-stored-data.mjs /path/to/orcy.db --json
+```
+
+The script requires Node.js 24+ (`node:sqlite`), opens the source database read-only, takes a point-in-time consistent temporary snapshot via SQLite's online backup API (usable on a live WAL-mode instance without writing to the database file; opening any SQLite file may still refresh its `-shm` sidecar), classifies text columns in memory, prints **counts only** (never printing stored values, row IDs, or identifiers), and removes the temporary snapshot before exiting.
+
+- **Stored `remote_grants.expires_at` values without seconds** (UTC `YYYY-MM-DDTHH:MMZ`): tolerated on read by `evaluateGrantTime` so existing live grants do not lose authority across the upgrade. New grant provisioning requests still require seconds.
+- **Any other non-zero count**: inspect and migrate or clean the affected records (or update API clients that echo legacy synthetic UUIDs or seconds-less timestamps) before cutting over.
+
+---
+
 ## Monitoring
 
 ### Health Endpoints

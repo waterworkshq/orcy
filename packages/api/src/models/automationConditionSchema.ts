@@ -115,7 +115,7 @@ function makeDiscriminatedUnion(): z.ZodType<AutomationCondition> {
             },
           ),
         operator: z.enum(FIELD_COMPARISON_OPERATORS),
-        value: z.unknown(),
+        value: z.unknown().optional(),
       }),
       z.object({
         type: z.literal("priority_above"),
@@ -153,7 +153,7 @@ function makeDiscriminatedUnion(): z.ZodType<AutomationCondition> {
         // Plugin params are the only intentional passthrough in the tree
         // (ADR-0022). Authors may include plugin-specific data; everything
         // else above is closed by the discriminated union.
-        params: z.record(z.unknown()).optional(),
+        params: z.record(z.string(), z.unknown()).optional(),
       }),
     ] as const;
     return z.union(options as unknown as readonly [Schema, Schema, ...Schema[]]) as unknown as Schema;

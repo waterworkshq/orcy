@@ -46,7 +46,7 @@ const applyTemplateSchema = z.object({
   description: z.string().max(5000).optional(),
   priority: z.enum(["low", "medium", "high", "critical"]).optional(),
   labels: z.array(z.string()).optional(),
-  variables: z.record(z.string()).optional(),
+  variables: z.record(z.string(), z.string()).optional(),
   /** Client-supplied attempt identity. When present, a deliberate re-application
    *  with the same overrides but a different attemptKey creates a fresh publication
    *  instead of replaying the first. When absent, the derived fingerprint key is

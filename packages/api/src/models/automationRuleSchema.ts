@@ -74,7 +74,7 @@ export const automationActionSchema = z.discriminatedUnion("type", [
   z.object({
     type: z.literal("call_webhook"),
     url: z.string().url(),
-    headers: z.record(z.string()).optional(),
+    headers: z.record(z.string(), z.string()).optional(),
     bodyTemplate: z.string().optional(),
   }),
   z.object({
@@ -85,7 +85,7 @@ export const automationActionSchema = z.discriminatedUnion("type", [
   z.object({
     type: z.literal("plugin"),
     actionId: z.string().min(1),
-    params: z.record(z.unknown()).optional(),
+    params: z.record(z.string(), z.unknown()).optional(),
   }),
 ]);
 

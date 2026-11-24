@@ -35,7 +35,7 @@ vi.mock("../lib/daemonToken.js", () => ({
 vi.mock("../middleware/daemonAuth.js", () => ({
   daemonAuth: async (req: any) => {
     req.daemon = {
-      id: "00000000-0000-0000-0000-000000000001",
+      id: "00000000-0000-4000-8000-000000000001",
       name: "ws",
       hostname: "host",
       status: "online",
@@ -76,14 +76,14 @@ vi.mock("../errors.js", () => ({
 import { daemonRoutes } from "../routes/daemon.js";
 import type { FastifyInstance } from "fastify";
 
-const D1 = "00000000-0000-0000-0000-000000000001";
-const HAB = "00000000-0000-0000-0000-000000000010";
-const AG1 = "00000000-0000-0000-0000-000000000011";
-const AG2 = "00000000-0000-0000-0000-000000000012";
-const T1 = "00000000-0000-0000-0000-000000000020";
-const T2 = "00000000-0000-0000-0000-000000000021";
-const SESS = "00000000-0000-0000-0000-000000000030";
-const BAD_HAB = "99999999-9999-9999-9999-999999999999";
+const D1 = "00000000-0000-4000-8000-000000000001";
+const HAB = "00000000-0000-4000-8000-000000000010";
+const AG1 = "00000000-0000-4000-8000-000000000011";
+const AG2 = "00000000-0000-4000-8000-000000000012";
+const T1 = "00000000-0000-4000-8000-000000000020";
+const T2 = "00000000-0000-4000-8000-000000000021";
+const SESS = "00000000-0000-4000-8000-000000000030";
+const BAD_HAB = "ffffffff-ffff-4fff-8fff-ffffffffffff";
 
 function captureRoutes(): Map<string, { handler: Function; preHandler?: any[] }> {
   const routes = new Map<string, { handler: Function; preHandler?: any[] }>();
@@ -363,7 +363,7 @@ describe("daemonRoutes", () => {
         routes.get("POST /daemon/tasks/claim-next")!.handler(
           {
             daemon: { id: D1, name: "ws", hostname: "h", status: "online", maxConcurrent: 4 },
-            body: { agentId: "99999999-9999-9999-9999-999999999998", habitatId: HAB },
+            body: { agentId: "ffffffff-ffff-4fff-8fff-fffffffffffe", habitatId: HAB },
           } as any,
           reply,
         ),

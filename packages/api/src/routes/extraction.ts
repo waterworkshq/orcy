@@ -58,7 +58,7 @@ const createPolicyBodySchema = z.object({
   lookbackSeconds: z.number().int().positive(),
   minConfidence: z.number().min(0).max(1).optional().nullable(),
   minSampleSize: z.number().int().positive().optional().nullable(),
-  config: z.record(z.unknown()).optional(),
+  config: z.record(z.string(), z.unknown()).optional(),
 });
 
 const updatePolicyBodySchema = z.object({
@@ -69,7 +69,7 @@ const updatePolicyBodySchema = z.object({
   lookbackSeconds: z.number().int().positive().optional(),
   minConfidence: z.number().min(0).max(1).optional().nullable(),
   minSampleSize: z.number().int().positive().optional().nullable(),
-  config: z.record(z.unknown()).optional(),
+  config: z.record(z.string(), z.unknown()).optional(),
   expectedVersion: z.number().int().positive(),
 });
 

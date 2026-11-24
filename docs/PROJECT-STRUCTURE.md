@@ -53,6 +53,7 @@ orcy/
 ├── plugins/                       # Standalone plugins
 │   └── auto-label/                # Auto-categorizes tasks by title analysis
 ├── scripts/
+│   ├── audit-zod4-stored-data.mjs # Read-only snapshot audit for stored UUID/datetime strictness
 │   ├── seed.ts                    # Development seed data
 │   ├── setup.ts                   # Environment setup
 │   └── reset-password.ts          # Admin password reset

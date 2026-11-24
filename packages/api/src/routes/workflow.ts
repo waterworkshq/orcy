@@ -66,7 +66,7 @@ const attachWorkflowSchema = z.object({
         }),
       )
       .min(1),
-    joinSpecs: z.record(joinSpecSchema).optional(),
+    joinSpecs: z.record(z.string(), joinSpecSchema).optional(),
     failureHandler: failureHandlerSchema.optional(),
     variables: z
       .array(
@@ -79,13 +79,13 @@ const attachWorkflowSchema = z.object({
       )
       .optional(),
   }),
-  variables: z.record(z.string()).optional(),
+  variables: z.record(z.string(), z.string()).optional(),
 });
 
 const updateWorkflowSchema = z.object({
   expectedVersion: z.number().int().positive(),
   failureHandler: failureHandlerSchema.nullable().optional(),
-  joinSpecs: z.record(joinSpecSchema).nullable().optional(),
+  joinSpecs: z.record(z.string(), joinSpecSchema).nullable().optional(),
 });
 
 /** Workflow management routes — admin-gated operations on workflow CRUD and gates. */

@@ -88,7 +88,7 @@ export async function pulsePost(
   if (args.signalType === "finding") {
     const result = findingMetadataSchema.safeParse(metadata ?? {});
     if (!result.success) {
-      const message = result.error.errors.map((issue) => issue.message).join("; ");
+      const message = result.error.issues.map((issue) => issue.message).join("; ");
       throw new Error(`Invalid finding metadata: ${message}`);
     }
   }

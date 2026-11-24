@@ -370,3 +370,94 @@ describe("evaluateGrantTime — fail-closed inputs", () => {
     expect(row).toEqual(before);
   });
 });
+
+describe("evaluateGrantTime — legacy stored seconds-less UTC deadlines", () => {
+  it("accepts a stored seconds-less UTC expiresAt as active before its deadline", () => {
+    const row = grant({ status: "active", expiresAt: "2026-12-31T00:00Z" });
+    const now = Date.parse("2026-06-01T00:00:00Z");
+    const evaluated = evaluateGrantTime(row, now);
+    expect(evaluated.state).toBe("active");
+    expect(evaluated.reason).toBe("active_before_expiry");
+    expect(isEffectivelyActive(row, now)).toBe(true);
+    expect(row.expiresAt).toBe("2026-12-31T00:00Z");
+  });
+
+  it("evaluates grace and elapsed grace against a stored seconds-less UTC expiresAt", () => {
+    const startMs = Date.parse("2026-12-31T00:00:00Z");
+    const activeAtDeadline = evaluateGrantTime(
+      grant({ status: "active", expiresAt: "2026-12-31T00:00Z", graceWindowHours: 24 }),
+      startMs,
+    );
+    expect(activeAtDeadline.state).toBe("grace");
+    expect(activeAtDeadline.reason).toBe("active_at_expiry");
+    expect(activeAtDeadline.graceStartMs).toBe(startMs);
+    expect(activeAtDeadline.graceEndMs).toBe(startMs + 24 * HOUR);
+
+    const pastGrace = evaluateGrantTime(
+      grant({ status: "active", expiresAt: "2026-05-01T00:00Z", graceWindowHours: 24 }),
+      Date.parse("2026-06-01T00:00:00Z"),
+    );
+    expect(pastGrace.state).toBe("blocked");
+    expect(pastGrace.reason).toBe("grace_window_elapsed");
+
+    const expiredRow = evaluateGrantTime(
+      grant({ status: "expired", expiresAt: "2026-12-31T00:00Z", graceWindowHours: 24 }),
+      startMs + HOUR,
+    );
+    expect(expiredRow.state).toBe("grace");
+    expect(expiredRow.reason).toBe("natural_expiry");
+    expect(expiredRow.graceStartMs).toBe(startMs);
+
+    const softRevokedRow = evaluateGrantTime(
+      grant({
+        status: "soft_revoked",
+        expiresAt: "2026-12-31T00:00Z",
+        revokedAt: "2026-12-31T01:00:00Z",
+        graceWindowHours: 24,
+      }),
+      startMs + 2 * HOUR,
+    );
+    expect(softRevokedRow.state).toBe("grace");
+    expect(softRevokedRow.reason).toBe("soft_revocation");
+    expect(softRevokedRow.graceStartMs).toBe(startMs);
+  });
+
+  it("keeps server-generated expiredAt and revokedAt strict (seconds required)", () => {
+    const now = Date.parse("2026-12-31T01:00:00Z");
+    const legacyExpired = evaluateGrantTime(
+      grant({ status: "expired", expiresAt: null, expiredAt: "2026-12-31T00:00Z" }),
+      now,
+    );
+    expect(legacyExpired.state).toBe("blocked");
+    expect(legacyExpired.reason).toBe("legacy_expiry_start_invalid");
+
+    const legacyRevoked = evaluateGrantTime(
+      grant({ status: "soft_revoked", expiresAt: null, revokedAt: "2026-12-31T00:00Z" }),
+      now,
+    );
+    expect(legacyRevoked.state).toBe("blocked");
+    expect(legacyRevoked.reason).toBe("revoked_at_invalid");
+  });
+
+  it("keeps non-canonical and invalid stored timestamps fail-closed", () => {
+    const now = Date.parse("2026-06-01T00:00:00Z");
+    for (const bad of [
+      "2026-12-31T00:00",
+      "2026-12-31T00:00:00",
+      "2026-12-31T00:00+05:30",
+      "2026-12-31T00:00:00+05:30",
+      "2026-12-31 00:00Z",
+      "2026-12-31t00:00Z",
+      "2026-12-31T00:00z",
+      "2026-02-30T00:00Z",
+      "2026-12-31T25:00Z",
+      "2026-12-31T00:60Z",
+      "2026-12-31T00:00.000Z",
+      "2026-12-31T00:00Z ",
+    ]) {
+      const evaluated = evaluateGrantTime(grant({ status: "active", expiresAt: bad }), now);
+      expect(evaluated.state, bad).toBe("blocked");
+      expect(evaluated.reason, bad).toBe("expires_at_invalid");
+    }
+  });
+});

@@ -66,7 +66,7 @@ const submitTaskSchema = z
         z.object({
           kind: z.string().min(1).max(64),
           url: z.string().url().optional(),
-          metadata: z.record(z.unknown()).optional(),
+          metadata: z.record(z.string(), z.unknown()).optional(),
         }),
       )
       .max(20)
@@ -113,7 +113,7 @@ const evidenceLinkSchema = z
         (url) => url.startsWith("http://") || url.startsWith("https://"),
         "Evidence URL must use http or https",
       ),
-    metadata: z.record(z.unknown()).optional(),
+    metadata: z.record(z.string(), z.unknown()).optional(),
   })
   .strict();
 

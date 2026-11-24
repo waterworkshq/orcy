@@ -252,7 +252,7 @@ const importHabitatSchemaBody = z.object({
           name: z.string(),
           url: z.string(),
           events: z.array(z.string()).optional().default([]),
-          headers: z.record(z.string()).optional().default({}),
+          headers: z.record(z.string(), z.string()).optional().default({}),
           format: z.enum(["standard", "slack", "discord"]).optional().default("standard"),
           enabled: z.boolean().optional().default(true),
         }),
@@ -302,12 +302,20 @@ export const importHabitatSchema = z.preprocess((data) => {
 // (`routes/board-export.ts` → `prepareImport`).
 // ---------------------------------------------------------------------------
 
-const importManifestDomainEnvelopeSchema = z
-  .object({
-    disposition: z.enum(["replace", "preserve", "reset"]),
-    data: z.unknown(),
-  })
-  .strict();
+// `data` is required only where it is read. A `replace` envelope is
+// dereferenced by its domain handler (`envelope.data.sourceId`), so it must
+// carry data. `preserve` and `reset` carry none, and an envelope without the
+// key stays accepted for them, as it was under zod 3 (where a bare
+// `z.unknown()` key was optional for every disposition).
+const importManifestDomainEnvelopeSchema = z.discriminatedUnion("disposition", [
+  z.object({ disposition: z.literal("replace"), data: z.unknown() }).strict(),
+  z
+    .object({
+      disposition: z.enum(["preserve", "reset"]),
+      data: z.unknown().optional(),
+    })
+    .strict(),
+]);
 
 export const importManifestSchema = z
   .object({
@@ -591,7 +599,7 @@ export const createAgentSchema = z.object({
   type: z.enum(AGENT_TYPES),
   domain: z.string().min(1).max(50),
   capabilities: z.array(z.string()).optional(),
-  metadata: z.record(z.unknown()).optional(),
+  metadata: z.record(z.string(), z.unknown()).optional(),
 });
 
 export const updateAgentSchema = z.object({
@@ -599,7 +607,7 @@ export const updateAgentSchema = z.object({
   type: z.enum(AGENT_TYPES).optional(),
   domain: z.string().min(1).max(50).optional(),
   capabilities: z.array(z.string()).optional(),
-  metadata: z.record(z.unknown()).optional(),
+  metadata: z.record(z.string(), z.unknown()).optional(),
   rateLimitPerMinute: z.number().int().min(1).max(10000).optional(),
 });
 

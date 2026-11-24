@@ -39,12 +39,12 @@ function withElapsedMinutes(row: PluginRunRow): StalePluginRun {
 const createEnrollmentSchema = z.object({
   pluginId: z.string().min(1),
   contributionId: z.string().min(1),
-  config: z.record(z.unknown()).optional(),
+  config: z.record(z.string(), z.unknown()).optional(),
 });
 
 const updateEnrollmentSchema = z.object({
   enabled: z.boolean().optional(),
-  config: z.record(z.unknown()).optional(),
+  config: z.record(z.string(), z.unknown()).optional(),
 });
 
 export type CreateEnrollmentInput = z.infer<typeof createEnrollmentSchema>;

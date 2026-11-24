@@ -65,7 +65,7 @@ const manualRunSchema = z
       .enum(["task", "mission", "agent", "sprint", "pulse", "habitat", "none"])
       .optional(),
     targetId: z.string().optional(),
-    payload: z.record(z.unknown()).optional(),
+    payload: z.record(z.string(), z.unknown()).optional(),
   })
   .strict();
 

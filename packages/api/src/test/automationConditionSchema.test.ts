@@ -278,6 +278,16 @@ describe("validatePersistedCondition — runtime fallback", () => {
     const r = validatePersistedCondition(deep);
     expect(r.valid).toBe(false);
   });
+
+  it("accepts field exists/not_exists conditions when value is omitted in JSON", () => {
+    for (const operator of ["exists", "not_exists"] as const) {
+      const payload = JSON.parse(
+        JSON.stringify({ type: "field", field: "task.assigneeId", operator }),
+      );
+      expect(automationConditionSchema.safeParse(payload).success).toBe(true);
+      expect(validatePersistedCondition(payload).valid).toBe(true);
+    }
+  });
 });
 
 describe("MAX_CONDITION_DEPTH contract", () => {

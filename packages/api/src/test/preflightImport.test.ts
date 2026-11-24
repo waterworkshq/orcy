@@ -1412,4 +1412,37 @@ describe("importManifestSchema — strict shape (Fix 1 cold-review)", () => {
     const result = importManifestSchema.safeParse(withUnknownEnvelopeField);
     expect(result.success).toBe(false);
   });
+
+  it("ACCEPTS preserve and reset domain envelopes when data is omitted in JSON", () => {
+    const manifest = v3Manifest();
+    const withOmittedData = JSON.parse(
+      JSON.stringify({
+        ...manifest,
+        domains: {
+          ...manifest.domains,
+          columns: { disposition: "preserve" },
+          comments: { disposition: "reset" },
+        },
+      }),
+    );
+    const result = importManifestSchema.safeParse(withOmittedData);
+    expect(result.success).toBe(true);
+  });
+
+  it("REJECTS a replace domain envelope with data omitted in JSON", () => {
+    // A replace envelope is dereferenced by its domain handler
+    // (`envelope.data.sourceId`), so it must carry data.
+    const manifest = v3Manifest();
+    const withOmittedData = JSON.parse(
+      JSON.stringify({
+        ...manifest,
+        domains: {
+          ...manifest.domains,
+          habitatSettings: { disposition: "replace" },
+        },
+      }),
+    );
+    const result = importManifestSchema.safeParse(withOmittedData);
+    expect(result.success).toBe(false);
+  });
 });
