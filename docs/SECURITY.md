@@ -647,7 +647,7 @@ Request input is validated with Zod schemas, in one of two styles: declared on t
 
 **What the schemas enforce.** String length limits on the fields that declare them (for example Task title 200 and description 5000), enum validation, and UUID validation where a schema asks for it. A minority of request arrays carry a schema-level upper bound of their own (batch operations, triage dependencies, automation actions, the remote access and remote participant routes). The rest rely on the collection cap alone. `unboundedArraySchemaGuard.test.ts` fails when a schema declares an array with no upper bound that is not on its explicit list, so a new unbounded array is a review decision.
 
-**Accepted limits.** The cap bounds one collection, not the sum of nested collections: where a schema nests arrays, collections that are each under the cap can still add up to what the request body limit admits, most of all on the import routes. Bodies that are not JSON objects or arrays (form posts, multipart uploads) are not checked by the cap. Schema-level upper bounds on the remaining unbounded arrays are follow-up work.
+**Accepted limits.** The cap bounds one collection, not the sum of nested collections: where a schema nests arrays, collections that are each under the cap can still add up to what the request body limit admits, most of all on the import routes. Bodies that are not objects or arrays (plain text, raw bytes, multipart uploads) carry no collections and are skipped. Schema-level upper bounds on the remaining unbounded arrays are follow-up work.
 
 SQL injection is prevented through parameterized queries via Drizzle ORM.
 

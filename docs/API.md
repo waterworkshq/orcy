@@ -187,9 +187,9 @@ body inside its handler. A request exactly at the cap is accepted.
 
 The cap is a constant per route kind, not a configuration setting. It bounds
 each collection on its own, not the sum of nested collections; the request
-body size limit of 1 MiB applies separately. Bodies that are not JSON
-objects or arrays (form posts, multipart uploads, raw bytes) are not checked
-by the cap.
+body size limit of 1 MiB applies separately. Bodies that are not objects
+or arrays (plain text, raw bytes, multipart uploads) carry no collections
+and are skipped.
 
 ### Rate Limit Headers
 
