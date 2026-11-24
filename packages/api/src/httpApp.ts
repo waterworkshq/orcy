@@ -3,7 +3,8 @@
  *
  * `createHttpApplication` is the ONE owner of the production HTTP surface:
  * Fastify construction, validator/serializer compilers, root CORS/Helmet/
- * error/audit hooks, the policy installer, raw-body eligibility, health,
+ * error/audit hooks, the request collection cap, the policy installer,
+ * raw-body eligibility, health,
  * root redirect, optional static UI, both local API prefix groups
  * (`/api/v1` and deprecated `/api`) with their inline archive routes,
  * realtime (`/sse`), the Remote Participant API (`/api/shared`), and staged
@@ -129,6 +130,7 @@ import {
 
 import { registerErrorHandler } from "./errors/plugin.js";
 import { perAgentRateLimit } from "./middleware/rateLimit.js";
+import { requestCollectionCap } from "./middleware/requestCollectionCap.js";
 import {
   getAuditProvenanceMetadata,
   runWithAuditProvenance,
@@ -145,7 +147,7 @@ const API_VERSION = 1;
  */
 export interface HookInstallationRecord {
   surface: "root" | "api-v1" | "api-deprecated" | "sse" | "plugin-current" | "plugin-deprecated";
-  hookKind: "onRequest" | "preHandler" | "onSend" | "onResponse";
+  hookKind: "onRequest" | "preValidation" | "preHandler" | "onSend" | "onResponse";
   name: string;
 }
 
@@ -559,6 +561,15 @@ export async function createHttpApplication(
           });
           done();
         }),
+    );
+
+    // Root scope, so every route is covered. `preValidation`: after the body
+    // is parsed, before a route's declared schema is validated, and so before
+    // the preHandler authentication guards and rate limiter.
+    installHook(
+      onHookInstalled,
+      { surface: "root", hookKind: "preValidation", name: "request-collection-cap" },
+      () => fastify.addHook("preValidation", requestCollectionCap),
     );
 
     fastify.get(

@@ -409,11 +409,11 @@ describe("production route surface characterization", () => {
   // Hook installation — production-emitted, ordered, and behaviorally real.
   // -------------------------------------------------------------------------
   describe("hook installation (observed at the installing statement)", () => {
-    it("emits the seven core hooks plus the three plugin-namespace hooks in registration order", () => {
+    it("emits the eight core hooks plus the three plugin-namespace hooks in registration order", () => {
       // Ordered production observations. The two header hooks install at
       // onSend — the assembly's correction of the characterized onResponse
       // defect (headers now reach the wire). Core-only modes install exactly
-      // the seven seam hooks (the empty catalog adds no records); a plugin
+      // the eight seam hooks (the empty catalog adds no records); a plugin
       // catalog appends its namespaces' three hooks in mount order — current
       // rate limit, deprecated rate limit, then the deprecated deprecation
       // header (the same wire-effective onSend stage the core /api group
@@ -422,6 +422,7 @@ describe("production route surface characterization", () => {
         { surface: "root", hookKind: "onSend", name: "api-version" },
         { surface: "root", hookKind: "onRequest", name: "audit-context" },
         { surface: "root", hookKind: "preHandler", name: "audit-enrichment" },
+        { surface: "root", hookKind: "preValidation", name: "request-collection-cap" },
         { surface: "api-v1", hookKind: "preHandler", name: "per-agent-rate-limit" },
         { surface: "api-deprecated", hookKind: "preHandler", name: "per-agent-rate-limit" },
         { surface: "api-deprecated", hookKind: "onSend", name: "deprecation-header" },

@@ -20,6 +20,11 @@
       "name": "audit-enrichment"
     },
     {
+      "surface": "root",
+      "hookKind": "preValidation",
+      "name": "request-collection-cap"
+    },
+    {
       "surface": "api-v1",
       "hookKind": "preHandler",
       "name": "per-agent-rate-limit"
