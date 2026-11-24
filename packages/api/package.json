@@ -49,7 +49,7 @@
     "pino": "^9.0.0",
     "undici": "^8.13.0",
     "uuid": "^14.0.3",
-    "zod": "^3.25.76"
+    "zod": "^4.6.6"
   },
   "devDependencies": {
     "@orcy/daemon": "workspace:*",
