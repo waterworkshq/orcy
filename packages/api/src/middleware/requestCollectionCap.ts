@@ -58,10 +58,10 @@ export const DEFAULT_REQUEST_COLLECTION_CAP = 2_048;
  * workflow routes (`POST /missions/:id/workflow`, `PATCH /workflows/:id`).
  *
  * Derived from what the 1 MiB request body limit holds, record by record.
- * The smallest record either exporter writes is a legacy webhook entry: 81
- * bytes on the wire with its separator, counting the smallest values the
- * import schema accepts, so one exported collection holds at most
- * ⌊1,048,576 / 81⌋ = 12,945 records. The smallest gate record the workflow
+ * The smallest record either exporter writes is a legacy webhook entry: 78
+ * bytes on the wire with its separator (`"slack"` is its shortest format, with
+ * empty name/url strings), so one exported collection holds at most
+ * ⌊1,048,576 / 78⌋ = 13,443 records. The smallest gate record the workflow
  * schema accepts is 69 bytes (`on_fail` is its shortest gate type), so one
  * workflow holds at most 15,196. 16,384 is the next power of two above both.
  *
