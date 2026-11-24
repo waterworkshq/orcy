@@ -112,7 +112,7 @@ function requireUser(request: FastifyRequest): string {
   return request.user.id;
 }
 
-function parseOr400<T extends z.ZodTypeAny>(schema: T, body: unknown): z.infer<T> {
+function parseOr400<T extends z.ZodType>(schema: T, body: unknown): z.infer<T> {
   const parsed = schema.safeParse(body);
   if (!parsed.success) {
     throw badRequest("Validation failed", parsed.error.flatten());
