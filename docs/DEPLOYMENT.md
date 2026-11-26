@@ -23,7 +23,8 @@ This guide covers deploying Orcy to production environments.
 
 ## Prerequisites
 
-- Bun or Node.js
+- Node.js 24 (LTS) or 26 (Current) (see [CONTRIBUTING.md](../CONTRIBUTING.md#supported-nodejs-versions))
+- pnpm (pinned by `packageManager`, activated via Corepack)
 - A domain name with DNS configured (for production)
 - TLS certificates (Let's Encrypt recommended, for production)
 

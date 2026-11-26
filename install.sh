@@ -15,17 +15,20 @@ ARCHIVE_URL="${REPO_URL}/archive/refs/heads/main.tar.gz"
 
 echo "==> orcy installer"
 
-# Check Node
+# Check Node (keep in sync with root package.json engines.node: Node 24 LTS and 26 Current)
 NODE_VERSION=$(node --version 2>/dev/null || echo "")
 if [ -z "$NODE_VERSION" ]; then
-  echo "Node.js not found. Please install Node.js >= 20: https://nodejs.org"
+  echo "Node.js not found. Orcy supports Node.js 24 (LTS) and 26 (Current): https://nodejs.org"
   exit 1
 fi
-NODE_MAJOR=$(echo "$NODE_VERSION" | sed 's/v\([0-9]*\).*/\1/')
-if [ "$NODE_MAJOR" -lt 20 ]; then
-  echo "Node.js >= 20 required, found $NODE_VERSION"
-  exit 1
-fi
+NODE_MAJOR=$(echo "$NODE_VERSION" | sed -n 's/^v\([0-9][0-9]*\)\..*/\1/p')
+case "$NODE_MAJOR" in
+  24|26) ;;
+  *)
+    echo "Unsupported Node.js version: $NODE_VERSION. Orcy supports Node.js 24 (LTS) and 26 (Current)."
+    exit 1
+    ;;
+esac
 echo "    Node $NODE_VERSION found"
 
 # Download source

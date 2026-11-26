@@ -24,7 +24,7 @@ The matrix rolls forward deliberately:
 
 - When Node.js publishes a new stable Current major, add it to the CI matrix and update `engines.node`; it replaces the previous Current major after the native and production-migration checks pass.
 - When a major is promoted to LTS, move `.node-version`, `.nvmrc`, and the full main suite to that major. The previous LTS leaves the matrix in the same update, once its replacement is green.
-- Keep `.node-version`, `.nvmrc`, `engines.node`, and both workflow matrices in sync. Do not wait for an ABI mismatch or a failing local install before adding a future major.
+- Keep `.node-version`, `.nvmrc`, `engines.node`, `install.sh`, both workflow matrices, and the public install/deployment docs (`README.md`, `docs/INSTALL.md`, `docs/DEPLOYMENT.md`) in sync. Do not wait for an ABI mismatch or a failing local install before adding a future major.
 
 ---
 

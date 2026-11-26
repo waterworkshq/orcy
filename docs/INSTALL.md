@@ -4,8 +4,8 @@
 
 | Tool | Version | Purpose |
 |------|---------|---------|
-| Node.js | 20+ | Runtime |
-| pnpm | — | Package manager (development only; `install.sh` runs the source-pinned pnpm via corepack/npx — nothing is installed globally) |
+| Node.js | 24 (LTS) or 26 (Current) | Runtime (24 is the development default) |
+| pnpm | Pinned by `packageManager` | Package manager (development uses Corepack; `install.sh` runs the source-pinned pnpm via Corepack or `npx` without installing a global pnpm) |
 
 ## Two Workflows
 
@@ -37,21 +37,18 @@ One command installs the CLI, API, MCP server, and Web UI:
 curl -fsSL https://raw.githubusercontent.com/waterworkshq/orcy/main/install.sh | bash
 ```
 
-Or without curl:
-
-```bash
-npx github:waterworkshq/orcy/packages/installer
-```
+(Prefer to build from a git checkout instead? See [Developer Setup (from source)](#developer-setup-from-source) below.)
 
 **What happens:**
 
-1. Downloads the latest source from GitHub
-2. Installs pnpm if not present
-3. Builds all packages (CLI, API, MCP, UI)
-4. Installs into `~/.orcy/` with compiled binaries and bundled UI
-5. Creates PATH shims in `~/.orcy/bin/`
-6. Generates `~/.orcy/.env` with JWT secrets
-7. Optionally installs systemd service
+1. Verifies Node.js 24 (LTS) or 26 (Current) before downloading
+2. Downloads the latest source from GitHub
+3. Runs the source-pinned pnpm via Corepack (or an ephemeral `npx` fallback) without installing a global pnpm
+4. Builds all packages (CLI, API, MCP, UI)
+5. Installs into `~/.orcy/` with compiled binaries and bundled UI
+6. Creates PATH shims in `~/.orcy/bin/`
+7. Generates `~/.orcy/.env` with JWT secrets
+8. Optionally installs systemd/launchd service
 
 **After install**, restart your terminal or `source ~/.bashrc` and run:
 
@@ -268,11 +265,12 @@ Skill roots:
 - `~/.kilo/skills/` — Kilo Code
 - `~/.codex/skills/` — OpenAI Codex
 
-Three skills are available:
+Four skills are available:
 
 - **orcy-overview** — Habitat → Mission → Task → Subtask hierarchy, authentication
 - **orcy-cli-usage** — Shell command reference for the `orcy` CLI
-- **orcy-mcp-usage** — MCP dispatch tool reference (all 14 tools + actions)
+- **orcy-mcp-usage** — MCP dispatch tool reference (all 22 tools + actions)
+- **orcy-pulse** — Mission signal board reference
 
 ### Agent Instruction Files
 
@@ -406,7 +404,7 @@ orcy admin webhooks <board-id>                       # List webhooks
 pnpm db:seed
 ```
 
-Creates a sample board "Sprint 24" with 10 tasks across domains and 2 agents.
+Creates a sample board "Sprint 24" with 11 tasks across domains and 2 agents.
 
 ## Troubleshooting
 
@@ -455,7 +453,7 @@ Run `orcy-install` and select the MCP component + your agent clients. The instal
 
 `ORCY_API_URL` is optional — the MCP server auto-detects it from `~/.orcy/.env` (created by the installer), falling back to `http://localhost:3000`. Override it in `env` if your API is on a remote host or custom port.
 
-You will need to get the ORCY_AGENT_ID and ORCY_API_KEY from the running webui yourself by registering your agent there and adding the proper credentials while configuring the mcp settings for them if you're configuring an agent manuallyor ask your agent to get that from the running API server.
+You will need to get the ORCY_AGENT_ID and ORCY_API_KEY from the running webui yourself by registering your agent there and adding the proper credentials while configuring the mcp settings for them if you're configuring an agent manually or ask your agent to get that from the running API server.
 
 ### Other Agents
 
