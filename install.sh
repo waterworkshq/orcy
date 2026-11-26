@@ -21,7 +21,12 @@ if [ -z "$NODE_VERSION" ]; then
   echo "Node.js not found. Orcy supports Node.js 24 (LTS) and 26 (Current): https://nodejs.org"
   exit 1
 fi
-NODE_MAJOR=$(echo "$NODE_VERSION" | sed -n 's/^v\([0-9][0-9]*\)\..*/\1/p')
+NODE_MAJOR=""
+case "$NODE_VERSION" in
+  *'
+'*) ;;
+  *) NODE_MAJOR=$(printf '%s\n' "$NODE_VERSION" | sed -n 's/^v\([0-9][0-9]*\)\.[0-9][0-9]*\.[0-9][0-9]*$/\1/p') ;;
+esac
 case "$NODE_MAJOR" in
   24|26) ;;
   *)

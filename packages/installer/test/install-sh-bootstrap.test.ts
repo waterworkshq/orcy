@@ -292,7 +292,7 @@ describe("install.sh — supported Node.js preflight", () => {
     expect(fs.existsSync(s.markerPath)).toBe(false);
   });
 
-  it.each(["v20.19.0", "v22.14.0", "v25.0.0", "v27.0.0", "invalid"])(
+  it.each(["v20.19.0", "v22.14.0", "v25.0.0", "v27.0.0", "v24.", "v26.not-a-version", "invalid"])(
     "stops before download for unsupported Node version %s",
     (nodeVersion) => {
       const s = buildScenario({ nodeVersion });
