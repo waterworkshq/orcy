@@ -2,6 +2,118 @@
 
 > Older releases: see [git tags](https://github.com/waterworkshq/orcy/tags) and [GitHub Releases](https://github.com/waterworkshq/orcy/releases).
 
+## 0.49.0 — 2026-11-26
+
+### Bug Fixes
+
+#### accept undefined input in the wizard port validator ([`4ba8301`](https://github.com/waterworkshq/orcy/commit/4ba83015aa7504a54fbe6143e637c7f32b945d2c))
+
+- @clack/prompts v1 passes `string | undefined` to text validators (async validation support), so infer the parameter type and treat missing input as an invalid port.
+
+#### migrate request validation to zod 4 ([`b588193`](https://github.com/waterworkshq/orcy/commit/b5881935a907cbc84ba855dea52c7ca8cc391bbc))
+
+- zod 4 requires the two-argument `z.record` form, renames `ZodError.errors` to `issues`, and keeps refinements on the object schema, so the 22 single-argument record schemas and the three error readers are updated. `fastify-type-provider-zod` moves to v5, the first line that supports zod 4; v5 declares `@fastify/swagger` and `openapi-types` as required peers, so they join the lockfile. Validation is stricter than before: ids must be RFC 4122 versioned UUIDs and `datetime` fields must include seconds, and the default error wording changes (the API and troubleshooting examples now show the real messages). Test fixtures use real UUIDs.
+
+#### migrate the task table to TanStack Table v9 ([`1143ce3`](https://github.com/waterworkshq/orcy/commit/1143ce31a6b433a8d10a85fc1ae6795b3173799c))
+
+- v9 registers features, row models, and their function registries explicitly instead of bundling everything, so DataTable now declares one stable feature set (filtering, sorting, selection, visibility) with the sorted and filtered row models. The sort and filter registries cover every built-in `auto` can resolve to, because v9 silently degrades when they are missing (lexicographic sort fallback, or no filtering at all); two tests pin both. Column definitions carry the feature-set type, and the unused `size` hints are dropped since nothing reads column sizes and they would otherwise require the sizing feature.
+
+#### tolerate stored seconds-less grant deadlines under zod 4 ([`a507c9a`](https://github.com/waterworkshq/orcy/commit/a507c9a57e271edc9d2d02a5c0efaa2829d4afcf))
+
+- Normalize legacy UTC minute-precision stored expiresAt values (YYYY-MM-DDTHH:MMZ) to :00Z on read inside the remote grant time evaluator before validating with z.string().datetime(), keeping new provisioning requests, server-generated expiredAt/revokedAt stamps, and all other non-canonical values fail-closed.
+
+#### keep omitted z.unknown() keys optional under zod 4 ([`2ae1aae`](https://github.com/waterworkshq/orcy/commit/2ae1aaeb3f21461ce14af9559444047e81f09a30))
+
+- zod 4 rejects omitted keys on bare `z.unknown()` fields, which broke JSON `exists`/`not_exists` automation conditions omitting `value` (including persisted rules re-validated by `validatePersistedCondition`) and `preserve`/`reset` import domain envelopes omitting `data`. Mark both `z.unknown().optional()` to preserve the zod 3 contract and add regression tests for both.
+
+#### cap request collection size before validation ([`acd72c7`](https://github.com/waterworkshq/orcy/commit/acd72c7a1bf53547daf09540d0bc2e3a8599c88d))
+
+- A root preValidation hook rejects a request whose parsed body or query string contains, at any nesting level, an array longer than 256 elements or an object with more than 256 keys, or nesting deeper than 64 levels, with a fixed-size 400 VALIDATION_ERROR that echoes nothing. It runs ahead of declared-schema validation, authentication, and rate limiting, so no element of an oversized collection is validated on any route. The two board import routes raise the cap to 16,384 through route config, a value that follows from the request body limit and the smallest record an export writes.
+
+#### raise the request collection cap for board-scale payloads ([`fe43537`](https://github.com/waterworkshq/orcy/commit/fe435372b830f98bc17cd3a9a25a9079293f8ffd))
+
+- The default cap becomes 2,048, which stays an order of magnitude above every collection size the repository defines and covers the collections that grow with a board without a route of their own. Routes whose payload is a whole board raise it through route config, each with its own derivation from what the 1 MiB body limit holds per record: the import and workflow routes to 16,384, the code-evidence link routes to 32,768. The assembly tests cover each raised route at its cap and one past it, the export round trip stays small instead of scaling with the default, and every assembly step gets an explicit 60 s budget for a loaded CI runner.
+
+#### require data only on replace import envelopes ([`881f1d8`](https://github.com/waterworkshq/orcy/commit/881f1d8ab0d458e09bb38ffde128c664ba043594))
+
+- A `replace` domain envelope is dereferenced by its domain handler (`envelope.data.sourceId`), so an envelope that omits `data` now fails the import schema instead of reaching it; `preserve` and `reset` still accept an envelope without `data`, as they did under zod 3. The envelope is a discriminated union on `disposition`, with a regression test for the rejected `replace` case.
+
+#### validate full Node version string and document Node 26 Corepack setup ([`2a01a31`](https://github.com/waterworkshq/orcy/commit/2a01a313d1a5f79c0d9385371eeda8aa8d11cb2c))
+
+- Require single-line v<major>.<minor>.<patch> output in install.sh before matching the supported majors, cover malformed supported-prefix versions in the offline preflight tests, and document installing corepack@0.34.2 on Node.js 26 in docs/DEPLOYMENT.md.
+
+### Chores
+
+#### add read-only zod 4 stored-data audit script ([`6f37773`](https://github.com/waterworkshq/orcy/commit/6f377736883f0fd5303b6d1af1de3dce39fbf336))
+
+- Add a maintained Node 24 snapshot-based audit script (scripts/audit-zod4-stored-data.mjs) and fixture tests (scripts/audit-zod4-stored-data.test.mjs) that classify stored UUIDs and ISO datetimes against zod 4 without modifying the source database or printing any values or identifiers, and document its pre-upgrade usage in docs/DEPLOYMENT.md.
+
+### Documentation
+
+#### document zod 4 validation strictness and details shape ([`6b41eaf`](https://github.com/waterworkshq/orcy/commit/6b41eaf0af74d613fd9ac0dc46b981a9586e7329))
+
+- Document RFC 4122/9562 UUID and ISO 8601 datetime-with-seconds request validation, the route-declared fastify-type-provider-zod 5 details item shape, and the narrow read-compatibility exception for legacy stored grant deadlines in docs/API.md and docs/SECURITY.md.
+
+#### document the request collection cap ([`cd731f4`](https://github.com/waterworkshq/orcy/commit/cd731f497e2ede5267699f925876aae6c3771f69))
+
+- Document the cap, its error, and its behaviour in the API reference, and correct the Input Validation and Rate Limiting sections of the security documentation, which claimed array size limits the schemas do not have and did not say that rate limiting runs after declared-schema validation. The documented numbers are pinned to the production constants by the documentation validation test.
+
+#### state where the default request collection cap comes from ([`5d2204c`](https://github.com/waterworkshq/orcy/commit/5d2204cf9a42d4272f556177cd66f96c1c2578aa))
+
+- The largest upper bound a request array schema declares is 100 and the largest task, mission, or event page is 200, so the default cap of 256 is the smallest power of two with headroom above both. Record that next to the constant and in the security documentation.
+
+#### say which request bodies the collection cap skips ([`c7cfffd`](https://github.com/waterworkshq/orcy/commit/c7cfffd61831d61a35385b6b8916381a6d9cc081))
+
+- The cap skips bodies that are not objects or arrays: plain text, raw bytes, and multipart uploads. A form post is an object whose values are strings, so only its key count is checked.
+
+#### document the collection caps per route ([`bed8f6a`](https://github.com/waterworkshq/orcy/commit/bed8f6a27a7035a24e42ade084cd9f7760f3ef89))
+
+- The API reference lists the cap of each route kind and defines the depth count. The security documentation says where each cap comes from and what it still allows, that declared schemas are validated after preValidation hooks and before preHandler hooks, and that the query-string walk is bounded by URL length. The documentation test pins the new numbers to the production constants.
+
+#### correct the record sizes behind the collection caps ([`95d88ae`](https://github.com/waterworkshq/orcy/commit/95d88ae87f6804c6b1e8fac2c5a42c5d4467bd1f))
+
+- The caps are derived from the smallest record each schema accepts, on the wire with its separator. A changed file with an empty path is 33 bytes, so the 1 MiB body limit holds at most 31,775 of them and the 32,768 cap rejects none. A workflow gate with its shortest gate type, on_fail, is 69 bytes, so a workflow holds at most 15,196, still under 16,384. A legacy webhook entry with the smallest values the import schema accepts is 81 bytes, so an exported collection holds at most 12,945 records. The smallest commit record is 11 bytes: a list of more than 32,768 such records is rejected on purpose, because schema validation on those routes runs before authentication.
+
+#### use shortest legacy webhook format in collection cap derivation ([`56b61a0`](https://github.com/waterworkshq/orcy/commit/56b61a07b855ffe035af12fcc19b563c364d103c))
+
+- `format` accepts `"slack"` (shorter than `"standard"`), so the smallest exported legacy webhook record is 78 bytes on the wire (13,443 records per MiB, still under 16,384); also clarify in SECURITY.md that oversized commit lists are another rejected schema-accepted case alongside unbounded export arrays.
+
+#### record that schema-level array bounds are not planned ([`26e9f46`](https://github.com/waterworkshq/orcy/commit/26e9f460b224d4758b9259161f06a9fe4d7dc47d))
+
+- The security overview called schema-level upper bounds on the remaining request arrays follow-up work and listed them as the mitigation for nested collections summing past the cap. Both were inaccurate: such a bound limits one collection at a time like the cap does, and the decision is recorded in #232.
+
+#### align the unbounded-array guard comments with the bounds decision ([`56f8f5b`](https://github.com/waterworkshq/orcy/commit/56f8f5bbddadc4410070bc35cc3fe7cdc0d28c56))
+
+- The guard test header still described a schema-level upper bound as the contract that follows the cap and called its list accepted "for now", which contradicted the decision recorded in SECURITY.md. Both comments now say the bounds are not planned, and the SECURITY.md bullet states that the request body limit still applies alongside the collection cap. Comment-only change.
+
+#### align install prerequisites, bootstrap preflight, and priority docs ([`6749c20`](https://github.com/waterworkshq/orcy/commit/6749c2013fe5e973fbdd2cbf1608ff503f36da80))
+
+- Require Node.js 24 (LTS) or 26 (Current) in install.sh before downloading source, pin the preflight with offline installer tests, reconcile README.md, docs/INSTALL.md, docs/DEPLOYMENT.md, docs/TESTING.md, and the CONTRIBUTING.md Node rollover checklist with the supported runtime policy and live installer behavior, and add the Zod 4 request validation and collection cap entry to docs/CAPABILITIES.md.
+
+#### fix remaining deployment checklist, seed task count, and collection-cap phrasing ([`09fde7e`](https://github.com/waterworkshq/orcy/commit/09fde7e19c75c676b8e61766b9ae00b7058f0f7d))
+
+- Replace the stale bun commands in the docs/DEPLOYMENT.md Production Checklist with corepack pnpm equivalents, restore the accurate 10-task seed count in docs/INSTALL.md and CONTRIBUTING.md, and state the depth boundary, conditional offset acceptance, and body/query walk limits in docs/CAPABILITIES.md.
+
+#### add v0.49.0 operator notes ([`d1a4476`](https://github.com/waterworkshq/orcy/commit/d1a44761c9827ce89779e6c368c244a7a5b4d21c))
+
+- Record the Zod 4 request validation migration and pre-upgrade audit script, root preValidation request collection caps, major dependency upgrades, and Node 24/26 install alignment, and update ROADMAP.md and README.md for v0.49.0.
+
+### Refactors
+
+#### use z.ZodType instead of the deprecated ZodTypeAny alias ([`bac96a9`](https://github.com/waterworkshq/orcy/commit/bac96a9a635ff51dc54a60b3aff4bf6af78f7f1f))
+
+- `z.ZodTypeAny` and the "v3-compatible" wording predate zod 4. Use `z.ZodType`, which both majors export, in the type-provider smoke test (also renamed accordingly) and in the role-admin `parseOr400` constraint.
+
+### Tests
+
+#### guard request schemas against unbounded arrays ([`9bb6ad0`](https://github.com/waterworkshq/orcy/commit/9bb6ad0caccac5149949417ae84c9c0758b99aee))
+
+- A source scan over production API and shared source fails when a schema declares a zod array with no upper bound that is not counted on an explicit list. Sites are keyed by file and anchor rather than line number, so moving code never changes the list while a new unbounded array does.
+
+#### read a regex after a control head in the array guard ([`c6db98f`](https://github.com/waterworkshq/orcy/commit/c6db98faa8c251dd61c71b38b333db59379fa37a))
+
+- The source scan behind the unbounded-array guard treated every slash after a closing parenthesis as division, so a regex literal that follows the head of an if, while, for, or with statement was read as code. It now opens a regex there and still reads division after a call or a plain group; both cases are pinned.
+
 ## 0.48.1 — 2026-11-20
 
 ### Bug Fixes
@@ -339,137 +451,3 @@
 #### pin the fallback corepack install ([`3b4eb9b`](https://github.com/waterworkshq/orcy/commit/3b4eb9b179af512660e0476b66703b0c0fc8f465))
 
 - The corepack bootstrap is the trust root for the pinned pnpm in the migration gate; an unpinned latest-install would let a malicious corepack publish shim pnpm. Pin the rare fallback path to a released version.
-
-## 0.47.0 — 2026-11-15
-
-### Bug Fixes
-
-#### enforce the ISO snoozedUntil contract on the local snooze route (#122) ([`32b63cf`](https://github.com/waterworkshq/orcy/commit/32b63cfd2716804afd3460691c112e2d13d2c7f9))
-
-- The local snooze route validated snoozedUntil as any non-empty string while the remote-shared twin enforced an ISO datetime for the same persisted column, so the local and MCP paths (whose tool schema declares ISO but forwards verbatim) could persist arbitrary strings into the declared-ISO snooze expiry and echo them back through inbox, history, and detail responses. Git history shows drift rather than deliberate tolerance: the local schema was born weak and the twin was tightened three days later for the same column. The local schema now matches the twin and API.md's documented ISO timestamp body, which the already-ISO callers (remote twin, MCP tool) satisfy.
-
-#### make cleared the terminal notification delivery state (#125) ([`3146630`](https://github.com/waterworkshq/orcy/commit/3146630481bb0dd66883d8d779f160278e34aac6))
-
-- fix(api): enforce the ISO snoozedUntil contract on the local snooze route
-
-- fix(api): make acknowledged, muted, and cleared delivery states terminal
-
-- The four recipient actions each ran an unconditional update keyed only by delivery id, so a late action on an already-acted-upon delivery silently overwrote its state — most visibly, snoozing a cleared delivery resurrected it into the perpetual active inbox (the active statuses include snoozed and nothing ever wakes a snoozed row). Acknowledged, muted, and cleared are now exported as the terminal user-action set: the local and remote-shared acknowledge, snooze, and clear routes reject further recipient actions with 409 before touching the row, while transitions between live states (pending, delivered, snoozed, failed) stay allowed in any order. The admin bulk clear keeps its permissive idempotent semantics.
-
-- fix(api): enforce the cleared-state terminal predicate at statement time
-
-- The route-level terminal guard admitted a race: two concurrent recipient actions could both pass the precheck and the last write could still resurrect a cleared delivery. The four recipient writers now carry the predicate in the UPDATE itself (notInArray over the terminal set) with a RETURNING-based application check, returning null when nothing was applied, and every route maps that null to the same 409. The terminal set also narrows to cleared only: the repository's own lifecycle test pins acknowledge-then-clear as valid, so acknowledged and muted stay transitionable per the owner's cleared-anchored ruling. Admin bulk clearance is a separate service and keeps its permissive semantics, and the system's markDelivered writer stays unguarded by design.
-
-- ci: trigger the PR workflows on this branch
-
-- The stacked PR against the deleted base never fired the pull_request workflows, and the replacement PR's opened/reopened events produced no runs for this head; this empty marker fires synchronize so the machine gates run on this tree before merge.
-
-#### clean up plugin prelaunch finish failures (#133) ([`33bdf93`](https://github.com/waterworkshq/orcy/commit/33bdf93045b7d2e3a26b81d91e92284aaa1cf211))
-
-- Apply best-effort deletion to synchronous quarantine and context-construction exits when run finalization fails, without deleting runs whose handlers launched. Pin persisted-row cleanup and stale-warning behavior with focused regressions.
-
-#### sanitize plugin infrastructure veto reasons (#134) ([`98212d7`](https://github.com/waterworkshq/orcy/commit/98212d729195fb7ae4648ef21d8fa0532f24b706))
-
-- Return a fixed reason when plugin run creation fails while keeping infrastructure error details in server logs. Preserve genuine plugin veto reasons and pin the lifecycle and publication-governance consumers.
-
-#### attribute operator-lost plugin runs (#136) ([`b2f9cee`](https://github.com/waterworkshq/orcy/commit/b2f9cee0a04e44f5d8cdd1ec6699c0c23949ec5f))
-
-- Record the authenticated human or agent in lost-run telemetry and bind habitat admission to the habitat parameter so the operator route reaches its service. Preserve lifecycle guards, document access responses, and cover authenticated storage and list retrieval.
-
-#### preserve operator-lost runs during recovery (#135) ([`b9256ae`](https://github.com/waterworkshq/orcy/commit/b9256ae1e67f909dcef3a7b0d0450e72cb631c66))
-
-- Fence effect redrive against operator-lost runs and settle their pending detector targets without invoking the handler or rewriting attributed run telemetry. Preserve retries from other statuses and verify both direct and late operator-lost decisions against the required actor contract.
-
-#### authorize task email recipients by habitat (#149) ([`ee44cad`](https://github.com/waterworkshq/orcy/commit/ee44cad37c053c562fa56f891c63df52aff3ed80))
-
-- Authorize task and mention email recipients before composing messages, preserving private-habitat access and preference rules. Batch fan-out membership reads while keeping individual middleware checks indexed and selective, with regression coverage for delivery parity and bounded query work.
-
-#### preserve rejected-task ownership during escalation (#150) ([`54e8bff`](https://github.com/waterworkshq/orcy/commit/54e8bffbf65b9c489a158c996e32f234c7d52f47))
-
-- Record human attention for escalated rejected tasks without clearing their owner or continuation token. Retire stale retry scheduling while preserving failed-task custody retirement and execution-epoch fencing.
-
-#### send canonical habitat request keys (#151) ([`2dddc6b`](https://github.com/waterworkshq/orcy/commit/2dddc6baafc037f4a5f5909b9138a6d457825f1a))
-
-- Send habitatId for messaging and suggestion requests while retaining normalization of the legacy input alias. Exercise the served dispatch handlers against real authenticated API routes and persisted messages.
-
-#### evict terminal sessions from the live map (#155) ([`a6c90a0`](https://github.com/waterworkshq/orcy/commit/a6c90a018b0db57f70249d189a4c12eb9555597b))
-
-- Evict terminal sessions after reconciliation and completion handling, including failed startup and throwing callbacks. Preserve the original startup error and make duplicate late callbacks harmless without changing live-session heartbeat or timeout selection.
-
-#### recover rejected tasks with fenced authority and retries (#158) ([`1bf2c4e`](https://github.com/waterworkshq/orcy/commit/1bf2c4e8c1402b7dca0c1e1d956eccea446ae621))
-
-- Allow persisted habitat recovery authorities to reset owner-stranded rejected work through the existing retry endpoint. Recheck authority and the request preimage inside the writer transaction, preserve review feedback, reserve replacement lifecycle headroom, and fence stale background retries. Return typed manual refusals, preserve failed-lane policy isolation, and retain the consolidated retry regression coverage and documentation.
-
-#### refresh habitat task lists without request storms (#154) ([`d2b17f0`](https://github.com/waterworkshq/orcy/commit/d2b17f0dc6553c2018e458ee67a9226574d02185))
-
-- Invalidate affected habitat task-list variants on lifecycle events and forward cancellation to the HTTP transport. Coalesce refetches across bursts while marking accepted events stale immediately, preserving remount freshness and generation isolation when subscriptions retire.
-
-#### enforce notification recipient intent (#168) ([`86f48cf`](https://github.com/waterworkshq/orcy/commit/86f48cf2fdfb435a80d94ba668dfbb04a82d9003))
-
-- Resolve exact eligible notification audiences with atomic enqueue, writer-reservation controls, required cadence scheduling, immutable Automation compatibility, and deliberate producer migration.
-
-#### retire inactive retries and attribute manual actors (#169) ([`aa1812a`](https://github.com/waterworkshq/orcy/commit/aa1812a972d73b4ea7414213e8ed561633226bfd))
-
-- Retire due retry rows whose effective policy cannot act, preserve fallback and escalation contracts, and attribute agent-lane manual retry execution to the authenticated agent.
-
-#### make mission admission atomic (#170) ([`f58bd69`](https://github.com/waterworkshq/orcy/commit/f58bd6975649e0141c290c0071fcaae8b7810d2c))
-
-- Commit Mission, external link, and candidate disposition through one admission transaction while preserving uniqueness, authorization, post-commit audit, and linked-update contracts.
-
-#### bind completion timing to finality (#172) ([`f0b3b8e`](https://github.com/waterworkshq/orcy/commit/f0b3b8e9a357df0b0b5694165c7bd39f492852bf))
-
-- Commit completion timing with authoritative finality and reread successful Task results after metric writes while preserving independent artifacts, review notes, and evidence boundaries.
-
-### Documentation
-
-#### record v0.46.1 delivery ([`268f54a`](https://github.com/waterworkshq/orcy/commit/268f54a9ca4d4db29f013176a4ffd7b402950ea2))
-
-#### correct the terminal-guard comment to the cleared-only contract (#126) ([`722309b`](https://github.com/waterworkshq/orcy/commit/722309beb5ed907bcd350bfb48e999c550e8c31c))
-
-- The liveDeliveryPredicate doc comment still described the pre-narrowing acknowledged/muted/cleared set; the predicate and the shipped contract are cleared-only (the repository lifecycle test pins acknowledge-to-clear, so those states stay transitionable). Comment-only change flagged by review on the merged tree.
-
-#### align plugin run dedup status documentation (#132) ([`eb6456b`](https://github.com/waterworkshq/orcy/commit/eb6456b1276351d3d1e77b63a57da645a3847f47))
-
-- Align the function and current-state architecture documentation with the existing running, succeeded, failed, and lost dedup set while preserving the retry eligibility of skipped and rate-limited attempts.
-
-#### reconcile behavior claims and work-tracking references ([`2a5d570`](https://github.com/waterworkshq/orcy/commit/2a5d570d9977ad842d149b5cafefe47f011d2614))
-
-- Correct stale signal-registry and extraction-test descriptions, document the invalid escaped-keyword premise, and reconcile delivered transition auditing with the GitHub follow-up records.
-
-#### add v0.47.0 operator notes ([`07d1b4f`](https://github.com/waterworkshq/orcy/commit/07d1b4f09cf929b157868895467f56b8b48a5d0a))
-
-### Features
-
-#### save task metadata edits atomically (#174) ([`2be6492`](https://github.com/waterworkshq/orcy/commit/2be64920bbe9d8d3b38af8b80e20ed3aecb1ca05))
-
-- Add a human-only Task metadata write whose immediate-transaction core authorizes against persisted rows, fences the opening version with a creation-envelope identity digest, conditionally updates with postimage proof, and commits exactly one updated event; the live modal gains an explicit Edit mode with a confirmed-discard draft lifecycle and generation-fenced cache reconciliation.
-
-### Performance
-
-#### batch mission queries during task suggestions (#157) ([`2bd87d6`](https://github.com/waterworkshq/orcy/commit/2bd87d67346703cd153db14b08c164054308dc36))
-
-- Resolve mission dependency eligibility in one habitat-keyed query and reuse chunked mission reads across titles, scoring and release gates. Preserve ranking, dependency blocking and result limits while replacing repeated per-candidate reads with bounded batch work.
-
-### Refactors
-
-#### unify scheduled occurrence execution (#162) ([`743b54b`](https://github.com/waterworkshq/orcy/commit/743b54bf2af631cd479315d8fde775e00e3029b3))
-
-- test(api): pin scheduled occurrence publication compatibility
-
-#### share mission authoring state (#171) ([`fb917a9`](https://github.com/waterworkshq/orcy/commit/fb917a980343427074bb2a9fc886273c66b8238e))
-
-- Consolidate Mission draft lifecycle and conversion while preserving Create/Edit transport differences, feature-mode behavior, open drafts, baseline-version protection, and account-session continuations.
-
-### Tests
-
-#### isolate temporary directories across invocations (#156) ([`3c7fb5d`](https://github.com/waterworkshq/orcy/commit/3c7fb5d310dcb85e238e2d1270fd07ce7ea81ff1))
-
-- Give unsafe constant-path test fixtures invocation-owned temporary roots and remove only their own resources. Preserve safe uniquely named children and staged-run recovery, with overlapping-run regression and cleanup verification.
-
-#### make compiler cancellation probes zombie-aware (#159) ([`9dfff20`](https://github.com/waterworkshq/orcy/commit/9dfff207a29781e7b4e224f36b91400dbec47f9b))
-
-- Distinguish terminated zombies from surviving compiler descendants, parse procfs command records robustly and keep platform-specific orphan assertions explicit. Preserve portable liveness probe coverage without changing production termination or test deadlines.
-
-#### validate the seeded Learning Loop in isolation (#160) ([`8f8df08`](https://github.com/waterworkshq/orcy/commit/8f8df08b34c0a5e1ba556bc876e3bb577b7f85c6))
-
-- Exercise the mounted Learning Loop controls with real authenticated lifecycle data and verify durable review decisions through the live API seams. Keep the harness local-only with explicit temporary databases, failure-safe cleanup, exact test discovery and retained hostile-environment regressions; production defaults and CI coverage remain unchanged.
