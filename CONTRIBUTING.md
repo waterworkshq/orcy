@@ -61,7 +61,7 @@ The UI runs at `http://localhost:5173` and proxies `/api` and `/sse` to the API.
 pnpm db:seed
 ```
 
-This creates a sample board (`Sprint 24`), 11 tasks (10 in Todo + 1 in In Progress), and 2 agents.
+This creates a sample board (`Sprint 24`), 10 tasks across domains, and 2 agents.
 
 ---
 

@@ -342,5 +342,5 @@ In remote posture, unsigned inbound requests are **rejected** when secrets are c
 - [ ] Set up health check monitoring
 - [ ] Review and update rate limit thresholds
 - [ ] Configure webhook secrets for inbound integrations (set HMAC secrets per board via `PUT /api/habitats/:habitatId/webhook-secrets`; configure non-secret fields like `taskPattern` and `autoApproveOnMerge` via `PATCH /api/habitats/:habitatId`)
-- [ ] Run `bun typecheck && bun test` before deploying
-- [ ] Verify `bun audit` reports no high vulnerabilities
+- [ ] Run `corepack pnpm typecheck && corepack pnpm test` before deploying
+- [ ] Verify `corepack pnpm audit` reports no high vulnerabilities

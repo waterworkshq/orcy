@@ -404,7 +404,7 @@ orcy admin webhooks <board-id>                       # List webhooks
 pnpm db:seed
 ```
 
-Creates a sample board "Sprint 24" with 11 tasks across domains and 2 agents.
+Creates a sample board "Sprint 24" with 10 tasks across domains and 2 agents.
 
 ## Troubleshooting
 
