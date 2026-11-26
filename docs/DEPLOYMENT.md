@@ -23,7 +23,8 @@ This guide covers deploying Orcy to production environments.
 
 ## Prerequisites
 
-- Bun or Node.js
+- Node.js 24 (LTS) or 26 (Current) (see [CONTRIBUTING.md](../CONTRIBUTING.md#supported-nodejs-versions))
+- pnpm (pinned by `packageManager`, activated via Corepack). If Corepack is not installed (Node.js 26 does not bundle it), run `npm install -g corepack@0.34.2` before `corepack enable`.
 - A domain name with DNS configured (for production)
 - TLS certificates (Let's Encrypt recommended, for production)
 
@@ -341,5 +342,5 @@ In remote posture, unsigned inbound requests are **rejected** when secrets are c
 - [ ] Set up health check monitoring
 - [ ] Review and update rate limit thresholds
 - [ ] Configure webhook secrets for inbound integrations (set HMAC secrets per board via `PUT /api/habitats/:habitatId/webhook-secrets`; configure non-secret fields like `taskPattern` and `autoApproveOnMerge` via `PATCH /api/habitats/:habitatId`)
-- [ ] Run `bun typecheck && bun test` before deploying
-- [ ] Verify `bun audit` reports no high vulnerabilities
+- [ ] Run `corepack pnpm typecheck && corepack pnpm test` before deploying
+- [ ] Verify `corepack pnpm audit` reports no high vulnerabilities

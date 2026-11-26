@@ -74,6 +74,7 @@ function buildScenario(opts: {
   pin?: string | null;
   withCorepack?: boolean;
   withNpx?: boolean;
+  nodeVersion?: string | null;
 }): Scenario {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), "orcy-installsh-"));
   const stubDir = path.join(home, "stubs");
@@ -88,7 +89,19 @@ function buildScenario(opts: {
   const log = (s: string) => `printf '%s\\n' "${s}" >> "${logPath}"`;
 
   // Real node + coreutils so the genuine download/extract/copy flow executes.
-  for (const b of ["node", "sed", "mkdir", "rm", "mv", "cp", "cat"]) {
+  // When `nodeVersion` is specified, stub `node --version` while forwarding all
+  // other invocations to the real binary (or omit `node` when null).
+  const realNode = resolveBin("node");
+  if (!("nodeVersion" in opts)) {
+    fs.symlinkSync(realNode, path.join(stubDir, "node"));
+  } else if (opts.nodeVersion !== null) {
+    writeStub(
+      stubDir,
+      "node",
+      `if [ "$1" = "--version" ]; then echo "${opts.nodeVersion}"; exit 0; fi\nexec "${realNode}" "$@"`,
+    );
+  }
+  for (const b of ["sed", "mkdir", "rm", "mv", "cp", "cat"]) {
     fs.symlinkSync(resolveBin(b), path.join(stubDir, b));
   }
 
@@ -253,6 +266,40 @@ describe("install.sh — pin-aware pnpm bootstrap (hermetic)", () => {
       expect(`${r.stdout}\n${r.stderr}`).toMatch(/packageManager/i);
       const lines = readLog(s);
       expect(lines.some((l) => /install --frozen-lockfile|-r build/.test(l))).toBe(false);
+      expect(fs.existsSync(s.markerPath)).toBe(false);
+    },
+  );
+});
+
+describe("install.sh — supported Node.js preflight", () => {
+  it.each(["v24.0.0", "v24.11.1", "v26.0.0", "v26.3.2"])(
+    "proceeds past preflight for supported Node version %s",
+    (nodeVersion) => {
+      const s = buildScenario({ nodeVersion });
+      const r = runInstallSh(s);
+      expect(r.status).toBe(0);
+      expect(readLog(s).some((l) => l === "curl")).toBe(true);
+      expect(fs.existsSync(s.markerPath)).toBe(true);
+    },
+  );
+
+  it("stops before download when node is missing", () => {
+    const s = buildScenario({ nodeVersion: null });
+    const r = runInstallSh(s);
+    expect(r.status).not.toBe(0);
+    expect(`${r.stdout}\n${r.stderr}`).toMatch(/Node\.js not found.*24.*26/);
+    expect(logLines(s)).toEqual([]);
+    expect(fs.existsSync(s.markerPath)).toBe(false);
+  });
+
+  it.each(["v20.19.0", "v22.14.0", "v25.0.0", "v27.0.0", "v24.", "v26.not-a-version", "invalid"])(
+    "stops before download for unsupported Node version %s",
+    (nodeVersion) => {
+      const s = buildScenario({ nodeVersion });
+      const r = runInstallSh(s);
+      expect(r.status).not.toBe(0);
+      expect(`${r.stdout}\n${r.stderr}`).toMatch(/Unsupported Node\.js version.*24.*26/);
+      expect(logLines(s)).toEqual([]);
       expect(fs.existsSync(s.markerPath)).toBe(false);
     },
   );

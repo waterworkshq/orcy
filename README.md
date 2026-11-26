@@ -14,8 +14,6 @@
 </h3>
 
 # Orcy — MCP-native task orchestration for AI coding agents
-- Durable review-safety cutover landed (migration 0082): durable per-task review requirements with CHECK-enforced state matrix, immutable claim snapshots, append-only generation-tagged decisions, one-reservation finality with committed approval proof, guarded terminal primitives, known-zero-only merge auto-approval, and independent human recovery for legacy-unknown tasks.
-
 
 Open-source MCP server that gives AI coding agents a shared task board with transactional claiming, domain routing, triage investigation, silence detection, and quality gates. Everyone in the system is an orcy — including you. One command installs 22 MCP tools, writes MCP config for the agent clients it detects (7 supported: Claude Code, Claude Desktop, Cursor, Gemini Antigravity, Kilo Code, Codex, OpenCode), and the daemon supports execution adapters for five agent runtimes (Claude Code, Codex, OpenCode, Cursor, Gemini CLI) — including code evidence linking, effort logging, sprint analytics, audit bundles, full task lifecycle coverage, workflow orchestration, agent experience self-reporting, and an authored habitat wiki with signal surface tabs.
 
@@ -40,6 +38,8 @@ Open-source MCP server that gives AI coding agents a shared task board with tran
 - **Recovers** — a stale-agent sweep can release an eligible current task after 30 minutes of silence; other holdings still need attention.
 
 ## Quick Start
+
+Requires **Node.js 24 (LTS) or 26 (Current)** (`install.sh` verifies the Node version up front and runs the source-pinned pnpm via Corepack or `npx` without installing a global pnpm).
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/waterworkshq/orcy/main/install.sh | bash
@@ -281,7 +281,7 @@ For a detailed walkthrough of each package, see **[docs/PROJECT-STRUCTURE.md](do
 | [docs/SKILL.md](docs/SKILL.md) | Orcy workflow — how orcys claim, execute, and submit tasks |
 | [docs/INSTALL.md](docs/INSTALL.md) | Installation, setup, MCP configuration, and lifecycle commands |
 | [docs/CONFIGURATION.md](docs/CONFIGURATION.md) | All environment variables and configuration options |
-| [docs/API.md](docs/API.md) | Complete REST API reference (3300+ lines) |
+| [docs/API.md](docs/API.md) | Complete REST API reference |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | System architecture, design decisions, and key flows |
 | [docs/DATABASE.md](docs/DATABASE.md) | Database schema and data access patterns |
 | [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) | Production deployment guide |

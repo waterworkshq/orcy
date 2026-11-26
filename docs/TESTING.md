@@ -595,13 +595,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v2
+      - uses: actions/setup-node@v7
         with:
-          version: 9
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 20
-          cache: pnpm
+          node-version: '24'
+      - run: |
+          corepack enable
+          corepack prepare "$(node -p "require('./package.json').packageManager")" --activate
       - run: pnpm install --frozen-lockfile
       - run: pnpm typecheck
       - run: pnpm lint
