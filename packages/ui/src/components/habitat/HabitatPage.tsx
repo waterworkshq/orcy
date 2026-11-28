@@ -192,7 +192,7 @@ export function HabitatPage() {
         case "n":
         case "N":
           e.preventDefault();
-          if (habitatId) setCreateTaskDialog({ habitatId });
+          if (habitatId) setCreateTaskDialog((current) => current?.habitatId === habitatId ? current : { habitatId });
           break;
         case "?":
           e.preventDefault();
@@ -484,7 +484,7 @@ export function HabitatPage() {
 
       {isMobile && (
         <MobileNav
-          onAddTask={() => { if (habitatId) setCreateTaskDialog({ habitatId }); }}
+          onAddTask={() => { if (habitatId) setCreateTaskDialog((current) => current?.habitatId === habitatId ? current : { habitatId }); }}
           onStats={() => setShowStats(true)}
           onAgents={() => setShowAgentPanel(true)}
           onBoardSettings={() => setShowBoardSettings(true)}

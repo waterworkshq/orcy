@@ -4,6 +4,7 @@ import { render, screen, cleanup, waitFor, act, fireEvent } from "@testing-libra
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter, Route, Routes, useNavigate } from "react-router-dom";
 import { HabitatPage } from "./HabitatPage.js";
+import { notify } from "../../lib/toast.js";
 import { useHabitatStore } from "../../store/habitatStore.js";
 import type { MissionWithProgress, Column, PublicHabitat } from "../../types/index.js";
 
@@ -254,7 +255,7 @@ function renderPage() {
 describe("Habitat Add Task publication", () => {
   beforeEach(() => { cleanup(); vi.clearAllMocks(); recovering = false; availableMissions = missions; localStorage.setItem("orcy_token", "fixture-token"); setupFetch(); });
   afterEach(() => { cleanup(); localStorage.removeItem("orcy_token"); });
-  it.each([false, true])("publishes through the mounted %s entry", async (isMobile) => {
+  it.each([["desktop", false], ["mobile", true]] as const)("publishes through the mounted %s entry", async (_entry, isMobile) => {
     mobile = isMobile;
     renderPage();
     await screen.findByText("Integration Habitat");
@@ -357,6 +358,7 @@ describe("Habitat Add Task publication", () => {
   });
 
   it("does not let a late A response close a newly opened B dialog", async () => {
+    const success = vi.spyOn(notify, "success").mockReturnValue(1);
     mobile = false;
     const original = fetchMock.getMockImplementation()!;
     let settle!: (response: Response) => void;
@@ -375,8 +377,31 @@ describe("Habitat Add Task publication", () => {
     await screen.findByRole("option", { name: "Second Mission" });
     fireEvent.change(screen.getByPlaceholderText("Task title"), { target: { value: "New draft" } });
     await act(async () => settle(new Response(JSON.stringify({ outcome: "created", attemptId: "a1", taskId: "t1" }), { status: 201 })));
+    await waitFor(() => expect(success).toHaveBeenCalledWith('Task "Old Task" created'));
     expect(screen.getByRole("dialog")).toBeTruthy();
     expect((screen.getByPlaceholderText("Task title") as HTMLInputElement).value).toBe("New draft");
+    success.mockRestore();
+  });
+
+  it.each([["desktop", false], ["mobile", true]] as const)("keeps the %s dialog identity while publication is in flight", async (_entry, isMobile) => {
+    mobile = isMobile;
+    const original = fetchMock.getMockImplementation()!;
+    let settle!: (response: Response) => void;
+    const pending = new Promise<Response>((resolve) => { settle = resolve; });
+    fetchMock.mockImplementation((url: string | URL, options?: RequestInit) => options?.method === "POST" ? pending : original(url, options));
+    renderPage();
+    await screen.findByText("Integration Habitat");
+    if (mobile) fireEvent.click(screen.getByRole("button", { name: "Add Task" }));
+    else fireEvent.keyDown(window, { key: "n" });
+    fireEvent.change(await screen.findByLabelText("Mission *"), { target: { value: "m1" } });
+    fireEvent.change(screen.getByPlaceholderText("Task title"), { target: { value: "New Task" } });
+    fireEvent.click(screen.getByRole("button", { name: "Create Task" }));
+    await waitFor(() => expect(fetchMock.mock.calls.filter(([, options]) => options?.method === "POST")).toHaveLength(1));
+    if (mobile) fireEvent.click(screen.getByRole("button", { name: "Add Task" }));
+    else fireEvent.keyDown(window, { key: "n" });
+    await act(async () => settle(new Response(JSON.stringify({ outcome: "created", attemptId: "a1", taskId: "t1" }), { status: 201 })));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(fetchMock.mock.calls.filter(([, options]) => options?.method === "POST")).toHaveLength(1);
   });
 
 });
