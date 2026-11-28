@@ -6,13 +6,41 @@ import { Button } from '../components/ui/Button.js';
 import { Card, CardContent } from '../components/ui/Card.js';
 import { LayoutGrid, ArrowLeft, Loader2 } from 'lucide-react';
 import { useDashboardStats, useHabitatPredictions, useHabitatBurndown } from '../lib/useHabitatData.js';
+import { z } from 'zod';
+
+const habitatIdSchema = z.string().uuid();
 
 export function DashboardPage() {
   const [searchParams, setSearchParams] = useSearchParams();
-  const period = (searchParams.get('period') as '7d' | '30d' | '90d') || '30d';
+  const habitatId = searchParams.get('habitatId');
+
+  if (habitatId !== null && !habitatIdSchema.safeParse(habitatId).success) {
+    return (
+      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        <Card>
+          <CardContent className="py-12 text-center">
+            <p role="alert">Invalid Habitat ID in the dashboard link.</p>
+            <Button className="mt-4" onClick={() => setSearchParams((prev) => {
+              const next = new URLSearchParams(prev);
+              next.delete('habitatId');
+              return next;
+            })}>View all Habitats</Button>
+          </CardContent>
+        </Card>
+      </main>
+    );
+  }
+
+  return <ScopedDashboardPage />;
+}
+
+function ScopedDashboardPage() {
+  const [searchParams, setSearchParams] = useSearchParams();
+  const requestedPeriod = searchParams.get('period');
+  const period = requestedPeriod === '7d' || requestedPeriod === '90d' ? requestedPeriod : '30d';
   const habitatId = searchParams.get('habitatId') || undefined;
 
-  const { data: stats, isLoading: loading, error: statsError } = useDashboardStats();
+  const { data: stats, isLoading: loading, error: statsError } = useDashboardStats(habitatId, period);
   const { data: predictions } = useHabitatPredictions(habitatId);
   const { data: burndown } = useHabitatBurndown(habitatId, period === '7d' ? 7 : period === '90d' ? 90 : 30);
 

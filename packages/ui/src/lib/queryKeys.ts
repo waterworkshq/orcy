@@ -71,7 +71,8 @@ export const queryKeys = {
   },
   dashboard: {
     all: ["dashboard"] as const,
-    stats: () => [...queryKeys.dashboard.all, "stats"] as const,
+    stats: (habitatId?: string, period?: "7d" | "30d" | "90d") =>
+      [...queryKeys.dashboard.all, "stats", habitatId, period] as const,
   },
   teams: {
     all: ["teams"] as const,
