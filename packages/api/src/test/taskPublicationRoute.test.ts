@@ -61,6 +61,7 @@ import * as organizationRepo from "../repositories/organization.js";
 import * as pluginManager from "../plugins/pluginManager.js";
 import * as enrollmentRepo from "../repositories/pluginEnrollment.js";
 import { taskPublicationRoutes } from "../routes/taskPublication.js";
+import { taskCreationAttemptRoutes } from "../routes/taskCreationAttempts.js";
 import { registerErrorHandler } from "../errors/plugin.js";
 import { TASK_CREATION_INTEGRITY_VERSION } from "../db/schema/taskPublication.js";
 
@@ -97,6 +98,7 @@ async function buildApp(): Promise<FastifyInstance> {
     async (f) => {
       f.addHook("preHandler", perAgentRateLimit);
       await f.register(taskPublicationRoutes);
+      await f.register(taskCreationAttemptRoutes);
     },
     { prefix: "/api" },
   );
@@ -815,6 +817,25 @@ describe("T6P2 auditSource + actorId — server-constructed provenance", () => {
   });
   afterEach(async () => {
     if (app) await app.close();
+  });
+
+  it("accepts the Habitat form's authenticated payload and reads back its committed attempt", async () => {
+    const token = makeToken({ sub: "user-route", username: "user-route", role: "admin" });
+    const response = await app!.inject({
+      method: "POST",
+      url: `/api/missions/${missionId}/task-publications`,
+      headers: { authorization: `Bearer ${token}` },
+      payload: { attemptKey: freshKey("habitat"), title: "New Task", priority: "medium" },
+    });
+    expect(response.statusCode).toBe(202);
+    const body = response.json();
+    expect(body).toMatchObject({ outcome: "created", recovering: true, taskId: expect.any(String), attemptId: expect.any(String) });
+    const rows = getDb().select().from(tasks).where(eq(tasks.missionId, missionId)).all();
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ id: body.taskId, title: "New Task", missionId, priority: "medium" });
+    const readback = await app!.inject({ method: "GET", url: `/api/task-creation-attempts/${body.attemptId}`, headers: { authorization: `Bearer ${token}` } });
+    expect(readback.statusCode).toBe(200);
+    expect(readback.json()).toMatchObject({ state: "published_pending_observation", committedTaskId: body.taskId, committedMissionId: missionId });
   });
 
   it("human caller → auditSource 'ui' (the route maps to 'rest_api' for the adapter, but the causal-root type is 'human')", async () => {
