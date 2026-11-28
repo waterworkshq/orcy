@@ -110,6 +110,30 @@ export async function enrichTaskWithAgentName(
   return { ...task, assignedAgentName: agentResponse?.agent?.name ?? null };
 }
 
+/**
+ * Best-effort variant of {@link enrichTaskWithAgentName} for already-committed
+ * mutation receipts: a failed optional lookup yields `assignedAgentName: null`
+ * instead of turning a committed write into a tool error.
+ *
+ * @requires AgentClient — the client passed in must have `getAgentById` available.
+ */
+export async function enrichTaskWithOptionalAgentName(
+  client: KanbanApiClient,
+  task: Task,
+): Promise<EnrichedTask> {
+  const agentId = task.assignedAgentId;
+  if (!agentId) {
+    return { ...task, assignedAgentName: null };
+  }
+  let agentResponse: Awaited<ReturnType<KanbanApiClient["getAgentById"]>>;
+  try {
+    agentResponse = await client.getAgentById(agentId);
+  } catch {
+    return { ...task, assignedAgentName: null };
+  }
+  return { ...task, assignedAgentName: agentResponse?.agent?.name ?? null };
+}
+
 /** Resolves assigned-agent display names for every task in a list of {@link Task}s. */
 export async function enrichTasksWithAgentNames(
   client: KanbanApiClient,

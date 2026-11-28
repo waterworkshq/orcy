@@ -669,6 +669,22 @@ describe("board_find", () => {
 });
 
 describe("board_update_task", () => {
+  it.each([{}, { task: null }])("rejects a missing task receipt %j without lookup or replay", async (receipt) => {
+    const client = createMockClient();
+    client.updateTask.mockResolvedValue(receipt as never);
+
+    const raw = await TASK_DISPATCH_HANDLER(client, {
+      action: "update",
+      taskId: "task-1",
+      title: "Updated title",
+    });
+
+    expect(raw.isError).toBe(true);
+    expect(raw.content[0].text).toMatch(/^Error:/);
+    expect(client.updateTask).toHaveBeenCalledTimes(1);
+    expect(client.getAgentById).not.toHaveBeenCalled();
+  });
+
   it("updates task title", async () => {
     const client = createMockClient();
     const mockTask = {
@@ -759,6 +775,89 @@ describe("board_update_task", () => {
         estimatedMinutes: 60,
       }),
     );
+  });
+
+  it("returns the acknowledged receipt with null display name when post-write lookup fails", async () => {
+    const client = createMockClient();
+    const mockTask = {
+      id: "task-1",
+      title: "Updated title",
+      status: "in_progress" as const,
+      assignedAgentId: "agent-1",
+      executionToken: "epoch-token-1",
+      featureId: "feat-1",
+      version: 2,
+    };
+    client.updateTask.mockResolvedValue({ task: mockTask });
+    client.getAgentById.mockRejectedValue(new ApiClientError(503, "lookup unavailable"));
+
+    const raw = await TASK_DISPATCH_HANDLER(client, {
+      action: "update",
+      taskId: "task-1",
+      title: "Updated title",
+    });
+
+    expect(raw.isError).toBeFalsy();
+    expect(JSON.parse(raw.content[0].text)).toEqual({
+      success: true,
+      task: { ...mockTask, assignedAgentName: null },
+    });
+    expect(client.updateTask).toHaveBeenCalledTimes(1);
+    expect(client.getAgentById).toHaveBeenCalledWith("agent-1");
+  });
+
+  it("preserves resolved and absent display names on metadata update", async () => {
+    const client = createMockClient();
+    const assignedTask = {
+      id: "task-1",
+      title: "Updated title",
+      status: "in_progress" as const,
+      assignedAgentId: "agent-1",
+      featureId: "feat-1",
+    };
+    client.updateTask.mockResolvedValue({ task: assignedTask });
+    client.getAgentById.mockResolvedValueOnce({ agent: { id: "agent-1", name: "Test Agent" } });
+
+    const healthyRaw = await TASK_DISPATCH_HANDLER(client, {
+      action: "update",
+      taskId: "task-1",
+      title: "Updated title",
+    });
+    expect(healthyRaw.isError).toBeFalsy();
+    expect(JSON.parse(healthyRaw.content[0].text)).toEqual({
+      success: true,
+      task: { ...assignedTask, assignedAgentName: "Test Agent" },
+    });
+
+    client.getAgentById.mockResolvedValueOnce(null);
+    const absentRaw = await TASK_DISPATCH_HANDLER(client, {
+      action: "update",
+      taskId: "task-1",
+      title: "Updated title",
+    });
+    expect(absentRaw.isError).toBeFalsy();
+    expect(JSON.parse(absentRaw.content[0].text)).toEqual({
+      success: true,
+      task: { ...assignedTask, assignedAgentName: null },
+    });
+  });
+
+  it("preserves original error and performs no lookup when updateTask rejects", async () => {
+    const client = createMockClient();
+    client.updateTask.mockRejectedValue(new ApiClientError(409, '{"error":"Version conflict"}'));
+
+    const raw = await TASK_DISPATCH_HANDLER(client, {
+      action: "update",
+      taskId: "task-1",
+      title: "Updated title",
+      version: 1,
+    });
+
+    expect(raw.isError).toBe(true);
+    expect(raw.content[0].text).toContain("API 409");
+    expect(raw.content[0].text).toContain("Version conflict");
+    expect(client.updateTask).toHaveBeenCalledTimes(1);
+    expect(client.getAgentById).not.toHaveBeenCalled();
   });
 });
 
