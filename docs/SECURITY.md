@@ -213,7 +213,7 @@ Inbound webhook routes (the `webhooks/github*`, `webhooks/gitlab*` families and 
 | **Presence** (`/sse/presence/*`) | `humanAuth` + habitat access check | Identity always derived from `request.user`; join/heartbeat/leave carry only `sessionId` + Habitat ID (identity fields are rejected), session mutations are bound to the owning human, and viewer lists require habitat access |
 | **Organizations/teams** | `humanAuth` (+ team role checks) | — |
 | **Templates** | `humanAuth` | — |
-| **Quality gates** | `agentOrHumanAuth` | — |
+| **Quality gates** | Task-scoped checklist and approval routes (`GET /tasks/:id/quality-checklist`, `GET /tasks/:id/approval-status`, `PUT /tasks/:id/quality-checklist/:checklistId/items/:itemId`, `POST /tasks/:id/quality-checklist/validate`): `local_actor` + Task-access guard (`authorizeTaskAccess`) · template read (`GET /quality/templates`): `local_actor` · template authoring (`POST /quality/templates`): `human` | The four Task-scoped routes resolve the target Task's Mission → Habitat server-side and apply the shared membership predicate before any report, checklist or approval read/write — see the Task object reads/delete and Task quality operations rows above for their full contracts. `GET /quality/templates` reads the global template set for any local actor (agent API key or human JWT), with no Task scope and no further role requirement. `POST /quality/templates` is human-only authoring: a human JWT of any role creates a template, while agent API keys, remote credentials and anonymous callers are refused at authentication. Authoring requires no admin role. |
 
 ### Agent Identity Binding
 
