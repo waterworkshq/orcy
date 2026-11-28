@@ -121,6 +121,49 @@ describe('TeamsPage mounted route query feedback', () => {
     expect(await screen.findByText('Online Corp')).toBeInTheDocument();
   });
 
+  it('distinguishes paused refresh of a cached empty organization list from a current empty result', async () => {
+    localStorage.setItem('orcy_onboarding_completed', 'true');
+    let orgsResponse: unknown[] = [];
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url === '/api/agents') return Promise.resolve(json({ agents: [] }));
+        if (url === '/api/habitats') return Promise.resolve(json({ habitats: [] }));
+        if (url === '/api/users/me/teams') return Promise.resolve(json({ teams: [] }));
+        if (url === '/api/organizations') return Promise.resolve(json({ organizations: orgsResponse }));
+        return Promise.resolve(json({ error: `Unexpected URL ${url}` }, 404));
+      }),
+    );
+
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      mountTeamsRoute();
+      expect(await screen.findByText('No organizations yet.')).toBeInTheDocument();
+
+      // Leave /teams, let cache go stale, go offline, then return to /teams
+      fireEvent.click(screen.getByTestId('top-nav-echo-base'));
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(5 * 60 * 1000 + 1000);
+      });
+      onlineManager.setOnline(false);
+      orgsResponse = [
+        { id: 'org-1', name: 'Refreshed Org', slug: 'refreshed-org', createdAt: '2024-01-01T00:00:00Z' },
+      ];
+      fireEvent.click(await screen.findByRole('link', { name: /teams/i }));
+
+      expect(await screen.findByText(/waiting for connectivity to load organizations/i)).toBeInTheDocument();
+      expect(screen.queryByText('No organizations yet.')).toBeNull();
+
+      act(() => {
+        onlineManager.setOnline(true);
+      });
+      expect(await screen.findByText('Refreshed Org')).toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('retains true-empty organizations, teams, and members views on 200 empty responses', async () => {
     let orgsResponse: unknown[] = [];
     vi.stubGlobal(

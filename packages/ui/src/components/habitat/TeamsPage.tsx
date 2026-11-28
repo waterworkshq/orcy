@@ -175,9 +175,9 @@ export function TeamsPage() {
     }
   }
 
-  const orgsPaused = !orgsQuery.data && orgsQuery.fetchStatus === 'paused' && !orgsQuery.isError;
-  const teamsPaused = !teamsQuery.data && teamsQuery.fetchStatus === 'paused' && !teamsQuery.isError;
-  const membersPaused = !membersQuery.data && membersQuery.fetchStatus === 'paused' && !membersQuery.isError;
+  const orgsPaused = organizations.length === 0 && orgsQuery.fetchStatus === 'paused' && !orgsQuery.isError;
+  const teamsPaused = teams.length === 0 && teamsQuery.fetchStatus === 'paused' && !teamsQuery.isError;
+  const membersPaused = members.length === 0 && membersQuery.fetchStatus === 'paused' && !membersQuery.isError;
 
   if (loading) {
     return (
