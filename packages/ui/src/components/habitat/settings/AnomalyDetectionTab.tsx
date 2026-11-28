@@ -60,7 +60,7 @@ export const AnomalyDetectionTab = forwardRef<AnomalyDetectionTabHandle, Anomaly
   const handleSave = useCallback(async () => {
     const validNumber = (value: string, min: number, max: number, integer = false) => {
       const parsed = value.trim() === '' ? NaN : Number(value);
-      return Number.isFinite(parsed) && parsed >= min && parsed <= max && (!integer || Number.isInteger(parsed)) ? parsed : undefined;
+      return Number.isFinite(parsed) && parsed >= min && parsed <= max && (!integer || Number.isSafeInteger(parsed)) ? parsed : undefined;
     };
     const disabledSettings = {
       enabled: false as const,

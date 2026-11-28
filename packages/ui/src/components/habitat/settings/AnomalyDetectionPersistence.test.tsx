@@ -76,6 +76,18 @@ describe("Anomaly Detection settings", () => {
     expect(patch.thresholds.rejectionWindowTasks).toBeUndefined();
     expect(patch.thresholds.backlogToAgentRatio).toBe(2.5);
   });
+  it("omits unsafe integer drafts when disabling", async () => {
+    const fetcher = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({ habitat: { id: "h1" } }), { status: 200 }));
+    const ref = createRef<AnomalyDetectionTabHandle>();
+    render(<AnomalyDetectionTab ref={ref} habitatId="h1" boardAnomalySettings={settings} onUpdate={vi.fn()} />);
+    fireEvent.change(screen.getByLabelText("Stale In-Progress (min)"), { target: { value: "9007199254740992" } });
+    fireEvent.click(screen.getAllByRole("switch")[0]);
+    await act(async () => { await ref.current!.save(); });
+    const patch = JSON.parse(String(fetcher.mock.calls[0][1]!.body)).anomalySettings;
+    expect(patch.thresholds.staleInProgressMinutes).toBeUndefined();
+    expect(patch.notifications).toEqual(settings.notifications);
+    expect(notify.success).toHaveBeenCalledWith(expect.stringContaining("invalid"));
+  });
   it("saves through the mounted Habitat dialog and reopens off", async () => {
     const initial = { id: "h1", name: "Fixture", description: "", anomalySettings: settings } as PublicHabitat;
     vi.spyOn(globalThis, "fetch").mockImplementation(async (_url, init) => {
