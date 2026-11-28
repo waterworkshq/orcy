@@ -15,6 +15,16 @@ export interface ClearanceResult {
   errors: string[];
 }
 
+/** Outcome of one clearance attempt.
+ *
+ * `transitioned` is the truth about the delivery row. `error` carries a
+ * failure that happened AFTER the transition was already committed — the
+ * transition still counts, and the failure is still reported. */
+interface ClearanceOutcome {
+  transitioned: boolean;
+  error?: string;
+}
+
 /** Clears deliveries across all habitats that have aged past their retention policy thresholds, persisting `cleared` status to the DB. */
 export function runScheduledClearance(): ClearanceResult[] {
   const results: ClearanceResult[] = [];
@@ -52,7 +62,11 @@ function clearHabitat(habitatId: string): ClearanceResult {
       );
       for (const d of candidates) {
         try {
-          if (processClearance(d)) cleared++;
+          const outcome = processClearance(d);
+          if (outcome.transitioned) cleared++;
+          if (outcome.error) {
+            errors.push(`ack-clear ${d.id}: ${outcome.error}`);
+          }
         } catch (err) {
           errors.push(`ack-clear ${d.id}: ${err instanceof Error ? err.message : String(err)}`);
         }
@@ -70,7 +84,11 @@ function clearHabitat(habitatId: string): ClearanceResult {
       );
       for (const d of candidates) {
         try {
-          if (processClearance(d)) cleared++;
+          const outcome = processClearance(d);
+          if (outcome.transitioned) cleared++;
+          if (outcome.error) {
+            errors.push(`fail-clear ${d.id}: ${outcome.error}`);
+          }
         } catch (err) {
           errors.push(`fail-clear ${d.id}: ${err instanceof Error ? err.message : String(err)}`);
         }
@@ -96,7 +114,9 @@ export function adminClearDeliveries(deliveryIds: string[]): ClearanceResult {
         errors.push(`Delivery not found: ${id}`);
         continue;
       }
-      if (processClearance(d)) cleared++;
+      const outcome = processClearance(d);
+      if (outcome.transitioned) cleared++;
+      if (outcome.error) errors.push(outcome.error);
     } catch (err) {
       errors.push(err instanceof Error ? err.message : String(err));
     }
@@ -106,27 +126,41 @@ export function adminClearDeliveries(deliveryIds: string[]): ClearanceResult {
 }
 
 /**
- * Clears one delivery and reports whether THIS call performed the transition.
- * The count is derived from the guarded write, never from the pre-read row:
- * a repeat or a concurrent clear of the same delivery transitions nothing and
+ * Clears one delivery and reports what actually happened.
+ *
+ * The count is derived from the guarded write, never from the pre-read row: a
+ * repeat or a concurrent clear of the same delivery transitions nothing and
  * reports no transition.
+ *
+ * The transition is committed FIRST and the event history summary is written
+ * after it. A summary failure therefore cannot un-commit a transition that
+ * already happened: the transition still counts, and the failure is still
+ * reported. A failure of the transition itself leaves the row untouched and
+ * is reported as an uncounted failure.
  */
-function processClearance(delivery: NotificationDelivery): boolean {
-  if (!deliveryRepo.transitionDeliveryToCleared(delivery.id)) return false;
-
-  const event = eventRepo.getNotificationEventById(delivery.eventId);
-  if (event) {
-    const summary: Record<string, unknown> = {
-      clearedAt: new Date().toISOString(),
-      eventType: event.eventType,
-      title: event.title,
-    };
-    try {
-      eventRepo.updateEventHistorySummary(delivery.eventId, summary);
-    } catch {
-      // best-effort: event may already be deleted/cleared
-    }
+function processClearance(delivery: NotificationDelivery): ClearanceOutcome {
+  if (!deliveryRepo.transitionDeliveryToCleared(delivery.id)) {
+    return { transitioned: false };
   }
 
-  return true;
+  try {
+    const event = eventRepo.getNotificationEventById(delivery.eventId);
+    if (event) {
+      const summary: Record<string, unknown> = {
+        clearedAt: new Date().toISOString(),
+        eventType: event.eventType,
+        title: event.title,
+      };
+      try {
+        eventRepo.updateEventHistorySummary(delivery.eventId, summary);
+      } catch {
+        // best-effort: event may already be deleted/cleared
+      }
+    }
+  } catch (err) {
+    // The delivery row is already cleared; the summary lookup failed.
+    return { transitioned: true, error: err instanceof Error ? err.message : String(err) };
+  }
+
+  return { transitioned: true };
 }

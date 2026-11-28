@@ -14,7 +14,7 @@
  * eligible/ineligible/unknown request keeps the established per-id error and
  * the route's admission outcomes.
  */
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import jwt from "jsonwebtoken";
 import { eq } from "drizzle-orm";
 import { closeDb, getDb, initTestDb } from "../db/index.js";
@@ -24,6 +24,8 @@ import * as habitatRepo from "../repositories/habitat.js";
 import * as eventRepo from "../repositories/notificationEvent.js";
 import * as deliveryRepo from "../repositories/notificationDelivery.js";
 import * as attemptRepo from "../repositories/notificationDeliveryAttempt.js";
+import * as retentionRepo from "../repositories/notificationRetentionPolicy.js";
+import { runScheduledClearance } from "../services/notificationClearanceService.js";
 
 const prefixes = ["/api", "/api/v1"];
 const ADMIN_ID = "clear-admin";
@@ -197,6 +199,91 @@ describe("admin clearance receipt (repository transition)", () => {
     expect(deliveryRepo.transitionDeliveryToCleared(delivery.id)).toBe(true);
     expect(deliveryRepo.transitionDeliveryToCleared(delivery.id)).toBe(false);
     expect(deliveryRepo.getNotificationDeliveryById(delivery.id)!.status).toBe("cleared");
+  });
+});
+
+/**
+ * The transition is committed before the event history summary is written, so
+ * a failure of that summary write must not un-commit a transition that
+ * already happened: the receipt still counts the transition AND still
+ * reports the failure. A failure of the transition itself leaves the row
+ * untouched and stays uncounted.
+ */
+describe("clearance transition/summary failure boundary", () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  it("counts a committed transition and reports a failing event summary lookup", async () => {
+    const { event, delivery } = seedDelivery();
+    vi.spyOn(eventRepo, "getNotificationEventById").mockImplementationOnce(() => {
+      throw new Error("event lookup failed");
+    });
+
+    const response = await clear("/api/v1", [delivery.id]);
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json().cleared).toBe(1);
+    expect(response.json().errors).toEqual(["event lookup failed"]);
+    expect(deliveryRepo.getNotificationDeliveryById(delivery.id)!.status).toBe("cleared");
+    // The summary write never ran, so the event summary is untouched.
+    expect(eventRepo.getNotificationEventById(event.id)!.historySummary).toBeNull();
+  });
+
+  it("leaves the row untouched and uncounted when the transition itself fails", async () => {
+    const { delivery } = seedDelivery();
+    vi.spyOn(deliveryRepo, "transitionDeliveryToCleared").mockImplementationOnce(() => {
+      throw new Error("transition failed");
+    });
+
+    const response = await clear("/api/v1", [delivery.id]);
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json().cleared).toBe(0);
+    expect(response.json().errors).toEqual(["transition failed"]);
+    expect(deliveryRepo.getNotificationDeliveryById(delivery.id)!.status).not.toBe("cleared");
+  });
+
+  it("counts a committed transition in the scheduled sweep and reports the summary failure", () => {
+    const { delivery } = seedDelivery();
+    deliveryRepo.acknowledgeDelivery(delivery.id);
+    deliveryRepo.batchUpdateDeliveryStatus([delivery.id], "acknowledged", {
+      clearAfter: new Date(Date.now() - 2 * 86400000).toISOString(),
+    });
+    retentionRepo.createRetentionPolicy({
+      habitatId,
+      acknowledgedClearAfterDays: 1,
+    });
+    vi.spyOn(eventRepo, "getNotificationEventById").mockImplementationOnce(() => {
+      throw new Error("event lookup failed");
+    });
+
+    const results = runScheduledClearance();
+    const result = results.find((r) => r.habitatId === habitatId)!;
+
+    expect(result.cleared).toBe(1);
+    expect(result.errors).toEqual([`ack-clear ${delivery.id}: event lookup failed`]);
+    expect(deliveryRepo.getNotificationDeliveryById(delivery.id)!.status).toBe("cleared");
+  });
+
+  it("leaves the row untouched and uncounted in the scheduled sweep when the transition fails", () => {
+    const { delivery } = seedDelivery();
+    deliveryRepo.acknowledgeDelivery(delivery.id);
+    deliveryRepo.batchUpdateDeliveryStatus([delivery.id], "acknowledged", {
+      clearAfter: new Date(Date.now() - 2 * 86400000).toISOString(),
+    });
+    retentionRepo.createRetentionPolicy({
+      habitatId,
+      acknowledgedClearAfterDays: 1,
+    });
+    vi.spyOn(deliveryRepo, "transitionDeliveryToCleared").mockImplementationOnce(() => {
+      throw new Error("transition failed");
+    });
+
+    const results = runScheduledClearance();
+    const result = results.find((r) => r.habitatId === habitatId)!;
+
+    expect(result.cleared).toBe(0);
+    expect(result.errors).toEqual([`ack-clear ${delivery.id}: transition failed`]);
+    expect(deliveryRepo.getNotificationDeliveryById(delivery.id)!.status).not.toBe("cleared");
   });
 });
 
