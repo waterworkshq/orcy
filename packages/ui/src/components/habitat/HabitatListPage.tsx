@@ -13,7 +13,7 @@ import { useSessionLiveness } from "../../lib/sessionState.js";
 
 export function HabitatListPage() {
   const isSessionActive = useSessionLiveness();
-  const { data: boardsData, isLoading: loading } = useHabitats();
+  const { data: boardsData, isLoading: loading, isSuccess, isError, refetch } = useHabitats();
   const { data: teamsData } = useMyTeams();
   const queryClient = useQueryClient();
   const [showCreate, setShowCreate] = useState(false);
@@ -27,10 +27,10 @@ export function HabitatListPage() {
   const teams = teamsData ?? [];
 
   useEffect(() => {
-    if (boards.length === 0 && localStorage.getItem("orcy_onboarding_completed") !== "true") {
+    if (isSuccess && boards.length === 0 && localStorage.getItem("orcy_onboarding_completed") !== "true") {
       setShowOnboarding(true);
     }
-  }, [boards.length]);
+  }, [isSuccess, boards.length]);
 
   function handleOnboardingComplete() {
     localStorage.setItem("orcy_onboarding_completed", "true");
@@ -106,6 +106,13 @@ export function HabitatListPage() {
           <div className="flex justify-center py-12">
             <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent" />
           </div>
+        ) : isError && !boardsData ? (
+          <Card className="py-12 text-center">
+            <CardContent>
+              <p role="alert" className="mb-4 text-muted-foreground">Could not load habitats. Please try again.</p>
+              <Button onClick={() => void refetch()}>Retry</Button>
+            </CardContent>
+          </Card>
         ) : boards.length === 0 ? (
           <Card className="py-12 text-center">
             <CardContent>
