@@ -535,6 +535,17 @@ export function TaskDetailModal() {
                         </div>
                       </div>
 
+                      {task.status === "rejected" && task.rejectionReason?.trim() && (
+                        <div className="p-4 bg-surface-container-high/80 rounded-sm">
+                          <span className="text-[10px] font-label uppercase tracking-widest text-on-surface-variant">
+                            Rejection feedback
+                          </span>
+                          <p className="mt-1 text-sm text-on-surface/90 whitespace-pre-wrap break-words">
+                            {task.rejectionReason}
+                          </p>
+                        </div>
+                      )}
+
                       {task.result && (
                         <div className="p-4 bg-surface-container-high/80 rounded-sm">
                           <span className="text-[10px] font-label uppercase tracking-widest text-on-surface-variant">
