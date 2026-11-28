@@ -58,6 +58,24 @@ export const AnomalyDetectionTab = forwardRef<AnomalyDetectionTabHandle, Anomaly
   }, [boardAnomalySettings]);
 
   const handleSave = useCallback(async () => {
+    const validNumber = (value: string, min: number, max: number, integer = false) => {
+      const parsed = value.trim() === '' ? NaN : Number(value);
+      return Number.isFinite(parsed) && parsed >= min && parsed <= max && (!integer || Number.isInteger(parsed)) ? parsed : undefined;
+    };
+    const disabledSettings = {
+      enabled: false as const,
+      scanIntervalMinutes: validNumber(anomalyScanInterval, 1, 60, true),
+      thresholds: {
+        staleInProgressMinutes: validNumber(anomalyStaleMinutes, 10, Infinity, true),
+        rejectionRatePercent: validNumber(anomalyRejectionRate, 1, 100),
+        rejectionWindowTasks: validNumber(anomalyRejectionWindow, 3, 100, true),
+        cycleTimeIncreasePercent: validNumber(anomalyCycleTimeIncrease, 10, 500),
+        backlogToAgentRatio: validNumber(anomalyBacklogRatio, 1, 20),
+        agentOfflineMinutes: validNumber(anomalyOfflineMinutes, 1, 120, true),
+      },
+      notifications: { email: anomalyNotifyEmail, sse: anomalyNotifySse, chat: anomalyNotifyChat },
+    };
+    const hasInvalidDraft = disabledSettings.scanIntervalMinutes === undefined || Object.values(disabledSettings.thresholds).some(value => value === undefined);
     await saveSettings({
       anomalySettings: anomalyEnabled ? {
         enabled: true,
@@ -75,8 +93,8 @@ export const AnomalyDetectionTab = forwardRef<AnomalyDetectionTabHandle, Anomaly
           sse: anomalyNotifySse,
           chat: anomalyNotifyChat,
         },
-      } : { enabled: false },
-    }, 'Anomaly detection settings saved');
+      } : disabledSettings,
+    }, !anomalyEnabled && hasInvalidDraft ? 'Anomaly detection disabled; invalid numeric edits were not saved' : 'Anomaly detection settings saved');
   }, [saveSettings, anomalyEnabled, anomalyScanInterval, anomalyStaleMinutes, anomalyRejectionRate, anomalyRejectionWindow, anomalyCycleTimeIncrease, anomalyBacklogRatio, anomalyOfflineMinutes, anomalyNotifyEmail, anomalyNotifySse, anomalyNotifyChat]);
 
   useImperativeHandle(ref, () => ({ save: handleSave }), [handleSave]);

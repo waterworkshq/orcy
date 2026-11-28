@@ -20,6 +20,11 @@ import type {
   AgentQualityResponse,
 } from "../../types/index.js";
 
+export type AnomalySettingsUpdate = Omit<Partial<AnomalySettings>, "thresholds" | "notifications"> & {
+  thresholds?: Partial<AnomalySettings["thresholds"]>;
+  notifications?: Partial<AnomalySettings["notifications"]>;
+};
+
 export const habitatsApi = {
   list: (signal?: AbortSignal) =>
     request<{ habitats: PublicHabitat[] }>("/habitats", { signal }).then((r) => r.habitats),
@@ -56,7 +61,7 @@ export const habitatsApi = {
       name?: string;
       description?: string;
       retrySettings?: import("../../types/index.js").RetryPolicy | null;
-      anomalySettings?: AnomalySettings | { enabled: false } | null;
+      anomalySettings?: AnomalySettingsUpdate | null;
       autoAssignSettings?: AutoAssignSettings | null;
       automationSettings?: AutomationSettings | null;
       prioritizationSettings?: PrioritizationSettings | null;

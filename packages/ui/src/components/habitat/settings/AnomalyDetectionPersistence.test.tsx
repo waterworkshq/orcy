@@ -35,6 +35,22 @@ const settings: AnomalySettings = {
 afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.clearAllMocks(); });
 
 describe("Anomaly Detection settings", () => {
+  it("preserves valid edits while disabling with an invalid draft", async () => {
+    const fetcher = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({ habitat: { id: "h1" } }), { status: 200 }));
+    const ref = createRef<AnomalyDetectionTabHandle>();
+    render(<AnomalyDetectionTab ref={ref} habitatId="h1" boardAnomalySettings={settings} onUpdate={vi.fn()} />);
+    fireEvent.change(screen.getByLabelText("Scan Interval (min)"), { target: { value: "" } });
+    fireEvent.change(screen.getByLabelText("Stale In-Progress (min)"), { target: { value: "180" } });
+    fireEvent.click(screen.getByLabelText("Email (high/critical only)"));
+    fireEvent.click(screen.getAllByRole("switch")[0]);
+    await act(async () => { await ref.current!.save(); });
+    const patch = JSON.parse(String(fetcher.mock.calls[0][1]!.body)).anomalySettings;
+    expect(patch.enabled).toBe(false);
+    expect(patch.scanIntervalMinutes).toBeUndefined();
+    expect(patch.thresholds.staleInProgressMinutes).toBe(180);
+    expect(patch.notifications.email).toBe(true);
+    expect(notify.success).toHaveBeenCalledWith(expect.stringContaining("invalid"));
+  });
   it("disables without sending invalid hidden drafts", async () => {
     const fetcher = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({ habitat: { id: "h1" } }), { status: 200 }));
     const ref = createRef<AnomalyDetectionTabHandle>();
@@ -42,7 +58,23 @@ describe("Anomaly Detection settings", () => {
     fireEvent.change(screen.getByLabelText("Scan Interval (min)"), { target: { value: "" } });
     fireEvent.click(screen.getAllByRole("switch")[0]);
     await act(async () => { await ref.current!.save(); });
-    expect(JSON.parse(String(fetcher.mock.calls[0][1]!.body))).toEqual({ anomalySettings: { enabled: false } });
+    const patch = JSON.parse(String(fetcher.mock.calls[0][1]!.body)).anomalySettings;
+    expect(patch.enabled).toBe(false);
+    expect(patch.scanIntervalMinutes).toBeUndefined();
+  });
+  it("omits out-of-range and fractional integer drafts while keeping valid fractional thresholds", async () => {
+    const fetcher = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({ habitat: { id: "h1" } }), { status: 200 }));
+    const ref = createRef<AnomalyDetectionTabHandle>();
+    render(<AnomalyDetectionTab ref={ref} habitatId="h1" boardAnomalySettings={settings} onUpdate={vi.fn()} />);
+    fireEvent.change(screen.getByLabelText("Scan Interval (min)"), { target: { value: "61" } });
+    fireEvent.change(screen.getByLabelText("Rejection Window (tasks)"), { target: { value: "3.5" } });
+    fireEvent.change(screen.getByLabelText("Backlog-to-Agent Ratio"), { target: { value: "2.5" } });
+    fireEvent.click(screen.getAllByRole("switch")[0]);
+    await act(async () => { await ref.current!.save(); });
+    const patch = JSON.parse(String(fetcher.mock.calls[0][1]!.body)).anomalySettings;
+    expect(patch.scanIntervalMinutes).toBeUndefined();
+    expect(patch.thresholds.rejectionWindowTasks).toBeUndefined();
+    expect(patch.thresholds.backlogToAgentRatio).toBe(2.5);
   });
   it("saves through the mounted Habitat dialog and reopens off", async () => {
     const initial = { id: "h1", name: "Fixture", description: "", anomalySettings: settings } as PublicHabitat;

@@ -17,7 +17,7 @@ export function useHabitatSettingsSaver({ habitatId, onUpdate }: UseHabitatSetti
         name?: string;
         description?: string;
         retrySettings?: import("../types/index.js").RetryPolicy | null;
-        anomalySettings?: import("../types/index.js").AnomalySettings | { enabled: false } | null;
+        anomalySettings?: import("../api/domains/habitats.js").AnomalySettingsUpdate | null;
         autoAssignSettings?: import("../types/index.js").AutoAssignSettings | null;
         automationSettings?: import("../types/index.js").AutomationSettings | null;
         prioritizationSettings?: import("../types/index.js").PrioritizationSettings | null;
