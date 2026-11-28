@@ -260,6 +260,30 @@ describe("served Skill wire contract", () => {
     },
   );
 
+  it("keeps the stored category when a contribution reinforces an existing signal", async () => {
+    const insight = "Always use Drizzle ORM for database queries";
+    const created = await app!.inject({
+      method: "POST",
+      url: `/api/habitats/${habitatId}/skill/contribute`,
+      headers: { "x-agent-api-key": agentApiKey },
+      payload: { insight, skillCategory: "convention" },
+    });
+    expect(created.statusCode).toBe(201);
+
+    const reinforced = await app!.inject({
+      method: "POST",
+      url: `/api/habitats/${habitatId}/skill/contribute`,
+      headers: { "x-agent-api-key": agentApiKey },
+      payload: { insight },
+    });
+    expect(reinforced.statusCode).toBe(201);
+    expect(reinforced.json().signal.id).toBe(created.json().signal.id);
+
+    const signals = skillRepo.getSignalsByHabitat(habitatId);
+    expect(signals.signals).toHaveLength(1);
+    expect(signals.signals[0]!.skillCategory).toBe("convention");
+  });
+
   it("returns the compact contribution response", async () => {
     const res = await app!.inject({
       method: "POST",

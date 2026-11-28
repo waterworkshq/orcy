@@ -1876,7 +1876,7 @@ Output: { "success": true, "signal": { "id": "...", "clusterKey": "always use dr
 | `insight` | string | yes | The insight text (1-2000 chars) |
 | `skillCategory` | string | no | `convention`, `pattern`, `pitfall`, `domain_knowledge`, `agent_insight`, `anti_patterns`, `detected_patterns` (default: `agent_insight`) |
 
-`skillCategory` accepts exactly the shared registry values. The API rejects any supplied value outside the registry with `400`; when omitted, the signal is stored as `agent_insight`.
+`skillCategory` accepts exactly the shared registry values. The API rejects any supplied value outside the registry with `400`; when the field is omitted and the contribution creates a new signal, its category defaults to `agent_insight`. A contribution that reinforces an existing signal leaves that signal's category unchanged.
 
 `clusterKey` is server-generated: the contributed insight is capped at a 120-character subject, normalized (lowercased, punctuation stripped), and the key shows at most the first 80 normalized characters followed by `#` and a hash of the entire normalized subject.
 

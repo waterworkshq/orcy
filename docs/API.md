@@ -6788,7 +6788,7 @@ Contribute a direct insight to the skill system. Creates a new signal from human
 | `insight` | string | yes | The insight text (1-2000 chars) |
 | `skillCategory` | string | no | One of: `convention`, `pattern`, `pitfall`, `domain_knowledge`, `agent_insight`, `anti_patterns`, `detected_patterns` (default: `agent_insight`) |
 
-Any other `skillCategory` value is rejected with `400`. When the field is omitted, the signal is stored as `agent_insight`.
+Any other `skillCategory` value is rejected with `400`. When the field is omitted and the contribution creates a new signal, its category defaults to `agent_insight`. A contribution that reinforces an existing signal leaves that signal's category unchanged.
 
 **Response `201`:**
 
