@@ -6,6 +6,7 @@ import { MemoryRouter, Route, Routes, useNavigate } from "react-router-dom";
 import { HabitatPage } from "./HabitatPage.js";
 import { notify } from "../../lib/toast.js";
 import { useHabitatStore } from "../../store/habitatStore.js";
+import { invalidateHabitatRepresentations } from "../../lib/habitatMutations.js";
 import type { MissionWithProgress, Column, PublicHabitat } from "../../types/index.js";
 
 const columns: Column[] = [
@@ -121,6 +122,26 @@ const missions: MissionWithProgress[] = [
     },
   },
 ];
+
+/** Another eligible target — where a retry goes after a terminal refusal. */
+const eligibleMission: MissionWithProgress = {
+  ...missions[0],
+  id: "m3",
+  title: "Gamma Mission",
+  status: "not_started",
+  progress: { ...missions[0].progress, total: 0, pending: 0, inProgress: 0 },
+};
+
+/** Terminal the other way — `failed` refuses publication exactly like `done`. */
+const failedMission: MissionWithProgress = {
+  ...missions[1],
+  id: "m4",
+  title: "Delta Mission",
+  status: "failed",
+  // First column, so the card is in the DOM on the one-column-at-a-time mobile board too.
+  columnId: "col-todo",
+  progress: { ...missions[1].progress, done: 0, failed: 1, percentage: 0 },
+};
 
 const habitat: PublicHabitat = {
   id: "board-1",
@@ -240,7 +261,7 @@ function renderPage() {
     defaultOptions: { queries: { retry: false, staleTime: 0 } },
   });
   qc.setQueryData(["habitats", "detail", "board-2"], { habitat: { ...habitat, id: "board-2", name: "Second Habitat" }, columns: [], missions: [{ ...missions[0], id: "m3", habitatId: "board-2", title: "Second Mission" }] });
-  return render(
+  return Object.assign(render(
     <QueryClientProvider client={qc}>
       <MemoryRouter initialEntries={["/habitats/board-1"]}>
         <SwitchHabitat />
@@ -249,7 +270,34 @@ function renderPage() {
         </Routes>
       </MemoryRouter>
     </QueryClientProvider>,
-  );
+  ), { qc });
+}
+
+function openAddTask(isMobile: boolean) {
+  if (isMobile) fireEvent.click(screen.getByRole("button", { name: "Add Task" }));
+  else fireEvent.keyDown(window, { key: "n" });
+  return screen.findByLabelText("Mission *") as Promise<HTMLSelectElement>;
+}
+
+const optionLabels = (selector: HTMLSelectElement) => [...selector.options].map((option) => option.textContent);
+const posts = () => fetchMock.mock.calls.filter(([, options]) => options?.method === "POST");
+const respond = (body: unknown, status: number) =>
+  Promise.resolve(new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } }));
+
+/** The server's 422 body once the target Mission is terminal (`rejected_validation`). */
+const missionInactive = {
+  outcome: "rejected_validation",
+  attemptId: "a-refused",
+  errors: [{
+    field: "targetMissionId",
+    code: "mission_inactive",
+    message: 'Mission "m1" has terminal status "done"; only not_started|in_progress|review accept new Tasks.',
+  }],
+};
+
+/** The server holds m1 terminal from now on; the board only learns it on its next read. */
+function markM1Done() {
+  availableMissions = availableMissions.map((m) => (m.id === "m1" ? { ...m, status: "done" as const } : m));
 }
 
 describe("Habitat Add Task publication", () => {
@@ -289,6 +337,129 @@ describe("Habitat Add Task publication", () => {
     expect((screen.getByRole("button", { name: "Create Task" }) as HTMLButtonElement).disabled).toBe(true);
     expect(fetchMock.mock.calls.filter(([, options]) => options?.method === "POST")).toHaveLength(0);
   });
+  it.each([["desktop", false], ["mobile", true]] as const)("offers only Missions that accept a Task from the mounted %s entry", async (_entry, isMobile) => {
+    mobile = isMobile;
+    // Every status at once: in_progress and review accept, done and failed refuse.
+    availableMissions = [...missions, failedMission, { ...eligibleMission, title: "Review Mission", status: "review" }];
+    renderPage();
+    await screen.findByText("Integration Habitat");
+    const selector = await openAddTask(isMobile);
+    expect(optionLabels(selector)).toEqual(["Choose a Mission", "Alpha Mission", "Review Mission"]);
+    // Picker-only: the board still lists the failed Mission ("0/1 tasks").
+    expect(screen.getByText("0/1 tasks")).toBeTruthy();
+  });
+  it("explains why a Task cannot be created when no Mission can accept one", async () => {
+    mobile = false;
+    availableMissions = [missions[1], failedMission];
+    renderPage();
+    await screen.findByText("Integration Habitat");
+    const selector = await openAddTask(false);
+    expect(optionLabels(selector)).toEqual(["No eligible Missions"]);
+    await screen.findByText("No Mission can accept a Task: every Mission in this Habitat is completed or failed. Create a new Mission before adding a task.");
+    fireEvent.change(screen.getByPlaceholderText("Task title"), { target: { value: "New Task" } });
+    expect((screen.getByRole("button", { name: "Create Task" }) as HTMLButtonElement).disabled).toBe(true);
+    expect(posts()).toHaveLength(0);
+  });
+  it("re-reads the Habitat inventory when the picker opens", async () => {
+    mobile = false;
+    // The board's cached copy predates a reopen whose event never arrived.
+    const original = fetchMock.getMockImplementation()!;
+    let reads = 0;
+    fetchMock.mockImplementation((url: string | URL, options?: RequestInit) => {
+      if (url.toString() === "/api/habitats/board-1" && reads++ === 0) {
+        const json = () => Promise.resolve({ ...canonicalDetail, missions: [{ ...missions[0], status: "done" }] });
+        return Promise.resolve({ ok: true, status: 200, headers: new Headers(), json });
+      }
+      return original(url, options);
+    });
+    renderPage();
+    await screen.findByText("Integration Habitat");
+    const selector = await openAddTask(false);
+    await waitFor(() => expect(optionLabels(selector)).toEqual(["Choose a Mission", "Alpha Mission"]));
+    fireEvent.change(selector, { target: { value: "m1" } });
+    fireEvent.change(screen.getByPlaceholderText("Task title"), { target: { value: "New Task" } });
+    fireEvent.click(screen.getByRole("button", { name: "Create Task" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(posts().map(([url]) => url)).toEqual(["/api/missions/m1/task-publications"]);
+  });
+  it("keeps the draft and shows the server refusal when the chosen Mission went terminal", async () => {
+    mobile = false;
+    const original = fetchMock.getMockImplementation()!;
+    fetchMock.mockImplementation((url: string | URL, options?: RequestInit) => {
+      if (options?.method === "POST" && url.toString() === "/api/missions/m1/task-publications") { markM1Done(); return respond(missionInactive, 422); }
+      return original(url, options);
+    });
+    renderPage();
+    await screen.findByText("Integration Habitat");
+    fireEvent.change(await openAddTask(false), { target: { value: "m1" } });
+    fireEvent.change(screen.getByPlaceholderText("Task title"), { target: { value: "New Task" } });
+    fireEvent.click(screen.getByRole("button", { name: "Create Task" }));
+    expect((await screen.findByTestId("validation-errors")).textContent).toContain("mission_inactive");
+    expect(screen.getByRole("dialog")).toBeTruthy();
+    expect((screen.getByPlaceholderText("Task title") as HTMLInputElement).value).toBe("New Task");
+    expect(posts().map(([url]) => url)).toEqual(["/api/missions/m1/task-publications"]);
+  });
+  it("retries an eligible Mission under a fresh key after a terminal refusal", async () => {
+    mobile = false;
+    availableMissions = [...missions, eligibleMission];
+    const original = fetchMock.getMockImplementation()!;
+    fetchMock.mockImplementation((url: string | URL, options?: RequestInit) => {
+      if (options?.method === "POST" && url.toString() === "/api/missions/m1/task-publications") { markM1Done(); return respond(missionInactive, 422); }
+      if (options?.method === "POST") return respond({ outcome: "created", attemptId: "a3", taskId: "t3" }, 201);
+      return original(url, options);
+    });
+    const { qc } = renderPage();
+    await screen.findByText("Integration Habitat");
+    const selector = await openAddTask(false);
+    fireEvent.change(selector, { target: { value: "m1" } });
+    fireEvent.change(screen.getByPlaceholderText("Task title"), { target: { value: "New Task" } });
+    fireEvent.click(screen.getByRole("button", { name: "Create Task" }));
+    await screen.findByTestId("validation-errors");
+    // The board catches up with the server, as it would on a Mission status event.
+    await act(async () => { await invalidateHabitatRepresentations(qc, "board-1"); });
+    await waitFor(() => expect(optionLabels(selector)).toEqual(["Choose a Mission", "Gamma Mission"]));
+    expect(selector.disabled).toBe(false);
+    // The refused Mission is no longer a known-eligible target, so the draft cannot resubmit to it.
+    expect((screen.getByRole("button", { name: "Create Task" }) as HTMLButtonElement).disabled).toBe(true);
+    expect(posts()).toHaveLength(1);
+    expect((screen.getByPlaceholderText("Task title") as HTMLInputElement).value).toBe("New Task");
+    fireEvent.change(selector, { target: { value: "m3" } });
+    fireEvent.click(screen.getByRole("button", { name: "Create Task" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    const writes = posts();
+    expect(writes.map(([url]) => url)).toEqual(["/api/missions/m1/task-publications", "/api/missions/m3/task-publications"]);
+    expect(JSON.parse(writes[0][1].body).attemptKey).not.toBe(JSON.parse(writes[1][1].body).attemptKey);
+  });
+  it("keeps an unresolved attempt bound to its Mission and key when that Mission goes terminal", async () => {
+    mobile = false;
+    // Another eligible Mission exists, yet the unresolved attempt cannot move to it.
+    availableMissions = [...missions, eligibleMission];
+    const original = fetchMock.getMockImplementation()!;
+    let first = true;
+    fetchMock.mockImplementation((url: string | URL, options?: RequestInit) => {
+      if (options?.method === "POST" && first) { first = false; markM1Done(); return Promise.reject(new Error("Connection lost")); }
+      return original(url, options);
+    });
+    const { qc } = renderPage();
+    await screen.findByText("Integration Habitat");
+    const selector = await openAddTask(false);
+    fireEvent.change(selector, { target: { value: "m1" } });
+    fireEvent.change(screen.getByPlaceholderText("Task title"), { target: { value: "New Task" } });
+    fireEvent.click(screen.getByRole("button", { name: "Create Task" }));
+    await screen.findByText("Connection lost");
+    await act(async () => { await invalidateHabitatRepresentations(qc, "board-1"); });
+    await waitFor(() => expect(optionLabels(selector)).toEqual(["Choose a Mission", "Gamma Mission", "Selected Mission (no longer available)"]));
+    expect(selector.disabled).toBe(true);
+    expect(screen.getByText("The Mission is locked while this publication attempt is unresolved.")).toBeTruthy();
+    expect(selector.value).toBe("m1");
+    fireEvent.click(screen.getByRole("button", { name: "Create Task" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    const writes = posts();
+    expect(writes).toHaveLength(2);
+    expect(writes[0][0]).toBe(writes[1][0]);
+    expect(writes[0][1].body).toBe(writes[1][1].body);
+  });
+
   it("locks the chosen Mission while a 202 attempt settles and closes only after readback", async () => {
     mobile = true;
     recovering = true;
