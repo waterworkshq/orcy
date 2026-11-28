@@ -23,10 +23,10 @@ import * as columnRepo from "../repositories/column.js";
 import * as missionRepo from "../repositories/mission.js";
 import { missionRoutes } from "../routes/missions.js";
 import { registerErrorHandler } from "../errors/plugin.js";
+import { getJwtSecret } from "../middleware/jwt-verification.js";
 
 const USER_ID = "user-1";
-const JWT_SECRET = "dev-secret-change-in-production";
-const AUTH = { authorization: `Bearer ${jwt.sign({ sub: USER_ID, username: "test", role: "admin" }, JWT_SECRET, { issuer: "orcy" })}` };
+const AUTH = { authorization: `Bearer ${jwt.sign({ sub: USER_ID, username: "test", role: "admin" }, getJwtSecret(), { issuer: "orcy" })}` };
 
 let habitatId: string;
 let columnId: string;
