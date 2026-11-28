@@ -491,12 +491,45 @@ reach it inside the body limit.
 }
 ```
 
+**Response `400` — `AMBIGUOUS_LEGACY_TITLE`:** A legacy v1/v2 export
+contains a title-based reference that matches multiple Tasks or Missions,
+such as a comment referring to a duplicated Task title. The import is refused
+before an import attempt is reserved or Habitat state is written.
+
+```json
+{
+  "error": "Legacy import rejected due to ambiguous title reference(s): comment reference to ambiguous task title \"Shared Task Title\" (1 comment(s)). Make referenced task/mission titles unique in the legacy export or import a v3 manifest with explicit IDs.",
+  "code": "AMBIGUOUS_LEGACY_TITLE",
+  "details": {
+    "totalAmbiguities": 1,
+    "truncated": false,
+    "ambiguities": [
+      { "kind": "duplicate_task_title_in_comment", "taskTitle": "Shared Task Title", "commentRefCount": 1 }
+    ]
+  }
+}
+```
+
+The message summarizes at most three ambiguities; `details.ambiguities`
+contains at most five, with `totalAmbiguities` and `truncated` indicating
+whether details were omitted. Title previews are single-line and limited to
+120 UTF-16 code units, including any truncation ellipsis. Mission dependency
+ambiguities use `kind`, `missionTitle`, and `refCount`. Unrelated input such
+as comment bodies and descriptions is not included. Make the referenced
+Task or Mission titles unique in the legacy export, or import a v3 manifest
+with explicit IDs, then retry.
+
 ### POST /habitats/:id/import
 
 Import an export document into an existing Habitat. Deletes the existing
 Habitat data first, then reconstructs from the export. Returns the same
 canonical shape as `POST /habitats/import`, and raises the request collection
 cap to 16,384 per collection in the same way.
+
+**Response `400` — `AMBIGUOUS_LEGACY_TITLE`:** The same bounded error and
+remediation described for [`POST /habitats/import`](#post-habitatsimport)
+apply. The import is refused before an attempt is reserved or the existing
+Habitat is changed.
 
 ### GET /habitats/:id/events
 
