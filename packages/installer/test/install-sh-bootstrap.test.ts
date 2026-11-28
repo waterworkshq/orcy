@@ -220,6 +220,9 @@ interface Scenario {
   slowBuildMs?: number;
   /** Whether another run's lock replaces the scenario's during its build. */
   swapLockDuringBuild?: boolean;
+  /** `<home>/supervisor.clock` — what the supervisor is told the time is, once
+   *  the installer has started it; its reads are traced beside it, `.trace`. */
+  clock: string;
 }
 
 /**
@@ -233,7 +236,8 @@ interface Scenario {
  * left by another run; `installer` drives the fake installer; `failBackupRemoval`
  * makes `rm` refuse to remove the previous installer's backup; `slowBuildMs`
  * makes the (successful) build step take that long; `swapLockDuringBuild` replaces the
- * lock with another run's while the build runs.
+ * lock with another run's while the build runs; `clock` puts the supervisor's
+ * clock in the test's hand, started by the installer on its way out.
  */
 
 /** What the fake installer should do once it has started: wait, exit with a status, replace the lock, leave a child behind. */
@@ -248,8 +252,8 @@ interface InstallerBehavior {
   orphanWorker?: boolean;
   /** Leave a worker behind whose name holds a newline and a parenthesis. */
   namedWorker?: boolean;
-  /** Leave a worker behind that ends on its own this long after the installer's exit. */
-  workerMs?: number;
+  /** Start the supervisor's clock — the test's, see `buildScenario`'s `clock` — at this installer's exit. */
+  clock?: boolean;
   /** Report the installer's PID, so a test can act on that process. */
   writePid?: boolean;
   /** Read what is typed at the terminal, as the wizard's prompts do. */
@@ -270,6 +274,7 @@ function buildScenario(opts: {
   failBackupRemoval?: boolean;
   slowBuildMs?: number;
   swapLockDuringBuild?: boolean;
+  clock?: boolean;
 }): Scenario {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), "orcy-installsh-"));
   scenarioHomes.push(home);
@@ -288,7 +293,31 @@ function buildScenario(opts: {
   // When `nodeVersion` is specified, stub `node --version` while forwarding all
   // other invocations to the real binary (or omit `node` when null).
   const realNode = resolveBin("node");
-  if (!("nodeVersion" in opts)) {
+  const clock = path.join(home, "supervisor.clock");
+  if (opts.clock) {
+    // The supervisor's clock, in the test's hand. Only the bootstrap's own `node`
+    // calls go through this PATH entry — the supervisor's among them — so only
+    // they load the preload: from then on the supervisor is told whatever time
+    // the clock file holds, and each reading is traced with the real time. The
+    // anchor and the installer are started by their real path: real clock.
+    const preload = path.join(stubDir, "supervisor-clock.cjs");
+    fs.writeFileSync(
+      preload,
+      [
+        'const fs = require("node:fs");',
+        'const realNow = Date.now.bind(Date);',
+        'const clock = process.env.ORCY_FAKE_CLOCK;',
+        "Date.now = function () {",
+        "  let now;",
+        '  try { now = Number(fs.readFileSync(clock, "utf8")); } catch { return realNow(); }',
+        '  fs.appendFileSync(clock + ".trace", now + " " + realNow() + "\\n");',
+        "  return now;",
+        "};",
+        "",
+      ].join("\n"),
+    );
+    writeStub(stubDir, "node", `exec "${realNode}" --require "${preload}" "$@"`);
+  } else if (!("nodeVersion" in opts)) {
     fs.symlinkSync(realNode, path.join(stubDir, "node"));
   } else if (opts.nodeVersion !== null) {
     writeStub(
@@ -410,18 +439,10 @@ if (behavior.orphanWorker) {
   spawn(process.execPath, ["-e", outer, "--", pidFile], { stdio: "ignore" }).unref();
 }
 // Stands in for a build the installer is waiting on: outlives it unless stopped.
-// One that ends on its own counts from the installer's exit — the event the
-// supervisor's deadline is tied to — which the installer marks on its way out
-// (below): what keeps it from that exit is then no concern of the worker's.
-if (behavior.spawnChild || behavior.namedWorker || behavior.workerMs) {
+if (behavior.spawnChild || behavior.namedWorker) {
   const child = spawn(process.execPath, ["-e", behavior.namedWorker
     ? "process.title = 'build\\\\n)orker (1)'; setInterval(() => {}, 1000)"
-    : behavior.workerMs
-      ? "const fs = require('node:fs'); let end = 0; setInterval(() => {"
-        + " if (end) { if (Date.now() >= end) process.exit(0); }"
-        + " else { try { end = Number(fs.readFileSync(process.env.ORCY_FAKE_EXIT_MARK, 'utf8')) + " + behavior.workerMs + "; } catch {} }"
-        + " }, 1)"
-      : "setInterval(() => {}, 1000)"], { stdio: "ignore" });
+    : "setInterval(() => {}, 1000)"], { stdio: "ignore" });
   writeFileSync(process.env.ORCY_FAKE_CHILD_PID, String(child.pid));
   child.unref();
 }
@@ -448,8 +469,9 @@ if (behavior.readLine) {
   await new Promise(() => {});
 }
 if (behavior.sleepMs) Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, behavior.sleepMs);
-// The installer's last act: the moment a worker that ends on its own counts from.
-if (behavior.workerMs) writeFileSync(process.env.ORCY_FAKE_EXIT_MARK, String(Date.now()));
+// The installer's last act, the supervisor's clock being the test's: that clock
+// starts here, as the deadline does.
+if (behavior.clock) writeFileSync(process.env.ORCY_FAKE_CLOCK, String(Date.now()));
 process.exit(behavior.exit ?? 0);
 IDXEOF
 printf 'skill\\n' > "$dir/packages/installer/skills/overview.md"
@@ -538,9 +560,10 @@ exec "${resolveBin("rm")}" "$@"
     installerDir: path.join(home, ".orcy", "installer"),
     lockDir,
     srcDir: path.join(home, ".orcy", "src", "orcy"),
-    installer: opts.installer ?? {},
+    installer: { clock: opts.clock, ...opts.installer },
     slowBuildMs: opts.slowBuildMs,
     swapLockDuringBuild: opts.swapLockDuringBuild,
+    clock,
   };
 }
 
@@ -556,7 +579,7 @@ function installerEnv(s: Scenario): NodeJS.ProcessEnv {
     ORCY_FAKE_SWAP_LOCK: s.swapLockDuringBuild ? "1" : "",
     ORCY_FAKE_CHILD_PID: path.join(s.home, "child.pid"),
     ORCY_FAKE_INSTALLER_PID: path.join(s.home, "installer.pid"),
-    ORCY_FAKE_EXIT_MARK: path.join(s.home, "installer.exit"),
+    ORCY_FAKE_CLOCK: s.clock,
     ORCY_FAKE_INPUT: path.join(s.home, "typed"),
   };
 }
@@ -589,6 +612,29 @@ const firstIndex = (lines: string[], re: RegExp): number => lines.findIndex((l) 
  *  nothing — so there is nothing here to hold it to. */
 const noProcessListingTool = (s: Scenario): boolean =>
   process.platform !== "linux" || !readLog(s).some((l) => l.startsWith("FORBIDDEN-ps"));
+
+/** What the supervisor has been told the time is, each time it asked — its clock
+ *  being the test's — oldest read first. A look at an occupied group ends with
+ *  one; so does the reading that sets the deadline. */
+const clockReads = (s: Scenario): string[] =>
+  fs.existsSync(s.clock + ".trace")
+    ? fs.readFileSync(s.clock + ".trace", "utf8").split("\n").filter(Boolean)
+    : [];
+
+/** Resolves as the supervisor asks its clock again — the end of a look — while
+ *  the pause that follows still lies ahead: it is idle until its next look. A
+ *  reading heard too late to act in that pause is left for the next one. */
+const justLooked = (s: Scenario): Promise<void> =>
+  new Promise((resolve) => {
+    const trace = path.basename(s.clock) + ".trace";
+    const watcher = fs.watch(s.home, (_, name) => {
+      if (name !== trace) return;
+      const last = clockReads(s).at(-1);
+      if (!last || Date.now() - Number(last.split(" ")[1]) > 60) return;
+      watcher.close();
+      resolve();
+    });
+  });
 
 describe("install.sh — pin-aware pnpm bootstrap (hermetic)", () => {
   it("corepack branch: resolves the extracted pin and runs install/build through it", () => {
@@ -998,23 +1044,61 @@ describe("install.sh — one installer run at a time", () => {
   }, 15_000);
 
   it("releases the lock when the last process of the run ends at the deadline, not long before", async () => {
-    // The supervisor gives the rest of the run 5,000 ms once the installer has
-    // exited; the worker ends 15 ms after that deadline — both counted from the
-    // installer's exit: the worker from the moment the installer marks on its
-    // way out, the supervisor from its report of that exit. So every look up to
-    // the deadline still sees the worker, and the first one past it finds it
-    // gone: a group that has just emptied must not cost a lock. A worker gone
-    // any earlier could be missed by the last look before the deadline, and the
-    // run would then end well with a supervisor that does not confirm past the
-    // deadline at all. The one margin left is to the look after the deadline,
-    // which is due 50 ms later — and only ever later, each being set once the
-    // one before has looked. Should a look's scan straddle the worker's end, it
-    // finds the worker past the deadline and keeps the lock: that is a failure,
-    // never a hollow pass.
-    const s = buildScenario({ installer: { workerMs: 5015 } });
-    const r = runInstallSh(s);
-    expect(r.status, output(r)).toBe(0);
-    expect(fs.existsSync(s.lockDir)).toBe(false);
+    // The supervisor's clock is the test's here. It starts at the installer's
+    // exit, as the deadline does, and says the deadline has passed only once the
+    // test says so — so where the worker's end falls is a matter of sequence, not
+    // of timing:
+    // 1. The supervisor looks and finds the group occupied, five times over. A
+    //    look ends with a reading of the clock, and the supervisor is idle until
+    //    the next one, 250 ms later by then.
+    // 2. In that pause the test ends the worker, then moves the clock past the
+    //    deadline: no look falls between the two.
+    // 3. The next look finds the group empty with the deadline gone by. A group
+    //    that has just emptied must not cost a lock: the look is confirmed, and
+    //    the one after it releases.
+    // A supervisor that does not confirm past the deadline keeps the lock at 3
+    // and fails here. One told the deadline has passed while the worker is still
+    // there keeps it too — on the real clock, in "keeps the lock, and says which
+    // one to remove, while a process of the run is still running".
+    const s = buildScenario({ clock: true, installer: { spawnChild: true } });
+    const child = spawn(resolveBin("sh"), [INSTALL_SH], {
+      env: installerEnv(s),
+      cwd: s.home,
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    const done = onExit(child);
+    // What the run says, for a failure to show.
+    let said = "";
+    child.stderr!.on("data", (d: Buffer) => (said += d));
+    const workerPidFile = path.join(s.home, "child.pid");
+    try {
+      // The installer has started the clock on its way out, and the supervisor
+      // has set its deadline by it.
+      await until(() => clockReads(s).length > 0 && fs.existsSync(workerPidFile));
+      const start = Number(fs.readFileSync(s.clock, "utf8"));
+      const worker = Number(fs.readFileSync(workerPidFile, "utf8"));
+      expect(worker).toBeGreaterThan(0);
+      // Five looks, each ended by a reading — the deadline's own was the first —
+      // and the group was occupied every time.
+      await until(() => clockReads(s).length >= 6);
+      expect(isRunning(worker)).toBe(true);
+      expect(clockReads(s).every((read) => read.startsWith(start + " "))).toBe(true);
+      await justLooked(s);
+      process.kill(worker, "SIGKILL");
+      fs.writeFileSync(s.clock, String(start + 5001));
+      const passed = Date.now();
+      await done;
+      expect(child.exitCode, said).toBe(0);
+      expect(fs.existsSync(s.lockDir)).toBe(false);
+      // Confirmed, not waved through: the release came no sooner than the look
+      // that found the group empty and the one after it, 250 ms apart. A group
+      // that emptied before the clock passed the deadline would end the run one
+      // look sooner.
+      expect(Date.now() - passed).toBeGreaterThanOrEqual(350);
+    } finally {
+      // Nothing of the run outlives a failed test.
+      child.kill("SIGKILL");
+    }
   }, 15_000);
 
   it("stops what is left of the run when asked to stop while the lock is still waited for", async () => {
