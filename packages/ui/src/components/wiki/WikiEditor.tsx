@@ -16,6 +16,7 @@ interface WikiEditorProps {
   onDone: (pageId: string, draft?: CreatedDraft) => void;
   initialDraft?: CreatedDraft;
   onCancel: () => void;
+  onCancelBeforeLoad?: () => void;
 }
 
 interface DraftValues {
@@ -36,7 +37,7 @@ export function WikiEditor(props: WikiEditorProps) {
   return <WikiEditorSession key={JSON.stringify([props.habitatId, props.mode, props.pageId])} {...props} />;
 }
 
-function WikiEditorSession({ habitatId, mode, pageId, onDone, onCancel, initialDraft }: WikiEditorProps) {
+function WikiEditorSession({ habitatId, mode, pageId, onDone, onCancel, onCancelBeforeLoad, initialDraft }: WikiEditorProps) {
   const queryClient = useQueryClient();
   const isEdit = mode === "edit" && !!pageId;
   const active = useRef(true);
@@ -274,7 +275,7 @@ function WikiEditorSession({ habitatId, mode, pageId, onDone, onCancel, initialD
       return (
         <div role="status" className="rounded-md border border-[var(--outline-variant)] p-4 space-y-3">
           <p>Waiting for a connection to load this page.</p>
-          <button type="button" onClick={onCancel}>Cancel</button>
+          <button type="button" onClick={onCancelBeforeLoad ?? onCancel}>Cancel</button>
         </div>
       );
     }
@@ -284,7 +285,7 @@ function WikiEditorSession({ habitatId, mode, pageId, onDone, onCancel, initialD
           <p>Failed to load this page. Retry before editing.</p>
           <div className="flex gap-3">
             <button type="button" onClick={() => void refetchPage()}>Retry</button>
-            <button type="button" onClick={onCancel}>Cancel</button>
+            <button type="button" onClick={onCancelBeforeLoad ?? onCancel}>Cancel</button>
           </div>
         </div>
       );
@@ -292,7 +293,7 @@ function WikiEditorSession({ habitatId, mode, pageId, onDone, onCancel, initialD
     return (
       <div className="flex items-center justify-center gap-3 py-16">
         <Loader2 className="h-6 w-6 animate-spin text-[var(--on-surface-variant)]" />
-        <button type="button" onClick={onCancel}>Cancel</button>
+        <button type="button" onClick={onCancelBeforeLoad ?? onCancel}>Cancel</button>
       </div>
     );
   }

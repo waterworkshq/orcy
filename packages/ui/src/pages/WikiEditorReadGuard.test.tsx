@@ -2,7 +2,7 @@ import React from "react";
 import { afterEach, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider, onlineManager } from "@tanstack/react-query";
-import { MemoryRouter, Route, Routes } from "react-router-dom";
+import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
 import { WikiPage } from "./WikiPage.js";
 
 const page = { id: "p1", habitatId: "h1", title: "Original", content: "Existing body", parentId: "parent", tags: ["kept"], status: "published", currentVersionNumber: 1, updatedAt: "2026-01-01T00:00:00Z", links: [] };
@@ -83,4 +83,19 @@ it("explains a paused cold read and resumes after reconnecting", async () => {
   expect(fetcher).not.toHaveBeenCalled();
   onlineManager.setOnline(true);
   await waitFor(() => expect((screen.getByPlaceholderText("Page title…") as HTMLInputElement).value).toBe("Original"));
+});
+
+function LocationProbe() {
+  const location = useLocation();
+  return <output data-testid="location">{location.search}</output>;
+}
+
+it("cancels a stalled cold edit back to the Wiki browser", async () => {
+  onlineManager.setOnline(false);
+  vi.stubGlobal("fetch", vi.fn());
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  render(<QueryClientProvider client={client}><MemoryRouter initialEntries={["/habitats/h1/wiki?page=p1&edit=true"]}><LocationProbe /><Routes><Route path="/habitats/:habitatId/wiki" element={<WikiPage />} /></Routes></MemoryRouter></QueryClientProvider>);
+  await screen.findByText(/waiting for.*connection/i);
+  fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+  await waitFor(() => expect(screen.getByTestId("location").textContent).toBe(""));
 });
