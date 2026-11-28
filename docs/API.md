@@ -6797,13 +6797,13 @@ Any other `skillCategory` value is rejected with `400`. When the field is omitte
   "success": true,
   "signal": {
     "id": "signal-uuid",
-    "clusterKey": "always use drizzle orm for database queries never raw sql#7f3k2q",
+    "clusterKey": "always use drizzle orm for database queries never raw sql#6xw1om",
     "strength": 0.3
   }
 }
 ```
 
-The response carries only the signal's `id`, `clusterKey` and `strength`. `clusterKey` is server-generated — the normalized insight text plus a `#` hash suffix. `strength` is server-assigned: a newly created signal starts at `0.3`, and an insight that clusters into an existing signal reinforces that signal (its `frequency` increases) instead of creating a new one — so the returned `strength` is whatever the stored signal already carries, not a guaranteed value.
+The response carries only the signal's `id`, `clusterKey` and `strength`. `clusterKey` is server-generated: the contributed insight is capped at a 120-character subject, normalized (lowercased, punctuation stripped), and the key shows at most the first 80 normalized characters followed by `#` and a hash of the entire normalized subject. `strength` is server-assigned: a newly created signal starts at `0.3`, and an insight that clusters into an existing signal reinforces that signal (its `frequency` increases) instead of creating a new one — so the returned `strength` is whatever the stored signal already carries, not a guaranteed value.
 
 ### GET /habitats/:habitatId/skill/signals
 
@@ -6828,7 +6828,7 @@ List skill signals for a habitat with optional filtering.
     {
       "id": "signal-uuid",
       "habitatId": "habitat-uuid",
-      "clusterKey": "auth-jwt-signing",
+      "clusterKey": "jwt tokens use rs256 signing with jsonwebtoken v9#1n0zj8r",
       "skillCategory": "domain_knowledge",
       "subject": "JWT tokens use RS256 signing with jsonwebtoken v9",
       "strength": 0.85,

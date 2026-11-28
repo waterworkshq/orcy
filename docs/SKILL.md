@@ -1868,7 +1868,7 @@ Input:
   "skillCategory": "convention"
 }
 
-Output: { "success": true, "signal": { "id": "...", "clusterKey": "always use drizzle orm for database queries never raw sql#7f3k2q", "strength": 0.3 } }
+Output: { "success": true, "signal": { "id": "...", "clusterKey": "always use drizzle orm for database queries never raw sql#6xw1om", "strength": 0.3 } }
 ```
 
 | Field | Type | Required | Description |
@@ -1878,7 +1878,7 @@ Output: { "success": true, "signal": { "id": "...", "clusterKey": "always use dr
 
 `skillCategory` accepts exactly the shared registry values. The API rejects any supplied value outside the registry with `400`; when omitted, the signal is stored as `agent_insight`.
 
-`clusterKey` is server-generated: the normalized insight text plus a `#` hash suffix.
+`clusterKey` is server-generated: the contributed insight is capped at a 120-character subject, normalized (lowercased, punctuation stripped), and the key shows at most the first 80 normalized characters followed by `#` and a hash of the entire normalized subject.
 
 `strength` in the response is server-assigned, not a value you can set: a newly created signal starts at `0.3`, and an insight that clusters into an existing signal reinforces that signal (its `frequency` increases) instead of creating a new one, so the returned `strength` is whatever the stored signal already carries.
 

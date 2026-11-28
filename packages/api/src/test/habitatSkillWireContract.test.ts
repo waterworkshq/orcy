@@ -28,6 +28,7 @@ import { SKILL_CATEGORIES } from "@orcy/shared";
 import { initTestDb, closeDb } from "../db/index.js";
 import { registerErrorHandler } from "../errors/plugin.js";
 import { setJwtSecret } from "../middleware/jwt-verification.js";
+import { normalize } from "../services/habitatSkillService.js";
 import { habitatSkillRoutes } from "../routes/habitatSkill.js";
 import * as habitatRepo from "../repositories/habitat.js";
 import * as agentRepo from "../repositories/agent.js";
@@ -110,7 +111,27 @@ describe("published Skill categories match the shared registry", () => {
     expect(values).toContain("anti-pattern");
     expect([...values].sort()).not.toEqual([...SKILL_CATEGORIES].sort());
   });
+
+  it.each(["docs/API.md", "docs/SKILL.md"])(
+    "%s publishes the cluster key the contribution route returns for the shown insight",
+    (file) => {
+      expect(publishedClusterKey(file)).toBe(
+        normalize("Always use Drizzle ORM for database queries, never raw SQL"),
+      );
+    },
+  );
 });
+
+/**
+ * The cluster key a doc file publishes for the contribution example. The
+ * first `"clusterKey"` in the file is the contribution response example.
+ */
+function publishedClusterKey(file: string): string {
+  const markdown = readFileSync(path.join(REPO_ROOT, file), "utf8");
+  const match = markdown.match(/"clusterKey": "([^"]+)"/);
+  expect(match, `${file} must publish a contribution clusterKey example`).not.toBeNull();
+  return match![1]!;
+}
 
 describe("served Skill wire contract", () => {
   let app: FastifyInstance | null = null;
@@ -205,6 +226,18 @@ describe("served Skill wire contract", () => {
     const signals = skillRepo.getSignalsByHabitat(habitatId);
     expect(signals.signals).toHaveLength(1);
     expect(signals.signals[0]!.frequency).toBe(2);
+  });
+
+  it("returns the normalized cluster key for the published example insight", async () => {
+    const insight = "Always use Drizzle ORM for database queries, never raw SQL";
+    const res = await app!.inject({
+      method: "POST",
+      url: `/api/habitats/${habitatId}/skill/contribute`,
+      headers: { "x-agent-api-key": agentApiKey },
+      payload: { insight },
+    });
+    expect(res.statusCode).toBe(201);
+    expect(res.json().signal.clusterKey).toBe(normalize(insight));
   });
 
   it("returns the compact contribution response", async () => {
