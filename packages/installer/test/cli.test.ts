@@ -46,7 +46,7 @@ describe("resolveAction — CLI dispatch", () => {
   });
 
   it("(e) no args → interactive-wizard", () => {
-    expect(resolveAction([]).kind).toBe("interactive-wizard");
+    expect(resolveAction([], { interactive: true }).kind).toBe("interactive-wizard");
   });
 
   it("(f) built-in flags → command", () => {
@@ -93,5 +93,41 @@ describe("resolveAction — CLI dispatch", () => {
     expect(resolveAction(["--yes", "--recover", "--components=cli"]).kind).toBe(
       "noninteractive-wizard",
     );
+  });
+
+  it("no args on a non-interactive stdin → actionable error, not a wizard that cannot read answers", () => {
+    // `curl … | bash` without a terminal, or CI: stdin is end-of-input, so the
+    // wizard would print its first question and exit 0 having installed nothing.
+    const action = resolveAction([], {
+      interactive: false,
+      entry: "/home/u/.orcy/installer/dist/index.js",
+    });
+    expect(action.kind).toBe("error");
+    if (action.kind === "error") {
+      // The way out runs exactly as printed: `orcy-install` is not on PATH.
+      expect(action.message).toContain(
+        "node '/home/u/.orcy/installer/dist/index.js' --yes --components=cli,api,mcp",
+      );
+    }
+  });
+
+  it("shell-quotes this program's path in the non-interactive command", () => {
+    const action = resolveAction([], { interactive: false, entry: "/tmp/it's here/index.js" });
+    expect(action.kind === "error" ? action.message : "").toContain(
+      "node '/tmp/it'\\''s here/index.js' --yes --components=cli,api,mcp",
+    );
+  });
+
+  it("names this module's own file when no entry path is given", () => {
+    // `process.argv[1]` is undefined for `node -e` / stdin; the module's file is not.
+    const action = resolveAction([], { interactive: false });
+    expect(action.kind === "error" ? action.message : "").toContain(
+      `node '${import.meta.filename.replace(/test\/cli\.test\.ts$/, "src/index.ts")}' --yes --components=cli,api,mcp`,
+    );
+  });
+
+  it("a non-interactive stdin does not affect explicit non-interactive runs or commands", () => {
+    expect(resolveAction(["--yes"], { interactive: false }).kind).toBe("noninteractive-wizard");
+    expect(resolveAction(["doctor"], { interactive: false }).kind).toBe("command");
   });
 });

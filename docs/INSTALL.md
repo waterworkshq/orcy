@@ -95,7 +95,7 @@ Development mode may seed `admin` / `admin123`; production installs do not rely 
 ```
 ~/.orcy/
 ├── bin/                 # PATH shims: orcy, orcy-api, orcy-mcp
-├── node_modules/        # Installed packages (@orcy/cli, api, mcp)
+├── node_modules/        # Runtime packages: the selected @orcy components, the @orcy packages they load, and their registry dependencies
 ├── src/                 # Source archive (used by orcy-install update)
 ├── ui/                  # Built Web UI bundle
 ├── run/                 # PID files (for orcy serve --detach)
