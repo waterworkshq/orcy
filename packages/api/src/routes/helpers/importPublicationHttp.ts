@@ -74,26 +74,39 @@ import type { PublishImportOutcome } from "../../services/importManifest/importP
 const MAX_REPORTED_AMBIGUITIES = 5;
 const MAX_MESSAGE_AMBIGUITIES = 3;
 const MAX_AMBIGUOUS_TITLE_CHARS = 120;
+const TRUNCATION_ELLIPSIS = "...";
+
+function isControlOrLineSeparator(code: number): boolean {
+  return (
+    code < 0x20 ||
+    (code >= 0x7f && code <= 0x9f) ||
+    code === 0x2028 ||
+    code === 0x2029
+  );
+}
 
 function boundAmbiguousTitle(raw: string): string {
-  // Collapse control characters in a single bounded pass so huge titles never allocate or span lines.
+  // Collapse C0/C1 controls, DEL, and Unicode line/paragraph separators in a single bounded pass
+  // so huge or multi-line titles stay single-line and strictly within MAX_AMBIGUOUS_TITLE_CHARS.
+  const prefixLimit = MAX_AMBIGUOUS_TITLE_CHARS - TRUNCATION_ELLIPSIS.length;
   let out = "";
+  let truncatedPrefix = "";
   let prevWasControl = false;
+
   for (const ch of raw) {
     const code = ch.codePointAt(0) ?? 0;
-    const isControl = code < 0x20 || code === 0x7f;
-    if (isControl) {
-      if (!prevWasControl) {
-        out += " ";
-        prevWasControl = true;
-      }
-    } else {
-      out += ch;
-      prevWasControl = false;
+    const isControl = isControlOrLineSeparator(code);
+    const nextChunk = isControl ? (prevWasControl ? "" : " ") : ch;
+    prevWasControl = isControl;
+    if (!nextChunk) continue;
+
+    if (out.length + nextChunk.length <= prefixLimit) {
+      truncatedPrefix += nextChunk;
     }
-    if (out.length > MAX_AMBIGUOUS_TITLE_CHARS) {
-      return `${out.slice(0, MAX_AMBIGUOUS_TITLE_CHARS)}...`;
+    if (out.length + nextChunk.length > MAX_AMBIGUOUS_TITLE_CHARS) {
+      return `${truncatedPrefix}${TRUNCATION_ELLIPSIS}`;
     }
+    out += nextChunk;
   }
   return out;
 }

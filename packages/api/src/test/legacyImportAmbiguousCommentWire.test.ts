@@ -11,7 +11,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { randomUUID } from "node:crypto";
+import { randomBytes, randomUUID } from "node:crypto";
 import jwt from "jsonwebtoken";
 import { eq } from "drizzle-orm";
 
@@ -194,10 +194,9 @@ function buildUnambiguousV2Artifact(
 
 beforeEach(async () => {
   preflightSeam.throwInfraError = false;
-  process.env.SLACK_SIGNING_SECRET = "legacy-import-wire-slack-secret";
-  process.env.DISCORD_PUBLIC_KEY =
-    "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
-  process.env.ORCY_REGISTRATION_TOKEN = "legacy-import-wire-reg-token";
+  process.env.SLACK_SIGNING_SECRET ??= randomBytes(16).toString("hex");
+  process.env.DISCORD_PUBLIC_KEY ??= randomBytes(32).toString("hex");
+  process.env.ORCY_REGISTRATION_TOKEN ??= randomBytes(16).toString("hex");
   delete process.env.HOST;
 
   tempDir = mkdtempSync(join(tmpdir(), "orcy-legacy-import-ambig-"));
@@ -441,7 +440,92 @@ describe("legacy import ambiguous Task-title comment -> bounded 400", () => {
     expect(body.details.totalAmbiguities).toBe(10);
     expect(body.details.truncated).toBe(true);
     expect(body.details.ambiguities.length).toBeLessThanOrEqual(5);
+    const longTaskAmbiguity = (
+      body.details.ambiguities as Array<{ kind: string; taskTitle?: string }>
+    ).find((a) => a.kind === "duplicate_task_title_in_comment");
+    expect(longTaskAmbiguity?.taskTitle).toBeDefined();
+    expect(longTaskAmbiguity!.taskTitle!.length).toBeLessThanOrEqual(120);
+    expect(longTaskAmbiguity!.taskTitle!.endsWith("...")).toBe(true);
     expect(JSON.stringify(body)).not.toContain("SecretReferencingMission");
+  });
+
+  it("enforces the 120-char cap including ellipsis and collapses C1/Unicode line separators", async () => {
+    const userId = seedUser("admin");
+    const token = signHumanToken(userId, "admin");
+    const exact120 = "a".repeat(120);
+    const over121 = `${"b".repeat(120)}c`;
+    const controlTitle = "Alpha\u0085Beta\u2028Gamma\u2029Delta";
+
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/v1/habitats/import",
+      headers: { authorization: `Bearer ${token}` },
+      payload: {
+        version: 2,
+        exportedAt: EXPORTED_AT,
+        habitat: {
+          name: "Title Boundary Test",
+          columns: [{ name: "Todo", order: 0, isTerminal: false }],
+          missions: [
+            {
+              title: "M",
+              columnName: "Todo",
+              tasks: [
+                { title: exact120 },
+                { title: exact120 },
+                { title: over121 },
+                { title: over121 },
+                { title: controlTitle },
+                { title: controlTitle },
+              ],
+            },
+          ],
+          comments: [
+            {
+              taskTitle: exact120,
+              parentTaskTitle: null,
+              content: "c1",
+              authorType: "human",
+              authorId: "u1",
+            },
+            {
+              taskTitle: over121,
+              parentTaskTitle: null,
+              content: "c2",
+              authorType: "human",
+              authorId: "u1",
+            },
+            {
+              taskTitle: controlTitle,
+              parentTaskTitle: null,
+              content: "c3",
+              authorType: "human",
+              authorId: "u1",
+            },
+          ],
+        },
+      },
+    });
+
+    expect(res.statusCode).toBe(400);
+    const body = res.json();
+    expect(body.code).toBe("AMBIGUOUS_LEGACY_TITLE");
+    expect(body.details.ambiguities).toHaveLength(3);
+
+    expect(body.details.ambiguities[0].taskTitle).toBe(exact120);
+    expect(body.details.ambiguities[0].taskTitle).toHaveLength(120);
+    expect(body.error).toContain(exact120);
+
+    const truncatedPreview = body.details.ambiguities[1].taskTitle as string;
+    expect(truncatedPreview).toHaveLength(120);
+    expect(truncatedPreview).toBe(`${"b".repeat(117)}...`);
+    expect(body.error).toContain(truncatedPreview);
+    expect(body.error).not.toContain(`${"b".repeat(118)}...`);
+
+    expect(body.details.ambiguities[2].taskTitle).toBe("Alpha Beta Gamma Delta");
+    expect(body.error).toContain("Alpha Beta Gamma Delta");
+    expect(body.error).not.toMatch(/[\u0085\u2028\u2029]/);
+    expect(JSON.stringify(body)).not.toMatch(/[\u0085\u2028\u2029]/);
   });
 
   it("preserves unambiguous import on both new and replacement entry points", async () => {
