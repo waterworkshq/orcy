@@ -7725,8 +7725,10 @@ List accepted findings for human review/display.
 |-------------|----------|-------------|
 | `findingType` | No | Filter by finding type |
 | `domain` | No | Filter by domain |
-| `maxAgeSeconds` | No | Exclude findings older than this |
-| `limit` | No | Max results (max 100) |
+| `maxAgeSeconds` | No | Exclude findings older than this (integer seconds) |
+| `limit` | No | Max results (default 25, max 100) |
+
+Numeric query values are parsed as integers; a non-numeric, fractional, out-of-range or repeated value is a `400` validation error.
 
 **Response:** `{ findings: ExtractedFindingView[] }`
 

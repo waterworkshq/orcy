@@ -86,8 +86,9 @@ const reviewQueueQuerySchema = z.object({
 const humanFindingsQuerySchema = z.object({
   findingType: z.string().optional(),
   domain: z.string().optional(),
-  maxAgeSeconds: z.number().int().positive().optional(),
-  limit: z.number().int().min(1).max(100).optional(),
+  // Numeric query params arrive as URL strings — coerce like the agent route.
+  maxAgeSeconds: z.coerce.number().int().positive().optional(),
+  limit: z.coerce.number().int().min(1).max(100).optional(),
 });
 
 const agentFindingsQuerySchema = z.object({
