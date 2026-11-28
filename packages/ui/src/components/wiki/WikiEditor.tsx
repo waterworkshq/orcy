@@ -45,7 +45,7 @@ function WikiEditorSession({ habitatId, mode, pageId, onDone, onCancel, initialD
     return () => { active.current = false; };
   }, []);
 
-  const [hasInitialDraft] = useState(() => !!initialDraft);
+  const [hasBaseline, setHasBaseline] = useState(() => !!initialDraft);
   const [draft, setDraft] = useState(() => {
     const values: DraftValues = { title: "", content: "", parentId: "", tags: [], status: "draft" };
     return { values: initialDraft?.values ?? values, saved: initialDraft?.saved ?? values, conflicts: {} as Partial<Record<keyof DraftValues, boolean>> };
@@ -71,7 +71,7 @@ function WikiEditorSession({ habitatId, mode, pageId, onDone, onCancel, initialD
   useLayoutEffect(() => { currentTagInput.current = tagInput; }, [tagInput]);
   const [preview, setPreview] = useState(false);
 
-  const { data: pageData, isLoading: pageLoading } = useQuery({
+  const { data: pageData, isError: pageError, isFetching: pageFetching, refetch: refetchPage } = useQuery({
     queryKey: queryKeys.wiki.page(habitatId, pageId ?? "new"),
     queryFn: () => wikiApi.getPage(habitatId, pageId!),
     enabled: isEdit,
@@ -108,7 +108,10 @@ function WikiEditorSession({ habitatId, mode, pageId, onDone, onCancel, initialD
   }
 
   useEffect(() => {
-    if (isEdit && pageData) reconcilePage(pageData, ["title", "content", "parentId", "tags", "status"]);
+    if (isEdit && pageData) {
+      reconcilePage(pageData, ["title", "content", "parentId", "tags", "status"]);
+      setHasBaseline(true);
+    }
   }, [isEdit, pageData]);
 
   function reconcileAcknowledgement(
@@ -266,7 +269,18 @@ function WikiEditorSession({ habitatId, mode, pageId, onDone, onCancel, initialD
     setField("tags", tags.filter((x) => x !== t));
   }
 
-  if (isEdit && pageLoading && !hasInitialDraft) {
+  if (isEdit && !hasBaseline) {
+    if (pageError && !pageFetching) {
+      return (
+        <div role="alert" className="rounded-md border border-[var(--outline-variant)] p-4 space-y-3">
+          <p>Failed to load this page. Retry before editing.</p>
+          <div className="flex gap-3">
+            <button type="button" onClick={() => void refetchPage()}>Retry</button>
+            <button type="button" onClick={onCancel}>Cancel</button>
+          </div>
+        </div>
+      );
+    }
     return (
       <div className="flex items-center justify-center py-16">
         <Loader2 className="h-6 w-6 animate-spin text-[var(--on-surface-variant)]" />
