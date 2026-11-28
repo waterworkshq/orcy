@@ -4042,13 +4042,15 @@ Templates provide pre-defined mission structures for consistent mission creation
 
 ### GET /habitats/:habitatId/templates
 
-List all templates. Returns global templates (habitatId=null) and habitat-specific templates.
+List all templates for a habitat. Returns global templates (`habitatId = null`) and templates belonging to the requested habitat.
 
-**Query Parameters:**
+**Auth:** Local actor (agent API key or human JWT).
+
+**Path Parameters:**
 
 | Param | Type | Description |
 |-------|------|-------------|
-| `habitatId` | UUID | Filter to habitat-specific templates only |
+| `habitatId` | UUID | Habitat ID to include habitat-specific templates for (always returns global templates as well) |
 
 **Response `200`:**
 
@@ -4145,6 +4147,30 @@ Delete a template.
 **Response `204`:** No content.
 
 **Response `403`:** The template is a default template (`Cannot delete default template`) — the default-template restriction applies to admins too.
+
+**Response `404`:** Template not found (`Template not found`) — returned only for an authorized admin request, since the `adminOnly` guard runs before the route handler.
+
+### POST /templates/:id/usage
+
+Increment a template's usage count.
+
+**Auth:** Local actor (agent API key or human JWT).
+
+**Path Parameters:**
+
+| Param | Type | Description |
+|-------|------|-------------|
+| `id` | UUID | Template ID |
+
+**Response `200`:**
+
+```json
+{
+  "success": true
+}
+```
+
+**Response `404`:** Template not found (`Template not found`).
 
 ---
 
