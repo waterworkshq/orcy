@@ -78,24 +78,38 @@ function resolvePnpmRunner(sourceRoot: string): PnpmRunner {
 
 /**
  * Run pnpm through the resolved runner with an argument array (no shell string).
- * The child's output is captured, and the thrown error only exposes it as raw
- * Buffers — so a failure rethrows WITH the decoded output: it is the one place
- * pnpm states why it failed (ERR_PNPM_*), which the bare exit code is not.
+ * The child's output is captured, and a failure must still say why: the error
+ * carries the exit status (or the spawn code when the command never ran) and
+ * pnpm's own `ERR_PNPM_*` identifier when it printed one. The captured output
+ * itself is not forwarded and the raw child error is not attached as `cause`:
+ * both can hold credential-bearing URLs or values printed by lifecycle scripts,
+ * and this error ends up in terminals, logs and pasted transcripts.
  */
 function runPnpm(runner: PnpmRunner, args: string[], options: { cwd: string }): void {
   const argv = [...runner.baseArgs, ...args];
+  const command = `${runner.command} ${argv.join(" ")}`;
   try {
     execFileSync(runner.command, argv, { cwd: options.cwd, stdio: "pipe" });
   } catch (err) {
-    const { stdout, stderr } = err as { stdout?: unknown; stderr?: unknown };
-    const output = [stdout, stderr]
+    const { status, signal, code, stdout, stderr } = err as {
+      status?: number | null;
+      signal?: string;
+      code?: string;
+      stdout?: unknown;
+      stderr?: unknown;
+    };
+    const captured = [stdout, stderr]
       .filter((stream): stream is Buffer => Buffer.isBuffer(stream))
-      .map((stream) => stream.toString("utf8").trim())
-      .filter(Boolean)
+      .map((stream) => stream.toString("utf8"))
       .join("\n");
-    // No captured output means the command never ran (spawn failure): report that.
-    const reason = output || (err instanceof Error ? err.message : String(err));
-    throw new Error(`Pinned pnpm failed: ${runner.command} ${argv.join(" ")}\n${reason}`, { cause: err });
+    const pnpmCode = captured.match(/\bERR_PNPM_[A-Z0-9_]+\b/)?.[0];
+    // No exit status means the command never ran: report the spawn code instead.
+    const outcome =
+      status != null ? `exit ${status}` : (code ?? (signal ? `signal ${signal}` : "no exit status"));
+    throw new Error(
+      `Pinned pnpm failed (${outcome}${pnpmCode ? `, ${pnpmCode}` : ""}): ${command}\n` +
+        "Re-run that command to see pnpm's full output.",
+    );
   }
 }
 

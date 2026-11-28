@@ -237,8 +237,44 @@ describe("installed runtime closure — failure is loud", () => {
       return seed(cmd);
     });
     const failure = installPackages(getContext(), ["api"], {});
-    await expect(failure).rejects.toThrow(/ERR_PNPM_WORKSPACE_PKG_NOT_FOUND/);
+    await expect(failure).rejects.toThrow(/Pinned pnpm failed \(exit 1, ERR_PNPM_WORKSPACE_PKG_NOT_FOUND\)/);
     await expect(failure).rejects.toThrow(/install --prod/);
     expect(fs.existsSync(path.join(orcyHome(), "install-manifest.json"))).toBe(false);
+  });
+
+  it("reports only that code and the exit status — not pnpm's output, not the raw child error", async () => {
+    const seed = sourceHook();
+    setExecHook((cmd: string) => {
+      if (cmd.includes("install --prod")) {
+        // Output can carry a credential-bearing URL and whatever a lifecycle
+        // script printed; it must not reach terminals, logs or transcripts.
+        throw Object.assign(new Error("Command failed: corepack pnpm@10.34.8 install --prod"), {
+          status: 1,
+          stdout: Buffer.from("TOKEN_FROM_A_LIFECYCLE_SCRIPT=hunter2"),
+          stderr: Buffer.from(
+            " ERR_PNPM_FETCH_401  GET https://deploy:hunter2@registry.example.com/pkg\n",
+          ),
+        });
+      }
+      return seed(cmd);
+    });
+    const failure = installPackages(getContext(), ["api"], {});
+    await expect(failure).rejects.toThrow(/Pinned pnpm failed \(exit 1, ERR_PNPM_FETCH_401\)/);
+    await expect(failure).rejects.not.toThrow(/hunter2|registry\.example\.com|TOKEN_FROM/);
+    const error: unknown = await failure.catch((e: unknown) => e);
+    expect((error as Error).cause).toBeUndefined();
+  });
+
+  it("reports the spawn code when the pinned pnpm could not run at all", async () => {
+    const seed = sourceHook();
+    setExecHook((cmd: string) => {
+      if (cmd.includes("install --prod")) {
+        throw Object.assign(new Error("spawn corepack ENOENT"), { status: null, code: "ENOENT" });
+      }
+      return seed(cmd);
+    });
+    await expect(installPackages(getContext(), ["api"], {})).rejects.toThrow(
+      /Pinned pnpm failed \(ENOENT\)/,
+    );
   });
 });

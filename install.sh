@@ -112,11 +112,22 @@ echo "    Build complete"
 # were just built, workspace packages included as real copies — not a fresh
 # registry resolution of version ranges. Deploy requires the workspace to use
 # injected workspace packages; passing the setting here leaves the source tree
-# as it is. The copy is deployed beside any previous installer and swapped in
-# only once its entry point exists, so a failed run leaves that one in place.
+# as it is. The copy is deployed beside any previous installer and takes its
+# place only once its entry point exists, and the previous one is deleted only
+# after that, so a failed run leaves a working installer in place.
 echo "==> Preparing installer..."
 INSTALLER_DIR="${ORCY_HOME}/installer"
 STAGED_DIR="${INSTALLER_DIR}.new"
+BACKUP_DIR="${INSTALLER_DIR}.old"
+# A run interrupted while promoting leaves no active installer and the previous
+# one moved aside. Put it back first, so that whatever happens next — including
+# a failure below — the machine keeps a working installer.
+if [ ! -e "${INSTALLER_DIR}" ] && [ -d "${BACKUP_DIR}" ]; then
+  if ! mv "${BACKUP_DIR}" "${INSTALLER_DIR}"; then
+    echo "Could not restore the previous installer from ${BACKUP_DIR}."
+    exit 1
+  fi
+fi
 rm -rf "${STAGED_DIR}"
 (cd "$SRC_DIR" && run_pnpm --filter ./packages/installer deploy --prod --config.inject-workspace-packages=true "${STAGED_DIR}") || {
   rm -rf "${STAGED_DIR}"
@@ -128,8 +139,22 @@ if [ ! -f "${STAGED_DIR}/dist/index.js" ]; then
   echo "Failed to stage the installer: was packages/installer/dist built?"
   exit 1
 fi
-rm -rf "${INSTALLER_DIR}"
-mv "${STAGED_DIR}" "${INSTALLER_DIR}"
+# Promotion: the previous installer is moved aside, the staged copy is put in
+# its place, and the previous one is deleted only after that succeeded.
+if [ -d "${INSTALLER_DIR}" ]; then
+  # A backup can only be stale here: the active installer is present.
+  rm -rf "${BACKUP_DIR}"
+  mv "${INSTALLER_DIR}" "${BACKUP_DIR}"
+fi
+if ! mv "${STAGED_DIR}" "${INSTALLER_DIR}"; then
+  echo "Failed to put the new installer in place."
+  # Put the previous installer back; if even that fails, say where it is kept.
+  if [ -d "${BACKUP_DIR}" ] && ! mv "${BACKUP_DIR}" "${INSTALLER_DIR}"; then
+    echo "The previous installer is kept at ${BACKUP_DIR}."
+  fi
+  exit 1
+fi
+rm -rf "${BACKUP_DIR}"
 
 # Run installer
 echo "==> Running installer..."

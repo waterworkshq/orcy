@@ -118,6 +118,14 @@ describe("resolveAction — CLI dispatch", () => {
     );
   });
 
+  it("names this module's own file when no entry path is given", () => {
+    // `process.argv[1]` is undefined for `node -e` / stdin; the module's file is not.
+    const action = resolveAction([], { interactive: false });
+    expect(action.kind === "error" ? action.message : "").toContain(
+      `node '${import.meta.filename.replace(/test\/cli\.test\.ts$/, "src/index.ts")}' --yes --components=cli,api,mcp`,
+    );
+  });
+
   it("a non-interactive stdin does not affect explicit non-interactive runs or commands", () => {
     expect(resolveAction(["--yes"], { interactive: false }).kind).toBe("noninteractive-wizard");
     expect(resolveAction(["doctor"], { interactive: false }).kind).toBe("command");

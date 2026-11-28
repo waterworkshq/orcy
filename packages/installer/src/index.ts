@@ -184,7 +184,7 @@ export function resolveAction(
   rawArgs: string[],
   {
     interactive = process.stdin.isTTY === true,
-    entry = process.argv[1],
+    entry = import.meta.filename,
   }: { interactive?: boolean; entry?: string } = {},
 ): Action {
   if (!rawArgs.length) {

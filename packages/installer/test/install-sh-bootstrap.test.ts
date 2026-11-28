@@ -26,8 +26,10 @@
  *      instead of leaning on the workspace's node_modules or resolving version
  *      ranges afresh. (The package manager itself is a stub here;
  *      `clean-install.test.ts` runs the real one.)
- *   6. A failed deploy, or one that produced no entry point, exits non-zero
- *      with the cause and leaves a previous installer in place, and nothing
+ *   6. A failed deploy, one that produced no entry point, or one that cannot be
+ *      moved into place exits non-zero with the cause and leaves a previous
+ *      installer working — including one that an interrupted run left moved
+ *      aside, which the next run restores before anything else — and nothing
  *      claims completion before the installer has run.
  *   7. The documented `curl … | bash` leaves the installer a drained pipe as
  *      stdin; when a terminal exists, the handoff gives the installer that
@@ -103,7 +105,8 @@ interface Scenario {
  * `pin` controls the packageManager spec seeded into the fake source; pass
  * `withCorepack`/`withNpx` false to omit those runners from PATH.
  * `failDeploy` makes the runner fail the installer deploy; `built` false seeds
- * a source tree whose installer was never built (no `packages/installer/dist`).
+ * a source tree whose installer was never built (no `packages/installer/dist`);
+ * `failPromotion` makes the staged installer impossible to move into place.
  */
 function buildScenario(opts: {
   pin?: string | null;
@@ -112,6 +115,7 @@ function buildScenario(opts: {
   nodeVersion?: string | null;
   failDeploy?: boolean;
   built?: boolean;
+  failPromotion?: boolean;
 }): Scenario {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), "orcy-installsh-"));
   scenarioHomes.push(home);
@@ -141,6 +145,24 @@ function buildScenario(opts: {
   }
   for (const b of ["sed", "mkdir", "rm", "mv", "cp", "cat"]) {
     fs.symlinkSync(resolveBin(b), path.join(stubDir, b));
+  }
+  // With failPromotion, `mv` refuses to move the staged installer into place
+  // and passes every other move — the previous installer back included — to
+  // the real binary.
+  if (opts.failPromotion) {
+    fs.rmSync(path.join(stubDir, "mv"));
+    writeStub(
+      stubDir,
+      "mv",
+      `first="$1"
+for a in "$@"; do last="$a"; done
+if [ "$first" = "${path.join(home, ".orcy", "installer.new")}" ]; then
+  echo "mv: promotion refused" >&2
+  exit 1
+fi
+exec "${resolveBin("mv")}" "$@"
+`,
+    );
   }
 
   // curl -fSL <url> -o <path.tmp> → materialize the archive target.
@@ -326,6 +348,7 @@ describe("install.sh — pin-aware pnpm bootstrap (hermetic)", () => {
     expect(fs.existsSync(path.join(s.installerDir, "dist", "index.js"))).toBe(true);
     expect(fs.existsSync(path.join(s.installerDir, "skills", "overview.md"))).toBe(true);
     expect(fs.existsSync(`${s.installerDir}.new`)).toBe(false);
+    expect(fs.existsSync(`${s.installerDir}.old`)).toBe(false);
 
     // Nothing outside the staged directory was relied on for resolution.
     expect(fs.existsSync(path.join(s.home, ".orcy", "node_modules"))).toBe(false);
@@ -419,6 +442,64 @@ describe("install.sh — a failed handoff fails closed", () => {
     expect(output(r)).toMatch(/failed to stage the installer/i);
     expect(fs.existsSync(s.markerPath)).toBe(false);
     expect(fs.readFileSync(previous, "utf8")).toBe("previous installer");
+    expect(fs.existsSync(`${s.installerDir}.new`)).toBe(false);
+  });
+
+  it("exits non-zero and puts the previous installer back when the new one cannot be moved into place", () => {
+    const s = buildScenario({ failPromotion: true });
+    const previous = seedPreviousInstaller(s);
+    const r = runInstallSh(s);
+    expect(r.status).not.toBe(0);
+    expect(output(r)).toMatch(/failed to put the new installer in place/i);
+    expect(fs.existsSync(s.markerPath)).toBe(false);
+    expect(fs.readFileSync(previous, "utf8")).toBe("previous installer");
+    expect(fs.existsSync(`${s.installerDir}.old`)).toBe(false);
+  });
+
+  /** The state a run leaves when interrupted while promoting: the previous
+   *  installer moved aside, nothing active. Returns the moved-aside entry point. */
+  const seedInterruptedPromotion = (s: Scenario): string => {
+    const aside = path.join(`${s.installerDir}.old`, "dist", "index.js");
+    fs.mkdirSync(path.dirname(aside), { recursive: true });
+    fs.writeFileSync(aside, "previous installer");
+    return aside;
+  };
+
+  it("restores the installer a previous run left moved aside, even when this run then fails", () => {
+    const s = buildScenario({ failDeploy: true });
+    const aside = seedInterruptedPromotion(s);
+    const r = runInstallSh(s);
+    expect(r.status).not.toBe(0);
+    // Restored before anything else could fail, so it is the active installer again.
+    expect(fs.existsSync(aside)).toBe(false);
+    expect(fs.readFileSync(path.join(s.installerDir, "dist", "index.js"), "utf8")).toBe(
+      "previous installer",
+    );
+    expect(fs.existsSync(s.markerPath)).toBe(false);
+  });
+
+  it("replaces the installer a previous run left moved aside with a freshly staged one", () => {
+    const s = buildScenario({});
+    seedInterruptedPromotion(s);
+    const r = runInstallSh(s, ["--yes", "--components=api"]);
+    expect(r.status).toBe(0);
+    // The newly staged installer is the active one, and it ran.
+    expect(JSON.parse(fs.readFileSync(s.markerPath, "utf8"))).toMatchObject({
+      args: ["--yes", "--components=api"],
+    });
+    expect(fs.existsSync(`${s.installerDir}.old`)).toBe(false);
+    expect(fs.existsSync(`${s.installerDir}.new`)).toBe(false);
+  });
+
+  it("clears a backup left beside an active installer", () => {
+    // A run interrupted right after promotion: the new installer is active and
+    // the previous one was not deleted yet.
+    const s = buildScenario({});
+    seedPreviousInstaller(s);
+    seedInterruptedPromotion(s);
+    const r = runInstallSh(s);
+    expect(r.status).toBe(0);
+    expect(fs.existsSync(`${s.installerDir}.old`)).toBe(false);
     expect(fs.existsSync(`${s.installerDir}.new`)).toBe(false);
   });
 });
