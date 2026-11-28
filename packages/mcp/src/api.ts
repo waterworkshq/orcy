@@ -819,31 +819,34 @@ export class KanbanApiClient
   > {
     taskId = normalizeTaskId(taskId);
     try {
-      return await this.request<ClaimTaskResponse>("POST", `/api/tasks/${taskId}/claim`);
+      // The served route requires an object body (the claiming agent comes from
+      // the API key) and answers success with the bare `{ task }` envelope.
+      const { task } = await this.request<{ task: Task }>(
+        "POST",
+        `/api/tasks/${taskId}/claim`,
+        {},
+      );
+      return { success: true, task };
     } catch (err) {
       if (err instanceof ApiClientError) {
+        // Refusals use the error-handler envelope `{ error, code, details }`.
         const body = err.message.replace(/^API \d+: /, "");
-        if (err.status === 403) {
-          try {
-            const parsed = JSON.parse(body);
-            if (parsed.missingCapabilities) {
-              return {
-                success: false,
-                reason: "capability_mismatch",
-                message: `Missing capabilities: ${parsed.missingCapabilities.join(", ")}`,
-                missingCapabilities: parsed.missingCapabilities,
-              };
-            }
-          } catch {
-            /* fall through */
-          }
-        }
+        let parsed: { error?: string; details?: { missingCapabilities?: string[] } } | undefined;
         try {
-          const parsed = JSON.parse(body);
-          return { success: false, reason: parsed.error || "unknown", message: body };
+          parsed = JSON.parse(body);
         } catch {
-          return { success: false, reason: "unknown", message: body };
+          /* non-JSON body */
         }
+        const missingCapabilities = parsed?.details?.missingCapabilities;
+        if (Array.isArray(missingCapabilities) && missingCapabilities.length > 0) {
+          return {
+            success: false,
+            reason: "capability_mismatch",
+            message: `Missing capabilities: ${missingCapabilities.join(", ")}`,
+            missingCapabilities,
+          };
+        }
+        return { success: false, reason: parsed?.error || "unknown", message: body };
       }
       return { success: false, reason: "unknown", message: String(err) };
     }
