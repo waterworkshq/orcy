@@ -58,8 +58,9 @@ export const AnomalyDetectionTab = forwardRef<AnomalyDetectionTabHandle, Anomaly
   }, [boardAnomalySettings]);
 
   const handleSave = useCallback(async () => {
+    const parseNumber = (value: string) => value.trim() === '' ? NaN : Number(value);
     const validNumber = (value: string, min: number, max: number, integer = false) => {
-      const parsed = value.trim() === '' ? NaN : Number(value);
+      const parsed = parseNumber(value);
       return Number.isFinite(parsed) && parsed >= min && parsed <= max && (!integer || Number.isSafeInteger(parsed)) ? parsed : undefined;
     };
     const disabledSettings = {
@@ -79,14 +80,14 @@ export const AnomalyDetectionTab = forwardRef<AnomalyDetectionTabHandle, Anomaly
     await saveSettings({
       anomalySettings: anomalyEnabled ? {
         enabled: true,
-        scanIntervalMinutes: parseInt(anomalyScanInterval, 10),
+        scanIntervalMinutes: parseNumber(anomalyScanInterval),
         thresholds: {
-          staleInProgressMinutes: parseInt(anomalyStaleMinutes, 10),
-          rejectionRatePercent: parseInt(anomalyRejectionRate, 10),
-          rejectionWindowTasks: parseInt(anomalyRejectionWindow, 10),
-          cycleTimeIncreasePercent: parseInt(anomalyCycleTimeIncrease, 10),
-          backlogToAgentRatio: parseFloat(anomalyBacklogRatio),
-          agentOfflineMinutes: parseInt(anomalyOfflineMinutes, 10),
+          staleInProgressMinutes: parseNumber(anomalyStaleMinutes),
+          rejectionRatePercent: parseNumber(anomalyRejectionRate),
+          rejectionWindowTasks: parseNumber(anomalyRejectionWindow),
+          cycleTimeIncreasePercent: parseNumber(anomalyCycleTimeIncrease),
+          backlogToAgentRatio: parseNumber(anomalyBacklogRatio),
+          agentOfflineMinutes: parseNumber(anomalyOfflineMinutes),
         },
         notifications: {
           email: anomalyNotifyEmail,

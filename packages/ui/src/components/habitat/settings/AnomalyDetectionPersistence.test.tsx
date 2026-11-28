@@ -35,6 +35,33 @@ const settings: AnomalySettings = {
 afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.clearAllMocks(); });
 
 describe("Anomaly Detection settings", () => {
+  it("sends the same numeric values when saving enabled and disabled", async () => {
+    const fetcher = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({ habitat: { id: "h1" } }), { status: 200 }));
+    const ref = createRef<AnomalyDetectionTabHandle>();
+    render(<AnomalyDetectionTab ref={ref} habitatId="h1" boardAnomalySettings={settings} onUpdate={vi.fn()} />);
+    fireEvent.change(screen.getByLabelText("Scan Interval (min)"), { target: { value: "1e1" } });
+    fireEvent.change(screen.getByLabelText("Rejection Rate (%)"), { target: { value: "5.5" } });
+    await act(async () => { await ref.current!.save(); });
+    fireEvent.click(screen.getAllByRole("switch")[0]);
+    await act(async () => { await ref.current!.save(); });
+    const enabled = JSON.parse(String(fetcher.mock.calls[0][1]!.body)).anomalySettings;
+    const disabled = JSON.parse(String(fetcher.mock.calls[1][1]!.body)).anomalySettings;
+    expect(enabled.scanIntervalMinutes).toBe(10);
+    expect(enabled.thresholds.rejectionRatePercent).toBe(5.5);
+    expect(disabled.scanIntervalMinutes).toBe(enabled.scanIntervalMinutes);
+    expect(disabled.thresholds.rejectionRatePercent).toBe(enabled.thresholds.rejectionRatePercent);
+  });
+  it("does not truncate a fractional integer draft on an enabled save", async () => {
+    const fetcher = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({ error: "Invalid settings" }), { status: 400 }));
+    const ref = createRef<AnomalyDetectionTabHandle>();
+    const onUpdate = vi.fn();
+    render(<AnomalyDetectionTab ref={ref} habitatId="h1" boardAnomalySettings={settings} onUpdate={onUpdate} />);
+    fireEvent.change(screen.getByLabelText("Scan Interval (min)"), { target: { value: "5.5" } });
+    await act(async () => { await ref.current!.save(); });
+    expect(JSON.parse(String(fetcher.mock.calls[0][1]!.body)).anomalySettings.scanIntervalMinutes).toBe(5.5);
+    expect(notify.error).toHaveBeenCalledWith("Invalid settings");
+    expect(onUpdate).not.toHaveBeenCalled();
+  });
   it("preserves valid edits while disabling with an invalid draft", async () => {
     const fetcher = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({ habitat: { id: "h1" } }), { status: 200 }));
     const ref = createRef<AnomalyDetectionTabHandle>();
