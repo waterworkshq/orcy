@@ -1,9 +1,9 @@
-import { request } from "../transport.js";
+import { request, requestBlob } from "../transport.js";
 
 export const auditApi = {
   export: (habitatId: string, params: Record<string, string>) => {
     const qs = new URLSearchParams(params).toString();
-    return request<string>(`/habitats/${habitatId}/audit/export?${qs}`);
+    return requestBlob(`/habitats/${habitatId}/audit/export?${qs}`);
   },
   summary: (habitatId: string, params?: { since?: string; until?: string }) => {
     const qs = params ? "?" + new URLSearchParams(params as Record<string, string>).toString() : "";
