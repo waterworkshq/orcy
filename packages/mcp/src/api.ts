@@ -1505,14 +1505,12 @@ export class KanbanApiClient
     enabled: boolean;
   }> {
     taskId = normalizeTaskId(taskId);
-    try {
-      return await this.request<{
-        worktree: { path: string; branch: string; repoRoot: string } | null;
-        enabled: boolean;
-      }>("GET", `/api/tasks/${taskId}/worktree`);
-    } catch {
-      return { worktree: null, enabled: false };
-    }
+    // No fallback on failure: an unavailable or denied read must surface as a
+    // typed ApiClientError, never as the "worktree integration disabled" answer.
+    return this.request<{
+      worktree: { path: string; branch: string; repoRoot: string } | null;
+      enabled: boolean;
+    }>("GET", `/api/tasks/${taskId}/worktree`);
   }
 
   async getTaskTimeReport(taskId: string): Promise<{

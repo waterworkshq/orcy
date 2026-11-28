@@ -1265,6 +1265,8 @@ Input: { "action": "get-worktree", "taskId": "uuid" }
 Output: { "worktree": { "path": "/repo/worktrees/task-uuid", "branch": "task/fix-login", "repoRoot": "/repo" }, "enabled": true }
 ```
 
+`enabled: false` means worktree integration is genuinely off for the task's habitat. A read that cannot be completed returns an `isError` result — it never degrades into the `enabled: false` shape, so a failed lookup is never mistaken for a disabled configuration. The reported status depends on the failure: an HTTP error response reports its HTTP status (e.g. `503` unavailable, `403` denied), a network failure reports `0`, a timeout reports a synthetic `408`, and a response body that cannot be parsed reports no status at all.
+
 ---
 
 ### Quality Gates & Dependencies — `orcy_habitat_task`

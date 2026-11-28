@@ -125,18 +125,26 @@ async function connectMcp(url: string, agent: { id: string; apiKey: string }): P
 async function startLookupFaultProxy(): Promise<{
   url: string;
   armed: boolean;
+  lookupStatus: number;
+  lookups: number;
+  starts: number;
   close: () => Promise<void>;
 }> {
   const { hostname, port } = new URL(baseUrl);
-  const proxy: { url: string; armed: boolean; close: () => Promise<void> } = {
+  const proxy: { url: string; armed: boolean; lookupStatus: number; lookups: number; starts: number; close: () => Promise<void> } = {
     url: "",
     armed: false,
+    lookupStatus: 503,
+    lookups: 0,
+    starts: 0,
     close: async () => {},
   };
   const server = http.createServer((req, res) => {
+    if (req.method === "POST" && /^\/api\/tasks\/[^/]+\/start$/.test(req.url ?? "")) proxy.starts++;
+    if (req.method === "GET" && /^\/api\/agents\/[^/]+$/.test(req.url ?? "")) proxy.lookups++;
     if (proxy.armed && req.method === "GET" && /^\/api\/agents\/[^/]+$/.test(req.url ?? "")) {
       req.resume();
-      res.writeHead(503, { "content-type": "application/json" });
+      res.writeHead(proxy.lookupStatus, { "content-type": "application/json" });
       res.end(JSON.stringify({ error: "Agent lookup unavailable" }));
       return;
     }
@@ -261,6 +269,67 @@ beforeEach(() => {
     order: 0,
     requiresClaim: false,
   }).id;
+});
+
+describe("local MCP rework receipt — served MCP wire", () => {
+  it.each(["start", "update"])("%s preserves successful and missing display names", async (action) => {
+    for (const lookupStatus of [200, 404]) {
+      const taskId = seedTask(`rework-name-${action}-${lookupStatus}`);
+      const oldToken: string = toolJson(await rivalMcp.callTool({ action: "claim", taskId })).task.executionToken;
+      getDb().update(tasks).set({ status: "rejected" }).where(eq(tasks.id, taskId)).run();
+      proxy.lookupStatus = lookupStatus;
+      proxy.armed = lookupStatus === 404;
+      try {
+        const result = await rivalMcp.callTool({ action, taskId, status: "in_progress", executionToken: oldToken });
+        expect(result.isError).toBeFalsy();
+        expect(toolJson(result)).toMatchObject({ success: true, task: {
+          status: "in_progress", assignedAgentName: lookupStatus === 200 ? "claim-mcp-rival" : null,
+        } });
+      } finally {
+        proxy.armed = false;
+        proxy.lookupStatus = 503;
+      }
+    }
+  }, 60_000);
+
+  it.each(["start", "update"])("%s returns the rotated receipt when name lookup fails", async (action) => {
+    const taskId = seedTask(`rework-${action}`);
+    const claimed = toolJson(await rivalMcp.callTool({ action: "claim", taskId }));
+    const oldToken: string = claimed.task.executionToken;
+    // Synthetic rejected state retains the actual claimed epoch and assignee;
+    // the rework, fencing and subsequent submission use the real served routes.
+    getDb().update(tasks).set({ status: "rejected" }).where(eq(tasks.id, taskId)).run();
+    const args = { action, taskId, status: "in_progress", executionToken: oldToken };
+    const before = { ...taskRow(taskId) };
+    const lookups = proxy.lookups;
+    const starts = proxy.starts;
+    proxy.armed = true;
+    try {
+      const refused = await rivalMcp.callTool({ ...args, executionToken: "stale-token" });
+      expect(refused.isError).toBe(true);
+      expect(refused.content[0].text).toContain("EPOCH_MISMATCH");
+      expect(taskRow(taskId)).toEqual(before);
+      expect(proxy.lookups).toBe(lookups);
+      const result = await rivalMcp.callTool(args);
+      expect(result.isError).toBeFalsy();
+      const receipt = toolJson(result);
+      expect(receipt).toMatchObject({ success: true, task: { id: taskId, status: "in_progress", assignedAgentName: null } });
+      const currentToken: string = receipt.task.executionToken;
+      expect(currentToken).toBeTruthy();
+      expect(currentToken).not.toBe(oldToken);
+      expect(taskRow(taskId)).toMatchObject({ status: "in_progress", executionToken: currentToken });
+      expect(proxy.starts - starts).toBe(2); // one refused, one successful, no replay
+      expect(proxy.lookups - lookups).toBeGreaterThan(0);
+      const staleSubmit = await rivalMcp.callTool({ action: "submit", taskId, result: "done", executionToken: oldToken });
+      expect(staleSubmit.isError).toBe(true);
+      expect(staleSubmit.content[0].text).toContain("EPOCH_MISMATCH");
+      const submitted = await rivalMcp.callTool({ action: "submit", taskId, result: "done", executionToken: currentToken });
+      expect(submitted.isError).toBeFalsy();
+      expect(taskRow(taskId).status).toBe("submitted");
+    } finally {
+      proxy.armed = false;
+    }
+  }, 60_000);
 });
 
 describe("local MCP Task claim — served MCP wire", () => {

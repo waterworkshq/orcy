@@ -13,7 +13,8 @@ interface WikiEditorProps {
   habitatId: string;
   mode: "create" | "edit";
   pageId?: string;
-  onDone: (pageId: string) => void;
+  onDone: (pageId: string, draft?: CreatedDraft) => void;
+  initialDraft?: CreatedDraft;
   onCancel: () => void;
 }
 
@@ -25,11 +26,17 @@ interface DraftValues {
   status: WikiPageStatus;
 }
 
+export interface CreatedDraft {
+  values: DraftValues;
+  saved: DraftValues;
+  tagInput: string;
+}
+
 export function WikiEditor(props: WikiEditorProps) {
   return <WikiEditorSession key={JSON.stringify([props.habitatId, props.mode, props.pageId])} {...props} />;
 }
 
-function WikiEditorSession({ habitatId, mode, pageId, onDone, onCancel }: WikiEditorProps) {
+function WikiEditorSession({ habitatId, mode, pageId, onDone, onCancel, initialDraft }: WikiEditorProps) {
   const queryClient = useQueryClient();
   const isEdit = mode === "edit" && !!pageId;
   const active = useRef(true);
@@ -38,10 +45,13 @@ function WikiEditorSession({ habitatId, mode, pageId, onDone, onCancel }: WikiEd
     return () => { active.current = false; };
   }, []);
 
+  const [hasInitialDraft] = useState(() => !!initialDraft);
   const [draft, setDraft] = useState(() => {
     const values: DraftValues = { title: "", content: "", parentId: "", tags: [], status: "draft" };
-    return { values, saved: values, conflicts: {} as Partial<Record<keyof DraftValues, boolean>> };
+    return { values: initialDraft?.values ?? values, saved: initialDraft?.saved ?? values, conflicts: {} as Partial<Record<keyof DraftValues, boolean>> };
   });
+  const currentDraft = useRef(draft);
+  useLayoutEffect(() => { currentDraft.current = draft; }, [draft]);
   const pendingMetadata = useRef<DraftValues | null>(null);
   const pendingText = useRef<DraftValues | null>(null);
   const { title, content, parentId, tags, status } = draft.values;
@@ -56,7 +66,9 @@ function WikiEditorSession({ habitatId, mode, pageId, onDone, onCancel }: WikiEd
     }));
   }
   const [editSummary, setEditSummary] = useState("");
-  const [tagInput, setTagInput] = useState("");
+  const [tagInput, setTagInput] = useState(initialDraft?.tagInput ?? "");
+  const currentTagInput = useRef(tagInput);
+  useLayoutEffect(() => { currentTagInput.current = tagInput; }, [tagInput]);
   const [preview, setPreview] = useState(false);
 
   const { data: pageData, isLoading: pageLoading } = useQuery({
@@ -136,19 +148,23 @@ function WikiEditorSession({ habitatId, mode, pageId, onDone, onCancel }: WikiEd
       status !== draft.saved.status);
 
   const createMutation = useMutation({
-    mutationFn: () =>
+    mutationFn: (submitted: DraftValues) =>
       wikiApi.createPage(habitatId, {
-        title: title.trim(),
-        content,
-        parentId: parentId || null,
-        tags,
-        status,
+        ...submitted, title: submitted.title.trim(), parentId: submitted.parentId || null,
       }),
-    onSuccess: (page: WikiPage) => {
+    onSuccess: (page: WikiPage, submitted) => {
       if (!active.current) return;
       queryClient.invalidateQueries({ queryKey: queryKeys.wiki.pages(habitatId) });
       notify.success("Page created");
-      onDone(page.id);
+      const saved: DraftValues = { title: page.title, content: page.content, parentId: page.parentId ?? "", tags: page.tags, status: page.status };
+      const current = currentDraft.current.values;
+      const values = { ...current };
+      for (const field of Object.keys(saved) as (keyof DraftValues)[]) {
+        if (JSON.stringify(current[field]) === JSON.stringify(submitted[field])) Object.assign(values, { [field]: saved[field] });
+      }
+      const changed = JSON.stringify(current) !== JSON.stringify(submitted) || !!currentTagInput.current;
+      if (changed) onDone(page.id, { values, saved, tagInput: currentTagInput.current });
+      else onDone(page.id);
     },
     onError: (err) => { if (active.current) notify.error((err as Error).message); },
   });
@@ -163,6 +179,8 @@ function WikiEditorSession({ habitatId, mode, pageId, onDone, onCancel }: WikiEd
       if (!active.current) return;
       const baseline = pendingText.current;
       const observed = queryClient.getQueryData<WikiPage>(queryKeys.wiki.page(habitatId, pageId!));
+      // An initial fetch without cached data is otherwise reused by invalidation.
+      if (!observed) void queryClient.cancelQueries({ queryKey: queryKeys.wiki.page(habitatId, pageId!), exact: true });
       setDraft((current) => reconcileAcknowledgement({
         conflicts: { ...current.conflicts, title: false, content: false },
         saved: { ...current.saved, title: page.title, content: page.content },
@@ -195,6 +213,8 @@ function WikiEditorSession({ habitatId, mode, pageId, onDone, onCancel }: WikiEd
       if (!active.current) return;
       const baseline = pendingMetadata.current;
       const observed = queryClient.getQueryData<WikiPage>(queryKeys.wiki.page(habitatId, pageId!));
+      // An initial fetch without cached data is otherwise reused by invalidation.
+      if (!observed) void queryClient.cancelQueries({ queryKey: queryKeys.wiki.page(habitatId, pageId!), exact: true });
       setDraft((current) => reconcileAcknowledgement({
         conflicts: { ...current.conflicts, parentId: false, tags: false, status: false },
         saved: { ...current.saved, parentId: page.parentId ?? "", tags: page.tags, status: page.status },
@@ -230,7 +250,7 @@ function WikiEditorSession({ habitatId, mode, pageId, onDone, onCancel }: WikiEd
       pendingText.current = draft.saved;
       saveMutation.mutate({ title, content, editSummary });
     } else {
-      createMutation.mutate();
+      createMutation.mutate({ ...draft.values, tags: [...tags] });
     }
   }
 
@@ -246,7 +266,7 @@ function WikiEditorSession({ habitatId, mode, pageId, onDone, onCancel }: WikiEd
     setField("tags", tags.filter((x) => x !== t));
   }
 
-  if (isEdit && pageLoading) {
+  if (isEdit && pageLoading && !hasInitialDraft) {
     return (
       <div className="flex items-center justify-center py-16">
         <Loader2 className="h-6 w-6 animate-spin text-[var(--on-surface-variant)]" />
