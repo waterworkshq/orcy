@@ -25,6 +25,7 @@ import {
   type ZodTypeProvider,
 } from "fastify-type-provider-zod";
 import jwt from "jsonwebtoken";
+import { randomBytes } from "node:crypto";
 import { v4 as uuid } from "uuid";
 import type {
   ExtractionFindingType,
@@ -32,6 +33,7 @@ import type {
 } from "@orcy/shared";
 import { initTestDb, closeDb, getDb } from "../db/index.js";
 import { registerErrorHandler } from "../errors/plugin.js";
+import { setJwtSecret } from "../middleware/jwt-verification.js";
 import { extractionRoutes } from "../routes/extraction.js";
 import { createHabitat } from "../repositories/habitat.js";
 import {
@@ -39,7 +41,9 @@ import {
   extractedFindingScopeRefs,
 } from "../db/schema/index.js";
 
-const JWT_SECRET = "dev-secret-change-in-production";
+// A per-run signing key: no credential literal is committed, and the test
+// never depends on the ambient JWT_SECRET fallback.
+const JWT_SECRET = randomBytes(32).toString("hex");
 
 function makeToken(payload: { sub: string; username: string; role: string }): string {
   return jwt.sign(payload, JWT_SECRET, { issuer: "orcy" });
@@ -132,6 +136,7 @@ const isoSecondsAgo = (seconds: number): string =>
 
 beforeEach(async () => {
   await initTestDb();
+  setJwtSecret(JWT_SECRET);
   app = await buildApp();
   habitatId = createHabitat({ name: "Human Findings Query Habitat" }).id;
   token = makeToken({ sub: "user-1", username: "admin", role: "admin" });
@@ -201,6 +206,24 @@ describe("Human accepted-finding reads — numeric URL query filters", () => {
     }
   });
 
+  it("gate 4: numeric-looking strings that are not plain integers are refused", async () => {
+    // `Number()` would round or reinterpret these before an integer check:
+    // "1.0000000000000001" → 1, "0x10" → 16, "1e3" → 1000, " 5 " → 5.
+    for (const query of [
+      "limit=1.0000000000000001",
+      "limit=0x10",
+      "limit=1e3",
+      "limit=%205",
+      "maxAgeSeconds=1.0000000000000001",
+      "maxAgeSeconds=1e3",
+    ]) {
+      const res = await read(`/habitats/${habitatId}/extraction/findings?${query}`);
+
+      expect(res.statusCode, query).toBe(400);
+      expect(JSON.parse(res.body).code, query).toBe("VALIDATION_ERROR");
+    }
+  });
+
   it("gate 4: out-of-range numeric values get the typed validation response", async () => {
     for (const query of ["limit=0", "limit=101", "maxAgeSeconds=0", "maxAgeSeconds=-5"]) {
       const res = await read(`/habitats/${habitatId}/extraction/findings?${query}`);
@@ -208,6 +231,17 @@ describe("Human accepted-finding reads — numeric URL query filters", () => {
       expect(res.statusCode, query).toBe(400);
       const body = JSON.parse(res.body);
       expect(body.code, query).toBe("VALIDATION_ERROR");
+    }
+  });
+
+  it("gate 4: a maxAgeSeconds past the date range is refused, not a 500", async () => {
+    // The service turns the age into a Date cutoff; a value beyond the
+    // JavaScript Date range would make that cutoff invalid.
+    for (const query of ["maxAgeSeconds=99999999999999", "maxAgeSeconds=9007199254740991"]) {
+      const res = await read(`/habitats/${habitatId}/extraction/findings?${query}`);
+
+      expect(res.statusCode, query).toBe(400);
+      expect(JSON.parse(res.body).code, query).toBe("VALIDATION_ERROR");
     }
   });
 
