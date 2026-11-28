@@ -5378,6 +5378,8 @@ Query canonical audit events for a habitat.
 
 **Auth:** JWT required (human)
 **Query:** `since?`, `until?`, `entityType?`, `entityId?`, `taskId?`, `missionId?`, `source?`, `provider?`, `preset?`, `includeHealthSnapshots?`, `limit?`, `offset?`, `order?`
+`limit` is an integer from 1 to 10000 (default 1000); `offset` is a non-negative safe integer (default 0); `order` is `asc` (default) or `desc`. Events are ordered by timestamp, then by ID ascending for ties.
+
 **Response `200`:** `{ "events": AuditEvent[], "warnings": AuditWarning[], "completenessSummary": {...} }`
 
 ### GET /habitats/:id/audit/export

@@ -42,7 +42,11 @@ export interface AuditExportQuery {
 }
 
 /** Event-only query derived from {@link AuditExportQuery} without the serialization format, used when callers want the raw events rather than an export payload. */
-export type AuditEventQuery = Omit<AuditExportQuery, "format">;
+export type AuditEventQuery = Omit<AuditExportQuery, "format"> & {
+  limit?: number;
+  offset?: number;
+  order?: "asc" | "desc";
+};
 
 /** Canonical projection of audit events for a habitat: the filtered events, any warnings raised during projection, and a completeness summary computed from those events. */
 export interface CanonicalAuditEventResult {
@@ -170,7 +174,12 @@ export function getCanonicalAuditEvents(
   habitatId: string,
   query: AuditEventQuery,
 ): CanonicalAuditEventResult {
-  const result = queryAuditEvents(toAuditQuery(habitatId, query));
+  const result = queryAuditEvents({
+    ...toAuditQuery(habitatId, query),
+    limit: query.limit,
+    offset: query.offset,
+    order: query.order ?? "asc",
+  });
   const actions = parseCsvFilter(query.actions);
   const entityTypes = parseCsvFilter(query.entityTypes);
   const events = result.events.filter((event) =>
