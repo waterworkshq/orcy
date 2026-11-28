@@ -21,11 +21,14 @@ export interface ClearanceResult {
 
 /** Outcome of one clearance attempt.
  *
- * `transitioned` is the truth about the delivery row. `error` carries a
- * failure that happened AFTER the transition was already committed — the
- * transition still counts, and the failure is still reported. It is `undefined`
- * when there was no such failure; an empty message is still a failure and is
- * still reported, like every other error on these paths. */
+ * `transitioned` is the truth about the delivery row — it is true only when
+ * this call performed the transition.
+ *
+ * `error` carries a failure raised around the attempt. It is `undefined` when
+ * there was no failure; an empty message is still a failure and is still
+ * reported, like every other error on these paths. A failure before the
+ * transition leaves the row untouched, so it is reported uncounted; a failure
+ * after it leaves the transition standing, so it is reported counted. */
 interface ClearanceOutcome {
   transitioned: boolean;
   error?: string;
