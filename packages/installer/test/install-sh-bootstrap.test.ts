@@ -355,17 +355,26 @@ if (behavior.swapLock) {
   mkdirSync(process.env.ORCY_INSTALLER_LOCK);
   writeFileSync(process.env.ORCY_INSTALLER_LOCK + "/pid", "424242\\n");
 }
-// Stands in for a build whose own parent is gone — reparented, so no listing of
-// the installer's process tree would find it.
+// Stands in for a build whose own parent is gone — handed over to init, a real
+// orphan, so no listing of the installer's process tree would find it.
 if (behavior.orphanWorker) {
   const pidFile = process.env.ORCY_FAKE_CHILD_PID;
-  const worker = [
+  const inner = [
     "const { spawn } = require('node:child_process');",
+    "const fs = require('node:fs');",
     "const worker = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore' });",
-    "require('node:fs').writeFileSync(process.argv[1], String(worker.pid));",
+    "fs.writeFileSync(process.argv[1] + '.parent', String(process.pid));",
+    "fs.writeFileSync(process.argv[1], String(worker.pid));",
     "worker.unref();",
   ].join(";");
-  spawn(process.execPath, ["-e", worker, "--", pidFile], { stdio: "ignore" }).unref();
+  // The outer one stays and reaps the inner one, which the installer — blocked
+  // on its own build — could not do itself.
+  const outer = [
+    "const { spawn } = require('node:child_process');",
+    "spawn(process.execPath, ['-e', " + JSON.stringify(inner) + ", '--', process.argv[1]], { stdio: 'ignore' });",
+    "setInterval(() => {}, 1000);",
+  ].join(";");
+  spawn(process.execPath, ["-e", outer, "--", pidFile], { stdio: "ignore" }).unref();
 }
 // Stands in for a build the installer is waiting on: outlives it unless stopped.
 if (behavior.spawnChild || behavior.namedWorker) {
@@ -387,11 +396,14 @@ if (behavior.readLine) {
   process.stdin.resume();
   process.stdin.on("data", (chunk) => {
     typed += chunk;
-    if (typed.includes(String.fromCharCode(13))) {
+    // Enter, in raw mode — or in a terminal still cooked, which turns it into a newline.
+    if (typed.includes(String.fromCharCode(13)) || typed.includes(String.fromCharCode(10))) {
       writeFileSync(process.env.ORCY_FAKE_INPUT, typed);
       process.exit(0);
     }
   });
+  // Said only once the terminal is raw: input sent before that is not this fixture's to read.
+  writeFileSync(process.env.ORCY_FAKE_INPUT + ".ready", "");
   await new Promise(() => {});
 }
 if (behavior.sleepMs) Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, behavior.sleepMs);
@@ -847,6 +859,9 @@ describe("install.sh — one installer run at a time", () => {
     const workerPidFile = path.join(s.home, "child.pid");
     await until(() => fs.existsSync(workerPidFile));
     const worker = Number(fs.readFileSync(workerPidFile, "utf8"));
+    // The worker's parent is gone before the stop comes, so the worker really
+    // has been reparented — and only then is the stop a test of that case.
+    await until(() => processState(Number(fs.readFileSync(`${workerPidFile}.parent`, "utf8"))) === "");
     expect(isRunning(worker)).toBe(true);
     const done = onExit(child);
     child.kill("SIGTERM");
@@ -920,6 +935,8 @@ describe("install.sh — one installer run at a time", () => {
         const lockMarker = path.join(s.lockDir, "pid");
         await until(() => fs.existsSync(lockMarker));
         supervisor = Number(fs.readFileSync(lockMarker, "utf8"));
+        // A zero here would mean this test's own process group, never a run's.
+        expect(supervisor).toBeGreaterThan(0);
         const childPidFile = path.join(s.home, "child.pid");
         await until(() => fs.existsSync(childPidFile));
         const build = Number(fs.readFileSync(childPidFile, "utf8"));
@@ -931,9 +948,11 @@ describe("install.sh — one installer run at a time", () => {
         expect(processState(build)).toMatch(/^Z/);
       } finally {
         // Either way nothing of the fixture outlives the test.
-        try {
-          process.kill(supervisor, "SIGKILL");
-        } catch {}
+        if (supervisor > 0) {
+          try {
+            process.kill(supervisor, "SIGKILL");
+          } catch {}
+        }
         child.kill("SIGKILL");
       }
     },
@@ -1097,6 +1116,10 @@ describe.skipIf(!SCRIPT)("install.sh — interactive handoff through a terminal"
     let out = "";
     child.stdout!.on("data", (d) => (out += d));
     child.stderr!.on("data", (d) => (out += d));
+    // A handoff that never ends must not hang about for good: closing the
+    // terminal ends it, and with it all that was running in the scenario.
+    const guard = setTimeout(() => child.kill("SIGKILL"), 10_000);
+    child.once("exit", () => clearTimeout(guard));
     return { child, output: () => out, done: onExit(child) };
   };
 
@@ -1107,7 +1130,8 @@ describe.skipIf(!SCRIPT)("install.sh — interactive handoff through a terminal"
     // stop it. It reads all the same.
     const s = buildScenario({ installer: { readLine: true } });
     const run = throughTerminal(s, "--yes --components=api");
-    await until(() => fs.existsSync(s.markerPath));
+    // Only once the installer has the terminal in raw mode is input its to read.
+    await until(() => fs.existsSync(path.join(s.home, "typed.ready")));
     run.child.stdin!.write("typed at the terminal\r");
     await run.done;
     expect(run.child.exitCode, run.output()).toBe(0);

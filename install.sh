@@ -208,8 +208,8 @@ rm -rf "${BACKUP_DIR}" 2>/dev/null ||
 # starts joins that group at birth and stays in it even once its parent is
 # gone. While the anchor is unreaped, the group's number is its PID alone, so
 # the group is this run's to signal at any moment, the installer still running
-# or not. Nothing is looked up to be signalled: /proc is read to look, never to
-# signal by.
+# or not. Nothing is looked up to be signalled: /proc — or, where there is
+# none, ps — is read to look, never to signal by.
 # - On SIGINT, SIGTERM or SIGHUP it freezes the group, then kills it — the
 #   installer and every process it started — and never reports success.
 # - Ctrl-Z and resume reach this process alone, so they are passed on to the
@@ -225,7 +225,7 @@ rm -rf "${BACKUP_DIR}" 2>/dev/null ||
 #   no terminal — reads them without being stopped as a background job, so the
 #   wizard's terminal access is as before.
 SUPERVISOR=$(cat <<'EOF'
-const { spawn } = require("node:child_process");
+const { spawn, execFileSync } = require("node:child_process");
 const fs = require("node:fs");
 const { signals } = require("node:os").constants;
 const [entry, ...args] = process.argv.slice(1);
@@ -262,16 +262,15 @@ process.on("exit", () => {
 const signal = (name) => {
   if (active) { try { process.kill(group, name); } catch {} }
 };
-// The states of the group's live members, zombies left out, from /proc. Linux
-// only, and null whenever /proc cannot vouch for an entry.
+// Every process's state and process group. Read to look, never to signal by,
+// and null whenever a line cannot be vouched for.
 // ponytail: a process that starts a session of its own leaves the group unseen; the build tools do not.
-const states = () => {
+const processes = () => {
   let pids;
-  try { pids = fs.readdirSync("/proc"); } catch { return null; }
+  try { pids = fs.readdirSync("/proc"); } catch { return fromPs(); }
   const out = [];
   for (const pid of pids) {
-    // The anchor itself is not the install.
-    if (!/^\d+$/.test(pid) || pid === String(-group)) continue;
+    if (!/^\d+$/.test(pid)) continue;
     let stat;
     try { stat = fs.readFileSync(`/proc/${pid}/stat`, "utf8"); }
     catch (err) { if (err.code !== "ENOENT" && err.code !== "ESRCH") return null; continue; }
@@ -279,9 +278,28 @@ const states = () => {
     const end = stat.lastIndexOf(")");
     const [state, , pgrp] = stat.slice(end + 2).split(" ");
     if (end < 0 || state === undefined || pgrp === undefined) return null;
-    if (pgrp === String(-group) && state !== "Z") out.push(state);
+    out.push([state[0], pgrp, pid]);
   }
   return out;
+};
+// The BSDs and macOS have no /proc: there ps stands in, for looking only.
+const fromPs = () => {
+  let out;
+  try { out = execFileSync("ps", ["-A", "-o", "pid=,pgid=,stat="], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }); }
+  catch { return null; }
+  return out.trim().split("\n").map((line) => {
+    const [pid, pgrp, state] = line.trim().split(/\s+/);
+    return pid && pgrp && state ? [state[0], pgrp, pid] : null;
+  });
+};
+// The states of the group's live members, zombies left out. The anchor itself
+// is not the install, and is not counted.
+const states = () => {
+  const all = processes();
+  if (all === null || all.includes(null)) return null;
+  return all
+    .filter(([state, pgrp, pid]) => pgrp === String(-group) && state !== "Z" && pid !== String(-group))
+    .map(([state]) => state);
 };
 // Whether anything of the install is still running. Nothing is once the group
 // is gone. A group that is still there may hold nothing but zombies — processes
