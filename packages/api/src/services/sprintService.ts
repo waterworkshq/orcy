@@ -109,12 +109,11 @@ export function deleteSprint(sprintId: string): void {
  * Transitions a planning {@link Sprint} to active; side effect: publishes a `sprint.started` SSE event for the habitat.
  */
 export function startSprint(sprintId: string): Sprint {
-  const existing = sprintRepo.getById(sprintId);
-  if (!existing) throw notFound("Sprint not found");
-  if (existing.status !== "planning") throw badRequest("Sprint is not in planning status");
-
-  const updated = sprintRepo.update(sprintId, { status: "active" });
-  if (!updated) throw internalError("Failed to start sprint");
+  const result = sprintRepo.start(sprintId);
+  if (result.outcome === "not_found") throw notFound("Sprint not found");
+  if (result.outcome === "not_planning") throw badRequest("Sprint is not in planning status");
+  if (result.outcome === "active_exists") throw conflict("Habitat already has an active sprint");
+  const updated = result.sprint;
 
   sseBroadcaster.publish(updated.habitatId, {
     type: "sprint.started",

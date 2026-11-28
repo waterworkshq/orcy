@@ -1,7 +1,7 @@
 import { getDb } from "../db/index.js";
 import { sprints, missions } from "../db/schema/index.js";
 import { eq, and, sql } from "drizzle-orm";
-import type { CarryOverPolicy, Sprint, SprintStatus } from "@orcy/shared";
+import type { CarryOverPolicy, Sprint } from "@orcy/shared";
 import { v4 as uuid } from "uuid";
 import {
   repositoryCreateError,
@@ -83,7 +83,6 @@ export function update(
     goal?: string;
     startDate?: string;
     endDate?: string;
-    status?: SprintStatus;
     capacityMinutes?: number | null;
     notes?: string;
   },
@@ -99,7 +98,6 @@ export function update(
   if (data.goal !== undefined) values.goal = data.goal;
   if (data.startDate !== undefined) values.startDate = data.startDate;
   if (data.endDate !== undefined) values.endDate = data.endDate;
-  if (data.status !== undefined) values.status = data.status;
   if (data.capacityMinutes !== undefined) values.capacityMinutes = data.capacityMinutes;
   if (data.notes !== undefined) values.notes = data.notes;
 
@@ -109,6 +107,26 @@ export function update(
     throw repositoryUpdateError("sprint", err as Error, id);
   }
   return getById(id);
+}
+
+/** Atomically checks and starts a sprint while holding SQLite's writer reservation. */
+export function start(id: string):
+  | { outcome: "started"; sprint: Sprint }
+  | { outcome: "not_found" }
+  | { outcome: "not_planning" }
+  | { outcome: "active_exists" } {
+  const db = getDb();
+  return db.transaction((tx) => {
+    const existing = tx.select().from(sprints).where(eq(sprints.id, id)).get();
+    if (!existing) return { outcome: "not_found" } as const;
+    if (existing.status !== "planning") return { outcome: "not_planning" } as const;
+    const active = tx.select({ id: sprints.id }).from(sprints)
+      .where(and(eq(sprints.habitatId, existing.habitatId), eq(sprints.status, "active"))).get();
+    if (active) return { outcome: "active_exists" } as const;
+    const updated = tx.update(sprints).set({ status: "active", updatedAt: new Date().toISOString() })
+      .where(eq(sprints.id, id)).returning().get();
+    return { outcome: "started", sprint: updated as Sprint } as const;
+  }, { behavior: "immediate" });
 }
 
 export function remove(id: string): boolean {
