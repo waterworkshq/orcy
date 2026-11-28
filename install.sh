@@ -39,8 +39,9 @@ echo "    Node $NODE_VERSION found"
 # One installer run at a time per ORCY_HOME: two would race on the source tree,
 # the staged installer, its promotion and the tree the wizard rebuilds. The lock
 # is a directory, because creating it is atomic: whoever creates it runs, and
-# it holds that run's PID. It is kept until the installer has exited — on
-# success, failure, Ctrl-C or a termination request. A lock that is already
+# it holds that run's PID. It is kept until the installer has exited and
+# nothing of the install is running — on success, failure, Ctrl-C or a
+# termination request. A lock that is already
 # there stops this run before it touches anything. It is never taken over
 # automatically: a run cannot tell a dead owner's lock from a live one's, and
 # removing the wrong one would let two runs through. One left by a run that
@@ -201,86 +202,121 @@ fi
 rm -rf "${BACKUP_DIR}" 2>/dev/null ||
   echo "    Note: the previous installer is kept at ${BACKUP_DIR} and can be deleted."
 
-# The supervisor below runs the installer as a child in this process's place.
-# - On SIGINT, SIGTERM or SIGHUP it stops the install: first every process below
-#   the installer (its builds run as child processes), then the installer itself.
-# - It releases the lock on its own exit — after the installer has exited — and
-#   only the lock this process created: the directory must still hold this
-#   process's PID, and it goes only once that marker is gone from it.
+# The supervisor below runs the installer as a child in this process's place,
+# in a session of its own. That session's process group is the whole install:
+# every process the installer starts joins it at birth and stays in it even once
+# its parent is gone, so it is the one thing a stop acts on and the one thing
+# the lock waits for. Nothing is looked up to be signalled, so no process
+# listing can be missing, stale or reused. The installer keeps this process's
+# stdin, stdout and stderr, and — owning no terminal — reads them without being
+# stopped as a background job, so the wizard's terminal access is as before.
+# - On SIGINT, SIGTERM or SIGHUP it kills the group — the installer and every
+#   process it started, at once — and never reports success.
+# - Ctrl-Z and resume reach this process alone, so they are passed on to the
+#   install.
+# - It exits once the installer has exited and nothing of the install is
+#   running, and releases the lock then — only the lock this process created:
+#   the directory has to hold this process's PID, and it goes only once that
+#   marker is gone from it. If something of the install is still running after
+#   that, the lock is kept and it says so.
 # - It exits with the installer's status, or 128 + the signal number for a
-#   cancelled run — never 0 for one.
-SUPERVISOR='
-const { spawn, execFileSync } = require("node:child_process");
+#   cancelled run.
+SUPERVISOR=$(cat <<'EOF'
+const { spawn } = require("node:child_process");
 const fs = require("node:fs");
 const { signals } = require("node:os").constants;
 const [entry, ...args] = process.argv.slice(1);
 const lock = process.env.ORCY_INSTALLER_LOCK;
 const marker = lock + "/pid";
+const installer = spawn(process.execPath, [entry, ...args], { stdio: "inherit", detached: true });
+const group = -installer.pid;
+// Until the installer has been reaped, its PID — the group's number — is taken
+// by it alone, so the group can be nobody else's. It is signalled only until then.
+let active = true;
+let cancelled = 0;
+let keepLock = false;
 process.on("exit", () => {
+  // Dying while the installer still runs must not free the lock, and neither must a run that is not over.
+  if (active || keepLock) return;
   try {
     if (fs.readFileSync(marker, "utf8").trim() !== String(process.pid)) return;
     fs.unlinkSync(marker);
     fs.rmdirSync(lock);
   } catch {}
 });
-const installer = spawn(process.execPath, [entry, ...args], { stdio: "inherit" });
-let cancelled = 0;
-// Everything below a process, deepest first, from one `ps` listing. Zombies are
-// left out: a stopped parent cannot reap them.
-const below = (pid) => {
-  const rows = execFileSync("ps", ["-eo", "pid=,ppid=,stat="], { encoding: "utf8" })
-    .trim()
-    .split("\n")
-    .map((line) => line.trim().split(/\s+/))
-    .filter(([, , state]) => state[0] !== "Z");
-  const out = [];
-  const walk = (parent) => {
-    for (const [child, ppid] of rows) {
-      if (ppid === parent) {
-        walk(child);
-        out.push(Number(child));
-      }
-    }
-  };
-  walk(String(pid));
-  return out;
-};
-const stop = () => {
-  // The installer runs its builds through blocking child processes. Stopping it
-  // alone would leave them working in the shared source tree after the lock is
-  // gone, so the whole tree below it is stopped first. A child dying makes the
-  // installer exit or start another step, but that lands on this event loop,
-  // which this function holds until the tree is gone.
-  try {
-    for (let pass = 0; pass < 10; pass++) {
-      const kids = below(installer.pid);
-      if (!kids.length) break;
-      for (const pid of kids) {
-        try { process.kill(pid, "SIGKILL"); } catch {}
-      }
-      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 20);
-    }
-  } catch {}
-  installer.kill("SIGKILL");
+const signal = (name) => {
+  if (active) { try { process.kill(group, name); } catch {} }
 };
 for (const name of ["SIGINT", "SIGTERM", "SIGHUP"]) {
   process.on(name, () => {
     cancelled ||= signals[name];
-    stop();
+    signal("SIGKILL");
+    // The group exists only once the installer has made its session, a moment after the fork.
+    if (active) installer.kill("SIGKILL");
   });
 }
-installer.on("exit", (code, signal) => {
-  const status = code ?? 128 + (signals[signal] ?? 0);
-  process.exit(cancelled ? 128 + cancelled : status);
+installer.on("error", (err) => {
+  // Nothing was started, so nothing of the install can be left: report and go.
+  active = false;
+  console.error(err);
+  process.exit(1);
 });
-'
+const pause = () => {
+  process.off("SIGTSTP", pause);
+  // Ctrl-Z, as a stop the install cannot decline: the group is orphaned — its
+  // parent is in another session — and the kernel drops SIGTSTP to such a group.
+  signal("SIGSTOP");
+  process.kill(process.pid, "SIGTSTP");
+};
+process.on("SIGTSTP", pause);
+process.on("SIGCONT", () => {
+  process.on("SIGTSTP", pause);
+  signal("SIGCONT");
+});
+// Whether anything of the install is still running. Nothing is once the group
+// is gone. A group that is still there may hold nothing but zombies — processes
+// that have exited and only wait to be reaped, so use no tree. Linux tells them
+// from live ones through /proc, which is read to look and never to signal by.
+// Where it cannot say, what is left counts as running.
+// ponytail: a process that starts a session of its own leaves the group unseen; the build tools do not.
+const running = () => {
+  try { process.kill(group, 0); } catch (err) { return err.code !== "ESRCH"; }
+  let pids;
+  try { pids = fs.readdirSync("/proc"); } catch { return true; }
+  for (const pid of pids) {
+    if (!/^\d+$/.test(pid)) continue;
+    let stat;
+    try { stat = fs.readFileSync(`/proc/${pid}/stat`, "utf8"); } catch { continue; }
+    const row = /^\d+ \(.*\) (\S) \S+ (\S+) /.exec(stat);
+    if (row && row[2] === String(-group) && row[1] !== "Z") return true;
+  }
+  return false;
+};
+installer.on("exit", (code, signalName) => {
+  active = false;
+  const status = code ?? 128 + (signals[signalName] ?? 0);
+  const deadline = Date.now() + 5000;
+  const settle = () => {
+    if (!running()) process.exit(cancelled ? 128 + cancelled : status);
+    if (Date.now() > deadline) {
+      keepLock = true;
+      console.error("A process of this install is still running, so the lock is kept: " + lock);
+      console.error("Once nothing of it is running, remove " + lock + " and run this again.");
+      process.exit(cancelled ? 128 + cancelled : 1);
+    }
+    setTimeout(settle, 20);
+  };
+  settle();
+});
+EOF
+)
 
 # Run installer. A small supervisor takes this process's place, so that a
 # signal sent to it reaches the installer, the lock is released only once the
-# installer has exited, and a cancelled run never reports success. The
-# installer runs in the same process group, so it keeps the terminal. The EXIT
-# trap stays armed for the one case the supervisor never starts — a failed
-# `exec` — and does not run when the exec succeeds.
+# installer has exited and nothing of the install is running, and a cancelled
+# run never reports success. The EXIT trap stays armed for the one case the
+# supervisor never starts — a failed `exec` — and does not run when the exec
+# succeeds.
 echo "==> Running installer..."
 # `curl … | bash` leaves the installer a drained pipe as stdin, so the
 # interactive wizard would read end-of-input at its first question and exit.

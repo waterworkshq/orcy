@@ -37,21 +37,28 @@
  *   8. One installer run at a time per ORCY_HOME. The lock is a directory,
  *      created atomically; a second run stops before it touches anything
  *      and is told which lock to remove by hand if no run is active. The
- *      lock is held until the installer has exited — on success, failure, a
- *      termination request — is released only by the run that created it,
- *      and the installer's exit status becomes the script's. A signal sent to
- *      the script's process stops the installer, and an interrupted or
- *      cancelled run never exits 0. An installer left moved aside by an
- *      interrupted promotion is restored before anything fallible runs. A
- *      stale backup that cannot be cleared stops promotion with the working
- *      installer untouched; a backup that cannot be deleted after promotion
- *      does not stop the handoff.
+ *      lock is held until nothing of the run is running — on success, failure,
+ *      a termination request — is released only by the run that created it,
+ *      kept and named when something of the run is still running, and the
+ *      installer's exit status becomes the script's. A signal sent to the
+ *      script's process stops the installer and every process it started,
+ *      before the lock is released, with no process-listing tool; the dead
+ *      waiting to be reaped do not count as running; the installer keeps
+ *      reading the terminal, and Ctrl-Z and resume are passed on; and an
+ *      interrupted or cancelled run never exits 0. An installer left moved
+ *      aside by an interrupted promotion is restored before anything fallible
+ *      runs. A stale backup that cannot be cleared stops promotion with the
+ *      working installer untouched; a backup that cannot be deleted after
+ *      promotion does not stop the handoff.
+ *   9. The supervisor reaches node as the program that was written: the shell
+ *      script parses, and the program inside it parses.
  */
 import { describe, it, expect, afterAll } from "vitest";
-import { spawn, spawnSync } from "node:child_process";
+import { spawn, spawnSync, type ChildProcess } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { Script } from "node:vm";
 
 const REPO_ROOT = path.resolve(import.meta.dirname, "..", "..", "..");
 const INSTALL_SH = path.join(REPO_ROOT, "install.sh");
@@ -96,6 +103,57 @@ const SCRIPT = ((): string | null => {
     return null;
   }
 })();
+
+/**
+ * Python on Linux, which can make a child subreaper. util-linux has only
+ * reaping ones, so none of its tools stands in for an init that never reaps.
+ */
+const SUBREAPER = ((): string | null => {
+  if (process.platform !== "linux") return null;
+  try {
+    return resolveBin("python3");
+  } catch {
+    return null;
+  }
+})();
+
+/** Runs a command under a child subreaper that never reaps: the orphans of a
+ *  cancelled install stay zombies, as under an init that does not reap — a
+ *  container whose PID 1 is node or python. Prints the command's status once it
+ *  has ended, and stays put — so the dead stay unreaped — until it is killed. */
+const NO_REAP = `
+import ctypes, os, sys, time
+ctypes.CDLL(None).prctl(36, 1, 0, 0, 0)  # PR_SET_CHILD_SUBREAPER
+pid = os.fork()
+if pid == 0:
+    os.execvp(sys.argv[1], sys.argv[1:])
+done = os.waitid(os.P_PID, pid, os.WEXITED | os.WNOWAIT)
+print("NO_REAP_EXIT", done.si_status if done.si_code == os.CLD_EXITED else 128 + done.si_status, flush=True)
+time.sleep(600)
+`;
+
+/** A process's state as `ps` reports it; empty once it is gone. */
+function processState(pid: number): string {
+  return spawnSync(resolveBin("ps"), ["-o", "stat=", "-p", String(pid)], { encoding: "utf8" })
+    .stdout.trim();
+}
+
+/** Whether a process is running. One that has exited and only waits to be
+ *  reaped — a zombie — is not, although it still answers `kill -0`. */
+const isRunning = (pid: number): boolean => {
+  const state = processState(pid);
+  return state !== "" && !state.startsWith("Z");
+};
+
+/** Polls until the condition holds, for 5 s at most. */
+async function until(condition: () => boolean): Promise<void> {
+  for (let i = 0; i < 100 && !condition(); i++) {
+    await new Promise<void>((resolve) => setTimeout(resolve, 50));
+  }
+}
+
+const onExit = (child: ChildProcess): Promise<void> =>
+  new Promise<void>((resolve) => child.once("exit", () => resolve()));
 
 function writeStub(dir: string, name: string, body: string): void {
   fs.writeFileSync(path.join(dir, name), `#!/bin/sh\n${body}\n`, { mode: 0o755 });
@@ -142,6 +200,12 @@ interface InstallerBehavior {
   swapLock?: boolean;
   /** Leave a child process behind that would outlive the installer. */
   spawnChild?: boolean;
+  /** Leave a worker behind whose parent has already exited. */
+  orphanWorker?: boolean;
+  /** Report the installer's PID, so a test can act on that process. */
+  writePid?: boolean;
+  /** Read what is typed at the terminal, as the wizard's prompts do. */
+  readLine?: boolean;
 }
 
 function buildScenario(opts: {
@@ -185,8 +249,7 @@ function buildScenario(opts: {
       `if [ "$1" = "--version" ]; then echo "${opts.nodeVersion}"; exit 0; fi\nexec "${realNode}" "$@"`,
     );
   }
-  // `ps` too: the supervisor lists the installer's process tree with it when a run is stopped.
-  for (const b of ["sed", "mkdir", "rm", "mv", "cp", "cat", "ls", "rmdir", "ps"]) {
+  for (const b of ["sed", "mkdir", "rm", "mv", "cp", "cat", "ls", "rmdir"]) {
     fs.symlinkSync(resolveBin(b), path.join(stubDir, b));
   }
   // With failPromotion, `mv` refuses to move the staged installer into place
@@ -255,6 +318,7 @@ import { writeFileSync, existsSync, mkdirSync, rmSync, readFileSync } from "node
 import { spawn } from "node:child_process";
 import { id } from "@orcy/shared";
 const behavior = JSON.parse(process.env.ORCY_FAKE_INSTALLER ?? "{}");
+if (behavior.writePid) writeFileSync(process.env.ORCY_FAKE_INSTALLER_PID, String(process.pid));
 // Reported as soon as the installer starts: what it was given, and whether
 // the bootstrap was still holding its lock at that point.
 writeFileSync(
@@ -276,6 +340,18 @@ if (behavior.swapLock) {
   mkdirSync(process.env.ORCY_INSTALLER_LOCK);
   writeFileSync(process.env.ORCY_INSTALLER_LOCK + "/pid", "424242\\n");
 }
+// Stands in for a build whose own parent is gone — reparented, so no listing of
+// the installer's process tree would find it.
+if (behavior.orphanWorker) {
+  const pidFile = process.env.ORCY_FAKE_CHILD_PID;
+  const worker = [
+    "const { spawn } = require('node:child_process');",
+    "const worker = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore' });",
+    "require('node:fs').writeFileSync(process.argv[1], String(worker.pid));",
+    "worker.unref();",
+  ].join(";");
+  spawn(process.execPath, ["-e", worker, "--", pidFile], { stdio: "ignore" }).unref();
+}
 // Stands in for a build the installer is waiting on: outlives it unless stopped.
 if (behavior.spawnChild) {
   const child = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], { stdio: "ignore" });
@@ -287,6 +363,20 @@ if (behavior.spawnChild) {
 if (behavior.ignoreSignals) {
   for (const signal of ["SIGINT", "SIGTERM", "SIGHUP"]) process.on(signal, () => {});
 }
+// Reads the terminal as the wizard's prompts do — raw, until a line is in — and ends with that line.
+if (behavior.readLine) {
+  let typed = "";
+  process.stdin.setRawMode(true);
+  process.stdin.resume();
+  process.stdin.on("data", (chunk) => {
+    typed += chunk;
+    if (typed.includes(String.fromCharCode(13))) {
+      writeFileSync(process.env.ORCY_FAKE_INPUT, typed);
+      process.exit(0);
+    }
+  });
+  await new Promise(() => {});
+}
 if (behavior.sleepMs) Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, behavior.sleepMs);
 process.exit(behavior.exit ?? 0);
 IDXEOF
@@ -297,6 +387,9 @@ printf 'skill\\n' > "$dir/packages/installer/skills/overview.md"
   // Forbidden commands: any invocation is recorded and fails.
   writeStub(stubDir, "pnpm", `${log("FORBIDDEN-bare-pnpm")}\nexit 1`);
   writeStub(stubDir, "npm", `${log("FORBIDDEN-npm")}\nexit 1`);
+  // A process-listing tool that is missing, as far as the script can tell: a
+  // stop has to work without one.
+  writeStub(stubDir, "ps", `${log("FORBIDDEN-ps")}\nexit 127`);
 
   // Pin-aware runners: record args plus the working directory (single quoted
   // word — an unquoted "$*" would word-split across log lines). A deploy stands
@@ -384,6 +477,8 @@ function installerEnv(s: Scenario): NodeJS.ProcessEnv {
     ORCY_FAKE_BUILD_MS: s.slowBuildMs ? String(s.slowBuildMs) : "",
     ORCY_FAKE_SWAP_LOCK: s.swapLockDuringBuild ? "1" : "",
     ORCY_FAKE_CHILD_PID: path.join(s.home, "child.pid"),
+    ORCY_FAKE_INSTALLER_PID: path.join(s.home, "installer.pid"),
+    ORCY_FAKE_INPUT: path.join(s.home, "typed"),
   };
 }
 
@@ -708,18 +803,121 @@ describe("install.sh — one installer run at a time", () => {
       stdio: ["ignore", "pipe", "pipe"],
     });
     const childPidFile = path.join(s.home, "child.pid");
-    for (let i = 0; i < 100 && !fs.existsSync(childPidFile); i++) {
-      await new Promise<void>((resolve) => setTimeout(resolve, 50));
-    }
+    await until(() => fs.existsSync(childPidFile));
     const build = Number(fs.readFileSync(childPidFile, "utf8"));
-    expect(() => process.kill(build, 0)).not.toThrow(); // it is running
-    const exited = new Promise<void>((resolve) => child.once("exit", () => resolve()));
+    expect(isRunning(build)).toBe(true); // it is running
+    const done = onExit(child);
     child.kill("SIGTERM");
-    await exited;
+    await done;
     expect(child.exitCode).toBe(143);
     expect(fs.existsSync(s.lockDir)).toBe(false);
     // The lock is gone, so nothing of this run may still be using the source tree.
-    expect(() => process.kill(build, 0)).toThrow();
+    expect(isRunning(build)).toBe(false);
+    // Nothing was looked up to be stopped: no process-listing tool was run.
+    expect(readLog(s).some((l) => l.startsWith("FORBIDDEN-ps"))).toBe(false);
+  });
+
+  it("stops a worker whose parent already exited before the stop, so nothing of the run outlives the lock", async () => {
+    // No walk of the installer's process tree could find this worker: its parent
+    // is gone and it has been reparented. It still belongs to the install: it is
+    // in the installer's process group, which outlives the parent.
+    const s = buildScenario({ installer: { orphanWorker: true, sleepMs: 10_000 } });
+    const child = spawn(resolveBin("sh"), [INSTALL_SH], {
+      env: installerEnv(s),
+      cwd: s.home,
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    const workerPidFile = path.join(s.home, "child.pid");
+    await until(() => fs.existsSync(workerPidFile));
+    const worker = Number(fs.readFileSync(workerPidFile, "utf8"));
+    expect(isRunning(worker)).toBe(true);
+    const done = onExit(child);
+    child.kill("SIGTERM");
+    await done;
+    expect(child.exitCode).toBe(143);
+    expect(fs.existsSync(s.lockDir)).toBe(false);
+    expect(isRunning(worker)).toBe(false);
+    expect(readLog(s).some((l) => l.startsWith("FORBIDDEN-ps"))).toBe(false);
+  });
+
+  it("keeps the lock, and says which one to remove, while a process of the run is still running", async () => {
+    // The installer has exited on its own and left a worker behind. Nothing
+    // signalled it, so it is still at work in the tree the next run would
+    // replace: the lock must not be handed back over its head.
+    const s = buildScenario({ installer: { spawnChild: true } });
+    const r = runInstallSh(s);
+    expect(r.status).toBe(1);
+    expect(fs.existsSync(s.lockDir)).toBe(true);
+    expect(output(r)).toContain("still running, so the lock is kept");
+    expect(output(r)).toContain(`remove ${s.lockDir} and run this again.`);
+    // The worker really was running all along, and is stopped here by hand.
+    const worker = Number(fs.readFileSync(path.join(s.home, "child.pid"), "utf8"));
+    expect(isRunning(worker)).toBe(true);
+    process.kill(worker, "SIGKILL");
+  }, 15_000);
+
+  it.skipIf(!SUBREAPER)(
+    "does not wait for the dead: releases the lock although nothing reaps a cancelled run",
+    async () => {
+      // A zombie has exited and only waits to be reaped; it uses no tree. Under
+      // an init that never reaps, it stays in the process group for good — a
+      // lock that waited for the group to vanish would be kept for good.
+      const s = buildScenario({ installer: { spawnChild: true, sleepMs: 10_000 } });
+      const child = spawn(SUBREAPER!, ["-c", NO_REAP, resolveBin("sh"), INSTALL_SH], {
+        env: installerEnv(s),
+        cwd: s.home,
+        stdio: ["ignore", "pipe", "pipe"],
+      });
+      let out = "";
+      child.stdout!.on("data", (d) => (out += d));
+      child.stderr!.on("data", (d) => (out += d));
+      let supervisor = 0;
+      try {
+        const lockMarker = path.join(s.lockDir, "pid");
+        await until(() => fs.existsSync(lockMarker));
+        supervisor = Number(fs.readFileSync(lockMarker, "utf8"));
+        const childPidFile = path.join(s.home, "child.pid");
+        await until(() => fs.existsSync(childPidFile));
+        const build = Number(fs.readFileSync(childPidFile, "utf8"));
+        process.kill(supervisor, "SIGTERM");
+        await until(() => out.includes("NO_REAP_EXIT"));
+        expect(out).toMatch(/NO_REAP_EXIT 143/);
+        expect(fs.existsSync(s.lockDir)).toBe(false);
+        // The dead really were never reaped: the worker is a zombie still.
+        expect(processState(build)).toMatch(/^Z/);
+      } finally {
+        // Either way nothing of the fixture outlives the test.
+        try {
+          process.kill(supervisor, "SIGKILL");
+        } catch {}
+        child.kill("SIGKILL");
+      }
+    },
+    15_000,
+  );
+
+  it("passes Ctrl-Z and resume on to the installer", async () => {
+    // The installer runs in a session of its own, so a stop sent to this
+    // script's process does not reach it by itself.
+    const s = buildScenario({ installer: { writePid: true, sleepMs: 2500 } });
+    const child = spawn(resolveBin("sh"), [INSTALL_SH], {
+      env: installerEnv(s),
+      cwd: s.home,
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    const installerPidFile = path.join(s.home, "installer.pid");
+    await until(() => fs.existsSync(installerPidFile));
+    const installer = Number(fs.readFileSync(installerPidFile, "utf8"));
+    expect(processState(installer)).not.toMatch(/^T/);
+    child.kill("SIGTSTP");
+    await new Promise<void>((resolve) => setTimeout(resolve, 300));
+    expect(processState(installer)).toMatch(/^T/);
+    child.kill("SIGCONT");
+    await new Promise<void>((resolve) => setTimeout(resolve, 300));
+    expect(processState(installer)).not.toMatch(/^T/);
+    await onExit(child);
+    expect(child.exitCode).toBe(0);
+    expect(fs.existsSync(s.lockDir)).toBe(false);
   });
 
   it("does not report a cancelled run as successful, even when the installer ignores the signal", async () => {
@@ -838,31 +1036,77 @@ describe("install.sh — promotion versus the previous installer's backup", () =
 });
 
 describe.skipIf(!SCRIPT)("install.sh — interactive handoff through a terminal", () => {
-  it("gives the installer the terminal when its stdin is the drained pipe of `curl … | bash`", () => {
-    const s = buildScenario({});
-    // A controlling terminal exists (the pseudo-terminal), while the script's
-    // stdin sits at end-of-input — exactly what a piped `curl … | bash` leaves.
-    const r = spawnSync(
+  /** Runs the script inside a pseudo-terminal, its stdin at end-of-input — what
+   *  a piped `curl … | bash` leaves — and lets the test type into that terminal. */
+  const throughTerminal = (s: Scenario, args = "") => {
+    const child = spawn(
       SCRIPT!,
       [
         "--quiet",
         "--return",
         "--command",
-        `"${resolveBin("sh")}" "${INSTALL_SH}" --yes --components=api < /dev/null`,
+        `"${resolveBin("sh")}" "${INSTALL_SH}" ${args} < /dev/null`,
         "/dev/null",
       ],
-      {
-        env: installerEnv(s),
-        cwd: s.home,
-        encoding: "utf8",
-        timeout: 60_000,
-      },
+      { env: installerEnv(s), cwd: s.home, stdio: ["pipe", "pipe", "pipe"] },
     );
-    expect(r.status, `${r.stdout}\n${r.stderr}`).toBe(0);
+    let out = "";
+    child.stdout!.on("data", (d) => (out += d));
+    child.stderr!.on("data", (d) => (out += d));
+    return { child, output: () => out, done: onExit(child) };
+  };
+
+  it("gives the installer the terminal when its stdin is the drained pipe of `curl … | bash`, and the installer reads it", async () => {
+    // A controlling terminal exists (the pseudo-terminal), while the script's
+    // stdin sits at end-of-input. The installer runs in a session of its own:
+    // had it merely been a background job of the terminal's, reading would
+    // stop it. It reads all the same.
+    const s = buildScenario({ installer: { readLine: true } });
+    const run = throughTerminal(s, "--yes --components=api");
+    await until(() => fs.existsSync(s.markerPath));
+    run.child.stdin!.write("typed at the terminal\r");
+    await run.done;
+    expect(run.child.exitCode, run.output()).toBe(0);
     expect(JSON.parse(fs.readFileSync(s.markerPath, "utf8"))).toMatchObject({
       args: ["--yes", "--components=api"],
       stdinIsTTY: true,
     });
+    const typed = path.join(s.home, "typed");
+    expect(fs.existsSync(typed) ? fs.readFileSync(typed, "utf8") : run.output()).toMatch(
+      /typed at the terminal/,
+    );
+    expect(fs.existsSync(s.lockDir)).toBe(false);
+  });
+
+  it("stops on Ctrl-C at the terminal — installer and all — and reports 130", async () => {
+    // The terminal signals its foreground process group: the script's process
+    // alone, now that the installer runs in a session of its own.
+    const s = buildScenario({ installer: { spawnChild: true, sleepMs: 10_000 } });
+    const run = throughTerminal(s);
+    const childPidFile = path.join(s.home, "child.pid");
+    await until(() => fs.existsSync(childPidFile));
+    const build = Number(fs.readFileSync(childPidFile, "utf8"));
+    expect(isRunning(build)).toBe(true);
+    run.child.stdin!.write("\x03");
+    await run.done;
+    expect(run.child.exitCode, run.output()).toBe(130);
+    expect(fs.existsSync(s.lockDir)).toBe(false);
+    expect(isRunning(build)).toBe(false);
+  });
+});
+
+describe("install.sh — the supervisor reaches node intact", () => {
+  it("is a script the shell parses, holding a program that node parses", () => {
+    // `sh -n` alone passed a supervisor whose closing quote had been doubled:
+    // still a valid script, and a program node refuses to run.
+    expect(spawnSync(resolveBin("sh"), ["-n", INSTALL_SH]).status).toBe(0);
+    const lines = fs.readFileSync(INSTALL_SH, "utf8").split("\n");
+    const program = lines.slice(
+      lines.indexOf("SUPERVISOR=$(cat <<'EOF'") + 1,
+      lines.indexOf("EOF"),
+    );
+    expect(program.at(-1)).toBe("});");
+    expect(() => new Script(program.join("\n"))).not.toThrow();
   });
 });
 
