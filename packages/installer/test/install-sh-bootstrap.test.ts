@@ -66,7 +66,20 @@ const INSTALL_SH = path.join(REPO_ROOT, "install.sh");
 /** Every scenario's disposable HOME; removed once this file has finished. */
 const scenarioHomes: string[] = [];
 afterAll(() => {
-  for (const home of scenarioHomes) fs.rmSync(home, { recursive: true, force: true });
+  for (const home of scenarioHomes) {
+    // A test that failed before its own cleanup must not leave its fixture
+    // worker at work. It is recognised by its command line — or by the name the
+    // odd one gives itself, which replaces that line — before it is signalled.
+    const worker = path.join(home, "child.pid");
+    if (fs.existsSync(worker)) {
+      const pid = fs.readFileSync(worker, "utf8").trim();
+      const args = spawnSync(resolveBin("ps"), ["-o", "args=", "-p", pid], { encoding: "utf8" }).stdout;
+      if (/setInterval\(\(\) => \{\}, 1000\)|^build.{0,2}orker \(1\)$/.test(args.trim())) {
+        process.kill(Number(pid), "SIGKILL");
+      }
+    }
+    fs.rmSync(home, { recursive: true, force: true });
+  }
 });
 
 /** The repo root's packageManager pin — the fake source mirrors it and the
@@ -202,6 +215,8 @@ interface InstallerBehavior {
   spawnChild?: boolean;
   /** Leave a worker behind whose parent has already exited. */
   orphanWorker?: boolean;
+  /** Leave a worker behind whose name holds a newline and a parenthesis. */
+  namedWorker?: boolean;
   /** Report the installer's PID, so a test can act on that process. */
   writePid?: boolean;
   /** Read what is typed at the terminal, as the wizard's prompts do. */
@@ -353,8 +368,10 @@ if (behavior.orphanWorker) {
   spawn(process.execPath, ["-e", worker, "--", pidFile], { stdio: "ignore" }).unref();
 }
 // Stands in for a build the installer is waiting on: outlives it unless stopped.
-if (behavior.spawnChild) {
-  const child = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], { stdio: "ignore" });
+if (behavior.spawnChild || behavior.namedWorker) {
+  const child = spawn(process.execPath, ["-e", behavior.namedWorker
+    ? "process.title = 'build\\\\n)orker (1)'; setInterval(() => {}, 1000)"
+    : "setInterval(() => {}, 1000)"], { stdio: "ignore" });
   writeFileSync(process.env.ORCY_FAKE_CHILD_PID, String(child.pid));
   child.unref();
 }
@@ -843,8 +860,9 @@ describe("install.sh — one installer run at a time", () => {
   it("keeps the lock, and says which one to remove, while a process of the run is still running", async () => {
     // The installer has exited on its own and left a worker behind. Nothing
     // signalled it, so it is still at work in the tree the next run would
-    // replace: the lock must not be handed back over its head.
-    const s = buildScenario({ installer: { spawnChild: true } });
+    // replace: the lock must not be handed back over its head. Its name holds
+    // a newline and a parenthesis, which /proc does not quote.
+    const s = buildScenario({ installer: { namedWorker: true } });
     const r = runInstallSh(s);
     expect(r.status).toBe(1);
     expect(fs.existsSync(s.lockDir)).toBe(true);
@@ -854,6 +872,32 @@ describe("install.sh — one installer run at a time", () => {
     const worker = Number(fs.readFileSync(path.join(s.home, "child.pid"), "utf8"));
     expect(isRunning(worker)).toBe(true);
     process.kill(worker, "SIGKILL");
+  }, 15_000);
+
+  it("stops what is left of the run when asked to stop while the lock is still waited for", async () => {
+    // The installer has exited and left a worker, and the supervisor is waiting
+    // before it keeps the lock. A termination request now must reach the worker
+    // — the install's group is still this run's until the run is over.
+    const s = buildScenario({ installer: { spawnChild: true, writePid: true } });
+    const child = spawn(resolveBin("sh"), [INSTALL_SH], {
+      env: installerEnv(s),
+      cwd: s.home,
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    const done = onExit(child);
+    const installerPidFile = path.join(s.home, "installer.pid");
+    await until(() => fs.existsSync(installerPidFile));
+    const installer = Number(fs.readFileSync(installerPidFile, "utf8"));
+    const childPidFile = path.join(s.home, "child.pid");
+    await until(() => fs.existsSync(childPidFile));
+    const build = Number(fs.readFileSync(childPidFile, "utf8"));
+    await until(() => processState(installer) === ""); // the installer is gone
+    expect(isRunning(build)).toBe(true); // the worker is not
+    child.kill("SIGTERM");
+    await done;
+    expect(child.exitCode).toBe(143);
+    expect(fs.existsSync(s.lockDir)).toBe(false);
+    expect(isRunning(build)).toBe(false);
   }, 15_000);
 
   it.skipIf(!SUBREAPER)(

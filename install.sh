@@ -202,16 +202,16 @@ fi
 rm -rf "${BACKUP_DIR}" 2>/dev/null ||
   echo "    Note: the previous installer is kept at ${BACKUP_DIR} and can be deleted."
 
-# The supervisor below runs the installer as a child in this process's place,
-# in a session of its own. That session's process group is the whole install:
-# every process the installer starts joins it at birth and stays in it even once
-# its parent is gone, so it is the one thing a stop acts on and the one thing
-# the lock waits for. Nothing is looked up to be signalled, so no process
-# listing can be missing, stale or reused. The installer keeps this process's
-# stdin, stdout and stderr, and — owning no terminal — reads them without being
-# stopped as a background job, so the wizard's terminal access is as before.
-# - On SIGINT, SIGTERM or SIGHUP it kills the group — the installer and every
-#   process it started, at once — and never reports success.
+# The supervisor below hands the install to an anchor: a process in a session of
+# its own — so its process group is the whole install — that starts the
+# installer and outlives it until the run is over. Every process the installer
+# starts joins that group at birth and stays in it even once its parent is
+# gone. While the anchor is unreaped, the group's number is its PID alone, so
+# the group is this run's to signal at any moment, the installer still running
+# or not. Nothing is looked up to be signalled: /proc is read to look, never to
+# signal by.
+# - On SIGINT, SIGTERM or SIGHUP it freezes the group, then kills it — the
+#   installer and every process it started — and never reports success.
 # - Ctrl-Z and resume reach this process alone, so they are passed on to the
 #   install.
 # - It exits once the installer has exited and nothing of the install is
@@ -221,6 +221,9 @@ rm -rf "${BACKUP_DIR}" 2>/dev/null ||
 #   that, the lock is kept and it says so.
 # - It exits with the installer's status, or 128 + the signal number for a
 #   cancelled run.
+# - The installer keeps this process's stdin, stdout and stderr, and — owning
+#   no terminal — reads them without being stopped as a background job, so the
+#   wizard's terminal access is as before.
 SUPERVISOR=$(cat <<'EOF'
 const { spawn } = require("node:child_process");
 const fs = require("node:fs");
@@ -228,16 +231,28 @@ const { signals } = require("node:os").constants;
 const [entry, ...args] = process.argv.slice(1);
 const lock = process.env.ORCY_INSTALLER_LOCK;
 const marker = lock + "/pid";
-const installer = spawn(process.execPath, [entry, ...args], { stdio: "inherit", detached: true });
-const group = -installer.pid;
-// Until the installer has been reaped, its PID — the group's number — is taken
-// by it alone, so the group can be nobody else's. It is signalled only until then.
-let active = true;
+// The anchor leads the install's session and process group, starts the
+// installer, reports its exit through a pipe, and stays until it is killed.
+const anchor = spawn(process.execPath, ["-e", `
+const { spawn } = require("node:child_process");
+const fs = require("node:fs");
+// A build tool may signal its whole group: the anchor has to outlive that.
+for (const name of ["SIGINT", "SIGTERM", "SIGHUP"]) process.on(name, () => {});
+const installer = spawn(process.execPath, process.argv.slice(1), { stdio: "inherit" });
+installer.on("exit", (code, signal) => fs.writeSync(3, JSON.stringify([code, signal]) + "\\n"));
+setInterval(() => {}, 1 << 30);
+`, entry, ...args], { stdio: ["inherit", "inherit", "inherit", "pipe"], detached: true });
+const group = -anchor.pid;
+let active = true; // the anchor is not reaped yet, so the group is this run's to signal
 let cancelled = 0;
+let ended; // the installer's exit status, once the anchor has reported it
+let stopping = false;
+let settling = false;
 let keepLock = false;
+let over = false; // the install is over, and the anchor — its last process — is being killed
 process.on("exit", () => {
-  // Dying while the installer still runs must not free the lock, and neither must a run that is not over.
-  if (active || keepLock) return;
+  // Dying while the install is not over must not free the lock, and neither must a run that is not over.
+  if (keepLock || (active && !over)) return;
   try {
     if (fs.readFileSync(marker, "utf8").trim() !== String(process.pid)) return;
     fs.unlinkSync(marker);
@@ -247,20 +262,106 @@ process.on("exit", () => {
 const signal = (name) => {
   if (active) { try { process.kill(group, name); } catch {} }
 };
+// The states of the group's live members, zombies left out, from /proc. Linux
+// only, and null whenever /proc cannot vouch for an entry.
+// ponytail: a process that starts a session of its own leaves the group unseen; the build tools do not.
+const states = () => {
+  let pids;
+  try { pids = fs.readdirSync("/proc"); } catch { return null; }
+  const out = [];
+  for (const pid of pids) {
+    // The anchor itself is not the install.
+    if (!/^\d+$/.test(pid) || pid === String(-group)) continue;
+    let stat;
+    try { stat = fs.readFileSync(`/proc/${pid}/stat`, "utf8"); }
+    catch (err) { if (err.code !== "ENOENT" && err.code !== "ESRCH") return null; continue; }
+    // The name may hold spaces, parentheses and newlines: it ends at the last one.
+    const end = stat.lastIndexOf(")");
+    const [state, , pgrp] = stat.slice(end + 2).split(" ");
+    if (end < 0 || state === undefined || pgrp === undefined) return null;
+    if (pgrp === String(-group) && state !== "Z") out.push(state);
+  }
+  return out;
+};
+// Whether anything of the install is still running. Nothing is once the group
+// is gone. A group that is still there may hold nothing but zombies — processes
+// that have exited and only wait to be reaped, so use no tree — which Linux
+// tells from live ones. What cannot be read cannot be vouched for, and counts
+// as running.
+const running = () => {
+  try { process.kill(group, 0); } catch (err) { return err.code !== "ESRCH"; }
+  const live = states();
+  return live === null || live.length > 0;
+};
+// Whether anything of the group can still act, that is anything but stopped. A
+// stopped process cannot fork. Where /proc cannot say, nothing is held back.
+const moving = () => {
+  const live = states();
+  return live !== null && live.some((state) => state !== "T" && state !== "t");
+};
+// Ends the run once nothing of it is running — the anchor included — and the
+// lock is released. Something still running at the deadline keeps the lock.
+const settle = (deadline) => {
+  if (settling) return;
+  settling = true;
+  let clear = 0; // two looks in a row: one can miss a process forked while it was taken
+  const look = () => {
+    clear = running() ? 0 : clear + 1;
+    if (clear < 2 && Date.now() <= deadline) return setTimeout(look, 20);
+    over = clear >= 2;
+    if (!over) {
+      keepLock = true;
+      console.error("A process of this install is still running, so the lock is kept: " + lock);
+      console.error("Once nothing of it is running, remove " + lock + " and run this again.");
+    }
+    if (active) anchor.kill("SIGKILL");
+    process.exit(cancelled ? 128 + cancelled : over ? ended ?? 1 : 1);
+  };
+  look();
+};
+// Stops the install. The group is frozen first: a stopped process cannot fork,
+// so once nothing of it moves any more, the kill that follows reaches all of
+// it — a worker forked through an earlier signal included.
+const stop = () => {
+  if (stopping) return;
+  stopping = true;
+  const deadline = Date.now() + 5000;
+  const kill = () => { signal("SIGKILL"); settle(deadline); };
+  const freeze = () => {
+    // The group exists only once the anchor has made its session, a moment after the fork.
+    if (active) { try { process.kill(group, "SIGSTOP"); } catch { anchor.kill("SIGKILL"); } }
+    setTimeout(() => (active && moving() && Date.now() < deadline ? freeze() : kill()), 20);
+  };
+  freeze();
+};
 for (const name of ["SIGINT", "SIGTERM", "SIGHUP"]) {
   process.on(name, () => {
     cancelled ||= signals[name];
-    signal("SIGKILL");
-    // The group exists only once the installer has made its session, a moment after the fork.
-    if (active) installer.kill("SIGKILL");
+    stop();
   });
 }
-installer.on("error", (err) => {
+anchor.on("error", (err) => {
   // Nothing was started, so nothing of the install can be left: report and go.
   active = false;
   console.error(err);
   process.exit(1);
 });
+anchor.on("exit", () => {
+  // Killed by another hand: the group is no longer this run's to signal.
+  active = false;
+  settle(Date.now() + 5000);
+});
+let report = "";
+if (anchor.stdio[3]) {
+  anchor.stdio[3].setEncoding("utf8");
+  anchor.stdio[3].on("data", (chunk) => {
+    report += chunk;
+    if (!report.includes("\n")) return;
+    const [code, name] = JSON.parse(report);
+    ended = code ?? 128 + signals[name];
+    settle(Date.now() + 5000); // the installer has exited: wait for the rest, and stop nothing
+  });
+}
 const pause = () => {
   process.off("SIGTSTP", pause);
   // Ctrl-Z, as a stop the install cannot decline: the group is orphaned — its
@@ -272,41 +373,6 @@ process.on("SIGTSTP", pause);
 process.on("SIGCONT", () => {
   process.on("SIGTSTP", pause);
   signal("SIGCONT");
-});
-// Whether anything of the install is still running. Nothing is once the group
-// is gone. A group that is still there may hold nothing but zombies — processes
-// that have exited and only wait to be reaped, so use no tree. Linux tells them
-// from live ones through /proc, which is read to look and never to signal by.
-// Where it cannot say, what is left counts as running.
-// ponytail: a process that starts a session of its own leaves the group unseen; the build tools do not.
-const running = () => {
-  try { process.kill(group, 0); } catch (err) { return err.code !== "ESRCH"; }
-  let pids;
-  try { pids = fs.readdirSync("/proc"); } catch { return true; }
-  for (const pid of pids) {
-    if (!/^\d+$/.test(pid)) continue;
-    let stat;
-    try { stat = fs.readFileSync(`/proc/${pid}/stat`, "utf8"); } catch { continue; }
-    const row = /^\d+ \(.*\) (\S) \S+ (\S+) /.exec(stat);
-    if (row && row[2] === String(-group) && row[1] !== "Z") return true;
-  }
-  return false;
-};
-installer.on("exit", (code, signalName) => {
-  active = false;
-  const status = code ?? 128 + (signals[signalName] ?? 0);
-  const deadline = Date.now() + 5000;
-  const settle = () => {
-    if (!running()) process.exit(cancelled ? 128 + cancelled : status);
-    if (Date.now() > deadline) {
-      keepLock = true;
-      console.error("A process of this install is still running, so the lock is kept: " + lock);
-      console.error("Once nothing of it is running, remove " + lock + " and run this again.");
-      process.exit(cancelled ? 128 + cancelled : 1);
-    }
-    setTimeout(settle, 20);
-  };
-  settle();
 });
 EOF
 )
