@@ -532,7 +532,7 @@ expect(skillSignal.skillCategory).toBe("pitfall");
 expect(skillSignal.sourceSignalType).toBe("experience");
 ```
 
-**Category mapping tests:** All 7 categories (`stuck`, `confused`, `backtrack`, `surprised`, `ambiguous`, `sidetracked`, `smooth`) map correctly. Note: `sidetracked → pitfall` (stopgap until `anti_patterns` SkillCategory lands in v0.20.1).
+**Category mapping tests:** All 7 categories (`stuck`, `confused`, `backtrack`, `surprised`, `ambiguous`, `sidetracked`, `smooth`) map correctly. Note: `sidetracked → anti_patterns`.
 
 Used by: [`pulse-experience.test.ts`](../packages/mcp/src/__tests__/tools/pulse-experience.test.ts), [`habitatSkillExperience.test.ts`](../packages/api/src/test/habitatSkillExperience.test.ts), [`failureContextService.test.ts`](../packages/api/src/test/failureContextService.test.ts).
 

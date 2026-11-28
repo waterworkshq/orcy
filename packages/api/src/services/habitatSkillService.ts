@@ -220,8 +220,8 @@ export function ingestFromPulse(opts: {
 
 /**
  * Upserts a {@link HabitatSkillSignal} for an experience self-report, mapping the agent's `experience` category to a
- * skill category (pitfall for stuck/confused/backtrack/sidetracked, domain_knowledge for surprised/ambiguous, pattern
- * for smooth) and recording `sourceSignalType: "experience"` so downstream filters can recover the implicit provenance;
+ * skill category via {@link EXPERIENCE_CATEGORY_TO_SKILL} and recording `sourceSignalType: "experience"` so downstream
+ * filters can recover the implicit provenance;
  * side effect: persists via the repository, logs and swallows errors, and skips system-originated signals.
  */
 export function ingestExperienceSignal(opts: {
