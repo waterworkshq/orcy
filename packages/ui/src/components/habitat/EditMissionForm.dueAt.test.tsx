@@ -67,12 +67,14 @@ function RetireSession() {
 function wrapper({ children }: { children: ReactNode }) {
   return <SessionStateProvider><RetireSession /><QueryClientProvider client={client}>{children}</QueryClientProvider></SessionStateProvider>;
 }
-function field(label: RegExp): HTMLInputElement | HTMLSelectElement {
-  const element = screen.getByText(label, { selector: "label" }).parentElement?.querySelector("input, select");
+function field(label: RegExp, root: HTMLElement = document.body): HTMLInputElement | HTMLSelectElement {
+  const element = [...root.querySelectorAll("label")]
+    .find((el) => label.test(el.textContent ?? ""))
+    ?.parentElement?.querySelector("input, select");
   if (!element) throw new Error(`Missing visible field ${label}`);
   return element as HTMLInputElement | HTMLSelectElement;
 }
-const dueDateField = () => field(/due date/i);
+const dueDateField = (root?: HTMLElement) => field(/due date/i, root);
 const save = () => fireEvent.click(screen.getByRole("button", { name: "Save Changes" }));
 
 describe("Mission deadline survives an unrelated edit (issue #236)", () => {
@@ -117,6 +119,25 @@ describe("Mission deadline survives an unrelated edit (issue #236)", () => {
     save();
     await waitFor(() => expect(writes.length).toBe(1));
     expect(writes[0].data).not.toHaveProperty("dueAt");
+  });
+
+  it("round-trips a deadline created in this zone through the edit form unchanged", async () => {
+    // What Create posts for a wall clock is what Edit must read back and re-post.
+    const create = render(<CreateMissionForm open onClose={vi.fn()} habitatId="h1" />, { wrapper });
+    fireEvent.change(screen.getByPlaceholderText("Mission title"), { target: { value: "Fresh" } });
+    fireEvent.change(dueDateField(create.container), { target: { value: "2026-12-01T09:00" } });
+    fireEvent.click(screen.getByRole("button", { name: "Create Mission" }));
+    await waitFor(() => expect(writes.length).toBe(1));
+    const created = writes[0].data.dueAt as string;
+    create.unmount();
+
+    const view = render(<EditMissionForm open onClose={vi.fn()} mission={{ ...base, dueAt: created }} />, { wrapper });
+    expect((dueDateField(view.container) as HTMLInputElement).value).toBe("2026-12-01T09:00");
+    fireEvent.change(screen.getByDisplayValue("Original"), { target: { value: "Renamed" } });
+    save();
+    await waitFor(() => expect(writes.length).toBe(2));
+    expect(writes[1].data).not.toHaveProperty("dueAt");
+    view.unmount();
   });
 
   it("sends an explicit deadline change under UTC as the same wall clock", async () => {

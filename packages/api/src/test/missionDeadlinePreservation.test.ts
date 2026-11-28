@@ -42,6 +42,16 @@ function storedDueAt(missionId: string): string | null {
   return row?.dueAt ?? null;
 }
 
+/** The SLA deadline column exactly as stored. */
+function storedSlaDeadlineAt(missionId: string): string | null {
+  const row = getDb()
+    .select({ slaDeadlineAt: missions.slaDeadlineAt })
+    .from(missions)
+    .where(eq(missions.id, missionId))
+    .get();
+  return row?.slaDeadlineAt ?? null;
+}
+
 beforeEach(async () => {
   await initTestDb();
   const db = getDb();
@@ -80,6 +90,12 @@ describe("PATCH /missions/:id — deadline preservation", () => {
       dueAt: "2026-11-30T12:00:45.000Z",
       slaMinutes: 90,
     });
+    // An SLA deadline already on the row must survive an unrelated edit too.
+    getDb()
+      .update(missions)
+      .set({ slaDeadlineAt: "2026-11-29T09:15:30.000Z" })
+      .where(eq(missions.id, mission.id))
+      .run();
 
     const res = await app.inject({
       method: "PATCH",
@@ -89,6 +105,7 @@ describe("PATCH /missions/:id — deadline preservation", () => {
     });
     expect(res.statusCode).toBe(200);
     expect(storedDueAt(mission.id)).toBe("2026-11-30T12:00:45.000Z");
+    expect(storedSlaDeadlineAt(mission.id)).toBe("2026-11-29T09:15:30.000Z");
   });
 
   it("replaces the deadline when dueAt is supplied", async () => {
