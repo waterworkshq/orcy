@@ -4,7 +4,14 @@ import { afterEach, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Link, MemoryRouter } from 'react-router-dom';
+import { resolve } from 'node:path';
 import { DashboardPage } from '../pages/DashboardPage.js';
+// Load the API schema at test time without including API source in the UI build.
+const schemaPath = resolve(process.cwd(), '../api/src/models/schemas.ts');
+const { dashboardQuerySchema } = await import(schemaPath);
+
+const alpha = '11111111-1111-4111-8111-111111111111';
+const beta = '22222222-2222-4222-8222-222222222222';
 
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); localStorage.clear(); });
 
@@ -15,14 +22,15 @@ it('shows completion activity for the selected period and Habitat and keeps scop
     const url = new URL(input, 'http://local.test');
     if (url.pathname !== '/api/dashboard') return new Response('{}', { status: 404 });
     requests.push(url.search);
+    if (!dashboardQuerySchema.safeParse(Object.fromEntries(url.searchParams)).success) return Response.json({ error: 'Invalid query params' }, { status: 400 });
     expect(new Headers(init?.headers).get('Authorization')).toBe('Bearer synthetic-token');
     const scope = `${url.searchParams.get('habitatId')}:${url.searchParams.get('period')}`;
-    const counts: Record<string, number[]> = { 'alpha:7d': [1, 2], 'alpha:90d': [2, 5], 'beta:90d': [4, 5], 'beta:7d': [] };
+    const counts: Record<string, number[]> = { [`${alpha}:7d`]: [1, 2], [`${alpha}:90d`]: [2, 5], [`${beta}:90d`]: [4, 5], [`${beta}:7d`]: [] };
     const throughput = (counts[scope] ?? [99]).map((count, i) => ({ date: `2026-11-2${i}`, count }));
     return Response.json({ throughput, cycleTime: [], rejectionRate: [], agentLeaderboard: [], taskByPriority: [], taskByStatus: [], wipHealth: [], webhookStats: { total: 0, success: 0, failed: 0, pending: 0, successRate: 0 }, summary: { totalTasksCompleted: 88, totalTasksInProgress: 6, averageCycleTimeMinutes: 0, overallRejectionRate: 0, activeAgents: 0 } });
   }));
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  render(<QueryClientProvider client={client}><MemoryRouter initialEntries={['/dashboard?habitatId=alpha&period=7d']}><Link to="/dashboard?habitatId=beta&period=90d">Beta</Link><Link to="/dashboard?habitatId=alpha&period=7d">Alpha</Link><DashboardPage /></MemoryRouter></QueryClientProvider>);
+  render(<QueryClientProvider client={client}><MemoryRouter initialEntries={[`/dashboard?habitatId=${alpha}&period=7d`]}><Link to={`/dashboard?habitatId=${beta}&period=90d`}>Beta</Link><Link to={`/dashboard?habitatId=${alpha}&period=7d`}>Alpha</Link><Link to="/dashboard?habitatId=bad&period=7d">Invalid scope</Link><DashboardPage /></MemoryRouter></QueryClientProvider>);
   const card = async (value: string, period: string) => {
     const title = await screen.findByText('Completion Events');
     const container = title.parentElement!;
@@ -45,7 +53,11 @@ it('shows completion activity for the selected period and Habitat and keeps scop
   await screen.findByText('3');
   await card('3', '7d');
   expect(requests).toHaveLength(4);
-  expect(requests).toEqual(expect.arrayContaining(['?habitatId=alpha&period=7d', '?habitatId=alpha&period=90d', '?habitatId=beta&period=90d', '?habitatId=beta&period=7d']));
+  expect(requests).toEqual(expect.arrayContaining([`?habitatId=${alpha}&period=7d`, `?habitatId=${alpha}&period=90d`, `?habitatId=${beta}&period=90d`, `?habitatId=${beta}&period=7d`]));
+  fireEvent.click(screen.getByText('Invalid scope'));
+  expect(await screen.findByText(/invalid habitat/i)).toBeInTheDocument();
+  expect(screen.queryByText('Completion Events')).not.toBeInTheDocument();
+  expect(requests).toHaveLength(4);
 });
 
 it('uses the 30 day scope for an unsupported period in a deep link', async () => {
@@ -71,4 +83,24 @@ it('uses the 30 day scope for an unsupported period in a deep link', async () =>
   fireEvent.click(screen.getByText('Default period'));
   expect(await screen.findByText('In last 30d · matches throughput')).toBeInTheDocument();
   expect(requests.filter(url => url.startsWith('/api/dashboard'))).toHaveLength(1);
+});
+
+
+it.each(['bad', '', '12345678-1234-1234-1234-123456789012'])('offers explicit recovery for invalid Habitat scope %s without sending requests', async (habitatId) => {
+  const requests: string[] = [];
+  vi.stubGlobal('fetch', vi.fn(async (input: string) => {
+    const url = new URL(input, 'http://local.test');
+    requests.push(url.pathname + url.search);
+    if (url.pathname !== '/api/dashboard') return new Response('{}', { status: 404 });
+    if (!dashboardQuerySchema.safeParse(Object.fromEntries(url.searchParams)).success) return Response.json({ error: 'Invalid query params' }, { status: 400 });
+    return Response.json({ throughput: [], cycleTime: [], rejectionRate: [], agentLeaderboard: [], taskByPriority: [], taskByStatus: [], wipHealth: [], webhookStats: { total: 0, success: 0, failed: 0, pending: 0, successRate: 0 }, summary: { totalTasksCompleted: 0, totalTasksInProgress: 0, averageCycleTimeMinutes: 0, overallRejectionRate: 0, activeAgents: 0 } });
+  }));
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  expect(dashboardQuerySchema.safeParse({ habitatId, period: '7d' }).success).toBe(false);
+  render(<QueryClientProvider client={client}><MemoryRouter initialEntries={[`/dashboard?habitatId=${habitatId}&period=7d`]}><DashboardPage /></MemoryRouter></QueryClientProvider>);
+  expect(await screen.findByText(/invalid habitat/i)).toBeInTheDocument();
+  expect(requests).toEqual([]);
+  fireEvent.click(screen.getByRole('button', { name: /view all habitats/i }));
+  await screen.findByText('Completion Events');
+  expect(requests.filter(url => url.startsWith('/api/dashboard'))).toEqual(['/api/dashboard?period=7d']);
 });
