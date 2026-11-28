@@ -66,10 +66,20 @@ export function useSSE(habitatId: string) {
     esRef.current?.close();
     esRef.current = null;
 
+    if (
+      !habitatId ||
+      habitatId === "." ||
+      habitatId === ".." ||
+      typeof EventSource === "undefined"
+    ) {
+      return;
+    }
+
     const tokenAbort = new AbortController();
     tokenAbortRef.current = tokenAbort;
 
-    let streamUrl = `/sse/habitats/${habitatId}/stream`;
+    const baseStreamUrl = `/sse/habitats/${encodeURIComponent(habitatId)}/stream`;
+    let streamUrl = baseStreamUrl;
     const token = localStorage.getItem("orcy_token");
     if (token) {
       try {
@@ -81,7 +91,7 @@ export function useSSE(habitatId: string) {
         if (res.ok) {
           const data = await res.json();
           if (!isActive()) return;
-          streamUrl = `/sse/habitats/${habitatId}/stream?token=${encodeURIComponent(data.token)}`;
+          streamUrl = `${baseStreamUrl}?token=${encodeURIComponent(data.token)}`;
         }
       } catch {
         if (tokenAbort.signal.aborted || !isActive()) return;

@@ -229,4 +229,61 @@ describe("useSSE", () => {
 
     expect(stream.close).toHaveBeenCalled();
   });
+
+  it("does not open a stream or fetch stream-token when habitatId is empty", async () => {
+    (globalThis as any).localStorage = { getItem: vi.fn(() => "token") } as any;
+    renderHook(() => useSSE(""), { wrapper });
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(instances).toHaveLength(0);
+    expect((globalThis as any).fetch).not.toHaveBeenCalled();
+  });
+
+  it("closes the active stream without opening a new one when habitatId becomes empty", async () => {
+    const { rerender } = renderHook(({ id }) => useSSE(id), {
+      wrapper,
+      initialProps: { id: "b1" },
+    });
+    await waitForConnect();
+    const stream = instances[0];
+
+    rerender({ id: "" });
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(stream.close).toHaveBeenCalled();
+    expect(instances).toHaveLength(1);
+  });
+
+  it.each([".", ".."])("rejects dot-segment habitatId %s without opening a stream", async (dotId) => {
+    (globalThis as any).localStorage = { getItem: vi.fn(() => "token") } as any;
+    renderHook(() => useSSE(dotId), { wrapper });
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(instances).toHaveLength(0);
+    expect((globalThis as any).fetch).not.toHaveBeenCalled();
+  });
+
+  it("encodes habitatId as a single path segment in both unauthenticated and authenticated SSE URLs", async () => {
+    renderHook(() => useSSE("hab/1?x=2#frag"), { wrapper });
+    await waitForConnect();
+    expect(instances[0].url).toBe("/sse/habitats/hab%2F1%3Fx%3D2%23frag/stream");
+
+    (globalThis as any).localStorage = { getItem: vi.fn(() => "auth-token") } as any;
+    (globalThis as any).fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ token: "stream+1" }),
+    }) as any;
+
+    renderHook(() => useSSE("hab/2?y=3"), { wrapper });
+    await waitFor(() => expect(instances).toHaveLength(2));
+    expect(instances[1].url).toBe("/sse/habitats/hab%2F2%3Fy%3D3/stream?token=stream%2B1");
+  });
 });
