@@ -78,7 +78,8 @@ export function HabitatPage() {
     clearMissionSelection,
     clearSelectionOnHabitatChange,
   } = useHabitatStore();
-  const [showCreateTask, setShowCreateTask] = useState(false);
+  const [createTaskDialog, setCreateTaskDialog] = useState<{ habitatId: string } | null>(null);
+  const showCreateTask = !!habitatId && createTaskDialog?.habitatId === habitatId;
   const [showCreateFeature, setShowCreateFeature] = useState(false);
   const [showAgentPanel, setShowAgentPanel] = useState(false);
   const [showStats, setShowStats] = useState(false);
@@ -145,7 +146,7 @@ export function HabitatPage() {
 
     function closeTopmostDialog() {
       if (showCreateTask) {
-        setShowCreateTask(false);
+        setCreateTaskDialog(null);
         return;
       }
       if (showCreateFeature) {
@@ -191,7 +192,7 @@ export function HabitatPage() {
         case "n":
         case "N":
           e.preventDefault();
-          setShowCreateTask(true);
+          if (habitatId) setCreateTaskDialog({ habitatId });
           break;
         case "?":
           e.preventDefault();
@@ -216,6 +217,7 @@ export function HabitatPage() {
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [
     showCreateTask,
+    habitatId,
     showCreateFeature,
     showAgentPanel,
     showStats,
@@ -237,6 +239,7 @@ export function HabitatPage() {
   const prevHabitatIdRef = useRef(habitatId);
   useEffect(() => {
     if (prevHabitatIdRef.current !== habitatId) {
+      setCreateTaskDialog((dialog) => dialog?.habitatId === habitatId ? dialog : null);
       clearMissionSelection();
       clearSelectionOnHabitatChange(habitatId ?? "");
     }
@@ -481,7 +484,7 @@ export function HabitatPage() {
 
       {isMobile && (
         <MobileNav
-          onAddTask={() => setShowCreateTask(true)}
+          onAddTask={() => { if (habitatId) setCreateTaskDialog({ habitatId }); }}
           onStats={() => setShowStats(true)}
           onAgents={() => setShowAgentPanel(true)}
           onBoardSettings={() => setShowBoardSettings(true)}
@@ -499,9 +502,11 @@ export function HabitatPage() {
       {showCreateTask && (
         <Suspense fallback={null}>
           <CreateTaskForm
+            key={createTaskDialog!.habitatId}
             open={showCreateTask}
-            onClose={() => setShowCreateTask(false)}
+            onClose={() => setCreateTaskDialog((current) => current === createTaskDialog ? null : current)}
             habitatId={habitatId}
+            missions={boardData?.missions ?? []}
           />
         </Suspense>
       )}
