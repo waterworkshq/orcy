@@ -155,13 +155,14 @@ export function beginDaemonStop(id: string, token: string): void {
   if (!supportsStopIntent()) {
     throw serviceUnavailable("Daemon stop requires pending database migrations; resolve migration blockers and restart the API");
   }
+  let updated: { id: string } | undefined;
   try {
-    const updated = db.update(daemonInstances).set({ stopIntent: token })
+    updated = db.update(daemonInstances).set({ stopIntent: token, updatedAt: new Date().toISOString() })
       .where(eq(daemonInstances.id, id)).returning({ id: daemonInstances.id }).get();
-    if (!updated) throw repositoryNotFoundError("daemonInstance", id);
   } catch (err) {
     throw repositoryUpdateError("daemonInstance", err as Error, id);
   }
+  if (!updated) throw repositoryNotFoundError("daemonInstance", id);
 }
 
 /** Finish or roll back only the intent we own, never a later heartbeat/start. */

@@ -47,6 +47,7 @@ export function DaemonSection({ onSetup }: DaemonSectionProps) {
         invalidate();
       } catch (err) {
         notify.error((err as Error).message);
+        invalidate();
       } finally {
         setActionLoading(null);
       }

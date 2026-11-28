@@ -3386,7 +3386,7 @@ List and detail return `unknown` while a durable stop intent has no recorded com
 
 API clients that validate daemon status as an enum must accept the new `unknown` value as well as `online` and `offline`.
 
-If the intent write itself fails, Stop returns an error and leaves the running engine and its timers in place. If the API process subsequently exits while storage is still unavailable, no durable intent can record that exit; a retained heartbeat may continue to read online until it expires.
+If the intent write itself fails, interactive Stop returns an error and leaves the running engine and its timers in place. During API shutdown the service instead attempts a bounded best-effort drain; if storage remains unavailable, no durable intent can record that drain and a retained heartbeat may continue to read online until it expires.
 
 **Register request:**
 

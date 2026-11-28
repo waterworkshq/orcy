@@ -1039,7 +1039,7 @@ For example, trusted once evidence remains consumed even when its occurrence was
 
 Tracks autonomous daemon runtimes, including both standalone CLI daemons and API in-process daemon engines.
 
-`stop_intent` is a nullable token written before an in-process drain. An authenticated heartbeat clears it atomically; completion clears only its own token. A remaining token means the drain outcome is unknown, including after an API restart. If an earlier staged migration blocks this column, daemon reads and heartbeats remain available but in-process Stop refuses before draining.
+`stop_intent` is a nullable token written before an in-process drain. An authenticated heartbeat clears it atomically; completion clears only its own token. A remaining token means the drain outcome is unknown, including after an API restart. If an earlier staged migration blocks this column, daemon reads and heartbeats remain available but interactive in-process Stop refuses before draining. API shutdown still attempts a bounded best-effort drain and may leave stale heartbeat readback if intent could not be written.
 
 #### `habitat_skills`
 

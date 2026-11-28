@@ -74,6 +74,13 @@ describe("in-process Stop status", () => {
     expect(await statuses()).toEqual({ embedded: "online", external: "online", detail: "online" });
   });
 
+  it("records the intent update time and reports a missing daemon distinctly", () => {
+    vi.setSystemTime(new Date("2026-11-28T00:00:01.000Z"));
+    repo.beginDaemonStop(id, "time-check");
+    expect(repo.getDaemonById(id)!.updatedAt).toBe(new Date().toISOString());
+    expect(() => repo.beginDaemonStop("missing", "intent")).toThrow("daemonInstance not found");
+  });
+
   it("keeps the engine online when session shutdown fails", async () => {
     wiring.shutdownAll.mockRejectedValueOnce(new Error("shutdown failed"));
     const response = await app.inject({ method: "POST", url: `/daemons/${id}/stop` });
@@ -87,6 +94,34 @@ describe("in-process Stop status", () => {
     await vi.advanceTimersByTimeAsync(30000);
     expect(wiring.poll).toHaveBeenCalled();
     expect(repo.getDaemonById(id)!.lastHeartbeatAt).toBe(new Date().toISOString());
+  });
+
+  it("drains sessions on API shutdown when the stop intent write fails", async () => {
+    const spy = vi.spyOn(repo, "beginDaemonStop").mockImplementation(() => { throw new Error("intent unavailable"); });
+    await engine.shutdownAll();
+    expect(wiring.shutdownAll).toHaveBeenCalledOnce();
+    expect(wiring.release).toHaveBeenCalledWith(id);
+    expect(engine.isRunning(id)).toBe(false);
+    spy.mockRestore();
+  });
+
+  it("coalesces concurrent shutdown fallback drains and rejects an interactive Stop", async () => {
+    const spy = vi.spyOn(repo, "beginDaemonStop").mockImplementation(() => { throw new Error("intent unavailable"); });
+    let finish!: () => void;
+    wiring.shutdownAll.mockImplementationOnce(() => new Promise<void>((resolve) => { finish = resolve; }));
+    const first = engine.shutdownAll();
+    await vi.waitFor(() => expect(finish).toBeDefined());
+    try {
+      const second = engine.shutdownAll();
+      await expect(engine.stop(id)).rejects.toThrow("shutdown is in progress");
+      expect(wiring.shutdownAll).toHaveBeenCalledOnce();
+      finish();
+      await Promise.all([first, second]);
+      expect(engine.isRunning(id)).toBe(false);
+    } finally {
+      finish();
+      spy.mockRestore();
+    }
   });
 
   it("preserves the shutdown error if restoring the status also fails", async () => {

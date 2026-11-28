@@ -38,6 +38,8 @@ interface RunningDaemon {
   pollTimer: ReturnType<typeof setInterval> | null;
   heartbeatTimer: ReturnType<typeof setInterval> | null;
   stopPromise: Promise<void> | null;
+  intentWriteFailed: boolean;
+  shutdownFallback: Promise<void> | null;
   habitatIds: string[];
   maxConcurrent: number;
 }
@@ -172,6 +174,8 @@ export function start(daemonId: string, dataDir: string = "/tmp/orcy-daemon"): v
     pollTimer: null,
     heartbeatTimer: null,
     stopPromise: null,
+    intentWriteFailed: false,
+    shutdownFallback: null,
     habitatIds: [],
     maxConcurrent: daemon.maxConcurrent ?? 4,
   };
@@ -216,9 +220,12 @@ export async function stop(daemonId: string): Promise<void> {
       daemonRepo.completeDaemonStop(daemonId, token, "offline");
       completedDrains.delete(daemonId);
     } else if (daemonRepo.getDaemonById(daemonId)?.stopIntent != null) {
-      throw conflict("Daemon stop completion is unknown; restart the daemon to recover");
+      throw conflict("Daemon stop completion is unknown; register a new UI daemon or use a standalone daemon. This record remains unknown.");
     }
     return;
+  }
+  if (running.shutdownFallback) {
+    throw conflict("Daemon API shutdown is in progress");
   }
   if (running.stopPromise) return running.stopPromise;
 
@@ -237,7 +244,13 @@ async function stopRunning(running: RunningDaemon): Promise<void> {
 
   // If intent cannot be committed, do not drain: other readers could not
   // distinguish a stopped daemon from its retained heartbeat.
-  daemonRepo.beginDaemonStop(daemonId, token);
+  running.intentWriteFailed = false;
+  try {
+    daemonRepo.beginDaemonStop(daemonId, token);
+  } catch (err) {
+    running.intentWriteFailed = true;
+    throw err;
+  }
 
   if (running.pollTimer) {
     clearInterval(running.pollTimer);
@@ -288,7 +301,8 @@ export function isRunning(daemonId: string): boolean {
 
 /** A stopping engine still owns sessions but no longer polls or heartbeats. */
 export function isStopping(daemonId: string): boolean {
-  return runningDaemons.get(daemonId)?.stopPromise != null;
+  const running = runningDaemons.get(daemonId);
+  return running != null && (running.stopPromise != null || running.shutdownFallback != null);
 }
 
 /**
@@ -300,8 +314,37 @@ export function isStopping(daemonId: string): boolean {
  * embedded bounded drain).
  */
 export function shutdownAll(): Promise<void> {
-  const stops = [...runningDaemons.keys()].map((daemonId) => stop(daemonId).catch(() => {}));
+  const stops = [...runningDaemons.entries()].map(([daemonId, running]) => stop(daemonId).catch(async (err) => {
+    if (!running.intentWriteFailed || runningDaemons.get(daemonId) !== running) return;
+    let fallback = running.shutdownFallback;
+    if (!fallback) {
+      fallback = drainWithoutIntent(running, err);
+      running.shutdownFallback = fallback;
+    }
+    try {
+      await fallback;
+    } finally {
+      if (running.shutdownFallback === fallback) running.shutdownFallback = null;
+    }
+  }));
   return Promise.allSettled(stops).then(() => {});
+}
+
+// Process exit cannot preserve a live engine. Attempt its bounded drain even
+// when storage cannot record intent; other readers may see a stale heartbeat.
+async function drainWithoutIntent(running: RunningDaemon, intentError: unknown): Promise<void> {
+  const { daemonId } = running;
+  logger.warn({ err: intentError, daemonId }, "Daemon shutdown is draining without durable stop intent; status may be stale");
+  if (running.pollTimer) clearInterval(running.pollTimer);
+  if (running.heartbeatTimer) clearInterval(running.heartbeatTimer);
+  try {
+    await running.sessionManager.shutdownAll();
+    releaseSessionManager(daemonId);
+    runningDaemons.delete(daemonId);
+  } catch (err) {
+    logger.error({ err, daemonId }, "Daemon shutdown drain failed without durable stop intent");
+    throw err;
+  }
 }
 
 /** Input for HTTP-based daemon registration: daemon identity, concurrency limit, target habitats, and the CLIs detected on the remote host. */

@@ -295,6 +295,8 @@ describe("documented enum CHECK constraints", () => {
     const raw = openRaw(dbPath);
     expect((raw.pragma("table_info(daemon_instances)") as Array<{ name: string }>).some((column) => column.name === "stop_intent")).toBe(false);
     const daemon = daemonRepo.createDaemon({ name: "deferred-intent", hostname: "test", maxConcurrent: 1, daemonVersion: "external", plainToken: "synthetic" });
+    daemonRepo.setDaemonStatus(daemon.id, "offline");
+    expect(daemonRepo.getDaemonById(daemon.id)?.status).toBe("offline");
     expect(daemonRepo.updateDaemonHeartbeat(daemon.id)?.status).toBe("online");
     expect(daemonRepo.getDaemonById(daemon.id)?.stopIntent).toBeNull();
     expect(() => daemonRepo.beginDaemonStop(daemon.id, "token")).toThrow(/migration/i);

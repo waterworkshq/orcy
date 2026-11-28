@@ -17,6 +17,7 @@ import { initDb, closeDb, getDb } from "../db/index.js";
 import { createHttpApplication, type HttpRuntimeHandle } from "../httpApp.js";
 import { setJwtSecret } from "../middleware/jwt-verification.js";
 import * as repo from "../repositories/daemon.js";
+import * as agentRepo from "../repositories/agent.js";
 import * as engine from "../services/daemonEngine.js";
 
 let app: HttpRuntimeHandle | undefined;
@@ -28,6 +29,7 @@ const priorEnv = Object.fromEntries(["SLACK_SIGNING_SECRET", "DISCORD_PUBLIC_KEY
 async function independentApi(path: string, id: string, mode?: "start"): Promise<unknown> {
   const child = fork(join(import.meta.dirname, "fixtures", "daemon-stop-reader.ts"), [path, id, ...(mode ? [mode] : [])], { execArgv: ["--import", "tsx"], stdio: ["ignore", "ignore", "pipe", "ipc"] });
   const childExit = new Promise<void>((resolve, reject) => child.once("exit", (code) => code === 0 ? resolve() : reject(new Error(`reader exited ${code}`))));
+  void childExit.catch(() => {});
   const childResult = await new Promise<unknown>((resolve, reject) => {
     const timeout = setTimeout(() => { child.kill(); reject(new Error("reader timed out")); }, 30000);
     child.once("message", (message) => { clearTimeout(timeout); resolve(message); });
@@ -106,6 +108,10 @@ it("keeps a failed final offline write indeterminate across reopening, then hono
   expect(list.json().daemons.find((d: any) => d.id === external.id).status).toBe("online");
   expect(detail.json().daemon.status).toBe("unknown");
   expect(await independentApi(path, daemon.id)).toEqual({ list: "unknown", detail: "unknown", retryStatus: 409 });
+  const agent = agentRepo.createAgent({ name: "registered-agent", type: "claude-code", domain: "fullstack", capabilities: [] });
+  repo.createDaemonAgent({ daemonId: daemon.id, agentId: agent.agent.id, cliType: "claude-code", cliVersion: null, cliPath: "/synthetic" });
+  expect(await independentApi(path, daemon.id, "start")).toEqual({ startStatus: 500, detail: "unknown" });
+  expect(repo.getDaemonById(daemon.id)?.stopIntent).toBeTruthy();
   await app.close();
   app = undefined;
   closeDb();
@@ -201,6 +207,13 @@ it("keeps legacy-schema reads and heartbeats available but refuses Stop before d
   expect(running.heartbeatTimer).toBe(heartbeatTimer);
   await vi.advanceTimersByTimeAsync(30000);
   expect(repo.getDaemonById(daemon.id)!.lastHeartbeatAt).toBe(new Date().toISOString());
-  // Teardown must not leave the synthetic engine registered when the schema blocks Stop.
-  getDb().run(sql.raw("ALTER TABLE daemon_instances ADD COLUMN stop_intent text"));
+  const lastHeartbeat = repo.getDaemonById(daemon.id)!.lastHeartbeatAt;
+  await engine.shutdownAll();
+  expect(wiring.shutdownAll).toHaveBeenCalledOnce();
+  expect(wiring.release).toHaveBeenCalledWith(daemon.id);
+  expect(engine.isRunning(daemon.id)).toBe(false);
+  await vi.advanceTimersByTimeAsync(30000);
+  expect(repo.getDaemonById(daemon.id)!.lastHeartbeatAt).toBe(lastHeartbeat);
+  // No durable write was possible: the old heartbeat can still look online.
+  expect((await app.inject({ method: "GET", url: `/api/daemons/${daemon.id}`, headers: auth })).json().daemon.status).toBe("online");
 }, 120_000);

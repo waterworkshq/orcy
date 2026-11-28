@@ -30,6 +30,16 @@ export function DaemonCard({
           </Badge>
         </div>
         <div className="flex gap-2">
+          {daemon.status === "unknown" && (
+            <button
+              type="button"
+              onClick={() => onStop?.(daemon.id)}
+              disabled={disabled}
+              className="rounded px-2 py-1 text-xs font-medium text-muted-foreground hover:bg-muted transition-colors disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              Retry Stop
+            </button>
+          )}
           {isOnline ? (
             <button
               type="button"
@@ -46,7 +56,7 @@ export function DaemonCard({
               disabled={disabled}
               className="rounded px-2 py-1 text-xs font-medium text-primary hover:bg-muted transition-colors disabled:cursor-not-allowed disabled:opacity-50"
             >
-              {isActionLoading ? "Starting..." : "Start"}
+              {isActionLoading && daemon.status !== "unknown" ? "Starting..." : "Start"}
             </button>
           )}
         </div>

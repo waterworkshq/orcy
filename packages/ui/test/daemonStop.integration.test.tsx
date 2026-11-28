@@ -22,6 +22,7 @@ import { DaemonSection } from "../src/components/habitat/DaemonSection.js";
 let app: ReturnType<typeof Fastify>;
 afterEach(async () => {
   cleanup();
+  vi.restoreAllMocks();
   await engine.shutdownAll();
   await app?.close();
   await closeDb();
@@ -65,13 +66,43 @@ it("shows Unknown when a persisted stop intent has no proven outcome", async () 
   app = Fastify();
   await app.register(daemonAdminRoutes);
   await app.ready();
-  vi.stubGlobal("fetch", async (url: string) => {
-    const response = await app.inject({ method: "GET", url: url.replace(/^\/api/, "") });
-    return { ok: response.statusCode >= 200 && response.statusCode < 300, status: response.statusCode, json: async () => response.json() };
+  let retryStatus: number | undefined;
+  vi.stubGlobal("fetch", async (url: string, options: RequestInit = {}) => {
+    const response = await app.inject({ method: (options.method ?? "GET") as "GET" | "POST", url: url.replace(/^\/api/, "") });
+    if (options.method === "POST") retryStatus = response.statusCode;
+    return { ok: response.statusCode >= 200 && response.statusCode < 300, status: response.statusCode, statusText: response.statusMessage, json: async () => response.json() };
   });
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   render(<QueryClientProvider client={client}><DaemonSection /></QueryClientProvider>);
   expect(await screen.findByText("Unknown")).toBeTruthy();
   expect(screen.queryByText("Offline")).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "Retry Stop" }));
+  await waitFor(() => expect(retryStatus).toBe(409));
+  expect(screen.getByText("Unknown")).toBeTruthy();
+  expect(screen.getByRole("button", { name: "Start" })).toBeTruthy();
+  client.clear();
+});
+
+
+it("offers a Stop retry after a failed final write and refreshes its served status", async () => {
+  await initTestDb();
+  const daemon = repo.createDaemon({ name: "retry", hostname: "test", maxConcurrent: 1, daemonVersion: "in-process", plainToken: "synthetic" });
+  engine.start(daemon.id);
+  const spy = vi.spyOn(repo, "completeDaemonStop").mockImplementationOnce(() => { throw new Error("synthetic write failure"); });
+  app = Fastify();
+  await app.register(daemonAdminRoutes);
+  await app.ready();
+  vi.stubGlobal("fetch", async (url: string, options: RequestInit = {}) => {
+    const response = await app.inject({ method: (options.method ?? "GET") as "GET" | "POST", url: url.replace(/^\/api/, "") });
+    return { ok: response.statusCode >= 200 && response.statusCode < 300, status: response.statusCode, statusText: response.statusMessage, json: async () => response.json() };
+  });
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  render(<QueryClientProvider client={client}><DaemonSection /></QueryClientProvider>);
+  expect(await screen.findByText("Online")).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "Stop" }));
+  expect(await screen.findByText("Unknown")).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "Retry Stop" }));
+  expect(await screen.findByText("Offline")).toBeTruthy();
+  expect(spy).toHaveBeenCalledTimes(2);
   client.clear();
 });
