@@ -39,22 +39,22 @@ echo "    Node $NODE_VERSION found"
 # One installer run at a time per ORCY_HOME: two would race on the source tree,
 # the staged installer, its promotion and the tree the wizard rebuilds. The lock
 # is a directory, because creating it is atomic: whoever creates it runs, and
-# it is kept until the installer has exited — on success, failure, Ctrl-C or a
-# termination request. A lock that is already there stops this run before it
-# touches anything. It is never taken over automatically: a run cannot tell a
-# dead owner's lock from one being created or held, and removing the wrong one
-# would let two runs through. One left by a run that was killed outright is
-# removed by hand; the message below says which.
+# it holds that run's PID. It is kept until the installer has exited — on
+# success, failure, Ctrl-C or a termination request. A lock that is already
+# there stops this run before it touches anything. It is never taken over
+# automatically: a run cannot tell a dead owner's lock from a live one's, and
+# removing the wrong one would let two runs through. One left by a run that
+# was killed outright is removed by hand; the message below says which.
 LOCK_DIR="${ORCY_HOME}/bootstrap.lock"
 INSTALLER_DIR="${ORCY_HOME}/installer"
 BACKUP_DIR="${INSTALLER_DIR}.old"
-LOCK_IDENTITY=""
 release_lock() {
-  # Only the directory this run created, recognised by its inode — never a
-  # lock another run has taken since.
-  if [ -n "$LOCK_IDENTITY" ] && [ "$(ls -id "$LOCK_DIR" 2>/dev/null)" = "$LOCK_IDENTITY" ]; then
-    rmdir "$LOCK_DIR" 2>/dev/null || true
-  fi
+  # Only this run's lock: the directory has to hold this process's PID, and it
+  # is removed only once that marker is gone from it — so a lock another run
+  # has taken since is left alone.
+  [ "$(cat "$LOCK_DIR/pid" 2>/dev/null)" = "$$" ] || return 0
+  rm -f "$LOCK_DIR/pid"
+  rmdir "$LOCK_DIR" 2>/dev/null || true
 }
 mkdir -p "$ORCY_HOME"
 if ! mkdir "$LOCK_DIR" 2>/dev/null; then
@@ -63,11 +63,14 @@ if ! mkdir "$LOCK_DIR" 2>/dev/null; then
   echo "Remove $LOCK_DIR and run this again."
   exit 1
 fi
-LOCK_IDENTITY="$(ls -id "$LOCK_DIR")"
+echo $$ > "$LOCK_DIR/pid"
 trap release_lock EXIT
-# A signal received while the installer or a build step runs in the foreground
-# is acted on only once that has exited (POSIX), so the lock outlives it.
-trap 'exit $?' INT TERM HUP
+# An interruption before the handoff ends this run with the signal's own exit
+# status, once the step running in the foreground has exited (POSIX defers the
+# trap until then), so it never looks like a successful install.
+trap 'exit 130' INT
+trap 'exit 143' TERM
+trap 'exit 129' HUP
 
 # A run interrupted while promoting the installer leaves no active installer
 # and the previous one moved aside. Put it back before anything fallible
@@ -198,15 +201,53 @@ fi
 rm -rf "${BACKUP_DIR}" 2>/dev/null ||
   echo "    Note: the previous installer is kept at ${BACKUP_DIR} and can be deleted."
 
-# Run installer. It runs in the foreground rather than through `exec`, so that
-# this script — and with it the lock — stays alive while the wizard rebuilds the
-# source tree, and so that its exit status becomes this script's.
+# The supervisor below runs the installer as a child in this process's place.
+# - It passes SIGINT, SIGTERM and SIGHUP on to the installer, so stopping this
+#   process stops the install.
+# - It releases the lock on its own exit — after the installer has exited — and
+#   only the lock this process created: the directory must still hold this
+#   process's PID, and it goes only once that marker is gone from it.
+# - It exits with the installer's status, or 128 + the signal number when the
+#   installer was killed or when a cancelled run would otherwise report success.
+SUPERVISOR='
+const { spawn } = require("node:child_process");
+const fs = require("node:fs");
+const { signals } = require("node:os").constants;
+const [entry, ...args] = process.argv.slice(1);
+const lock = process.env.ORCY_INSTALLER_LOCK;
+const marker = lock + "/pid";
+process.on("exit", () => {
+  try {
+    if (fs.readFileSync(marker, "utf8").trim() !== String(process.pid)) return;
+    fs.unlinkSync(marker);
+    fs.rmdirSync(lock);
+  } catch {}
+});
+const installer = spawn(process.execPath, [entry, ...args], { stdio: "inherit" });
+let cancelled = 0;
+for (const name of ["SIGINT", "SIGTERM", "SIGHUP"]) {
+  process.on(name, () => {
+    cancelled ||= signals[name];
+    installer.kill(name);
+  });
+}
+installer.on("exit", (code, signal) => {
+  const status = code ?? 128 + (signals[signal] ?? 0);
+  process.exit(cancelled && status < 128 ? 128 + cancelled : status);
+});
+'
+
+# Run installer. A small supervisor takes this process's place, so that a
+# signal sent to it reaches the installer, the lock is released only once the
+# installer has exited, and a cancelled run never reports success. The
+# installer runs in the same process group, so it keeps the terminal. The EXIT
+# trap stays armed for the one case the supervisor never starts — a failed
+# `exec` — and does not run when the exec succeeds.
 echo "==> Running installer..."
 # `curl … | bash` leaves the installer a drained pipe as stdin, so the
 # interactive wizard would read end-of-input at its first question and exit.
 # When a terminal is available, hand the installer that instead.
 if [ ! -t 0 ] && ( : < /dev/tty ) 2>/dev/null; then
-  node "${INSTALLER_DIR}/dist/index.js" "$@" < /dev/tty
-else
-  node "${INSTALLER_DIR}/dist/index.js" "$@"
+  ORCY_INSTALLER_LOCK="$LOCK_DIR" exec node -e "$SUPERVISOR" "${INSTALLER_DIR}/dist/index.js" "$@" < /dev/tty
 fi
+ORCY_INSTALLER_LOCK="$LOCK_DIR" exec node -e "$SUPERVISOR" "${INSTALLER_DIR}/dist/index.js" "$@"

@@ -39,11 +39,13 @@
  *      and is told which lock to remove by hand if no run is active. The
  *      lock is held until the installer has exited — on success, failure, a
  *      termination request — is released only by the run that created it,
- *      and the installer's exit status becomes the script's. An installer
- *      left moved aside by an interrupted promotion is restored before
- *      anything fallible runs. A stale backup that cannot be cleared stops
- *      promotion with the working installer untouched; a backup that cannot
- *      be deleted after promotion does not stop the handoff.
+ *      and the installer's exit status becomes the script's. A signal sent to
+ *      the script's process stops the installer, and an interrupted or
+ *      cancelled run never exits 0. An installer left moved aside by an
+ *      interrupted promotion is restored before anything fallible runs. A
+ *      stale backup that cannot be cleared stops promotion with the working
+ *      installer untouched; a backup that cannot be deleted after promotion
+ *      does not stop the handoff.
  */
 import { describe, it, expect, afterAll } from "vitest";
 import { spawn, spawnSync } from "node:child_process";
@@ -112,6 +114,10 @@ interface Scenario {
   srcDir: string;
   /** What the scenario's fake installer does once it has started. */
   installer: InstallerBehavior;
+  /** How long the scenario's (successful) build step takes. */
+  slowBuildMs?: number;
+  /** Whether another run's lock replaces the scenario's during its build. */
+  swapLockDuringBuild?: boolean;
 }
 
 /**
@@ -123,13 +129,16 @@ interface Scenario {
  * `failPromotion` makes the staged installer impossible to move into place;
  * `failDownload` makes the source download fail; `locked` seeds a bootstrap lock
  * left by another run; `installer` drives the fake installer; `failBackupRemoval`
- * makes `rm` refuse to remove the previous installer's backup.
+ * makes `rm` refuse to remove the previous installer's backup; `slowBuildMs`
+ * makes the (successful) build step take that long; `swapLockDuringBuild` replaces the
+ * lock with another run's while the build runs.
  */
 
 /** What the fake installer should do once it has started: wait, exit with a status, replace the lock. */
 interface InstallerBehavior {
   sleepMs?: number;
   exit?: number;
+  ignoreSignals?: boolean;
   swapLock?: boolean;
 }
 
@@ -145,6 +154,8 @@ function buildScenario(opts: {
   locked?: boolean;
   installer?: InstallerBehavior;
   failBackupRemoval?: boolean;
+  slowBuildMs?: number;
+  swapLockDuringBuild?: boolean;
 }): Scenario {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), "orcy-installsh-"));
   scenarioHomes.push(home);
@@ -237,7 +248,7 @@ cat > "$dir/packages/shared/package.json" <<'PKGEOF'
 PKGEOF
 printf 'export const id = "shared";\\n' > "$dir/packages/shared/dist/index.js"
 cat > "$dir/packages/installer/dist/index.js" <<'IDXEOF'
-import { writeFileSync, existsSync, mkdirSync, rmdirSync } from "node:fs";
+import { writeFileSync, existsSync, mkdirSync, rmSync, readFileSync } from "node:fs";
 import { id } from "@orcy/shared";
 const behavior = JSON.parse(process.env.ORCY_FAKE_INSTALLER ?? "{}");
 // Reported as soon as the installer starts: what it was given, and whether
@@ -249,12 +260,22 @@ writeFileSync(
     shared: id,
     stdinIsTTY: process.stdin.isTTY ?? null,
     lockHeld: existsSync(process.env.ORCY_INSTALLER_LOCK),
+    // The bootstrap's own marker, as the supervisor compares it.
+    lockOwner: existsSync(process.env.ORCY_INSTALLER_LOCK + "/pid")
+      ? readFileSync(process.env.ORCY_INSTALLER_LOCK + "/pid", "utf8").trim()
+      : null,
   }),
 );
 // Simulates the user removing the bootstrap's lock and another run taking one.
 if (behavior.swapLock) {
-  rmdirSync(process.env.ORCY_INSTALLER_LOCK);
+  rmSync(process.env.ORCY_INSTALLER_LOCK, { recursive: true, force: true });
   mkdirSync(process.env.ORCY_INSTALLER_LOCK);
+  writeFileSync(process.env.ORCY_INSTALLER_LOCK + "/pid", "424242\\n");
+}
+// An installer that will not stop when asked: only the supervisor's exit status
+// can then say the run was cancelled.
+if (behavior.ignoreSignals) {
+  for (const signal of ["SIGINT", "SIGTERM", "SIGHUP"]) process.on(signal, () => {});
 }
 if (behavior.sleepMs) Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, behavior.sleepMs);
 process.exit(behavior.exit ?? 0);
@@ -274,6 +295,14 @@ printf 'skill\\n' > "$dir/packages/installer/skills/overview.md"
   // With failDeploy it reports the failure the real one would.
   const deploy = `
 case "$*" in
+  *" -r build")
+    [ -z "$ORCY_FAKE_BUILD_MS" ] || node -e 'Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, Number(process.argv[1]))' "$ORCY_FAKE_BUILD_MS"
+    if [ -n "$ORCY_FAKE_SWAP_LOCK" ]; then
+      rm -rf "${path.join(home, ".orcy", "bootstrap.lock")}"
+      mkdir "${path.join(home, ".orcy", "bootstrap.lock")}"
+      echo 424242 > "${path.join(home, ".orcy", "bootstrap.lock")}/pid"
+    fi
+    ;;
   *" deploy "*)
     for a in "$@"; do target="$a"; done
     mkdir -p "$target/dist" "$target/skills" "$target/node_modules/@orcy"
@@ -329,6 +358,8 @@ exec "${resolveBin("rm")}" "$@"
     lockDir,
     srcDir: path.join(home, ".orcy", "src", "orcy"),
     installer: opts.installer ?? {},
+    slowBuildMs: opts.slowBuildMs,
+    swapLockDuringBuild: opts.swapLockDuringBuild,
   };
 }
 
@@ -340,6 +371,8 @@ function installerEnv(s: Scenario): NodeJS.ProcessEnv {
     ORCY_INSTALLER_EXEC_MARKER: s.markerPath,
     ORCY_INSTALLER_LOCK: s.lockDir,
     ORCY_FAKE_INSTALLER: JSON.stringify(s.installer),
+    ORCY_FAKE_BUILD_MS: s.slowBuildMs ? String(s.slowBuildMs) : "",
+    ORCY_FAKE_SWAP_LOCK: s.swapLockDuringBuild ? "1" : "",
   };
 }
 
@@ -583,7 +616,11 @@ describe("install.sh — a failed handoff fails closed", () => {
 
 describe("install.sh — one installer run at a time", () => {
   const marker = (s: Scenario) =>
-    JSON.parse(fs.readFileSync(s.markerPath, "utf8")) as { lockHeld: boolean; args: string[] };
+    JSON.parse(fs.readFileSync(s.markerPath, "utf8")) as {
+      lockHeld: boolean;
+      lockOwner: string | null;
+      args: string[];
+    };
 
   it("stops before it touches anything while another run holds the lock, and leaves that lock alone", () => {
     const s = buildScenario({ locked: true });
@@ -614,6 +651,7 @@ describe("install.sh — one installer run at a time", () => {
     const r = runInstallSh(s, ["--yes", "--components=api"]);
     expect(r.status).toBe(0);
     expect(marker(s).lockHeld).toBe(true);
+    expect(marker(s).lockOwner).toBe(String(r.pid));
     expect(marker(s).args).toEqual(["--yes", "--components=api"]);
     expect(fs.existsSync(s.lockDir)).toBe(false);
   });
@@ -625,10 +663,10 @@ describe("install.sh — one installer run at a time", () => {
     expect(fs.existsSync(s.lockDir)).toBe(false);
   });
 
-  it("keeps holding the lock until a signalled installer has exited", async () => {
-    // The signal reaches only the shell: POSIX defers its trap until the
-    // foreground child has exited, so the lock cannot go first.
-    const s = buildScenario({ installer: { sleepMs: 1500, exit: 4 } });
+  it("stops the installer on a termination request, then releases the lock and reports the cancellation", async () => {
+    // The signal reaches the process the caller knows — the one install.sh
+    // became. It must reach the installer, which here would run for 10 s.
+    const s = buildScenario({ installer: { sleepMs: 10_000, exit: 4 } });
     const child = spawn(resolveBin("sh"), [INSTALL_SH], {
       env: installerEnv(s),
       cwd: s.home,
@@ -639,24 +677,62 @@ describe("install.sh — one installer run at a time", () => {
       await new Promise<void>((resolve) => setTimeout(resolve, 50));
     }
     expect(fs.existsSync(s.markerPath)).toBe(true);
+    expect(fs.existsSync(s.lockDir)).toBe(true);
     const exited = new Promise<void>((resolve) => child.once("exit", () => resolve()));
     child.kill("SIGTERM");
-    await new Promise<void>((resolve) => setTimeout(resolve, 300));
-    // The installer is still running, so the lock is still held.
-    expect(fs.existsSync(s.lockDir)).toBe(true);
     await exited;
-    expect(child.exitCode, "the installer's status, not the signal's").toBe(4);
+    // 128 + SIGTERM (15), not the installer's own would-be status.
+    expect(child.exitCode).toBe(143);
+    expect(fs.existsSync(s.lockDir)).toBe(false);
+  });
+
+  it("does not report a cancelled run as successful, even when the installer ignores the signal", async () => {
+    const s = buildScenario({ installer: { sleepMs: 1200, exit: 0, ignoreSignals: true } });
+    const child = spawn(resolveBin("sh"), [INSTALL_SH], {
+      env: installerEnv(s),
+      cwd: s.home,
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    for (let i = 0; i < 100 && !fs.existsSync(s.markerPath); i++) {
+      await new Promise<void>((resolve) => setTimeout(resolve, 50));
+    }
+    const exited = new Promise<void>((resolve) => child.once("exit", () => resolve()));
+    child.kill("SIGTERM");
+    await exited;
+    expect(child.exitCode).toBe(143);
+    expect(fs.existsSync(s.lockDir)).toBe(false);
+  });
+
+  it("ends a run interrupted before the handoff with a failure status, not the finished step's success", async () => {
+    // The build is succeeding when the signal arrives. POSIX defers the trap
+    // until that step has exited; the run must then end as interrupted, before
+    // any installer is handed off to.
+    const s = buildScenario({ slowBuildMs: 1500 });
+    const child = spawn(resolveBin("sh"), [INSTALL_SH], {
+      env: installerEnv(s),
+      cwd: s.home,
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    for (let i = 0; i < 100 && !readLog(s).some((l) => l.includes("-r build")); i++) {
+      await new Promise<void>((resolve) => setTimeout(resolve, 50));
+    }
+    expect(readLog(s).some((l) => l.includes("-r build"))).toBe(true);
+    const exited = new Promise<void>((resolve) => child.once("exit", () => resolve()));
+    child.kill("SIGTERM");
+    await exited;
+    expect(child.exitCode).toBe(143);
+    expect(fs.existsSync(s.markerPath)).toBe(false);
     expect(fs.existsSync(s.lockDir)).toBe(false);
   });
 
   it("never removes a lock another run has taken in the meantime", () => {
     // Only reachable if the user deletes a live lock by hand — but cleanup
-    // must still not take the next run's lock with it.
+    // must still not take the next run's lock with it, whether or not the new
+    // directory reuses the old one's inode.
     const s = buildScenario({ installer: { swapLock: true } });
     const r = runInstallSh(s);
-    expect(r.status).toBe(0);
-    expect(fs.existsSync(s.lockDir)).toBe(true);
-    fs.rmdirSync(s.lockDir);
+    expect(r.status, output(r)).toBe(0);
+    expect(fs.readFileSync(path.join(s.lockDir, "pid"), "utf8").trim()).toBe("424242");
   });
 
   it("releases the lock when the run fails", () => {
@@ -664,6 +740,15 @@ describe("install.sh — one installer run at a time", () => {
     const r = runInstallSh(s);
     expect(r.status).not.toBe(0);
     expect(fs.existsSync(s.lockDir)).toBe(false);
+  });
+
+  it("never removes a lock another run has taken, when this run then fails before the handoff", () => {
+    // Same as above for the shell's own cleanup, which is what runs when a
+    // run ends before any installer exists.
+    const s = buildScenario({ failDeploy: true, swapLockDuringBuild: true });
+    const r = runInstallSh(s);
+    expect(r.status).not.toBe(0);
+    expect(fs.readFileSync(path.join(s.lockDir, "pid"), "utf8").trim()).toBe("424242");
   });
 
   it("restores an installer left moved aside even when this run fails before staging", () => {
