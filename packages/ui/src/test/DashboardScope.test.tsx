@@ -15,7 +15,7 @@ it('shows completion activity for the selected period and Habitat and keeps scop
     const url = new URL(input, 'http://local.test');
     if (url.pathname !== '/api/dashboard') return new Response('{}', { status: 404 });
     requests.push(url.search);
-    expect((init?.headers as Record<string, string>).Authorization).toBe('Bearer synthetic-token');
+    expect(new Headers(init?.headers).get('Authorization')).toBe('Bearer synthetic-token');
     const scope = `${url.searchParams.get('habitatId')}:${url.searchParams.get('period')}`;
     const counts: Record<string, number[]> = { 'alpha:7d': [1, 2], 'alpha:90d': [2, 5], 'beta:90d': [4, 5], 'beta:7d': [] };
     const throughput = (counts[scope] ?? [99]).map((count, i) => ({ date: `2026-11-2${i}`, count }));
