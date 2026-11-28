@@ -42,7 +42,11 @@ export interface AuditExportQuery {
 }
 
 /** Event-only query derived from {@link AuditExportQuery} without the serialization format, used when callers want the raw events rather than an export payload. */
-export type AuditEventQuery = Omit<AuditExportQuery, "format">;
+export type AuditEventQuery = Omit<AuditExportQuery, "format"> & {
+  limit?: number;
+  offset?: number;
+  order?: "asc" | "desc";
+};
 
 /** Canonical projection of audit events for a habitat: the filtered events, any warnings raised during projection, and a completeness summary computed from those events. */
 export interface CanonicalAuditEventResult {
@@ -64,8 +68,11 @@ export interface AuditSummary {
 
 function csvEscape(value: unknown): string {
   if (value === null || value === undefined) return "";
-  const str = String(value);
-  if (str.includes(",") || str.includes('"') || str.includes("\n")) {
+  const raw = String(value);
+  // Control characters are deliberately included to catch spreadsheet prefixes after them.
+  // eslint-disable-next-line no-control-regex
+  const str = /^[\s\x00-\x1f\x7f]*[=+\-@]/u.test(raw) ? `'${raw}` : raw;
+  if (str.includes(",") || str.includes('"') || str.includes("\n") || str.includes("\r")) {
     return `"${str.replace(/"/g, '""')}"`;
   }
   return str;
@@ -109,6 +116,8 @@ function toAuditQuery(habitatId: string, query: AuditEventQuery): AuditQueryInpu
   const entityType = isAuditEntityType(query.entityType) ? query.entityType : undefined;
   const source = isAuditSource(query.source) ? query.source : undefined;
   const entityTypes = parseEntityTypesCsv(query.entityTypes);
+  const actions = parseCsvFilter(query.actions);
+  const requestedEntityTypes = parseCsvFilter(query.entityTypes);
   return {
     habitatId,
     since: query.since,
@@ -123,6 +132,7 @@ function toAuditQuery(habitatId: string, query: AuditEventQuery): AuditQueryInpu
     source,
     order: "asc",
     includeHealthSnapshots: includeStructuredField(query.includeHealthSnapshots),
+    eventFilter: (event) => eventMatchesExportFilters(event, actions, requestedEntityTypes, query),
   };
 }
 
@@ -158,29 +168,17 @@ function eventMatchesExportFilters(
   }
 }
 
-function collectCanonicalAuditEvents(habitatId: string, query: AuditEventQuery): AuditEvent[] {
-  const result = queryAuditEvents(toAuditQuery(habitatId, query));
-  const actions = parseCsvFilter(query.actions);
-  const entityTypes = parseCsvFilter(query.entityTypes);
-  return result.events.filter((event) => eventMatchesExportFilters(event, actions, entityTypes, query));
-}
-
 /** Returns the canonical {@link CanonicalAuditEventResult} for a habitat after applying export filters, including the events, any warnings, and a completeness summary. */
 export function getCanonicalAuditEvents(
   habitatId: string,
   query: AuditEventQuery,
 ): CanonicalAuditEventResult {
-  const result = queryAuditEvents(toAuditQuery(habitatId, query));
-  const actions = parseCsvFilter(query.actions);
-  const entityTypes = parseCsvFilter(query.entityTypes);
-  const events = result.events.filter((event) =>
-    eventMatchesExportFilters(event, actions, entityTypes, query),
-  );
-  return {
-    events,
-    warnings: result.warnings,
-    completenessSummary: result.completenessSummary,
-  };
+  return queryAuditEvents({
+    ...toAuditQuery(habitatId, query),
+    limit: query.limit,
+    offset: query.offset,
+    order: query.order ?? "asc",
+  });
 }
 
 function canonicalEventsToCsv(events: AuditEvent[], query: AuditExportQuery): string {
@@ -239,15 +237,33 @@ function canonicalEventsToJsonl(events: AuditEvent[]): string {
 
 /** Renders the audit export payload (CSV, JSON, or JSONL) for the given {@link AuditExportQuery} by serializing the filtered canonical events. */
 export function generateAuditExportContent(habitatId: string, query: AuditExportQuery): string {
-  const events = collectCanonicalAuditEvents(habitatId, query);
+  return generateAuditExport(habitatId, query).content;
+}
+
+export function generateAuditExport(habitatId: string, query: AuditExportQuery): { content: string; warnings: AuditWarning[] } {
+  const { events, warnings } = getCanonicalAuditEvents(habitatId, query);
 
   if (query.format === "csv") {
-    return canonicalEventsToCsv(events, query);
+    return { content: canonicalEventsToCsv(events, query), warnings };
   }
   if (query.format === "jsonl") {
-    return canonicalEventsToJsonl(events);
+    return { content: canonicalEventsToJsonl(events), warnings };
   }
-  return canonicalEventsToJson(events);
+  return { content: canonicalEventsToJson(events), warnings };
+}
+
+const OMITTED_ROW_WARNING_CODES = ["collector_unavailable", "code_evidence_projection_partial", "notification_delivery_orphan", "webhook_delivery_orphan"] as const;
+const EXPORT_WARNING_CODES = [...OMITTED_ROW_WARNING_CODES, "result_truncated", "legacy_partial_history", "source_unavailable", "inferred_presence_source_unavailable", "notification_event_reference_unresolved", "automation_run_reference_unresolved"] as const;
+
+/** Fixed-size summary for logs and download headers; warnings may contain one entry per source row. */
+export function summarizeExportWarnings(warnings: AuditWarning[]): { warningCodes: string[]; warningCount: number; partial: boolean; truncated: boolean } {
+  const warningCodes = EXPORT_WARNING_CODES.filter((code) => warnings.some((warning) => warning.code === code));
+  return {
+    warningCodes,
+    warningCount: warnings.length,
+    partial: OMITTED_ROW_WARNING_CODES.some((code) => warningCodes.includes(code)),
+    truncated: warningCodes.includes("result_truncated"),
+  };
 }
 
 /** Returns a date-stamped download filename of the form `audit-<habitatPrefix>-<YYYY-MM-DD>.<format>` for an audit export. */
@@ -283,7 +299,11 @@ export async function streamAuditExport(
     "Content-Disposition",
     `attachment; filename="${getExportFilename(habitatId, format)}"`,
   );
-  const content = generateAuditExportContent(habitatId, query);
+  const { content, warnings } = generateAuditExport(habitatId, query);
+  const { truncated, partial } = summarizeExportWarnings(warnings);
+  reply.header("X-Audit-Result-Truncated", String(truncated));
+  reply.header("X-Audit-Result-Partial", String(partial));
+  reply.header("Access-Control-Expose-Headers", "X-Audit-Result-Truncated, X-Audit-Result-Partial");
   return reply.send(format === "json" ? JSON.parse(content) : content);
 }
 

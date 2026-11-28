@@ -94,6 +94,17 @@ describe("auditExportService", () => {
     expect(csv).toContain(",created,");
   });
 
+  it("quotes carriage returns and neutralizes formula-leading CSV text while preserving JSON", () => {
+    const fixture = createFixture();
+    const task = taskRepo.createTask({ missionId: fixture.mission.id, title: "before\rafter", createdBy: "user-1" });
+    eventRepo.createEvent({ taskId: task.id, actorType: "human", actorId: " \t=not-a-formula", action: "updated" });
+    const csv = generateAuditExportContent(fixture.habitat.id, { format: "csv" });
+    expect(csv).toContain('"Task updated: before\rafter"');
+    expect(csv).toContain("' \t=not-a-formula");
+    const json = JSON.parse(generateAuditExportContent(fixture.habitat.id, { format: "json" }));
+    expect(json.find((event: { entity: { id: string } }) => event.entity.id === task.id)).toMatchObject({ actor: { id: " \t=not-a-formula" }, summary: "Task updated: before\rafter" });
+  });
+
   it("can include optional integrity metadata in CSV exports", () => {
     const fixture = createFixture();
     eventRepo.createEvent({

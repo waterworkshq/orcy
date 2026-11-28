@@ -1,7 +1,8 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach, afterAll } from "vitest";
 import path from "node:path";
 import fs from "node:fs";
 import os from "node:os";
+import { EventEmitter } from "node:events";
 
 const mockDetectClis = vi.hoisted(() => vi.fn());
 const mockLoadConfig = vi.hoisted(() => vi.fn());
@@ -17,6 +18,7 @@ const mockRecoverSessions = vi.hoisted(() => vi.fn(() => []));
 const mockSetDaemonToken = vi.hoisted(() => vi.fn());
 const mockSpawn = vi.hoisted(() => vi.fn());
 const mockPollLoopConfigs = vi.hoisted(() => [] as any[]);
+const fixture = vi.hoisted(() => ({ root: "" }));
 
 vi.mock("node:child_process", () => ({
   spawn: mockSpawn,
@@ -55,7 +57,11 @@ vi.mock("@orcy/daemon", () => ({
 
 vi.mock("@orcy/shared", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@orcy/shared")>();
-  return actual;
+  const { mkdtempSync } = await import("node:fs");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  fixture.root = mkdtempSync(join(tmpdir(), "orcy-daemon-unit-"));
+  return { ...actual, ORCY_PATHS: { ...actual.ORCY_PATHS, run: join(fixture.root, "run"), logs: join(fixture.root, "logs") } };
 });
 
 import { Command } from "commander";
@@ -83,6 +89,10 @@ beforeEach(() => {
 
 afterEach(() => {
   process.exit = savedExit;
+});
+
+afterAll(() => {
+  fs.rmSync(fixture.root, { recursive: true, force: true });
 });
 
 describe("daemon detect", () => {
@@ -241,11 +251,15 @@ describe("daemon start", () => {
   });
 
   it("starts detached daemon using the ESM CLI entrypoint", async () => {
+    const child = Object.assign(new EventEmitter(), { pid: 12345, unref: vi.fn(), send: vi.fn() });
+    mockSpawn.mockReturnValue(child);
     const logs: string[] = [];
     const origLog = console.log;
     console.log = (...args: any[]) => logs.push(args.join(" "));
 
     createProgram().parse(["node", "orcy", "daemon", "start", "--detach"]);
+    child.emit("message", "orcy-daemon-reserved");
+    child.emit("message", "orcy-daemon-ready");
 
     await new Promise((r) => setTimeout(r, 50));
     console.log = origLog;

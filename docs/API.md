@@ -5377,7 +5377,11 @@ Canonical Audit Trail V2 search and export across lifecycle, effort, code eviden
 Query canonical audit events for a habitat.
 
 **Auth:** JWT required (human)
-**Query:** `since?`, `until?`, `entityType?`, `entityId?`, `taskId?`, `missionId?`, `source?`, `provider?`, `preset?`, `includeHealthSnapshots?`, `limit?`, `offset?`, `order?`
+**Query:** `since?`, `until?`, `actions?`, `actorType?`, `actorId?`, `entityTypes?`, `entityType?`, `entityId?`, `taskId?`, `missionId?`, `source?`, `provider?`, `preset?`, `includeHealthSnapshots?`, `limit?`, `offset?`, `order?`
+`limit` is an integer from 1 to 10000 (default 1000); `offset` is a non-negative safe integer (default 0); `order` is `asc` (default) or `desc`. Events are ordered by timestamp, then by ID ascending for ties.
+
+All supported filters apply before pagination. The completeness summary describes all matching events, not just the returned page.
+
 **Response `200`:** `{ "events": AuditEvent[], "warnings": AuditWarning[], "completenessSummary": {...} }`
 
 ### GET /habitats/:id/audit/export
@@ -5388,7 +5392,10 @@ Export canonical audit events.
 **Query:** `format` (csv|json|jsonl), `since?`, `until?`, `actions?`, `actorType?`, `actorId?`, `entityTypes?`, `entityType?`, `entityId?`, `source?`, `provider?`, `preset?`, `includeMetadata?`, `includeProvenance?`, `includeIntegrity?`, `includeHealthSnapshots?`
 **Response `200`:** File download with appropriate Content-Type header.
 
+The `X-Audit-Result-Truncated` response header is `true` when more than 1,000 matching events exist and `false` otherwise. Narrow the time range or filters to retrieve records beyond that limit. `X-Audit-Result-Partial` is `true` when a collector fails or projection warns that source rows were omitted; it is separate from truncation and does not cover every per-event provenance caveat. Scheduled exports retain their cadence and record a bounded warning summary in the structured execution log, at warning level when records are omitted or truncated.
+
 CSV includes stable canonical columns by default. JSON exports an array of canonical `AuditEvent` objects. JSONL emits one canonical event per line.
+CSV quotes fields containing carriage returns and prefixes an apostrophe to fields whose first non-whitespace or control character is `=`, `+`, `-`, or `@`, to reduce spreadsheet formula interpretation. Use JSON or JSONL when exact raw field values are required.
 
 ### GET /tasks/:taskId/audit/bundle
 
