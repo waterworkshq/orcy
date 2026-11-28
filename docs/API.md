@@ -5377,7 +5377,7 @@ Canonical Audit Trail V2 search and export across lifecycle, effort, code eviden
 Query canonical audit events for a habitat.
 
 **Auth:** JWT required (human)
-**Query:** `since?`, `until?`, `actions?`, `entityType?`, `entityId?`, `taskId?`, `missionId?`, `source?`, `provider?`, `preset?`, `includeHealthSnapshots?`, `limit?`, `offset?`, `order?`
+**Query:** `since?`, `until?`, `actions?`, `actorType?`, `actorId?`, `entityTypes?`, `entityType?`, `entityId?`, `taskId?`, `missionId?`, `source?`, `provider?`, `preset?`, `includeHealthSnapshots?`, `limit?`, `offset?`, `order?`
 `limit` is an integer from 1 to 10000 (default 1000); `offset` is a non-negative safe integer (default 0); `order` is `asc` (default) or `desc`. Events are ordered by timestamp, then by ID ascending for ties.
 
 `actions`, `provider`, and `preset` are applied after pagination. A short or empty page can therefore have matches at later offsets. The completeness summary and truncation warning describe the projection before these filters are applied.
