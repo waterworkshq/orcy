@@ -1,7 +1,6 @@
 import React, { useMemo } from "react";
-import { BurndownChart } from "../dashboard/BurndownChart.js";
-import { useHabitatTasks, useHabitatBurndown, useHabitat } from "../../lib/useHabitatData.js";
-import type { Sprint, BurndownDataPoint } from "../../types/index.js";
+import { useHabitatTasks, useHabitat } from "../../lib/useHabitatData.js";
+import type { Sprint } from "../../types/index.js";
 import { CheckCircle, Clock, TrendingUp, Target } from "lucide-react";
 
 const TERMINAL_STATUSES = ["done", "approved"] as const;
@@ -74,14 +73,6 @@ export function SprintDashboard({ sprint, habitatId }: SprintDashboardProps) {
 
   const velocity = daysElapsed > 0 ? (completedTasks / daysElapsed).toFixed(1) : "0";
 
-  const daysForBurndown = Math.max(7, daysTotal);
-  const { data: burndownData } = useHabitatBurndown(habitatId, daysForBurndown);
-
-  const sprintBurndown: BurndownDataPoint[] =
-    burndownData?.data?.filter(
-      (dp: BurndownDataPoint) => dp.date >= sprint.startDate && dp.date <= sprint.endDate,
-    ) ?? [];
-
   return (
     <div className="space-y-4">
       <div className="grid grid-cols-2 gap-3">
@@ -128,12 +119,6 @@ export function SprintDashboard({ sprint, habitatId }: SprintDashboardProps) {
         </div>
       )}
 
-      {sprintBurndown.length > 0 && (
-        <div className="rounded-lg border border-border p-3">
-          <p className="text-xs font-medium text-muted-foreground mb-2">Burndown</p>
-          <BurndownChart data={sprintBurndown} />
-        </div>
-      )}
     </div>
   );
 }
