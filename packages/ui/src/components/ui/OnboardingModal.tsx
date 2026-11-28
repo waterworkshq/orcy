@@ -39,13 +39,15 @@ export function OnboardingModal({ isOpen, onComplete }: OnboardingModalProps) {
   const [showAgentDialog, setShowAgentDialog] = useState(false);
 
   useEffect(() => {
-    if (!isOpen) return;
+    // While the nested registration dialog is open it owns Escape (it is the
+    // topmost dialog); completing onboarding here would also close the parent.
+    if (!isOpen || showAgentDialog) return;
     const handleKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') onComplete();
     };
     document.addEventListener('keydown', handleKey);
     return () => document.removeEventListener('keydown', handleKey);
-  }, [isOpen, onComplete]);
+  }, [isOpen, onComplete, showAgentDialog]);
 
   if (!isOpen) return null;
 
