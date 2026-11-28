@@ -254,7 +254,7 @@ function renderPage() {
 
 describe("Habitat Add Task publication", () => {
   beforeEach(() => { cleanup(); vi.clearAllMocks(); recovering = false; availableMissions = missions; localStorage.setItem("orcy_token", "fixture-token"); setupFetch(); });
-  afterEach(() => { cleanup(); localStorage.removeItem("orcy_token"); });
+  afterEach(() => { cleanup(); vi.restoreAllMocks(); localStorage.removeItem("orcy_token"); });
   it.each([["desktop", false], ["mobile", true]] as const)("publishes through the mounted %s entry", async (_entry, isMobile) => {
     mobile = isMobile;
     renderPage();
@@ -380,7 +380,6 @@ describe("Habitat Add Task publication", () => {
     await waitFor(() => expect(success).toHaveBeenCalledWith('Task "Old Task" created'));
     expect(screen.getByRole("dialog")).toBeTruthy();
     expect((screen.getByPlaceholderText("Task title") as HTMLInputElement).value).toBe("New draft");
-    success.mockRestore();
   });
 
   it.each([["desktop", false], ["mobile", true]] as const)("keeps the %s dialog identity while publication is in flight", async (_entry, isMobile) => {
