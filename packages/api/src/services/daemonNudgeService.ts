@@ -18,7 +18,7 @@ export function nudgeAllDaemons(): NudgeResult[] {
   const results: NudgeResult[] = [];
   const now = Date.now();
 
-  const daemons = daemonRepo.listDaemons().filter((d) => d.status === "online");
+  const daemons = daemonRepo.listDaemons().filter((d) => d.status === "online" && d.stopIntent == null);
   if (daemons.length === 0) return results;
 
   const idleAgents: Array<{ agentId: string; daemonId: string; cliType: string }> = [];

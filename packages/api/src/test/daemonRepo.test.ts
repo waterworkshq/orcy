@@ -9,6 +9,7 @@ const schemaStubs = vi.hoisted(() => ({
     maxConcurrent: "max_concurrent",
     daemonVersion: "daemon_version",
     lastHeartbeatAt: "last_heartbeat_at",
+    stopIntent: "stop_intent",
     status: "status",
     metadata: "metadata",
     createdAt: "created_at",
@@ -100,6 +101,7 @@ function createMockDb() {
     return chain;
   };
   return {
+    all: () => [{ name: "stop_intent" }],
     insert: () => doInsert(),
     select: () => doSelect(),
     update: () => doUpdate(),

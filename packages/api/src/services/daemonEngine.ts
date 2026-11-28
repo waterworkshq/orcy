@@ -1,4 +1,5 @@
 import { hostname } from "node:os";
+import { randomUUID } from "node:crypto";
 import type {
   DetectedCli,
   RegisteredAgent,
@@ -8,6 +9,7 @@ import type {
 } from "@orcy/shared/types";
 import { runPollTick } from "@orcy/shared";
 import * as daemonRepo from "../repositories/daemon.js";
+import { createDaemonStopIntent, daemonStopIntentRef } from "./daemonOwnerWitness.js";
 import * as agentService from "../services/agentService.js";
 import { claimTaskWithSession } from "./tasks/claimSession.js";
 import * as taskRepo from "../repositories/task.js";
@@ -22,7 +24,7 @@ import {
   detectClisOnHost,
 } from "../daemon-wiring.js";
 import { cleanupDaemonSessionsOnStart, setEngineLivenessProbe } from "./daemonSessionRecovery.js";
-import { badRequest, forbidden } from "../errors.js";
+import { badRequest, forbidden, conflict } from "../errors.js";
 
 // The recovery sweep's embedded liveness source (one-way registration — the
 // recovery module must never import this module; the default probe is the
@@ -36,11 +38,17 @@ interface RunningDaemon {
   agents: RegisteredAgent[];
   pollTimer: ReturnType<typeof setInterval> | null;
   heartbeatTimer: ReturnType<typeof setInterval> | null;
+  stopPromise: Promise<void> | null;
+  intentWriteFailed: boolean;
+  shutdownFallback: Promise<void> | null;
   habitatIds: string[];
   maxConcurrent: number;
 }
 
 const runningDaemons = new Map<string, RunningDaemon>();
+// Only this process knows that its drain completed; the durable token alone
+// cannot establish that fact after a crash or in another API process.
+const completedDrains = new Map<string, string>();
 const inMemoryAgentCredentials = new Map<string, RegisteredAgent[]>();
 
 /** Result of registering an in-process daemon: the daemon id and the per-agent credentials (including one-time API keys) for each detected CLI. */
@@ -125,14 +133,6 @@ export function start(daemonId: string, dataDir: string = "/tmp/orcy-daemon"): v
     throw new Error(`Daemon ${daemonId} not found`);
   }
 
-  // Verified-restart straggler cleanup (daemon-worker contract): the engine
-  // starting locally proves the prior process dead — terminalize THIS
-  // daemon's still-active session rows BEFORE serving the first claim (the
-  // only start-time kill; heartbeat rules do not apply to a verified
-  // restart). Runs ahead of every side effect below so sessions created by
-  // the newly started engine are never marked.
-  cleanupDaemonSessionsOnStart(daemonId);
-
   const daemonAgents = daemonRepo.getDaemonAgentsByDaemonId(daemonId);
   const credentials = new Map((inMemoryAgentCredentials.get(daemonId) ?? []).map((a) => [a.id, a]));
   const agents: RegisteredAgent[] = daemonAgents.map((da) => ({
@@ -144,10 +144,53 @@ export function start(daemonId: string, dataDir: string = "/tmp/orcy-daemon"): v
   }));
 
   if (agents.some((agent) => !agent.apiKey)) {
-    throw new Error(
+    throw conflict(
       "In-process daemon credentials are only available immediately after UI registration. Register a new UI daemon or use the standalone CLI daemon for persisted credentials.",
     );
   }
+
+  // A starting process owns a new witness before any cleanup. An older
+  // recovery must not retire the intent observed by this new start.
+  let startReservation: string | undefined;
+  const completedIntent = completedDrains.get(daemonId);
+  if (daemon.stopIntent != null) {
+    // Only carry verified provenance forward from an owned witness or a
+    // registration created by this API process; legacy rows stay ownerless.
+    const startIntent = inMemoryAgentCredentials.has(daemonId) || daemonStopIntentRef(daemon.stopIntent) != null
+      ? createDaemonStopIntent()
+      : randomUUID();
+    if (!daemonRepo.reserveDaemonStart(daemonId, daemon.stopIntent, startIntent)) {
+      throw conflict("Daemon stop intent changed; refresh the daemon status");
+    }
+    startReservation = startIntent;
+    completedDrains.delete(daemonId);
+  }
+
+  // Probe storage before cleanup can mutate sessions or launch outcome work.
+  // Only a failure in this read-only step proves no start side effects ran.
+  let sessionsToClean: ReturnType<typeof daemonRepo.getActiveSessionsByDaemonId> | undefined;
+  if (startReservation && completedIntent && completedIntent === daemon.stopIntent) {
+    try {
+      sessionsToClean = daemonRepo.getActiveSessionsByDaemonId(daemonId);
+    } catch (err) {
+      // No session manager, poll or heartbeat has been launched yet. Only the
+      // same process's completed drain can be restored, and only if no newer
+      // heartbeat or start replaced this exact reservation.
+      try {
+        if (daemonRepo.reserveDaemonStart(daemonId, startReservation, completedIntent)) {
+          completedDrains.set(daemonId, completedIntent);
+        }
+      } catch (restoreErr) {
+        logger.warn({ err: restoreErr, daemonId }, "Failed to restore completed daemon stop intent");
+      }
+      throw err;
+    }
+  }
+
+  // Cleanup remains ahead of the first claim and any newly created sessions.
+  // Once it starts, failures leave the new intent Unknown: cleanup may have
+  // already changed session state or dispatched outcome work.
+  cleanupDaemonSessionsOnStart(daemonId, sessionsToClean);
 
   const sessionManager = getSessionManager(daemonId, dataDir);
   const claimStrategy = getClaimStrategy({
@@ -166,6 +209,9 @@ export function start(daemonId: string, dataDir: string = "/tmp/orcy-daemon"): v
     agents,
     pollTimer: null,
     heartbeatTimer: null,
+    stopPromise: null,
+    intentWriteFailed: false,
+    shutdownFallback: null,
     habitatIds: [],
     maxConcurrent: daemon.maxConcurrent ?? 4,
   };
@@ -186,6 +232,7 @@ export function start(daemonId: string, dataDir: string = "/tmp/orcy-daemon"): v
   running.heartbeatTimer = setInterval(() => daemonRepo.updateDaemonHeartbeat(daemonId), 30000);
 
   runningDaemons.set(daemonId, running);
+  completedDrains.delete(daemonId);
 }
 
 async function tick(running: RunningDaemon): Promise<void> {
@@ -199,11 +246,49 @@ async function tick(running: RunningDaemon): Promise<void> {
 }
 
 /**
- * Stops a running in-process daemon by clearing its poll/heartbeat timers, shutting down every active session, releasing its {@link ISessionManager}, and marking it "offline"; no-op if the daemon is not running.
+ * Stops a running in-process daemon by clearing its poll/heartbeat timers, shutting down every active session, releasing its {@link ISessionManager}, and marking it "offline"; retries a failed offline write without draining twice.
  */
 export async function stop(daemonId: string): Promise<void> {
   const running = runningDaemons.get(daemonId);
-  if (!running) return;
+  if (!running) {
+    const token = completedDrains.get(daemonId);
+    if (token) {
+      daemonRepo.completeDaemonStop(daemonId, token, "offline");
+      completedDrains.delete(daemonId);
+    } else if (daemonRepo.getDaemonById(daemonId)?.stopIntent != null) {
+      throw conflict("Daemon stop completion is unknown; register a new UI daemon or use a standalone daemon. This record remains unknown.");
+    }
+    return;
+  }
+  if (running.shutdownFallback) {
+    throw conflict("Daemon API shutdown is in progress");
+  }
+  if (running.stopPromise) return running.stopPromise;
+
+  const stopping = stopRunning(running);
+  running.stopPromise = stopping;
+  try {
+    await stopping;
+  } finally {
+    running.stopPromise = null;
+  }
+}
+
+async function stopRunning(running: RunningDaemon): Promise<void> {
+  const { daemonId } = running;
+  // An arbitrary daemon row can be started through the admin endpoint. Only
+  // a UI registration owned by this process proves an embedded origin.
+  const token = inMemoryAgentCredentials.has(daemonId) ? createDaemonStopIntent() : randomUUID();
+
+  // If intent cannot be committed, do not drain: other readers could not
+  // distinguish a stopped daemon from its retained heartbeat.
+  running.intentWriteFailed = false;
+  try {
+    daemonRepo.beginDaemonStop(daemonId, token);
+  } catch (err) {
+    running.intentWriteFailed = true;
+    throw err;
+  }
 
   if (running.pollTimer) {
     clearInterval(running.pollTimer);
@@ -212,10 +297,28 @@ export async function stop(daemonId: string): Promise<void> {
     clearInterval(running.heartbeatTimer);
   }
 
-  await running.sessionManager.shutdownAll();
-  daemonRepo.setDaemonStatus(daemonId, "offline");
+  try {
+    await running.sessionManager.shutdownAll();
+  } catch (err) {
+    try {
+      daemonRepo.completeDaemonStop(daemonId, token, "online");
+    } catch (restoreErr) {
+      logger.warn({ err: restoreErr, daemonId }, "Failed to restore daemon status after shutdown failure");
+    } finally {
+      running.sessionManager.startTimeoutCheck();
+      running.pollTimer = setInterval(() => tick(running), 30000);
+      running.heartbeatTimer = setInterval(() => daemonRepo.updateDaemonHeartbeat(daemonId), 30000);
+    }
+    throw err;
+  }
   releaseSessionManager(daemonId);
   runningDaemons.delete(daemonId);
+  try {
+    daemonRepo.completeDaemonStop(daemonId, token, "offline");
+  } catch (err) {
+    completedDrains.set(daemonId, token);
+    throw err;
+  }
 }
 
 export { detectClisOnHost };
@@ -234,6 +337,12 @@ export function isRunning(daemonId: string): boolean {
   return runningDaemons.has(daemonId);
 }
 
+/** A stopping engine still owns sessions but no longer polls or heartbeats. */
+export function isStopping(daemonId: string): boolean {
+  const running = runningDaemons.get(daemonId);
+  return running != null && (running.stopPromise != null || running.shutdownFallback != null);
+}
+
 /**
  * Stops every running in-process daemon CONCURRENTLY and returns a promise
  * that settles when all stop sequences have an outcome (each stop's session
@@ -243,8 +352,37 @@ export function isRunning(daemonId: string): boolean {
  * embedded bounded drain).
  */
 export function shutdownAll(): Promise<void> {
-  const stops = [...runningDaemons.keys()].map((daemonId) => stop(daemonId).catch(() => {}));
+  const stops = [...runningDaemons.entries()].map(([daemonId, running]) => stop(daemonId).catch(async (err) => {
+    if (!running.intentWriteFailed || runningDaemons.get(daemonId) !== running) return;
+    let fallback = running.shutdownFallback;
+    if (!fallback) {
+      fallback = drainWithoutIntent(running, err);
+      running.shutdownFallback = fallback;
+    }
+    try {
+      await fallback;
+    } finally {
+      if (running.shutdownFallback === fallback) running.shutdownFallback = null;
+    }
+  }));
   return Promise.allSettled(stops).then(() => {});
+}
+
+// Process exit cannot preserve a live engine. Attempt its bounded drain even
+// when storage cannot record intent; other readers may see a stale heartbeat.
+async function drainWithoutIntent(running: RunningDaemon, intentError: unknown): Promise<void> {
+  const { daemonId } = running;
+  logger.warn({ err: intentError, daemonId }, "Daemon shutdown is draining without durable stop intent; status may be stale");
+  if (running.pollTimer) clearInterval(running.pollTimer);
+  if (running.heartbeatTimer) clearInterval(running.heartbeatTimer);
+  try {
+    await running.sessionManager.shutdownAll();
+    releaseSessionManager(daemonId);
+    runningDaemons.delete(daemonId);
+  } catch (err) {
+    logger.error({ err, daemonId }, "Daemon shutdown drain failed without durable stop intent");
+    throw err;
+  }
 }
 
 /** Input for HTTP-based daemon registration: daemon identity, concurrency limit, target habitats, and the CLIs detected on the remote host. */

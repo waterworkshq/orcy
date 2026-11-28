@@ -423,8 +423,10 @@ function terminalizeGhostSession(daemonId: string, sessionId: string): boolean {
  * never marked (this runs before serving). Never reads `isRunning` or any
  * generation — heartbeat rules do not apply to a verified restart.
  */
-export function cleanupDaemonSessionsOnStart(daemonId: string): number {
-  const active = daemonRepo.getActiveSessionsByDaemonId(daemonId);
+export function cleanupDaemonSessionsOnStart(
+  daemonId: string,
+  active = daemonRepo.getActiveSessionsByDaemonId(daemonId),
+): number {
   let cleaned = 0;
   for (const session of active) {
     const updated = daemonRepo.updateSessionStatus(

@@ -108,6 +108,7 @@
 |---|---|---|---|
 | GET | `/daemons` | `human` | current + deprecated twin |
 | GET | `/daemons/:param` | `human` | current + deprecated twin |
+| POST | `/daemons/:param/recover` | `human` | current + deprecated twin |
 | POST | `/daemons/:param/start` | `human` | current + deprecated twin |
 | POST | `/daemons/:param/stop` | `human` | current + deprecated twin |
 | GET | `/daemons/detect-clis` | `human` | current + deprecated twin |
@@ -692,4 +693,4 @@
 
 ---
 
-Total operations (generated HEAD and framework preflight excluded; twins deduplicated): 486 across 40 families.
+Total operations (generated HEAD and framework preflight excluded; twins deduplicated): 487 across 40 families.

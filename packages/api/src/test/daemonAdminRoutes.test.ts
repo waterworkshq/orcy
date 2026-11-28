@@ -13,6 +13,7 @@ const mocks = vi.hoisted(() => ({
     stop: vi.fn(),
     detectClisOnHost: vi.fn(),
     isRunning: vi.fn(),
+    isStopping: vi.fn(),
   },
   habitatRepo: {
     listHabitats: vi.fn(),

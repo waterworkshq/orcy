@@ -14,8 +14,10 @@ import type {
   DaemonClaimNextInput,
   DaemonSessionUpdateInput,
 } from "../models/schemas.js";
-import { badRequest, notFound, forbidden } from "../errors.js";
+import { badRequest, notFound, forbidden, conflict } from "../errors.js";
 import * as daemonEngine from "../services/daemonEngine.js";
+import { daemonStopIntentRef } from "../services/daemonOwnerWitness.js";
+import { recoverDaemonStop } from "../services/daemonVerifiedRecovery.js";
 import { driveDaemonSessionOutcome } from "../services/daemonSessionRecovery.js";
 
 export async function daemonRoutes(fastify: FastifyInstance): Promise<void> {
@@ -185,13 +187,16 @@ export async function daemonAdminRoutes(fastify: FastifyInstance): Promise<void>
         const agents = daemonRepo.getDaemonAgentsByDaemonId(d.id);
         const sessions = daemonRepo.getActiveSessionsByDaemonId(d.id);
         const isOnline =
-          daemonEngine.isRunning(d.id) ||
-          (d.lastHeartbeatAt && Date.now() - new Date(d.lastHeartbeatAt).getTime() < 60000);
+          (daemonEngine.isRunning(d.id) && !daemonEngine.isStopping(d.id)) ||
+          (d.status !== "offline" &&
+            d.lastHeartbeatAt &&
+            Date.now() - new Date(d.lastHeartbeatAt).getTime() < 60000);
         return {
           id: d.id,
           name: d.name,
           hostname: d.hostname,
-          status: isOnline ? "online" : "offline",
+          status: d.stopIntent != null ? "unknown" : isOnline ? "online" : "offline",
+          stopIntentRef: daemonStopIntentRef(d.stopIntent),
           agentCount: agents.length,
           activeSessionCount: sessions.length,
           lastHeartbeat: d.lastHeartbeatAt,
@@ -214,15 +219,18 @@ export async function daemonAdminRoutes(fastify: FastifyInstance): Promise<void>
       const agents = daemonRepo.getDaemonAgentsByDaemonId(daemon.id);
       const sessions = daemonRepo.getActiveSessionsByDaemonId(daemon.id);
       const isOnline =
-        daemonEngine.isRunning(daemon.id) ||
-        (daemon.lastHeartbeatAt && Date.now() - new Date(daemon.lastHeartbeatAt).getTime() < 60000);
+        (daemonEngine.isRunning(daemon.id) && !daemonEngine.isStopping(daemon.id)) ||
+        (daemon.status !== "offline" &&
+          daemon.lastHeartbeatAt &&
+          Date.now() - new Date(daemon.lastHeartbeatAt).getTime() < 60000);
 
       return {
         daemon: {
           id: daemon.id,
           name: daemon.name,
           hostname: daemon.hostname,
-          status: isOnline ? "online" : "offline",
+          status: daemon.stopIntent != null ? "unknown" : isOnline ? "online" : "offline",
+          stopIntentRef: daemonStopIntentRef(daemon.stopIntent),
           maxConcurrent: daemon.maxConcurrent,
           lastHeartbeat: daemon.lastHeartbeatAt,
           createdAt: daemon.createdAt,
@@ -286,6 +294,9 @@ export async function daemonAdminRoutes(fastify: FastifyInstance): Promise<void>
         throw notFound("Daemon not found");
       }
 
+      if (daemonEngine.isStopping(daemon.id)) {
+        throw conflict("Daemon is stopping; try again after shutdown completes");
+      }
       if (daemonEngine.isRunning(daemon.id)) {
         return { status: "already_running" };
       }
@@ -293,6 +304,19 @@ export async function daemonAdminRoutes(fastify: FastifyInstance): Promise<void>
       const dataDir = request.body?.dataDir;
       daemonEngine.start(daemon.id, dataDir);
       return { status: "started" };
+    },
+  );
+
+  fastify.post<{ Params: { id: string }; Body: { expectedIntent?: unknown } }>(
+    "/daemons/:id/recover",
+    { config: { authPolicy: "human" }, preHandler: adminPreHandlers },
+    async (request: FastifyRequest<{ Params: { id: string }; Body: { expectedIntent?: unknown } }>) => {
+      const expectedIntent = request.body?.expectedIntent;
+      if (typeof expectedIntent !== "string" || expectedIntent.length > 128 || expectedIntent.length === 0) {
+        throw badRequest("expectedIntent is required");
+      }
+      recoverDaemonStop(request.params.id, expectedIntent);
+      return { status: "offline" };
     },
   );
 

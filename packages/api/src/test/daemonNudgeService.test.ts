@@ -100,6 +100,15 @@ describe("daemonNudgeService", () => {
     return { daemon, agentId: agent.id };
   }
 
+  it("does not nudge an unresolved stop intent; a later heartbeat restores eligibility", () => {
+    setupHabitatWithPendingTask();
+    const { daemon } = setupDaemonWithIdleAgent("stopping");
+    daemonRepo.beginDaemonStop(daemon.id, "intent");
+    expect(nudgeAllDaemons()).toEqual([]);
+    daemonRepo.updateDaemonHeartbeat(daemon.id);
+    expect(nudgeAllDaemons().some((result) => result.reason === "nudged")).toBe(true);
+  });
+
   it("emits a directive pulse when idle agents and pending tasks exist", () => {
     const { habitat } = setupHabitatWithPendingTask();
     setupDaemonWithIdleAgent("01");

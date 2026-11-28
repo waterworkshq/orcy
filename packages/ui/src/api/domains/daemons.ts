@@ -19,6 +19,8 @@ export const daemonsApi = {
       body: JSON.stringify(dataDir ? { dataDir } : {}),
     }),
   stop: (id: string) => request<{ status: string }>(`/daemons/${id}/stop`, { method: "POST" }),
+  recover: (id: string, expectedIntent: string) =>
+    request<{ status: string }>(`/daemons/${id}/recover`, { method: "POST", body: JSON.stringify({ expectedIntent }) }),
   detectClis: () =>
     request<{ clis: import("../../types/index.js").DetectedCli[] }>("/daemons/detect-clis"),
 };

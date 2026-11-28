@@ -5,6 +5,9 @@ export {
   getDaemonByTokenHash,
   updateDaemonHeartbeat,
   setDaemonStatus,
+  beginDaemonStop,
+  completeDaemonStop,
+  reserveDaemonStart,
   listDaemons,
   deleteDaemon,
 } from "./daemonInstance.js";
