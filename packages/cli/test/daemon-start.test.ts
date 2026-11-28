@@ -105,6 +105,21 @@ test('a stranded acquisition lock fails closed with an actionable message', () =
   assert.equal(existsSync(join(home, '.orcy/run/daemon.start.lock')), true);
 }));
 
+test('candidate unlink errors do not change lock acquisition outcomes', () => withHome((home) => {
+  const env = { NODE_OPTIONS: `--import=${preload}`, ORCY_TEST_FAIL_CANDIDATE_UNLINK: '1' };
+  const first = run(home, ['start'], env);
+  assert.equal(first.status, 1);
+  assert.match(first.stderr, /No credentials found/);
+  const lock = join(home, '.orcy/run/daemon.start.lock');
+  assert.equal(existsSync(lock), false);
+
+  writeFileSync(lock, 'another-owner');
+  const second = run(home, ['start'], env);
+  assert.equal(second.status, 1);
+  assert.match(second.stderr, /startup reservation is busy/);
+  assert.equal(readFileSync(lock, 'utf8'), 'another-owner');
+}));
+
 test('concurrent start and timeout preserve a tracked recovering child', () => withHome(async (home) => {
   let release!: (response: ServerResponse) => void;
   const request = new Promise<ServerResponse>((resolve) => { release = resolve; });

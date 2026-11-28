@@ -2,6 +2,17 @@ import childProcess from 'node:child_process';
 import { syncBuiltinESMExports } from 'node:module';
 import { writeFileSync } from 'node:fs';
 import fs from 'node:fs';
+if (process.env.ORCY_TEST_FAIL_CANDIDATE_UNLINK) {
+  const unlink = fs.unlinkSync;
+  fs.unlinkSync = (...args) => {
+    if (String(args[0]).includes('/daemon.start.lock.')) {
+      const error = new Error('synthetic candidate unlink failure');
+      error.code = 'EACCES';
+      throw error;
+    }
+    return unlink(...args);
+  };
+}
 if (process.env.ORCY_TEST_DELAY_LOCK && process.env.ORCY_DAEMON_DETACHED_START === '1') {
   const link = fs.linkSync;
   const mkdir = fs.mkdirSync;

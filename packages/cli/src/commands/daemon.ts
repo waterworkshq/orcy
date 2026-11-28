@@ -70,7 +70,8 @@ function acquireStartLock(token: string): void {
   try {
     fs.linkSync(candidate, START_LOCK);
   } finally {
-    fs.unlinkSync(candidate);
+    // Candidate cleanup must not mask a failed link or strand a published lock.
+    try { fs.unlinkSync(candidate); } catch {}
   }
 }
 
