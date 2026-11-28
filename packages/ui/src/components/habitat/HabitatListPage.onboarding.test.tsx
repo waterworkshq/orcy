@@ -77,6 +77,19 @@ it("keeps the welcome open and completion unset when Escape dismisses a displaye
   expect(localStorage.getItem("orcy_onboarding_completed")).toBeNull();
 });
 
+it("completes onboarding on a later Escape once the registration dialog has closed", async () => {
+  stubApi();
+  await openWelcome();
+  const name = await openRegistration();
+  name.focus();
+  fireEvent.keyDown(name, { key: "Escape" });
+  expect(screen.getByText("Welcome to Orcy")).toBeTruthy();
+  expect(localStorage.getItem("orcy_onboarding_completed")).toBeNull();
+  fireEvent.keyDown(document, { key: "Escape" });
+  expect(screen.queryByText("Welcome to Orcy")).toBeNull();
+  expect(localStorage.getItem("orcy_onboarding_completed")).toBe("true");
+});
+
 it("keeps the welcome open and completion unset when the registration dialog is cancelled", async () => {
   stubApi();
   await openWelcome();
