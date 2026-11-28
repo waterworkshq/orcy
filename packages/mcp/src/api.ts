@@ -101,6 +101,15 @@ interface McpAuditToolContext {
 
 const mcpAuditToolStorage = new AsyncLocalStorage<McpAuditToolContext>();
 
+/**
+ * Route-level claim refusals that arrive as prose rather than a reason code,
+ * keyed by the served `error` text. Conflict refusals already carry their code.
+ */
+const CLAIM_REFUSAL_REASONS: Record<string, string> = {
+  "Domain mismatch": "domain_mismatch",
+  "Task not found": "not_found",
+};
+
 export { ApiClientError as KanbanApiError } from "@orcy/shared";
 
 export interface AnalyticsWarning {
@@ -818,32 +827,45 @@ export class KanbanApiClient
     | { success: false; reason: string; message: string; missingCapabilities?: string[] }
   > {
     taskId = normalizeTaskId(taskId);
+    // The ID becomes a URL path segment: anything that could retarget the
+    // authenticated POST to another route is refused before any request.
+    if (!/^[A-Za-z0-9_-]+$/.test(taskId)) {
+      return { success: false, reason: "not_found", message: "Invalid task ID" };
+    }
     try {
-      return await this.request<ClaimTaskResponse>("POST", `/api/tasks/${taskId}/claim`);
+      // The served route requires an object body (the claiming agent comes from
+      // the API key) and answers success with the bare `{ task }` envelope.
+      const { task } = await this.request<{ task: Task }>(
+        "POST",
+        `/api/tasks/${taskId}/claim`,
+        {},
+      );
+      return { success: true, task };
     } catch (err) {
       if (err instanceof ApiClientError) {
+        // Refusals use the error-handler envelope `{ error, code, details }`.
         const body = err.message.replace(/^API \d+: /, "");
-        if (err.status === 403) {
-          try {
-            const parsed = JSON.parse(body);
-            if (parsed.missingCapabilities) {
-              return {
-                success: false,
-                reason: "capability_mismatch",
-                message: `Missing capabilities: ${parsed.missingCapabilities.join(", ")}`,
-                missingCapabilities: parsed.missingCapabilities,
-              };
-            }
-          } catch {
-            /* fall through */
-          }
-        }
+        let parsed: { error?: string; details?: { missingCapabilities?: string[] } } | undefined;
         try {
-          const parsed = JSON.parse(body);
-          return { success: false, reason: parsed.error || "unknown", message: body };
+          parsed = JSON.parse(body);
         } catch {
-          return { success: false, reason: "unknown", message: body };
+          /* non-JSON body */
         }
+        const missingCapabilities = parsed?.details?.missingCapabilities;
+        if (Array.isArray(missingCapabilities) && missingCapabilities.length > 0) {
+          return {
+            success: false,
+            reason: "capability_mismatch",
+            message: `Missing capabilities: ${missingCapabilities.join(", ")}`,
+            missingCapabilities,
+          };
+        }
+        const error = typeof parsed?.error === "string" ? parsed.error : undefined;
+        return {
+          success: false,
+          reason: (error && CLAIM_REFUSAL_REASONS[error]) || error || "unknown",
+          message: body,
+        };
       }
       return { success: false, reason: "unknown", message: String(err) };
     }
