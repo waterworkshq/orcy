@@ -1102,6 +1102,7 @@ export interface DaemonInfo {
   name: string;
   hostname: string;
   status: "online" | "offline" | "unknown";
+  stopIntentRef?: string | null;
   agentCount: number;
   activeSessionCount: number;
   lastHeartbeat: string | null;
@@ -1115,6 +1116,7 @@ export interface DaemonDetail {
     name: string;
     hostname: string;
     status: "online" | "offline" | "unknown";
+    stopIntentRef?: string | null;
     maxConcurrent: number;
     lastHeartbeat: string | null;
     createdAt: string;

@@ -16,7 +16,7 @@ if (mode === "start") {
 }
 const secret = "durable-stop-synthetic-test-secret";
 async function send(message: object): Promise<void> {
-  if (!process.send) throw new Error("reader requires an IPC channel");
+  if (!process.send) return;
   await new Promise<void>((resolve, reject) => process.send!(message, (error) => error ? reject(error) : resolve()));
 }
 try {
@@ -30,6 +30,7 @@ try {
     await initDaemonWiring();
     const start = await app.inject({ method: "POST", url: `/api/daemons/${id}/start`, headers });
     const detail = await app.inject({ method: "GET", url: `/api/daemons/${id}`, headers });
+    if (!process.send && start.statusCode !== 200) throw new Error(`synthetic Start failed: ${start.statusCode}`);
     await send({ startStatus: start.statusCode, detail: detail.json().daemon.status,
       ...(start.statusCode >= 400 ? { error: start.json().error } : {}) });
     await app.close();

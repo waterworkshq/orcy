@@ -160,6 +160,8 @@ Standalone daemon routes use a separate daemon token model:
 
 Human/UI daemon controls (`/daemons/*`) use normal human JWT auth and run the daemon engine inside the API process. The UI path does not write local credential files; generated managed-agent API keys are retained only in API process memory for immediate start.
 
+Daemon recovery is admin-only. It never accepts an operator assertion as proof of process death: it requires a matching durable intent, conservative same-namespace owner-termination evidence, and no active sessions. New Stop ownership is recorded only for UI registrations made by the current API process; self-reported daemon metadata is not provenance. Unsupported or ambiguous evidence is refused.
+
 ---
 
 ## Authorization Model

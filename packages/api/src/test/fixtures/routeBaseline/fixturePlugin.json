@@ -11798,6 +11798,19 @@
     },
     {
       "method": "POST",
+      "path": "/api/daemons/:id/recover",
+      "surface": "api-deprecated",
+      "guards": [
+        "humanAuth",
+        "<anonymous>"
+      ],
+      "authKind": "human",
+      "rawBodyEligible": false,
+      "source": "core",
+      "generatedTwin": false
+    },
+    {
+      "method": "POST",
       "path": "/api/daemons/:id/start",
       "surface": "api-deprecated",
       "guards": [
@@ -14138,6 +14151,19 @@
         "daemonAuth"
       ],
       "authKind": "daemon",
+      "rawBodyEligible": false,
+      "source": "core",
+      "generatedTwin": false
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/daemons/:id/recover",
+      "surface": "api-v1",
+      "guards": [
+        "humanAuth",
+        "<anonymous>"
+      ],
+      "authKind": "human",
       "rawBodyEligible": false,
       "source": "core",
       "generatedTwin": false

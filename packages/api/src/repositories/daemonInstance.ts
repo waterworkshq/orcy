@@ -178,6 +178,20 @@ export function completeDaemonStop(id: string, token: string, status: "online" |
   }
 }
 
+/** Fence a new start against recovery of the exact intent it observed. */
+export function reserveDaemonStart(id: string, expectedIntent: string, newIntent: string): boolean {
+  const db = getDb();
+  try {
+    const updated = db.update(daemonInstances)
+      .set({ stopIntent: newIntent, updatedAt: new Date().toISOString() })
+      .where(and(eq(daemonInstances.id, id), eq(daemonInstances.stopIntent, expectedIntent)))
+      .returning({ id: daemonInstances.id }).get();
+    return updated != null;
+  } catch (err) {
+    throw repositoryUpdateError("daemonInstance", err as Error, id);
+  }
+}
+
 export function listDaemons(): DaemonInstancePublic[] {
   const db = getDb();
   return db

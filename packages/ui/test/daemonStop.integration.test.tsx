@@ -1,4 +1,7 @@
 import React from "react";
+import { execFileSync } from "node:child_process";
+import { resolve } from "node:path";
+import { pathToFileURL } from "node:url";
 import { afterEach, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -76,6 +79,7 @@ it("shows Unknown when a persisted stop intent has no proven outcome", async () 
   render(<QueryClientProvider client={client}><DaemonSection /></QueryClientProvider>);
   expect(await screen.findByText("Unknown")).toBeTruthy();
   expect(screen.queryByText("Offline")).toBeNull();
+  expect(screen.queryByRole("button", { name: "Recover" })).toBeNull();
   fireEvent.click(screen.getByRole("button", { name: "Retry Stop" }));
   await waitFor(() => expect(retryStatus).toBe(409));
   expect(screen.getByText("Unknown")).toBeTruthy();
@@ -171,6 +175,67 @@ it.each([
     await client.invalidateQueries();
     expect(await screen.findByText(nextStatus)).toBeTruthy();
     expect(screen.getByRole("button", { name: pending })).toHaveProperty("disabled", true);
+  } finally {
+    release();
+    client.clear();
+  }
+});
+
+
+it.runIf(process.platform === "linux")("recovers a proven terminated owner from the mounted operator control", async () => {
+  await initTestDb();
+  const daemon = repo.createDaemon({ name: "recoverable", hostname: "test", maxConcurrent: 1, daemonVersion: "in-process", plainToken: "synthetic" });
+  const moduleUrl = pathToFileURL(resolve(process.cwd(), "../api/src/services/daemonOwnerWitness.ts")).href;
+  const script = `import { createDaemonStopIntent } from ${JSON.stringify(moduleUrl)}; process.stdout.write(createDaemonStopIntent());`;
+  const intent = execFileSync(process.execPath, ["--import", "tsx", "--input-type=module", "--eval", script], { encoding: "utf8" });
+  repo.beginDaemonStop(daemon.id, intent);
+  app = Fastify();
+  await app.register(daemonAdminRoutes);
+  await app.ready();
+  let payload: string | undefined;
+  vi.stubGlobal("fetch", async (url: string, options: RequestInit = {}) => {
+    if (url.endsWith("/recover")) payload = String(options.body);
+    const response = await app.inject({ method: (options.method ?? "GET") as "GET" | "POST", url: url.replace(/^\/api/, ""), headers: options.headers as Record<string, string>, payload: options.body as string | undefined });
+    return { ok: response.statusCode >= 200 && response.statusCode < 300, status: response.statusCode, statusText: response.statusMessage, json: async () => response.json() };
+  });
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  render(<QueryClientProvider client={client}><DaemonSection /></QueryClientProvider>);
+  expect(await screen.findByText("Unknown")).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "Recover" }));
+  expect(await screen.findByText("Offline")).toBeTruthy();
+  expect(JSON.parse(payload!).expectedIntent).toEqual(expect.any(String));
+  expect(repo.getDaemonById(daemon.id)?.stopIntent).toBeNull();
+  client.clear();
+});
+
+
+it.runIf(process.platform === "linux")("keeps the Recover action pending through a status refresh", async () => {
+  await initTestDb();
+  const daemon = repo.createDaemon({ name: "recover-pending", hostname: "test", maxConcurrent: 1, daemonVersion: "in-process", plainToken: "synthetic" });
+  const moduleUrl = pathToFileURL(resolve(process.cwd(), "../api/src/services/daemonOwnerWitness.ts")).href;
+  const script = `import { createDaemonStopIntent } from ${JSON.stringify(moduleUrl)}; process.stdout.write(createDaemonStopIntent());`;
+  const intent = execFileSync(process.execPath, ["--import", "tsx", "--input-type=module", "--eval", script], { encoding: "utf8" });
+  repo.beginDaemonStop(daemon.id, intent);
+  app = Fastify();
+  await app.register(daemonAdminRoutes);
+  await app.ready();
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => { release = resolve; });
+  vi.stubGlobal("fetch", async (url: string, options: RequestInit = {}) => {
+    if (options.method === "POST") { await gate; return { ok: false, status: 409, json: async () => ({ error: "changed" }) }; }
+    const response = await app.inject({ method: "GET", url: url.replace(/^\/api/, "") });
+    return { ok: true, status: response.statusCode, json: async () => response.json() };
+  });
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  render(<QueryClientProvider client={client}><DaemonSection /></QueryClientProvider>);
+  expect(await screen.findByText("Unknown")).toBeTruthy();
+  try {
+    fireEvent.click(screen.getByRole("button", { name: "Recover" }));
+    expect(await screen.findByRole("button", { name: "Recovering..." })).toHaveProperty("disabled", true);
+    repo.updateDaemonHeartbeat(daemon.id);
+    await client.invalidateQueries();
+    expect(await screen.findByText("Online")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Recovering..." })).toHaveProperty("disabled", true);
   } finally {
     release();
     client.clear();

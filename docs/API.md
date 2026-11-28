@@ -3402,11 +3402,18 @@ Daemon routes support autonomous AI CLI execution. There are two route groups:
 | `POST` | `/daemons/register` | Detect/register an in-process daemon and daemon-owned agents |
 | `POST` | `/daemons/:id/start` | Start the API in-process daemon engine |
 | `POST` | `/daemons/:id/stop` | Stop the API in-process daemon engine |
+| `POST` | `/daemons/:id/recover` | Retire an unresolved in-process stop after verifying its owner terminated |
 | `GET` | `/daemons/detect-clis` | Detect supported AI CLIs on the API host |
 
 Starting a daemon while its shutdown is still running in the same API process returns HTTP 409. Retry after the stop completes. This guard is process-local; it is not a cross-process Start lease. Start also returns HTTP 409 with registration guidance when an in-process daemon's agent credentials are no longer available; no session cleanup is performed on this rejected start. Multiple API instances sharing one database are not supported; see [Deployment](DEPLOYMENT.md).
 
 List and detail return `unknown` while a durable stop intent has no recorded completion. This can persist after an API restart: it does not prove that sessions drained. A later authenticated heartbeat or successful in-process start supersedes the intent. A Stop retry in the process that completed the drain can finish its failed status write without draining twice; another process returns 409 when it cannot prove completion. If earlier database migrations are deferred and the stop-intent column is unavailable, Stop returns 503 before stopping the engine. Resolve the reported migration blocker and restart the API before retrying.
+
+An administrator can use the `stopIntentRef` from list or detail to call `POST /daemons/:id/recover` with `{ "expectedIntent": "<stopIntentRef>" }`. Recovery returns `200` and records offline only if the observed intent is unchanged, its issuing API process is verifiably absent, and every session for that daemon has a recognized terminal status. It does not signal processes, change sessions, or release Tasks. A changed or ownerless intent, live or unobservable owner, or active or unrecognized session returns `409` without reconciling the daemon. Wait for normal session recovery when sessions remain active; refresh before retrying a changed intent.
+
+Recoverable Stop intents are issued only for a daemon registered through the UI by the current API process. Other Stops retain normal admission but produce ownerless intents; a self-reported daemon version does not establish provenance. Starting with an existing owned intent can preserve that provenance during the start reservation. After a restart, even a zero-agent daemon without a current registration can produce an ownerless intent. Owner verification additionally requires Linux and observation of the same boot, PID namespace, and Unix user. Existing ownerless intents, different or unobservable namespaces, permission errors, PID reuse, and other platforms remain `unknown`. The reference is an opaque intent identifier, not a credential; the route remains admin-only.
+
+The claim transaction creates the daemon session row before the CLI is spawned. The row can still be `starting` with no PID during that window, so recovery treats every active row as a reason to refuse rather than inferring that its process is dead.
 
 API clients that validate daemon status as an enum must accept the new `unknown` value as well as `online` and `offline`.
 
@@ -3433,6 +3440,7 @@ If the intent write itself fails, interactive Stop returns an error and leaves t
       "name": "local-daemon",
       "hostname": "workstation",
       "status": "online",
+      "stopIntentRef": null,
       "agentCount": 2,
       "activeSessionCount": 1,
       "lastHeartbeat": "2026-05-29T00:00:00.000Z",

@@ -6,7 +6,8 @@ interface DaemonCardProps {
   daemon: DaemonInfo;
   onStart?: (id: string) => void;
   onStop?: (id: string) => void;
-  loadingAction?: "start" | "stop" | null;
+  onRecover?: (id: string, expectedIntent: string) => void;
+  loadingAction?: "start" | "stop" | "recover" | null;
   isActionDisabled?: boolean;
 }
 
@@ -14,6 +15,7 @@ export function DaemonCard({
   daemon,
   onStart,
   onStop,
+  onRecover,
   loadingAction,
   isActionDisabled,
 }: DaemonCardProps) {
@@ -33,6 +35,16 @@ export function DaemonCard({
           </Badge>
         </div>
         <div className="flex gap-2">
+          {(loadingAction === "recover" || (isUnknown && daemon.stopIntentRef)) && (
+            <button
+              type="button"
+              onClick={() => daemon.stopIntentRef && onRecover?.(daemon.id, daemon.stopIntentRef)}
+              disabled={disabled}
+              className="rounded px-2 py-1 text-xs font-medium text-muted-foreground hover:bg-muted transition-colors disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {loadingAction === "recover" ? "Recovering..." : "Recover"}
+            </button>
+          )}
           {showStop && (
             <button
               type="button"

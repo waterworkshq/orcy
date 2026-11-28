@@ -7,6 +7,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { closeDb, initDb } from "../db/index.js";
 import * as daemonRepo from "../repositories/daemonInstance.js";
+import { recoverDaemonStop } from "../services/daemonVerifiedRecovery.js";
 import {
   ENFORCEMENT_MIGRATION_TAG,
   hasNamedCheck,
@@ -300,6 +301,7 @@ describe("documented enum CHECK constraints", () => {
     expect(daemonRepo.updateDaemonHeartbeat(daemon.id)?.status).toBe("online");
     expect(daemonRepo.getDaemonById(daemon.id)?.stopIntent).toBeNull();
     expect(() => daemonRepo.beginDaemonStop(daemon.id, "token")).toThrow(/migration/i);
+    expect(() => recoverDaemonStop(daemon.id, "00000000-0000-4000-8000-000000000000")).toThrow(/intent changed/i);
     expect(hasCheck(raw, "tasks.priority")).toBe(false);
     for (const key of Object.keys(CHECKS).filter((key) => key !== "tasks.priority") as ColumnKey[]) {
       expect(hasCheck(raw, key), `${key} should be enforced independently`).toBe(true);

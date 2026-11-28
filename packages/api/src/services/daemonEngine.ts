@@ -9,6 +9,7 @@ import type {
 } from "@orcy/shared/types";
 import { runPollTick } from "@orcy/shared";
 import * as daemonRepo from "../repositories/daemon.js";
+import { createDaemonStopIntent, daemonStopIntentRef } from "./daemonOwnerWitness.js";
 import * as agentService from "../services/agentService.js";
 import { claimTaskWithSession } from "./tasks/claimSession.js";
 import * as taskRepo from "../repositories/task.js";
@@ -148,6 +149,20 @@ export function start(daemonId: string, dataDir: string = "/tmp/orcy-daemon"): v
     );
   }
 
+  // A starting process owns a new witness before any cleanup. An older
+  // recovery must not retire the intent observed by this new start.
+  if (daemon.stopIntent != null) {
+    // Only carry verified provenance forward from an owned witness or a
+    // registration created by this API process; legacy rows stay ownerless.
+    const startIntent = inMemoryAgentCredentials.has(daemonId) || daemonStopIntentRef(daemon.stopIntent) != null
+      ? createDaemonStopIntent()
+      : randomUUID();
+    if (!daemonRepo.reserveDaemonStart(daemonId, daemon.stopIntent, startIntent)) {
+      throw conflict("Daemon stop intent changed; refresh the daemon status");
+    }
+    completedDrains.delete(daemonId);
+  }
+
   // A rejected credential preflight must not alter sessions. On a valid start,
   // cleanup remains ahead of the first claim and any newly created sessions.
   cleanupDaemonSessionsOnStart(daemonId);
@@ -236,7 +251,9 @@ export async function stop(daemonId: string): Promise<void> {
 
 async function stopRunning(running: RunningDaemon): Promise<void> {
   const { daemonId } = running;
-  const token = randomUUID();
+  // An arbitrary daemon row can be started through the admin endpoint. Only
+  // a UI registration owned by this process proves an embedded origin.
+  const token = inMemoryAgentCredentials.has(daemonId) ? createDaemonStopIntent() : randomUUID();
 
   // If intent cannot be committed, do not drain: other readers could not
   // distinguish a stopped daemon from its retained heartbeat.

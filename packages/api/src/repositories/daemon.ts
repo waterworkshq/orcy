@@ -7,6 +7,7 @@ export {
   setDaemonStatus,
   beginDaemonStop,
   completeDaemonStop,
+  reserveDaemonStart,
   listDaemons,
   deleteDaemon,
 } from "./daemonInstance.js";
