@@ -30,9 +30,8 @@ export function AuditExportModal({ habitatId, open, onClose }: AuditExportModalP
       if (actions) params.actions = actions;
       if (actorType) params.actorType = actorType;
 
-      const data = await api.audit.export(habitatId, params);
+      const { blob, headers } = await api.audit.export(habitatId, params);
       if (!isSessionActive()) return;
-      const blob = new Blob([data], { type: format === "csv" ? "text/csv" : "application/json" });
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
@@ -41,7 +40,19 @@ export function AuditExportModal({ habitatId, open, onClose }: AuditExportModalP
       a.click();
       document.body.removeChild(a);
       URL.revokeObjectURL(url);
-      notify.success("Audit log exported");
+      const truncated = headers.get("X-Audit-Result-Truncated");
+      const partial = headers.get("X-Audit-Result-Partial");
+      if (partial === "true" && truncated === "true") {
+        notify.warning("Some source records could not be included, and the export was truncated. Narrow the time range or filters and export again.");
+      } else if (partial === "true") {
+        notify.warning("Some source records could not be included. This audit export may be incomplete.");
+      } else if (truncated === "true") {
+        notify.warning("Audit export is incomplete. Narrow the time range or filters and export again.");
+      } else if (truncated === "false" && partial === "false") {
+        notify.success("Audit log exported");
+      } else {
+        notify.warning("Audit export completeness could not be determined.");
+      }
       onClose();
     } catch (err) {
       if (!isSessionActive()) return;

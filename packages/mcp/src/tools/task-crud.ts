@@ -146,7 +146,10 @@ export async function habitatUpdateTask(
   > = {
     in_progress: async () => {
       const result = await client.startTask(args.taskId, args.executionToken ?? null);
-      const enrichedTask = await enrichTaskWithAgentName(client, result.task);
+      const enrichedTask = await enrichTaskWithAgentName(client, result.task).catch(() => ({
+        ...result.task,
+        assignedAgentName: null,
+      }));
       return { success: true, task: enrichedTask };
     },
     submitted: async () => {

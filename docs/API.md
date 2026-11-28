@@ -2882,13 +2882,37 @@ Create a new quality checklist template.
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
 | `name` | string | yes | Template name |
-| `description` | string | no | Template description |
+| `description` | string/null | no | Template description; omitted or `null` stores an empty string |
 | `category` | string | yes | Category grouping (e.g., `code_quality`, `security`, `testing`) |
-| `isRequired` | boolean | no | Whether this checklist is required for approval (default: true) |
+| `isRequired` | boolean/null | no | Whether this checklist is required for approval (default: true, also for `null`) |
 | `items` | array | yes | Checklist items (min 1) |
 | `items[].title` | string | yes | Item title |
-| `items[].description` | string | no | Item description |
-| `items[].required` | boolean | no | Whether this item is required (default: true) |
+| `items[].description` | string/null | no | Item description; omitted or `null` stores an empty string |
+| `items[].required` | boolean/null | no | Whether this item is required (default: true, also for `null`) |
+
+**Errors:** The whole body is validated before anything is written. Any of the following returns `400` `VALIDATION_ERROR`:
+
+- `items` missing, not an array, or empty.
+- `name`, `category`, or `items[].title` missing, empty, or not a string.
+- A `description` or `items[].description` that is neither a string nor `null`.
+- An `isRequired` or `items[].required` that is neither a boolean nor `null`.
+
+A longer `items` list is refused before this validation by the request collection cap (see [Request Collection Cap](#request-collection-cap)), so validation work and error output stay bounded. `details.fieldErrors` is keyed by top-level field, and each message starts with the failing field's full path:
+
+```json
+{
+  "error": "Validation failed",
+  "code": "VALIDATION_ERROR",
+  "details": {
+    "formErrors": [],
+    "fieldErrors": {
+      "items": ["items.1.title: Invalid input: expected string, received undefined"]
+    }
+  }
+}
+```
+
+Unknown fields are ignored, and an omitted or `null` optional field takes its default. The template and its items are saved as one unit: a refused or failed request leaves no template and no items behind, so Tasks started afterwards adopt nothing from it.
 
 **Response `200`:**
 
@@ -5361,7 +5385,11 @@ Canonical Audit Trail V2 search and export across lifecycle, effort, code eviden
 Query canonical audit events for a habitat.
 
 **Auth:** JWT required (human)
-**Query:** `since?`, `until?`, `entityType?`, `entityId?`, `taskId?`, `missionId?`, `source?`, `provider?`, `preset?`, `includeHealthSnapshots?`, `limit?`, `offset?`, `order?`
+**Query:** `since?`, `until?`, `actions?`, `actorType?`, `actorId?`, `entityTypes?`, `entityType?`, `entityId?`, `taskId?`, `missionId?`, `source?`, `provider?`, `preset?`, `includeHealthSnapshots?`, `limit?`, `offset?`, `order?`
+`limit` is an integer from 1 to 10000 (default 1000); `offset` is a non-negative safe integer (default 0); `order` is `asc` (default) or `desc`. Events are ordered by timestamp, then by ID ascending for ties.
+
+All supported filters apply before pagination. The completeness summary describes all matching events, not just the returned page.
+
 **Response `200`:** `{ "events": AuditEvent[], "warnings": AuditWarning[], "completenessSummary": {...} }`
 
 ### GET /habitats/:id/audit/export
@@ -5372,7 +5400,10 @@ Export canonical audit events.
 **Query:** `format` (csv|json|jsonl), `since?`, `until?`, `actions?`, `actorType?`, `actorId?`, `entityTypes?`, `entityType?`, `entityId?`, `source?`, `provider?`, `preset?`, `includeMetadata?`, `includeProvenance?`, `includeIntegrity?`, `includeHealthSnapshots?`
 **Response `200`:** File download with appropriate Content-Type header.
 
+The `X-Audit-Result-Truncated` response header is `true` when more than 1,000 matching events exist and `false` otherwise. Narrow the time range or filters to retrieve records beyond that limit. `X-Audit-Result-Partial` is `true` when a collector fails or projection warns that source rows were omitted; it is separate from truncation and does not cover every per-event provenance caveat. Scheduled exports retain their cadence and record a bounded warning summary in the structured execution log, at warning level when records are omitted or truncated.
+
 CSV includes stable canonical columns by default. JSON exports an array of canonical `AuditEvent` objects. JSONL emits one canonical event per line.
+CSV quotes fields containing carriage returns and prefixes an apostrophe to fields whose first non-whitespace or control character is `=`, `+`, `-`, or `@`, to reduce spreadsheet formula interpretation. Use JSON or JSONL when exact raw field values are required.
 
 ### GET /tasks/:taskId/audit/bundle
 
@@ -6762,16 +6793,17 @@ Get the current skill document for a habitat. Returns `null` if no skill has bee
 
 ### POST /habitats/:habitatId/skill/refresh
 
-Regenerate the skill document from current promoted signals. Triggers async regeneration.
+Regenerate the skill document from current promoted signals. Regeneration runs synchronously — the response carries the regenerated skill's signal count.
 
-**Auth:** Human auth required (JWT).
+**Auth:** Agent or Human auth required.
 
 **Response `200`:**
 
 ```json
 {
   "success": true,
-  "message": "Skill regeneration triggered"
+  "message": "Skill regenerated",
+  "signalCount": 12
 }
 ```
 
@@ -6793,7 +6825,9 @@ Contribute a direct insight to the skill system. Creates a new signal from human
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
 | `insight` | string | yes | The insight text (1-2000 chars) |
-| `skillCategory` | string | no | One of: `domain_knowledge`, `convention`, `pattern`, `anti_pattern` (default: `domain_knowledge`) |
+| `skillCategory` | string | no | One of: `convention`, `pattern`, `pitfall`, `domain_knowledge`, `agent_insight`, `anti_patterns`, `detected_patterns` (default: `agent_insight`) |
+
+Any other `skillCategory` value is rejected with `400`. When the field is omitted and the contribution creates a new signal, its category defaults to `agent_insight`. A contribution that reinforces an existing signal leaves that signal's category unchanged.
 
 **Response `201`:**
 
@@ -6802,28 +6836,26 @@ Contribute a direct insight to the skill system. Creates a new signal from human
   "success": true,
   "signal": {
     "id": "signal-uuid",
-    "habitatId": "habitat-uuid",
-    "clusterKey": "database-queries-drizzle",
-    "skillCategory": "convention",
-    "subject": "Always use Drizzle ORM for database queries, never raw SQL",
-    "strength": 0.5,
-    "frequency": 1
+    "clusterKey": "always use drizzle orm for database queries never raw sql#6xw1om",
+    "strength": 0.3
   }
 }
 ```
+
+The response carries only the signal's `id`, `clusterKey` and `strength`. `clusterKey` is server-generated: the contributed insight is capped at a 120-character subject, normalized (lowercased, punctuation stripped), and the key shows at most the first 80 normalized characters followed by `#` and a hash of the entire normalized subject. `strength` is server-assigned: a newly created signal starts at `0.3`, and an insight that clusters into an existing signal reinforces that signal (its `frequency` increases) instead of creating a new one — so the returned `strength` is whatever the stored signal already carries, not a guaranteed value.
 
 ### GET /habitats/:habitatId/skill/signals
 
 List skill signals for a habitat with optional filtering.
 
-**Auth:** Agent or Human auth required.
+**Auth:** Human auth required (JWT). Agent API keys are refused on this route.
 
 **Query Parameters:**
 
 | Param | Type | Default | Description |
 |-------|------|---------|-------------|
 | `minStrength` | float | — | Minimum signal strength (0-1) |
-| `skillCategory` | string | — | Filter by category: `domain_knowledge`, `convention`, `pattern`, `anti_pattern` |
+| `skillCategory` | string | — | Filter by category: `convention`, `pattern`, `pitfall`, `domain_knowledge`, `agent_insight`, `anti_patterns`, `detected_patterns` |
 | `limit` | integer | 50 | Results per page (1-200) |
 | `offset` | integer | 0 | Skip results |
 
@@ -6835,7 +6867,7 @@ List skill signals for a habitat with optional filtering.
     {
       "id": "signal-uuid",
       "habitatId": "habitat-uuid",
-      "clusterKey": "auth-jwt-signing",
+      "clusterKey": "jwt tokens use rs256 signing with jsonwebtoken v9#1n0zj8r",
       "skillCategory": "domain_knowledge",
       "subject": "JWT tokens use RS256 signing with jsonwebtoken v9",
       "strength": 0.85,
@@ -7708,8 +7740,10 @@ List accepted findings for human review/display.
 |-------------|----------|-------------|
 | `findingType` | No | Filter by finding type |
 | `domain` | No | Filter by domain |
-| `maxAgeSeconds` | No | Exclude findings older than this |
-| `limit` | No | Max results (max 100) |
+| `maxAgeSeconds` | No | Exclude findings older than this (positive whole seconds, max 315360000 — ten years) |
+| `limit` | No | Max results (default 25, max 100) |
+
+Numeric query values are parsed as plain decimal integers; a non-numeric, fractional, out-of-range or repeated value is a `400` validation error.
 
 **Response:** `{ findings: ExtractedFindingView[] }`
 

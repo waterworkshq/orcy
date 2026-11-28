@@ -133,7 +133,7 @@ describe("boardHealthService", () => {
       wipHealth: { todo: "exceeded", doing: "warning" },
       rejectionRate: 0.2,
     });
-    predictionMocks.getPredictions.mockReturnValue({ atRiskTasks: ["t1", "t2", "t3"] });
+    predictionMocks.getPredictions.mockReturnValue({ atRiskTasks: [{ taskId: "t1" }, { taskId: "t2" }, { taskId: "t3" }] });
     capacityMocks.getCapacityReport.mockReturnValue({
       summary: { averageUtilization: 0.95, totalAvailable: 0 },
     });

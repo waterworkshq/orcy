@@ -1,14 +1,16 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { getDb, closeDb, initTestDb } from '../db/index.js';
 import * as habitatRepo from '../repositories/habitat.js';
 import * as columnRepo from '../repositories/column.js';
 import * as missionRepo from '../repositories/mission.js';
 import * as sprintRepo from '../repositories/sprint.js';
-import { tasks, columns as columnsTable, habitats, missions } from '../db/schema/index.js';
+import { tasks, columns as columnsTable, habitats, missions, sprints } from '../db/schema/index.js';
 import { eq } from 'drizzle-orm';
+import { sseBroadcaster } from '../sse/broadcaster.js';
 import {
   createSprint,
   getSprintsForHabitat,
+  getActiveSprint,
   updateSprint,
   deleteSprint,
   startSprint,
@@ -72,6 +74,43 @@ describe('createSprint', () => {
 });
 
 describe('startSprint', () => {
+  it('refuses a second planned sprint while another is active', () => {
+    const first = createSprint(habitatId, { name: 'First', startDate: '2026-06-01', endDate: '2026-06-14' }, 'user-1');
+    const second = createSprint(habitatId, { name: 'Second', startDate: '2026-06-15', endDate: '2026-06-28' }, 'user-1');
+    startSprint(first.id);
+    expect(() => startSprint(second.id)).toThrow('Habitat already has an active sprint');
+    expect(sprintRepo.getById(second.id)?.status).toBe('planning');
+    expect(getActiveSprint(habitatId)?.id).toBe(first.id);
+  });
+
+  it('preserves historical duplicates and emits only committed start events', () => {
+    const first = createSprint(habitatId, { name: 'First', startDate: '2026-06-01', endDate: '2026-06-14' }, 'user-1');
+    const second = createSprint(habitatId, { name: 'Second', startDate: '2026-06-15', endDate: '2026-06-28' }, 'user-1');
+    const third = createSprint(habitatId, { name: 'Third', startDate: '2026-06-29', endDate: '2026-07-12' }, 'user-1');
+    getDb().update(sprints).set({ status: 'active' }).where(eq(sprints.id, first.id)).run();
+    getDb().update(sprints).set({ status: 'active' }).where(eq(sprints.id, second.id)).run();
+    const publish = vi.spyOn(sseBroadcaster, 'publish');
+    try {
+      expect(() => startSprint(third.id)).toThrow('Habitat already has an active sprint');
+      expect(publish).not.toHaveBeenCalled();
+      expect(getSprintsForHabitat(habitatId).filter(s => s.status === 'active')).toHaveLength(2);
+      cancelSprint(first.id);
+      expect(() => startSprint(third.id)).toThrow('Habitat already has an active sprint');
+      completeSprint(second.id);
+      expect(startSprint(third.id).status).toBe('active');
+      expect(publish.mock.calls.filter(([, event]) => event.type === 'sprint.started')).toHaveLength(1);
+    } finally { publish.mockRestore(); }
+  });
+
+  it('allows starts in different habitats', () => {
+    const other = habitatRepo.createHabitat({ name: 'Other' });
+    const input = { name: 'Sprint', startDate: '2026-06-01', endDate: '2026-06-14' };
+    const first = createSprint(habitatId, input, 'user-1');
+    const second = createSprint(other.id, input, 'user-1');
+    expect(startSprint(first.id).status).toBe('active');
+    expect(startSprint(second.id).status).toBe('active');
+  });
+
   it('transitions from planning to active', () => {
     const sprint = createSprint(habitatId, { name: 'Sprint 1', startDate: '2026-06-01', endDate: '2026-06-14' }, 'user-1');
     const started = startSprint(sprint.id);

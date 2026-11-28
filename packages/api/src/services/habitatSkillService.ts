@@ -74,32 +74,31 @@ function hashCode(str: string): number {
   return h >>> 0;
 }
 
-function recalculateCrossMissionCounts(habitatId: string, allSignals: HabitatSkillSignal[]): void {
-  const byCluster = new Map<string, HabitatSkillSignal[]>();
-  for (const s of allSignals) {
-    const arr = byCluster.get(s.clusterKey) ?? [];
-    arr.push(s);
-    byCluster.set(s.clusterKey, arr);
+function recalculateCrossMissionCounts(
+  habitatId: string,
+  allSignals: HabitatSkillSignal[],
+): Map<string, number> {
+  // A cluster is consolidated into one row per habitat; its task references,
+  // rather than additional signal rows, carry the cross-mission evidence.
+  const references = new Map<string, string[]>();
+  for (const signal of allSignals) {
+    const parsed: unknown = parseJsonArray(signal.sourceTaskIds);
+    references.set(
+      signal.id,
+      Array.isArray(parsed) ? parsed.filter((id): id is string => typeof id === "string") : [],
+    );
   }
-
-  for (const [, matching] of byCluster) {
-    if (matching.length < 2) continue;
+  const taskMissions = repo.getSourceTaskMissions(habitatId, [...references.values()].flat());
+  const counts = new Map<string, number>();
+  for (const signal of allSignals) {
     const missions = new Set<string>();
-    const taskIds = [...new Set(matching.flatMap((s) => parseJsonArray(s.sourceTaskIds)))];
-    for (const id of taskIds) {
-      const task = taskRepo.getTaskById(id);
-      if (task?.missionId) missions.add(task.missionId);
+    for (const id of references.get(signal.id) ?? []) {
+      const missionId = taskMissions.get(id);
+      if (missionId) missions.add(missionId);
     }
-
-    const crossCount = missions.size;
-    if (crossCount >= 2) {
-      for (const sig of matching) {
-        if (sig.crossMissionCount !== crossCount) {
-          repo.updateSignal(sig.id, { crossMissionCount: crossCount });
-        }
-      }
-    }
+    counts.set(signal.id, missions.size);
   }
+  return counts;
 }
 
 function parseJsonArray(val: string | null | undefined): string[] {
@@ -221,8 +220,8 @@ export function ingestFromPulse(opts: {
 
 /**
  * Upserts a {@link HabitatSkillSignal} for an experience self-report, mapping the agent's `experience` category to a
- * skill category (pitfall for stuck/confused/backtrack/sidetracked, domain_knowledge for surprised/ambiguous, pattern
- * for smooth) and recording `sourceSignalType: "experience"` so downstream filters can recover the implicit provenance;
+ * skill category via {@link EXPERIENCE_CATEGORY_TO_SKILL} and recording `sourceSignalType: "experience"` so downstream
+ * filters can recover the implicit provenance;
  * side effect: persists via the repository, logs and swallows errors, and skips system-originated signals.
  */
 export function ingestExperienceSignal(opts: {
@@ -379,26 +378,32 @@ export function reclassifyCategory(signal: HabitatSkillSignal): SkillCategory {
 /** Recomputes strength, reclassifies the category, and toggles `promotedToSkill` for every {@link HabitatSkillSignal} in the habitat; side effect: persists updates via the repository and recomputes cross-mission counts. */
 export function scoreAllSignals(habitatId: string): void {
   const signals = repo.getAllSignalsByHabitat(habitatId);
+  const counts = recalculateCrossMissionCounts(habitatId, signals);
   for (const signal of signals) {
     const strength = calculateStrength(signal);
-    const newCategory = reclassifyCategory(signal);
+    const crossMissionCount = counts.get(signal.id) ?? 0;
+    // New evidence takes effect next pass, but vanished evidence cannot promote now.
+    const newCategory = reclassifyCategory({
+      ...signal,
+      crossMissionCount: Math.min(signal.crossMissionCount, crossMissionCount),
+    });
 
     const promotedToSkill = strength >= 0.6 ? 1 : strength < 0.2 ? 0 : signal.promotedToSkill;
 
     if (
       strength !== signal.strength ||
       newCategory !== signal.skillCategory ||
-      promotedToSkill !== signal.promotedToSkill
+      promotedToSkill !== signal.promotedToSkill ||
+      crossMissionCount !== signal.crossMissionCount
     ) {
       repo.updateSignal(signal.id, {
         strength,
         skillCategory: newCategory,
         promotedToSkill,
+        crossMissionCount,
       });
     }
   }
-
-  recalculateCrossMissionCounts(habitatId, signals);
 }
 
 /** Creates or increments a manually-contributed {@link HabitatSkillSignal} for a habitat, returning the resulting row (or `null` on failure); side effect: persists via the repository and logs but swallows errors. */
