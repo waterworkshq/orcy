@@ -63,8 +63,104 @@
  * @see packages/api/src/routes/helpers/taskPublicationHttp.ts for the
  *      transport-only mapper discipline this mirrors.
  */
+import { AppError } from "../../errors.js";
+import type {
+  AmbiguityError,
+  AmbiguousLegacyTitleError,
+} from "../../services/importManifest/legacyAdapter.js";
 import type { PrepareImportOutcome } from "../../services/importManifest/preflightImport.js";
 import type { PublishImportOutcome } from "../../services/importManifest/importPublication.js";
+
+const MAX_REPORTED_AMBIGUITIES = 5;
+const MAX_MESSAGE_AMBIGUITIES = 3;
+const MAX_AMBIGUOUS_TITLE_CHARS = 120;
+
+function boundAmbiguousTitle(raw: string): string {
+  // Collapse control characters in a single bounded pass so huge titles never allocate or span lines.
+  let out = "";
+  let prevWasControl = false;
+  for (const ch of raw) {
+    const code = ch.codePointAt(0) ?? 0;
+    const isControl = code < 0x20 || code === 0x7f;
+    if (isControl) {
+      if (!prevWasControl) {
+        out += " ";
+        prevWasControl = true;
+      }
+    } else {
+      out += ch;
+      prevWasControl = false;
+    }
+    if (out.length > MAX_AMBIGUOUS_TITLE_CHARS) {
+      return `${out.slice(0, MAX_AMBIGUOUS_TITLE_CHARS)}...`;
+    }
+  }
+  return out;
+}
+
+function summarizeMissionAmbiguity(
+  kind: "duplicate_mission_title_in_dependsOn" | "duplicate_mission_title_in_blocks",
+  fieldLabel: "dependsOn" | "blocks",
+  ambiguity: { missionTitle: string; fromMissionTitles: readonly string[] },
+): { summary: string; detail: Record<string, unknown> } {
+  const missionTitle = boundAmbiguousTitle(ambiguity.missionTitle);
+  const refCount = ambiguity.fromMissionTitles.length;
+  return {
+    summary: `mission ${fieldLabel} reference to ambiguous mission title ${JSON.stringify(missionTitle)} (${refCount} reference(s))`,
+    detail: { kind, missionTitle, refCount },
+  };
+}
+
+function summarizeAmbiguity(ambiguity: AmbiguityError): {
+  summary: string;
+  detail: Record<string, unknown>;
+} {
+  switch (ambiguity.kind) {
+    case "duplicate_task_title_in_comment": {
+      const taskTitle = boundAmbiguousTitle(ambiguity.taskTitle);
+      return {
+        summary: `comment reference to ambiguous task title ${JSON.stringify(taskTitle)} (${ambiguity.commentRefCount} comment(s))`,
+        detail: {
+          kind: ambiguity.kind,
+          taskTitle,
+          commentRefCount: ambiguity.commentRefCount,
+        },
+      };
+    }
+    case "duplicate_mission_title_in_dependsOn":
+      return summarizeMissionAmbiguity(ambiguity.kind, "dependsOn", ambiguity);
+    case "duplicate_mission_title_in_blocks":
+      return summarizeMissionAmbiguity(ambiguity.kind, "blocks", ambiguity);
+  }
+}
+
+/**
+ * Maps {@link AmbiguousLegacyTitleError} thrown pre-reservation during legacy
+ * v1/v2 adaptation to a bounded, actionable HTTP 400 {@link AppError}.
+ * Never echoes unrelated payload content (comment bodies, unrelated task or
+ * mission titles, descriptions, or credentials).
+ */
+export function ambiguousLegacyTitleErrorToAppError(err: AmbiguousLegacyTitleError): AppError {
+  const totalAmbiguities = err.ambiguities.length;
+  const bounded = err.ambiguities.slice(0, MAX_REPORTED_AMBIGUITIES).map(summarizeAmbiguity);
+  const messageItems = bounded.slice(0, MAX_MESSAGE_AMBIGUITIES).map((item) => item.summary);
+  const remaining = totalAmbiguities - messageItems.length;
+  const detailText =
+    messageItems.length > 0
+      ? `: ${messageItems.join("; ")}${remaining > 0 ? ` (+${remaining} more)` : ""}`
+      : "";
+
+  return new AppError(
+    400,
+    "AMBIGUOUS_LEGACY_TITLE",
+    `Legacy import rejected due to ambiguous title reference(s)${detailText}. Make referenced task/mission titles unique in the legacy export or import a v3 manifest with explicit IDs.`,
+    {
+      totalAmbiguities,
+      truncated: totalAmbiguities > bounded.length,
+      ambiguities: bounded.map((item) => item.detail),
+    },
+  );
+}
 
 /**
  * Maps a non-`prepared` {@link PrepareImportOutcome} branch to an HTTP

@@ -12,11 +12,14 @@ import {
   computeManifestDigest,
   prepareImport,
   runPreflightPipeline,
+  type PrepareImportOutcome,
   type PreparedImport,
 } from "../services/importManifest/preflightImport.js";
+import { AmbiguousLegacyTitleError } from "../services/importManifest/legacyAdapter.js";
 import { publishImportAggregateWithClient } from "../services/importManifest/importPublication.js";
 import type { HabitatImportManifest } from "../services/importManifest/types.js";
 import {
+  ambiguousLegacyTitleErrorToAppError,
   prepareImportOutcomeToHttpResponse,
   publishImportOutcomeToHttpResponse,
 } from "./helpers/importPublicationHttp.js";
@@ -247,13 +250,22 @@ async function handleManifestImportRequest(
 
   // Kernel composition: prepare (PURE 6-step pipeline) → publish (atomic
   // BEGIN IMMEDIATE tx). The route forwards the outcomes to HTTP verbatim.
-  const prepareResult = prepareImport({
-    rawManifest: request.body,
-    habitatId: targetHabitatId,
-    mode: modeOverride,
-    actor,
-    auditSource,
-  });
+  // Pre-reservation legacy title ambiguity is mapped to a bounded 400 error.
+  let prepareResult: PrepareImportOutcome;
+  try {
+    prepareResult = prepareImport({
+      rawManifest: request.body,
+      habitatId: targetHabitatId,
+      mode: modeOverride,
+      actor,
+      auditSource,
+    });
+  } catch (err) {
+    if (err instanceof AmbiguousLegacyTitleError) {
+      throw ambiguousLegacyTitleErrorToAppError(err);
+    }
+    throw err;
+  }
 
   if (prepareResult.outcome === "prepared") {
     const publishResult = publishImportAggregateWithClient(getDb(), {
