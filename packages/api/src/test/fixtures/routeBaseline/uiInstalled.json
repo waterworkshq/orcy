@@ -1865,7 +1865,8 @@
       "path": "/api/habitats/:habitatId/metrics",
       "surface": "api-deprecated",
       "guards": [
-        "agentOrHumanAuth"
+        "agentOrHumanAuth",
+        "authorizeHabitatAccess"
       ],
       "authKind": "local_actor",
       "rawBodyEligible": false,
@@ -4273,7 +4274,8 @@
       "path": "/api/v1/habitats/:habitatId/metrics",
       "surface": "api-v1",
       "guards": [
-        "agentOrHumanAuth"
+        "agentOrHumanAuth",
+        "authorizeHabitatAccess"
       ],
       "authKind": "local_actor",
       "rawBodyEligible": false,
@@ -6681,7 +6683,8 @@
       "path": "/api/habitats/:habitatId/metrics",
       "surface": "api-deprecated",
       "guards": [
-        "agentOrHumanAuth"
+        "agentOrHumanAuth",
+        "authorizeHabitatAccess"
       ],
       "authKind": "local_actor",
       "rawBodyEligible": false,
@@ -9089,7 +9092,8 @@
       "path": "/api/v1/habitats/:habitatId/metrics",
       "surface": "api-v1",
       "guards": [
-        "agentOrHumanAuth"
+        "agentOrHumanAuth",
+        "authorizeHabitatAccess"
       ],
       "authKind": "local_actor",
       "rawBodyEligible": false,

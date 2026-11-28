@@ -2229,6 +2229,8 @@ List the watcher rows for a task and whether the authenticated human is one of t
 
 Get habitat-wide time tracking and estimation metrics, including per-agent breakdowns.
 
+**Auth:** Agent or Human. Humans must be members of the habitat's team when it has one; agents can access existing habitats. Returns **403** for a human without access and **404** if the habitat does not exist.
+
 **Response `200`:**
 
 ```json

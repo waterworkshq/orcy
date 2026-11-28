@@ -4,6 +4,7 @@ import * as taskRepo from '../repositories/task.js';
 import { badRequest, notFound } from '../errors.js';
 import { applyDeclaredAuthPolicies } from "../authPolicy.js";
 import { authorizeTaskAccess } from "../middleware/realtimeAuth.js";
+import { requireHabitatAccess } from "../middleware/team.js";
 
 export async function timeTrackingRoutes(fastify: FastifyInstance): Promise<void> {
   applyDeclaredAuthPolicies(fastify);
@@ -23,7 +24,7 @@ export async function timeTrackingRoutes(fastify: FastifyInstance): Promise<void
 
   fastify.get<{ Params: { habitatId: string } }>(
     '/habitats/:habitatId/metrics',
-    { config: { authPolicy: "local_actor" } },
+    { preHandler: [requireHabitatAccess], config: { authPolicy: "local_actor" } },
     async (request: FastifyRequest<{ Params: { habitatId: string } }>, _reply: FastifyReply) => {
       return timeTrackingService.getHabitatMetrics(request.params.habitatId);
     }
