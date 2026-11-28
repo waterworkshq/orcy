@@ -133,5 +133,10 @@ mv "${STAGED_DIR}" "${INSTALLER_DIR}"
 
 # Run installer
 echo "==> Running installer..."
-
+# `curl … | bash` leaves the installer a drained pipe as stdin, so the
+# interactive wizard would read end-of-input at its first question and exit.
+# When a terminal is available, hand the installer that instead.
+if [ ! -t 0 ] && ( : < /dev/tty ) 2>/dev/null; then
+  exec node "${INSTALLER_DIR}/dist/index.js" "$@" < /dev/tty
+fi
 exec node "${INSTALLER_DIR}/dist/index.js" "$@"

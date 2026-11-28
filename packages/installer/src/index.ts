@@ -171,9 +171,37 @@ export type Action =
   | { kind: "command" }
   | { kind: "error"; message: string };
 
-/** Determine the CLI dispatch action from raw argv (pure, testable without spawning). */
-export function resolveAction(rawArgs: string[]): Action {
-  if (!rawArgs.length) return { kind: "interactive-wizard" };
+/** Quote a value for a POSIX shell command line. */
+const shellQuote = (value: string): string => `'${value.replace(/'/g, `'\\''`)}'`;
+
+/**
+ * Determine the CLI dispatch action from raw argv (pure, testable without
+ * spawning). `interactive` says whether stdin can carry the wizard's answers
+ * and `entry` is this program's own path; both default to the live process so
+ * `main` reads it, not this function.
+ */
+export function resolveAction(
+  rawArgs: string[],
+  {
+    interactive = process.stdin.isTTY === true,
+    entry = process.argv[1],
+  }: { interactive?: boolean; entry?: string } = {},
+): Action {
+  if (!rawArgs.length) {
+    // On end-of-input the wizard prints its first question and exits 0 having
+    // installed nothing (`curl … | bash` without a terminal, CI) — fail instead.
+    // The way out names this very entry point: it is the only installer path
+    // that surely exists (the bootstrap stages it without a PATH shim).
+    return interactive
+      ? { kind: "interactive-wizard" }
+      : {
+          kind: "error",
+          message:
+            "The interactive wizard needs a terminal to read your answers.\n" +
+            "Re-run from a terminal, or install non-interactively:\n" +
+            `  node ${shellQuote(String(entry))} --yes --components=cli,api,mcp`,
+        };
+  }
 
   const first = rawArgs[0];
 

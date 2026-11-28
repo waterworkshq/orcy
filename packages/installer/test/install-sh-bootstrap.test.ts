@@ -29,6 +29,9 @@
  *   6. A failed deploy, or one that produced no entry point, exits non-zero
  *      with the cause and leaves a previous installer in place, and nothing
  *      claims completion before the installer has run.
+ *   7. The documented `curl … | bash` leaves the installer a drained pipe as
+ *      stdin; when a terminal exists, the handoff gives the installer that
+ *      terminal instead, so the interactive wizard can read its answers.
  */
 import { describe, it, expect } from "vitest";
 import { spawnSync } from "node:child_process";
@@ -63,6 +66,16 @@ function resolveBin(name: string): string {
   }
   throw new Error(`cannot resolve real ${name} on PATH`);
 }
+
+/** util-linux `script` runs a command inside a pseudo-terminal; null when unavailable. */
+const SCRIPT = ((): string | null => {
+  if (process.platform !== "linux") return null;
+  try {
+    return resolveBin("script");
+  } catch {
+    return null;
+  }
+})();
 
 function writeStub(dir: string, name: string, body: string): void {
   fs.writeFileSync(path.join(dir, name), `#!/bin/sh\n${body}\n`, { mode: 0o755 });
@@ -168,7 +181,7 @@ printf 'export const id = "shared";\\n' > "$dir/packages/shared/dist/index.js"
 cat > "$dir/packages/installer/dist/index.js" <<'IDXEOF'
 import { writeFileSync } from "node:fs";
 import { id } from "@orcy/shared";
-writeFileSync(process.env.ORCY_INSTALLER_EXEC_MARKER, JSON.stringify({ args: process.argv.slice(2), shared: id }));
+writeFileSync(process.env.ORCY_INSTALLER_EXEC_MARKER, JSON.stringify({ args: process.argv.slice(2), shared: id, stdinIsTTY: process.stdin.isTTY ?? null }));
 IDXEOF
 printf 'skill\\n' > "$dir/packages/installer/skills/overview.md"
 `,
@@ -400,6 +413,35 @@ describe("install.sh — a failed handoff fails closed", () => {
     expect(fs.existsSync(s.markerPath)).toBe(false);
     expect(fs.readFileSync(previous, "utf8")).toBe("previous installer");
     expect(fs.existsSync(`${s.installerDir}.new`)).toBe(false);
+  });
+});
+
+describe.skipIf(!SCRIPT)("install.sh — interactive handoff through a terminal", () => {
+  it("gives the installer the terminal when its stdin is the drained pipe of `curl … | bash`", () => {
+    const s = buildScenario({});
+    // A controlling terminal exists (the pseudo-terminal), while the script's
+    // stdin sits at end-of-input — exactly what a piped `curl … | bash` leaves.
+    const r = spawnSync(
+      SCRIPT!,
+      [
+        "--quiet",
+        "--return",
+        "--command",
+        `"${resolveBin("sh")}" "${INSTALL_SH}" --yes --components=api < /dev/null`,
+        "/dev/null",
+      ],
+      {
+        env: { PATH: s.stubDir, HOME: s.home, ORCY_INSTALLER_EXEC_MARKER: s.markerPath },
+        cwd: s.home,
+        encoding: "utf8",
+        timeout: 60_000,
+      },
+    );
+    expect(r.status, `${r.stdout}\n${r.stderr}`).toBe(0);
+    expect(JSON.parse(fs.readFileSync(s.markerPath, "utf8"))).toMatchObject({
+      args: ["--yes", "--components=api"],
+      stdinIsTTY: true,
+    });
   });
 });
 
