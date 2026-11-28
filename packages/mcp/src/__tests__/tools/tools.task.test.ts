@@ -669,6 +669,22 @@ describe("board_find", () => {
 });
 
 describe("board_update_task", () => {
+  it.each([{}, { task: null }])("rejects a missing task receipt %j without lookup or replay", async (receipt) => {
+    const client = createMockClient();
+    client.updateTask.mockResolvedValue(receipt as never);
+
+    const raw = await TASK_DISPATCH_HANDLER(client, {
+      action: "update",
+      taskId: "task-1",
+      title: "Updated title",
+    });
+
+    expect(raw.isError).toBe(true);
+    expect(raw.content[0].text).toMatch(/^Error:/);
+    expect(client.updateTask).toHaveBeenCalledTimes(1);
+    expect(client.getAgentById).not.toHaveBeenCalled();
+  });
+
   it("updates task title", async () => {
     const client = createMockClient();
     const mockTask = {

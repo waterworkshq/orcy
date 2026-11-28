@@ -121,10 +121,17 @@ export async function enrichTaskWithOptionalAgentName(
   client: KanbanApiClient,
   task: Task,
 ): Promise<EnrichedTask> {
-  return enrichTaskWithAgentName(client, task).catch(() => ({
-    ...task,
-    assignedAgentName: null,
-  }));
+  const agentId = task.assignedAgentId;
+  if (!agentId) {
+    return { ...task, assignedAgentName: null };
+  }
+  let agentResponse: Awaited<ReturnType<KanbanApiClient["getAgentById"]>>;
+  try {
+    agentResponse = await client.getAgentById(agentId);
+  } catch {
+    return { ...task, assignedAgentName: null };
+  }
+  return { ...task, assignedAgentName: agentResponse?.agent?.name ?? null };
 }
 
 /** Resolves assigned-agent display names for every task in a list of {@link Task}s. */
