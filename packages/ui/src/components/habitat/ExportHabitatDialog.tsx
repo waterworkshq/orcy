@@ -83,7 +83,7 @@ export function ExportHabitatDialog({ habitatId, boardName, open, onClose }: Exp
               onChange={(e) => setIncludeTasks(e.target.checked)}
               className="rounded border-input"
             />
-            <span className="text-sm">Missions (with tasks, dependencies, and status)</span>
+            <span className="text-sm">Missions (with tasks and status)</span>
           </label>
           <label className="flex items-center gap-3 cursor-pointer">
             <input
@@ -113,6 +113,7 @@ export function ExportHabitatDialog({ habitatId, boardName, open, onClose }: Exp
             <span className="text-sm">Webhook configurations (secrets will be omitted)</span>
           </label>
         </div>
+        {includeTasks && !includeColumns && <p className="mt-3 text-sm text-muted-foreground">This partial export may omit columns required for import.</p>}
         {!hasSelection && <p className="mt-3 text-sm text-muted-foreground">Select at least one section to export.</p>}
         <div className="mt-4 p-3 bg-muted rounded text-xs text-muted-foreground">
           <strong>Note:</strong> Agent API keys, webhook secrets, and audit logs are never exported.

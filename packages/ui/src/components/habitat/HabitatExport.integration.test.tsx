@@ -86,6 +86,24 @@ async function download() {
 }
 
 describe("Habitat Settings export", () => {
+  it("warns when missions are selected without columns and preserves the selection", async () => {
+    openExport();
+    const missions = screen.getByRole("checkbox", { name: "Missions (with tasks and status)" });
+    const columns = screen.getByRole("checkbox", { name: /Columns/ });
+    const warning = "This partial export may omit columns required for import.";
+    expect(screen.queryByText(warning)).toBeNull();
+    fireEvent.click(columns);
+    expect(screen.getByText(warning)).toBeTruthy();
+    fireEvent.click(missions);
+    expect(screen.queryByText(warning)).toBeNull();
+    fireEvent.click(missions);
+    const snapshot = await download();
+    expect(snapshot.columns).toEqual([]);
+    expect(snapshot.missions).toMatchObject([{ title: "Synthetic mission" }]);
+    const query = new URLSearchParams(requests.find((url) => url.includes("/export"))!.split("?")[1]);
+    expect(query.get("include")?.split(",")).toEqual(["missions", "comments", "templates", "webhooks"]);
+  });
+
   it("downloads the checked mission and its task", async () => {
     openExport();
     const snapshot = await download();
