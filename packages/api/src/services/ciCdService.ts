@@ -67,17 +67,18 @@ interface GitHubWorkflowRunEvent {
 }
 
 interface GitHubWorkflowJobEvent {
-  action: string;
+  action?: string;
+  repository?: { full_name?: string };
   workflow_job: {
-    id: number;
-    name: string;
+    id?: number;
+    name?: string;
     status: string;
-    conclusion: string | null;
+    conclusion?: string | null;
     head_branch: string;
-    head_sha: string;
+    head_sha?: string;
     run_id: number;
-    repository: { full_name: string };
-    html_url: string;
+    repository?: { full_name?: string };
+    html_url?: string;
   };
 }
 
@@ -244,16 +245,98 @@ export function handleGitHubWorkflowRunEvent(body: GitHubWorkflowRunEvent) {
   });
 }
 
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function nonEmptyString(value: unknown): string | null {
+  return typeof value === "string" && value.trim().length > 0 ? value : null;
+}
+
+const VALID_GITHUB_WORKFLOW_JOB_STATUSES = new Set([
+  "queued",
+  "in_progress",
+  "completed",
+  "waiting",
+  "requested",
+  "pending",
+]);
+
+function workflowJobValidationError(error: string) {
+  return { status: "error", statusCode: 400, error };
+}
+
 /** Processes a GitHub `workflow_job` webhook by persisting the pipeline status for the matching task and emitting a `task.updated` SSE event to its habitat. */
 export function handleGitHubWorkflowJobEvent(body: GitHubWorkflowJobEvent) {
+  if (!isPlainObject(body)) {
+    return workflowJobValidationError("Invalid workflow_job payload: expected JSON object");
+  }
   const job = body.workflow_job;
+  if (!isPlainObject(job)) {
+    return workflowJobValidationError("Invalid workflow_job payload: missing workflow_job");
+  }
+
+  // GitHub's documented workflow_job webhook places `repository` at the delivery
+  // top level; keep `job.repository` only as a fallback when top-level is absent.
+  let repoFullName: string | null = null;
+  if (body.repository !== undefined) {
+    if (!isPlainObject(body.repository)) {
+      return workflowJobValidationError("Invalid workflow_job payload: malformed repository");
+    }
+    repoFullName = nonEmptyString(body.repository.full_name);
+    if (!repoFullName) {
+      return workflowJobValidationError("Invalid workflow_job payload: missing repository.full_name");
+    }
+  } else if (isPlainObject(job.repository)) {
+    repoFullName = nonEmptyString(job.repository.full_name);
+  }
+
+  if (!repoFullName) {
+    return workflowJobValidationError("Invalid workflow_job payload: missing repository.full_name");
+  }
+
+  if (typeof job.run_id !== "number" || !Number.isInteger(job.run_id) || job.run_id <= 0) {
+    return workflowJobValidationError(
+      "Invalid workflow_job payload: invalid or missing workflow_job.run_id",
+    );
+  }
+
+  const headBranch = nonEmptyString(job.head_branch);
+  if (!headBranch) {
+    return workflowJobValidationError(
+      "Invalid workflow_job payload: missing workflow_job.head_branch",
+    );
+  }
+
+  const jobStatus = nonEmptyString(job.status);
+  if (!jobStatus || !VALID_GITHUB_WORKFLOW_JOB_STATUSES.has(jobStatus)) {
+    return workflowJobValidationError(
+      "Invalid workflow_job payload: invalid or missing workflow_job.status",
+    );
+  }
+
+  if (job.conclusion !== undefined && job.conclusion !== null && typeof job.conclusion !== "string") {
+    return workflowJobValidationError(
+      "Invalid workflow_job payload: invalid workflow_job.conclusion",
+    );
+  }
+  if (jobStatus === "completed" && !nonEmptyString(job.conclusion)) {
+    return workflowJobValidationError(
+      "Invalid workflow_job payload: missing workflow_job.conclusion for completed job",
+    );
+  }
+
+  if (job.head_sha !== undefined && job.head_sha !== null && typeof job.head_sha !== "string") {
+    return workflowJobValidationError("Invalid workflow_job payload: invalid workflow_job.head_sha");
+  }
+
   return handlePipelineEvent({
     provider: "github",
-    repo: job.repository.full_name,
-    branch: job.head_branch,
+    repo: repoFullName,
+    branch: headBranch,
     runId: String(job.run_id),
-    commitSha: job.head_sha,
-    mappedStatus: mapGitHubStatus(job.status, job.conclusion),
+    commitSha: typeof job.head_sha === "string" ? job.head_sha : "",
+    mappedStatus: mapGitHubStatus(jobStatus, job.conclusion ?? null),
     actorId: "github-ci",
   });
 }
