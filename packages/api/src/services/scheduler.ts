@@ -20,7 +20,6 @@ import {
 import { getDb } from "../db/index.js";
 import { tasks, missions } from "../db/schema/index.js";
 import { and, or, sql, notInArray, eq } from "drizzle-orm";
-import { nowExpr } from "../db/dialect-helpers.js";
 import { sseBroadcaster } from "../sse/broadcaster.js";
 
 const overdueNotifiedIds = new Set<string>();
@@ -32,7 +31,10 @@ export function checkOverdueTasks(
 ): number {
   try {
     const db = getDb();
-    const nowSql = nowExpr();
+    // Deadline columns hold mixed timestamp texts (canonical ISO, explicit
+    // offsets, legacy SQLite), so they are compared as instants. A text
+    // comparison against SQLite's space-separated clock sorts every same-day
+    // ISO value after it, hiding the overdue Task until the date changes.
     const overdueRows = db
       .select({ id: tasks.id, habitatId: missions.habitatId })
       .from(tasks)
@@ -40,7 +42,10 @@ export function checkOverdueTasks(
       .where(
         and(
           notInArray(tasks.status, ["done", "approved", "failed"]),
-          or(sql`${missions.dueAt} < ${nowSql}`, sql`${missions.slaDeadlineAt} < ${nowSql}`),
+          or(
+            sql`julianday(${missions.dueAt}) < julianday('now')`,
+            sql`julianday(${missions.slaDeadlineAt}) < julianday('now')`,
+          ),
         ),
       )
       .all();
