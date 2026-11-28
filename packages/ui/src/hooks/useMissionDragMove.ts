@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { api } from "../api/index.js";
 import {
@@ -15,7 +15,12 @@ interface MoveEntry {
   habitatId: string;
   currentTarget: string;
   queuedTarget: string | null;
+  preview: Preview;
   controller: AbortController;
+}
+
+interface Preview {
+  target: string;
 }
 
 // Hung-request sweep bound. A never-resolving `api.missions.move` would keep
@@ -46,7 +51,11 @@ export interface UseMissionDragMoveResult {
 
 export function useMissionDragMove(habitatId: string | undefined): UseMissionDragMoveResult {
   const qc = useQueryClient();
-  const [previewByMission, setPreviewByMission] = useState<Record<string, string>>({});
+  const [previews, setPreviewByMission] = useState<Record<string, Preview>>({});
+  const previewByMission = useMemo(
+    () => Object.fromEntries(Object.entries(previews).map(([id, preview]) => [id, preview.target])),
+    [previews],
+  );
   const [activeMoveCount, setActiveMoveCount] = useState(0);
   const movesRef = useRef<Record<string, MoveEntry>>({});
   const generationRef = useRef(0);
@@ -74,9 +83,9 @@ export function useMissionDragMove(habitatId: string | undefined): UseMissionDra
     });
   }, []);
 
-  const clearOwnedPreview = useCallback((missionId: string, ownedTarget: string) => {
+  const clearOwnedPreview = useCallback((missionId: string, owner: Preview) => {
     setPreviewByMission((prev) => {
-      if (prev[missionId] !== ownedTarget) return prev;
+      if (prev[missionId] !== owner) return prev;
       const next = { ...prev };
       delete next[missionId];
       return next;
@@ -84,20 +93,22 @@ export function useMissionDragMove(habitatId: string | undefined): UseMissionDra
   }, []);
 
   const runMove = useCallback(
-    async (missionId: string, targetColumnId: string, expectedVersion: number) => {
+    async (missionId: string, targetColumnId: string, expectedVersion: number, queuedPreview?: Preview) => {
       if (!habitatId) return;
       const generation = generationRef.current;
       const capturedHabitatId = habitatId;
       const isActive = () =>
         generation === generationRef.current && capturedHabitatId === committedHabitatRef.current;
       const controller = new AbortController();
+      const preview = queuedPreview ?? { target: targetColumnId };
       movesRef.current[missionId] = {
         habitatId: capturedHabitatId,
         currentTarget: targetColumnId,
         queuedTarget: null,
+        preview,
         controller,
       };
-      setPreviewByMission((prev) => ({ ...prev, [missionId]: targetColumnId }));
+      if (!queuedPreview) setPreviewByMission((prev) => ({ ...prev, [missionId]: preview }));
       setActiveMoveCount((c) => c + 1);
 
       // Hung-request sweep: see HUNG_MOVE_TIMEOUT_MS rationale above.
@@ -119,7 +130,7 @@ export function useMissionDragMove(habitatId: string | undefined): UseMissionDra
           delete movesRef.current[missionId];
         }
         if (isActive()) {
-          clearOwnedPreview(missionId, targetColumnId);
+          if (entry?.controller === controller) clearOwnedPreview(missionId, entry.preview);
           setActiveMoveCount((c) => Math.max(0, c - 1));
         }
       }, HUNG_MOVE_TIMEOUT_MS);
@@ -146,12 +157,12 @@ export function useMissionDragMove(habitatId: string | undefined): UseMissionDra
         ) {
           const nextTarget = entry.queuedTarget;
           delete movesRef.current[missionId];
-          void runMove(missionId, nextTarget, mission.version);
+          void runMove(missionId, nextTarget, mission.version, entry.preview);
           return;
         }
         delete movesRef.current[missionId];
         if (!isActive()) return;
-        clearOwnedPreview(missionId, targetColumnId);
+        clearOwnedPreview(missionId, entry.preview);
       } catch (err) {
         clearTimeout(sweepTimer);
         if (controller.signal.aborted) return;
@@ -159,7 +170,7 @@ export function useMissionDragMove(habitatId: string | undefined): UseMissionDra
         const entry = movesRef.current[missionId];
         if (entry && entry.controller === controller) delete movesRef.current[missionId];
         if (!isActive()) return;
-        clearOwnedPreview(missionId, targetColumnId);
+        if (entry?.controller === controller) clearOwnedPreview(missionId, entry.preview);
         if (isVersionConflict(err)) {
           notifyVersionConflict("This mission", invalidate);
         }
@@ -193,7 +204,9 @@ export function useMissionDragMove(habitatId: string | undefined): UseMissionDra
       // entry from a pre-switch habitat is overwritten by the fresh move below.
       if (existing && existing.habitatId === habitatId) {
         existing.queuedTarget = targetColumnId;
-        setPreviewByMission((prev) => ({ ...prev, [missionId]: targetColumnId }));
+        const preview = { target: targetColumnId };
+        existing.preview = preview;
+        setPreviewByMission((prev) => ({ ...prev, [missionId]: preview }));
         return;
       }
       if (targetColumnId === canonicalColumnId) {
@@ -207,15 +220,14 @@ export function useMissionDragMove(habitatId: string | undefined): UseMissionDra
   );
 
   const setPreview = useCallback((missionId: string, targetColumnId: string) => {
-    setPreviewByMission((prev) => ({ ...prev, [missionId]: targetColumnId }));
+    setPreviewByMission((prev) => ({ ...prev, [missionId]: { target: targetColumnId } }));
   }, []);
 
   const restorePreview = useCallback(
     (missionId: string) => {
       const entry = movesRef.current[missionId];
       if (entry) {
-        const resting = entry.queuedTarget ?? entry.currentTarget;
-        setPreviewByMission((prev) => ({ ...prev, [missionId]: resting }));
+        setPreviewByMission((prev) => ({ ...prev, [missionId]: entry.preview }));
       } else {
         clearPreview(missionId);
       }
