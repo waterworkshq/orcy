@@ -277,14 +277,19 @@ const processes = () => {
   const out = [];
   for (const pid of pids) {
     if (!/^\d+$/.test(pid)) continue;
-    // Owned by another user, so not a process this run started — and where
-    // /proc hides other users' entries, not this one's to read either.
-    let owner;
-    try { owner = fs.statSync(`/proc/${pid}`).uid; } catch { continue; }
-    if (owner !== process.geteuid()) continue;
     let stat;
     try { stat = fs.readFileSync(`/proc/${pid}/stat`, "utf8"); }
-    catch (err) { if (err.code !== "ENOENT" && err.code !== "ESRCH") return null; continue; }
+    catch (err) {
+      // Gone between the listing and the reading.
+      if (err.code === "ENOENT" || err.code === "ESRCH") continue;
+      // Denied: the directory's owner still says whose it is. Every process
+      // this run started is this user's own, so one that is not is no member
+      // — and where /proc hides other users' entries, that is all this is.
+      let owner;
+      try { owner = fs.statSync(`/proc/${pid}`).uid; } catch { continue; }
+      if (owner !== process.geteuid()) continue;
+      return null;
+    }
     // The name may hold spaces, parentheses and newlines: it ends at the last one.
     const end = stat.lastIndexOf(")");
     const [state, , pgrp] = stat.slice(end + 2).split(" ");
@@ -336,9 +341,12 @@ const settle = (deadline) => {
   if (settling) return;
   settling = true;
   let clear = 0; // two looks in a row: one can miss a process forked while it was taken
+  let pause = 20;
   const look = () => {
     clear = running() ? 0 : clear + 1;
-    if (clear < 2 && Date.now() <= deadline) return setTimeout(look, 20);
+    // A first clear look is confirmed even past the deadline: a group that has
+    // just emptied must not cost a lock. The looks grow apart as nothing changes.
+    if (clear < 2 && (clear > 0 || Date.now() <= deadline)) return setTimeout(look, (pause = Math.min(pause * 2, 250)));
     over = clear >= 2;
     if (!over) {
       keepLock = true;
@@ -357,11 +365,12 @@ const stop = () => {
   if (stopping) return;
   stopping = true;
   const deadline = Date.now() + 5000;
+  let pause = 20;
   const kill = () => { signal("SIGKILL"); settle(deadline); };
   const freeze = () => {
     // The group exists only once the anchor has made its session, a moment after the fork.
     if (active) { try { process.kill(group, "SIGSTOP"); } catch { anchor.kill("SIGKILL"); } }
-    setTimeout(() => (active && moving() && Date.now() < deadline ? freeze() : kill()), 20);
+    setTimeout(() => (active && moving() && Date.now() < deadline ? freeze() : kill()), (pause = Math.min(pause * 2, 250)));
   };
   freeze();
 };

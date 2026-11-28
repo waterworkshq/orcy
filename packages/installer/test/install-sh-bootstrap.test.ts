@@ -237,6 +237,8 @@ interface InstallerBehavior {
   orphanWorker?: boolean;
   /** Leave a worker behind whose name holds a newline and a parenthesis. */
   namedWorker?: boolean;
+  /** Leave a worker behind that ends on its own after this long. */
+  workerMs?: number;
   /** Report the installer's PID, so a test can act on that process. */
   writePid?: boolean;
   /** Read what is typed at the terminal, as the wizard's prompts do. */
@@ -397,10 +399,10 @@ if (behavior.orphanWorker) {
   spawn(process.execPath, ["-e", outer, "--", pidFile], { stdio: "ignore" }).unref();
 }
 // Stands in for a build the installer is waiting on: outlives it unless stopped.
-if (behavior.spawnChild || behavior.namedWorker) {
+if (behavior.spawnChild || behavior.namedWorker || behavior.workerMs) {
   const child = spawn(process.execPath, ["-e", behavior.namedWorker
     ? "process.title = 'build\\\\n)orker (1)'; setInterval(() => {}, 1000)"
-    : "setInterval(() => {}, 1000)"], { stdio: "ignore" });
+    : behavior.workerMs ? "setTimeout(() => process.exit(0), " + behavior.workerMs + ")" : "setInterval(() => {}, 1000)"], { stdio: "ignore" });
   writeFileSync(process.env.ORCY_FAKE_CHILD_PID, String(child.pid));
   child.unref();
 }
@@ -952,8 +954,22 @@ describe("install.sh — one installer run at a time", () => {
     expect(output(r)).toContain(`remove ${s.lockDir} and run this again.`);
     // The worker really was running all along, and is stopped here by hand.
     const worker = Number(fs.readFileSync(path.join(s.home, "child.pid"), "utf8"));
+    // Its awkward name is the kernel's own record of it, newline included.
+    if (process.platform === "linux") {
+      expect(fs.readFileSync(`/proc/${worker}/stat`, "utf8")).toMatch(/\(build\n\)orker/);
+    }
     expect(isRunning(worker)).toBe(true);
     process.kill(worker, "SIGKILL");
+  }, 15_000);
+
+  it("releases the lock when the last process of the run ends at the deadline, not long before", async () => {
+    // The worker outlives the installer for just under five seconds. The last
+    // look before the deadline still sees it and the first after finds it gone:
+    // a group that has just emptied must not cost a lock.
+    const s = buildScenario({ installer: { workerMs: 4950 } });
+    const r = runInstallSh(s);
+    expect(r.status).toBe(0);
+    expect(fs.existsSync(s.lockDir)).toBe(false);
   }, 15_000);
 
   it("stops what is left of the run when asked to stop while the lock is still waited for", async () => {
