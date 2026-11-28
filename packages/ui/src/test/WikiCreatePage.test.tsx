@@ -135,3 +135,49 @@ it("keeps a transferred draft visible and waits for complete detail after cancel
   expect(screen.getByRole("button", { name: "Edit" })).toBeInTheDocument();
   client.clear();
 });
+
+it.each(["text", "metadata"] as const)("keeps an acknowledged %s save when the initial detail response arrives late", async (group) => {
+  let finishCreate!: (response: Response) => void;
+  let finishOldRead!: (response: Response) => void;
+  let reads = 0;
+  const { links, ...createdPage } = initial;
+  let page = { ...initial };
+  vi.stubGlobal("fetch", vi.fn((input: string, options: RequestInit = {}) => {
+    const url = String(input); const method = options.method ?? "GET";
+    if (url.endsWith("/wiki/pages") && method === "POST") return new Promise<Response>((resolve) => { finishCreate = resolve; });
+    if (url.endsWith("/wiki/pages/created/versions") && method === "POST") {
+      page = { ...page, ...JSON.parse(String(options.body)), currentVersionNumber: 2 };
+      return Promise.resolve(json({ page }));
+    }
+    if (url.endsWith("/wiki/pages/created") && method === "PATCH") {
+      page = { ...page, ...JSON.parse(String(options.body)), updatedAt: "2026-10-17T00:00:01Z" };
+      return Promise.resolve(json({ page }));
+    }
+    if (url.endsWith("/wiki/pages/created")) {
+      reads++;
+      if (reads === 1) return new Promise<Response>((resolve) => { finishOldRead = resolve; });
+      return Promise.resolve(json({ page }));
+    }
+    if (url.endsWith("/wiki/pages")) return Promise.resolve(json({ pages: [] }));
+    if (url.endsWith("/links")) return Promise.resolve(json({ links: [] }));
+    if (url.includes("authoring-context")) return Promise.resolve(json({ context: {} }));
+    return Promise.resolve(json({ habitat: { name: "Test" } }));
+  }));
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
+  render(<QueryClientProvider client={client}><MemoryRouter initialEntries={["/habitats/h/wiki?page=new"]}><Routes><Route path="/habitats/:habitatId/wiki" element={<WikiPage />} /></Routes></MemoryRouter></QueryClientProvider>);
+  fireEvent.change(screen.getByPlaceholderText("Page title…"), { target: { value: "A" } });
+  fireEvent.change(screen.getByPlaceholderText("Write page content in markdown…"), { target: { value: "Body A" } });
+  fireEvent.click(screen.getByRole("button", { name: "Create page" }));
+  await waitFor(() => expect(finishCreate).toBeDefined());
+  if (group === "text") fireEvent.change(screen.getByPlaceholderText("Write page content in markdown…"), { target: { value: "Body B" } });
+  else fireEvent.change(screen.getByRole("combobox", { name: "Status" }), { target: { value: "published" } });
+  await act(async () => finishCreate(json({ page: createdPage })));
+  await waitFor(() => expect(finishOldRead).toBeDefined());
+  fireEvent.click(screen.getByRole("button", { name: group === "text" ? "Save version" : "Save metadata" }));
+  await waitFor(() => expect(group === "text" ? page.content : page.status).toBe(group === "text" ? "Body B" : "published"));
+  await act(async () => finishOldRead(json({ page: { ...createdPage, links } })));
+  await waitFor(() => expect(reads).toBeGreaterThan(1));
+  if (group === "text") expect(screen.getByPlaceholderText("Write page content in markdown…")).toHaveValue("Body B");
+  else expect(screen.getByRole("combobox", { name: "Status" })).toHaveValue("published");
+  client.clear();
+});

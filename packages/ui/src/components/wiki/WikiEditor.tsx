@@ -179,6 +179,8 @@ function WikiEditorSession({ habitatId, mode, pageId, onDone, onCancel, initialD
       if (!active.current) return;
       const baseline = pendingText.current;
       const observed = queryClient.getQueryData<WikiPage>(queryKeys.wiki.page(habitatId, pageId!));
+      // An initial fetch without cached data is otherwise reused by invalidation.
+      if (!observed) void queryClient.cancelQueries({ queryKey: queryKeys.wiki.page(habitatId, pageId!), exact: true });
       setDraft((current) => reconcileAcknowledgement({
         conflicts: { ...current.conflicts, title: false, content: false },
         saved: { ...current.saved, title: page.title, content: page.content },
@@ -211,6 +213,8 @@ function WikiEditorSession({ habitatId, mode, pageId, onDone, onCancel, initialD
       if (!active.current) return;
       const baseline = pendingMetadata.current;
       const observed = queryClient.getQueryData<WikiPage>(queryKeys.wiki.page(habitatId, pageId!));
+      // An initial fetch without cached data is otherwise reused by invalidation.
+      if (!observed) void queryClient.cancelQueries({ queryKey: queryKeys.wiki.page(habitatId, pageId!), exact: true });
       setDraft((current) => reconcileAcknowledgement({
         conflicts: { ...current.conflicts, parentId: false, tags: false, status: false },
         saved: { ...current.saved, parentId: page.parentId ?? "", tags: page.tags, status: page.status },
