@@ -189,13 +189,41 @@ export function registerDaemonCommands(program: any) {
 
             fs.mkdirSync(path.dirname(LOG_FILE), { recursive: true });
             const log = fs.openSync(LOG_FILE, "a");
-            const child = spawn(process.execPath, args, {
-              stdio: ["ignore", log, log],
-              detached: true,
-              env: { ...process.env },
+            let child;
+            try {
+              child = spawn(process.execPath, args, {
+                stdio: ["ignore", log, log, "ipc"],
+                detached: true,
+                env: { ...process.env, ORCY_DAEMON_DETACHED_START: "1" },
+              });
+            } finally {
+              fs.closeSync(log);
+            }
+            await new Promise<void>((resolve, reject) => {
+              let timedOut = false;
+              const timer = setTimeout(() => {
+                timedOut = true;
+                child.kill("SIGKILL");
+              }, 15_000);
+              child.once("error", (error) => {
+                clearTimeout(timer);
+                reject(new Error(`Daemon could not be spawned: ${error.message}. See ${LOG_FILE}`));
+              });
+              child.once("exit", (code, signal) => {
+                clearTimeout(timer);
+                if (child.pid && readPid() === child.pid) clearPidFile();
+                reject(new Error(timedOut
+                  ? `Daemon startup timed out after 15 seconds. See ${LOG_FILE}`
+                  : `Daemon exited during startup (${signal ?? `code ${code}`}). See ${LOG_FILE}`));
+              });
+              child.on("message", (message) => {
+                if (timedOut || message !== "orcy-daemon-ready") return;
+                clearTimeout(timer);
+                child.removeAllListeners("exit");
+                child.unref();
+                resolve();
+              });
             });
-            child.unref();
-            updatePidFile(child.pid!);
             console.log(`Daemon started (pid ${child.pid}) — logging to ${LOG_FILE}`);
             return;
           }
@@ -264,9 +292,6 @@ export function registerDaemonCommands(program: any) {
 
           pollLoop.start();
 
-          updatePidFile(process.pid);
-          console.log("Daemon running. Press Ctrl+C to stop.");
-
           const shutdown = async () => {
             console.log("\nShutting down...");
             pollLoop.stop();
@@ -277,6 +302,11 @@ export function registerDaemonCommands(program: any) {
 
           process.on("SIGINT", shutdown);
           process.on("SIGTERM", shutdown);
+          updatePidFile(process.pid);
+          console.log("Daemon running. Press Ctrl+C to stop.");
+          if (process.env.ORCY_DAEMON_DETACHED_START === "1" && process.send && process.connected) {
+            process.send("orcy-daemon-ready", () => process.disconnect());
+          }
         },
       ),
     );
