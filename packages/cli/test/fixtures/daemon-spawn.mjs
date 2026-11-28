@@ -1,6 +1,21 @@
 import childProcess from 'node:child_process';
 import { syncBuiltinESMExports } from 'node:module';
 import { writeFileSync } from 'node:fs';
+import fs from 'node:fs';
+if (process.env.ORCY_TEST_DELAY_LOCK && process.env.ORCY_DAEMON_DETACHED_START === '1') {
+  const link = fs.linkSync;
+  const mkdir = fs.mkdirSync;
+  fs.mkdirSync = (...args) => {
+    const result = mkdir(...args);
+    if (String(args[0]).endsWith('/daemon.start.lock')) Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 20000);
+    return result;
+  };
+  fs.linkSync = (...args) => {
+    const result = link(...args);
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 20000);
+    return result;
+  };
+}
 if (process.env.ORCY_TEST_DELAY_RESERVED && process.send) {
   const send = process.send.bind(process);
   process.send = (message, ...args) => {

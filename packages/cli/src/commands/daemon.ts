@@ -2,6 +2,7 @@ import path from "node:path";
 import fs from "node:fs";
 import os from "node:os";
 import { spawn } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { ORCY_PATHS } from "@orcy/shared";
 import { withErrorHandling } from "../error-handler.js";
@@ -62,9 +63,27 @@ function stopStarting(): never {
   process.exit(0);
 }
 
-function clearOwnedState(pid: number): void {
+// A hard link publishes the unique owner token atomically with acquisition.
+function acquireStartLock(token: string): void {
+  const candidate = `${START_LOCK}.${token}`;
+  fs.writeFileSync(candidate, token, { flag: "wx", mode: 0o600 });
   try {
-    fs.mkdirSync(START_LOCK);
+    fs.linkSync(candidate, START_LOCK);
+  } finally {
+    fs.unlinkSync(candidate);
+  }
+}
+
+function releaseStartLock(token: string): void {
+  try {
+    if (fs.readFileSync(START_LOCK, "utf8") === token) fs.unlinkSync(START_LOCK);
+  } catch {}
+}
+
+function clearOwnedState(pid: number): void {
+  const token = randomUUID();
+  try {
+    acquireStartLock(token);
   } catch {
     return; // An acquirer owns the lock; it will handle any stale files.
   }
@@ -72,16 +91,16 @@ function clearOwnedState(pid: number): void {
     clearOwnedFile(PID_FILE, pid);
     clearOwnedFile(STARTING_FILE, pid);
   } finally {
-    fs.rmdirSync(START_LOCK);
+    releaseStartLock(token);
   }
 }
 
 // Serialize slot acquisition, including replacement of a dead PID. A stranded
 // lock fails closed: removing it automatically could race another acquirer.
-function reserveDaemonSlot(): void {
+function reserveDaemonSlot(token: string): void {
   fs.mkdirSync(path.dirname(PID_FILE), { recursive: true });
   try {
-    fs.mkdirSync(START_LOCK);
+    acquireStartLock(token);
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === "EEXIST") {
       throw new Error(`Daemon startup reservation is busy. If no start is in progress, remove ${START_LOCK}`, { cause: error });
@@ -99,7 +118,7 @@ function reserveDaemonSlot(): void {
     clearOwnedFile(STARTING_FILE, process.pid);
     throw error;
   } finally {
-    fs.rmdirSync(START_LOCK);
+    releaseStartLock(token);
   }
 }
 
@@ -238,6 +257,7 @@ export function registerDaemonCommands(program: any) {
             }
 
             const args = [CLI_ENTRY, "daemon", "start"];
+            const reservationToken = randomUUID();
             if (options.apiUrl) args.push("--api-url", options.apiUrl);
             args.push("--max-concurrent", options.maxConcurrent);
             args.push("--poll-interval", options.pollInterval);
@@ -250,7 +270,7 @@ export function registerDaemonCommands(program: any) {
               child = spawn(process.execPath, args, {
                 stdio: ["ignore", log, log, "ipc"],
                 detached: true,
-                env: { ...process.env, ORCY_DAEMON_DETACHED_START: "1" },
+                env: { ...process.env, ORCY_DAEMON_DETACHED_START: "1", ORCY_DAEMON_START_TOKEN: reservationToken },
               });
             } finally {
               fs.closeSync(log);
@@ -274,6 +294,10 @@ export function registerDaemonCommands(program: any) {
               });
               child.once("exit", (code, signal) => {
                 clearTimeout(timer);
+                // The child is dead, so its unique acquisition lock cannot be
+                // released and replaced by that owner between this check and unlink.
+                releaseStartLock(reservationToken);
+                try { fs.unlinkSync(`${START_LOCK}.${reservationToken}`); } catch {}
                 if (child.pid) clearOwnedState(child.pid);
                 reject(new Error(cancelledBeforeReservation
                   ? `Daemon startup timed out before recovery after 15 seconds. See ${LOG_FILE}`
@@ -297,7 +321,10 @@ export function registerDaemonCommands(program: any) {
           }
 
           const detachedChild = process.env.ORCY_DAEMON_DETACHED_START === "1";
-          reserveDaemonSlot();
+          const suppliedToken = process.env.ORCY_DAEMON_START_TOKEN;
+          delete process.env.ORCY_DAEMON_START_TOKEN;
+          const reservationToken = detachedChild && suppliedToken && /^[0-9a-f-]{36}$/.test(suppliedToken) ? suppliedToken : randomUUID();
+          reserveDaemonSlot(reservationToken);
           // Stop can terminate startup even while recovery awaits the API.
           process.once("SIGTERM", stopStarting);
           process.once("SIGINT", stopStarting);

@@ -2,7 +2,7 @@ import { beforeAll, test } from 'vitest';
 import { execFileSync } from 'node:child_process';
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
-import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync, existsSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -53,6 +53,8 @@ test('spawn failure and early exit are visible', () => withHome((home) => {
 
 test('an unreserved child is terminated at the deadline', () => withHome((home) => {
   const unrelated = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore' });
+  mkdirSync(join(home, '.orcy/run'), { recursive: true });
+  writeFileSync(join(home, '.orcy/run/daemon.start.lock'), 'another-owner');
   const result = run(home, ['start', '--detach'], synthetic('hang'));
   const pid = Number(readFileSync(join(home, 'synthetic-child.pid'), 'utf8'));
   try {
@@ -60,6 +62,7 @@ test('an unreserved child is terminated at the deadline', () => withHome((home) 
     assert.match(result.stderr, /timed out before recovery after 15 seconds/);
     assert.throws(() => process.kill(pid, 0));
     assert.equal(existsSync(pidFile(home)), false);
+    assert.equal(readFileSync(join(home, '.orcy/run/daemon.start.lock'), 'utf8'), 'another-owner');
     assert.doesNotThrow(() => process.kill(unrelated.pid!, 0));
   } finally {
     unrelated.kill('SIGKILL');
@@ -76,6 +79,18 @@ test('timeout after reservation but before permission cannot enter recovery', ()
   assert.throws(() => process.kill(pid, 0));
   assert.equal(existsSync(pidFile(home)), false);
   assert.doesNotMatch(readFileSync(join(home, '.orcy/logs/daemon.log'), 'utf8'), /Daemon synthetic starting/);
+}), 22000);
+
+test('timeout while acquiring the startup lock releases only that child lock', () => withHome((home) => {
+  const result = run(home, ['start', '--detach'], { NODE_OPTIONS: `--import=${preload}`, ORCY_TEST_DELAY_LOCK: '1', ORCY_TEST_RECORD_CHILD: recordedChild(home) });
+  const pid = Number(readFileSync(recordedChild(home), 'utf8'));
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /timed out before recovery after 15 seconds/);
+  assert.throws(() => process.kill(pid, 0));
+  assert.equal(existsSync(join(home, '.orcy/run/daemon.start.lock')), false);
+  assert.equal(readdirSync(join(home, '.orcy/run')).some((name) => name.startsWith('daemon.start.lock.')), false);
+  const next = run(home, ['start']);
+  assert.match(next.stderr, /No credentials found/);
 }), 22000);
 
 test('a stranded acquisition lock fails closed with an actionable message', () => withHome((home) => {
