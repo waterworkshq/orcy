@@ -4,8 +4,8 @@ import type { Team, TeamMember } from "../../types/index.js";
 export const teamsApi = {
   get: (id: string) => request<{ team: Team }>(`/teams/${id}`).then((r) => r.team),
   delete: (id: string) => request<void>(`/teams/${id}`, { method: "DELETE" }),
-  listMembers: (id: string) =>
-    request<{ members: TeamMember[] }>(`/teams/${id}/members`).then((r) => r.members),
+  listMembers: (id: string, signal?: AbortSignal) =>
+    request<{ members: TeamMember[] }>(`/teams/${id}/members`, { signal }).then((r) => r.members),
   addMember: (
     id: string,
     data: { userId: string; role?: import("../../types/index.js").TeamMemberRole },

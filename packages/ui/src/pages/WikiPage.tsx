@@ -127,6 +127,7 @@ export function WikiPage() {
             initialDraft={createdDraft?.habitatId === habitatId && createdDraft.pageId === activePageId ? createdDraft.draft : undefined}
             onDone={(id) => viewPage(id)}
             onCancel={() => viewPage(activePageId)}
+            onCancelBeforeLoad={closePage}
           />
         ) : activePageId ? (
           <WikiPageViewer

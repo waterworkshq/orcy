@@ -5,11 +5,64 @@ import { Button } from '../ui/Button.js';
 import { notify } from '../../lib/toast.js';
 import { useOrganizations, useOrganizationTeams, useTeamMembers } from '../../lib/useHabitatData.js';
 import { queryKeys } from '../../lib/queryKeys.js';
-import { Plus, Users, Trash2, Shield, UserPlus } from 'lucide-react';
+import { Plus, Users, Trash2, Shield, UserPlus, AlertCircle, Loader2 } from 'lucide-react';
 import type { Organization, Team } from '../../types/index.js';
 
 function slugify(text: string): string {
   return text.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+}
+
+function getQueryErrorMessage(error: unknown): string | null {
+  if (error instanceof Error && error.message.trim()) {
+    return error.message;
+  }
+  return null;
+}
+
+interface ReadErrorAlertProps {
+  title: string;
+  error: unknown;
+  retryLabel: string;
+  retryingLabel: string;
+  isFetching: boolean;
+  onRetry: () => void;
+}
+
+/** Inline error and retry banner scoped to a single Teams read query. */
+function ReadErrorAlert({
+  title,
+  error,
+  retryLabel,
+  retryingLabel,
+  isFetching,
+  onRetry,
+}: ReadErrorAlertProps) {
+  const detail = getQueryErrorMessage(error);
+  return (
+    <div
+      role="alert"
+      className="rounded-md border border-destructive/40 bg-destructive/10 p-3 text-xs text-foreground"
+    >
+      <div className="flex items-start gap-2">
+        <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-destructive" />
+        <div className="min-w-0 flex-1 space-y-2">
+          <div>
+            <p className="font-medium text-destructive">{title}</p>
+            {detail && <p className="mt-0.5 text-muted-foreground">{detail}</p>}
+          </div>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            disabled={isFetching}
+            onClick={onRetry}
+          >
+            {isFetching ? retryingLabel : retryLabel}
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 export function TeamsPage() {
@@ -122,6 +175,10 @@ export function TeamsPage() {
     }
   }
 
+  const orgsPaused = organizations.length === 0 && orgsQuery.fetchStatus === 'paused' && !orgsQuery.isError;
+  const teamsPaused = teams.length === 0 && teamsQuery.fetchStatus === 'paused' && !teamsQuery.isError;
+  const membersPaused = members.length === 0 && membersQuery.fetchStatus === 'paused' && !membersQuery.isError;
+
   if (loading) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-background">
@@ -147,63 +204,132 @@ export function TeamsPage() {
         <div className="grid grid-cols-3 gap-6">
           <div className="col-span-1">
             <h2 className="mb-3 text-sm font-semibold uppercase text-muted-foreground">Organizations</h2>
-            {organizations.length === 0 ? (
+            {orgsPaused ? (
+              <p role="status" className="text-sm text-muted-foreground">
+                Waiting for connectivity to load organizations.
+              </p>
+            ) : orgsQuery.isError && organizations.length === 0 ? (
+              <ReadErrorAlert
+                title={
+                  orgsQuery.data === undefined
+                    ? 'Could not load organizations.'
+                    : 'Could not refresh organizations.'
+                }
+                error={orgsQuery.error}
+                retryLabel="Retry organizations"
+                retryingLabel="Retrying organizations..."
+                isFetching={Boolean(orgsQuery.isFetching)}
+                onRetry={() => void orgsQuery.refetch()}
+              />
+            ) : organizations.length === 0 ? (
               <p className="text-sm text-muted-foreground">No organizations yet.</p>
             ) : (
-              <div className="space-y-1">
-                {organizations.map(org => (
-                  <button
-                    key={org.id}
-                    type="button"
-                    onClick={() => handleSelectOrg(org)}
-                    className={`w-full rounded-md px-3 py-2 text-left text-sm transition-colors ${
-                      selectedOrg?.id === org.id
-                        ? 'bg-primary text-primary-foreground'
-                        : 'hover:bg-muted'
-                    }`}
-                  >
-                    {org.name}
-                  </button>
-                ))}
+              <div className="space-y-2">
+                {orgsQuery.isError && (
+                  <ReadErrorAlert
+                    title="Could not refresh organizations. Showing cached organizations."
+                    error={orgsQuery.error}
+                    retryLabel="Retry organizations"
+                    retryingLabel="Retrying organizations..."
+                    isFetching={Boolean(orgsQuery.isFetching)}
+                    onRetry={() => void orgsQuery.refetch()}
+                  />
+                )}
+                <div className="space-y-1">
+                  {organizations.map(org => (
+                    <button
+                      key={org.id}
+                      type="button"
+                      onClick={() => handleSelectOrg(org)}
+                      className={`w-full rounded-md px-3 py-2 text-left text-sm transition-colors ${
+                        selectedOrg?.id === org.id
+                          ? 'bg-primary text-primary-foreground'
+                          : 'hover:bg-muted'
+                      }`}
+                    >
+                      {org.name}
+                    </button>
+                  ))}
+                </div>
               </div>
             )}
 
             {selectedOrg && (
               <>
                 <h2 className="mb-3 mt-6 text-sm font-semibold uppercase text-muted-foreground">Teams</h2>
-                <div className="space-y-1">
-                  {teams.map(team => (
-                    <div key={team.id} className="flex items-center gap-1">
-                      <button
-                        type="button"
-                        onClick={() => setSelectedTeam(team)}
-                        className={`flex-1 rounded-md px-3 py-2 text-left text-sm transition-colors ${
-                          selectedTeam?.id === team.id
-                            ? 'bg-primary text-primary-foreground'
-                            : 'hover:bg-muted'
-                        }`}
+                {teamsQuery.isLoading && teams.length === 0 ? (
+                  <div role="status" className="flex items-center gap-2 py-2 text-sm text-muted-foreground">
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    <span>Loading teams...</span>
+                  </div>
+                ) : teamsPaused ? (
+                  <p role="status" className="text-sm text-muted-foreground">
+                    Waiting for connectivity to load teams.
+                  </p>
+                ) : teamsQuery.isError && teams.length === 0 ? (
+                  <ReadErrorAlert
+                    title={
+                      teamsQuery.data === undefined
+                        ? 'Could not load teams.'
+                        : 'Could not refresh teams.'
+                    }
+                    error={teamsQuery.error}
+                    retryLabel="Retry teams"
+                    retryingLabel="Retrying teams..."
+                    isFetching={Boolean(teamsQuery.isFetching)}
+                    onRetry={() => void teamsQuery.refetch()}
+                  />
+                ) : (
+                  <div className="space-y-2">
+                    {teamsQuery.isError && (
+                      <ReadErrorAlert
+                        title="Could not refresh teams. Showing cached teams."
+                        error={teamsQuery.error}
+                        retryLabel="Retry teams"
+                        retryingLabel="Retrying teams..."
+                        isFetching={Boolean(teamsQuery.isFetching)}
+                        onRetry={() => void teamsQuery.refetch()}
+                      />
+                    )}
+                    <div className="space-y-1">
+                      {teams.length === 0 ? (
+                        <p className="text-sm text-muted-foreground">No teams yet.</p>
+                      ) : (
+                        teams.map(team => (
+                          <div key={team.id} className="flex items-center gap-1">
+                            <button
+                              type="button"
+                              onClick={() => setSelectedTeam(team)}
+                              className={`flex-1 rounded-md px-3 py-2 text-left text-sm transition-colors ${
+                                selectedTeam?.id === team.id
+                                  ? 'bg-primary text-primary-foreground'
+                                  : 'hover:bg-muted'
+                              }`}
+                            >
+                              {team.name}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleDeleteTeam(team.id)}
+                              className="rounded-md p-1 text-muted-foreground hover:text-destructive"
+                            >
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </button>
+                          </div>
+                        ))
+                      )}
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="w-full"
+                        onClick={() => setShowCreateTeam(true)}
                       >
-                        {team.name}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => handleDeleteTeam(team.id)}
-                        className="rounded-md p-1 text-muted-foreground hover:text-destructive"
-                      >
-                        <Trash2 className="h-3.5 w-3.5" />
-                      </button>
+                        <Plus className="h-3.5 w-3.5" />
+                        Add Team
+                      </Button>
                     </div>
-                  ))}
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="w-full"
-                    onClick={() => setShowCreateTeam(true)}
-                  >
-                    <Plus className="h-3.5 w-3.5" />
-                    Add Team
-                  </Button>
-                </div>
+                  </div>
+                )}
               </>
             )}
           </div>
@@ -222,48 +348,90 @@ export function TeamsPage() {
                   </Button>
                 </div>
 
-                {members.length === 0 ? (
-                  <div className="rounded-lg border border-dashed p-8 text-center">
-                    <Users className="mx-auto mb-2 h-8 w-8 text-muted-foreground" />
-                    <p className="text-sm text-muted-foreground">No members yet.</p>
+                {membersQuery.isLoading && members.length === 0 ? (
+                  <div
+                    role="status"
+                    className="flex items-center justify-center gap-2 rounded-lg border border-dashed p-8 text-sm text-muted-foreground"
+                  >
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    <span>Loading members...</span>
                   </div>
+                ) : membersPaused ? (
+                  <div
+                    role="status"
+                    className="rounded-lg border border-dashed p-8 text-center text-sm text-muted-foreground"
+                  >
+                    Waiting for connectivity to load members.
+                  </div>
+                ) : membersQuery.isError && members.length === 0 ? (
+                  <ReadErrorAlert
+                    title={
+                      membersQuery.data === undefined
+                        ? 'Could not load members.'
+                        : 'Could not refresh members.'
+                    }
+                    error={membersQuery.error}
+                    retryLabel="Retry members"
+                    retryingLabel="Retrying members..."
+                    isFetching={Boolean(membersQuery.isFetching)}
+                    onRetry={() => void membersQuery.refetch()}
+                  />
                 ) : (
-                  <div className="space-y-2">
-                    {members.map(member => (
-                      <div
-                        key={member.id}
-                        className="flex items-center justify-between rounded-lg border bg-card p-3"
-                      >
-                        <div className="flex items-center gap-3">
-                          <div className="flex h-8 w-8 items-center justify-center rounded-full bg-muted">
-                            <Users className="h-4 w-4 text-muted-foreground" />
-                          </div>
-                          <div>
-                            <p className="text-sm font-medium">{member.userId}</p>
-                            <p className="text-xs text-muted-foreground">
-                              Joined {new Date(member.joinedAt).toLocaleDateString()}
-                            </p>
-                          </div>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium ${
-                            member.role === 'owner' ? 'glass-badge glass-badge-medium' :
-                            member.role === 'admin' ? 'glass-badge glass-badge-active' :
-                            'glass-badge'
-                          }`}>
-                            {member.role === 'owner' && <Shield className="h-3 w-3" />}
-                            {member.role}
-                          </span>
-                          <button
-                            type="button"
-                            onClick={() => handleRemoveMember(member.userId)}
-                            className="rounded-md p-1 text-muted-foreground hover:text-destructive"
-                          >
-                            <Trash2 className="h-3.5 w-3.5" />
-                          </button>
-                        </div>
+                  <div className="space-y-3">
+                    {membersQuery.isError && (
+                      <ReadErrorAlert
+                        title="Could not refresh members. Showing cached members."
+                        error={membersQuery.error}
+                        retryLabel="Retry members"
+                        retryingLabel="Retrying members..."
+                        isFetching={Boolean(membersQuery.isFetching)}
+                        onRetry={() => void membersQuery.refetch()}
+                      />
+                    )}
+                    {members.length === 0 ? (
+                      <div className="rounded-lg border border-dashed p-8 text-center">
+                        <Users className="mx-auto mb-2 h-8 w-8 text-muted-foreground" />
+                        <p className="text-sm text-muted-foreground">No members yet.</p>
                       </div>
-                    ))}
+                    ) : (
+                      <div className="space-y-2">
+                        {members.map(member => (
+                          <div
+                            key={member.id}
+                            className="flex items-center justify-between rounded-lg border bg-card p-3"
+                          >
+                            <div className="flex items-center gap-3">
+                              <div className="flex h-8 w-8 items-center justify-center rounded-full bg-muted">
+                                <Users className="h-4 w-4 text-muted-foreground" />
+                              </div>
+                              <div>
+                                <p className="text-sm font-medium">{member.userId}</p>
+                                <p className="text-xs text-muted-foreground">
+                                  Joined {new Date(member.joinedAt).toLocaleDateString()}
+                                </p>
+                              </div>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium ${
+                                member.role === 'owner' ? 'glass-badge glass-badge-medium' :
+                                member.role === 'admin' ? 'glass-badge glass-badge-active' :
+                                'glass-badge'
+                              }`}>
+                                {member.role === 'owner' && <Shield className="h-3 w-3" />}
+                                {member.role}
+                              </span>
+                              <button
+                                type="button"
+                                onClick={() => handleRemoveMember(member.userId)}
+                                className="rounded-md p-1 text-muted-foreground hover:text-destructive"
+                              >
+                                <Trash2 className="h-3.5 w-3.5" />
+                              </button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 )}
               </>
