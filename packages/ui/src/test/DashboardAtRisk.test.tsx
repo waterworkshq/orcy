@@ -27,7 +27,9 @@ it('counts a Task once while displaying each of its risk reasons', () => {
   const card = label.parentElement!;
   expect(within(card).getByText('1')).toBeInTheDocument();
   expect(within(card).getByText('1 critical')).toBeInTheDocument();
-  expect(['Forecast is late', 'Task is past due', 'Task is stale'].map(text => screen.getByText(text))).toHaveLength(3);
+  expect(screen.getAllByText(/^(Forecast is late|Task is past due|Task is stale)$/).map(element => element.textContent)).toEqual([
+    'Forecast is late', 'Task is past due', 'Task is stale',
+  ]);
 });
 
 it('handles no risks and the same reason on three different Tasks', () => {
