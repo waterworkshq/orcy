@@ -2,7 +2,11 @@ import * as deliveryRepo from "../repositories/notificationDelivery.js";
 import * as eventRepo from "../repositories/notificationEvent.js";
 import * as retentionRepo from "../repositories/notificationRetentionPolicy.js";
 import * as habitatRepo from "../repositories/habitat.js";
-import type { NotificationDelivery, NotificationDeliveryStatus } from "@orcy/shared";
+import type {
+  NotificationDelivery,
+  NotificationDeliveryStatus,
+  NotificationEvent,
+} from "@orcy/shared";
 
 const STATUS_CLEARABLE_BY_ACKNOWLEDGED = ["acknowledged"] as NotificationDeliveryStatus[];
 
@@ -134,31 +138,48 @@ export function adminClearDeliveries(deliveryIds: string[]): ClearanceResult {
  * repeat or a concurrent clear of the same delivery transitions nothing and
  * reports no transition.
  *
- * The transition is committed FIRST and the event history summary is written
- * after it. A summary failure therefore cannot un-commit a transition that
- * already happened: the transition still counts, and the failure is still
- * reported. A failure of the transition itself leaves the row untouched and
- * is reported as an uncounted failure.
+ * Ordering keeps the two failure kinds apart.
+ *
+ *  - The event lookup stays AHEAD of the transition, as it was before. It is
+ *    a read, and a failed lookup leaves the delivery live with nothing
+ *    written, so a later retry can still clear it and record its history.
+ *  - The history summary is written AFTER the transition. The transition is
+ *    already committed by then, so a failed summary write cannot un-commit
+ *    it: the transition still counts and the failure is still reported.
  */
 function processClearance(delivery: NotificationDelivery): ClearanceOutcome {
+  // A delivery already in the terminal cleared state transitions nothing.
+  // Skip it entirely, as before, so a repeat stays a silent no-op.
+  if (delivery.status === "cleared") {
+    return { transitioned: false };
+  }
+
+  let event: NotificationEvent | null = null;
+  try {
+    event = eventRepo.getNotificationEventById(delivery.eventId);
+  } catch (err) {
+    // Nothing is written yet: the delivery stays live and a retry can still
+    // clear it and record its history.
+    return { transitioned: false, error: err instanceof Error ? err.message : String(err) };
+  }
+
   if (!deliveryRepo.transitionDeliveryToCleared(delivery.id)) {
     return { transitioned: false };
   }
 
-  try {
-    const event = eventRepo.getNotificationEventById(delivery.eventId);
-    if (event) {
-      const summary: Record<string, unknown> = {
-        clearedAt: new Date().toISOString(),
-        eventType: event.eventType,
-        title: event.title,
-      };
+  if (event) {
+    const summary: Record<string, unknown> = {
+      clearedAt: new Date().toISOString(),
+      eventType: event.eventType,
+      title: event.title,
+    };
+    try {
       eventRepo.updateEventHistorySummary(delivery.eventId, summary);
+    } catch (err) {
+      // The delivery row is already cleared; the history summary failed. The
+      // transition still counts — the receipt must not contradict the row.
+      return { transitioned: true, error: err instanceof Error ? err.message : String(err) };
     }
-  } catch (err) {
-    // The delivery row is already cleared; the history summary failed. The
-    // transition still counts — the receipt must not contradict the row.
-    return { transitioned: true, error: err instanceof Error ? err.message : String(err) };
   }
 
   return { transitioned: true };

@@ -212,7 +212,7 @@ describe("admin clearance receipt (repository transition)", () => {
 describe("clearance transition/summary failure boundary", () => {
   afterEach(() => vi.restoreAllMocks());
 
-  it("counts a committed transition and reports a failing event summary lookup", async () => {
+  it("leaves the delivery live when the event lookup fails, so a retry can still clear it", async () => {
     const { event, delivery } = seedDelivery();
     vi.spyOn(eventRepo, "getNotificationEventById").mockImplementationOnce(() => {
       throw new Error("event lookup failed");
@@ -221,11 +221,28 @@ describe("clearance transition/summary failure boundary", () => {
     const response = await clear("/api/v1", [delivery.id]);
 
     expect(response.statusCode).toBe(200);
-    expect(response.json().cleared).toBe(1);
+    // The lookup runs before the transition, so nothing was written: the
+    // delivery is still live and no history summary was recorded.
+    expect(response.json().cleared).toBe(0);
     expect(response.json().errors).toEqual(["event lookup failed"]);
-    expect(deliveryRepo.getNotificationDeliveryById(delivery.id)!.status).toBe("cleared");
-    // The summary write never ran, so the event summary is untouched.
+    expect(deliveryRepo.getNotificationDeliveryById(delivery.id)!.status).not.toBe("cleared");
     expect(eventRepo.getNotificationEventById(event.id)!.historySummary).toBeNull();
+  });
+
+  it("clears the delivery on a retry after an event lookup failure", async () => {
+    const { event, delivery } = seedDelivery();
+    vi.spyOn(eventRepo, "getNotificationEventById").mockImplementationOnce(() => {
+      throw new Error("event lookup failed");
+    });
+    await clear("/api/v1", [delivery.id]);
+
+    const retry = await clear("/api/v1", [delivery.id]);
+
+    expect(retry.statusCode).toBe(200);
+    expect(retry.json().cleared).toBe(1);
+    expect(retry.json().errors).toEqual([]);
+    expect(deliveryRepo.getNotificationDeliveryById(delivery.id)!.status).toBe("cleared");
+    expect(eventRepo.getNotificationEventById(event.id)!.historySummary).not.toBeNull();
   });
 
   it("counts a committed transition and reports a failing event summary write", async () => {
@@ -251,9 +268,9 @@ describe("clearance transition/summary failure boundary", () => {
     const response = await clear("/api/v1", [delivery.id]);
 
     expect(response.statusCode).toBe(200);
-    expect(response.json().cleared).toBe(1);
+    expect(response.json().cleared).toBe(0);
     expect(response.json().errors).toEqual([""]);
-    expect(deliveryRepo.getNotificationDeliveryById(delivery.id)!.status).toBe("cleared");
+    expect(deliveryRepo.getNotificationDeliveryById(delivery.id)!.status).not.toBe("cleared");
   });
 
   it("leaves the row untouched and uncounted when the transition itself fails", async () => {
@@ -270,7 +287,7 @@ describe("clearance transition/summary failure boundary", () => {
     expect(deliveryRepo.getNotificationDeliveryById(delivery.id)!.status).not.toBe("cleared");
   });
 
-  it("counts a committed transition in the scheduled sweep and reports the summary failure", () => {
+  it("leaves the delivery live in the scheduled sweep when the event lookup fails", () => {
     const { delivery } = seedDelivery();
     deliveryRepo.acknowledgeDelivery(delivery.id);
     deliveryRepo.batchUpdateDeliveryStatus([delivery.id], "acknowledged", {
@@ -287,9 +304,11 @@ describe("clearance transition/summary failure boundary", () => {
     const results = runScheduledClearance();
     const result = results.find((r) => r.habitatId === habitatId)!;
 
-    expect(result.cleared).toBe(1);
+    // The lookup runs before the transition, so a failed lookup leaves the
+    // delivery live: nothing was written and the count stays zero.
+    expect(result.cleared).toBe(0);
     expect(result.errors).toEqual([`ack-clear ${delivery.id}: event lookup failed`]);
-    expect(deliveryRepo.getNotificationDeliveryById(delivery.id)!.status).toBe("cleared");
+    expect(deliveryRepo.getNotificationDeliveryById(delivery.id)!.status).not.toBe("cleared");
   });
 
   it("leaves the row untouched and uncounted in the scheduled sweep when the transition fails", () => {
