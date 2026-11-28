@@ -20,9 +20,21 @@ import {
 import { getDb } from "../db/index.js";
 import { tasks, missions } from "../db/schema/index.js";
 import { and, or, sql, notInArray, eq } from "drizzle-orm";
+import type { Column } from "drizzle-orm";
 import { sseBroadcaster } from "../sse/broadcaster.js";
 
 const overdueNotifiedIds = new Set<string>();
+
+/** `julianday` of a stored deadline, NULL when it is not a timestamp. SQLite's date parser reads only `±HH:MM` offsets, so a compact `±HHMM` suffix, which the import routes persist verbatim, gets its colon back before parsing. */
+function deadlineJulianday(column: Column) {
+  return sql`julianday(
+    CASE
+      WHEN substr(${column}, -5, 1) IN ('+', '-') AND substr(${column}, -4) NOT GLOB '*[^0-9]*'
+      THEN substr(${column}, 1, length(${column}) - 2) || ':' || substr(${column}, -2)
+      ELSE ${column}
+    END
+  )`;
+}
 
 /** Publishes `task.overdue` SSE events for tasks newly detected as overdue, tracking already-notified IDs in the supplied set to avoid duplicate notifications. */
 export function checkOverdueTasks(
@@ -43,8 +55,8 @@ export function checkOverdueTasks(
         and(
           notInArray(tasks.status, ["done", "approved", "failed"]),
           or(
-            sql`julianday(${missions.dueAt}) < julianday('now')`,
-            sql`julianday(${missions.slaDeadlineAt}) < julianday('now')`,
+            sql`${deadlineJulianday(missions.dueAt)} < julianday('now')`,
+            sql`${deadlineJulianday(missions.slaDeadlineAt)} < julianday('now')`,
           ),
         ),
       )
