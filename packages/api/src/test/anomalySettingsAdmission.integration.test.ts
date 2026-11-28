@@ -41,9 +41,11 @@ describe("persisted anomaly scanner admission", () => {
     const task = taskRepo.createTask({ missionId: mission.id, title: "Stale fixture", createdBy: "human" });
     getDb().update(tasks).set({ status: "in_progress", startedAt: new Date(Date.now() - 5 * 60 * 60 * 1000).toISOString() }).where(eq(tasks.id, task.id)).run();
     const settings = { ...getDefaultAnomalySettings(), notifications: { email: false, sse: false, chat: false } };
-    const patch = async (anomalySettings: typeof settings | null) => app.inject({ method: "PATCH", url: `/api/habitats/${habitat.id}`, headers, payload: { anomalySettings } });
+    const patch = async (anomalySettings: typeof settings | { enabled: false } | null) => app.inject({ method: "PATCH", url: `/api/habitats/${habitat.id}`, headers, payload: { anomalySettings } });
 
-    let res = await patch({ ...settings, enabled: false });
+    let res = await patch(settings);
+    expect(res.statusCode).toBe(200);
+    res = await patch({ enabled: false });
     expect(res.statusCode).toBe(200);
     expect(habitatRepo.getHabitatById(habitat.id)!.anomalySettings).toEqual({ ...settings, enabled: false });
     const readback = await app.inject({ method: "GET", url: `/api/habitats/${habitat.id}`, headers });
@@ -62,5 +64,10 @@ describe("persisted anomaly scanner admission", () => {
     expect(habitatRepo.getHabitatById(habitat.id)!.anomalySettings).toBeNull();
     expect(getAnomalySettings(habitat.id).enabled).toBe(true);
     expect(scanHabitat(habitat.id).some((a) => a.type === "stale_in_progress")).toBe(true);
+
+    res = await patch({ enabled: false });
+    expect(res.statusCode).toBe(200);
+    expect(habitatRepo.getHabitatById(habitat.id)!.anomalySettings).toEqual({ ...getDefaultAnomalySettings(), enabled: false });
+    expect(scanHabitat(habitat.id)).toEqual([]);
   });
 });

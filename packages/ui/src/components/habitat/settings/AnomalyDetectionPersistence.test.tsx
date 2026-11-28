@@ -35,10 +35,19 @@ const settings: AnomalySettings = {
 afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.clearAllMocks(); });
 
 describe("Anomaly Detection settings", () => {
+  it("disables without sending invalid hidden drafts", async () => {
+    const fetcher = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({ habitat: { id: "h1" } }), { status: 200 }));
+    const ref = createRef<AnomalyDetectionTabHandle>();
+    render(<AnomalyDetectionTab ref={ref} habitatId="h1" boardAnomalySettings={settings} onUpdate={vi.fn()} />);
+    fireEvent.change(screen.getByLabelText("Scan Interval (min)"), { target: { value: "" } });
+    fireEvent.click(screen.getAllByRole("switch")[0]);
+    await act(async () => { await ref.current!.save(); });
+    expect(JSON.parse(String(fetcher.mock.calls[0][1]!.body))).toEqual({ anomalySettings: { enabled: false } });
+  });
   it("saves through the mounted Habitat dialog and reopens off", async () => {
     const initial = { id: "h1", name: "Fixture", description: "", anomalySettings: settings } as PublicHabitat;
     vi.spyOn(globalThis, "fetch").mockImplementation(async (_url, init) => {
-      if (init?.method === "PATCH") return new Response(JSON.stringify({ habitat: { ...initial, ...JSON.parse(String(init.body)) } }), { status: 200 });
+      if (init?.method === "PATCH") return new Response(JSON.stringify({ habitat: { ...initial, anomalySettings: { ...settings, ...JSON.parse(String(init.body)).anomalySettings } } }), { status: 200 });
       return new Response(JSON.stringify({}), { status: 200 });
     });
     function Fixture() {
@@ -60,7 +69,7 @@ describe("Anomaly Detection settings", () => {
   it("saves an explicit disable with the existing settings and shows it off on reopen", async () => {
     let stored: AnomalySettings | null = settings;
     const fetcher = vi.spyOn(globalThis, "fetch").mockImplementation(async (_url, init) => {
-      stored = JSON.parse(String(init?.body)).anomalySettings;
+      stored = { ...settings, ...JSON.parse(String(init?.body)).anomalySettings };
       return new Response(JSON.stringify({ habitat: { id: "h1", anomalySettings: stored } }), { status: 200 });
     });
     const ref = createRef<AnomalyDetectionTabHandle>();

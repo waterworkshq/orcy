@@ -56,7 +56,7 @@ export const habitatsApi = {
       name?: string;
       description?: string;
       retrySettings?: import("../../types/index.js").RetryPolicy | null;
-      anomalySettings?: AnomalySettings | null;
+      anomalySettings?: AnomalySettings | { enabled: false } | null;
       autoAssignSettings?: AutoAssignSettings | null;
       automationSettings?: AutomationSettings | null;
       prioritizationSettings?: PrioritizationSettings | null;
