@@ -9,6 +9,7 @@ import * as templateRepo from "../repositories/template.js";
 import * as scheduledTaskRepo from "../repositories/scheduledTask.js";
 import * as scheduledTaskService from "../services/scheduledTaskService.js";
 import { logger } from "../lib/logger.js";
+import { automationRunCollector } from "../services/auditProjection/automationRunCollector.js";
 import {
   missions,
   tasks,
@@ -440,6 +441,17 @@ describe("processDueAuditExports", () => {
     expect(content).not.toContain("date,count\n");
   });
 
+  it("uses the same defensive CSV serialization for scheduled exports", () => {
+    const mission = missionRepo.createMission({ habitatId, columnId, title: "CSV", createdBy: "human" });
+    const task = taskRepo.createTask({ missionId: mission.id, title: "before\rafter", createdBy: "human" });
+    eventRepo.createEvent({ taskId: task.id, actorType: "human", actorId: " \t=not-a-formula", action: "updated" });
+    insertAuditExportSchedule("audit-safe-csv", "csv");
+    expect(scheduledTaskService.processDueAuditExports()).toEqual({ executed: 1, failed: 0 });
+    const content = readOnlyExportFile(".csv");
+    expect(content).toContain('"Task updated: before\rafter"');
+    expect(content).toContain("' \t=not-a-formula");
+  });
+
   it("writes JSONL event rows", () => {
     const mission = missionRepo.createMission({
       habitatId,
@@ -508,11 +520,11 @@ describe("processDueAuditExports", () => {
       getDb().insert(taskEvents).values({ id: `scheduled-${i}`, taskId: task.id, actorType: "human", actorId: "schedule-user", action: "updated", metadata: {}, timestamp }).run();
     }
     insertAuditExportSchedule("audit-large", "json", JSON.stringify({ actorId: "schedule-user" }));
-    const log = vi.spyOn(logger, "info");
+    const log = vi.spyOn(logger, "warn");
     try {
       expect(scheduledTaskService.processDueAuditExports()).toEqual({ executed: 1, failed: 0 });
       expect(JSON.parse(readOnlyExportFile(".json"))).toHaveLength(1000);
-      expect(log).toHaveBeenCalledWith(expect.objectContaining({ scheduleId: "audit-large", warnings: expect.arrayContaining([expect.objectContaining({ code: "result_truncated" })]) }), "Audit export schedule executed");
+      expect(log).toHaveBeenCalledWith(expect.objectContaining({ scheduleId: "audit-large", truncated: true, warningCodes: expect.arrayContaining(["result_truncated"]) }), "Audit export schedule executed with incomplete results");
       const schedule = getDb().select().from(auditExportSchedules).all().find((row) => row.id === "audit-large")!;
       expect(schedule.lastRunAt).toBeTruthy();
       expect(new Date(schedule.nextRunAt).getTime()).toBeGreaterThan(Date.now());
@@ -520,6 +532,28 @@ describe("processDueAuditExports", () => {
     } finally {
       log.mockRestore();
     }
+  });
+
+  it("logs a bounded summary of omitted source rows and advances the schedule", () => {
+    insertAuditExportSchedule("audit-partial", "json");
+    const collector = vi.spyOn(automationRunCollector, "collect").mockReturnValue({ events: [], caveats: [], warnings: Array.from({ length: 200 }, () => ({ code: "notification_delivery_orphan", message: "omitted" })) });
+    const log = vi.spyOn(logger, "warn");
+    try {
+      expect(scheduledTaskService.processDueAuditExports()).toEqual({ executed: 1, failed: 0 });
+      expect(log).toHaveBeenCalledWith(expect.objectContaining({ scheduleId: "audit-partial", partial: true, truncated: false, warningCount: 200, warningCodes: ["notification_delivery_orphan"] }), "Audit export schedule executed with incomplete results");
+      expect(scheduledTaskService.processDueAuditExports()).toEqual({ executed: 0, failed: 0 });
+    } finally { collector.mockRestore(); log.mockRestore(); }
+  });
+
+  it("logs a failed collector as a partial scheduled export without retrying immediately", () => {
+    insertAuditExportSchedule("audit-collector-failure", "json");
+    const collector = vi.spyOn(automationRunCollector, "collect").mockImplementation(() => { throw new Error("unavailable"); });
+    const log = vi.spyOn(logger, "warn");
+    try {
+      expect(scheduledTaskService.processDueAuditExports()).toEqual({ executed: 1, failed: 0 });
+      expect(log).toHaveBeenCalledWith(expect.objectContaining({ scheduleId: "audit-collector-failure", partial: true, warningCodes: expect.arrayContaining(["collector_unavailable"]) }), "Audit export schedule executed with incomplete results");
+      expect(scheduledTaskService.processDueAuditExports()).toEqual({ executed: 0, failed: 0 });
+    } finally { collector.mockRestore(); log.mockRestore(); }
   });
 
   it("skips audit exports with future nextRunAt", () => {

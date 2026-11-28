@@ -16,7 +16,7 @@ describe("AuditExportModal download", () => {
     ["jsonl", "application/x-ndjson; charset=utf-8", '{"id":"1"}\n{"id":"2"}\n', ""],
   ])("downloads %s bytes, type and filename for populated and empty results", async (format, mime, populated, empty) => {
     for (const [body, truncated] of [[populated, "true"], [empty, "false"]]) {
-      const fetchMock = vi.fn().mockResolvedValue(new Response(body, { status: 200, headers: { "Content-Type": mime, "X-Audit-Result-Truncated": truncated } }));
+      const fetchMock = vi.fn().mockResolvedValue(new Response(body, { status: 200, headers: { "Content-Type": mime, "X-Audit-Result-Truncated": truncated, "X-Audit-Result-Partial": "false" } }));
       vi.stubGlobal("fetch", fetchMock);
       const createUrl = vi.fn().mockReturnValue("blob:test");
       vi.stubGlobal("URL", Object.assign(URL, { createObjectURL: createUrl, revokeObjectURL: vi.fn() }));
@@ -44,6 +44,26 @@ describe("AuditExportModal download", () => {
       click.mockRestore();
       vi.clearAllMocks();
     }
+  });
+
+  it("warns when a source is unavailable even without truncation", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response("[]", { headers: { "X-Audit-Result-Truncated": "false", "X-Audit-Result-Partial": "true" } })));
+    vi.stubGlobal("URL", Object.assign(URL, { createObjectURL: vi.fn().mockReturnValue("blob:test"), revokeObjectURL: vi.fn() }));
+    vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
+    render(<AuditExportModal habitatId="habitat-123" open onClose={vi.fn()} />);
+    fireEvent.click(screen.getByRole("button", { name: "Export" }));
+    await waitFor(() => expect(notifications.warning).toHaveBeenCalledWith(expect.stringContaining("incomplete")));
+    expect(notifications.success).not.toHaveBeenCalled();
+  });
+
+  it("does not claim completeness when an older server omits the partial header", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response("[]", { headers: { "X-Audit-Result-Truncated": "false" } })));
+    vi.stubGlobal("URL", Object.assign(URL, { createObjectURL: vi.fn().mockReturnValue("blob:test"), revokeObjectURL: vi.fn() }));
+    vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
+    render(<AuditExportModal habitatId="habitat-123" open onClose={vi.fn()} />);
+    fireEvent.click(screen.getByRole("button", { name: "Export" }));
+    await waitFor(() => expect(notifications.warning).toHaveBeenCalledWith(expect.stringContaining("could not be determined")));
+    expect(notifications.success).not.toHaveBeenCalled();
   });
 
   it.each(["csv", "json", "jsonl"])("reports an HTTP error without downloading %s", async (format) => {

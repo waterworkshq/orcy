@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import Fastify from "fastify";
 import jwt from "jsonwebtoken";
 import { closeDb, getDb, initTestDb } from "../db/index.js";
@@ -8,6 +8,7 @@ import { auditExportRoutes } from "../routes/auditExport.js";
 import * as habitatService from "../services/habitatService.js";
 import * as missionRepo from "../repositories/mission.js";
 import * as taskRepo from "../repositories/task.js";
+import { automationRunCollector } from "../services/auditProjection/automationRunCollector.js";
 
 const app = Fastify({ logger: false });
 const token = jwt.sign({ sub: "filter-user", username: "filter-user", role: "admin" }, "dev-secret-change-in-production", { issuer: "orcy" });
@@ -90,5 +91,26 @@ describe("audit filters before pagination", () => {
     expect(response.statusCode).toBe(200);
     expect(response.json()).toEqual([]);
     expect(response.headers["x-audit-result-truncated"]).toBe("false");
+  });
+
+  it("signals a failed collector separately from the row limit", async () => {
+    const spy = vi.spyOn(automationRunCollector, "collect").mockImplementation(() => { throw new Error("unavailable"); });
+    try {
+      const response = await app.inject({ method: "GET", url: `${otherBase}/export?format=json`, headers });
+      expect(response.statusCode).toBe(200);
+      expect(response.headers["x-audit-result-truncated"]).toBe("false");
+      expect(response.headers["x-audit-result-partial"]).toBe("true");
+      expect(response.headers["access-control-expose-headers"]).toContain("X-Audit-Result-Partial");
+    } finally { spy.mockRestore(); }
+    const healthy = await app.inject({ method: "GET", url: `${otherBase}/export?format=json`, headers });
+    expect(healthy.headers["x-audit-result-partial"]).toBe("false");
+  });
+
+  it.each(["code_evidence_projection_partial", "notification_delivery_orphan", "webhook_delivery_orphan"])("signals omitted rows for %s", async (code) => {
+    const spy = vi.spyOn(automationRunCollector, "collect").mockReturnValue({ events: [], caveats: [], warnings: [{ code, message: "omitted" }] });
+    try {
+      const response = await app.inject({ method: "GET", url: `${otherBase}/export?format=json`, headers });
+      expect(response.headers["x-audit-result-partial"]).toBe("true");
+    } finally { spy.mockRestore(); }
   });
 });

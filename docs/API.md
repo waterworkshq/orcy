@@ -5392,9 +5392,10 @@ Export canonical audit events.
 **Query:** `format` (csv|json|jsonl), `since?`, `until?`, `actions?`, `actorType?`, `actorId?`, `entityTypes?`, `entityType?`, `entityId?`, `source?`, `provider?`, `preset?`, `includeMetadata?`, `includeProvenance?`, `includeIntegrity?`, `includeHealthSnapshots?`
 **Response `200`:** File download with appropriate Content-Type header.
 
-The `X-Audit-Result-Truncated` response header is `true` when more than 1,000 matching events exist and `false` otherwise. Narrow the time range or filters to obtain a complete download. Scheduled exports retain their cadence and record the existing `result_truncated` warning in the structured execution log when applicable.
+The `X-Audit-Result-Truncated` response header is `true` when more than 1,000 matching events exist and `false` otherwise. Narrow the time range or filters to retrieve records beyond that limit. `X-Audit-Result-Partial` is `true` when a collector fails or projection warns that source rows were omitted; it is separate from truncation and does not cover every per-event provenance caveat. Scheduled exports retain their cadence and record a bounded warning summary in the structured execution log, at warning level when records are omitted or truncated.
 
 CSV includes stable canonical columns by default. JSON exports an array of canonical `AuditEvent` objects. JSONL emits one canonical event per line.
+CSV quotes fields containing carriage returns and prefixes an apostrophe to fields whose first non-whitespace or control character is `=`, `+`, `-`, or `@`, to reduce spreadsheet formula interpretation. Use JSON or JSONL when exact raw field values are required.
 
 ### GET /tasks/:taskId/audit/bundle
 

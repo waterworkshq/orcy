@@ -68,8 +68,11 @@ export interface AuditSummary {
 
 function csvEscape(value: unknown): string {
   if (value === null || value === undefined) return "";
-  const str = String(value);
-  if (str.includes(",") || str.includes('"') || str.includes("\n")) {
+  const raw = String(value);
+  // Control characters are deliberately included to catch spreadsheet prefixes after them.
+  // eslint-disable-next-line no-control-regex
+  const str = /^[\s\x00-\x1f\x7f]*[=+\-@]/u.test(raw) ? `'${raw}` : raw;
+  if (str.includes(",") || str.includes('"') || str.includes("\n") || str.includes("\r")) {
     return `"${str.replace(/"/g, '""')}"`;
   }
   return str;
@@ -249,6 +252,20 @@ export function generateAuditExport(habitatId: string, query: AuditExportQuery):
   return { content: canonicalEventsToJson(events), warnings };
 }
 
+const OMITTED_ROW_WARNING_CODES = ["collector_unavailable", "code_evidence_projection_partial", "notification_delivery_orphan", "webhook_delivery_orphan"] as const;
+const EXPORT_WARNING_CODES = [...OMITTED_ROW_WARNING_CODES, "result_truncated", "legacy_partial_history", "source_unavailable", "inferred_presence_source_unavailable", "notification_event_reference_unresolved", "automation_run_reference_unresolved"] as const;
+
+/** Fixed-size summary for logs and download headers; warnings may contain one entry per source row. */
+export function summarizeExportWarnings(warnings: AuditWarning[]): { warningCodes: string[]; warningCount: number; partial: boolean; truncated: boolean } {
+  const warningCodes = EXPORT_WARNING_CODES.filter((code) => warnings.some((warning) => warning.code === code));
+  return {
+    warningCodes,
+    warningCount: warnings.length,
+    partial: OMITTED_ROW_WARNING_CODES.some((code) => warningCodes.includes(code)),
+    truncated: warningCodes.includes("result_truncated"),
+  };
+}
+
 /** Returns a date-stamped download filename of the form `audit-<habitatPrefix>-<YYYY-MM-DD>.<format>` for an audit export. */
 export function getExportFilename(habitatId: string, format: string): string {
   const date = new Date().toISOString().split("T")[0];
@@ -283,8 +300,10 @@ export async function streamAuditExport(
     `attachment; filename="${getExportFilename(habitatId, format)}"`,
   );
   const { content, warnings } = generateAuditExport(habitatId, query);
-  reply.header("X-Audit-Result-Truncated", String(warnings.some((warning) => warning.code === "result_truncated")));
-  reply.header("Access-Control-Expose-Headers", "X-Audit-Result-Truncated");
+  const { truncated, partial } = summarizeExportWarnings(warnings);
+  reply.header("X-Audit-Result-Truncated", String(truncated));
+  reply.header("X-Audit-Result-Partial", String(partial));
+  reply.header("Access-Control-Expose-Headers", "X-Audit-Result-Truncated, X-Audit-Result-Partial");
   return reply.send(format === "json" ? JSON.parse(content) : content);
 }
 
