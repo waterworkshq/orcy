@@ -47,17 +47,20 @@ describe("useHabitatSettingsSaver", () => {
       }),
     );
 
+    let saved = false;
     await act(async () => {
-      await result.current.saveSettings({ name: "New Name" }, "Saved!");
+      saved = await result.current.saveSettings({ name: "New Name" }, "Saved!");
     });
 
+    expect(saved).toBe(true);
+    expect(result.current.error).toBeNull();
     expect(mockUpdate).toHaveBeenCalledWith("b1", { name: "New Name" });
     expect(mockOnUpdate).toHaveBeenCalledWith({ id: "b1", name: "Test" });
     expect(mockNotifySuccess).toHaveBeenCalledWith("Saved!");
     expect(result.current.saving).toBe(false);
   });
 
-  it("shows error notification on failure", async () => {
+  it("shows error notification on failure and clears error on successful retry", async () => {
     mockUpdate.mockRejectedValueOnce(new Error("API error"));
 
     const { result } = renderHook(() =>
@@ -67,12 +70,26 @@ describe("useHabitatSettingsSaver", () => {
       }),
     );
 
+    let firstSaved = true;
     await act(async () => {
-      await result.current.saveSettings({ name: "Fail" }, "Should not show");
+      firstSaved = await result.current.saveSettings({ name: "Fail" }, "Should not show");
     });
 
+    expect(firstSaved).toBe(false);
     expect(result.current.saving).toBe(false);
+    expect(result.current.error).toBe("API error");
+    expect(mockOnUpdate).not.toHaveBeenCalled();
     expect(mockNotifyError).toHaveBeenCalledWith("API error");
     expect(mockNotifySuccess).not.toHaveBeenCalled();
+
+    let retrySaved = false;
+    await act(async () => {
+      retrySaved = await result.current.saveSettings({ name: "Retry" }, "Saved!");
+    });
+
+    expect(retrySaved).toBe(true);
+    expect(result.current.error).toBeNull();
+    expect(mockOnUpdate).toHaveBeenCalledWith({ id: "b1", name: "Test" });
+    expect(mockNotifySuccess).toHaveBeenCalledWith("Saved!");
   });
 });
