@@ -19,12 +19,13 @@ export function getSourceTaskMissions(habitatId: string, taskIds: string[]): Map
   const result = new Map<string, string>();
   const ids = [...new Set(taskIds)];
   const db = getDb();
-  for (let i = 0; i < ids.length; i += 500) {
+  const chunkSize = 500;
+  for (let i = 0; i < ids.length; i += chunkSize) {
     const rows = db
       .select({ taskId: tasks.id, missionId: missions.id })
       .from(tasks)
       .innerJoin(missions, eq(tasks.missionId, missions.id))
-      .where(and(eq(missions.habitatId, habitatId), inArray(tasks.id, ids.slice(i, i + 500))))
+      .where(and(eq(missions.habitatId, habitatId), inArray(tasks.id, ids.slice(i, i + chunkSize))))
       .all();
     for (const row of rows) result.set(row.taskId, row.missionId);
   }
