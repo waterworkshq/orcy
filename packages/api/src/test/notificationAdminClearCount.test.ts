@@ -245,6 +245,20 @@ describe("clearance transition/summary failure boundary", () => {
     expect(eventRepo.getNotificationEventById(event.id)!.historySummary).not.toBeNull();
   });
 
+  it("counts a committed transition with no summary when the event row is missing", async () => {
+    const { delivery } = seedDelivery();
+    vi.spyOn(eventRepo, "getNotificationEventById").mockImplementationOnce(() => null);
+
+    const response = await clear("/api/v1", [delivery.id]);
+
+    expect(response.statusCode).toBe(200);
+    // The event is gone, so there is no summary to write — but the delivery
+    // did transition, so it counts. No error: nothing failed.
+    expect(response.json().cleared).toBe(1);
+    expect(response.json().errors).toEqual([]);
+    expect(deliveryRepo.getNotificationDeliveryById(delivery.id)!.status).toBe("cleared");
+  });
+
   it("counts a committed transition and reports a failing event summary write", async () => {
     const { delivery } = seedDelivery();
     vi.spyOn(eventRepo, "updateEventHistorySummary").mockImplementationOnce(() => {
