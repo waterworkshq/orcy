@@ -52,8 +52,7 @@ function clearHabitat(habitatId: string): ClearanceResult {
       );
       for (const d of candidates) {
         try {
-          processClearance(d);
-          cleared++;
+          if (processClearance(d)) cleared++;
         } catch (err) {
           errors.push(`ack-clear ${d.id}: ${err instanceof Error ? err.message : String(err)}`);
         }
@@ -71,8 +70,7 @@ function clearHabitat(habitatId: string): ClearanceResult {
       );
       for (const d of candidates) {
         try {
-          processClearance(d);
-          cleared++;
+          if (processClearance(d)) cleared++;
         } catch (err) {
           errors.push(`fail-clear ${d.id}: ${err instanceof Error ? err.message : String(err)}`);
         }
@@ -98,8 +96,7 @@ export function adminClearDeliveries(deliveryIds: string[]): ClearanceResult {
         errors.push(`Delivery not found: ${id}`);
         continue;
       }
-      processClearance(d);
-      cleared++;
+      if (processClearance(d)) cleared++;
     } catch (err) {
       errors.push(err instanceof Error ? err.message : String(err));
     }
@@ -108,8 +105,14 @@ export function adminClearDeliveries(deliveryIds: string[]): ClearanceResult {
   return { habitatId, cleared, errors };
 }
 
-function processClearance(delivery: NotificationDelivery): void {
-  if (delivery.status === "cleared") return;
+/**
+ * Clears one delivery and reports whether THIS call performed the transition.
+ * The count is derived from the guarded write, never from the pre-read row:
+ * a repeat or a concurrent clear of the same delivery transitions nothing and
+ * reports no transition.
+ */
+function processClearance(delivery: NotificationDelivery): boolean {
+  if (!deliveryRepo.transitionDeliveryToCleared(delivery.id)) return false;
 
   const event = eventRepo.getNotificationEventById(delivery.eventId);
   if (event) {
@@ -125,7 +128,5 @@ function processClearance(delivery: NotificationDelivery): void {
     }
   }
 
-  deliveryRepo.batchUpdateDeliveryStatus([delivery.id], "cleared", {
-    clearedAt: new Date().toISOString(),
-  });
+  return true;
 }
