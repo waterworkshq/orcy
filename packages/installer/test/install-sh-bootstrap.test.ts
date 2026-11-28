@@ -623,17 +623,30 @@ const clockReads = (s: Scenario): string[] =>
 
 /** Resolves as the supervisor asks its clock again — the end of a look — while
  *  the pause that follows still lies ahead: it is idle until its next look. A
- *  reading heard too late to act in that pause is left for the next one. */
-const justLooked = (s: Scenario): Promise<void> =>
-  new Promise((resolve) => {
+ *  reading heard too late to act in that pause is left for the next one. It
+ *  fails, and the watcher goes with it, once the run is over or no reading has
+ *  come for a while: a supervisor that has stopped looking is not waited on. */
+const justLooked = (s: Scenario, runOver: Promise<unknown>): Promise<void> =>
+  new Promise((resolve, reject) => {
     const trace = path.basename(s.clock) + ".trace";
+    let end: (why?: unknown) => void;
     const watcher = fs.watch(s.home, (_, name) => {
       if (name !== trace) return;
       const last = clockReads(s).at(-1);
       if (!last || Date.now() - Number(last.split(" ")[1]) > 60) return;
-      watcher.close();
-      resolve();
+      end();
     });
+    const timer = setTimeout(() => end(new Error("the supervisor stopped asking its clock")), 3000);
+    // Every way out leaves nothing behind: no timer, no listener, no watcher.
+    end = (why) => {
+      clearTimeout(timer);
+      watcher.removeAllListeners("error");
+      watcher.close();
+      if (why === undefined) resolve();
+      else reject(why);
+    };
+    watcher.on("error", end);
+    void runOver.then(() => end(new Error("the run ended before the supervisor looked again")));
   });
 
 describe("install.sh — pin-aware pnpm bootstrap (hermetic)", () => {
@@ -1083,7 +1096,7 @@ describe("install.sh — one installer run at a time", () => {
       await until(() => clockReads(s).length >= 6);
       expect(isRunning(worker)).toBe(true);
       expect(clockReads(s).every((read) => read.startsWith(start + " "))).toBe(true);
-      await justLooked(s);
+      await justLooked(s, done);
       process.kill(worker, "SIGKILL");
       fs.writeFileSync(s.clock, String(start + 5001));
       const passed = Date.now();
