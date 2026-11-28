@@ -151,6 +151,8 @@ export function start(daemonId: string, dataDir: string = "/tmp/orcy-daemon"): v
 
   // A starting process owns a new witness before any cleanup. An older
   // recovery must not retire the intent observed by this new start.
+  let startReservation: string | undefined;
+  const completedIntent = completedDrains.get(daemonId);
   if (daemon.stopIntent != null) {
     // Only carry verified provenance forward from an owned witness or a
     // registration created by this API process; legacy rows stay ownerless.
@@ -160,12 +162,35 @@ export function start(daemonId: string, dataDir: string = "/tmp/orcy-daemon"): v
     if (!daemonRepo.reserveDaemonStart(daemonId, daemon.stopIntent, startIntent)) {
       throw conflict("Daemon stop intent changed; refresh the daemon status");
     }
+    startReservation = startIntent;
     completedDrains.delete(daemonId);
   }
 
-  // A rejected credential preflight must not alter sessions. On a valid start,
-  // cleanup remains ahead of the first claim and any newly created sessions.
-  cleanupDaemonSessionsOnStart(daemonId);
+  // Probe storage before cleanup can mutate sessions or launch outcome work.
+  // Only a failure in this read-only step proves no start side effects ran.
+  let sessionsToClean: ReturnType<typeof daemonRepo.getActiveSessionsByDaemonId> | undefined;
+  if (startReservation && completedIntent && completedIntent === daemon.stopIntent) {
+    try {
+      sessionsToClean = daemonRepo.getActiveSessionsByDaemonId(daemonId);
+    } catch (err) {
+      // No session manager, poll or heartbeat has been launched yet. Only the
+      // same process's completed drain can be restored, and only if no newer
+      // heartbeat or start replaced this exact reservation.
+      try {
+        if (daemonRepo.reserveDaemonStart(daemonId, startReservation, completedIntent)) {
+          completedDrains.set(daemonId, completedIntent);
+        }
+      } catch (restoreErr) {
+        logger.warn({ err: restoreErr, daemonId }, "Failed to restore completed daemon stop intent");
+      }
+      throw err;
+    }
+  }
+
+  // Cleanup remains ahead of the first claim and any newly created sessions.
+  // Once it starts, failures leave the new intent Unknown: cleanup may have
+  // already changed session state or dispatched outcome work.
+  cleanupDaemonSessionsOnStart(daemonId, sessionsToClean);
 
   const sessionManager = getSessionManager(daemonId, dataDir);
   const claimStrategy = getClaimStrategy({
