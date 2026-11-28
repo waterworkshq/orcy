@@ -52,7 +52,17 @@ describe("AuditExportModal download", () => {
     vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
     render(<AuditExportModal habitatId="habitat-123" open onClose={vi.fn()} />);
     fireEvent.click(screen.getByRole("button", { name: "Export" }));
-    await waitFor(() => expect(notifications.warning).toHaveBeenCalledWith(expect.stringContaining("incomplete")));
+    await waitFor(() => expect(notifications.warning).toHaveBeenCalledWith("Some source records could not be included. This audit export may be incomplete."));
+    expect(notifications.success).not.toHaveBeenCalled();
+  });
+
+  it("reports both source omissions and the truncation remedy", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response("[]", { headers: { "X-Audit-Result-Truncated": "true", "X-Audit-Result-Partial": "true" } })));
+    vi.stubGlobal("URL", Object.assign(URL, { createObjectURL: vi.fn().mockReturnValue("blob:test"), revokeObjectURL: vi.fn() }));
+    vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
+    render(<AuditExportModal habitatId="habitat-123" open onClose={vi.fn()} />);
+    fireEvent.click(screen.getByRole("button", { name: "Export" }));
+    await waitFor(() => expect(notifications.warning).toHaveBeenCalledWith("Some source records could not be included, and the export was truncated. Narrow the time range or filters and export again."));
     expect(notifications.success).not.toHaveBeenCalled();
   });
 

@@ -42,8 +42,10 @@ export function AuditExportModal({ habitatId, open, onClose }: AuditExportModalP
       URL.revokeObjectURL(url);
       const truncated = headers.get("X-Audit-Result-Truncated");
       const partial = headers.get("X-Audit-Result-Partial");
-      if (partial === "true") {
-        notify.warning("Audit export is incomplete because some source records could not be included.");
+      if (partial === "true" && truncated === "true") {
+        notify.warning("Some source records could not be included, and the export was truncated. Narrow the time range or filters and export again.");
+      } else if (partial === "true") {
+        notify.warning("Some source records could not be included. This audit export may be incomplete.");
       } else if (truncated === "true") {
         notify.warning("Audit export is incomplete. Narrow the time range or filters and export again.");
       } else if (truncated === "false" && partial === "false") {
