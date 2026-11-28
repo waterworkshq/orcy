@@ -45,8 +45,8 @@ export function PredictionSection({ predictions, burndown }: PredictionSectionPr
         />
         <KPICard
           title="At-Risk Tasks"
-          value={predictions.atRiskTasks.length}
-          subtitle={`${predictions.atRiskTasks.filter(t => t.severity === 'critical').length} critical`}
+          value={new Set(predictions.atRiskTasks.map(t => t.taskId)).size}
+          subtitle={`${new Set(predictions.atRiskTasks.filter(t => t.severity === 'critical').map(t => t.taskId)).size} critical`}
           icon={<AlertTriangle className="h-5 w-5 text-error" />}
         />
         <KPICard
