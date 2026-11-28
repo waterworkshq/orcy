@@ -166,6 +166,8 @@ import type {
   WorkflowTemplateVariable,
   WorkflowTemplateDefinition,
   AutomationCondition,
+  AutomationSimulationResult,
+  AutomationTargetType,
   // Triage types (v0.23)
   FindingTriageStatus,
   SuggestedBucket,
@@ -364,6 +366,8 @@ export type {
   WorkflowTemplateVariable,
   WorkflowTemplateDefinition,
   AutomationCondition,
+  AutomationSimulationResult,
+  AutomationTargetType,
   // Triage types (v0.23)
   FindingTriageStatus,
   SuggestedBucket,

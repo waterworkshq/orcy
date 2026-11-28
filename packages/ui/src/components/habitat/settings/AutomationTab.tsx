@@ -4,7 +4,11 @@ import { api } from "../../../api/index.js";
 import { queryKeys } from "../../../lib/queryKeys.js";
 import { notify } from "../../../lib/toast.js";
 import { ToggleSwitch } from "../../ui/ToggleSwitch.js";
-import type { PublicHabitat, AutomationSettings } from "../../../types/index.js";
+import type {
+  PublicHabitat,
+  AutomationSettings,
+  AutomationSimulationResult,
+} from "../../../types/index.js";
 
 interface AutomationTabProps {
   habitatId: string;
@@ -64,7 +68,9 @@ export const AutomationTab = forwardRef<AutomationTabHandle, AutomationTabProps>
     const [cooldownSeconds, setCooldownSeconds] = useState(300);
     const [maxRunsPerHour, setMaxRunsPerHour] = useState(30);
     const [showSimulation, setShowSimulation] = useState<string | null>(null);
-    const [simulationResult, setSimulationResult] = useState<unknown>(null);
+    const [simulationResult, setSimulationResult] = useState<AutomationSimulationResult | null>(
+      null,
+    );
 
     const { data: rules, isLoading } = useQuery({
       queryKey: queryKeys.automation.rules(habitatId),
@@ -134,14 +140,17 @@ export const AutomationTab = forwardRef<AutomationTabHandle, AutomationTabProps>
 
     async function handleSimulate(ruleId: string) {
       try {
-        const result = await api.automation.simulate(ruleId, {
-          triggerEventId: null,
-          targetType: undefined,
-          targetId: undefined,
-        });
+        // The served human simulate contract takes an OPTIONAL trigger-event
+        // id, and rejects an explicit null with a typed validation error
+        // (POST /automation-rules/:ruleId/simulate → z.string().optional()).
+        // Simulating the default context therefore sends no trigger context
+        // at all — an omitted id, never a null.
+        const result = await api.automation.simulate(ruleId, {});
         setSimulationResult(result);
         setShowSimulation(ruleId);
       } catch (err) {
+        setSimulationResult(null);
+        setShowSimulation(null);
         notify.error((err as Error).message);
       }
     }
@@ -355,7 +364,10 @@ export const AutomationTab = forwardRef<AutomationTabHandle, AutomationTabProps>
                       </div>
 
                       {showSimulation === rule.id && simulationResult != null && (
-                        <div className="bg-surface-container-low rounded p-2 text-xs font-mono whitespace-pre-wrap max-h-40 overflow-y-auto border border-border">
+                        <div
+                          className="bg-surface-container-low rounded p-2 text-xs font-mono whitespace-pre-wrap max-h-40 overflow-y-auto border border-border"
+                          data-testid="automation-simulation-result"
+                        >
                           {jsonString(simulationResult, "No result")}
                         </div>
                       )}
