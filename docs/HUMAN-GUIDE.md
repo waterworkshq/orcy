@@ -487,11 +487,11 @@ When creating tasks, you can use templates to ensure consistent structure. Six g
 
 ## Task Comments
 
-A Task comment belongs to exactly one Task. Task comments and Mission comments are different stores with different write rules: on a Mission's **Communication** tab you can post, edit, and delete your own Mission comments, and that human write path does not exist for Task comments.
+A Task comment belongs to exactly one Task. Task comments and Mission comments are different stores with different write rules: on a Mission's **Communication** tab you can post, edit, and delete your own Mission comments, and that local human write path does not exist for Task comments.
 
 **Where operators read Task comments:** open the Mission and switch to the **Tasks** tab. Two panels there read Task comments — **Code Review** lists the Mission's Tasks that have comments, newest first, up to 50 comments per Task, and **Agent Reasoning Trace** shows only the comments an agent wrote. Both are read-only views. The Task modal has no Comments section: it carries the description, artifacts, subtasks, dependencies, an activity feed, and metadata. Neither the board Activity panel nor the Mission **Activity** tab lists comments. Reading a Task's comments over `GET /api/tasks/<taskId>/comments` requires access to the Task's habitat — a local human who can access it, or an agent.
 
-**Who writes Task comments:** writes are agent-only. `POST /api/tasks/<taskId>/comments`, `PATCH /api/tasks/<taskId>/comments/<commentId>`, and `DELETE /api/tasks/<taskId>/comments/<commentId>` require an agent credential (`X-Agent-API-Key`), and a signed-in human session gets `401` on all three. There is no human comment write, no human edit, and no admin override that removes another author's comment. The comment box at the bottom of the Mission **Tasks** tab posts to that agent-only endpoint, on the Mission's first Task, so a comment sent from a human session is rejected by the server. Orcys post and read Task comments over MCP (`orcy_habitat_task` with `add-comment` / `get-comments`).
+**Who writes Task comments:** on the local API, writes are agent-only. `POST /api/tasks/<taskId>/comments`, `PATCH /api/tasks/<taskId>/comments/<commentId>`, and `DELETE /api/tasks/<taskId>/comments/<commentId>` require an agent credential (`X-Agent-API-Key`), and a signed-in local human session gets `401` on all three. There is no local human comment write, no human edit, and no admin override that removes another author's comment. A remote participant granted the shared `comment` scope is the one other write path: `POST /api/shared/tasks/<taskId>/comments` accepts a comment from a remote human or remote orcy, and no edit or delete is served there. The comment box at the bottom of the Mission **Tasks** tab posts to the local agent-only endpoint, on the Mission's first Task, so a comment sent from a local human session is rejected by the server. Orcys post and read Task comments over MCP (`orcy_habitat_task` with `add-comment` / `get-comments`).
 
 **Editing and deleting:** only the comment's original author can edit or delete it. An otherwise authorized agent that tries to edit or delete another author's comment gets `403`; a request without a valid credential is `401`, and a comment that does not belong to the Task in the URL is `404` ("Comment not found"). Replies are supported — a reply names the comment it answers, and it must point at a comment on the same Task.
 
@@ -533,7 +533,7 @@ The feed is useful for tracking overall board progress without clicking into ind
 
 8. **Use task templates for consistency** — Templates ensure tasks have the right structure. Use the Bug Fix template for bugs, Feature Request for features, etc.
 
-9. **Use comments for clarifications** — Don't cram everything into the task description. Task comments let orcys discuss a task's work as it progresses; a human who needs to add a note of their own puts it on the Mission's Communication tab instead, because Task comment writes are agent-only.
+9. **Use comments for clarifications** — Don't cram everything into the task description. Task comments let orcys discuss a task's work as it progresses; a human who needs to add a note of their own puts it on the Mission's Communication tab instead, because Task comment writes in the local UI are agent-only.
 
 10. **Review the Activity Feed regularly** — The Activity Feed gives a board-wide view of all progress. Open it during standups to see what's happening without clicking into every task.
 
