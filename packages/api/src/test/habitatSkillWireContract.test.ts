@@ -113,24 +113,46 @@ describe("published Skill categories match the shared registry", () => {
   });
 
   it.each(["docs/API.md", "docs/SKILL.md"])(
-    "%s publishes the cluster key the contribution route returns for the shown insight",
+    "%s publishes cluster keys the server generates for the shown subjects",
     (file) => {
-      expect(publishedClusterKey(file)).toBe(
-        normalize("Always use Drizzle ORM for database queries, never raw SQL"),
-      );
+      const published = publishedClusterKeys(file);
+      expect(published.length, `${file} must publish a clusterKey example`).toBeGreaterThan(0);
+      for (const { key, subject } of published) {
+        expect(key, `${file} clusterKey for "${subject}" must be the served normalized form`).toBe(
+          normalize(subject),
+        );
+      }
     },
   );
 });
 
 /**
- * The cluster key a doc file publishes for the contribution example. The
- * first `"clusterKey"` in the file is the contribution response example.
+ * Every `"clusterKey"` a doc file publishes, paired with the subject or
+ * insight it belongs to (the nearest published one by line distance). Every
+ * published key is checked, so a second or later example cannot drift while
+ * the first one still matches.
  */
-function publishedClusterKey(file: string): string {
-  const markdown = readFileSync(path.join(REPO_ROOT, file), "utf8");
-  const match = markdown.match(/"clusterKey": "([^"]+)"/);
-  expect(match, `${file} must publish a contribution clusterKey example`).not.toBeNull();
-  return match![1]!;
+function publishedClusterKeys(file: string): { key: string; subject: string }[] {
+  const lines = readFileSync(path.join(REPO_ROOT, file), "utf8").split("\n");
+  const subjects: { line: number; text: string }[] = [];
+  const keys: { line: number; text: string }[] = [];
+  lines.forEach((line, index) => {
+    for (const match of line.matchAll(/"(?:subject|insight)": "([^"]+)"/g)) {
+      subjects.push({ line: index + 1, text: match[1]! });
+    }
+    for (const match of line.matchAll(/"clusterKey": "([^"]+)"/g)) {
+      keys.push({ line: index + 1, text: match[1]! });
+    }
+  });
+  expect(subjects.length, `${file} must publish a subject for the cluster key examples`).toBeGreaterThan(
+    0,
+  );
+  return keys.map((key) => {
+    const nearest = subjects.reduce((best, candidate) =>
+      Math.abs(candidate.line - key.line) < Math.abs(best.line - key.line) ? candidate : best,
+    );
+    return { key: key.text, subject: nearest.text };
+  });
 }
 
 describe("served Skill wire contract", () => {
