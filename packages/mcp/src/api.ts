@@ -101,6 +101,15 @@ interface McpAuditToolContext {
 
 const mcpAuditToolStorage = new AsyncLocalStorage<McpAuditToolContext>();
 
+/**
+ * Route-level claim refusals that arrive as prose rather than a reason code,
+ * keyed by the served `error` text. Conflict refusals already carry their code.
+ */
+const CLAIM_REFUSAL_REASONS: Record<string, string> = {
+  "Domain mismatch": "domain_mismatch",
+  "Task not found": "not_found",
+};
+
 export { ApiClientError as KanbanApiError } from "@orcy/shared";
 
 export interface AnalyticsWarning {
@@ -846,7 +855,12 @@ export class KanbanApiClient
             missingCapabilities,
           };
         }
-        return { success: false, reason: parsed?.error || "unknown", message: body };
+        const error = typeof parsed?.error === "string" ? parsed.error : undefined;
+        return {
+          success: false,
+          reason: (error && CLAIM_REFUSAL_REASONS[error]) || error || "unknown",
+          message: body,
+        };
       }
       return { success: false, reason: "unknown", message: String(err) };
     }

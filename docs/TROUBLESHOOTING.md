@@ -222,7 +222,7 @@ All three must be set. If `ORCY_API_KEY` or `ORCY_AGENT_ID` is empty, the server
 
 ### MCP tool returns "Domain mismatch"
 
-**Symptom:** `{"error":"Domain mismatch","status":403}` when claiming a task
+**Symptom:** the `claim` action returns `{ "success": false, "reason": "domain_mismatch" }` (served as HTTP 403 `Domain mismatch`) when claiming a task
 
 **Fix:**
 

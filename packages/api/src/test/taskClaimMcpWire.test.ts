@@ -8,8 +8,8 @@
  *
  *   - claim through the served dispatch tool returns the documented receipt;
  *     the state commits once and the receipt token is the current epoch
- *   - a refused claim (other agent, capability) keeps its typed failure and
- *     never returns a receipt or moves ownership
+ *   - a refused claim (other agent, capability, domain, missing task) keeps
+ *     its typed failure and never returns a receipt or moves ownership
  *   - a failed optional display-name lookup after the commit (a forwarder
  *     answers that one read with 503) still returns the receipt with the token
  */
@@ -17,6 +17,7 @@ import { describe, it, expect, beforeAll, afterAll, beforeEach } from "vitest";
 import http from "node:http";
 import net from "node:net";
 import { spawn, type ChildProcess } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import { join } from "node:path";
 import { createHttpApplication, type HttpRuntimeHandle } from "../httpApp.js";
 import { initTestDb, closeDb, getDb } from "../db/index.js";
@@ -38,7 +39,8 @@ let columnId: string;
 /** The agent whose claims are under test; its MCP server talks to the API directly. */
 let claimant: { id: string; apiKey: string };
 let claimantMcp: McpServer;
-/** A second agent's MCP server; it reaches the API through the lookup-fault proxy. */
+/** A second agent's MCP server (domain `backend`). It reaches the API through
+ * the lookup-fault proxy. */
 let rivalMcp: McpServer;
 let proxy: Awaited<ReturnType<typeof startLookupFaultProxy>>;
 
@@ -166,17 +168,21 @@ function freePort(): Promise<number> {
   });
 }
 
-function seedAgent(name: string): { id: string; apiKey: string } {
+function seedAgent(name: string, domain = "fullstack"): { id: string; apiKey: string } {
   const created = agentRepo.createAgent({
     name,
     type: "claude-code",
-    domain: "fullstack",
+    domain,
     capabilities: ["typescript"],
   });
   return { id: created.agent.id, apiKey: created.plainApiKey };
 }
 
-function seedTask(title: string, requiredCapabilities: string[] = []): string {
+function seedTask(
+  title: string,
+  requiredCapabilities: string[] = [],
+  requiredDomain: string | null = null,
+): string {
   const mission = missionRepo.createMission({
     habitatId,
     columnId,
@@ -187,6 +193,7 @@ function seedTask(title: string, requiredCapabilities: string[] = []): string {
     missionId: mission.id,
     title,
     createdBy: "user-1",
+    requiredDomain,
     requiredCapabilities,
   }).id;
 }
@@ -228,7 +235,7 @@ beforeAll(async () => {
   claimant = seedAgent("claim-mcp-agent");
   claimantMcp = await connectMcp(baseUrl, claimant);
   proxy = await startLookupFaultProxy();
-  rivalMcp = await connectMcp(proxy.url, seedAgent("claim-mcp-rival"));
+  rivalMcp = await connectMcp(proxy.url, seedAgent("claim-mcp-rival", "backend"));
 }, 120_000);
 
 afterAll(async () => {
@@ -343,5 +350,56 @@ describe("local MCP Task claim — served MCP wire", () => {
     } finally {
       proxy.armed = false;
     }
+  }, 60_000);
+
+  it("a domain refusal is typed as domain_mismatch and leaves the task untouched", async () => {
+    // Control: the backend agent claims within its domain.
+    const inDomainTaskId = seedTask("claim-mcp-domain-in-domain", [], "backend");
+    const inDomain = await rivalMcp.callTool({ action: "claim", taskId: inDomainTaskId });
+    expect(toolJson(inDomain)).toMatchObject({
+      success: true,
+      task: { id: inDomainTaskId, status: "claimed" },
+    });
+
+    const taskId = seedTask("claim-mcp-domain", [], "frontend");
+    const refused = await rivalMcp.callTool({ action: "claim", taskId });
+    expect(refused.isError).toBeFalsy();
+    const failure = toolJson(refused);
+    expect(failure).toMatchObject({ success: false, reason: "domain_mismatch" });
+    expect(failure).not.toHaveProperty("task");
+    expect(taskRow(taskId)).toEqual({
+      status: "pending",
+      assignedAgentId: null,
+      executionToken: null,
+    });
+    expect(claimedEventCount(taskId)).toBe(0);
+
+    // Control: the refusal was the domain gate — a matching agent claims the same task.
+    const matching = await claimantMcp.callTool({ action: "claim", taskId });
+    expect(toolJson(matching)).toMatchObject({
+      success: true,
+      task: { id: taskId, status: "claimed", assignedAgentId: claimant.id },
+    });
+    expect(claimedEventCount(taskId)).toBe(1);
+  }, 60_000);
+
+  it("a missing task is typed as not_found and leaves the caller's own claim untouched", async () => {
+    const taskId = seedTask("claim-mcp-not-found-control", ["typescript"]);
+    const token: string = toolJson(await claimantMcp.callTool({ action: "claim", taskId }))
+      .task.executionToken;
+
+    const result = await claimantMcp.callTool({ action: "claim", taskId: randomUUID() });
+    expect(result.isError).toBeFalsy();
+    const failure = toolJson(result);
+    expect(failure).toMatchObject({ success: false, reason: "not_found" });
+    expect(failure).not.toHaveProperty("task");
+
+    // Control: the caller's existing claim keeps its ownership, token and single event.
+    expect(taskRow(taskId)).toEqual({
+      status: "claimed",
+      assignedAgentId: claimant.id,
+      executionToken: token,
+    });
+    expect(claimedEventCount(taskId)).toBe(1);
   }, 60_000);
 });
