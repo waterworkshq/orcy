@@ -116,17 +116,21 @@ export function start(id: string):
   | { outcome: "not_planning" }
   | { outcome: "active_exists" } {
   const db = getDb();
-  return db.transaction((tx) => {
-    const existing = tx.select().from(sprints).where(eq(sprints.id, id)).get();
-    if (!existing) return { outcome: "not_found" } as const;
-    if (existing.status !== "planning") return { outcome: "not_planning" } as const;
-    const active = tx.select({ id: sprints.id }).from(sprints)
-      .where(and(eq(sprints.habitatId, existing.habitatId), eq(sprints.status, "active"))).get();
-    if (active) return { outcome: "active_exists" } as const;
-    const updated = tx.update(sprints).set({ status: "active", updatedAt: new Date().toISOString() })
-      .where(eq(sprints.id, id)).returning().get();
-    return { outcome: "started", sprint: updated as Sprint } as const;
-  }, { behavior: "immediate" });
+  try {
+    return db.transaction((tx) => {
+      const existing = tx.select().from(sprints).where(eq(sprints.id, id)).get();
+      if (!existing) return { outcome: "not_found" } as const;
+      if (existing.status !== "planning") return { outcome: "not_planning" } as const;
+      const active = tx.select({ id: sprints.id }).from(sprints)
+        .where(and(eq(sprints.habitatId, existing.habitatId), eq(sprints.status, "active"))).get();
+      if (active) return { outcome: "active_exists" } as const;
+      const updated = tx.update(sprints).set({ status: "active", updatedAt: new Date().toISOString() })
+        .where(eq(sprints.id, id)).returning().get();
+      return { outcome: "started", sprint: updated as Sprint } as const;
+    }, { behavior: "immediate" });
+  } catch (err) {
+    throw repositoryTransactionError("sprint", err as Error, id);
+  }
 }
 
 export function remove(id: string): boolean {
