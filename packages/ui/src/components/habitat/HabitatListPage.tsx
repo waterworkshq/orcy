@@ -27,12 +27,10 @@ export function HabitatListPage() {
   const teams = teamsData ?? [];
 
   useEffect(() => {
-    if (isError || boards.length > 0) {
-      setShowOnboarding(false);
-    } else if (isSuccess && fetchStatus === "idle" && localStorage.getItem("orcy_onboarding_completed") !== "true") {
+    if (isSuccess && fetchStatus === "idle" && boards.length === 0 && localStorage.getItem("orcy_onboarding_completed") !== "true") {
       setShowOnboarding(true);
     }
-  }, [isSuccess, isError, fetchStatus, boards.length]);
+  }, [isSuccess, fetchStatus, boards.length]);
 
   function handleOnboardingComplete() {
     localStorage.setItem("orcy_onboarding_completed", "true");
@@ -104,7 +102,11 @@ export function HabitatListPage() {
           </div>
         </div>
 
-        {isPending ? (
+        {isPending && fetchStatus === "paused" ? (
+          <p role="status" className="py-12 text-center text-muted-foreground">
+            Waiting for connectivity to load habitats.
+          </p>
+        ) : isPending ? (
           <div className="flex justify-center py-12">
             <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent" />
           </div>

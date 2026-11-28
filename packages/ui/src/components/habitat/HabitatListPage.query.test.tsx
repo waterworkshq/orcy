@@ -85,6 +85,7 @@ it("does not show an empty list when the initial query is paused offline", async
   onlineManager.setOnline(false);
   vi.stubGlobal("fetch", vi.fn(() => Promise.resolve(json({ habitats: [] }))));
   mount();
+  expect(screen.getByText(/waiting for connectivity/i)).toBeTruthy();
   expect(screen.queryByText(/No habitats yet/)).toBeNull();
   expect(screen.queryByText("Welcome to Orcy")).toBeNull();
   act(() => onlineManager.setOnline(true));
@@ -121,12 +122,14 @@ it("shows retry if a refresh of an empty cache fails", async () => {
   render(<MemoryRouter><SessionStateProvider><Refresh /><HabitatListPage /></SessionStateProvider></MemoryRouter>);
   await screen.findByText("Welcome to Orcy");
   fireEvent.click(screen.getByRole("button", { name: "Refresh", hidden: true }));
-  expect(await screen.findByRole("button", { name: "Retry" }, { timeout: 4000 })).toBeTruthy();
-  expect(screen.queryByText("Welcome to Orcy")).toBeNull();
+  expect(await screen.findByText(/Could not load habitats/, {}, { timeout: 4000 })).toBeTruthy();
+  expect(screen.getByText("Welcome to Orcy")).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "Close" }));
+  expect(screen.getByRole("button", { name: "Retry" })).toBeTruthy();
   expect(screen.queryByText(/No habitats yet/)).toBeNull();
 });
 
-it("closes onboarding if a refresh discovers a habitat", async () => {
+it("preserves an active onboarding flow if a refresh discovers a habitat", async () => {
   let attempts = 0;
   vi.stubGlobal("fetch", vi.fn((path: string) => {
     if (path !== "/api/habitats") return Promise.resolve(json({ teams: [] }));
@@ -140,5 +143,27 @@ it("closes onboarding if a refresh discovers a habitat", async () => {
   await screen.findByText("Welcome to Orcy");
   fireEvent.click(screen.getByRole("button", { name: "Refresh", hidden: true }));
   expect(await screen.findByText("New habitat")).toBeTruthy();
-  await vi.waitFor(() => expect(screen.queryByText("Welcome to Orcy")).toBeNull());
+  expect(screen.getByText("Welcome to Orcy")).toBeTruthy();
+});
+
+it("preserves one-time registration credentials through a habitat refresh", async () => {
+  let attempts = 0;
+  vi.stubGlobal("fetch", vi.fn((path: string) => {
+    if (path === "/api/agents") return Promise.resolve(json({ agent: { id: "agent", name: "Test agent" }, apiKey: "synthetic-key" }));
+    if (path !== "/api/habitats") return Promise.resolve(json({ teams: [] }));
+    return Promise.resolve(++attempts === 1 ? json({ habitats: [] }) : json({ habitats: [{ id: "h", name: "New habitat", createdAt: "2024-01-01" }] }));
+  }));
+  function Refresh() {
+    const client = useQueryClient();
+    return <button onClick={() => void client.invalidateQueries({ queryKey: queryKeys.habitats.list() })}>Refresh</button>;
+  }
+  render(<MemoryRouter><SessionStateProvider><Refresh /><HabitatListPage /></SessionStateProvider></MemoryRouter>);
+  await screen.findByText("Welcome to Orcy");
+  fireEvent.click(screen.getByRole("button", { name: "Register" }));
+  fireEvent.change(screen.getByLabelText("Agent Name"), { target: { value: "Test agent" } });
+  fireEvent.click(screen.getByRole("button", { name: "Register Agent" }));
+  await screen.findByText(/synthetic-key/);
+  fireEvent.click(screen.getByRole("button", { name: "Refresh", hidden: true }));
+  await screen.findByText("New habitat");
+  expect(screen.getByText(/synthetic-key/)).toBeTruthy();
 });
