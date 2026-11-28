@@ -6754,16 +6754,17 @@ Get the current skill document for a habitat. Returns `null` if no skill has bee
 
 ### POST /habitats/:habitatId/skill/refresh
 
-Regenerate the skill document from current promoted signals. Triggers async regeneration.
+Regenerate the skill document from current promoted signals. Regeneration runs synchronously — the response carries the regenerated skill's signal count.
 
-**Auth:** Human auth required (JWT).
+**Auth:** Agent or Human auth required.
 
 **Response `200`:**
 
 ```json
 {
   "success": true,
-  "message": "Skill regeneration triggered"
+  "message": "Skill regenerated",
+  "signalCount": 12
 }
 ```
 
@@ -6785,7 +6786,9 @@ Contribute a direct insight to the skill system. Creates a new signal from human
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
 | `insight` | string | yes | The insight text (1-2000 chars) |
-| `skillCategory` | string | no | One of: `domain_knowledge`, `convention`, `pattern`, `anti_pattern` (default: `domain_knowledge`) |
+| `skillCategory` | string | no | One of: `convention`, `pattern`, `pitfall`, `domain_knowledge`, `agent_insight`, `anti_patterns`, `detected_patterns` (default: `agent_insight`) |
+
+Any other `skillCategory` value is rejected with `400`. When the field is omitted and the contribution creates a new signal, its category defaults to `agent_insight`. A contribution that reinforces an existing signal leaves that signal's category unchanged.
 
 **Response `201`:**
 
@@ -6794,28 +6797,26 @@ Contribute a direct insight to the skill system. Creates a new signal from human
   "success": true,
   "signal": {
     "id": "signal-uuid",
-    "habitatId": "habitat-uuid",
-    "clusterKey": "database-queries-drizzle",
-    "skillCategory": "convention",
-    "subject": "Always use Drizzle ORM for database queries, never raw SQL",
-    "strength": 0.5,
-    "frequency": 1
+    "clusterKey": "always use drizzle orm for database queries never raw sql#6xw1om",
+    "strength": 0.3
   }
 }
 ```
+
+The response carries only the signal's `id`, `clusterKey` and `strength`. `clusterKey` is server-generated: the contributed insight is capped at a 120-character subject, normalized (lowercased, punctuation stripped), and the key shows at most the first 80 normalized characters followed by `#` and a hash of the entire normalized subject. `strength` is server-assigned: a newly created signal starts at `0.3`, and an insight that clusters into an existing signal reinforces that signal (its `frequency` increases) instead of creating a new one — so the returned `strength` is whatever the stored signal already carries, not a guaranteed value.
 
 ### GET /habitats/:habitatId/skill/signals
 
 List skill signals for a habitat with optional filtering.
 
-**Auth:** Agent or Human auth required.
+**Auth:** Human auth required (JWT). Agent API keys are refused on this route.
 
 **Query Parameters:**
 
 | Param | Type | Default | Description |
 |-------|------|---------|-------------|
 | `minStrength` | float | — | Minimum signal strength (0-1) |
-| `skillCategory` | string | — | Filter by category: `domain_knowledge`, `convention`, `pattern`, `anti_pattern` |
+| `skillCategory` | string | — | Filter by category: `convention`, `pattern`, `pitfall`, `domain_knowledge`, `agent_insight`, `anti_patterns`, `detected_patterns` |
 | `limit` | integer | 50 | Results per page (1-200) |
 | `offset` | integer | 0 | Skip results |
 
@@ -6827,7 +6828,7 @@ List skill signals for a habitat with optional filtering.
     {
       "id": "signal-uuid",
       "habitatId": "habitat-uuid",
-      "clusterKey": "auth-jwt-signing",
+      "clusterKey": "jwt tokens use rs256 signing with jsonwebtoken v9#1n0zj8r",
       "skillCategory": "domain_knowledge",
       "subject": "JWT tokens use RS256 signing with jsonwebtoken v9",
       "strength": 0.85,

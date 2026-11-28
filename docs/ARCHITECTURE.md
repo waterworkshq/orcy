@@ -316,7 +316,7 @@ The `orcy_habitat_skill` dispatch tool exposes three actions:
 | Action | Description |
 |--------|-------------|
 | `get` | Retrieve the current skill document for the habitat |
-| `refresh` | Trigger async regeneration of the skill document |
+| `refresh` | Regenerate the skill document from current promoted signals (synchronous) |
 | `contribute` | Submit a direct insight to the skill system |
 
 Skill context is automatically injected into `getMissionContext()` responses, so agents receive habitat knowledge when claiming tasks.
