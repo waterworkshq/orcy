@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState, useMemo } from "react";
+import React, { useCallback, useEffect, useState, useMemo, useRef } from "react";
 import {
   DndContext,
   DragCancelEvent,
@@ -48,6 +48,7 @@ export function Habitat({
 }: HabitatProps) {
   const isBulkSelectMode = useHabitatStore((s) => s.isBulkSelectMode);
   const [activeFeature, setActiveFeature] = useState<MissionWithProgress | null>(null);
+  const inheritedDragRef = useRef<{ missionId: string; changed: boolean } | null>(null);
   const [searchParams] = useSearchParams();
   const [archivedExpanded, setArchivedExpanded] = useState(false);
 
@@ -129,6 +130,13 @@ export function Habitat({
     if (isBulkSelectMode) return;
     const mission = missions.find((f) => f.id === event.active.id);
     setActiveFeature(mission ?? null);
+    inheritedDragRef.current = mission && previewByMission[mission.id]
+      ? { missionId: mission.id, changed: false }
+      : null;
+    // A new gesture owns its overlay even before it moves to another column.
+    if (mission && previewByMission[mission.id]) {
+      setPreview(mission.id, previewByMission[mission.id]);
+    }
   }
 
   function handleDragOver(event: DragOverEvent) {
@@ -152,12 +160,15 @@ export function Habitat({
     const currentPreview = previewByMission[dragged.id] ?? dragged.columnId;
     if (targetColumnId === currentPreview) return;
 
+    if (inheritedDragRef.current?.missionId === dragged.id) inheritedDragRef.current.changed = true;
     setPreview(dragged.id, targetColumnId);
   }
 
   function handleDragEnd(event: DragEndEvent) {
     const { active, over } = event;
     setActiveFeature(null);
+    const inheritedDrag = inheritedDragRef.current;
+    inheritedDragRef.current = null;
     if (isBulkSelectMode) {
       restorePreview(String(active.id));
       return;
@@ -170,6 +181,11 @@ export function Habitat({
     }
 
     if (!over) {
+      restorePreview(dragged.id);
+      return;
+    }
+
+    if (over.id === active.id && inheritedDrag?.missionId === dragged.id && !inheritedDrag.changed) {
       restorePreview(dragged.id);
       return;
     }
@@ -202,6 +218,7 @@ export function Habitat({
   const cancelDragFor = useCallback(
     (missionId: string) => {
       setActiveFeature(null);
+      inheritedDragRef.current = null;
       restorePreview(missionId);
     },
     [restorePreview],

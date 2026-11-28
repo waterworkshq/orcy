@@ -734,3 +734,77 @@ describe("useMissionDragMove", () => {
     expect(result.current.previewByMission["m1"]).toBeUndefined();
   });
 });
+
+describe("discarded queued mission previews", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+  afterEach(() => {
+    cleanup();
+    vi.useRealTimers();
+    vi.clearAllMocks();
+  });
+
+  it.each(["refusal", "timeout"] as const)(
+    "%s discards the queued overlay, and a late success reconciles the cache",
+    async (outcome) => {
+      vi.useFakeTimers();
+      let resolve!: (value: unknown) => void;
+      let reject!: (reason: unknown) => void;
+      moveMock.mockReturnValueOnce(new Promise((res, rej) => { resolve = res; reject = rej; }));
+      const { result, qc } = renderHookWithQC("h1");
+      act(() => {
+        result.current.drop({ missionId: "m1", canonicalColumnId: "col-a", targetColumnId: "col-b", expectedVersion: 1 });
+        result.current.drop({ missionId: "m1", canonicalColumnId: "col-a", targetColumnId: "col-c", expectedVersion: 1 });
+      });
+      expect(result.current.previewByMission.m1).toBe("col-c");
+      if (outcome === "timeout") {
+        act(() => { vi.advanceTimersByTime(HUNG_MOVE_TIMEOUT_MS - 1); });
+        expect(result.current.previewByMission.m1).toBe("col-c");
+        act(() => { vi.advanceTimersByTime(1); });
+      } else {
+        await act(async () => { reject(new ApiError("VERSION_CONFLICT", 409, { error: "Version conflict", code: "VERSION_CONFLICT" })); });
+      }
+      expect(result.current.isMoving).toBe(false);
+      expect(result.current.previewByMission.m1).toBeUndefined();
+      expect(moveMock).toHaveBeenCalledTimes(1);
+      if (outcome === "timeout") {
+        await act(async () => { resolve({ mission: makeMission({ columnId: "col-b", version: 2 }) }); });
+        expect(qc.getQueryData<{ missions: MissionWithProgress[] }>(queryKeys.habitats.detail("h1"))?.missions[0].columnId).toBe("col-b");
+        expect(result.current.previewByMission.m1).toBeUndefined();
+        expect(moveMock).toHaveBeenCalledTimes(1);
+      }
+    },
+  );
+
+  it.each(["col-c", "col-d"])("preserves a newer hover on %s when the queued drop is discarded", async (hover) => {
+    let reject!: (reason: unknown) => void;
+    moveMock.mockReturnValueOnce(new Promise((_resolve, rej) => { reject = rej; }));
+    const { result } = renderHookWithQC("h1");
+    act(() => {
+      result.current.drop({ missionId: "m1", canonicalColumnId: "col-a", targetColumnId: "col-b", expectedVersion: 1 });
+      result.current.drop({ missionId: "m1", canonicalColumnId: "col-a", targetColumnId: "col-c", expectedVersion: 1 });
+      result.current.setPreview("m1", hover);
+    });
+    await act(async () => { reject(new Error("refused")); });
+    expect(result.current.previewByMission.m1).toBe(hover);
+    expect(moveMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("reconciles a late success without clearing a newer hover", async () => {
+    vi.useFakeTimers();
+    let resolve!: (value: unknown) => void;
+    moveMock.mockReturnValueOnce(new Promise((res) => { resolve = res; }));
+    const { result, qc } = renderHookWithQC("h1");
+    act(() => {
+      result.current.drop({ missionId: "m1", canonicalColumnId: "col-a", targetColumnId: "col-b", expectedVersion: 1 });
+      result.current.drop({ missionId: "m1", canonicalColumnId: "col-a", targetColumnId: "col-c", expectedVersion: 1 });
+      vi.advanceTimersByTime(HUNG_MOVE_TIMEOUT_MS);
+      result.current.setPreview("m1", "col-d");
+    });
+    await act(async () => { resolve({ mission: makeMission({ columnId: "col-b", version: 2 }) }); });
+    expect(qc.getQueryData<{ missions: MissionWithProgress[] }>(queryKeys.habitats.detail("h1"))?.missions[0].columnId).toBe("col-b");
+    expect(result.current.previewByMission.m1).toBe("col-d");
+    expect(moveMock).toHaveBeenCalledTimes(1);
+  });
+});
