@@ -1,6 +1,6 @@
 import type { Tool } from "@modelcontextprotocol/sdk/types.js";
 import type { KanbanApiClient } from "../api.js";
-import { enrichTaskWithAgentName } from "./enrichment.js";
+import { enrichTaskWithAgentName, enrichTaskWithOptionalAgentName } from "./enrichment.js";
 import { PRIORITY_LEVELS, TASK_UPDATE_STATUSES } from "./constants.js";
 
 /**
@@ -146,10 +146,7 @@ export async function habitatUpdateTask(
   > = {
     in_progress: async () => {
       const result = await client.startTask(args.taskId, args.executionToken ?? null);
-      const enrichedTask = await enrichTaskWithAgentName(client, result.task).catch(() => ({
-        ...result.task,
-        assignedAgentName: null,
-      }));
+      const enrichedTask = await enrichTaskWithOptionalAgentName(client, result.task);
       return { success: true, task: enrichedTask };
     },
     submitted: async () => {
@@ -217,7 +214,7 @@ export async function habitatUpdateTask(
     version: args.version,
     estimatedMinutes: args.estimatedMinutes,
   });
-  const enrichedTask = await enrichTaskWithAgentName(client, result.task);
+  const enrichedTask = await enrichTaskWithOptionalAgentName(client, result.task);
   return { success: true, task: enrichedTask };
 }
 

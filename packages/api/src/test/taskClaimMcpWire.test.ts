@@ -121,26 +121,37 @@ async function connectMcp(url: string, agent: { id: string; apiKey: string }): P
 }
 
 /** Forwards every request to the served API; while `armed`, agent lookups
- * (`GET /api/agents/:id` — the claim's optional display-name read) answer 503. */
+ * (`GET /api/agents/:id` — the optional display-name read) answer `lookupStatus`. */
 async function startLookupFaultProxy(): Promise<{
   url: string;
   armed: boolean;
   lookupStatus: number;
   lookups: number;
   starts: number;
+  updates: number;
   close: () => Promise<void>;
 }> {
   const { hostname, port } = new URL(baseUrl);
-  const proxy: { url: string; armed: boolean; lookupStatus: number; lookups: number; starts: number; close: () => Promise<void> } = {
+  const proxy: {
+    url: string;
+    armed: boolean;
+    lookupStatus: number;
+    lookups: number;
+    starts: number;
+    updates: number;
+    close: () => Promise<void>;
+  } = {
     url: "",
     armed: false,
     lookupStatus: 503,
     lookups: 0,
     starts: 0,
+    updates: 0,
     close: async () => {},
   };
   const server = http.createServer((req, res) => {
     if (req.method === "POST" && /^\/api\/tasks\/[^/]+\/start$/.test(req.url ?? "")) proxy.starts++;
+    if (req.method === "PATCH" && /^\/api\/tasks\/[^/?]+$/.test(req.url ?? "")) proxy.updates++;
     if (req.method === "GET" && /^\/api\/agents\/[^/]+$/.test(req.url ?? "")) proxy.lookups++;
     if (proxy.armed && req.method === "GET" && /^\/api\/agents\/[^/]+$/.test(req.url ?? "")) {
       req.resume();
@@ -214,6 +225,22 @@ function seedTask(
 function taskRow(taskId: string) {
   return getDb()
     .select({
+      status: tasks.status,
+      assignedAgentId: tasks.assignedAgentId,
+      executionToken: tasks.executionToken,
+    })
+    .from(tasks)
+    .where(eq(tasks.id, taskId))
+    .get()!;
+}
+
+function taskMetadataRow(taskId: string) {
+  return getDb()
+    .select({
+      title: tasks.title,
+      description: tasks.description,
+      priority: tasks.priority,
+      version: tasks.version,
       status: tasks.status,
       assignedAgentId: tasks.assignedAgentId,
       executionToken: tasks.executionToken,
@@ -499,5 +526,182 @@ describe("local MCP Task claim — served MCP wire", () => {
       executionToken: null,
     });
     expect(claimedEventCount(taskId)).toBe(1);
+  }, 60_000);
+});
+
+describe("local MCP Task metadata update — served MCP wire", () => {
+  it("returns a success receipt with null display name when post-write lookup fails (single write)", async () => {
+    const taskId = seedTask("metadata-update-lookup-fail");
+    const claimed = toolJson(await rivalMcp.callTool({ action: "claim", taskId }));
+    const token: string = claimed.task.executionToken;
+    const started = await rivalMcp.callTool({ action: "start", taskId, executionToken: token });
+    expect(started.isError).toBeFalsy();
+
+    const before = { ...taskMetadataRow(taskId) };
+    const updatesBefore = proxy.updates;
+    const lookupsBefore = proxy.lookups;
+    proxy.lookupStatus = 503;
+    proxy.armed = true;
+    try {
+      const result = await rivalMcp.callTool({
+        action: "update",
+        taskId,
+        title: "Updated Title After Lookup 503",
+      });
+      expect(result.isError).toBeFalsy();
+      const receipt = toolJson(result);
+      expect(receipt).toMatchObject({
+        success: true,
+        task: {
+          id: taskId,
+          title: "Updated Title After Lookup 503",
+          status: "in_progress",
+          assignedAgentId: before.assignedAgentId,
+          assignedAgentName: null,
+          version: before.version + 1,
+        },
+      });
+      expect(proxy.updates - updatesBefore).toBe(1);
+      expect(proxy.lookups - lookupsBefore).toBeGreaterThan(0);
+      expect(taskMetadataRow(taskId)).toMatchObject({
+        title: "Updated Title After Lookup 503",
+        status: "in_progress",
+        assignedAgentId: before.assignedAgentId,
+        executionToken: token,
+        version: before.version + 1,
+      });
+
+      // Claim token remains valid after the metadata update.
+      const submitted = await rivalMcp.callTool({
+        action: "submit",
+        taskId,
+        result: "done",
+        executionToken: token,
+      });
+      expect(submitted.isError).toBeFalsy();
+      expect(taskRow(taskId).status).toBe("submitted");
+    } finally {
+      proxy.armed = false;
+      proxy.lookupStatus = 503;
+    }
+  }, 60_000);
+
+  it("preserves resolved display name on healthy lookup and null on absent name", async () => {
+    // Healthy 200 lookup on an assigned, started task.
+    const assignedTaskId = seedTask("metadata-update-healthy");
+    const claimed = toolJson(await rivalMcp.callTool({ action: "claim", taskId: assignedTaskId }));
+    const token: string = claimed.task.executionToken;
+    await rivalMcp.callTool({ action: "start", taskId: assignedTaskId, executionToken: token });
+
+    const updatesBeforeHealthy = proxy.updates;
+    const healthy = await rivalMcp.callTool({
+      action: "update",
+      taskId: assignedTaskId,
+      title: "Healthy Update",
+      description: "Persisted description",
+      priority: "high",
+    });
+    expect(healthy.isError).toBeFalsy();
+    expect(toolJson(healthy)).toMatchObject({
+      success: true,
+      task: {
+        id: assignedTaskId,
+        title: "Healthy Update",
+        description: "Persisted description",
+        priority: "high",
+        assignedAgentName: "claim-mcp-rival",
+      },
+    });
+    expect(proxy.updates - updatesBeforeHealthy).toBe(1);
+    expect(taskMetadataRow(assignedTaskId)).toMatchObject({
+      title: "Healthy Update",
+      description: "Persisted description",
+      priority: "high",
+      executionToken: token,
+    });
+
+    // Absent name via 404 agent lookup on the same assigned task.
+    const updatesBefore404 = proxy.updates;
+    proxy.lookupStatus = 404;
+    proxy.armed = true;
+    try {
+      const missingAgent = await rivalMcp.callTool({
+        action: "update",
+        taskId: assignedTaskId,
+        title: "Absent Lookup 404 Update",
+      });
+      expect(missingAgent.isError).toBeFalsy();
+      expect(toolJson(missingAgent)).toMatchObject({
+        success: true,
+        task: {
+          id: assignedTaskId,
+          title: "Absent Lookup 404 Update",
+          assignedAgentName: null,
+        },
+      });
+      expect(proxy.updates - updatesBefore404).toBe(1);
+    } finally {
+      proxy.armed = false;
+      proxy.lookupStatus = 503;
+    }
+
+    // Absent assignee (unassigned task) returns null display name without calling agent lookup.
+    const unassignedTaskId = seedTask("metadata-update-unassigned");
+    const updatesBeforeUnassigned = proxy.updates;
+    const lookupsBeforeUnassigned = proxy.lookups;
+    const unassigned = await rivalMcp.callTool({
+      action: "update",
+      taskId: unassignedTaskId,
+      title: "Unassigned Update",
+    });
+    expect(unassigned.isError).toBeFalsy();
+    expect(toolJson(unassigned)).toMatchObject({
+      success: true,
+      task: {
+        id: unassignedTaskId,
+        title: "Unassigned Update",
+        assignedAgentId: null,
+        assignedAgentName: null,
+      },
+    });
+    expect(proxy.updates - updatesBeforeUnassigned).toBe(1);
+    expect(proxy.lookups - lookupsBeforeUnassigned).toBe(0);
+  }, 60_000);
+
+  it("rejected metadata updates retain the original error and perform zero lookups", async () => {
+    const taskId = seedTask("metadata-update-rejected");
+    const claimed = toolJson(await rivalMcp.callTool({ action: "claim", taskId }));
+    const token: string = claimed.task.executionToken;
+    await rivalMcp.callTool({ action: "start", taskId, executionToken: token });
+
+    const before = { ...taskMetadataRow(taskId) };
+    const updatesBeforeConflict = proxy.updates;
+    const lookupsBeforeConflict = proxy.lookups;
+    const conflictResult = await rivalMcp.callTool({
+      action: "update",
+      taskId,
+      title: "Should Not Persist",
+      version: before.version + 99,
+    });
+    expect(conflictResult.isError).toBe(true);
+    expect(conflictResult.content[0].text).toContain("409");
+    expect(conflictResult.content[0].text).toContain("Version conflict");
+    expect(proxy.updates - updatesBeforeConflict).toBe(1);
+    expect(proxy.lookups - lookupsBeforeConflict).toBe(0);
+    expect(taskMetadataRow(taskId)).toEqual(before);
+
+    const updatesBeforeMissing = proxy.updates;
+    const lookupsBeforeMissing = proxy.lookups;
+    const missingResult = await rivalMcp.callTool({
+      action: "update",
+      taskId: randomUUID(),
+      title: "Missing Task",
+    });
+    expect(missingResult.isError).toBe(true);
+    expect(missingResult.content[0].text).toContain("404");
+    expect(missingResult.content[0].text).toContain("Task not found");
+    expect(proxy.updates - updatesBeforeMissing).toBe(1);
+    expect(proxy.lookups - lookupsBeforeMissing).toBe(0);
+    expect(taskMetadataRow(taskId)).toEqual(before);
   }, 60_000);
 });
