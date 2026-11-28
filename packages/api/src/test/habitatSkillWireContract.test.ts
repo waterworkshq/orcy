@@ -4,9 +4,9 @@
  *
  * The published guide drifted from the served contract: it taught the
  * unsupported singular `anti_pattern`, the wrong default category, a larger
- * contribution response than the route returns, and an async refresh +
- * human-only listing that the served route does not implement. This test pins
- * both halves of the contract:
+ * contribution response than the route returns, an async refresh, and a
+ * signal listing described as agent-readable when the served route requires
+ * human authentication. This test pins both halves of the contract:
  *
  *   - the docs' accepted-category list and default equal the shared registry;
  *   - the served route accepts exactly the registry values, persists the
@@ -20,18 +20,21 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import Fastify, { type FastifyInstance } from "fastify";
 import { validatorCompiler, serializerCompiler } from "fastify-type-provider-zod";
 import jwt from "jsonwebtoken";
+import { randomBytes } from "node:crypto";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { SKILL_CATEGORIES } from "@orcy/shared";
 import { initTestDb, closeDb } from "../db/index.js";
 import { registerErrorHandler } from "../errors/plugin.js";
+import { setJwtSecret } from "../middleware/jwt-verification.js";
 import { habitatSkillRoutes } from "../routes/habitatSkill.js";
 import * as habitatRepo from "../repositories/habitat.js";
 import * as agentRepo from "../repositories/agent.js";
 import * as skillRepo from "../repositories/habitatSkill.js";
 
-const JWT_SECRET = "dev-secret-change-in-production";
+/** Test-only signing key — never the runtime's development fallback, and never the ambient `JWT_SECRET`. */
+const TEST_JWT_SECRET = randomBytes(32).toString("hex");
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "..", "..");
 
 async function buildApp(): Promise<FastifyInstance> {
@@ -45,13 +48,29 @@ async function buildApp(): Promise<FastifyInstance> {
 }
 
 function humanToken(): string {
-  return jwt.sign({ sub: "human-1", username: "human", role: "admin" }, JWT_SECRET, {
+  return jwt.sign({ sub: "human-1", username: "human", role: "admin" }, TEST_JWT_SECRET, {
     issuer: "orcy",
   });
 }
 
 /**
- * The backticked category values a doc file publishes for `skillCategory`.
+ * The backticked values a `skillCategory` table row publishes. Every
+ * backticked token is extracted — not just lowercase-underscore ones — so an
+ * unsupported spelling such as `anti-pattern` is detected instead of silently
+ * ignored. The field name and type cells are excluded.
+ */
+function extractCategoryValues(line: string): string[] {
+  return [
+    ...new Set(
+      [...line.matchAll(/`([^`]+)`/g)]
+        .map((m) => m[1]!)
+        .filter((v) => v !== "skillCategory" && v !== "string"),
+    ),
+  ];
+}
+
+/**
+ * The category values a doc file publishes for `skillCategory`.
  * Returns one entry per documented `skillCategory` table row.
  */
 function documentedCategories(file: string): string[][] {
@@ -59,14 +78,7 @@ function documentedCategories(file: string): string[][] {
   const rows: string[][] = [];
   for (const line of markdown.split("\n")) {
     if (!line.startsWith("| `skillCategory` |")) continue;
-    const values = [
-      ...new Set(
-        [...line.matchAll(/`([a-z_]+)`/g)]
-          .map((m) => m[1]!)
-          .filter((v) => v !== "skillCategory" && v !== "string"),
-      ),
-    ];
-    rows.push(values);
+    rows.push(extractCategoryValues(line));
   }
   return rows;
 }
@@ -90,6 +102,14 @@ describe("published Skill categories match the shared registry", () => {
       expect(row).toMatch(/default:?\s*`agent_insight`/);
     }
   });
+
+  it("detects an unsupported spelling alongside the registry values", () => {
+    const values = extractCategoryValues(
+      "| `skillCategory` | string | no | `convention`, `pattern`, `anti-pattern` |",
+    );
+    expect(values).toContain("anti-pattern");
+    expect([...values].sort()).not.toEqual([...SKILL_CATEGORIES].sort());
+  });
 });
 
 describe("served Skill wire contract", () => {
@@ -99,6 +119,7 @@ describe("served Skill wire contract", () => {
 
   beforeEach(async () => {
     await initTestDb();
+    setJwtSecret(TEST_JWT_SECRET);
     app = await buildApp();
     habitatId = habitatRepo.createHabitat({ name: "Skill Habitat" }).id;
     agentApiKey = agentRepo.createAgent({

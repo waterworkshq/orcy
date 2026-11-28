@@ -6797,13 +6797,13 @@ Any other `skillCategory` value is rejected with `400`. When the field is omitte
   "success": true,
   "signal": {
     "id": "signal-uuid",
-    "clusterKey": "database-queries-drizzle",
+    "clusterKey": "always use drizzle orm for database queries never raw sql#7f3k2q",
     "strength": 0.3
   }
 }
 ```
 
-The response carries only the signal's `id`, `clusterKey` and `strength`. `strength` is server-assigned: a newly created signal starts at `0.3`, and an insight that clusters into an existing signal reinforces that signal (its `frequency` increases) instead of creating a new one — so the returned `strength` is whatever the stored signal already carries, not a guaranteed value.
+The response carries only the signal's `id`, `clusterKey` and `strength`. `clusterKey` is server-generated — the normalized insight text plus a `#` hash suffix. `strength` is server-assigned: a newly created signal starts at `0.3`, and an insight that clusters into an existing signal reinforces that signal (its `frequency` increases) instead of creating a new one — so the returned `strength` is whatever the stored signal already carries, not a guaranteed value.
 
 ### GET /habitats/:habitatId/skill/signals
 

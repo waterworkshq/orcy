@@ -1868,7 +1868,7 @@ Input:
   "skillCategory": "convention"
 }
 
-Output: { "success": true, "signal": { "id": "...", "clusterKey": "database-queries-drizzle", "strength": 0.3 } }
+Output: { "success": true, "signal": { "id": "...", "clusterKey": "always use drizzle orm for database queries never raw sql#7f3k2q", "strength": 0.3 } }
 ```
 
 | Field | Type | Required | Description |
@@ -1876,7 +1876,9 @@ Output: { "success": true, "signal": { "id": "...", "clusterKey": "database-quer
 | `insight` | string | yes | The insight text (1-2000 chars) |
 | `skillCategory` | string | no | `convention`, `pattern`, `pitfall`, `domain_knowledge`, `agent_insight`, `anti_patterns`, `detected_patterns` (default: `agent_insight`) |
 
-`skillCategory` accepts exactly the shared registry values — any other value is rejected before the request reaches the server. When omitted, the signal is stored as `agent_insight`.
+`skillCategory` accepts exactly the shared registry values. The API rejects any supplied value outside the registry with `400`; when omitted, the signal is stored as `agent_insight`.
+
+`clusterKey` is server-generated: the normalized insight text plus a `#` hash suffix.
 
 `strength` in the response is server-assigned, not a value you can set: a newly created signal starts at `0.3`, and an insight that clusters into an existing signal reinforces that signal (its `frequency` increases) instead of creating a new one, so the returned `strength` is whatever the stored signal already carries.
 
