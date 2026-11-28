@@ -18,7 +18,7 @@ vi.mock('../../lib/toast.js', () => ({
 }));
 
 describe('ExportHabitatDialog', () => {
-  it('renders with Features checkbox label', () => {
+  it('renders with Missions checkbox label', () => {
     render(
       <ExportHabitatDialog
         habitatId="board-1"
@@ -27,6 +27,6 @@ describe('ExportHabitatDialog', () => {
         onClose={vi.fn()}
       />
     );
-    expect(screen.getByText('Missions (with tasks, dependencies, and status)')).toBeTruthy();
+    expect(screen.getByText('Missions (with tasks and status)')).toBeTruthy();
   });
 });
