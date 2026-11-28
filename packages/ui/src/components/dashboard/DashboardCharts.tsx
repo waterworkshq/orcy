@@ -45,9 +45,9 @@ export function DashboardCharts({ stats, period, habitatId }: DashboardChartsPro
     <div className="space-y-6">
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
         <KPICard
-          title="Tasks Completed"
+          title="Completion Events"
           value={stats.throughput.reduce((total, day) => total + day.count, 0)}
-          subtitle={`In last ${period}`}
+          subtitle={`In last ${period} · matches throughput`}
           icon={<CheckCircle2 className="h-5 w-5 text-[var(--badge-done-text)]" />}
         />
         <KPICard
@@ -86,7 +86,7 @@ export function DashboardCharts({ stats, period, habitatId }: DashboardChartsPro
               ? "up"
               : "neutral"
           }
-          subtitle={`${stats.webhookStats.success}/${stats.webhookStats.total} delivered`}
+          subtitle={`${stats.webhookStats.success}/${stats.webhookStats.total} delivered${habitatId ? " · All Habitats" : ""}`}
           icon={<Activity className="h-5 w-5 text-[var(--agent-blue)]" />}
         />
       </div>
