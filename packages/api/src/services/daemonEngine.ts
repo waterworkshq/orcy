@@ -8,6 +8,11 @@ import type {
 } from "@orcy/shared/types";
 import { runPollTick } from "@orcy/shared";
 import * as daemonRepo from "../repositories/daemon.js";
+import {
+  markPendingOfflineWrite,
+  clearPendingOfflineWrite,
+  hasPendingOfflineWrite,
+} from "../repositories/daemonHeartbeatOrdering.js";
 import * as agentService from "../services/agentService.js";
 import { claimTaskWithSession } from "./tasks/claimSession.js";
 import * as taskRepo from "../repositories/task.js";
@@ -188,6 +193,7 @@ export function start(daemonId: string, dataDir: string = "/tmp/orcy-daemon"): v
   running.heartbeatTimer = setInterval(() => daemonRepo.updateDaemonHeartbeat(daemonId), 30000);
 
   runningDaemons.set(daemonId, running);
+  clearPendingOfflineWrite(daemonId);
 }
 
 async function tick(running: RunningDaemon): Promise<void> {
@@ -201,11 +207,17 @@ async function tick(running: RunningDaemon): Promise<void> {
 }
 
 /**
- * Stops a running in-process daemon by clearing its poll/heartbeat timers, shutting down every active session, releasing its {@link ISessionManager}, and marking it "offline"; no-op if the daemon is not running.
+ * Stops a running in-process daemon by clearing its poll/heartbeat timers, shutting down every active session, releasing its {@link ISessionManager}, and marking it "offline"; retries a failed offline write without draining twice.
  */
 export async function stop(daemonId: string): Promise<void> {
   const running = runningDaemons.get(daemonId);
-  if (!running) return;
+  if (!running) {
+    if (hasPendingOfflineWrite(daemonId)) {
+      daemonRepo.setDaemonStatus(daemonId, "offline");
+      clearPendingOfflineWrite(daemonId);
+    }
+    return;
+  }
   if (running.stopPromise) return running.stopPromise;
 
   const stopping = stopRunning(running);
@@ -234,10 +246,12 @@ async function stopRunning(running: RunningDaemon): Promise<void> {
   } catch (err) {
     markerFailed = true;
     markerError = err;
+    markPendingOfflineWrite(daemonId);
   }
   try {
     await running.sessionManager.shutdownAll();
   } catch (err) {
+    clearPendingOfflineWrite(daemonId);
     try {
       // A heartbeat received during shutdown is authoritative.
       if (!markerFailed && daemonRepo.getDaemonById(daemonId)?.status === "offline") {

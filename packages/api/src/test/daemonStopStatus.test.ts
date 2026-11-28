@@ -96,6 +96,58 @@ describe("in-process Stop status", () => {
     expect(wiring.release).toHaveBeenCalledWith(id);
     expect(engine.isRunning(id)).toBe(false);
     spy.mockRestore();
+    expect((await app.inject({ method: "POST", url: `/daemons/${id}/stop` })).statusCode).toBe(200);
+    expect(wiring.shutdownAll).toHaveBeenCalledOnce();
+    expect(repo.getDaemonById(id)!.status).toBe("offline");
+    expect(await statuses()).toEqual({ embedded: "offline", external: "online", detail: "offline" });
+    const heartbeat = await app.inject({ method: "POST", url: "/daemon/heartbeat", headers: { "x-daemon-token": "embedded" }, payload: {} });
+    expect(heartbeat.statusCode).toBe(200);
+    expect(await statuses()).toEqual({ embedded: "online", external: "online", detail: "online" });
+  });
+
+  it("keeps the retry pending after another failed write", async () => {
+    const spy = vi.spyOn(repo, "setDaemonStatus").mockImplementationOnce(() => { throw new Error("first failure"); }).mockImplementationOnce(() => { throw new Error("retry failure"); });
+    expect((await app.inject({ method: "POST", url: `/daemons/${id}/stop` })).statusCode).toBe(500);
+    expect((await app.inject({ method: "POST", url: `/daemons/${id}/stop` })).statusCode).toBe(500);
+    expect((await app.inject({ method: "POST", url: `/daemons/${id}/stop` })).statusCode).toBe(200);
+    expect(wiring.shutdownAll).toHaveBeenCalledOnce();
+    expect(await statuses()).toEqual({ embedded: "offline", external: "online", detail: "offline" });
+    spy.mockRestore();
+  });
+
+  it("preserves a same-millisecond heartbeat received before a failed-write retry", async () => {
+    const spy = vi.spyOn(repo, "setDaemonStatus").mockImplementationOnce(() => { throw new Error("write failed"); });
+    expect((await app.inject({ method: "POST", url: `/daemons/${id}/stop` })).statusCode).toBe(500);
+    spy.mockRestore();
+    const heartbeat = await app.inject({ method: "POST", url: "/daemon/heartbeat", headers: { "x-daemon-token": "embedded" }, payload: {} });
+    expect(heartbeat.statusCode).toBe(200);
+    expect((await app.inject({ method: "POST", url: `/daemons/${id}/stop` })).statusCode).toBe(200);
+    expect(wiring.shutdownAll).toHaveBeenCalledOnce();
+    expect(await statuses()).toEqual({ embedded: "online", external: "online", detail: "online" });
+  });
+
+  it("preserves a heartbeat during a failed-marker drain before a Stop retry", async () => {
+    const spy = vi.spyOn(repo, "setDaemonStatus").mockImplementationOnce(() => { throw new Error("write failed"); });
+    let finish!: () => void;
+    wiring.shutdownAll.mockImplementationOnce(() => new Promise<void>((resolve) => { finish = resolve; }));
+    const stopping = app.inject({ method: "POST", url: `/daemons/${id}/stop` }).then((response: any) => response);
+    await vi.waitFor(() => expect(finish).toBeDefined());
+    expect((await app.inject({ method: "POST", url: "/daemon/heartbeat", headers: { "x-daemon-token": "embedded" }, payload: {} })).statusCode).toBe(200);
+    finish();
+    expect((await stopping).statusCode).toBe(500);
+    spy.mockRestore();
+    expect((await app.inject({ method: "POST", url: `/daemons/${id}/stop` })).statusCode).toBe(200);
+    expect(wiring.shutdownAll).toHaveBeenCalledOnce();
+    expect(await statuses()).toEqual({ embedded: "online", external: "online", detail: "online" });
+  });
+
+  it("permits restarting after a failed offline write", async () => {
+    const spy = vi.spyOn(repo, "setDaemonStatus").mockImplementationOnce(() => { throw new Error("write failed"); });
+    expect((await app.inject({ method: "POST", url: `/daemons/${id}/stop` })).statusCode).toBe(500);
+    spy.mockRestore();
+    expect((await app.inject({ method: "POST", url: `/daemons/${id}/start` })).statusCode).toBe(200);
+    expect(engine.isRunning(id)).toBe(true);
+    expect(await statuses()).toEqual({ embedded: "online", external: "online", detail: "online" });
   });
 
   it("does not erase a heartbeat arriving while shutdown is pending, even in the same millisecond", async () => {

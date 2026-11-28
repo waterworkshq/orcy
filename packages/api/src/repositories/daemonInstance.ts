@@ -3,6 +3,7 @@ import { daemonInstances } from "../db/schema/index.js";
 import { eq, sql } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 import { hashDaemonToken } from "../lib/daemonToken.js";
+import { clearPendingOfflineWrite } from "./daemonHeartbeatOrdering.js";
 import {
   repositoryCreateError,
   repositoryNotFoundError,
@@ -107,6 +108,7 @@ export function updateDaemonHeartbeat(id: string): DaemonInstancePublic | null {
       })
       .where(eq(daemonInstances.id, id))
       .run();
+    clearPendingOfflineWrite(id);
   } catch (err) {
     throw repositoryUpdateError("daemonInstance", err as Error, id);
   }
@@ -143,6 +145,7 @@ export function deleteDaemon(id: string): void {
   const db = getDb();
   try {
     db.delete(daemonInstances).where(eq(daemonInstances.id, id)).run();
+    clearPendingOfflineWrite(id);
   } catch (err) {
     throw repositoryDeleteError("daemonInstance", err as Error, id);
   }
