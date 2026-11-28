@@ -539,7 +539,7 @@ All three must be set. If `ORCY_API_KEY` or `ORCY_AGENT_ID` is empty, the server
 1. **Signal type consolidation.** Verify `signalType: "experience"` is in the consolidated `SIGNAL_TYPES` const at `packages/shared/src/types/signal.ts`. All consumers (API schema, MCP tool, UI config) import from shared.
 2. **Skill ingestion branch.** Check `habitatSkillService.initSkillHooks()` — the `onPulseCreated` subscriber should branch on `signalType === "experience"` and call `ingestExperienceSignal` before the existing `ingestFromPulse` path.
 3. **Category extraction.** The category lives in `pulse.metadata.experience`. If the metadata is missing or the category isn't one of the 7 valid values, the signal is defensively skipped.
-4. **Category mapping.** `stuck`/`confused`/`backtrack → pitfall`, `surprised`/`ambiguous → domain_knowledge`, `smooth → pattern`, `sidetracked → anti_patterns`. If the skill document doesn't have a "Pitfalls", "Patterns" or "Anti-Patterns" section, signals won't appear visibly.
+4. **Category mapping.** `stuck`/`confused`/`backtrack → pitfall`, `surprised`/`ambiguous → domain_knowledge`, `smooth → pattern`, `sidetracked → anti_patterns`. If the skill document lacks the corresponding "Pitfalls", "Patterns", "Anti-Patterns" or "Domain Knowledge" section, signals won't appear visibly.
 
 ### Template workflow not instantiating?
 
