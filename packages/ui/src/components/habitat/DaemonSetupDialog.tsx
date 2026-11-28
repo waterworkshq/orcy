@@ -18,6 +18,7 @@ interface DaemonSetupDialogProps {
 export function DaemonSetupDialog({ open, onClose, habitatIds }: DaemonSetupDialogProps) {
   const [step, setStep] = useState<Step>("detect");
   const [loading, setLoading] = useState(false);
+  const [detecting, setDetecting] = useState(false);
   // null until a detection has completed; an empty array means "none found".
   const [detectedClis, setDetectedClis] = useState<DetectedCli[] | null>(null);
   const [name, setName] = useState("local-daemon");
@@ -31,7 +32,7 @@ export function DaemonSetupDialog({ open, onClose, habitatIds }: DaemonSetupDial
 
   const handleDetect = useCallback(async () => {
     const requestId = ++detectRequestId.current;
-    setLoading(true);
+    setDetecting(true);
     try {
       const result = await api.daemons.detectClis();
       if (requestId !== detectRequestId.current) return;
@@ -43,15 +44,16 @@ export function DaemonSetupDialog({ open, onClose, habitatIds }: DaemonSetupDial
       if (requestId !== detectRequestId.current) return;
       notify.error((err as Error).message);
     } finally {
-      if (requestId === detectRequestId.current) setLoading(false);
+      if (requestId === detectRequestId.current) setDetecting(false);
     }
   }, []);
 
   // Closing retires any in-flight detection so its late response cannot move
-  // the wizard after the operator left.
+  // the wizard after the operator left. Registration progress is left alone so
+  // a close mid-registration cannot enable a second registration.
   const handleClose = useCallback(() => {
     detectRequestId.current += 1;
-    setLoading(false);
+    setDetecting(false);
     onClose();
   }, [onClose]);
 
@@ -109,7 +111,7 @@ export function DaemonSetupDialog({ open, onClose, habitatIds }: DaemonSetupDial
                 again.
               </p>
             )}
-            <Button onClick={handleDetect} loading={loading}>
+            <Button onClick={handleDetect} loading={detecting}>
               Detect CLIs
             </Button>
           </div>
@@ -155,7 +157,11 @@ export function DaemonSetupDialog({ open, onClose, habitatIds }: DaemonSetupDial
                 className="w-24 rounded border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
               />
             </div>
-            <Button onClick={handleRegister} loading={loading} disabled={!detectedClis?.length}>
+            <Button
+              onClick={handleRegister}
+              loading={loading}
+              disabled={!detectedClis?.length || detecting}
+            >
               Register Daemon
             </Button>
           </div>

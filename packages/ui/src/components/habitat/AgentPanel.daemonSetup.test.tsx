@@ -20,6 +20,7 @@ type Call = { url: string; method: string; body?: Record<string, unknown> };
 
 const calls: Call[] = [];
 let detectResults: Array<() => Response | Promise<Response>> = [];
+let registerResult: (() => Response | Promise<Response>) | undefined;
 
 function json(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
@@ -45,10 +46,12 @@ const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => 
     return next();
   }
   if (path === "/daemons/register") {
-    return json({
-      daemonId: "daemon-1",
-      agents: [{ id: "agent-1", name: "Agent Alpha", type: "claude-code", apiKey: "k" }],
-    });
+    return registerResult
+      ? registerResult()
+      : json({
+          daemonId: "daemon-1",
+          agents: [{ id: "agent-1", name: "Agent Alpha", type: "claude-code", apiKey: "k" }],
+        });
   }
   if (path === "/daemons") return json({ daemons: [] });
   if (path === "/habitats/board-1/agent-quality") {
@@ -84,6 +87,7 @@ describe("daemon setup wizard detection recovery", () => {
     vi.clearAllMocks();
     calls.length = 0;
     detectResults = [];
+    registerResult = undefined;
     vi.stubGlobal("fetch", fetchMock);
   });
 
@@ -189,6 +193,42 @@ describe("daemon setup wizard detection recovery", () => {
     expect(await screen.findByText("claude-code")).toBeInTheDocument();
     expect(detectCalls()).toHaveLength(1);
     expect(registerCalls()).toHaveLength(0);
+  });
+
+  it("does not register twice when the wizard is closed mid-registration", async () => {
+    let releaseRegister: (() => void) | undefined;
+    const pending = new Promise<Response>((resolve) => {
+      releaseRegister = () =>
+        resolve(
+          json({
+            daemonId: "daemon-1",
+            agents: [{ id: "agent-1", name: "Agent Alpha", type: "claude-code", apiKey: "k" }],
+          }),
+        );
+    });
+    detectResults = [
+      () => json({ clis: [{ type: "claude-code", version: "1.2.3", path: "/usr/bin/claude" }] }),
+    ];
+    registerResult = () => pending;
+    renderPanel();
+
+    fireEvent.click(await openWizard());
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: /register daemon/i })).toBeEnabled(),
+    );
+    fireEvent.click(screen.getByRole("button", { name: /register daemon/i }));
+    await waitFor(() => expect(registerCalls()).toHaveLength(1));
+
+    // Closing mid-registration must not re-enable registration for the same
+    // daemon when the wizard is reopened.
+    fireEvent.click(screen.getByRole("button", { name: /^cancel$/i }));
+    fireEvent.click(await screen.findByRole("button", { name: /set up autonomous mode/i }));
+    const register = await screen.findByRole("button", { name: /register daemon/i });
+    expect(register).toBeDisabled();
+    fireEvent.click(register);
+    expect(registerCalls()).toHaveLength(1);
+
+    releaseRegister?.();
   });
 
   it("ignores a detection response that resolves after the wizard was closed", async () => {
