@@ -104,14 +104,34 @@ echo "==> Building packages..."
 (cd "$SRC_DIR" && run_pnpm -r build)
 echo "    Build complete"
 
+# Stage the installer
+# The installer runs from ~/.orcy/installer, outside the workspace it was built
+# in, so the copy cannot resolve the workspace's node_modules. `pnpm deploy`
+# copies the built package together with a self-contained production
+# node_modules resolved from the workspace lockfile: the exact versions that
+# were just built, workspace packages included as real copies — not a fresh
+# registry resolution of version ranges. Deploy requires the workspace to use
+# injected workspace packages; passing the setting here leaves the source tree
+# as it is. The copy is deployed beside any previous installer and swapped in
+# only once its entry point exists, so a failed run leaves that one in place.
+echo "==> Preparing installer..."
+INSTALLER_DIR="${ORCY_HOME}/installer"
+STAGED_DIR="${INSTALLER_DIR}.new"
+rm -rf "${STAGED_DIR}"
+(cd "$SRC_DIR" && run_pnpm --filter ./packages/installer deploy --prod --config.inject-workspace-packages=true "${STAGED_DIR}") || {
+  rm -rf "${STAGED_DIR}"
+  echo "Failed to prepare the installer."
+  exit 1
+}
+if [ ! -f "${STAGED_DIR}/dist/index.js" ]; then
+  rm -rf "${STAGED_DIR}"
+  echo "Failed to stage the installer: was packages/installer/dist built?"
+  exit 1
+fi
+rm -rf "${INSTALLER_DIR}"
+mv "${STAGED_DIR}" "${INSTALLER_DIR}"
+
 # Run installer
 echo "==> Running installer..."
-mkdir -p "${ORCY_HOME}/installer"
-cp -r "${SRC_DIR}/packages/installer/dist" "${ORCY_HOME}/installer/"
-cp -r "${SRC_DIR}/packages/installer/skills" "${ORCY_HOME}/installer/"
 
-echo ""
-echo "Setup complete. Visit http://localhost:4000/app to create your admin account."
-echo ""
-
-exec node "${ORCY_HOME}/installer/dist/index.js" "$@"
+exec node "${INSTALLER_DIR}/dist/index.js" "$@"

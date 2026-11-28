@@ -17,8 +17,18 @@
  *      an actionable message.
  *   3. No bare `pnpm` is ever invoked and no global pnpm is installed
  *      (forbidden-command stubs fail the test if touched).
- *   4. Download, extraction, copy, and the final `exec node …installer`
+ *   4. Download, extraction, build, and the final `exec node …installer`
  *      order are unchanged.
+ *   5. The installer is handed off as a STANDALONE copy: the built installer
+ *      package is deployed, production-only, into ~/.orcy/installer through
+ *      the same pinned runner once the build is done — carrying the dependency
+ *      graph the workspace lockfile resolved, workspace packages included,
+ *      instead of leaning on the workspace's node_modules or resolving version
+ *      ranges afresh. (The package manager itself is a stub here;
+ *      `clean-install.test.ts` runs the real one.)
+ *   6. A failed deploy, or one that produced no entry point, exits non-zero
+ *      with the cause and leaves a previous installer in place, and nothing
+ *      claims completion before the installer has run.
  */
 import { describe, it, expect } from "vitest";
 import { spawnSync } from "node:child_process";
@@ -63,18 +73,26 @@ interface Scenario {
   markerPath: string;
   home: string;
   stubDir: string;
+  /** `<home>/.orcy/installer` — where install.sh stages the handed-off copy. */
+  installerDir: string;
+  /** `<home>/.orcy/src/orcy` — the extracted (built) source tree. */
+  srcDir: string;
 }
 
 /**
  * Build a hermetic environment: fake HOME, stub-only PATH, shared ordered log.
  * `pin` controls the packageManager spec seeded into the fake source; pass
  * `withCorepack`/`withNpx` false to omit those runners from PATH.
+ * `failDeploy` makes the runner fail the installer deploy; `built` false seeds
+ * a source tree whose installer was never built (no `packages/installer/dist`).
  */
 function buildScenario(opts: {
   pin?: string | null;
   withCorepack?: boolean;
   withNpx?: boolean;
   nodeVersion?: string | null;
+  failDeploy?: boolean;
+  built?: boolean;
 }): Scenario {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), "orcy-installsh-"));
   const stubDir = path.join(home, "stubs");
@@ -121,11 +139,13 @@ printf 'fake-archive' > "$out"
 `,
   );
 
-  // tar -xzf <archive> -C <srcDir> --strip-components=1 → seed the fake source.
+  // tar -xzf <archive> -C <srcDir> --strip-components=1 → seed the fake source:
+  // a built installer package that loads a workspace package (`@orcy/shared`).
   const pkgJson =
     pin === null
       ? JSON.stringify({ name: "orcy", private: true })
       : JSON.stringify({ name: "orcy", private: true, packageManager: pin });
+  const installerDist = opts.built === false ? "" : "packages/installer/dist";
   writeStub(
     stubDir,
     "tar",
@@ -137,12 +157,18 @@ for a in "$@"; do
   prev="$a"
 done
 ${log("tar")}
-mkdir -p "$dir/packages/installer/dist" "$dir/packages/installer/skills"
+mkdir -p "$dir/${installerDist}" "$dir/packages/installer/skills" "$dir/packages/shared/dist"
 cat > "$dir/package.json" <<'PKGEOF'
 ${pkgJson}
 PKGEOF
+cat > "$dir/packages/shared/package.json" <<'PKGEOF'
+{ "name": "@orcy/shared", "type": "module", "main": "dist/index.js" }
+PKGEOF
+printf 'export const id = "shared";\\n' > "$dir/packages/shared/dist/index.js"
 cat > "$dir/packages/installer/dist/index.js" <<'IDXEOF'
-require("fs").writeFileSync(process.env.ORCY_INSTALLER_EXEC_MARKER, "ran:" + JSON.stringify(process.argv.slice(2)));
+import { writeFileSync } from "node:fs";
+import { id } from "@orcy/shared";
+writeFileSync(process.env.ORCY_INSTALLER_EXEC_MARKER, JSON.stringify({ args: process.argv.slice(2), shared: id }));
 IDXEOF
 printf 'skill\\n' > "$dir/packages/installer/skills/overview.md"
 `,
@@ -153,24 +179,50 @@ printf 'skill\\n' > "$dir/packages/installer/skills/overview.md"
   writeStub(stubDir, "npm", `${log("FORBIDDEN-npm")}\nexit 1`);
 
   // Pin-aware runners: record args plus the working directory (single quoted
-  // word — an unquoted "$*" would word-split across log lines).
+  // word — an unquoted "$*" would word-split across log lines). A deploy stands
+  // in for the real one: it stages the built package files and injects the
+  // workspace package as a real copy, under the last argument as the target.
+  // With failDeploy it reports the failure the real one would.
+  const deploy = `
+case "$*" in
+  *" deploy "*)
+    for a in "$@"; do target="$a"; done
+    mkdir -p "$target/dist" "$target/skills" "$target/node_modules/@orcy"
+    cp "$PWD/packages/installer/dist/index.js" "$target/dist/" 2>/dev/null
+    cp "$PWD/packages/installer/skills/overview.md" "$target/skills/" 2>/dev/null
+    cp -r "$PWD/packages/shared" "$target/node_modules/@orcy/shared" 2>/dev/null
+    ${opts.failDeploy ? 'echo "ERR_PNPM_DEPLOY_STUBBED" >&2; exit 1 ;;' : ";;"}
+esac
+exit 0
+`;
   if (withCorepack) {
     writeStub(
       stubDir,
       "corepack",
-      `printf "corepack %s @PWD=%s\\n" "$*" "$PWD" >> "${logPath}"\nexit 0`,
+      `printf "corepack %s @PWD=%s\\n" "$*" "$PWD" >> "${logPath}"\n${deploy}`,
     );
   }
   if (withNpx) {
-    writeStub(stubDir, "npx", `printf "npx %s @PWD=%s\\n" "$*" "$PWD" >> "${logPath}"\nexit 0`);
+    writeStub(
+      stubDir,
+      "npx",
+      `printf "npx %s @PWD=%s\\n" "$*" "$PWD" >> "${logPath}"\n${deploy}`,
+    );
   }
 
-  return { logPath, markerPath, home, stubDir };
+  return {
+    logPath,
+    markerPath,
+    home,
+    stubDir,
+    installerDir: path.join(home, ".orcy", "installer"),
+    srcDir: path.join(home, ".orcy", "src", "orcy"),
+  };
 }
 
-function runInstallSh(s: Scenario) {
+function runInstallSh(s: Scenario, args: string[] = []) {
   // Absolute path: the child's PATH is the stub dir only, which has no sh.
-  return spawnSync(resolveBin("sh"), [INSTALL_SH], {
+  return spawnSync(resolveBin("sh"), [INSTALL_SH, ...args], {
     env: {
       PATH: s.stubDir,
       HOME: s.home,
@@ -213,9 +265,8 @@ describe("install.sh — pin-aware pnpm bootstrap (hermetic)", () => {
     expect(build).toBeGreaterThan(install);
 
     // Install/build run in the extracted source directory.
-    const srcDir = `${s.home}/.orcy/src/orcy`;
-    expect(lines[install!]).toContain(`@PWD=${srcDir}`);
-    expect(lines[build!]).toContain(`@PWD=${srcDir}`);
+    expect(lines[install!]).toContain(`@PWD=${s.srcDir}`);
+    expect(lines[build!]).toContain(`@PWD=${s.srcDir}`);
 
     // Preferred runner: npx is never invoked.
     expect(lines.some((l) => l.startsWith("npx"))).toBe(false);
@@ -223,6 +274,41 @@ describe("install.sh — pin-aware pnpm bootstrap (hermetic)", () => {
     expect(fs.existsSync(s.markerPath)).toBe(true);
     // No bare pnpm / npm invocation anywhere.
     expect(lines.some((l) => l.startsWith("FORBIDDEN"))).toBe(false);
+  });
+
+  it("hands off a standalone installer: a production-only deploy of the built package, after the build", () => {
+    const s = buildScenario({});
+    const r = runInstallSh(s, ["--yes", "--components=api"]);
+    expect(r.status).toBe(0);
+
+    const lines = readLog(s);
+    const build = firstIndex(lines, new RegExp(`^corepack ${PIN_RE} -r build `));
+    // The deploy runs AFTER the build, through the same source-derived pin,
+    // from the built source tree, into a staging directory beside any previous
+    // installer, and is swapped in only once its entry point exists.
+    const deploy = lines.indexOf(
+      `corepack ${REPO_PIN} --filter ./packages/installer deploy --prod --config.inject-workspace-packages=true ${s.installerDir}.new @PWD=${s.srcDir}`,
+    );
+    expect(deploy).toBeGreaterThan(build);
+    // Production-only, and no version range is resolved afresh for code that
+    // runs immediately: the deploy carries the locked dependency graph.
+    expect(lines.some((l) => l.includes("install --prod"))).toBe(false);
+
+    // The handed-off copy ran OUTSIDE the workspace, resolved its workspace
+    // dependency from its own real copy, and received the caller's arguments.
+    expect(JSON.parse(fs.readFileSync(s.markerPath, "utf8"))).toMatchObject({
+      args: ["--yes", "--components=api"],
+      shared: "shared",
+    });
+
+    // Built files the running installer needs (entry point + skill bundle), in
+    // their final place; the staging directory is gone.
+    expect(fs.existsSync(path.join(s.installerDir, "dist", "index.js"))).toBe(true);
+    expect(fs.existsSync(path.join(s.installerDir, "skills", "overview.md"))).toBe(true);
+    expect(fs.existsSync(`${s.installerDir}.new`)).toBe(false);
+
+    // Nothing outside the staged directory was relied on for resolution.
+    expect(fs.existsSync(path.join(s.home, ".orcy", "node_modules"))).toBe(false);
   });
 
   it("npx branch: falls back to the same extracted pin when corepack is unavailable", () => {
@@ -269,6 +355,52 @@ describe("install.sh — pin-aware pnpm bootstrap (hermetic)", () => {
       expect(fs.existsSync(s.markerPath)).toBe(false);
     },
   );
+});
+
+describe("install.sh — a failed handoff fails closed", () => {
+  const output = (r: { stdout: string; stderr: string }) => `${r.stdout}\n${r.stderr}`;
+
+  /** A working installer from an earlier run, recognisable by its content. */
+  const seedPreviousInstaller = (s: Scenario): string => {
+    const previous = path.join(s.installerDir, "dist", "index.js");
+    fs.mkdirSync(path.dirname(previous), { recursive: true });
+    fs.writeFileSync(previous, "previous installer");
+    return previous;
+  };
+
+  it("never prints the bootstrap's completion banner", () => {
+    // Regression check for the removed "Setup complete" line: it fails against
+    // the previous install.sh, which printed it before the installer ran. The
+    // install's own completion is the wizard's to report (clean-install.test.ts).
+    const s = buildScenario({});
+    const r = runInstallSh(s);
+    expect(r.status).toBe(0);
+    expect(output(r)).not.toMatch(/setup complete/i);
+  });
+
+  it("exits non-zero, names the cause, and keeps the previous installer when the deploy fails", () => {
+    const s = buildScenario({ failDeploy: true });
+    const previous = seedPreviousInstaller(s);
+    const r = runInstallSh(s);
+    expect(r.status).not.toBe(0);
+    expect(output(r)).toMatch(/failed to prepare the installer/i);
+    expect(output(r)).not.toMatch(/setup complete/i);
+    // The installer never started, and the one already in place is untouched.
+    expect(fs.existsSync(s.markerPath)).toBe(false);
+    expect(fs.readFileSync(previous, "utf8")).toBe("previous installer");
+    expect(fs.existsSync(`${s.installerDir}.new`)).toBe(false);
+  });
+
+  it("exits non-zero, names the cause, and keeps the previous installer when the installer was never built", () => {
+    const s = buildScenario({ built: false });
+    const previous = seedPreviousInstaller(s);
+    const r = runInstallSh(s);
+    expect(r.status).not.toBe(0);
+    expect(output(r)).toMatch(/failed to stage the installer/i);
+    expect(fs.existsSync(s.markerPath)).toBe(false);
+    expect(fs.readFileSync(previous, "utf8")).toBe("previous installer");
+    expect(fs.existsSync(`${s.installerDir}.new`)).toBe(false);
+  });
 });
 
 describe("install.sh — supported Node.js preflight", () => {

@@ -76,12 +76,27 @@ function resolvePnpmRunner(sourceRoot: string): PnpmRunner {
   }
 }
 
-/** Run pnpm through the resolved runner with an argument array (no shell string). */
+/**
+ * Run pnpm through the resolved runner with an argument array (no shell string).
+ * The child's output is captured, and the thrown error only exposes it as raw
+ * Buffers — so a failure rethrows WITH the decoded output: it is the one place
+ * pnpm states why it failed (ERR_PNPM_*), which the bare exit code is not.
+ */
 function runPnpm(runner: PnpmRunner, args: string[], options: { cwd: string }): void {
-  execFileSync(runner.command, [...runner.baseArgs, ...args], {
-    cwd: options.cwd,
-    stdio: "pipe",
-  });
+  const argv = [...runner.baseArgs, ...args];
+  try {
+    execFileSync(runner.command, argv, { cwd: options.cwd, stdio: "pipe" });
+  } catch (err) {
+    const { stdout, stderr } = err as { stdout?: unknown; stderr?: unknown };
+    const output = [stdout, stderr]
+      .filter((stream): stream is Buffer => Buffer.isBuffer(stream))
+      .map((stream) => stream.toString("utf8").trim())
+      .filter(Boolean)
+      .join("\n");
+    // No captured output means the command never ran (spawn failure): report that.
+    const reason = output || (err instanceof Error ? err.message : String(err));
+    throw new Error(`Pinned pnpm failed: ${runner.command} ${argv.join(" ")}\n${reason}`, { cause: err });
+  }
 }
 
 function buildFromArchive(ctx: InstallContext): PnpmRunner {
@@ -121,13 +136,117 @@ function buildFromArchive(ctx: InstallContext): PnpmRunner {
   return runner;
 }
 
-function collectDeps(packageJsonPath: string): Record<string, string> {
+interface PackageManifest {
+  name?: string;
+  dependencies?: Record<string, string>;
+  devDependencies?: Record<string, string>;
+}
+
+/** A package's manifest, or an empty one when it is missing or unreadable. */
+function readManifest(pkgDir: string): PackageManifest {
   try {
-    const pkg = JSON.parse(fs.readFileSync(packageJsonPath, "utf-8"));
-    return pkg.dependencies ?? {};
+    return JSON.parse(fs.readFileSync(path.join(pkgDir, "package.json"), "utf-8"));
   } catch {
     return {};
   }
+}
+
+/** A dependency on another package of the same pnpm workspace. */
+const isWorkspaceSpec = (spec: unknown): spec is string =>
+  typeof spec === "string" && spec.startsWith("workspace:");
+
+/**
+ * A dependency name becomes a directory name under `node_modules`, so only a
+ * real npm package name is usable: nothing that can climb out of it.
+ */
+const NPM_PACKAGE_NAME = /^(?:@[a-z0-9-*~][a-z0-9-*._~]*\/)?[a-z0-9-~][a-z0-9-._~]*$/i;
+
+/**
+ * What the selected components need at run time from a source tree that is NOT
+ * their workspace: the registry dependencies to install into the destination
+ * manifest, and the `workspace:` packages to copy beside the components. The
+ * destination has no workspace, so a `workspace:` spec can never resolve there.
+ * A built component loads a workspace package whichever manifest section lists
+ * it, so both `dependencies` and `devDependencies` are read; registry
+ * devDependencies stay out (the install is production-only).
+ */
+function resolveRuntimeClosure(
+  srcDir: string,
+  components: string[],
+): { registryDeps: Record<string, string>; workspacePackages: [name: string, pkgDir: string][] } {
+  const packagesDir = path.join(srcDir, "packages");
+  const dirByName = new Map<string, string>();
+  for (const dir of fs.existsSync(packagesDir) ? fs.readdirSync(packagesDir) : []) {
+    const pkgDir = path.join(packagesDir, dir);
+    const { name } = readManifest(pkgDir);
+    if (name) dirByName.set(name, pkgDir);
+  }
+
+  const componentDirs = components.map((comp) => path.join(packagesDir, comp));
+  const workspacePackages: [string, string][] = [];
+  // Breadth-first from the components: every workspace package they load,
+  // directly or through another workspace package.
+  const queue = [...componentDirs];
+  for (const pkgDir of queue) {
+    const { dependencies = {}, devDependencies = {} } = readManifest(pkgDir);
+    for (const [name, spec] of Object.entries({ ...dependencies, ...devDependencies })) {
+      if (!isWorkspaceSpec(spec) || workspacePackages.some(([dep]) => dep === name)) continue;
+      const depDir = dirByName.get(name);
+      if (!depDir || !NPM_PACKAGE_NAME.test(name)) {
+        throw new Error(
+          `Workspace dependency "${name}" (required by ${path.basename(pkgDir)}) is not a package under ${packagesDir}`,
+        );
+      }
+      // Checked here, before anything is installed or copied: an unbuilt
+      // workspace package would otherwise surface only after the components
+      // were already in place.
+      if (!fs.existsSync(path.join(depDir, "dist"))) {
+        throw new Error(`No dist found for workspace dependency ${name} (${depDir}); build it before installing`);
+      }
+      workspacePackages.push([name, depDir]);
+      queue.push(depDir);
+    }
+  }
+
+  // ponytail: registry ranges merge flat — one version per name in the
+  // destination manifest; conflicting ranges between packages would need
+  // nested node_modules.
+  const registryDeps: Record<string, string> = {};
+  // Workspace packages first, so a component's own range wins where they differ.
+  for (const pkgDir of [...workspacePackages.map(([, dir]) => dir), ...componentDirs]) {
+    for (const [name, spec] of Object.entries(readManifest(pkgDir).dependencies ?? {})) {
+      if (!isWorkspaceSpec(spec)) registryDeps[name] = spec;
+    }
+  }
+  return { registryDeps, workspacePackages };
+}
+
+/**
+ * Copy a built workspace package (`dist/` + manifest) to `<nodeModules>/<name>`.
+ * Returns the destination, or null when the package has no `dist/`.
+ */
+function copyBuiltPackage(pkgDir: string, name: string, nodeModules: string): string | null {
+  const srcDist = path.join(pkgDir, "dist");
+  if (!fs.existsSync(srcDist)) return null;
+  const destDir = path.join(nodeModules, name);
+  rmRf(destDir);
+  fs.mkdirSync(path.dirname(destDir), { recursive: true });
+  fs.cpSync(srcDist, path.join(destDir, "dist"), { recursive: true });
+  const manifest = path.join(pkgDir, "package.json");
+  if (fs.existsSync(manifest)) fs.cpSync(manifest, path.join(destDir, "package.json"));
+  return destDir;
+}
+
+/** Remove every `workspace:` spec from a destination manifest's dependencies; tells whether there was one. */
+function deleteWorkspaceSpecs(dependencies: Record<string, string> = {}): boolean {
+  let removed = false;
+  for (const [name, spec] of Object.entries(dependencies)) {
+    if (isWorkspaceSpec(spec)) {
+      delete dependencies[name];
+      removed = true;
+    }
+  }
+  return removed;
 }
 
 function installRuntimeDeps(
@@ -135,12 +254,18 @@ function installRuntimeDeps(
   allDeps: Record<string, string>,
   runner: PnpmRunner,
 ): void {
-  if (Object.keys(allDeps).length === 0) return;
-
   const pkgJson = path.join(orcyHome, "package.json");
   const existingPkg = fs.existsSync(pkgJson)
     ? JSON.parse(fs.readFileSync(pkgJson, "utf-8"))
     : { private: true, dependencies: {}, pnpm: { onlyBuiltDependencies: ["better-sqlite3"] } };
+  // The destination is not a workspace, so a `workspace:` spec can never
+  // resolve here. Drop the ones an earlier installer wrote into this manifest
+  // (it merged them straight from the components' manifests) — otherwise an
+  // install that failed on them keeps failing after that was fixed. Every
+  // other dependency, the user's included, is kept.
+  const repaired = deleteWorkspaceSpecs(existingPkg.dependencies);
+  if (Object.keys(allDeps).length === 0 && !repaired) return;
+
   existingPkg.dependencies = { ...existingPkg.dependencies, ...allDeps };
   if (!existingPkg.pnpm) existingPkg.pnpm = {};
   if (!existingPkg.pnpm.onlyBuiltDependencies) existingPkg.pnpm.onlyBuiltDependencies = [];
@@ -167,36 +292,30 @@ function installBuiltPackages(
   const nodeModules = path.join(ctx.orcyHome, "node_modules");
   if (!fs.existsSync(nodeModules)) fs.mkdirSync(nodeModules, { recursive: true });
 
-  // Phase 1: Collect runtime deps from all selected components
-  // and install them via pnpm into a temp directory, then copy
-  // the resolved packages into orcyHome/node_modules.
-  const allDeps: Record<string, string> = {};
-  for (const comp of components) {
-    const srcPkgJson = path.join(srcDir, "packages", comp, "package.json");
-    Object.assign(allDeps, collectDeps(srcPkgJson));
-  }
-  installRuntimeDeps(ctx.orcyHome, allDeps, runner);
+  // Phase 1: Install the registry dependencies of the selected components AND
+  // of every workspace package they load, through the pinned pnpm into
+  // orcyHome (package.json + node_modules).
+  const closure = resolveRuntimeClosure(srcDir, components);
+  installRuntimeDeps(ctx.orcyHome, closure.registryDeps, runner);
 
+  // Phase 2: Copy the built components into orcyHome/node_modules/@orcy.
   for (const comp of components) {
-    const srcDistDir = path.join(srcDir, "packages", comp, "dist");
-    const destDir = path.join(nodeModules, "@orcy", comp);
-
-    if (!fs.existsSync(srcDistDir)) {
+    const destDir = copyBuiltPackage(path.join(srcDir, "packages", comp), `@orcy/${comp}`, nodeModules);
+    if (!destDir) {
       console.warn(`    No dist found for @orcy/${comp}, skipping`);
       continue;
     }
-
-    rmRf(destDir);
-    fs.mkdirSync(path.dirname(destDir), { recursive: true });
-    fs.cpSync(srcDistDir, path.join(destDir, "dist"), { recursive: true });
-
-    const srcPkgJson = path.join(srcDir, "packages", comp, "package.json");
-    if (fs.existsSync(srcPkgJson)) {
-      fs.cpSync(srcPkgJson, path.join(destDir, "package.json"));
-    }
-
     record({ path: destDir, action: "created" });
     console.log(`    Installed @orcy/${comp}`);
+  }
+
+  // The workspace packages those components load are copied the same way, as
+  // real packages. They are deliberately not recorded: ownership is unchanged
+  // — like the pnpm-installed registry packages, they leave with the components
+  // in the node_modules sweep.
+  for (const [name, pkgDir] of closure.workspacePackages) {
+    copyBuiltPackage(pkgDir, name, nodeModules);
+    console.log(`    Installed ${name}`);
   }
 
   if (components.includes("api")) {
