@@ -228,6 +228,20 @@ describe("clearance transition/summary failure boundary", () => {
     expect(eventRepo.getNotificationEventById(event.id)!.historySummary).toBeNull();
   });
 
+  it("counts a committed transition and reports a failing event summary write", async () => {
+    const { delivery } = seedDelivery();
+    vi.spyOn(eventRepo, "updateEventHistorySummary").mockImplementationOnce(() => {
+      throw new Error("summary write failed");
+    });
+
+    const response = await clear("/api/v1", [delivery.id]);
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json().cleared).toBe(1);
+    expect(response.json().errors).toEqual(["summary write failed"]);
+    expect(deliveryRepo.getNotificationDeliveryById(delivery.id)!.status).toBe("cleared");
+  });
+
   it("leaves the row untouched and uncounted when the transition itself fails", async () => {
     const { delivery } = seedDelivery();
     vi.spyOn(deliveryRepo, "transitionDeliveryToCleared").mockImplementationOnce(() => {

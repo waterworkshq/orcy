@@ -151,14 +151,11 @@ function processClearance(delivery: NotificationDelivery): ClearanceOutcome {
         eventType: event.eventType,
         title: event.title,
       };
-      try {
-        eventRepo.updateEventHistorySummary(delivery.eventId, summary);
-      } catch {
-        // best-effort: event may already be deleted/cleared
-      }
+      eventRepo.updateEventHistorySummary(delivery.eventId, summary);
     }
   } catch (err) {
-    // The delivery row is already cleared; the summary lookup failed.
+    // The delivery row is already cleared; the history summary failed. The
+    // transition still counts — the receipt must not contradict the row.
     return { transitioned: true, error: err instanceof Error ? err.message : String(err) };
   }
 
