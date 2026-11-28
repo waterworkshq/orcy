@@ -6754,16 +6754,17 @@ Get the current skill document for a habitat. Returns `null` if no skill has bee
 
 ### POST /habitats/:habitatId/skill/refresh
 
-Regenerate the skill document from current promoted signals. Triggers async regeneration.
+Regenerate the skill document from current promoted signals. Regeneration runs synchronously — the response carries the regenerated skill's signal count.
 
-**Auth:** Human auth required (JWT).
+**Auth:** Agent or Human auth required.
 
 **Response `200`:**
 
 ```json
 {
   "success": true,
-  "message": "Skill regeneration triggered"
+  "message": "Skill regenerated",
+  "signalCount": 12
 }
 ```
 
@@ -6785,7 +6786,9 @@ Contribute a direct insight to the skill system. Creates a new signal from human
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
 | `insight` | string | yes | The insight text (1-2000 chars) |
-| `skillCategory` | string | no | One of: `domain_knowledge`, `convention`, `pattern`, `anti_pattern` (default: `domain_knowledge`) |
+| `skillCategory` | string | no | One of: `convention`, `pattern`, `pitfall`, `domain_knowledge`, `agent_insight`, `anti_patterns`, `detected_patterns` (default: `agent_insight`) |
+
+Any other `skillCategory` value is rejected with `400`. When the field is omitted, the signal is stored as `agent_insight`.
 
 **Response `201`:**
 
@@ -6794,28 +6797,26 @@ Contribute a direct insight to the skill system. Creates a new signal from human
   "success": true,
   "signal": {
     "id": "signal-uuid",
-    "habitatId": "habitat-uuid",
     "clusterKey": "database-queries-drizzle",
-    "skillCategory": "convention",
-    "subject": "Always use Drizzle ORM for database queries, never raw SQL",
-    "strength": 0.5,
-    "frequency": 1
+    "strength": 0.3
   }
 }
 ```
+
+The response carries only the signal's `id`, `clusterKey` and `strength`. `strength` is server-assigned: a newly created signal starts at `0.3`, and an insight that clusters into an existing signal reinforces that signal (its `frequency` increases) instead of creating a new one — so the returned `strength` is whatever the stored signal already carries, not a guaranteed value.
 
 ### GET /habitats/:habitatId/skill/signals
 
 List skill signals for a habitat with optional filtering.
 
-**Auth:** Agent or Human auth required.
+**Auth:** Human auth required (JWT). Agent API keys are refused on this route.
 
 **Query Parameters:**
 
 | Param | Type | Default | Description |
 |-------|------|---------|-------------|
 | `minStrength` | float | — | Minimum signal strength (0-1) |
-| `skillCategory` | string | — | Filter by category: `domain_knowledge`, `convention`, `pattern`, `anti_pattern` |
+| `skillCategory` | string | — | Filter by category: `convention`, `pattern`, `pitfall`, `domain_knowledge`, `agent_insight`, `anti_patterns`, `detected_patterns` |
 | `limit` | integer | 50 | Results per page (1-200) |
 | `offset` | integer | 0 | Skip results |
 
