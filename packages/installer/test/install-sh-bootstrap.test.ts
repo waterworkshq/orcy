@@ -31,6 +31,11 @@
  *      installer working — including one that an interrupted run left moved
  *      aside, which the next run restores before anything else — and nothing
  *      claims completion before the installer has run.
+ *   8. One bootstrap at a time per ORCY_HOME: a lock held by a live run stops
+ *      a second run before it touches anything, one left by a run that is
+ *      gone is taken over, and it is released at the handoff and on failure.
+ *      An installer left moved aside by an interrupted promotion is restored
+ *      before anything fallible runs.
  *   7. The documented `curl … | bash` leaves the installer a drained pipe as
  *      stdin; when a terminal exists, the handoff gives the installer that
  *      terminal instead, so the interactive wizard can read its answers.
@@ -96,6 +101,8 @@ interface Scenario {
   stubDir: string;
   /** `<home>/.orcy/installer` — where install.sh stages the handed-off copy. */
   installerDir: string;
+  /** `<home>/.orcy/bootstrap.lock` — held by a run between its start and its handoff. */
+  lockFile: string;
   /** `<home>/.orcy/src/orcy` — the extracted (built) source tree. */
   srcDir: string;
 }
@@ -106,8 +113,15 @@ interface Scenario {
  * `withCorepack`/`withNpx` false to omit those runners from PATH.
  * `failDeploy` makes the runner fail the installer deploy; `built` false seeds
  * a source tree whose installer was never built (no `packages/installer/dist`);
- * `failPromotion` makes the staged installer impossible to move into place.
+ * `failPromotion` makes the staged installer impossible to move into place;
+ * `failDownload` makes the source download fail; `lock` seeds a bootstrap lock.
  */
+
+/** The PID of a process that has already exited. */
+function exitedPid(): number {
+  return spawnSync(resolveBin("node"), ["-e", "process.exit(0)"]).pid!;
+}
+
 function buildScenario(opts: {
   pin?: string | null;
   withCorepack?: boolean;
@@ -116,6 +130,9 @@ function buildScenario(opts: {
   failDeploy?: boolean;
   built?: boolean;
   failPromotion?: boolean;
+  failDownload?: boolean;
+  /** `live`: a lock held by this (running) test process. `stale`: one held by a process that exited. */
+  lock?: "live" | "stale";
 }): Scenario {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), "orcy-installsh-"));
   scenarioHomes.push(home);
@@ -177,7 +194,7 @@ for a in "$@"; do
   prev="$a"
 done
 ${log("curl")}
-printf 'fake-archive' > "$out"
+${opts.failDownload ? 'echo "curl: (22) The requested URL returned error: 404" >&2\nexit 22' : `printf 'fake-archive' > "$out"`}
 `,
   );
 
@@ -252,12 +269,20 @@ exit 0
     );
   }
 
+  // A bootstrap lock from an earlier run, if the scenario starts with one.
+  if (opts.lock) {
+    const lockDir = path.join(home, ".orcy");
+    fs.mkdirSync(lockDir, { recursive: true });
+    fs.writeFileSync(path.join(lockDir, "bootstrap.lock"), `${opts.lock === "live" ? process.pid : exitedPid()}\n`);
+  }
+
   return {
     logPath,
     markerPath,
     home,
     stubDir,
     installerDir: path.join(home, ".orcy", "installer"),
+    lockFile: path.join(home, ".orcy", "bootstrap.lock"),
     srcDir: path.join(home, ".orcy", "src", "orcy"),
   };
 }
@@ -400,17 +425,26 @@ describe("install.sh — pin-aware pnpm bootstrap (hermetic)", () => {
   );
 });
 
+const output = (r: { stdout: string; stderr: string }): string => `${r.stdout}\n${r.stderr}`;
+
+/** A working installer from an earlier run, recognisable by its content. Returns its entry point. */
+const seedPreviousInstaller = (s: Scenario): string => {
+  const previous = path.join(s.installerDir, "dist", "index.js");
+  fs.mkdirSync(path.dirname(previous), { recursive: true });
+  fs.writeFileSync(previous, "previous installer");
+  return previous;
+};
+
+/** The state a run leaves when interrupted while promoting: the previous
+ *  installer moved aside, nothing active. Returns the moved-aside entry point. */
+const seedInterruptedPromotion = (s: Scenario): string => {
+  const aside = path.join(`${s.installerDir}.old`, "dist", "index.js");
+  fs.mkdirSync(path.dirname(aside), { recursive: true });
+  fs.writeFileSync(aside, "previous installer");
+  return aside;
+};
+
 describe("install.sh — a failed handoff fails closed", () => {
-  const output = (r: { stdout: string; stderr: string }) => `${r.stdout}\n${r.stderr}`;
-
-  /** A working installer from an earlier run, recognisable by its content. */
-  const seedPreviousInstaller = (s: Scenario): string => {
-    const previous = path.join(s.installerDir, "dist", "index.js");
-    fs.mkdirSync(path.dirname(previous), { recursive: true });
-    fs.writeFileSync(previous, "previous installer");
-    return previous;
-  };
-
   it("never prints the bootstrap's completion banner", () => {
     // Regression check for the removed "Setup complete" line: it fails against
     // the previous install.sh, which printed it before the installer ran. The
@@ -456,15 +490,6 @@ describe("install.sh — a failed handoff fails closed", () => {
     expect(fs.existsSync(`${s.installerDir}.old`)).toBe(false);
   });
 
-  /** The state a run leaves when interrupted while promoting: the previous
-   *  installer moved aside, nothing active. Returns the moved-aside entry point. */
-  const seedInterruptedPromotion = (s: Scenario): string => {
-    const aside = path.join(`${s.installerDir}.old`, "dist", "index.js");
-    fs.mkdirSync(path.dirname(aside), { recursive: true });
-    fs.writeFileSync(aside, "previous installer");
-    return aside;
-  };
-
   it("restores the installer a previous run left moved aside, even when this run then fails", () => {
     const s = buildScenario({ failDeploy: true });
     const aside = seedInterruptedPromotion(s);
@@ -501,6 +526,49 @@ describe("install.sh — a failed handoff fails closed", () => {
     expect(r.status).toBe(0);
     expect(fs.existsSync(`${s.installerDir}.old`)).toBe(false);
     expect(fs.existsSync(`${s.installerDir}.new`)).toBe(false);
+  });
+});
+
+describe("install.sh — one bootstrap at a time", () => {
+  it("refuses to start while another bootstrap run holds the lock", () => {
+    const s = buildScenario({ lock: "live" }); // held by this running test process
+    const r = runInstallSh(s);
+    expect(r.status).not.toBe(0);
+    expect(output(r)).toMatch(/another orcy installer run is in progress/i);
+    // Nothing was touched: no download, no staging, no handoff, lock left alone.
+    expect(readLog(s)).toEqual([]);
+    expect(fs.readFileSync(s.lockFile, "utf8").trim()).toBe(String(process.pid));
+    expect(fs.existsSync(s.markerPath)).toBe(false);
+  });
+
+  it("takes over a lock left by a run that is gone, and releases it at the handoff", () => {
+    const s = buildScenario({ lock: "stale" });
+    const r = runInstallSh(s);
+    expect(r.status).toBe(0);
+    expect(fs.existsSync(s.markerPath)).toBe(true);
+    expect(fs.existsSync(s.lockFile)).toBe(false);
+  });
+
+  it("releases the lock when the run fails", () => {
+    const s = buildScenario({ failDeploy: true });
+    const r = runInstallSh(s);
+    expect(r.status).not.toBe(0);
+    expect(fs.existsSync(s.lockFile)).toBe(false);
+  });
+
+  it("restores an installer left moved aside even when this run fails before staging", () => {
+    // The recovery must not wait for the download, install and build: a
+    // failure in any of them would otherwise leave the machine without one.
+    const s = buildScenario({ failDownload: true });
+    const aside = seedInterruptedPromotion(s);
+    const r = runInstallSh(s);
+    expect(r.status).not.toBe(0);
+    expect(output(r)).toMatch(/failed to download source/i);
+    expect(fs.existsSync(aside)).toBe(false);
+    expect(fs.readFileSync(path.join(s.installerDir, "dist", "index.js"), "utf8")).toBe(
+      "previous installer",
+    );
+    expect(fs.existsSync(s.lockFile)).toBe(false);
   });
 });
 

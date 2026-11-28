@@ -260,6 +260,11 @@ describe("installed runtime closure — failure is loud", () => {
     });
     const failure = installPackages(getContext(), ["api"], {});
     await expect(failure).rejects.toThrow(/Pinned pnpm failed \(exit 1, ERR_PNPM_FETCH_401\)/);
+    // The re-run command names the directory pnpm ran in, so retrying it from
+    // another project cannot touch that project instead.
+    await expect(failure).rejects.toThrow(
+      `Re-run it where it ran to see pnpm's full output: (cd '${orcyHome()}' && corepack pnpm@10.34.8 install --prod)`,
+    );
     await expect(failure).rejects.not.toThrow(/hunter2|registry\.example\.com|TOKEN_FROM/);
     const error: unknown = await failure.catch((e: unknown) => e);
     expect((error as Error).cause).toBeUndefined();

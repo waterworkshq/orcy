@@ -6,6 +6,7 @@ import { doctor } from "./doctor.js";
 import { updateInstall, uninstallAll, listInstall, serviceStatus } from "./lifecycle.js";
 import { installService, stopService, uninstallService } from "./service-installer.js";
 import { verify } from "./verify.js";
+import { shellQuote } from "./shell-quote.js";
 
 function parseYesArgs(args: string[]): Record<string, string> {
   const opts: Record<string, string> = {};
@@ -170,9 +171,6 @@ export type Action =
   | { kind: "noninteractive-wizard"; opts: Record<string, string> }
   | { kind: "command" }
   | { kind: "error"; message: string };
-
-/** Quote a value for a POSIX shell command line. */
-const shellQuote = (value: string): string => `'${value.replace(/'/g, `'\\''`)}'`;
 
 /**
  * Determine the CLI dispatch action from raw argv (pure, testable without

@@ -4,6 +4,7 @@ import { execSync, execFileSync } from "node:child_process";
 import type { InstallContext } from "./context.js";
 import { createShims, editShellRc } from "./path-shim.js";
 import { record, hashFile } from "./manifest.js";
+import { shellQuote, shellWord } from "./shell-quote.js";
 
 const REPO_URL_BASE = "https://github.com/waterworkshq/orcy";
 const ARCHIVE_URL = `${REPO_URL_BASE}/archive/refs/heads/main.tar.gz`;
@@ -87,7 +88,8 @@ function resolvePnpmRunner(sourceRoot: string): PnpmRunner {
  */
 function runPnpm(runner: PnpmRunner, args: string[], options: { cwd: string }): void {
   const argv = [...runner.baseArgs, ...args];
-  const command = `${runner.command} ${argv.join(" ")}`;
+  // Quoted word by word: a path argument may contain spaces or shell syntax.
+  const command = [runner.command, ...argv].map(shellWord).join(" ");
   try {
     execFileSync(runner.command, argv, { cwd: options.cwd, stdio: "pipe" });
   } catch (err) {
@@ -106,9 +108,12 @@ function runPnpm(runner: PnpmRunner, args: string[], options: { cwd: string }): 
     // No exit status means the command never ran: report the spawn code instead.
     const outcome =
       status != null ? `exit ${status}` : (code ?? (signal ? `signal ${signal}` : "no exit status"));
+    // oxlint-disable-next-line preserve-caught-error -- the raw child error carries the captured output
     throw new Error(
       `Pinned pnpm failed (${outcome}${pnpmCode ? `, ${pnpmCode}` : ""}): ${command}\n` +
-        "Re-run that command to see pnpm's full output.",
+        // With the working directory: pnpm operates on the project it is run
+        // in, so the command must not be retried from wherever the user is.
+        `Re-run it where it ran to see pnpm's full output: (cd ${shellQuote(options.cwd)} && ${command})`,
     );
   }
 }

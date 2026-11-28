@@ -36,6 +36,41 @@ case "$NODE_MAJOR" in
 esac
 echo "    Node $NODE_VERSION found"
 
+# One bootstrap at a time per ORCY_HOME: two would race on the source tree, the
+# staged installer and its promotion. The lock is the exclusive creation of a
+# file holding this process's PID. One held by a live process stops this run
+# before it touches anything; one left behind by a run that is gone is taken
+# over. It is released before the installer is handed off to.
+LOCK_FILE="${ORCY_HOME}/bootstrap.lock"
+INSTALLER_DIR="${ORCY_HOME}/installer"
+BACKUP_DIR="${INSTALLER_DIR}.old"
+take_lock() { ( set -C; echo $$ > "$LOCK_FILE" ) 2>/dev/null; }
+mkdir -p "$ORCY_HOME"
+if ! take_lock; then
+  LOCK_PID=$(cat "$LOCK_FILE" 2>/dev/null || echo "")
+  if [ -n "$LOCK_PID" ] && kill -0 "$LOCK_PID" 2>/dev/null; then
+    echo "Another orcy installer run is in progress for this user (pid $LOCK_PID)."
+    echo "Wait for it to finish, or - if none is running - remove $LOCK_FILE and retry."
+    exit 1
+  fi
+  rm -f "$LOCK_FILE"
+  take_lock || {
+    echo "Could not take the installer lock $LOCK_FILE."
+    exit 1
+  }
+fi
+trap 'rm -f "$LOCK_FILE"' EXIT
+
+# A run interrupted while promoting the installer leaves no active installer
+# and the previous one moved aside. Put it back before anything fallible
+# happens, so a failure further down never costs the machine its installer.
+if [ ! -e "$INSTALLER_DIR" ] && [ -d "$BACKUP_DIR" ]; then
+  if ! mv "$BACKUP_DIR" "$INSTALLER_DIR"; then
+    echo "Could not restore the previous installer from $BACKUP_DIR."
+    exit 1
+  fi
+fi
+
 # Download source
 echo "==> Downloading source from GitHub..."
 mkdir -p "$CACHE_DIR" "$SRC_DIR"
@@ -116,18 +151,7 @@ echo "    Build complete"
 # place only once its entry point exists, and the previous one is deleted only
 # after that, so a failed run leaves a working installer in place.
 echo "==> Preparing installer..."
-INSTALLER_DIR="${ORCY_HOME}/installer"
 STAGED_DIR="${INSTALLER_DIR}.new"
-BACKUP_DIR="${INSTALLER_DIR}.old"
-# A run interrupted while promoting leaves no active installer and the previous
-# one moved aside. Put it back first, so that whatever happens next — including
-# a failure below — the machine keeps a working installer.
-if [ ! -e "${INSTALLER_DIR}" ] && [ -d "${BACKUP_DIR}" ]; then
-  if ! mv "${BACKUP_DIR}" "${INSTALLER_DIR}"; then
-    echo "Could not restore the previous installer from ${BACKUP_DIR}."
-    exit 1
-  fi
-fi
 rm -rf "${STAGED_DIR}"
 (cd "$SRC_DIR" && run_pnpm --filter ./packages/installer deploy --prod --config.inject-workspace-packages=true "${STAGED_DIR}") || {
   rm -rf "${STAGED_DIR}"
@@ -156,7 +180,8 @@ if ! mv "${STAGED_DIR}" "${INSTALLER_DIR}"; then
 fi
 rm -rf "${BACKUP_DIR}"
 
-# Run installer
+# Run installer (the bootstrap lock no longer applies: promotion is done)
+rm -f "$LOCK_FILE"
 echo "==> Running installer..."
 # `curl … | bash` leaves the installer a drained pipe as stdin, so the
 # interactive wizard would read end-of-input at its first question and exit.
