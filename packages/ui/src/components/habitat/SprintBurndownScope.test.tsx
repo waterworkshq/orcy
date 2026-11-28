@@ -6,6 +6,7 @@ import {
   render,
   screen,
   waitFor,
+  within,
 } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { SprintPlanningPanel } from "./SprintPlanningPanel.js";
@@ -132,7 +133,9 @@ describe.each(["planning", "active"] as const)(
       expect(screen.getByTestId("chart").textContent).toBe(
         JSON.stringify([point(1)]),
       );
-      expect(screen.getByText("Tasks")).toBeTruthy();
+      const taskCard = screen.getByText("Tasks").closest(".rounded-lg");
+      expect(taskCard).not.toBeNull();
+      await waitFor(() => expect(within(taskCard as HTMLElement).getByText("0/1")).toBeTruthy());
       expect(
         screen.getByText(status === "planning" ? "Start" : "Complete"),
       ).toBeTruthy();
@@ -155,6 +158,7 @@ describe.each(["planning", "active"] as const)(
           JSON.stringify([point(0)]),
         ),
       );
+      await waitFor(() => expect(within(taskCard as HTMLElement).getByText("1/1")).toBeTruthy());
       expect(screen.getAllByTestId("chart")).toHaveLength(1);
     });
   },
