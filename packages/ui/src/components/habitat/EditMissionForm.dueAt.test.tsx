@@ -161,6 +161,43 @@ describe("Mission deadline survives an unrelated edit (issue #236)", () => {
     expect(writes[0].data).not.toHaveProperty("dueAt");
   });
 
+  it("omits the deadline when the mounted field receives the same displayed minute or is changed away and back", async () => {
+    render(<EditMissionForm open onClose={vi.fn()} mission={base} />, { wrapper });
+    // Re-entering the same displayed minute on a controlled datetime-local input does not emit a distinct edit.
+    fireEvent.change(dueDateField(), { target: { value: "2026-11-30T17:30" } });
+    // Changing away and returning to the baseline wall clock preserves stored seconds by omitting dueAt.
+    fireEvent.change(dueDateField(), { target: { value: "2026-11-30T18:00" } });
+    fireEvent.change(dueDateField(), { target: { value: "2026-11-30T17:30" } });
+    fireEvent.change(screen.getByDisplayValue("Original"), { target: { value: "Renamed" } });
+    save();
+    await waitFor(() => expect(writes.length).toBe(1));
+    expect(writes[0].data).not.toHaveProperty("dueAt");
+    expect(writes[0].data.title).toBe("Renamed");
+  });
+
+  it("preserves a fall-back repeated-hour DST deadline when untouched or edited away and reverted", async () => {
+    process.env.TZ = "America/New_York";
+    // 2026-11-01T06:30:00.000Z is the second 01:30 (EST); re-serializing "2026-11-01T01:30" resolves to 05:30:00.000Z (EDT).
+    const secondOccurrence = { ...base, dueAt: "2026-11-01T06:30:00.000Z" };
+    const untouched = render(<EditMissionForm open onClose={vi.fn()} mission={secondOccurrence} />, { wrapper });
+    expect((dueDateField(untouched.container) as HTMLInputElement).value).toBe("2026-11-01T01:30");
+    fireEvent.change(screen.getByDisplayValue("Original"), { target: { value: "Untouched" } });
+    save();
+    await waitFor(() => expect(writes.length).toBe(1));
+    expect(writes[0].data).not.toHaveProperty("dueAt");
+    untouched.unmount();
+
+    const reverted = render(<EditMissionForm open onClose={vi.fn()} mission={secondOccurrence} />, { wrapper });
+    fireEvent.change(dueDateField(reverted.container), { target: { value: "2026-11-01T02:30" } });
+    fireEvent.change(dueDateField(reverted.container), { target: { value: "2026-11-01T01:30" } });
+    fireEvent.change(screen.getByDisplayValue("Original"), { target: { value: "Reverted" } });
+    save();
+    await waitFor(() => expect(writes.length).toBe(2));
+    expect(writes[1].data).not.toHaveProperty("dueAt");
+    expect(writes[1].data.title).toBe("Reverted");
+    reverted.unmount();
+  });
+
   it("leaves the Create contract alone: no deadline omits, a chosen deadline posts an instant", async () => {
     render(<CreateMissionForm open onClose={vi.fn()} habitatId="h1" />, { wrapper });
     fireEvent.change(screen.getByPlaceholderText("Mission title"), { target: { value: "Fresh" } });
