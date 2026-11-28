@@ -2478,6 +2478,7 @@ Get the full effort report for a task, including totals broken down by source an
       "metadata": null
     }
   ],
+  "entriesComplete": true,
   "warnings": []
 }
 ```
@@ -2492,8 +2493,11 @@ Get the full effort report for a task, including totals broken down by source an
 | `accuracy.basis` | string | Which data was used: `logged_effort`, `inferred_only`, `total_accounted`, or `unavailable` |
 | `bySource` | object | Minutes aggregated by source type |
 | `byActor` | array | Minutes aggregated by actor with name resolution |
-| `entries` | array | All effort entries (including corrections) with actor names |
+| `entries` | array | Up to the oldest 1,000 effort entries (including corrections) with actor names |
+| `entriesComplete` | boolean | Whether `entries` contains every effort entry, including corrections |
 | `warnings` | string[] | Data quality warnings (e.g., overlap between logged and inferred) |
+
+Totals, source and actor breakdowns cover all entries even when `entriesComplete` is false. To retrieve later detail, call `GET /tasks/:id/effort-entries?limit=1000&offset=1000` and continue increasing `offset` by the number of rows returned. Keep `includeCorrections=true` (the default) to match the report. Entries are ordered by `recordedAt` ascending; ordering among equal timestamps is unspecified. Offset pages are live reads, not a snapshot: concurrent changes or tied timestamps can make traversal unstable.
 
 **Response `404`:** Task not found.
 
@@ -2508,6 +2512,8 @@ List all effort entries for a task, with actor name resolution.
 | Param | Type | Default | Description |
 |-------|------|---------|-------------|
 | `includeCorrections` | string | `true` | Set to `false` to exclude correction entries |
+| `limit` | integer | `100` | Page size from 1 to 1,000 |
+| `offset` | integer | `0` | Number of matching entries to skip |
 
 **Response `200`:**
 

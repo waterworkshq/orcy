@@ -162,6 +162,8 @@ export interface EffortReport {
     correctionAdjustmentMinutes: number;
   }>;
   entries: EffortEntryWithActor[];
+  /** Whether entries contains every effort entry, including corrections. */
+  entriesComplete: boolean;
   warnings: string[];
 }
 
