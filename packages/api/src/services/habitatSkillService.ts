@@ -6,6 +6,8 @@ import type {
 } from "../repositories/habitatSkill.js";
 import type { ExperienceCategory } from "@orcy/shared";
 import * as taskRepo from "../repositories/task.js";
+import { getTaskByIdExact } from "../repositories/taskCrud.js";
+import * as missionRepo from "../repositories/mission.js";
 import * as habitatRepo from "../repositories/habitat.js";
 import * as pulseService from "./pulseService.js";
 import * as taskLifecycle from "./tasks/task-lifecycle.js";
@@ -75,29 +77,24 @@ function hashCode(str: string): number {
 }
 
 function recalculateCrossMissionCounts(habitatId: string, allSignals: HabitatSkillSignal[]): void {
-  const byCluster = new Map<string, HabitatSkillSignal[]>();
-  for (const s of allSignals) {
-    const arr = byCluster.get(s.clusterKey) ?? [];
-    arr.push(s);
-    byCluster.set(s.clusterKey, arr);
-  }
-
-  for (const [, matching] of byCluster) {
-    if (matching.length < 2) continue;
+  // A cluster is consolidated into one row per habitat; its task references,
+  // rather than additional signal rows, carry the cross-mission evidence.
+  for (const signal of allSignals) {
     const missions = new Set<string>();
-    const taskIds = [...new Set(matching.flatMap((s) => parseJsonArray(s.sourceTaskIds)))];
+    const parsed: unknown = parseJsonArray(signal.sourceTaskIds);
+    const taskIds = Array.isArray(parsed)
+      ? new Set(parsed.filter((id): id is string => typeof id === "string"))
+      : new Set<string>();
     for (const id of taskIds) {
-      const task = taskRepo.getTaskById(id);
-      if (task?.missionId) missions.add(task.missionId);
+      const task = getTaskByIdExact(id);
+      if (!task) continue;
+      const mission = missionRepo.getMissionById(task.missionId);
+      if (mission?.habitatId === habitatId) missions.add(mission.id);
     }
 
     const crossCount = missions.size;
-    if (crossCount >= 2) {
-      for (const sig of matching) {
-        if (sig.crossMissionCount !== crossCount) {
-          repo.updateSignal(sig.id, { crossMissionCount: crossCount });
-        }
-      }
+    if (signal.crossMissionCount !== crossCount) {
+      repo.updateSignal(signal.id, { crossMissionCount: crossCount });
     }
   }
 }
