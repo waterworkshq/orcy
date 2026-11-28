@@ -112,47 +112,38 @@ describe("published Skill categories match the shared registry", () => {
     expect([...values].sort()).not.toEqual([...SKILL_CATEGORIES].sort());
   });
 
-  it.each(["docs/API.md", "docs/SKILL.md"])(
-    "%s publishes cluster keys the server generates for the shown subjects",
-    (file) => {
+  it.each(Object.entries(PUBLISHED_CLUSTER_EXAMPLES))(
+    "%s publishes exactly the cluster keys the server generates for the documented subjects",
+    (file, subjects) => {
       const published = publishedClusterKeys(file);
-      expect(published.length, `${file} must publish a clusterKey example`).toBeGreaterThan(0);
-      for (const { key, subject } of published) {
-        expect(key, `${file} clusterKey for "${subject}" must be the served normalized form`).toBe(
-          normalize(subject),
-        );
+      expect(published, `${file} must publish one cluster key per documented subject`).toEqual(
+        subjects.map((subject) => normalize(subject)),
+      );
+      const markdown = readFileSync(path.join(REPO_ROOT, file), "utf8");
+      for (const subject of subjects) {
+        expect(markdown, `${file} must publish the subject "${subject}"`).toContain(subject);
       }
     },
   );
 });
 
 /**
- * Every `"clusterKey"` a doc file publishes, paired with the subject or
- * insight it belongs to (the nearest published one by line distance). Every
- * published key is checked, so a second or later example cannot drift while
- * the first one still matches.
+ * The cluster-key examples each guide publishes, with the subject that
+ * produces them. The expectation is explicit — no proximity matching — so a
+ * published key can never be validated against an unrelated example.
  */
-function publishedClusterKeys(file: string): { key: string; subject: string }[] {
-  const lines = readFileSync(path.join(REPO_ROOT, file), "utf8").split("\n");
-  const subjects: { line: number; text: string }[] = [];
-  const keys: { line: number; text: string }[] = [];
-  lines.forEach((line, index) => {
-    for (const match of line.matchAll(/"(?:subject|insight)": "([^"]+)"/g)) {
-      subjects.push({ line: index + 1, text: match[1]! });
-    }
-    for (const match of line.matchAll(/"clusterKey": "([^"]+)"/g)) {
-      keys.push({ line: index + 1, text: match[1]! });
-    }
-  });
-  expect(subjects.length, `${file} must publish a subject for the cluster key examples`).toBeGreaterThan(
-    0,
-  );
-  return keys.map((key) => {
-    const nearest = subjects.reduce((best, candidate) =>
-      Math.abs(candidate.line - key.line) < Math.abs(best.line - key.line) ? candidate : best,
-    );
-    return { key: key.text, subject: nearest.text };
-  });
+const PUBLISHED_CLUSTER_EXAMPLES: Record<string, string[]> = {
+  "docs/API.md": [
+    "Always use Drizzle ORM for database queries, never raw SQL",
+    "JWT tokens use RS256 signing with jsonwebtoken v9",
+  ],
+  "docs/SKILL.md": ["Always use Drizzle ORM for database queries, never raw SQL"],
+};
+
+/** Every `"clusterKey"` a doc file publishes, in publication order. */
+function publishedClusterKeys(file: string): string[] {
+  const markdown = readFileSync(path.join(REPO_ROOT, file), "utf8");
+  return [...markdown.matchAll(/"clusterKey": "([^"]+)"/g)].map((match) => match[1]!);
 }
 
 describe("served Skill wire contract", () => {
@@ -250,17 +241,23 @@ describe("served Skill wire contract", () => {
     expect(signals.signals[0]!.frequency).toBe(2);
   });
 
-  it("returns the normalized cluster key for the published example insight", async () => {
-    const insight = "Always use Drizzle ORM for database queries, never raw SQL";
-    const res = await app!.inject({
-      method: "POST",
-      url: `/api/habitats/${habitatId}/skill/contribute`,
-      headers: { "x-agent-api-key": agentApiKey },
-      payload: { insight },
-    });
-    expect(res.statusCode).toBe(201);
-    expect(res.json().signal.clusterKey).toBe(normalize(insight));
-  });
+  it.each(Object.entries(PUBLISHED_CLUSTER_EXAMPLES))(
+    "%s: the route returns the published cluster key for each documented subject",
+    async (file, subjects) => {
+      const published = publishedClusterKeys(file);
+      for (const [index, subject] of subjects.entries()) {
+        const res = await app!.inject({
+          method: "POST",
+          url: `/api/habitats/${habitatId}/skill/contribute`,
+          headers: { "x-agent-api-key": agentApiKey },
+          payload: { insight: subject },
+        });
+        expect(res.statusCode).toBe(201);
+        expect(res.json().signal.clusterKey).toBe(published[index]);
+        expect(res.json().signal.clusterKey).toBe(normalize(subject));
+      }
+    },
+  );
 
   it("returns the compact contribution response", async () => {
     const res = await app!.inject({
