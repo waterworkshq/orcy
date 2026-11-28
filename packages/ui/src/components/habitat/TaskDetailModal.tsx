@@ -380,7 +380,7 @@ export function TaskDetailModal() {
               </div>
             </div>
 
-            <div className="relative flex-1 grid grid-cols-12 overflow-hidden">
+            <div className="relative min-h-0 flex-1 grid grid-cols-12 overflow-y-auto md:overflow-hidden">
               <div
                 className="col-span-7 max-md:col-span-12 p-6 md:p-10"
                 data-testid="task-detail-left-column"
@@ -534,6 +534,17 @@ export function TaskDetailModal() {
                           </span>
                         </div>
                       </div>
+
+                      {task.status === "rejected" && task.rejectionReason?.trim() && (
+                        <div className="p-4 bg-surface-container-high/80 rounded-sm">
+                          <span className="text-[10px] font-label uppercase tracking-widest text-on-surface-variant">
+                            Rejection feedback
+                          </span>
+                          <p className="mt-1 text-sm text-on-surface/90 whitespace-pre-wrap break-words">
+                            {task.rejectionReason}
+                          </p>
+                        </div>
+                      )}
 
                       {task.result && (
                         <div className="p-4 bg-surface-container-high/80 rounded-sm">

@@ -373,7 +373,7 @@ export function useAgentsListWithTasks(habitatId: string | undefined) {
 export function useOrganizations() {
   return useQuery({
     queryKey: queryKeys.organizations.list(),
-    queryFn: () => api.organizations.list(),
+    queryFn: ({ signal }: { signal?: AbortSignal }) => api.organizations.list(signal),
     staleTime: 5 * 60 * 1000,
   });
 }
@@ -381,7 +381,7 @@ export function useOrganizations() {
 export function useOrganizationTeams(orgId: string | undefined) {
   return useQuery({
     queryKey: queryKeys.organizations.teams(orgId ?? ""),
-    queryFn: () => api.organizations.listTeams(orgId!),
+    queryFn: ({ signal }: { signal?: AbortSignal }) => api.organizations.listTeams(orgId!, signal),
     enabled: !!orgId,
     staleTime: 5 * 60 * 1000,
   });
@@ -390,7 +390,7 @@ export function useOrganizationTeams(orgId: string | undefined) {
 export function useTeamMembers(teamId: string | undefined) {
   return useQuery({
     queryKey: queryKeys.organizations.members(teamId ?? ""),
-    queryFn: () => api.teams.listMembers(teamId!),
+    queryFn: ({ signal }: { signal?: AbortSignal }) => api.teams.listMembers(teamId!, signal),
     enabled: !!teamId,
     staleTime: 5 * 60 * 1000,
   });

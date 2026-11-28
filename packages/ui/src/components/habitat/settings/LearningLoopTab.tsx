@@ -44,14 +44,14 @@ export function LearningLoopTab({ habitatId }: LearningLoopTabProps) {
   const [freshRerunReason, setFreshRerunReason] = useState("");
   const [freshRerunPolicyId, setFreshRerunPolicyId] = useState<string | null>(null);
 
-  const { data: policies = [], isLoading: loadingPolicies } = useQuery({
+  const { data: policies, isLoading: loadingPolicies, isError: policyError, refetch: retryPolicies } = useQuery({
     queryKey: queryKeys.extraction.policies(habitatId),
     queryFn: ({ signal }: { signal?: AbortSignal }) =>
       api.extraction.listPolicies(habitatId, signal),
     enabled: !!habitatId,
   });
 
-  const { data: runHistory = [], isLoading: loadingHistory } = useQuery({
+  const { data: runHistory, isLoading: loadingHistory, isError: historyError, refetch: retryHistory } = useQuery({
     queryKey: queryKeys.extraction.runHistory(habitatId),
     queryFn: ({ signal }: { signal?: AbortSignal }) =>
       api.extraction.getRunHistory(habitatId, signal),
@@ -121,19 +121,19 @@ export function LearningLoopTab({ habitatId }: LearningLoopTabProps) {
     },
   });
 
-  const isAnyEnabled = policies.some((p) => p.enabled);
+  const isAnyEnabled = policies?.some((p) => p.enabled) ?? false;
   const isRunning = ensureMutation.isPending || freshRerunMutation.isPending || dryRunMutation.isPending;
-
-  if (loadingPolicies) {
-    return (
-      <div className="py-8 text-center text-sm text-muted-foreground">
-        Loading Learning Loop settings...
-      </div>
-    );
-  }
 
   return (
     <div className="space-y-4" data-testid="learning-loop-tab">
+      {loadingPolicies && <p>Loading Learning Loop settings...</p>}
+      {policyError && (
+        <div role="alert" className="rounded border border-border p-3 text-sm">
+          <p>{policies ? "Could not refresh policies. Showing last loaded policies; they may be out of date." : "Extraction policies unavailable."}</p>
+          <Button onClick={() => void retryPolicies()}>Retry policies</Button>
+        </div>
+      )}
+      {policies && <>
       {/* Feature state banner */}
       <div
         className={`rounded border p-3 ${
@@ -182,6 +182,7 @@ export function LearningLoopTab({ habitatId }: LearningLoopTabProps) {
           onDryRun={() => setConfirmAction({ type: "dryRun", policyId: policy.id })}
         />
       ))}
+      </>}
 
       {/* Fresh rerun reason dialog */}
       <Dialog
@@ -267,7 +268,13 @@ export function LearningLoopTab({ habitatId }: LearningLoopTabProps) {
       />
 
       {/* Run/work history */}
-      <RunHistoryList runs={runHistory} loading={loadingHistory} />
+      {historyError && (
+        <div role="alert" className="rounded border border-border p-3 text-sm">
+          <p>{runHistory ? "Could not refresh run history. Showing last loaded history; it may be out of date." : "Run history unavailable."}</p>
+          <Button onClick={() => void retryHistory()}>Retry history</Button>
+        </div>
+      )}
+      {(loadingHistory || runHistory) && <RunHistoryList runs={runHistory ?? []} loading={loadingHistory} />}
 
       <details className="border border-border rounded-md">
         <summary className="px-3 py-2 text-sm font-medium cursor-pointer hover:bg-muted/50">

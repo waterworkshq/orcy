@@ -126,7 +126,16 @@ export function createApiClient(config: ApiClientConfig): ApiClient {
         if (response.status === 204 || response.headers.get("content-length") === "0") {
           return undefined as T;
         }
-        return response.json() as Promise<T>;
+        try {
+          return (await response.json()) as T;
+        } catch (err) {
+          // Preserve the existing body-error behavior; only the attempt's own
+          // deadline should enter the timeout handler (and never replay a write).
+          if (controller.signal.aborted && err instanceof DOMException && err.name === "AbortError") {
+            throw err;
+          }
+          return Promise.reject(err);
+        }
       } catch (err) {
         if (err instanceof DOMException && err.name === "AbortError") {
           const timeoutError = new ApiClientError(

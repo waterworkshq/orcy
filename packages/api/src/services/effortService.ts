@@ -172,7 +172,10 @@ export function getTaskEffortReport(taskId: string): EffortReport | null {
   const totals = effortRepo.getEffortTotalsForTask(taskId);
   const bySource = effortRepo.getEffortBySourceForTask(taskId);
   const byActor = effortRepo.getEffortByActorForTask(taskId);
-  const entries = effortRepo.getEffortEntriesWithActorByTask(taskId, { limit: 1000 });
+  const entryLimit = 1000;
+  const entryPage = effortRepo.getEffortEntriesWithActorByTask(taskId, { limit: entryLimit + 1 });
+  const entriesComplete = entryPage.length <= entryLimit;
+  const entries = entryPage.slice(0, entryLimit);
 
   const effortMetrics = effortRepo.getPersistedEffortMetricsForTask(taskId, task.estimatedMinutes);
   const basis: EffortReport["accuracy"]["basis"] = effortMetrics.basis;
@@ -194,6 +197,7 @@ export function getTaskEffortReport(taskId: string): EffortReport | null {
     bySource,
     byActor,
     entries,
+    entriesComplete,
     warnings,
   };
 }

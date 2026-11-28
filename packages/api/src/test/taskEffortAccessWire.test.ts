@@ -648,6 +648,70 @@ afterAll(async () => {
   closeDb();
 });
 
+describe("task effort report detail completeness", () => {
+  it("exposes the bounded detail and reaches later entries without truncating totals", async () => {
+    const taskId = makeTask(teamHabitatId, "effort-report-bound", "ewc-seed");
+    const db = getDb();
+    for (let i = 0; i < 999; i++) {
+      db.insert(effortEntries).values({
+        id: `report-bound-${i}`,
+        taskId,
+        actorType: "human",
+        minutes: 1,
+        source: "human_manual",
+        recordedAt: new Date(Date.UTC(2026, 0, 1, 0, 0, i)).toISOString(),
+      }).run();
+    }
+    const getReport = () => wire("/api/v1", "GET", `/tasks/${taskId}/effort-report`, { token: memberViewerJwt });
+    const below = await getReport();
+    expect(below.status).toBe(200);
+    expect(below.body.entries).toHaveLength(999);
+    expect(below.body.entriesComplete).toBe(true);
+    db.insert(effortEntries).values({
+      id: "report-bound-999", taskId, actorType: "human", minutes: 1,
+      source: "human_manual", recordedAt: "2026-01-02T00:00:00.000Z",
+    }).run();
+    const exact = await getReport();
+    expect(exact.status).toBe(200);
+    expect(exact.body.entries).toHaveLength(1000);
+    expect(exact.body.entriesComplete).toBe(true);
+    db.insert(effortEntries).values({
+      id: "report-bound-1000", taskId, actorType: "human", minutes: 99,
+      source: "human_manual", recordedAt: "2026-01-03T00:00:00.000Z",
+    }).run();
+    const report = await wire("/api/v1", "GET", `/tasks/${taskId}/effort-report`, { token: memberViewerJwt });
+    expect(report.status).toBe(200);
+    expect(report.body.entries).toHaveLength(1000);
+    expect(report.body.entriesComplete).toBe(false);
+    expect(report.body.totals.loggedEffortMinutes).toBe(1099);
+    const later = await wire("/api/v1", "GET", `/tasks/${taskId}/effort-entries?offset=1000`, { token: memberViewerJwt });
+    expect(later.status).toBe(200);
+    expect(later.body).toHaveLength(1);
+    expect(later.body[0]).toMatchObject({ id: "report-bound-1000", minutes: 99 });
+    db.insert(effortEntries).values({
+      id: "report-bound-correction", taskId, actorType: "human", minutes: -7,
+      source: "correction_adjustment", correctsEntryId: "report-bound-1000",
+      correctionReason: "test correction", recordedAt: "2026-01-04T00:00:00.000Z",
+    }).run();
+    for (const prefix of PREFIXES) {
+      const corrected = await wire(prefix, "GET", `/tasks/${taskId}/effort-report`, { token: memberViewerJwt });
+      expect(corrected.status).toBe(200);
+      expect(corrected.body.entriesComplete).toBe(false);
+      expect(corrected.body.totals).toMatchObject({
+        loggedEffortMinutes: 1099, correctionAdjustmentMinutes: -7, totalAccountedMinutes: 1092,
+      });
+      const page = await wire(prefix, "GET", `/tasks/${taskId}/effort-entries?offset=1000`, { token: memberViewerJwt });
+      expect(page.body.map((entry: { id: string }) => entry.id)).toEqual([
+        "report-bound-1000", "report-bound-correction",
+      ]);
+      const filtered = await wire(prefix, "GET", `/tasks/${taskId}/effort-entries?offset=1000&includeCorrections=false`, { token: memberViewerJwt });
+      expect(filtered.body.map((entry: { id: string }) => entry.id)).toEqual(["report-bound-1000"]);
+      expect((await wire(prefix, "GET", `/tasks/${taskId}/effort-report`, { token: nonmemberAdminJwt })).status).toBe(403);
+      expect((await wire(prefix, "GET", `/tasks/${taskId}/effort-report`)).status).toBe(401);
+    }
+  });
+});
+
 describe("effort POST containment — admission matrix (both prefixes)", () => {
   it("admits every member shape and local agent on both prefixes; shapes and attribution unchanged", async () => {
     for (const prefix of PREFIXES) {
