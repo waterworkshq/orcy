@@ -17,6 +17,8 @@ import {
 } from "@orcy/daemon";
 
 const PID_FILE = path.join(ORCY_PATHS.run, "daemon.pid");
+const STARTING_FILE = path.join(ORCY_PATHS.run, "daemon.starting");
+const START_LOCK = path.join(ORCY_PATHS.run, "daemon.start.lock");
 const LOG_FILE = path.join(ORCY_PATHS.logs, "daemon.log");
 const CLI_ENTRY = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "index.js");
 
@@ -42,10 +44,77 @@ function updatePidFile(pid: number): void {
   fs.writeFileSync(PID_FILE, String(pid));
 }
 
-function clearPidFile(): void {
+function clearOwnedFile(file: string, pid: number): void {
   try {
-    fs.unlinkSync(PID_FILE);
+    if (fs.readFileSync(file, "utf8").trim() === String(pid)) fs.unlinkSync(file);
   } catch {}
+}
+
+function isStarting(pid: number): boolean {
+  try {
+    return fs.readFileSync(STARTING_FILE, "utf8").trim() === String(pid);
+  } catch {
+    return false;
+  }
+}
+
+function stopStarting(): never {
+  process.exit(0);
+}
+
+function clearOwnedState(pid: number): void {
+  try {
+    fs.mkdirSync(START_LOCK);
+  } catch {
+    return; // An acquirer owns the lock; it will handle any stale files.
+  }
+  try {
+    clearOwnedFile(PID_FILE, pid);
+    clearOwnedFile(STARTING_FILE, pid);
+  } finally {
+    fs.rmdirSync(START_LOCK);
+  }
+}
+
+// Serialize slot acquisition, including replacement of a dead PID. A stranded
+// lock fails closed: removing it automatically could race another acquirer.
+function reserveDetachedSlot(): void {
+  fs.mkdirSync(path.dirname(PID_FILE), { recursive: true });
+  try {
+    fs.mkdirSync(START_LOCK);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "EEXIST") {
+      throw new Error(`Daemon startup reservation is busy. If no start is in progress, remove ${START_LOCK}`, { cause: error });
+    }
+    throw error;
+  }
+  try {
+    const existing = readPid();
+    if (existing && isRunning(existing)) throw new Error(`Daemon already running or starting (pid ${existing})`);
+    fs.writeFileSync(STARTING_FILE, String(process.pid));
+    updatePidFile(process.pid);
+    process.once("exit", () => clearOwnedState(process.pid));
+  } catch (error) {
+    clearOwnedFile(PID_FILE, process.pid);
+    clearOwnedFile(STARTING_FILE, process.pid);
+    throw error;
+  } finally {
+    fs.rmdirSync(START_LOCK);
+  }
+}
+
+function publishForegroundPid(): void {
+  fs.mkdirSync(path.dirname(PID_FILE), { recursive: true });
+  fs.mkdirSync(START_LOCK);
+  try {
+    const existing = readPid();
+    if (existing && existing !== process.pid && isRunning(existing)) {
+      throw new Error(`Daemon already running or starting (pid ${existing})`);
+    }
+    updatePidFile(process.pid);
+  } finally {
+    fs.rmdirSync(START_LOCK);
+  }
 }
 
 function getDataDir(): string {
@@ -177,7 +246,7 @@ export function registerDaemonCommands(program: any) {
           if (options.detach) {
             const existingPid = readPid();
             if (existingPid && isRunning(existingPid)) {
-              console.log(`Daemon already running (pid ${existingPid})`);
+              console.log(`Daemon already ${isStarting(existingPid) ? "starting" : "running"} (pid ${existingPid})`);
               return;
             }
 
@@ -200,10 +269,13 @@ export function registerDaemonCommands(program: any) {
               fs.closeSync(log);
             }
             await new Promise<void>((resolve, reject) => {
-              let timedOut = false;
               const timer = setTimeout(() => {
-                timedOut = true;
-                child.kill("SIGKILL");
+                child.disconnect();
+                child.unref();
+                const tracked = child.pid && readPid() === child.pid;
+                reject(new Error(tracked
+                  ? `Daemon startup is still pending after 15 seconds (pid ${child.pid}). Check status and ${LOG_FILE}`
+                  : `Daemon startup is unconfirmed after 15 seconds (pid ${child.pid}); it has not reserved the daemon slot. See ${LOG_FILE}`));
               }, 15_000);
               child.once("error", (error) => {
                 clearTimeout(timer);
@@ -211,13 +283,11 @@ export function registerDaemonCommands(program: any) {
               });
               child.once("exit", (code, signal) => {
                 clearTimeout(timer);
-                if (child.pid && readPid() === child.pid) clearPidFile();
-                reject(new Error(timedOut
-                  ? `Daemon startup timed out after 15 seconds. See ${LOG_FILE}`
-                  : `Daemon exited during startup (${signal ?? `code ${code}`}). See ${LOG_FILE}`));
+                if (child.pid) clearOwnedState(child.pid);
+                reject(new Error(`Daemon exited during startup (${signal ?? `code ${code}`}). See ${LOG_FILE}`));
               });
               child.on("message", (message) => {
-                if (timedOut || message !== "orcy-daemon-ready") return;
+                if (message !== "orcy-daemon-ready") return;
                 clearTimeout(timer);
                 child.removeAllListeners("exit");
                 child.unref();
@@ -228,6 +298,13 @@ export function registerDaemonCommands(program: any) {
             return;
           }
 
+          const detachedChild = process.env.ORCY_DAEMON_DETACHED_START === "1";
+          if (detachedChild) {
+            reserveDetachedSlot();
+            // Stop can terminate startup even while recovery awaits the API.
+            process.once("SIGTERM", stopStarting);
+            process.once("SIGINT", stopStarting);
+          }
           const dataDir = getDataDir();
           const store = new Store(dataDir);
           const creds = store.loadCredentials();
@@ -290,22 +367,27 @@ export function registerDaemonCommands(program: any) {
             agents: creds.agents,
           });
 
+          if (!detachedChild) publishForegroundPid();
           pollLoop.start();
 
           const shutdown = async () => {
             console.log("\nShutting down...");
             pollLoop.stop();
             await sessionManager.shutdownAll();
-            clearPidFile();
+            clearOwnedState(process.pid);
             process.exit(0);
           };
 
+          if (detachedChild) {
+            process.removeListener("SIGINT", stopStarting);
+            process.removeListener("SIGTERM", stopStarting);
+            clearOwnedFile(STARTING_FILE, process.pid);
+          }
           process.on("SIGINT", shutdown);
           process.on("SIGTERM", shutdown);
-          updatePidFile(process.pid);
           console.log("Daemon running. Press Ctrl+C to stop.");
-          if (process.env.ORCY_DAEMON_DETACHED_START === "1" && process.send && process.connected) {
-            process.send("orcy-daemon-ready", () => process.disconnect());
+          if (detachedChild && process.send && process.connected) {
+            process.send("orcy-daemon-ready", () => { if (process.connected) process.disconnect(); });
           }
         },
       ),
@@ -319,7 +401,7 @@ export function registerDaemonCommands(program: any) {
         const pid = readPid();
         if (!pid || !isRunning(pid)) {
           console.log("Daemon is not running");
-          clearPidFile();
+          if (pid) clearOwnedState(pid);
           return;
         }
         try {
@@ -328,7 +410,6 @@ export function registerDaemonCommands(program: any) {
         } catch {
           console.error("Failed to stop daemon");
         }
-        clearPidFile();
       }),
     );
 
@@ -342,7 +423,7 @@ export function registerDaemonCommands(program: any) {
       const store = new Store(dataDir);
       const creds = store.loadCredentials();
 
-      console.log(`Daemon:  ${running ? "running" : "stopped"}`);
+      console.log(`Daemon:  ${running ? (isStarting(pid!) ? "starting" : "running") : "stopped"}`);
       if (running && pid) console.log(`PID:     ${pid}`);
 
       if (!creds) {
