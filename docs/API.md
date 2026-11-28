@@ -2882,13 +2882,13 @@ Create a new quality checklist template.
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
 | `name` | string | yes | Template name |
-| `description` | string | no | Template description |
+| `description` | string/null | no | Template description; omitted or `null` stores an empty string |
 | `category` | string | yes | Category grouping (e.g., `code_quality`, `security`, `testing`) |
-| `isRequired` | boolean | no | Whether this checklist is required for approval (default: true) |
+| `isRequired` | boolean/null | no | Whether this checklist is required for approval (default: true, also for `null`) |
 | `items` | array | yes | Checklist items (min 1) |
 | `items[].title` | string | yes | Item title |
-| `items[].description` | string | no | Item description |
-| `items[].required` | boolean | no | Whether this item is required (default: true) |
+| `items[].description` | string/null | no | Item description; omitted or `null` stores an empty string |
+| `items[].required` | boolean/null | no | Whether this item is required (default: true, also for `null`) |
 
 **Errors:** The whole body is validated before anything is written. Any of the following returns `400` `VALIDATION_ERROR`:
 
