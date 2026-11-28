@@ -71,7 +71,7 @@ function WikiEditorSession({ habitatId, mode, pageId, onDone, onCancel, initialD
   useLayoutEffect(() => { currentTagInput.current = tagInput; }, [tagInput]);
   const [preview, setPreview] = useState(false);
 
-  const { data: pageData, isError: pageError, isFetching: pageFetching, refetch: refetchPage } = useQuery({
+  const { data: pageData, isError: pageError, isFetching: pageFetching, isPaused: pagePaused, refetch: refetchPage } = useQuery({
     queryKey: queryKeys.wiki.page(habitatId, pageId ?? "new"),
     queryFn: () => wikiApi.getPage(habitatId, pageId!),
     enabled: isEdit,
@@ -270,6 +270,14 @@ function WikiEditorSession({ habitatId, mode, pageId, onDone, onCancel, initialD
   }
 
   if (isEdit && !hasBaseline) {
+    if (pagePaused) {
+      return (
+        <div role="status" className="rounded-md border border-[var(--outline-variant)] p-4 space-y-3">
+          <p>Waiting for a connection to load this page.</p>
+          <button type="button" onClick={onCancel}>Cancel</button>
+        </div>
+      );
+    }
     if (pageError && !pageFetching) {
       return (
         <div role="alert" className="rounded-md border border-[var(--outline-variant)] p-4 space-y-3">
@@ -282,8 +290,9 @@ function WikiEditorSession({ habitatId, mode, pageId, onDone, onCancel, initialD
       );
     }
     return (
-      <div className="flex items-center justify-center py-16">
+      <div className="flex items-center justify-center gap-3 py-16">
         <Loader2 className="h-6 w-6 animate-spin text-[var(--on-surface-variant)]" />
+        <button type="button" onClick={onCancel}>Cancel</button>
       </div>
     );
   }

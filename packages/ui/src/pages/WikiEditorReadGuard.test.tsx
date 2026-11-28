@@ -1,13 +1,13 @@
 import React from "react";
 import { afterEach, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { QueryClient, QueryClientProvider, onlineManager } from "@tanstack/react-query";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { WikiPage } from "./WikiPage.js";
 
 const page = { id: "p1", habitatId: "h1", title: "Original", content: "Existing body", parentId: "parent", tags: ["kept"], status: "published", currentVersionNumber: 1, updatedAt: "2026-01-01T00:00:00Z", links: [] };
 const json = (value: unknown, status = 200) => new Response(JSON.stringify(value), { status, headers: { "Content-Type": "application/json" } });
-afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
+afterEach(() => { cleanup(); onlineManager.setOnline(true); vi.unstubAllGlobals(); });
 
 it("blocks a cold failed detail read and retries before permitting writes", async () => {
   let fail = true;
@@ -62,4 +62,25 @@ it("allows a genuinely empty loaded body and retains a draft after a failed refr
   fireEvent.click(screen.getByRole("button", { name: "Save version" }));
   await waitFor(() => expect(fetcher.mock.calls.some(([, options]) => options?.method === "POST")).toBe(true));
   expect(JSON.parse(fetcher.mock.calls.find(([, options]) => options?.method === "POST")![1]!.body as string)).toMatchObject({ title: "Draft title", content: "" });
+});
+
+
+it("explains a paused cold read and resumes after reconnecting", async () => {
+  onlineManager.setOnline(false);
+  const fetcher = vi.fn(async (url: string | URL | Request) => {
+    const path = String(url);
+    if (path.endsWith("/wiki/pages/p1")) return json({ page });
+    if (path.endsWith("/api/habitats/h1")) return json({ habitat: { name: "Habitat" } });
+    if (path.endsWith("/wiki/pages")) return json({ pages: [] });
+    return json({ links: [], context: {} });
+  });
+  vi.stubGlobal("fetch", fetcher);
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  render(<QueryClientProvider client={client}><MemoryRouter initialEntries={["/habitats/h1/wiki?page=p1&edit=true"]}><Routes><Route path="/habitats/:habitatId/wiki" element={<WikiPage />} /></Routes></MemoryRouter></QueryClientProvider>);
+  expect(await screen.findByText(/waiting for.*connection/i)).toBeTruthy();
+  expect(screen.getByRole("button", { name: "Cancel" })).toBeTruthy();
+  expect(screen.queryByPlaceholderText("Page title…")).toBeNull();
+  expect(fetcher).not.toHaveBeenCalled();
+  onlineManager.setOnline(true);
+  await waitFor(() => expect((screen.getByPlaceholderText("Page title…") as HTMLInputElement).value).toBe("Original"));
 });
