@@ -33,7 +33,7 @@
  *      stdin; when a terminal exists, the handoff gives the installer that
  *      terminal instead, so the interactive wizard can read its answers.
  */
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, afterAll } from "vitest";
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
@@ -41,6 +41,12 @@ import path from "node:path";
 
 const REPO_ROOT = path.resolve(import.meta.dirname, "..", "..", "..");
 const INSTALL_SH = path.join(REPO_ROOT, "install.sh");
+
+/** Every scenario's disposable HOME; removed once this file has finished. */
+const scenarioHomes: string[] = [];
+afterAll(() => {
+  for (const home of scenarioHomes) fs.rmSync(home, { recursive: true, force: true });
+});
 
 /** The repo root's packageManager pin — the fake source mirrors it and the
  *  assertions follow it, so a deliberate pin bump needs no test edit. */
@@ -108,6 +114,7 @@ function buildScenario(opts: {
   built?: boolean;
 }): Scenario {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), "orcy-installsh-"));
+  scenarioHomes.push(home);
   const stubDir = path.join(home, "stubs");
   const logPath = path.join(home, "log");
   const markerPath = path.join(home, "installer-exec-marker");
