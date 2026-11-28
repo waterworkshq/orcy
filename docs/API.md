@@ -2890,6 +2890,23 @@ Create a new quality checklist template.
 | `items[].description` | string | no | Item description |
 | `items[].required` | boolean | no | Whether this item is required (default: true) |
 
+**Errors:** The whole body is validated before anything is written. A missing, empty, or non-array `items`, a missing or empty `name`, `category`, or `items[].title`, a non-string name, title, or description, or a non-boolean `isRequired` or `items[].required` returns `400` `VALIDATION_ERROR`. `details.fieldErrors` is keyed by top-level field, and each message starts with the failing field's full path:
+
+```json
+{
+  "error": "Validation failed",
+  "code": "VALIDATION_ERROR",
+  "details": {
+    "formErrors": [],
+    "fieldErrors": {
+      "items": ["items.1.title: Invalid input: expected string, received undefined"]
+    }
+  }
+}
+```
+
+Unknown fields are ignored, and an omitted or `null` optional field takes its default. The template and its items are saved as one unit: a refused or failed request leaves no template and no items behind, so Tasks started afterwards adopt nothing from it.
+
 **Response `200`:**
 
 ```json

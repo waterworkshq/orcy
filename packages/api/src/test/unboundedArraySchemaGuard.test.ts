@@ -88,6 +88,7 @@ const KNOWN_UNBOUNDED_ARRAY_SITES: Readonly<Record<string, number>> = {
   "packages/api/src/routes/prioritization.ts::conditions": 2,
   "packages/api/src/routes/prioritization.ts::labels": 1,
   "packages/api/src/routes/prioritization.ts::rules": 1,
+  "packages/api/src/routes/qualityGates.ts::items": 1,
   "packages/api/src/routes/remoteAccess.ts::baselineScopes": 1,
   "packages/api/src/routes/reviewRules.ts::fixedReviewerIds": 2,
   "packages/api/src/routes/reviewRules.ts::matchLabels": 2,

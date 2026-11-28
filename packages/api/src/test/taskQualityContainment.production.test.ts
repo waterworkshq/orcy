@@ -9,6 +9,8 @@
  * driver. Results come from RETURNING rows only; no `.run().changes`
  * semantics anywhere. The SEAM below is in-transaction instrumentation
  * (same connection), not overlapping independent-connection concurrency.
+ * The template-authoring block adds the same driver's rollback for a late
+ * item statement fault inside `createTemplate`.
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import fs from "node:fs";
@@ -21,7 +23,12 @@ import * as columnRepo from "../repositories/column.js";
 import * as missionRepo from "../repositories/mission.js";
 import * as taskRepo from "../repositories/taskCrud.js";
 import * as qualityRepo from "../repositories/qualityGate.js";
-import { taskQualityChecklists, taskQualityChecklistItems } from "../db/schema/index.js";
+import {
+  qualityChecklistTemplates,
+  qualityChecklistItems,
+  taskQualityChecklists,
+  taskQualityChecklistItems,
+} from "../db/schema/index.js";
 import { AppError } from "../errors.js";
 import { RepositoryError } from "../errors/repository.js";
 
@@ -366,5 +373,37 @@ describe("PRODUCTION DRIVER — triple-scoped aggregate primitives", () => {
     });
     expect(ok!.isCompleted).toBe(true);
     expect(checklistRow(colA.checklist.id)!.status).toBe("in_progress");
+  });
+});
+
+describe("PRODUCTION DRIVER — template authoring aggregate", () => {
+  const templateState = () =>
+    JSON.stringify([
+      getDb().select().from(qualityChecklistTemplates).all(),
+      getDb().select().from(qualityChecklistItems).all(),
+    ]);
+
+  it("an item statement fault AFTER the template and first item were written rolls both back; the replay then persists in order", () => {
+    const input = {
+      name: "tqcp-authoring",
+      category: "testing",
+      items: [{ title: "First" }, { title: "Second" }],
+    };
+    const before = templateState();
+    getDb().run(
+      sql`CREATE TRIGGER tqcp_abort BEFORE INSERT ON quality_checklist_items WHEN NEW.order_index = 1 BEGIN SELECT RAISE(ABORT, 'tqcp template item fault'); END`,
+    );
+    try {
+      expect(() => qualityRepo.createTemplate(input)).toThrow(RepositoryError);
+      expect(templateState()).toBe(before);
+    } finally {
+      getDb().run(sql`DROP TRIGGER tqcp_abort`);
+    }
+
+    const created = qualityRepo.createTemplate(input);
+    expect(qualityRepo.getTemplateItems(created.id).map((i) => [i.title, i.orderIndex])).toEqual([
+      ["First", 0],
+      ["Second", 1],
+    ]);
   });
 });

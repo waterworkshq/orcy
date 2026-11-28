@@ -7,7 +7,7 @@ import {
 } from "../db/schema/index.js";
 import { eq, and, exists, sql } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
-import { notFound } from "../errors.js";
+import { notFound, isAppError } from "../errors.js";
 import type {
   QualityChecklistTemplate,
   QualityChecklistItem,
@@ -18,53 +18,69 @@ import type {
 import {
   repositoryCreateError,
   repositoryNotFoundError,
+  repositoryTransactionError,
   repositoryUpdateError,
 } from "../errors/repository.js";
 
 export function createTemplate(input: {
   name: string;
-  description?: string;
+  description?: string | null;
   category: string;
-  isRequired?: boolean;
-  items: { title: string; description?: string; required?: boolean }[];
+  isRequired?: boolean | null;
+  items: { title: string; description?: string | null; required?: boolean | null }[];
 }): QualityChecklistTemplate {
   const db = getDb();
   const id = uuid();
   const now = new Date().toISOString();
 
+  // One atomic aggregate: the template and every item commit together or not
+  // at all. A failed item write must not leave a (by default required)
+  // template that later Task starts adopt.
   try {
-    db.insert(qualityChecklistTemplates)
-      .values({
-        id,
-        name: input.name,
-        description: input.description ?? "",
-        category: input.category,
-        isRequired: input.isRequired ?? true,
-        createdAt: now,
-        updatedAt: now,
-      })
-      .run();
-  } catch (err) {
-    throw repositoryCreateError("qualityChecklistTemplate", err as Error, id);
-  }
+    db.transaction(
+      (tx) => {
+        try {
+          tx.insert(qualityChecklistTemplates)
+            .values({
+              id,
+              name: input.name,
+              description: input.description ?? "",
+              category: input.category,
+              isRequired: input.isRequired ?? true,
+              createdAt: now,
+              updatedAt: now,
+            })
+            .run();
+        } catch (err) {
+          throw repositoryCreateError("qualityChecklistTemplate", err as Error, id);
+        }
 
-  input.items.forEach((item, index) => {
-    try {
-      db.insert(qualityChecklistItems)
-        .values({
-          id: uuid(),
-          templateId: id,
-          title: item.title,
-          description: item.description ?? "",
-          required: item.required ?? true,
-          orderIndex: index,
-          createdAt: now,
-        })
-        .run();
-    } catch (err) {
-      throw repositoryCreateError("qualityChecklistItem", err as Error, id);
-    }
-  });
+        input.items.forEach((item, index) => {
+          try {
+            tx.insert(qualityChecklistItems)
+              .values({
+                id: uuid(),
+                templateId: id,
+                title: item.title,
+                description: item.description ?? "",
+                required: item.required ?? true,
+                orderIndex: index,
+                createdAt: now,
+              })
+              .run();
+          } catch (err) {
+            throw repositoryCreateError("qualityChecklistItem", err as Error, id);
+          }
+        });
+      },
+      { behavior: "immediate" },
+    );
+  } catch (err) {
+    // The statement failures above rethrow unwrapped — never masked by a
+    // generic transaction error.
+    if (isAppError(err)) throw err;
+    throw repositoryTransactionError("qualityChecklistTemplate", err as Error, id);
+  }
 
   const template = getTemplateById(id);
   if (!template) throw repositoryNotFoundError("qualityChecklistTemplate", id);
