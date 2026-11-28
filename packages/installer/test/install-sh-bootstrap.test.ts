@@ -409,10 +409,16 @@ if (behavior.orphanWorker) {
   spawn(process.execPath, ["-e", outer, "--", pidFile], { stdio: "ignore" }).unref();
 }
 // Stands in for a build the installer is waiting on: outlives it unless stopped.
+// One that ends on its own counts from the installer's last moment — the event
+// the supervisor's deadline is tied to — which it is handed at its start: by the
+// time it runs, its parent is gone already.
+if (behavior.workerMs) process.env.ORCY_FAKE_EXIT_AT = String(Date.now());
 if (behavior.spawnChild || behavior.namedWorker || behavior.workerMs) {
   const child = spawn(process.execPath, ["-e", behavior.namedWorker
     ? "process.title = 'build\\\\n)orker (1)'; setInterval(() => {}, 1000)"
-    : behavior.workerMs ? "setTimeout(() => process.exit(0), " + behavior.workerMs + ")" : "setInterval(() => {}, 1000)"], { stdio: "ignore" });
+    : behavior.workerMs
+      ? "const end = Number(process.env.ORCY_FAKE_EXIT_AT) + " + behavior.workerMs + "; setInterval(() => { if (Date.now() >= end) process.exit(0); }, 5)"
+      : "setInterval(() => {}, 1000)"], { stdio: "ignore" });
   writeFileSync(process.env.ORCY_FAKE_CHILD_PID, String(child.pid));
   child.unref();
 }
@@ -979,10 +985,13 @@ describe("install.sh — one installer run at a time", () => {
   }, 15_000);
 
   it("releases the lock when the last process of the run ends at the deadline, not long before", async () => {
-    // The worker outlives the installer for just under five seconds. The last
-    // look before the deadline still sees it and the first after finds it gone:
-    // a group that has just emptied must not cost a lock.
-    const s = buildScenario({ installer: { workerMs: 4950 } });
+    // The worker outlives the installer for 4,925 ms counted from the installer's
+    // last moment, as the supervisor's deadline is. The last look before that
+    // deadline, 200 ms earlier, still sees it; the first after, 50 ms later,
+    // finds it gone: a group that has just emptied must not cost a lock. Both
+    // clocks start on the same event, so a slow start of the worker's — or of
+    // anything else — does not move the margin.
+    const s = buildScenario({ installer: { workerMs: 4925 } });
     const r = runInstallSh(s);
     expect(r.status).toBe(0);
     expect(fs.existsSync(s.lockDir)).toBe(false);
