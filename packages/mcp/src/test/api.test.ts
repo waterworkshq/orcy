@@ -186,6 +186,21 @@ describe("KanbanApiClient.claimTask", () => {
     expect(result).toEqual({ success: false, reason, message: raw, ...rest });
   });
 
+  it.each([
+    "11111111-1111-4111-8111-111111111111/start?",
+    "..",
+    "%2e%2e%2fagents",
+    "a b",
+  ])("refuses a task ID that could retarget the request (%s) before sending it", async (taskId) => {
+    const { client, request } = createClientWithRequestSpy();
+
+    await expect(client.claimTask(taskId)).resolves.toMatchObject({
+      success: false,
+      reason: "not_found",
+    });
+    expect(request).not.toHaveBeenCalled();
+  });
+
   it("keeps an unreadable refusal as unknown", async () => {
     const { client, request } = createClientWithRequestSpy();
     request.mockRejectedValue(new ApiClientError(502, "Bad Gateway"));

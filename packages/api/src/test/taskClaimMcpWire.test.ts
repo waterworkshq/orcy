@@ -102,12 +102,17 @@ async function connectMcp(url: string, agent: { id: string; apiKey: string }): P
     }
   });
 
-  const init = await request("initialize", {
-    protocolVersion: "2024-11-05",
-    capabilities: {},
-    clientInfo: { name: "task-claim-wire-test", version: "1.0.0" },
-  });
-  expect(init?.serverInfo?.name).toBe("orcy-mcp-server");
+  try {
+    const init = await request("initialize", {
+      protocolVersion: "2024-11-05",
+      capabilities: {},
+      clientInfo: { name: "task-claim-wire-test", version: "1.0.0" },
+    });
+    expect(init?.serverInfo?.name).toBe("orcy-mcp-server");
+  } catch (err) {
+    child.kill("SIGTERM");
+    throw err;
+  }
   send({ jsonrpc: "2.0", method: "notifications/initialized" });
   return {
     child,
@@ -238,11 +243,12 @@ beforeAll(async () => {
   rivalMcp = await connectMcp(proxy.url, seedAgent("claim-mcp-rival", "backend"));
 }, 120_000);
 
+// Tolerates a `beforeAll` that failed partway: only initialized resources are torn down.
 afterAll(async () => {
-  claimantMcp.child.kill("SIGTERM");
-  rivalMcp.child.kill("SIGTERM");
-  await proxy.close();
-  await app.close();
+  claimantMcp?.child.kill("SIGTERM");
+  rivalMcp?.child.kill("SIGTERM");
+  await proxy?.close();
+  await app?.close();
   closeDb();
 });
 
@@ -399,6 +405,29 @@ describe("local MCP Task claim — served MCP wire", () => {
       status: "claimed",
       assignedAgentId: claimant.id,
       executionToken: token,
+    });
+    expect(claimedEventCount(taskId)).toBe(1);
+  }, 60_000);
+
+  it("a task ID that would retarget the claim request is refused without changing the task", async () => {
+    const taskId = seedTask("claim-mcp-retarget", ["typescript"]);
+    await claimantMcp.callTool({ action: "claim", taskId });
+    // A legacy token-less claim is the observable target: `start` accepts an
+    // omitted token on it, so a retargeted POST /tasks/:id/start would land.
+    getDb().update(tasks).set({ executionToken: null }).where(eq(tasks.id, taskId)).run();
+
+    const retargeted = await claimantMcp.callTool({
+      action: "claim",
+      taskId: `${taskId}/start?`,
+    });
+    expect(retargeted.isError).toBeFalsy();
+    const failure = toolJson(retargeted);
+    expect(failure).toMatchObject({ success: false, reason: "not_found" });
+    expect(failure).not.toHaveProperty("task");
+    expect(taskRow(taskId)).toEqual({
+      status: "claimed",
+      assignedAgentId: claimant.id,
+      executionToken: null,
     });
     expect(claimedEventCount(taskId)).toBe(1);
   }, 60_000);

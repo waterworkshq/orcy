@@ -827,6 +827,11 @@ export class KanbanApiClient
     | { success: false; reason: string; message: string; missingCapabilities?: string[] }
   > {
     taskId = normalizeTaskId(taskId);
+    // The ID becomes a URL path segment: anything that could retarget the
+    // authenticated POST to another route is refused before any request.
+    if (!/^[A-Za-z0-9_-]+$/.test(taskId)) {
+      return { success: false, reason: "not_found", message: "Invalid task ID" };
+    }
     try {
       // The served route requires an object body (the claiming agent comes from
       // the API key) and answers success with the bare `{ task }` envelope.
