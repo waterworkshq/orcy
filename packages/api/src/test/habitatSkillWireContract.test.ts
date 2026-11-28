@@ -38,6 +38,26 @@ import * as skillRepo from "../repositories/habitatSkill.js";
 const TEST_JWT_SECRET = randomBytes(32).toString("hex");
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "..", "..");
 
+/**
+ * The cluster-key examples each guide publishes, with the subject that
+ * produces them. The expectation is explicit — no proximity matching — so a
+ * published key can never be validated against an unrelated example. Declared
+ * before the suites that read it: a `describe` body may run during collection.
+ */
+const PUBLISHED_CLUSTER_EXAMPLES: Record<string, string[]> = {
+  "docs/API.md": [
+    "Always use Drizzle ORM for database queries, never raw SQL",
+    "JWT tokens use RS256 signing with jsonwebtoken v9",
+  ],
+  "docs/SKILL.md": ["Always use Drizzle ORM for database queries, never raw SQL"],
+};
+
+/** Every `"clusterKey"` a doc file publishes, in publication order. */
+function publishedClusterKeys(file: string): string[] {
+  const markdown = readFileSync(path.join(REPO_ROOT, file), "utf8");
+  return [...markdown.matchAll(/"clusterKey": "([^"]+)"/g)].map((match) => match[1]!);
+}
+
 async function buildApp(): Promise<FastifyInstance> {
   const app = Fastify({ logger: false });
   app.setValidatorCompiler(validatorCompiler);
@@ -126,25 +146,6 @@ describe("published Skill categories match the shared registry", () => {
     },
   );
 });
-
-/**
- * The cluster-key examples each guide publishes, with the subject that
- * produces them. The expectation is explicit — no proximity matching — so a
- * published key can never be validated against an unrelated example.
- */
-const PUBLISHED_CLUSTER_EXAMPLES: Record<string, string[]> = {
-  "docs/API.md": [
-    "Always use Drizzle ORM for database queries, never raw SQL",
-    "JWT tokens use RS256 signing with jsonwebtoken v9",
-  ],
-  "docs/SKILL.md": ["Always use Drizzle ORM for database queries, never raw SQL"],
-};
-
-/** Every `"clusterKey"` a doc file publishes, in publication order. */
-function publishedClusterKeys(file: string): string[] {
-  const markdown = readFileSync(path.join(REPO_ROOT, file), "utf8");
-  return [...markdown.matchAll(/"clusterKey": "([^"]+)"/g)].map((match) => match[1]!);
-}
 
 describe("served Skill wire contract", () => {
   let app: FastifyInstance | null = null;
