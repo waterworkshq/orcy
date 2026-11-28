@@ -181,6 +181,16 @@ export function CreateTaskForm({ open, onClose, habitatId, missionId, missions =
     }
   }, [open]);
 
+  // Eligibility is decided on the board's copy of each Mission, and that copy
+  // can be stale: a change made while the stream was down is not replayed,
+  // and the Habitat detail is not re-read on window focus. Re-read it
+  // whenever the picker opens so a reopened Mission is not left hidden.
+  useEffect(() => {
+    if (open && habitatId) {
+      qc.invalidateQueries({ queryKey: queryKeys.habitats.detail(habitatId) });
+    }
+  }, [open, habitatId, qc]);
+
   // Tear down any active poll when the dialog closes or unmounts.
   useEffect(() => {
     return () => stopPolling();

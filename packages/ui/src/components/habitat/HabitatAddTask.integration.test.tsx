@@ -360,6 +360,28 @@ describe("Habitat Add Task publication", () => {
     expect((screen.getByRole("button", { name: "Create Task" }) as HTMLButtonElement).disabled).toBe(true);
     expect(posts()).toHaveLength(0);
   });
+  it("re-reads the Habitat inventory when the picker opens", async () => {
+    mobile = false;
+    // The board's cached copy predates a reopen whose event never arrived.
+    const original = fetchMock.getMockImplementation()!;
+    let reads = 0;
+    fetchMock.mockImplementation((url: string | URL, options?: RequestInit) => {
+      if (url.toString() === "/api/habitats/board-1" && reads++ === 0) {
+        const json = () => Promise.resolve({ ...canonicalDetail, missions: [{ ...missions[0], status: "done" }] });
+        return Promise.resolve({ ok: true, status: 200, headers: new Headers(), json });
+      }
+      return original(url, options);
+    });
+    renderPage();
+    await screen.findByText("Integration Habitat");
+    const selector = await openAddTask(false);
+    await waitFor(() => expect(optionLabels(selector)).toEqual(["Choose a Mission", "Alpha Mission"]));
+    fireEvent.change(selector, { target: { value: "m1" } });
+    fireEvent.change(screen.getByPlaceholderText("Task title"), { target: { value: "New Task" } });
+    fireEvent.click(screen.getByRole("button", { name: "Create Task" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(posts().map(([url]) => url)).toEqual(["/api/missions/m1/task-publications"]);
+  });
   it("keeps the draft and shows the server refusal when the chosen Mission went terminal", async () => {
     mobile = false;
     const original = fetchMock.getMockImplementation()!;
