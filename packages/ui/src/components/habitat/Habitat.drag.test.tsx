@@ -3,6 +3,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, cleanup, act } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Habitat } from "./Habitat.js";
+import { queryKeys } from "../../lib/queryKeys.js";
 import type {
   MissionWithProgress,
   Column as ColumnType,
@@ -19,6 +20,10 @@ interface CapturedHandlers {
 let captured: CapturedHandlers = {};
 
 let bulkMode = false;
+let useRealDragMove = false;
+const moveMock = vi.hoisted(() => vi.fn());
+
+vi.mock("../../api/index.js", () => ({ api: { missions: { move: moveMock } } }));
 
 const dragMoveResult = {
   previewByMission: {} as Record<string, string>,
@@ -29,9 +34,11 @@ const dragMoveResult = {
   restorePreview: vi.fn(),
 };
 
-vi.mock("../../hooks/useMissionDragMove.js", () => ({
-  useMissionDragMove: () => dragMoveResult,
-}));
+vi.mock("../../hooks/useMissionDragMove.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../hooks/useMissionDragMove.js")>();
+  return { useMissionDragMove: (habitatId: string | undefined) =>
+    useRealDragMove ? actual.useMissionDragMove(habitatId) : dragMoveResult };
+});
 
 vi.mock("@dnd-kit/core", () => ({
   DndContext: ({ children, onDragStart, onDragOver, onDragEnd, onDragCancel }: any) => {
@@ -57,7 +64,7 @@ vi.mock("react-router-dom", () => ({
 }));
 
 vi.mock("./Column.js", () => ({
-  Column: ({ column }: any) => <div data-testid={`column-${column.id}`} />,
+  Column: ({ column, features }: any) => <div data-testid={`column-${column.id}`}>{features.map((m: any) => m.id).join(",")}</div>,
 }));
 
 vi.mock("./MissionCard.js", () => ({
@@ -218,6 +225,8 @@ describe("Habitat drag lifecycle (M9, m1)", () => {
   beforeEach(() => {
     captured = {};
     bulkMode = false;
+    useRealDragMove = false;
+    moveMock.mockReset();
     dragMoveResult.previewByMission = {};
     dragMoveResult.isMoving = false;
     dragMoveResult.drop.mockReset();
@@ -235,6 +244,35 @@ describe("Habitat drag lifecycle (M9, m1)", () => {
     renderHabitat([makeMission("m1", "col-a")]);
     act(() => { captured.onDragStart!({ active: { id: "m1" } }); });
     expect(dragMoveResult.setPreview).toHaveBeenCalledWith("m1", "col-c");
+  });
+
+  it("does not resubmit an inherited preview when a second drag ends on itself after refusal", async () => {
+    useRealDragMove = true;
+    let reject!: (error: Error) => void;
+    moveMock.mockReturnValueOnce(new Promise((_resolve, rej) => { reject = rej; }));
+    const mission = makeMission("m1", "col-a");
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    qc.setQueryData(queryKeys.habitats.detail("h1"), { habitat, columns, missions: [mission] });
+    const view = render(<QueryClientProvider client={qc}><Habitat habitat={habitat} columns={columns} missions={[mission]} onColumnSettingsClick={vi.fn()} onAddColumnClick={vi.fn()} presence={[]} /></QueryClientProvider>);
+    act(() => { captured.onDragStart!({ active: { id: "m1" } }); captured.onDragEnd!({ active: { id: "m1" }, over: { id: "col-b" } }); });
+    act(() => { captured.onDragStart!({ active: { id: "m1" } }); });
+    await act(async () => { reject(new Error("refused")); });
+    expect(view.getByTestId("column-col-b").textContent).toBe("m1");
+    act(() => { captured.onDragEnd!({ active: { id: "m1" }, over: { id: "m1" } }); });
+    expect(moveMock).toHaveBeenCalledTimes(1);
+    expect(view.getByTestId("column-col-a").textContent).toBe("m1");
+  });
+
+  it("allows a self-drop after changing an inherited preview", () => {
+    dragMoveResult.previewByMission = { m1: "col-b" };
+    const { rerender } = renderHabitat([makeMission("m1", "col-a")]);
+    act(() => { captured.onDragStart!({ active: { id: "m1" } }); });
+    act(() => { captured.onDragOver!({ active: { id: "m1" }, over: { id: "col-c" } }); });
+    // The real hook would rerender the board with the new preview.
+    dragMoveResult.previewByMission = { m1: "col-c" };
+    rerenderHabitat(rerender, [makeMission("m1", "col-a")]);
+    act(() => { captured.onDragEnd!({ active: { id: "m1" }, over: { id: "m1" } }); });
+    expect(dragMoveResult.drop).toHaveBeenCalledWith(expect.objectContaining({ missionId: "m1", targetColumnId: "col-c" }));
   });
 
   it("onDragCancel restores the dragged mission's preview", () => {
