@@ -129,6 +129,10 @@ export function Habitat({
     if (isBulkSelectMode) return;
     const mission = missions.find((f) => f.id === event.active.id);
     setActiveFeature(mission ?? null);
+    // A new gesture owns its overlay even before it moves to another column.
+    if (mission && previewByMission[mission.id]) {
+      setPreview(mission.id, previewByMission[mission.id]);
+    }
   }
 
   function handleDragOver(event: DragOverEvent) {

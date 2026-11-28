@@ -230,6 +230,13 @@ describe("Habitat drag lifecycle (M9, m1)", () => {
     cleanup();
   });
 
+  it("claims an existing preview as soon as a new drag starts", () => {
+    dragMoveResult.previewByMission = { m1: "col-c" };
+    renderHabitat([makeMission("m1", "col-a")]);
+    act(() => { captured.onDragStart!({ active: { id: "m1" } }); });
+    expect(dragMoveResult.setPreview).toHaveBeenCalledWith("m1", "col-c");
+  });
+
   it("onDragCancel restores the dragged mission's preview", () => {
     renderHabitat([makeMission("m1", "col-a")]);
 
