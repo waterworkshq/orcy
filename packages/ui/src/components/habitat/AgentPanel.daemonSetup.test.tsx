@@ -1,6 +1,6 @@
 import React from "react";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, screen, cleanup, fireEvent, waitFor } from "@testing-library/react";
+import { render, screen, cleanup, fireEvent, waitFor, act } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import "@testing-library/jest-dom/vitest";
 import { AgentPanel } from "./AgentPanel.js";
@@ -244,12 +244,45 @@ describe("daemon setup wizard detection recovery", () => {
     await waitFor(() => expect(detectCalls()).toHaveLength(1));
 
     fireEvent.click(screen.getByRole("button", { name: /^cancel$/i }));
-    releaseDetect?.();
-    await waitFor(() => expect(detectCalls()).toHaveLength(1));
+    // Let the released response run its handler before asserting.
+    await act(async () => {
+      releaseDetect?.();
+    });
 
     fireEvent.click(await screen.findByRole("button", { name: /set up autonomous mode/i }));
     // The retired response must not have moved the reopened wizard forward.
     expect(screen.queryByText("claude-code")).toBeNull();
     expect(screen.getByRole("button", { name: /detect/i })).toBeEnabled();
+  });
+
+  it("ignores a superseded detection response when a newer detection is running", async () => {
+    const releases: Array<() => void> = [];
+    const pending = (type: string) =>
+      new Promise<Response>((resolve) => {
+        releases.push(() => resolve(json({ clis: [{ type, path: `/usr/bin/${type}` }] })));
+      });
+    detectResults = [() => pending("stale-cli"), () => pending("claude-code")];
+    renderPanel();
+
+    fireEvent.click(await openWizard());
+    await waitFor(() => expect(detectCalls()).toHaveLength(1));
+
+    // Start a second detection while the first is still pending.
+    fireEvent.click(screen.getByRole("button", { name: /^cancel$/i }));
+    fireEvent.click(await screen.findByRole("button", { name: /set up autonomous mode/i }));
+    fireEvent.click(await screen.findByRole("button", { name: /detect/i }));
+    await waitFor(() => expect(detectCalls()).toHaveLength(2));
+
+    // The superseded response must not win over the newer one.
+    await act(async () => {
+      releases[0]();
+    });
+    expect(screen.queryByText("stale-cli")).toBeNull();
+
+    await act(async () => {
+      releases[1]();
+    });
+    expect(await screen.findByText("claude-code")).toBeInTheDocument();
+    expect(screen.queryByText("stale-cli")).toBeNull();
   });
 });
