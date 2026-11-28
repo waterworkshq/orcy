@@ -14,7 +14,7 @@ import type {
   DaemonClaimNextInput,
   DaemonSessionUpdateInput,
 } from "../models/schemas.js";
-import { badRequest, notFound, forbidden } from "../errors.js";
+import { badRequest, notFound, forbidden, conflict } from "../errors.js";
 import * as daemonEngine from "../services/daemonEngine.js";
 import { driveDaemonSessionOutcome } from "../services/daemonSessionRecovery.js";
 
@@ -290,6 +290,9 @@ export async function daemonAdminRoutes(fastify: FastifyInstance): Promise<void>
         throw notFound("Daemon not found");
       }
 
+      if (daemonEngine.isStopping(daemon.id)) {
+        throw conflict("Daemon is stopping; try again after shutdown completes");
+      }
       if (daemonEngine.isRunning(daemon.id)) {
         return { status: "already_running" };
       }

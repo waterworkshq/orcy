@@ -3380,6 +3380,8 @@ Daemon routes support autonomous AI CLI execution. There are two route groups:
 | `POST` | `/daemons/:id/stop` | Stop the API in-process daemon engine |
 | `GET` | `/daemons/detect-clis` | Detect supported AI CLIs on the API host |
 
+Starting a daemon while its in-process shutdown is still running returns HTTP 409. Retry after the stop completes.
+
 **Register request:**
 
 ```json

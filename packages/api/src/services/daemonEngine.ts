@@ -257,6 +257,8 @@ async function stopRunning(running: RunningDaemon): Promise<void> {
       if (!markerFailed && daemonRepo.getDaemonById(daemonId)?.status === "offline") {
         daemonRepo.setDaemonStatus(daemonId, "online");
       }
+    } catch (restoreErr) {
+      logger.warn({ err: restoreErr, daemonId }, "Failed to restore daemon status after shutdown failure");
     } finally {
       running.sessionManager.startTimeoutCheck();
       running.pollTimer = setInterval(() => tick(running), 30000);

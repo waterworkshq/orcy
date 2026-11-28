@@ -47,6 +47,7 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
+  vi.restoreAllMocks();
   await engine.shutdownAll();
   await app.close();
   vi.useRealTimers();
@@ -86,6 +87,18 @@ describe("in-process Stop status", () => {
     await vi.advanceTimersByTimeAsync(30000);
     expect(wiring.poll).toHaveBeenCalled();
     expect(repo.getDaemonById(id)!.lastHeartbeatAt).toBe(new Date().toISOString());
+  });
+
+  it("preserves the shutdown error if restoring the status also fails", async () => {
+    const setStatus = repo.setDaemonStatus;
+    const spy = vi.spyOn(repo, "setDaemonStatus").mockImplementation((daemonId, status) => {
+      if (status === "online") throw new Error("restore failed");
+      return setStatus(daemonId, status);
+    });
+    wiring.shutdownAll.mockRejectedValueOnce(new Error("shutdown failed"));
+    await expect(engine.stop(id)).rejects.toThrow("shutdown failed");
+    expect(wiring.timeoutStart).toHaveBeenCalledTimes(2);
+    spy.mockRestore();
   });
 
   it("still drains sessions when the offline marker write fails", async () => {
@@ -156,6 +169,7 @@ describe("in-process Stop status", () => {
     const stopping = app.inject({ method: "POST", url: `/daemons/${id}/stop` }).then((response: any) => response);
     await vi.waitFor(() => expect(finish).toBeDefined());
     expect(await statuses()).toEqual({ embedded: "offline", external: "online", detail: "offline" });
+    expect((await app.inject({ method: "POST", url: `/daemons/${id}/start` })).statusCode).toBe(409);
     const heartbeat = await app.inject({ method: "POST", url: "/daemon/heartbeat", headers: { "x-daemon-token": "embedded" }, payload: {} });
     expect(heartbeat.statusCode).toBe(200);
     expect(await statuses()).toEqual({ embedded: "online", external: "online", detail: "online" });
