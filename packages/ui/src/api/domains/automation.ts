@@ -1,4 +1,10 @@
 import { request } from "../transport.js";
+import type {
+  AutomationSimulationResult,
+  SimulateAutomationRuleInput,
+} from "../../types/index.js";
+
+export type { SimulateAutomationRuleInput };
 
 export const automationApi = {
   listRules: (habitatId: string) => request<unknown>(`/habitats/${habitatId}/automation-rules`),
@@ -19,8 +25,8 @@ export const automationApi = {
     request<unknown>(`/automation-rules/${ruleId}/enable`, { method: "POST" }),
   disable: (ruleId: string) =>
     request<unknown>(`/automation-rules/${ruleId}/disable`, { method: "POST" }),
-  simulate: (ruleId: string, body: unknown) =>
-    request<unknown>(`/automation-rules/${ruleId}/simulate`, {
+  simulate: (ruleId: string, body: SimulateAutomationRuleInput = {}) =>
+    request<AutomationSimulationResult>(`/automation-rules/${ruleId}/simulate`, {
       method: "POST",
       body: JSON.stringify(body),
     }),

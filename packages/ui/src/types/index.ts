@@ -166,6 +166,8 @@ import type {
   WorkflowTemplateVariable,
   WorkflowTemplateDefinition,
   AutomationCondition,
+  AutomationSimulationResult,
+  AutomationTargetType,
   // Triage types (v0.23)
   FindingTriageStatus,
   SuggestedBucket,
@@ -364,6 +366,8 @@ export type {
   WorkflowTemplateVariable,
   WorkflowTemplateDefinition,
   AutomationCondition,
+  AutomationSimulationResult,
+  AutomationTargetType,
   // Triage types (v0.23)
   FindingTriageStatus,
   SuggestedBucket,
@@ -1830,4 +1834,13 @@ export interface ExtractionRunHistoryEntry {
   startedAt: string | null;
   completedAt: string | null;
   createdAt: string;
+}
+
+/** Human request payload for `POST /automation-rules/:ruleId/simulate`. */
+export interface SimulateAutomationRuleInput {
+  overrideCondition?: AutomationCondition;
+  triggerEventId?: string;
+  targetType?: AutomationTargetType | string;
+  targetId?: string;
+  payload?: Record<string, unknown>;
 }
