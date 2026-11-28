@@ -916,6 +916,8 @@ orcy_worktree({ action: "get-worktree", taskId: "uuid" })
 Output: { "worktree": { "path": "/repo/worktrees/task-uuid", "branch": "task/fix-login", "repoRoot": "/repo" }, "enabled": true }
 ```
 
+`enabled: false` means worktree integration is genuinely off for the task's habitat. A read that cannot be completed (service unavailable, denied) returns an `isError` result carrying the HTTP status — it never degrades into the `enabled: false` shape, so a failed lookup is never mistaken for a disabled configuration.
+
 ---
 
 ## Task Lifecycle for Agents
