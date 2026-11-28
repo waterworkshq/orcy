@@ -10,7 +10,7 @@ export function registerHabitatCommands(program: any) {
     .description("List all available habitats")
     .action(
       withErrorHandling(async () => {
-        const result = await api.get<any>("/api/boards");
+        const result = await api.get<any>("/api/habitats");
         console.log(JSON.stringify(result, null, 2));
       }),
     );
@@ -21,7 +21,7 @@ export function registerHabitatCommands(program: any) {
     .argument("<name>", "Habitat name to search for")
     .action(
       withErrorHandling(async (name: string) => {
-        const result = await api.get<any>(`/api/boards?name=${encodeURIComponent(name)}`);
+        const result = await api.get<any>(`/api/habitats?name=${encodeURIComponent(name)}`);
         console.log(JSON.stringify(result, null, 2));
       }),
     );
@@ -32,7 +32,7 @@ export function registerHabitatCommands(program: any) {
     .argument("<habitatId>", "Habitat UUID")
     .action(
       withErrorHandling(async (habitatId: string) => {
-        const result = await api.get<any>(`/api/boards/${habitatId}`);
+        const result = await api.get<any>(`/api/habitats/${habitatId}`);
         console.log(JSON.stringify(result, null, 2));
       }),
     );
@@ -82,7 +82,7 @@ export function registerHabitatCommands(program: any) {
         ) => {
           const params = new URLSearchParams({ since: options.since, maxTasks: options.maxTasks });
           if (!options.digest) params.set("includeDigest", "false");
-          const result = await api.get<any>(`/api/boards/${habitatId}/summary?${params}`);
+          const result = await api.get<any>(`/api/habitats/${habitatId}/summary?${params}`);
           console.log(JSON.stringify(result, null, 2));
         },
       ),
@@ -94,7 +94,7 @@ export function registerHabitatCommands(program: any) {
     .argument("<habitatId>", "Habitat UUID")
     .action(
       withErrorHandling(async (habitatId: string) => {
-        const result = await api.get<any>(`/api/boards/${habitatId}/metrics`);
+        const result = await api.get<any>(`/api/habitats/${habitatId}/metrics`);
         console.log(JSON.stringify(result, null, 2));
       }),
     );
