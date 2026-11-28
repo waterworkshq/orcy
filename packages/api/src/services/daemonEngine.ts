@@ -212,8 +212,17 @@ export async function stop(daemonId: string): Promise<void> {
     clearInterval(running.heartbeatTimer);
   }
 
-  await running.sessionManager.shutdownAll();
   daemonRepo.setDaemonStatus(daemonId, "offline");
+  try {
+    await running.sessionManager.shutdownAll();
+  } catch (err) {
+    // A heartbeat received during shutdown is authoritative and already set
+    // the row online. Restore only our own offline marker on failure.
+    if (daemonRepo.getDaemonById(daemonId)?.status === "offline") {
+      daemonRepo.setDaemonStatus(daemonId, "online");
+    }
+    throw err;
+  }
   releaseSessionManager(daemonId);
   runningDaemons.delete(daemonId);
 }

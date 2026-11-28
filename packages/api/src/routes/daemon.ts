@@ -186,7 +186,9 @@ export async function daemonAdminRoutes(fastify: FastifyInstance): Promise<void>
         const sessions = daemonRepo.getActiveSessionsByDaemonId(d.id);
         const isOnline =
           daemonEngine.isRunning(d.id) ||
-          (d.lastHeartbeatAt && Date.now() - new Date(d.lastHeartbeatAt).getTime() < 60000);
+          (d.status !== "offline" &&
+            d.lastHeartbeatAt &&
+            Date.now() - new Date(d.lastHeartbeatAt).getTime() < 60000);
         return {
           id: d.id,
           name: d.name,
@@ -215,7 +217,9 @@ export async function daemonAdminRoutes(fastify: FastifyInstance): Promise<void>
       const sessions = daemonRepo.getActiveSessionsByDaemonId(daemon.id);
       const isOnline =
         daemonEngine.isRunning(daemon.id) ||
-        (daemon.lastHeartbeatAt && Date.now() - new Date(daemon.lastHeartbeatAt).getTime() < 60000);
+        (daemon.status !== "offline" &&
+          daemon.lastHeartbeatAt &&
+          Date.now() - new Date(daemon.lastHeartbeatAt).getTime() < 60000);
 
       return {
         daemon: {
