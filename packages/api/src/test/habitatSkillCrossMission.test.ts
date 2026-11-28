@@ -34,18 +34,25 @@ describe("cross-mission skill evidence", () => {
     };
     const cross = [reject(first.id, "Cross"), reject(first.id, "Cross"), reject(second.id, "Cross")];
     const single = [reject(first.id, "Single"), reject(first.id, "Single"), reject(first.id, "Single")];
+    const disappearing = [reject(first.id, "Disappearing"), reject(first.id, "Disappearing"), reject(second.id, "Disappearing")];
     const foreign = taskRepo.createTask({ missionId: otherMission.id, title: "Foreign", createdBy: "test" });
     const signal = (title: string) => skillRepo.findSignalByClusterKey(habitat.id, normalize(`Rejection: ${title}`))!;
     expect(signal("Cross")).toMatchObject({ frequency: 3, failedTasks: 3, crossMissionCount: 0, skillCategory: "pitfall" });
     expect(signal("Single")).toMatchObject({ frequency: 3, failedTasks: 3 });
     skillRepo.updateSignal(signal("Single").id, { sourceTaskIds: JSON.stringify([...single.map(t => t.id), single[0].id, "missing", foreign.id]) });
+    skillRepo.updateSignal(signal("Cross").id, { sourceTaskIds: JSON.stringify([cross[0].id, ...Array.from({ length: 501 }, (_, i) => `missing-${i}`), cross[1].id, cross[2].id]) });
 
     regenerateSkill(habitat.id);
     expect(signal("Cross")).toMatchObject({ crossMissionCount: 2, skillCategory: "pitfall", frequency: 3, failedTasks: 3 });
     expect(signal("Single")).toMatchObject({ crossMissionCount: 1, skillCategory: "pitfall", frequency: 3, failedTasks: 3 });
+    expect(signal("Disappearing").crossMissionCount).toBe(2);
+    taskRepo.deleteTask(disappearing[2].id);
     regenerateSkill(habitat.id);
     expect(signal("Cross")).toMatchObject({ crossMissionCount: 2, skillCategory: "pattern" });
     expect(signal("Single").skillCategory).toBe("pitfall");
+    expect(signal("Disappearing")).toMatchObject({ crossMissionCount: 1, skillCategory: "pitfall" });
+    regenerateSkill(habitat.id);
+    expect(signal("Disappearing").skillCategory).toBe("pitfall");
     skillRepo.updateSignal(signal("Cross").id, { sourceTaskIds: JSON.stringify([cross[0].id, cross[0].id, "missing", foreign.id]) });
     regenerateSkill(habitat.id);
     expect(signal("Cross").crossMissionCount).toBe(1);

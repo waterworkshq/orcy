@@ -1,5 +1,5 @@
 import { getDb } from "../db/index.js";
-import { habitatSkills, habitatSkillSignals } from "../db/schema/index.js";
+import { habitatSkills, habitatSkillSignals, tasks, missions } from "../db/schema/index.js";
 import { eq, and, count, desc, gt, gte, lte, inArray, sql } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 import type { SkillCategory } from "@orcy/shared";
@@ -13,6 +13,23 @@ import {
 import { isSqliteError } from "../errors/sqlite.js";
 
 export type { SkillCategory };
+
+/** Resolve exact source Task IDs to Missions in this Habitat in bounded batches. */
+export function getSourceTaskMissions(habitatId: string, taskIds: string[]): Map<string, string> {
+  const result = new Map<string, string>();
+  const ids = [...new Set(taskIds)];
+  const db = getDb();
+  for (let i = 0; i < ids.length; i += 500) {
+    const rows = db
+      .select({ taskId: tasks.id, missionId: missions.id })
+      .from(tasks)
+      .innerJoin(missions, eq(tasks.missionId, missions.id))
+      .where(and(eq(missions.habitatId, habitatId), inArray(tasks.id, ids.slice(i, i + 500))))
+      .all();
+    for (const row of rows) result.set(row.taskId, row.missionId);
+  }
+  return result;
+}
 
 export interface HabitatSkill {
   id: string;

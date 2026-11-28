@@ -277,7 +277,7 @@ Strength is a composite 0-1 score from four dimensions (`calculateStrength`, `ha
 | Corroboration | 25% | Distinct confirming agents, saturating at 3 (`min(corroboratingAgents / 3, 1)`) |
 | Outcome | 15% | Success ratio of associated tasks (defaults to 0.5 with no outcomes) |
 
-The cross-mission count is **not** a strength input — it feeds category reclassification only (below). Within one `scoreAllSignals` pass, reclassification reads each signal's stored `crossMissionCount` from before the pass; the cross-mission recompute (`recalculateCrossMissionCounts`) runs after the loop, so a freshly broadened cluster influences the *next* pass.
+The cross-mission count is **not** a strength input — it feeds category reclassification only (below). A freshly broadened cluster influences the *next* scoring pass: promotion requires both the previously stored count and the current count to reach the threshold, so evidence removed between passes cannot cause a stale promotion.
 
 ### Skill Categories
 
@@ -296,7 +296,7 @@ Signals carry one of seven categories (`SKILL_CATEGORIES`, `@orcy/shared/types/s
 Initial category comes from signal provenance; `scoreAllSignals` then reclassifies on every scoring pass (`reclassifyCategory`):
 
 - `convention` → `domain_knowledge` when frequency ≥ 3 and corroborating agents ≥ 2 — this check runs **first and returns**, so a `convention` signal meeting both thresholds becomes `domain_knowledge`, never `pattern`, in that pass.
-- Otherwise, any category except `detected_patterns` becomes `pattern` when frequency ≥ 3 and stored `crossMissionCount` ≥ 2 (including `convention` when the first condition was not met).
+- Otherwise, any category except `detected_patterns` becomes `pattern` when frequency ≥ 3 and both stored and current cross-mission counts are ≥ 2 (including `convention` when the first condition was not met).
 - `detected_patterns` is never promoted — plugin-attributed matches must stay categorically distinct from agent-observed knowledge so triage can weight them separately.
 
 ### Promotion & Demotion
