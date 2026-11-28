@@ -83,11 +83,32 @@ const reviewQueueQuerySchema = z.object({
   limit: z.number().int().min(1).max(100).optional(),
 });
 
+/**
+ * Upper bound for the human max-age filter — ten years, the same ceiling the
+ * MCP `orcy_learning` tool applies (`packages/mcp/src/tools/learning.ts`).
+ * It also keeps the service's cutoff inside the JavaScript Date range, so an
+ * out-of-range value is a typed 400 instead of an invalid-date 500.
+ */
+const MAX_FINDINGS_AGE_SECONDS = 10 * 365 * 24 * 60 * 60;
+
 const humanFindingsQuerySchema = z.object({
   findingType: z.string().optional(),
   domain: z.string().optional(),
-  maxAgeSeconds: z.number().int().positive().optional(),
-  limit: z.number().int().min(1).max(100).optional(),
+  // URL query values arrive as strings. Parse them as strict decimal integers:
+  // `z.coerce.number()` rounds "1.0000000000000001" to 1 and reads "0x10" as
+  // 16 before the integer and bounds checks ever run.
+  maxAgeSeconds: z
+    .string()
+    .regex(/^\d+$/)
+    .transform(Number)
+    .pipe(z.number().int().positive().max(MAX_FINDINGS_AGE_SECONDS))
+    .optional(),
+  limit: z
+    .string()
+    .regex(/^\d+$/)
+    .transform(Number)
+    .pipe(z.number().int().min(1).max(100))
+    .optional(),
 });
 
 const agentFindingsQuerySchema = z.object({
