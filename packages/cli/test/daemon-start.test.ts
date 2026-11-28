@@ -19,6 +19,14 @@ const withHome = async (fn: (home: string) => void | Promise<void>) => {
   try { await fn(home); } finally { rmSync(home, { recursive: true, force: true }); }
 };
 const synthetic = (mode: string) => ({ NODE_OPTIONS: `--import=${preload}`, ORCY_TEST_SPAWN: mode });
+const recordedChild = (home: string) => join(home, 'spawned-child.pid');
+const launcherEnv = (home: string) => ({ ...process.env, HOME: home, ORCY_DAEMON_DIR: join(home, 'data'), NODE_OPTIONS: `--import=${preload}`, ORCY_TEST_RECORD_CHILD: recordedChild(home) });
+async function requestDeadline<T>(request: Promise<T>): Promise<T> {
+  let timer: ReturnType<typeof setTimeout>;
+  try {
+    return await Promise.race([request, new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error('recovery request not reached')), 5000); })]);
+  } finally { clearTimeout(timer!); }
+}
 
 beforeAll(() => {
   execFileSync('corepack', ['pnpm', '--filter', '@orcy/cli...', 'build'], { cwd: fileURLToPath(new URL('../../..', import.meta.url)), stdio: 'inherit' });
@@ -43,20 +51,31 @@ test('spawn failure and early exit are visible', () => withHome((home) => {
   }
 }));
 
-test('an unreserved child at the deadline is reported as unconfirmed', () => withHome((home) => {
+test('an unreserved child is terminated at the deadline', () => withHome((home) => {
   const unrelated = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore' });
   const result = run(home, ['start', '--detach'], synthetic('hang'));
-  const match = result.stderr.match(/pid (\d+)/);
+  const pid = Number(readFileSync(join(home, 'synthetic-child.pid'), 'utf8'));
   try {
     assert.equal(result.status, 1);
-    assert.match(result.stderr, /unconfirmed after 15 seconds/);
-    assert.ok(match);
+    assert.match(result.stderr, /timed out before recovery after 15 seconds/);
+    assert.throws(() => process.kill(pid, 0));
     assert.equal(existsSync(pidFile(home)), false);
     assert.doesNotThrow(() => process.kill(unrelated.pid!, 0));
   } finally {
-    if (match) { try { process.kill(Number(match[1]), 'SIGKILL'); } catch {} }
     unrelated.kill('SIGKILL');
   }
+}), 22000);
+
+test('timeout after reservation but before permission cannot enter recovery', () => withHome((home) => {
+  mkdirSync(join(home, 'data'), { recursive: true });
+  writeFileSync(join(home, 'data/credentials.json'), JSON.stringify({ daemonId: 'synthetic', daemonToken: 'synthetic', apiUrl: 'http://127.0.0.1:1', habitatIds: [], agents: [], registeredAt: 'test' }));
+  const result = run(home, ['start', '--detach'], { NODE_OPTIONS: `--import=${preload}`, ORCY_TEST_DELAY_RESERVED: '1', ORCY_TEST_RECORD_CHILD: recordedChild(home) });
+  const pid = Number(readFileSync(recordedChild(home), 'utf8'));
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /timed out before recovery after 15 seconds/);
+  assert.throws(() => process.kill(pid, 0));
+  assert.equal(existsSync(pidFile(home)), false);
+  assert.doesNotMatch(readFileSync(join(home, '.orcy/logs/daemon.log'), 'utf8'), /Daemon synthetic starting/);
 }), 22000);
 
 test('a stranded acquisition lock fails closed with an actionable message', () => withHome((home) => {
@@ -64,6 +83,9 @@ test('a stranded acquisition lock fails closed with an actionable message', () =
   const result = run(home, ['start', '--detach']);
   assert.equal(result.status, 1);
   assert.match(readFileSync(join(home, '.orcy/logs/daemon.log'), 'utf8'), /startup reservation is busy/);
+  const foreground = run(home, ['start']);
+  assert.equal(foreground.status, 1);
+  assert.match(foreground.stderr, /startup reservation is busy/);
   assert.equal(existsSync(pidFile(home)), false);
   assert.equal(existsSync(join(home, '.orcy/run/daemon.start.lock')), true);
 }));
@@ -77,16 +99,18 @@ test('concurrent start and timeout preserve a tracked recovering child', () => w
   assert.ok(address && typeof address !== 'string');
   mkdirSync(join(home, 'data'), { recursive: true });
   writeFileSync(join(home, 'data/credentials.json'), JSON.stringify({ daemonId: 'synthetic', daemonToken: 'synthetic', apiUrl: `http://127.0.0.1:${address.port}`, habitatIds: [], agents: [], registeredAt: 'test' }));
-  const launcher = spawn(process.execPath, [cli, 'daemon', 'start', '--detach'], { env: { ...process.env, HOME: home, ORCY_DAEMON_DIR: join(home, 'data') } });
+  const launcher = spawn(process.execPath, [cli, 'daemon', 'start', '--detach'], { env: launcherEnv(home) });
   let stderr = '';
   launcher.stderr.on('data', (chunk) => { stderr += chunk; });
   const exit = new Promise<number | null>((resolve) => launcher.once('exit', resolve));
   let pid = 0;
   try {
-    const response = await request;
+    const response = await requestDeadline(request);
     pid = Number(readFileSync(pidFile(home), 'utf8'));
     assert.match(run(home, ['status']).stdout, /starting/);
-    assert.match(run(home, ['start', '--detach']).stdout, /already starting/);
+    const contender = run(home, ['start', '--detach']);
+    assert.equal(contender.status, 1);
+    assert.match(contender.stderr, /already starting/);
     assert.equal(Number(readFileSync(pidFile(home), 'utf8')), pid);
     const start = Date.now();
     assert.equal(await exit, 1);
@@ -107,8 +131,9 @@ test('concurrent start and timeout preserve a tracked recovering child', () => w
     assert.match(run(home, ['stop']).stdout, /Stopped daemon/);
     pid = 0;
   } finally {
+    if (!pid && launcher.exitCode === null && launcher.signalCode === null && existsSync(recordedChild(home))) pid = Number(readFileSync(recordedChild(home), 'utf8'));
     if (pid) { try { process.kill(pid, 'SIGKILL'); } catch {} }
-    launcher.kill('SIGKILL');
+    if (launcher.exitCode === null && launcher.signalCode === null) launcher.kill('SIGKILL');
     server.closeAllConnections();
     await new Promise<void>((resolve) => server.close(() => resolve()));
   }
@@ -124,7 +149,9 @@ test('ready daemon remains manageable and an existing live PID is preserved', ()
   let stopped = false;
   try {
     assert.match(run(home, ['status']).stdout, /running/);
-    assert.match(run(home, ['start', '--detach']).stdout, /already running/);
+    const alreadyRunning = run(home, ['start', '--detach']);
+    assert.equal(alreadyRunning.status, 0);
+    assert.match(alreadyRunning.stdout, /already running/);
     assert.equal(Number(readFileSync(pidFile(home), 'utf8')), pid);
     assert.match(run(home, ['stop']).stdout, /Stopped daemon/);
     stopped = true;
@@ -162,11 +189,11 @@ test('interrupting the launcher leaves the recovering child tracked and stoppabl
   assert.ok(address && typeof address !== 'string');
   mkdirSync(join(home, 'data'), { recursive: true });
   writeFileSync(join(home, 'data/credentials.json'), JSON.stringify({ daemonId: 'synthetic', daemonToken: 'synthetic', apiUrl: `http://127.0.0.1:${address.port}`, habitatIds: [], agents: [], registeredAt: 'test' }));
-  const launcher = spawn(process.execPath, [cli, 'daemon', 'start', '--detach'], { env: { ...process.env, HOME: home, ORCY_DAEMON_DIR: join(home, 'data') } });
+  const launcher = spawn(process.execPath, [cli, 'daemon', 'start', '--detach'], { env: launcherEnv(home) });
   const exited = new Promise<NodeJS.Signals | null>((resolve) => launcher.once('exit', (_code, signal) => resolve(signal)));
   let pid = 0;
   try {
-    await request;
+    await requestDeadline(request);
     pid = Number(readFileSync(pidFile(home), 'utf8'));
     launcher.kill('SIGTERM');
     assert.equal(await exited, 'SIGTERM');
@@ -175,6 +202,7 @@ test('interrupting the launcher leaves the recovering child tracked and stoppabl
     assert.match(run(home, ['stop']).stdout, /Stopped daemon/);
     pid = 0;
   } finally {
+    if (!pid && launcher.exitCode === null && launcher.signalCode === null && existsSync(recordedChild(home))) pid = Number(readFileSync(recordedChild(home), 'utf8'));
     if (pid) { try { process.kill(pid, 'SIGKILL'); } catch {} }
     if (launcher.exitCode === null && launcher.signalCode === null) launcher.kill('SIGKILL');
     server.closeAllConnections();
@@ -215,5 +243,35 @@ test('a dead owner is replaced and old cleanup preserves a newer owner', () => w
   } finally {
     if (old.exitCode === null && old.signalCode === null) old.kill('SIGKILL');
     newer.kill('SIGKILL');
+  }
+}));
+
+test('foreground startup rejects an existing owner before contacting recovery', () => withHome(async (home) => {
+  let requests = 0;
+  const server = createServer((_req, res) => {
+    requests++;
+    res.writeHead(200, { 'content-type': 'application/json' });
+    res.end(JSON.stringify({ sessions: [] }));
+  });
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const address = server.address();
+  assert.ok(address && typeof address !== 'string');
+  const owner = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore' });
+  mkdirSync(join(home, '.orcy/run'), { recursive: true });
+  writeFileSync(pidFile(home), String(owner.pid));
+  mkdirSync(join(home, 'data'), { recursive: true });
+  writeFileSync(join(home, 'data/credentials.json'), JSON.stringify({ daemonId: 'synthetic', daemonToken: 'synthetic', apiUrl: `http://127.0.0.1:${address.port}`, habitatIds: [], agents: [], registeredAt: 'test' }));
+  const foreground = spawn(process.execPath, [cli, 'daemon', 'start'], { env: { ...process.env, HOME: home, ORCY_DAEMON_DIR: join(home, 'data') } });
+  try {
+    const code = await new Promise<number | null>((resolve) => foreground.once('exit', resolve));
+    assert.equal(code, 1);
+    assert.equal(requests, 0);
+    assert.equal(readFileSync(pidFile(home), 'utf8'), String(owner.pid));
+    assert.doesNotThrow(() => process.kill(owner.pid!, 0));
+  } finally {
+    if (foreground.exitCode === null && foreground.signalCode === null) foreground.kill('SIGKILL');
+    owner.kill('SIGKILL');
+    server.closeAllConnections();
+    await new Promise<void>((resolve) => server.close(() => resolve()));
   }
 }));

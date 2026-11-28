@@ -251,13 +251,14 @@ describe("daemon start", () => {
   });
 
   it("starts detached daemon using the ESM CLI entrypoint", async () => {
-    const child = Object.assign(new EventEmitter(), { pid: 12345, unref: vi.fn() });
+    const child = Object.assign(new EventEmitter(), { pid: 12345, unref: vi.fn(), send: vi.fn() });
     mockSpawn.mockReturnValue(child);
     const logs: string[] = [];
     const origLog = console.log;
     console.log = (...args: any[]) => logs.push(args.join(" "));
 
     createProgram().parse(["node", "orcy", "daemon", "start", "--detach"]);
+    child.emit("message", "orcy-daemon-reserved");
     child.emit("message", "orcy-daemon-ready");
 
     await new Promise((r) => setTimeout(r, 50));
