@@ -74,6 +74,61 @@ describe('orcy_worktree get-worktree — a failed lookup is not a disabled confi
   });
 });
 
+// The status a failed read reports depends on the failure mode, so the agent
+// guide cannot promise "the HTTP status" for every failure.
+describe('orcy_worktree get-worktree — the status a non-HTTP failure reports', () => {
+  it('reports a network failure as status 0', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => {
+        throw new TypeError('fetch failed');
+      }),
+    );
+    const client = new KanbanApiClient(BASE_URL, 30_000, { maxRetries: 0 });
+
+    await expect(client.getWorktree('task-1')).rejects.toMatchObject({ status: 0 });
+  });
+
+  it('reports a timeout as a synthetic 408', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(
+        (_url: unknown, init?: RequestInit) =>
+          new Promise((_resolve, reject) => {
+            init?.signal?.addEventListener('abort', () =>
+              reject(new DOMException('aborted', 'AbortError')),
+            );
+          }),
+      ),
+    );
+    const client = new KanbanApiClient(BASE_URL, 50, { maxRetries: 0 });
+
+    await expect(client.getWorktree('task-1')).rejects.toMatchObject({ status: 408 });
+  });
+
+  it('surfaces an unparseable response body as a raw parse error with no status', async () => {
+    stubFetch(
+      () =>
+        new Response('not json', {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        }),
+    );
+    const client = new KanbanApiClient(BASE_URL, 30_000, { maxRetries: 0 });
+
+    // The transport returns `response.json()` without awaiting it, so a parse
+    // failure escapes the transport's own error mapping and carries no status.
+    await expect(client.getWorktree('task-1')).rejects.toThrowError(SyntaxError);
+
+    const raw = await WORKTREE_DISPATCH_HANDLER(client, {
+      action: 'get-worktree',
+      taskId: 'task-1',
+    });
+    expect(raw.isError).toBe(true);
+    expect(raw.content[0].text).not.toContain('"enabled": false');
+  });
+});
+
 describe('orcy_worktree get-worktree — successful reads keep their established meaning', () => {
   it('keeps a genuine disabled result distinct', async () => {
     stubFetch(() => jsonResponse({ worktree: null, enabled: false }));
