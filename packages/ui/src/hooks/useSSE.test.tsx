@@ -229,4 +229,33 @@ describe("useSSE", () => {
 
     expect(stream.close).toHaveBeenCalled();
   });
+
+  it("does not open a stream or fetch stream-token when habitatId is empty", async () => {
+    (globalThis as any).localStorage = { getItem: vi.fn(() => "token") } as any;
+    renderHook(() => useSSE(""), { wrapper });
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(instances).toHaveLength(0);
+    expect((globalThis as any).fetch).not.toHaveBeenCalled();
+  });
+
+  it("closes the active stream without opening a new one when habitatId becomes empty", async () => {
+    const { rerender } = renderHook(({ id }) => useSSE(id), {
+      wrapper,
+      initialProps: { id: "b1" },
+    });
+    await waitForConnect();
+    const stream = instances[0];
+
+    rerender({ id: "" });
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(stream.close).toHaveBeenCalled();
+    expect(instances).toHaveLength(1);
+  });
 });

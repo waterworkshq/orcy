@@ -1,6 +1,7 @@
 import React, { useState, useMemo } from "react";
 import { Link, useParams } from "react-router-dom";
 import { useModalStore } from "../store/modalStore.js";
+import { useSSE } from "../hooks/useSSE.js";
 import { useHabitatAnomalies, useHabitatEventsInfinite } from "../lib/useHabitatData.js";
 import { Button } from "../components/ui/Button.js";
 import {
@@ -153,6 +154,8 @@ export function ActivityPage() {
   const { habitatId } = useParams<{ habitatId: string }>();
   const openModal = useModalStore((s) => s.openModal);
   const [filter, setFilter] = useState<FilterType>("all");
+
+  useSSE(habitatId ?? "");
 
   const anomaliesQuery = useHabitatAnomalies(habitatId);
   const anomalies = anomaliesQuery.data?.anomalies ?? [];

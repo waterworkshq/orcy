@@ -66,6 +66,8 @@ export function useSSE(habitatId: string) {
     esRef.current?.close();
     esRef.current = null;
 
+    if (!habitatId || typeof EventSource === "undefined") return;
+
     const tokenAbort = new AbortController();
     tokenAbortRef.current = tokenAbort;
 
