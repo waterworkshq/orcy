@@ -30,7 +30,7 @@ import type {
   TaskPublicationErrorView,
   TaskPublicationOutcomeView,
 } from "../../types/index.js";
-import type { TaskPriority } from "../../types/index.js";
+import type { MissionStatus, TaskPriority } from "../../types/index.js";
 
 /** Props for the CreateTaskForm dialog. */
 interface CreateTaskFormProps {
@@ -38,7 +38,8 @@ interface CreateTaskFormProps {
   onClose: () => void;
   habitatId?: string;
   missionId?: string;
-  missions?: readonly { id: string; title: string }[];
+  /** Candidate Missions for the picker — the board's own inventory, unfiltered. */
+  missions?: readonly { id: string; title: string; status: MissionStatus }[];
 }
 
 /**
@@ -55,6 +56,21 @@ const POLL_INTERVAL_MS = 1500;
  *  than the server assignment deadline; expiry leaves the attempt recoverable
  *  and offers an explicit refresh instead of treating it as failed. */
 const POLL_TIMEOUT_MS = 60_000;
+
+/**
+ * Whether each Mission status accepts a new Task. Mirrors the server's
+ * publication preflight (`ACTIVE_MISSION_STATUSES` in
+ * `packages/api/src/services/taskPublicationPreparation.ts`), which stays the
+ * authority when the board's copy is stale. Keyed by every status so a new
+ * `MissionStatus` fails typecheck here until it is classified.
+ */
+const ACCEPTS_NEW_TASK: Record<MissionStatus, boolean> = {
+  not_started: true,
+  in_progress: true,
+  review: true,
+  done: false,
+  failed: false,
+};
 
 /** Generate a client-side UUID. Uses `crypto.randomUUID()` when available
  *  (modern browsers + Node 19+); falls back to a Math.random-based v4 UUID
@@ -97,6 +113,10 @@ export function CreateTaskForm({ open, onClose, habitatId, missionId, missions =
   const [selectedMissionId, setSelectedMissionId] = useState("");
   const effectiveMissionId = missionId ?? selectedMissionId;
   const createTaskMutation = useCreateTaskInMission(effectiveMissionId);
+  // Known-ineligible Missions are neither offered nor accepted by the local
+  // check. An in-flight attempt keeps its Mission regardless (see the locked
+  // option below), and the board inventory itself is untouched.
+  const selectableMissions = missions.filter((m) => ACCEPTS_NEW_TASK[m.status]);
 
   const [selectedTemplateId, setSelectedTemplateId] = useState("");
   const [title, setTitle] = useState("");
@@ -511,7 +531,7 @@ export function CreateTaskForm({ open, onClose, habitatId, missionId, missions =
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!title.trim() || !effectiveMissionId ||
-        (!missionId && !attemptKey && !missions.some((m) => m.id === effectiveMissionId))) return;
+        (!missionId && !attemptKey && !selectableMissions.some((m) => m.id === effectiveMissionId))) return;
 
     // Reset transient state so a retry after a previous rejection doesn't
     // show stale errors.
@@ -586,14 +606,22 @@ export function CreateTaskForm({ open, onClose, habitatId, missionId, missions =
                   disabled={!!attemptKey || submitting || polling || !!assignmentWarning}
                   className="w-full rounded border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
                 >
-                  <option value="">{missions.length ? "Choose a Mission" : "No Missions available"}</option>
-                  {missions.map((mission) => <option key={mission.id} value={mission.id}>{mission.title}</option>)}
-                  {attemptKey && selectedMissionId && !missions.some((m) => m.id === selectedMissionId) && (
+                  <option value="">
+                    {selectableMissions.length ? "Choose a Mission" : missions.length ? "No eligible Missions" : "No Missions available"}
+                  </option>
+                  {selectableMissions.map((mission) => <option key={mission.id} value={mission.id}>{mission.title}</option>)}
+                  {attemptKey && selectedMissionId && !selectableMissions.some((m) => m.id === selectedMissionId) && (
                     <option value={selectedMissionId}>Selected Mission (no longer available)</option>
                   )}
                 </select>
                 <p className="mt-1 text-sm text-muted-foreground">
-                  {attemptKey ? "The Mission is locked while this publication attempt is unresolved." : missions.length ? "Select a Mission for this task." : "Create a Mission in this Habitat before adding a task."}
+                  {attemptKey
+                    ? "The Mission is locked while this publication attempt is unresolved."
+                    : selectableMissions.length
+                      ? "Select a Mission for this task."
+                      : missions.length
+                        ? "No Mission can accept a Task: every Mission in this Habitat is completed or failed. Create a new Mission before adding a task."
+                        : "Create a Mission in this Habitat before adding a task."}
                 </p>
               </div>
             )}
@@ -846,7 +874,7 @@ export function CreateTaskForm({ open, onClose, habitatId, missionId, missions =
               !!stillSettlingAttemptId ||
               !!assignmentWarning ||
               !effectiveMissionId ||
-              (!missionId && !attemptKey && !missions.some((m) => m.id === effectiveMissionId)) ||
+              (!missionId && !attemptKey && !selectableMissions.some((m) => m.id === effectiveMissionId)) ||
               !title.trim()
             }
           >
