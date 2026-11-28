@@ -65,18 +65,38 @@ const INSTALL_SH = path.join(REPO_ROOT, "install.sh");
 
 /** Every scenario's disposable HOME; removed once this file has finished. */
 const scenarioHomes: string[] = [];
+/** Stops a fixture process, and only once its command line says it is one. */
+function stopFixture(pid: string, isFixture: (args: string) => boolean): void {
+  const args = spawnSync(resolveBin("ps"), ["-o", "args=", "-p", pid], { encoding: "utf8" }).stdout;
+  if (isFixture(args)) process.kill(Number(pid), "SIGKILL");
+}
+/** The PID of a scenario's anchor — the process started for its installer's
+ *  entry point, recognisable by the program it carries — or 0 when there is none.
+ *  The supervisor carries that same program inside its own, and names the lock:
+ *  that is what tells the two apart. */
+function anchorOf(home: string): number {
+  const entry = path.join(home, ".orcy", "installer", "dist", "index.js");
+  const row = spawnSync(resolveBin("ps"), ["-eo", "pid=,args="], { encoding: "utf8" }).stdout
+    .split("\n")
+    .find((line) => line.includes(entry) && line.includes("1 << 30") && !line.includes("ORCY_INSTALLER_LOCK"));
+  return Number(row?.trim().split(/\s+/)[0] ?? 0);
+}
 afterAll(() => {
   for (const home of scenarioHomes) {
     // A test that failed before its own cleanup must not leave its fixture
-    // worker at work. It is recognised by its command line — or by the name the
-    // odd one gives itself, which replaces that line — before it is signalled.
+    // worker at work, nor the run's anchor, which outlives a run only when
+    // something went wrong. The worker is recognised by its command line — or
+    // by the name the odd one gives itself, which replaces that line.
     const worker = path.join(home, "child.pid");
     if (fs.existsSync(worker)) {
-      const pid = fs.readFileSync(worker, "utf8").trim();
-      const args = spawnSync(resolveBin("ps"), ["-o", "args=", "-p", pid], { encoding: "utf8" }).stdout;
-      if (/setInterval\(\(\) => \{\}, 1000\)|^build.{0,2}orker \(1\)$/.test(args.trim())) {
-        process.kill(Number(pid), "SIGKILL");
-      }
+      stopFixture(
+        fs.readFileSync(worker, "utf8").trim(),
+        (args) => args.includes("setInterval(() => {}, 1000)") || /^build[\s\S]{0,2}orker \(1\)$/.test(args.trim()),
+      );
+    }
+    const anchor = anchorOf(home);
+    if (anchor > 0) {
+      stopFixture(String(anchor), (args) => args.includes("1 << 30") && !args.includes("ORCY_INSTALLER_LOCK"));
     }
     fs.rmSync(home, { recursive: true, force: true });
   }
@@ -820,6 +840,53 @@ describe("install.sh — one installer run at a time", () => {
     expect(child.exitCode).toBe(143);
     expect(fs.existsSync(s.lockDir)).toBe(false);
   });
+
+  it.each([
+    ["SIGINT", 130],
+    ["SIGHUP", 129],
+    ["SIGQUIT", 131],
+  ])("stops the install on %s and reports %i", async (name, status) => {
+    // SIGTERM is covered above. SIGQUIT is Ctrl-\ at the terminal: the install
+    // runs in a session of its own, so it would not get that one by itself.
+    const s = buildScenario({ installer: { spawnChild: true, sleepMs: 10_000 } });
+    const child = spawn(resolveBin("sh"), [INSTALL_SH], {
+      env: installerEnv(s),
+      cwd: s.home,
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    const childPidFile = path.join(s.home, "child.pid");
+    await until(() => fs.existsSync(childPidFile));
+    const build = Number(fs.readFileSync(childPidFile, "utf8"));
+    const done = onExit(child);
+    process.kill(child.pid!, name);
+    await done;
+    expect(child.exitCode).toBe(status);
+    expect(fs.existsSync(s.lockDir)).toBe(false);
+    expect(isRunning(build)).toBe(false);
+  });
+
+  it("leaves no anchor behind when the supervisor is killed outright after the install has ended", async () => {
+    // The installer has exited and left a worker, and the supervisor is waiting
+    // before it keeps the lock. Killed outright, it can no longer end the
+    // anchor: the lock stays by design, and the anchor has to leave by itself.
+    const s = buildScenario({ installer: { spawnChild: true, writePid: true } });
+    const child = spawn(resolveBin("sh"), [INSTALL_SH], {
+      env: installerEnv(s),
+      cwd: s.home,
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    const installerPidFile = path.join(s.home, "installer.pid");
+    await until(() => fs.existsSync(installerPidFile));
+    const installer = Number(fs.readFileSync(installerPidFile, "utf8"));
+    await until(() => processState(installer) === ""); // the installer is gone
+    const anchor = anchorOf(s.home);
+    expect(anchor).toBeGreaterThan(0); // the anchor is not
+    child.kill("SIGKILL");
+    await onExit(child);
+    expect(fs.existsSync(s.lockDir)).toBe(true);
+    await until(() => !isRunning(anchor));
+    expect(isRunning(anchor)).toBe(false);
+  }, 15_000);
 
   it("stops the processes the installer started before the lock is released", async () => {
     // The wizard runs its build through blocking child processes. Stopping the

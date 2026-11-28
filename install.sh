@@ -210,8 +210,8 @@ rm -rf "${BACKUP_DIR}" 2>/dev/null ||
 # the group is this run's to signal at any moment, the installer still running
 # or not. Nothing is looked up to be signalled: /proc — or, where there is
 # none, ps — is read to look, never to signal by.
-# - On SIGINT, SIGTERM or SIGHUP it freezes the group, then kills it — the
-#   installer and every process it started — and never reports success.
+# - On SIGINT, SIGTERM, SIGHUP or SIGQUIT it freezes the group, then kills it —
+#   the installer and every process it started — and never reports success.
 # - Ctrl-Z and resume reach this process alone, so they are passed on to the
 #   install.
 # - It exits once the installer has exited and nothing of the install is
@@ -239,7 +239,13 @@ const fs = require("node:fs");
 // A build tool may signal its whole group: the anchor has to outlive that.
 for (const name of ["SIGINT", "SIGTERM", "SIGHUP"]) process.on(name, () => {});
 const installer = spawn(process.execPath, process.argv.slice(1), { stdio: "inherit" });
-installer.on("exit", (code, signal) => fs.writeSync(3, JSON.stringify([code, signal]) + "\\n"));
+const supervisor = process.ppid;
+installer.on("exit", (code, signal) => {
+  try { fs.writeSync(3, JSON.stringify([code, signal]) + "\\n"); } catch {}
+  // Killed outright, the supervisor can no longer end the anchor: once the
+  // install has ended and no supervisor is left, it leaves by itself.
+  setInterval(() => { if (process.ppid !== supervisor) process.exit(0); }, 250);
+});
 setInterval(() => {}, 1 << 30);
 `, entry, ...args], { stdio: ["inherit", "inherit", "inherit", "pipe"], detached: true });
 const group = -anchor.pid;
@@ -271,6 +277,11 @@ const processes = () => {
   const out = [];
   for (const pid of pids) {
     if (!/^\d+$/.test(pid)) continue;
+    // Owned by another user, so not a process this run started — and where
+    // /proc hides other users' entries, not this one's to read either.
+    let owner;
+    try { owner = fs.statSync(`/proc/${pid}`).uid; } catch { continue; }
+    if (owner !== process.geteuid()) continue;
     let stat;
     try { stat = fs.readFileSync(`/proc/${pid}/stat`, "utf8"); }
     catch (err) { if (err.code !== "ENOENT" && err.code !== "ESRCH") return null; continue; }
@@ -282,11 +293,13 @@ const processes = () => {
   }
   return out;
 };
-// The BSDs and macOS have no /proc: there ps stands in, for looking only.
+// The BSDs and macOS have no /proc: there ps stands in, for looking only — and
+// bound, so that a listing that hangs cannot hold the stop up.
 const fromPs = () => {
   let out;
-  try { out = execFileSync("ps", ["-A", "-o", "pid=,pgid=,stat="], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }); }
-  catch { return null; }
+  try {
+    out = execFileSync("ps", ["-A", "-o", "pid=,pgid=,stat="], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], timeout: 1000, killSignal: "SIGKILL" });
+  } catch { return null; }
   return out.trim().split("\n").map((line) => {
     const [pid, pgrp, state] = line.trim().split(/\s+/);
     return pid && pgrp && state ? [state[0], pgrp, pid] : null;
@@ -352,7 +365,9 @@ const stop = () => {
   };
   freeze();
 };
-for (const name of ["SIGINT", "SIGTERM", "SIGHUP"]) {
+// SIGQUIT is Ctrl-\ at the terminal: the install runs in a session of its own,
+// so it does not reach the install by itself, as it used to.
+for (const name of ["SIGINT", "SIGTERM", "SIGHUP", "SIGQUIT"]) {
   process.on(name, () => {
     cancelled ||= signals[name];
     stop();
