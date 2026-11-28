@@ -25,7 +25,9 @@ export function DaemonCard({
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
           <h4 className="text-sm font-medium">{daemon.name}</h4>
-          <Badge variant={isOnline ? "claimed" : "failed"}>{isOnline ? "Online" : "Offline"}</Badge>
+          <Badge variant={isOnline ? "claimed" : daemon.status === "unknown" ? "pending" : "failed"}>
+            {isOnline ? "Online" : daemon.status === "unknown" ? "Unknown" : "Offline"}
+          </Badge>
         </div>
         <div className="flex gap-2">
           {isOnline ? (

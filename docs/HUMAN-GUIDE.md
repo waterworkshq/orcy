@@ -659,7 +659,7 @@ orcy daemon stop            # Graceful shutdown
 
 Check `~/.orcy/logs/daemon.log` for session output. The daemon logs session completions and failures to the console.
 
-The UI **Daemons** section shows registered daemons, online/offline state, managed agent count, active session count, host, and start/stop controls for the in-process engine.
+The UI **Daemons** section shows registered daemons, online/offline/unknown state, managed agent count, active session count, host, and start/stop controls for the in-process engine. **Unknown** means a Stop was recorded but its completion was not; it can remain after an API restart. A new heartbeat or a successful start clears that uncertainty. In-process agent credentials are retained only in memory; if they are unavailable after an API restart, register a new UI daemon or use the standalone CLI daemon. If Stop reports that database migrations are pending, resolve the migration blocker and restart the API before trying again; the daemon remains running until Stop can record its intent.
 
 ### What the Daemon Does
 

@@ -1,9 +1,9 @@
 import { getDb } from "../db/index.js";
 import { daemonInstances } from "../db/schema/index.js";
-import { eq, sql } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 import { hashDaemonToken } from "../lib/daemonToken.js";
-import { clearPendingOfflineWrite } from "./daemonHeartbeatOrdering.js";
+import { serviceUnavailable } from "../errors.js";
 import {
   repositoryCreateError,
   repositoryNotFoundError,
@@ -27,6 +27,7 @@ export interface DaemonInstancePublic {
   maxConcurrent: number;
   daemonVersion: string;
   lastHeartbeatAt: string | null;
+  stopIntent: string | null;
   status: string;
   metadata: Record<string, unknown>;
   createdAt: string;
@@ -40,11 +41,23 @@ const daemonPublicFields = {
   maxConcurrent: daemonInstances.maxConcurrent,
   daemonVersion: daemonInstances.daemonVersion,
   lastHeartbeatAt: daemonInstances.lastHeartbeatAt,
+  stopIntent: daemonInstances.stopIntent,
   status: daemonInstances.status,
   metadata: daemonInstances.metadata,
   createdAt: daemonInstances.createdAt,
   updatedAt: daemonInstances.updatedAt,
 } as const;
+
+// Staged enforcement can defer later migrations while the API remains up.
+// Probe per connection rather than assuming the new column exists.
+function supportsStopIntent(): boolean {
+  return (getDb().all(sql`PRAGMA table_info(daemon_instances)`) as Array<{ name: string }>)
+    .some((column) => column.name === "stop_intent");
+}
+
+function publicFields() {
+  return { ...daemonPublicFields, stopIntent: supportsStopIntent() ? daemonInstances.stopIntent : sql<string | null>`NULL` };
+}
 
 export function createDaemon(input: CreateDaemonInput): DaemonInstancePublic {
   const db = getDb();
@@ -52,7 +65,10 @@ export function createDaemon(input: CreateDaemonInput): DaemonInstancePublic {
   const now = new Date().toISOString();
 
   try {
-    db.insert(daemonInstances)
+    if (!supportsStopIntent()) {
+      db.run(sql`INSERT INTO daemon_instances (id, name, hostname, token_hash, max_concurrent, daemon_version, last_heartbeat_at, status, metadata, created_at, updated_at)
+        VALUES (${id}, ${input.name}, ${input.hostname}, ${hashDaemonToken(input.plainToken)}, ${input.maxConcurrent}, ${input.daemonVersion}, ${now}, ${"online"}, ${JSON.stringify(input.metadata ?? {})}, ${now}, ${now})`);
+    } else db.insert(daemonInstances)
       .values({
         id,
         name: input.name,
@@ -79,7 +95,7 @@ export function createDaemon(input: CreateDaemonInput): DaemonInstancePublic {
 export function getDaemonById(id: string): DaemonInstancePublic | null {
   const db = getDb();
   const rows = db
-    .select(daemonPublicFields)
+    .select(publicFields())
     .from(daemonInstances)
     .where(eq(daemonInstances.id, id))
     .all();
@@ -89,7 +105,7 @@ export function getDaemonById(id: string): DaemonInstancePublic | null {
 export function getDaemonByTokenHash(tokenHash: string): DaemonInstancePublic | null {
   const db = getDb();
   const rows = db
-    .select(daemonPublicFields)
+    .select(publicFields())
     .from(daemonInstances)
     .where(eq(daemonInstances.tokenHash, tokenHash))
     .all();
@@ -100,15 +116,16 @@ export function updateDaemonHeartbeat(id: string): DaemonInstancePublic | null {
   const db = getDb();
   const now = new Date().toISOString();
   try {
+    const intentFields = supportsStopIntent() ? { stopIntent: null } : {};
     db.update(daemonInstances)
       .set({
         lastHeartbeatAt: now,
         status: "online",
+        ...intentFields,
         updatedAt: now,
       })
       .where(eq(daemonInstances.id, id))
       .run();
-    clearPendingOfflineWrite(id);
   } catch (err) {
     throw repositoryUpdateError("daemonInstance", err as Error, id);
   }
@@ -132,10 +149,38 @@ export function setDaemonStatus(
   return getDaemonById(id);
 }
 
+/** Persist stop ownership before draining. A new heartbeat clears this token. */
+export function beginDaemonStop(id: string, token: string): void {
+  const db = getDb();
+  if (!supportsStopIntent()) {
+    throw serviceUnavailable("Daemon stop requires pending database migrations; resolve migration blockers and restart the API");
+  }
+  try {
+    const updated = db.update(daemonInstances).set({ stopIntent: token })
+      .where(eq(daemonInstances.id, id)).returning({ id: daemonInstances.id }).get();
+    if (!updated) throw repositoryNotFoundError("daemonInstance", id);
+  } catch (err) {
+    throw repositoryUpdateError("daemonInstance", err as Error, id);
+  }
+}
+
+/** Finish or roll back only the intent we own, never a later heartbeat/start. */
+export function completeDaemonStop(id: string, token: string, status: "online" | "offline"): void {
+  const db = getDb();
+  try {
+    db.update(daemonInstances)
+      .set({ status, stopIntent: null, updatedAt: new Date().toISOString() })
+      .where(and(eq(daemonInstances.id, id), eq(daemonInstances.stopIntent, token)))
+      .run();
+  } catch (err) {
+    throw repositoryUpdateError("daemonInstance", err as Error, id);
+  }
+}
+
 export function listDaemons(): DaemonInstancePublic[] {
   const db = getDb();
   return db
-    .select(daemonPublicFields)
+    .select(publicFields())
     .from(daemonInstances)
     .orderBy(sql`${daemonInstances.createdAt} DESC`)
     .all();
@@ -145,7 +190,6 @@ export function deleteDaemon(id: string): void {
   const db = getDb();
   try {
     db.delete(daemonInstances).where(eq(daemonInstances.id, id)).run();
-    clearPendingOfflineWrite(id);
   } catch (err) {
     throw repositoryDeleteError("daemonInstance", err as Error, id);
   }

@@ -3373,14 +3373,20 @@ Daemon routes support autonomous AI CLI execution. There are two route groups:
 
 | Method | Path | Purpose |
 |--------|------|---------|
-| `GET` | `/daemons` | List daemon instances with derived online/offline status, managed agent count, and active session count |
+| `GET` | `/daemons` | List daemon instances with derived online/offline/unknown status, managed agent count, and active session count |
 | `GET` | `/daemons/:id` | Get daemon detail with managed agents and active sessions |
 | `POST` | `/daemons/register` | Detect/register an in-process daemon and daemon-owned agents |
 | `POST` | `/daemons/:id/start` | Start the API in-process daemon engine |
 | `POST` | `/daemons/:id/stop` | Stop the API in-process daemon engine |
 | `GET` | `/daemons/detect-clis` | Detect supported AI CLIs on the API host |
 
-Starting a daemon while its in-process shutdown is still running returns HTTP 409. Retry after the stop completes.
+Starting a daemon while its shutdown is still running in the same API process returns HTTP 409. Retry after the stop completes. This guard is process-local; it is not a cross-process Start lease. Multiple API instances sharing one database are not supported; see [Deployment](DEPLOYMENT.md).
+
+List and detail return `unknown` while a durable stop intent has no recorded completion. This can persist after an API restart: it does not prove that sessions drained. A later authenticated heartbeat or successful in-process start supersedes the intent. A Stop retry in the process that completed the drain can finish its failed status write without draining twice; another process returns 409 when it cannot prove completion. If earlier database migrations are deferred and the stop-intent column is unavailable, Stop returns 503 before stopping the engine. Resolve the reported migration blocker and restart the API before retrying.
+
+API clients that validate daemon status as an enum must accept the new `unknown` value as well as `online` and `offline`.
+
+If the intent write itself fails, Stop returns an error and leaves the running engine and its timers in place. If the API process subsequently exits while storage is still unavailable, no durable intent can record that exit; a retained heartbeat may continue to read online until it expires.
 
 **Register request:**
 

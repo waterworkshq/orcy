@@ -1,4 +1,5 @@
 import { hostname } from "node:os";
+import { randomUUID } from "node:crypto";
 import type {
   DetectedCli,
   RegisteredAgent,
@@ -8,11 +9,6 @@ import type {
 } from "@orcy/shared/types";
 import { runPollTick } from "@orcy/shared";
 import * as daemonRepo from "../repositories/daemon.js";
-import {
-  markPendingOfflineWrite,
-  clearPendingOfflineWrite,
-  hasPendingOfflineWrite,
-} from "../repositories/daemonHeartbeatOrdering.js";
 import * as agentService from "../services/agentService.js";
 import { claimTaskWithSession } from "./tasks/claimSession.js";
 import * as taskRepo from "../repositories/task.js";
@@ -27,7 +23,7 @@ import {
   detectClisOnHost,
 } from "../daemon-wiring.js";
 import { cleanupDaemonSessionsOnStart, setEngineLivenessProbe } from "./daemonSessionRecovery.js";
-import { badRequest, forbidden } from "../errors.js";
+import { badRequest, forbidden, conflict } from "../errors.js";
 
 // The recovery sweep's embedded liveness source (one-way registration — the
 // recovery module must never import this module; the default probe is the
@@ -47,6 +43,9 @@ interface RunningDaemon {
 }
 
 const runningDaemons = new Map<string, RunningDaemon>();
+// Only this process knows that its drain completed; the durable token alone
+// cannot establish that fact after a crash or in another API process.
+const completedDrains = new Map<string, string>();
 const inMemoryAgentCredentials = new Map<string, RegisteredAgent[]>();
 
 /** Result of registering an in-process daemon: the daemon id and the per-agent credentials (including one-time API keys) for each detected CLI. */
@@ -193,7 +192,7 @@ export function start(daemonId: string, dataDir: string = "/tmp/orcy-daemon"): v
   running.heartbeatTimer = setInterval(() => daemonRepo.updateDaemonHeartbeat(daemonId), 30000);
 
   runningDaemons.set(daemonId, running);
-  clearPendingOfflineWrite(daemonId);
+  completedDrains.delete(daemonId);
 }
 
 async function tick(running: RunningDaemon): Promise<void> {
@@ -212,9 +211,12 @@ async function tick(running: RunningDaemon): Promise<void> {
 export async function stop(daemonId: string): Promise<void> {
   const running = runningDaemons.get(daemonId);
   if (!running) {
-    if (hasPendingOfflineWrite(daemonId)) {
-      daemonRepo.setDaemonStatus(daemonId, "offline");
-      clearPendingOfflineWrite(daemonId);
+    const token = completedDrains.get(daemonId);
+    if (token) {
+      daemonRepo.completeDaemonStop(daemonId, token, "offline");
+      completedDrains.delete(daemonId);
+    } else if (daemonRepo.getDaemonById(daemonId)?.stopIntent != null) {
+      throw conflict("Daemon stop completion is unknown; restart the daemon to recover");
     }
     return;
   }
@@ -231,6 +233,11 @@ export async function stop(daemonId: string): Promise<void> {
 
 async function stopRunning(running: RunningDaemon): Promise<void> {
   const { daemonId } = running;
+  const token = randomUUID();
+
+  // If intent cannot be committed, do not drain: other readers could not
+  // distinguish a stopped daemon from its retained heartbeat.
+  daemonRepo.beginDaemonStop(daemonId, token);
 
   if (running.pollTimer) {
     clearInterval(running.pollTimer);
@@ -239,24 +246,11 @@ async function stopRunning(running: RunningDaemon): Promise<void> {
     clearInterval(running.heartbeatTimer);
   }
 
-  let markerFailed = false;
-  let markerError: unknown;
-  try {
-    daemonRepo.setDaemonStatus(daemonId, "offline");
-  } catch (err) {
-    markerFailed = true;
-    markerError = err;
-    markPendingOfflineWrite(daemonId);
-  }
   try {
     await running.sessionManager.shutdownAll();
   } catch (err) {
-    clearPendingOfflineWrite(daemonId);
     try {
-      // A heartbeat received during shutdown is authoritative.
-      if (!markerFailed && daemonRepo.getDaemonById(daemonId)?.status === "offline") {
-        daemonRepo.setDaemonStatus(daemonId, "online");
-      }
+      daemonRepo.completeDaemonStop(daemonId, token, "online");
     } catch (restoreErr) {
       logger.warn({ err: restoreErr, daemonId }, "Failed to restore daemon status after shutdown failure");
     } finally {
@@ -268,7 +262,12 @@ async function stopRunning(running: RunningDaemon): Promise<void> {
   }
   releaseSessionManager(daemonId);
   runningDaemons.delete(daemonId);
-  if (markerFailed) throw markerError;
+  try {
+    daemonRepo.completeDaemonStop(daemonId, token, "offline");
+  } catch (err) {
+    completedDrains.set(daemonId, token);
+    throw err;
+  }
 }
 
 export { detectClisOnHost };

@@ -57,3 +57,21 @@ it("renders the served offline status after an operator stops the running engine
   await waitFor(() => expect(engine.isRunning(daemon.id)).toBe(false));
   client.clear();
 });
+
+it("shows Unknown when a persisted stop intent has no proven outcome", async () => {
+  await initTestDb();
+  const daemon = repo.createDaemon({ name: "uncertain", hostname: "test", maxConcurrent: 1, daemonVersion: "in-process", plainToken: "synthetic" });
+  repo.beginDaemonStop(daemon.id, "pending-stop");
+  app = Fastify();
+  await app.register(daemonAdminRoutes);
+  await app.ready();
+  vi.stubGlobal("fetch", async (url: string) => {
+    const response = await app.inject({ method: "GET", url: url.replace(/^\/api/, "") });
+    return { ok: response.statusCode >= 200 && response.statusCode < 300, status: response.statusCode, json: async () => response.json() };
+  });
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  render(<QueryClientProvider client={client}><DaemonSection /></QueryClientProvider>);
+  expect(await screen.findByText("Unknown")).toBeTruthy();
+  expect(screen.queryByText("Offline")).toBeNull();
+  client.clear();
+});

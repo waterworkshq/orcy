@@ -6,6 +6,7 @@ import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { closeDb, initDb } from "../db/index.js";
+import * as daemonRepo from "../repositories/daemonInstance.js";
 import {
   ENFORCEMENT_MIGRATION_TAG,
   hasNamedCheck,
@@ -292,6 +293,11 @@ describe("documented enum CHECK constraints", () => {
     await initDb(dbPath);
 
     const raw = openRaw(dbPath);
+    expect((raw.pragma("table_info(daemon_instances)") as Array<{ name: string }>).some((column) => column.name === "stop_intent")).toBe(false);
+    const daemon = daemonRepo.createDaemon({ name: "deferred-intent", hostname: "test", maxConcurrent: 1, daemonVersion: "external", plainToken: "synthetic" });
+    expect(daemonRepo.updateDaemonHeartbeat(daemon.id)?.status).toBe("online");
+    expect(daemonRepo.getDaemonById(daemon.id)?.stopIntent).toBeNull();
+    expect(() => daemonRepo.beginDaemonStop(daemon.id, "token")).toThrow(/migration/i);
     expect(hasCheck(raw, "tasks.priority")).toBe(false);
     for (const key of Object.keys(CHECKS).filter((key) => key !== "tasks.priority") as ColumnKey[]) {
       expect(hasCheck(raw, key), `${key} should be enforced independently`).toBe(true);
@@ -334,6 +340,12 @@ describe("documented enum CHECK constraints", () => {
     await initDb(dbPath);
 
     const enforced = openRaw(dbPath);
+    expect((enforced.pragma("table_info(daemon_instances)") as Array<{ name: string }>).some((column) => column.name === "stop_intent")).toBe(true);
+    expect(daemonRepo.getDaemonById(daemon.id)?.status).toBe("online");
+    daemonRepo.beginDaemonStop(daemon.id, "after-upgrade");
+    expect(daemonRepo.getDaemonById(daemon.id)?.stopIntent).toBe("after-upgrade");
+    daemonRepo.updateDaemonHeartbeat(daemon.id);
+    expect(daemonRepo.getDaemonById(daemon.id)?.stopIntent).toBeNull();
     expect(hasCheck(enforced, "tasks.priority")).toBe(true);
     expect(childCounts(enforced)).toEqual(beforeChildren);
     expect(

@@ -14,6 +14,7 @@ export const daemonInstances = sqliteTable(
     maxConcurrent: integer("max_concurrent").notNull().default(4),
     daemonVersion: text("daemon_version").notNull(),
     lastHeartbeatAt: text("last_heartbeat_at"),
+    stopIntent: text("stop_intent"),
     status: text("status", { enum: ["online", "offline", "draining"] })
       .notNull()
       .default("online"),

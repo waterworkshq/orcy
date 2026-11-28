@@ -90,10 +90,10 @@ describe("in-process Stop status", () => {
   });
 
   it("preserves the shutdown error if restoring the status also fails", async () => {
-    const setStatus = repo.setDaemonStatus;
-    const spy = vi.spyOn(repo, "setDaemonStatus").mockImplementation((daemonId, status) => {
+    const setStatus = repo.completeDaemonStop;
+    const spy = vi.spyOn(repo, "completeDaemonStop").mockImplementation((daemonId, token, status) => {
       if (status === "online") throw new Error("restore failed");
-      return setStatus(daemonId, status);
+      return setStatus(daemonId, token, status);
     });
     wiring.shutdownAll.mockRejectedValueOnce(new Error("shutdown failed"));
     await expect(engine.stop(id)).rejects.toThrow("shutdown failed");
@@ -102,7 +102,7 @@ describe("in-process Stop status", () => {
   });
 
   it("still drains sessions when the offline marker write fails", async () => {
-    const spy = vi.spyOn(repo, "setDaemonStatus").mockImplementationOnce(() => { throw new Error("write failed"); });
+    const spy = vi.spyOn(repo, "completeDaemonStop").mockImplementationOnce(() => { throw new Error("write failed"); });
     const response = await app.inject({ method: "POST", url: `/daemons/${id}/stop` });
     expect(response.statusCode).toBe(500);
     expect(wiring.shutdownAll).toHaveBeenCalledOnce();
@@ -119,7 +119,7 @@ describe("in-process Stop status", () => {
   });
 
   it("keeps the retry pending after another failed write", async () => {
-    const spy = vi.spyOn(repo, "setDaemonStatus").mockImplementationOnce(() => { throw new Error("first failure"); }).mockImplementationOnce(() => { throw new Error("retry failure"); });
+    const spy = vi.spyOn(repo, "completeDaemonStop").mockImplementationOnce(() => { throw new Error("first failure"); }).mockImplementationOnce(() => { throw new Error("retry failure"); });
     expect((await app.inject({ method: "POST", url: `/daemons/${id}/stop` })).statusCode).toBe(500);
     expect((await app.inject({ method: "POST", url: `/daemons/${id}/stop` })).statusCode).toBe(500);
     expect((await app.inject({ method: "POST", url: `/daemons/${id}/stop` })).statusCode).toBe(200);
@@ -129,7 +129,7 @@ describe("in-process Stop status", () => {
   });
 
   it("preserves a same-millisecond heartbeat received before a failed-write retry", async () => {
-    const spy = vi.spyOn(repo, "setDaemonStatus").mockImplementationOnce(() => { throw new Error("write failed"); });
+    const spy = vi.spyOn(repo, "completeDaemonStop").mockImplementationOnce(() => { throw new Error("write failed"); });
     expect((await app.inject({ method: "POST", url: `/daemons/${id}/stop` })).statusCode).toBe(500);
     spy.mockRestore();
     const heartbeat = await app.inject({ method: "POST", url: "/daemon/heartbeat", headers: { "x-daemon-token": "embedded" }, payload: {} });
@@ -140,7 +140,7 @@ describe("in-process Stop status", () => {
   });
 
   it("preserves a heartbeat during a failed-marker drain before a Stop retry", async () => {
-    const spy = vi.spyOn(repo, "setDaemonStatus").mockImplementationOnce(() => { throw new Error("write failed"); });
+    const spy = vi.spyOn(repo, "completeDaemonStop").mockImplementationOnce(() => { throw new Error("write failed"); });
     let finish!: () => void;
     wiring.shutdownAll.mockImplementationOnce(() => new Promise<void>((resolve) => { finish = resolve; }));
     const stopping = app.inject({ method: "POST", url: `/daemons/${id}/stop` }).then((response: any) => response);
@@ -155,7 +155,7 @@ describe("in-process Stop status", () => {
   });
 
   it("permits restarting after a failed offline write", async () => {
-    const spy = vi.spyOn(repo, "setDaemonStatus").mockImplementationOnce(() => { throw new Error("write failed"); });
+    const spy = vi.spyOn(repo, "completeDaemonStop").mockImplementationOnce(() => { throw new Error("write failed"); });
     expect((await app.inject({ method: "POST", url: `/daemons/${id}/stop` })).statusCode).toBe(500);
     spy.mockRestore();
     expect((await app.inject({ method: "POST", url: `/daemons/${id}/start` })).statusCode).toBe(200);
@@ -168,7 +168,7 @@ describe("in-process Stop status", () => {
     wiring.shutdownAll.mockImplementationOnce(() => new Promise<void>((resolve) => { finish = resolve; }));
     const stopping = app.inject({ method: "POST", url: `/daemons/${id}/stop` }).then((response: any) => response);
     await vi.waitFor(() => expect(finish).toBeDefined());
-    expect(await statuses()).toEqual({ embedded: "offline", external: "online", detail: "offline" });
+    expect(await statuses()).toEqual({ embedded: "unknown", external: "online", detail: "unknown" });
     expect((await app.inject({ method: "POST", url: `/daemons/${id}/start` })).statusCode).toBe(409);
     const heartbeat = await app.inject({ method: "POST", url: "/daemon/heartbeat", headers: { "x-daemon-token": "embedded" }, payload: {} });
     expect(heartbeat.statusCode).toBe(200);
