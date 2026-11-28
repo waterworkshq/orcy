@@ -194,6 +194,27 @@ describe("TaskDetailModal", () => {
     cleanup();
   });
 
+  it("shows only current rejection feedback as text", () => {
+    modalStoreState.isOpen = true;
+    modalStoreState.selectedTaskId = "task-1";
+    const response = mockTaskDetails.mock.results[0]?.value ?? mockTaskDetails();
+    const reason = '<img src=x onerror="alert(1)">\nPlease revise';
+    response.data.task = { ...baseTask, status: "rejected", rejectionReason: reason, result: "Result text" };
+    const { rerender } = render(<TaskDetailModal />);
+    expect(screen.getByText("Rejection feedback")).toBeInTheDocument();
+    expect(screen.getByText(reason, { normalizer: (text) => text })).toBeInTheDocument();
+    expect(document.querySelector('img[src="x"]')).toBeNull();
+    expect(screen.getByText("Result text")).toBeInTheDocument();
+    expect(screen.getByTestId("task-activity-feed")).toBeInTheDocument();
+    response.data.task = { ...response.data.task, rejectionReason: "" };
+    rerender(<TaskDetailModal />);
+    expect(screen.queryByText("Rejection feedback")).not.toBeInTheDocument();
+    response.data.task = { ...response.data.task, status: "in_progress", rejectionReason: reason };
+    rerender(<TaskDetailModal />);
+    expect(screen.queryByText("Rejection feedback")).not.toBeInTheDocument();
+    expect(screen.queryByText(reason, { normalizer: (text) => text })).not.toBeInTheDocument();
+  });
+
   it("returns null when modal is closed", () => {
     modalStoreState.isOpen = false;
     const { container } = render(<TaskDetailModal />);
