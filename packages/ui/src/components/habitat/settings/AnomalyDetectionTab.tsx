@@ -59,8 +59,8 @@ export const AnomalyDetectionTab = forwardRef<AnomalyDetectionTabHandle, Anomaly
 
   const handleSave = useCallback(async () => {
     await saveSettings({
-      anomalySettings: anomalyEnabled ? {
-        enabled: true,
+      anomalySettings: {
+        enabled: anomalyEnabled,
         scanIntervalMinutes: parseInt(anomalyScanInterval, 10),
         thresholds: {
           staleInProgressMinutes: parseInt(anomalyStaleMinutes, 10),
@@ -75,7 +75,7 @@ export const AnomalyDetectionTab = forwardRef<AnomalyDetectionTabHandle, Anomaly
           sse: anomalyNotifySse,
           chat: anomalyNotifyChat,
         },
-      } : null,
+      },
     }, 'Anomaly detection settings saved');
   }, [saveSettings, anomalyEnabled, anomalyScanInterval, anomalyStaleMinutes, anomalyRejectionRate, anomalyRejectionWindow, anomalyCycleTimeIncrease, anomalyBacklogRatio, anomalyOfflineMinutes, anomalyNotifyEmail, anomalyNotifySse, anomalyNotifyChat]);
 
