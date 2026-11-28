@@ -380,7 +380,7 @@ export function TaskDetailModal() {
               </div>
             </div>
 
-            <div className="relative flex-1 grid grid-cols-12 overflow-hidden">
+            <div className="relative min-h-0 flex-1 grid grid-cols-12 overflow-y-auto md:overflow-hidden">
               <div
                 className="col-span-7 max-md:col-span-12 p-6 md:p-10"
                 data-testid="task-detail-left-column"
