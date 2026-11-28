@@ -2882,13 +2882,37 @@ Create a new quality checklist template.
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
 | `name` | string | yes | Template name |
-| `description` | string | no | Template description |
+| `description` | string/null | no | Template description; omitted or `null` stores an empty string |
 | `category` | string | yes | Category grouping (e.g., `code_quality`, `security`, `testing`) |
-| `isRequired` | boolean | no | Whether this checklist is required for approval (default: true) |
+| `isRequired` | boolean/null | no | Whether this checklist is required for approval (default: true, also for `null`) |
 | `items` | array | yes | Checklist items (min 1) |
 | `items[].title` | string | yes | Item title |
-| `items[].description` | string | no | Item description |
-| `items[].required` | boolean | no | Whether this item is required (default: true) |
+| `items[].description` | string/null | no | Item description; omitted or `null` stores an empty string |
+| `items[].required` | boolean/null | no | Whether this item is required (default: true, also for `null`) |
+
+**Errors:** The whole body is validated before anything is written. Any of the following returns `400` `VALIDATION_ERROR`:
+
+- `items` missing, not an array, or empty.
+- `name`, `category`, or `items[].title` missing, empty, or not a string.
+- A `description` or `items[].description` that is neither a string nor `null`.
+- An `isRequired` or `items[].required` that is neither a boolean nor `null`.
+
+A longer `items` list is refused before this validation by the request collection cap (see [Request Collection Cap](#request-collection-cap)), so validation work and error output stay bounded. `details.fieldErrors` is keyed by top-level field, and each message starts with the failing field's full path:
+
+```json
+{
+  "error": "Validation failed",
+  "code": "VALIDATION_ERROR",
+  "details": {
+    "formErrors": [],
+    "fieldErrors": {
+      "items": ["items.1.title: Invalid input: expected string, received undefined"]
+    }
+  }
+}
+```
+
+Unknown fields are ignored, and an omitted or `null` optional field takes its default. The template and its items are saved as one unit: a refused or failed request leaves no template and no items behind, so Tasks started afterwards adopt nothing from it.
 
 **Response `200`:**
 
