@@ -30,7 +30,8 @@ try {
     await initDaemonWiring();
     const start = await app.inject({ method: "POST", url: `/api/daemons/${id}/start`, headers });
     const detail = await app.inject({ method: "GET", url: `/api/daemons/${id}`, headers });
-    await send({ startStatus: start.statusCode, detail: detail.json().daemon.status });
+    await send({ startStatus: start.statusCode, detail: detail.json().daemon.status,
+      ...(start.statusCode >= 400 ? { error: start.json().error } : {}) });
     await app.close();
     closeDb();
     process.disconnect?.();

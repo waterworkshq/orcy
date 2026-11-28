@@ -7,10 +7,10 @@ import jwt from "jsonwebtoken";
 import Database from "better-sqlite3";
 import { sql } from "drizzle-orm";
 
-const wiring = vi.hoisted(() => ({ shutdownAll: vi.fn(async () => {}), release: vi.fn(), sessions: [] as Array<{ id: string; agentId: string }> }));
+const wiring = vi.hoisted(() => ({ shutdownAll: vi.fn(async () => {}), release: vi.fn(), detect: vi.fn(() => [] as Array<{ type: "claude-code"; path: string }>), onPoll: vi.fn(), sessions: [] as Array<{ id: string; agentId: string }> }));
 vi.mock("../daemon-wiring.js", () => ({
-  getSessionManager: () => ({ get activeSessions() { return wiring.sessions; }, startTimeoutCheck() {}, shutdownAll: wiring.shutdownAll }),
-  getClaimStrategy: () => ({}), releaseSessionManager: wiring.release, detectClisOnHost: () => [],
+  getSessionManager: () => ({ get activeSessions() { wiring.onPoll(); return wiring.sessions; }, startTimeoutCheck() {}, shutdownAll: wiring.shutdownAll }),
+  getClaimStrategy: () => ({}), releaseSessionManager: wiring.release, detectClisOnHost: wiring.detect,
 }));
 
 import { initDb, closeDb, getDb } from "../db/index.js";
@@ -18,6 +18,10 @@ import { createHttpApplication, type HttpRuntimeHandle } from "../httpApp.js";
 import { setJwtSecret } from "../middleware/jwt-verification.js";
 import * as repo from "../repositories/daemon.js";
 import * as agentRepo from "../repositories/agent.js";
+import * as habitatRepo from "../repositories/habitat.js";
+import * as columnRepo from "../repositories/column.js";
+import * as missionRepo from "../repositories/mission.js";
+import * as taskRepo from "../repositories/task.js";
 import * as engine from "../services/daemonEngine.js";
 
 let app: HttpRuntimeHandle | undefined;
@@ -40,7 +44,7 @@ async function independentApi(path: string, id: string, mode?: "start"): Promise
   return childResult;
 }
 
-beforeEach(() => { wiring.shutdownAll.mockReset().mockResolvedValue(undefined); wiring.release.mockClear(); wiring.sessions = []; });
+beforeEach(() => { wiring.shutdownAll.mockReset().mockResolvedValue(undefined); wiring.release.mockClear(); wiring.detect.mockReset().mockReturnValue([]); wiring.onPoll.mockReset(); wiring.sessions = []; });
 
 afterEach(async () => {
   releasePending?.();
@@ -75,6 +79,14 @@ it("keeps a failed final offline write indeterminate across reopening, then hono
   const daemon = repo.createDaemon({ name: "durable", hostname: "test", maxConcurrent: 1, daemonVersion: "in-process", plainToken: "synthetic-daemon" });
   const external = repo.createDaemon({ name: "external", hostname: "test", maxConcurrent: 1, daemonVersion: "cli", plainToken: "external-daemon" });
   engine.start(daemon.id);
+  const agent = agentRepo.createAgent({ name: "registered-agent", type: "claude-code", domain: "fullstack", capabilities: [] });
+  repo.createDaemonAgent({ daemonId: daemon.id, agentId: agent.agent.id, cliType: "claude-code", cliVersion: null, cliPath: "/synthetic" });
+  const habitat = habitatRepo.createHabitat({ name: "Synthetic habitat" });
+  const column = columnRepo.createColumn({ habitatId: habitat.id, name: "Todo", order: 0 });
+  const mission = missionRepo.createMission({ habitatId: habitat.id, columnId: column.id, title: "Synthetic mission", createdBy: "admin" });
+  const task = taskRepo.createTask({ missionId: mission.id, title: "Synthetic task", createdBy: "admin" });
+  const session = repo.createDaemonSession({ daemonId: daemon.id, agentId: agent.agent.id, taskId: task.id, habitatId: habitat.id, workdir: "/synthetic" });
+  expect(session.status).toBe("starting");
   expect((await app.inject({ method: "POST", url: "/api/daemon/heartbeat", headers: { "x-daemon-token": "external-daemon" }, payload: {} })).statusCode).toBe(200);
   expect((await app.inject({ method: "GET", url: "/api/daemons" })).statusCode).toBe(401);
   const viewer = { authorization: `Bearer ${jwt.sign({ sub: "viewer", username: "viewer", role: "viewer" }, secret, { issuer: "orcy" })}` };
@@ -96,6 +108,9 @@ it("keeps a failed final offline write indeterminate across reopening, then hono
   independentReader.close();
   expect((await app.inject({ method: "GET", url: `/api/daemons/${daemon.id}`, headers: auth })).json().daemon.status).toBe("unknown");
   expect((await app.inject({ method: "POST", url: `/api/daemons/${daemon.id}/start`, headers: auth })).statusCode).toBe(409);
+  expect(await independentApi(path, daemon.id)).toEqual({ list: "unknown", detail: "unknown", retryStatus: 409 });
+  expect(repo.getDaemonById(daemon.id)?.stopIntent).toBe(persisted.stop_intent);
+  expect(repo.getSessionById(session.id)?.status).toBe("starting");
   finish();
   releasePending = undefined;
   expect((await stopping).statusCode).toBe(500);
@@ -107,11 +122,20 @@ it("keeps a failed final offline write indeterminate across reopening, then hono
   expect(list.json().daemons.find((d: any) => d.id === daemon.id).status).toBe("unknown");
   expect(list.json().daemons.find((d: any) => d.id === external.id).status).toBe("online");
   expect(detail.json().daemon.status).toBe("unknown");
+  expect((await app.inject({ method: "POST", url: `/api/daemons/${daemon.id}/start`, headers: viewer })).statusCode).toBe(403);
+  expect(repo.getSessionById(session.id)?.status).toBe("starting");
   expect(await independentApi(path, daemon.id)).toEqual({ list: "unknown", detail: "unknown", retryStatus: 409 });
-  const agent = agentRepo.createAgent({ name: "registered-agent", type: "claude-code", domain: "fullstack", capabilities: [] });
-  repo.createDaemonAgent({ daemonId: daemon.id, agentId: agent.agent.id, cliType: "claude-code", cliVersion: null, cliPath: "/synthetic" });
-  expect(await independentApi(path, daemon.id, "start")).toEqual({ startStatus: 500, detail: "unknown" });
+  expect(await independentApi(path, daemon.id, "start")).toEqual({
+    startStatus: 409,
+    detail: "unknown",
+    error: "In-process daemon credentials are only available immediately after UI registration. Register a new UI daemon or use the standalone CLI daemon for persisted credentials.",
+  });
+  expect(repo.getSessionById(session.id)?.status).toBe("starting");
   expect(repo.getDaemonById(daemon.id)?.stopIntent).toBeTruthy();
+  const replacement = engine.register("replacement", []);
+  expect(replacement.daemonId).not.toBe(daemon.id);
+  expect(repo.getDaemonById(daemon.id)?.stopIntent).toBeTruthy();
+  expect(repo.getSessionById(session.id)?.status).toBe("starting");
   await app.close();
   app = undefined;
   closeDb();
@@ -216,4 +240,23 @@ it("keeps legacy-schema reads and heartbeats available but refuses Stop before d
   expect(repo.getDaemonById(daemon.id)!.lastHeartbeatAt).toBe(lastHeartbeat);
   // No durable write was possible: the old heartbeat can still look online.
   expect((await app.inject({ method: "GET", url: `/api/daemons/${daemon.id}`, headers: auth })).json().daemon.status).toBe("online");
+}, 120_000);
+
+
+it("cleans old sessions before polling when credentials are available", async () => {
+  dir = mkdtempSync(join(tmpdir(), "orcy-start-preflight-"));
+  await initDb(join(dir, "orcy.sqlite"));
+  const habitat = habitatRepo.createHabitat({ name: "Valid start" });
+  const column = columnRepo.createColumn({ habitatId: habitat.id, name: "Todo", order: 0 });
+  const mission = missionRepo.createMission({ habitatId: habitat.id, columnId: column.id, title: "Mission", createdBy: "admin" });
+  const task = taskRepo.createTask({ missionId: mission.id, title: "Task", createdBy: "admin" });
+  wiring.detect.mockReturnValue([{ type: "claude-code", path: "/synthetic" }]);
+  const registration = engine.register("valid-start", [habitat.id]);
+  const session = repo.createDaemonSession({ daemonId: registration.daemonId, agentId: registration.agents[0].id, taskId: task.id, habitatId: habitat.id, workdir: "/synthetic" });
+  expect(session.status).toBe("starting");
+  const statusesAtPoll: string[] = [];
+  wiring.onPoll.mockImplementation(() => { statusesAtPoll.push(repo.getSessionById(session.id)!.status); });
+  engine.start(registration.daemonId);
+  expect(repo.getSessionById(session.id)?.status).toBe("lost");
+  expect(statusesAtPoll).toEqual(["lost"]);
 }, 120_000);

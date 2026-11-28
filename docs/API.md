@@ -3404,7 +3404,7 @@ Daemon routes support autonomous AI CLI execution. There are two route groups:
 | `POST` | `/daemons/:id/stop` | Stop the API in-process daemon engine |
 | `GET` | `/daemons/detect-clis` | Detect supported AI CLIs on the API host |
 
-Starting a daemon while its shutdown is still running in the same API process returns HTTP 409. Retry after the stop completes. This guard is process-local; it is not a cross-process Start lease. Multiple API instances sharing one database are not supported; see [Deployment](DEPLOYMENT.md).
+Starting a daemon while its shutdown is still running in the same API process returns HTTP 409. Retry after the stop completes. This guard is process-local; it is not a cross-process Start lease. Start also returns HTTP 409 with registration guidance when an in-process daemon's agent credentials are no longer available; no session cleanup is performed on this rejected start. Multiple API instances sharing one database are not supported; see [Deployment](DEPLOYMENT.md).
 
 List and detail return `unknown` while a durable stop intent has no recorded completion. This can persist after an API restart: it does not prove that sessions drained. A later authenticated heartbeat or successful in-process start supersedes the intent. A Stop retry in the process that completed the drain can finish its failed status write without draining twice; another process returns 409 when it cannot prove completion. If earlier database migrations are deferred and the stop-intent column is unavailable, Stop returns 503 before stopping the engine. Resolve the reported migration blocker and restart the API before retrying.
 

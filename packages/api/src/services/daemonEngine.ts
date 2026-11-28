@@ -132,14 +132,6 @@ export function start(daemonId: string, dataDir: string = "/tmp/orcy-daemon"): v
     throw new Error(`Daemon ${daemonId} not found`);
   }
 
-  // Verified-restart straggler cleanup (daemon-worker contract): the engine
-  // starting locally proves the prior process dead — terminalize THIS
-  // daemon's still-active session rows BEFORE serving the first claim (the
-  // only start-time kill; heartbeat rules do not apply to a verified
-  // restart). Runs ahead of every side effect below so sessions created by
-  // the newly started engine are never marked.
-  cleanupDaemonSessionsOnStart(daemonId);
-
   const daemonAgents = daemonRepo.getDaemonAgentsByDaemonId(daemonId);
   const credentials = new Map((inMemoryAgentCredentials.get(daemonId) ?? []).map((a) => [a.id, a]));
   const agents: RegisteredAgent[] = daemonAgents.map((da) => ({
@@ -151,10 +143,14 @@ export function start(daemonId: string, dataDir: string = "/tmp/orcy-daemon"): v
   }));
 
   if (agents.some((agent) => !agent.apiKey)) {
-    throw new Error(
+    throw conflict(
       "In-process daemon credentials are only available immediately after UI registration. Register a new UI daemon or use the standalone CLI daemon for persisted credentials.",
     );
   }
+
+  // A rejected credential preflight must not alter sessions. On a valid start,
+  // cleanup remains ahead of the first claim and any newly created sessions.
+  cleanupDaemonSessionsOnStart(daemonId);
 
   const sessionManager = getSessionManager(daemonId, dataDir);
   const claimStrategy = getClaimStrategy({
