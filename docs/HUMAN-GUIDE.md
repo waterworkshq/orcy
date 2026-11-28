@@ -185,7 +185,7 @@ The code evidence panel on a task (or mission) shows branches, commits, PRs, pip
 
 ## Mission editing
 
-An open Mission edit keeps your draft when background data refreshes. If someone else changed the Mission, saving still reports a conflict rather than silently overwriting the newer version. Close and reopen the editor to start from refreshed data. Gate/deadline version controls are available only with their corresponding release type; clearing the type clears that version. Feature-mode hidden release settings are preserved rather than cleared by an unrelated edit.
+An open Mission edit keeps your draft when background data refreshes. If someone else changed the Mission, saving still reports a conflict rather than silently overwriting the newer version. Close and reopen the editor to start from refreshed data. The Due date box shows the deadline in your browser's local time, and saving without touching it leaves the stored deadline exactly as it was — same instant, same precision — so an unrelated edit never moves the deadline. Editing the Due date sets it to the date and time you chose; clearing it removes the deadline. Gate/deadline version controls are available only with their corresponding release type; clearing the type clears that version. Feature-mode hidden release settings are preserved rather than cleared by an unrelated edit.
 
 ---
 
