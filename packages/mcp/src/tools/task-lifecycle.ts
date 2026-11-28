@@ -36,7 +36,12 @@ export async function habitatClaimTask(client: KanbanApiClient, args: { taskId: 
   if (!result.success) {
     return result;
   }
-  const enrichedTask = await enrichTaskWithAgentName(client, result.task);
+  // The claim has committed: the display-name lookup is optional and must not
+  // hide the receipt — later mutations need task.executionToken.
+  const enrichedTask = await enrichTaskWithAgentName(client, result.task).catch(() => ({
+    ...result.task,
+    assignedAgentName: null,
+  }));
   return { success: true, task: enrichedTask };
 }
 
@@ -75,7 +80,10 @@ export async function habitatStartTask(
   args: { taskId: string; executionToken?: string | null },
 ) {
   const result = await client.startTask(args.taskId, args.executionToken ?? null);
-  const enrichedTask = await enrichTaskWithAgentName(client, result.task);
+  const enrichedTask = await enrichTaskWithAgentName(client, result.task).catch(() => ({
+    ...result.task,
+    assignedAgentName: null,
+  }));
   return { success: true, task: enrichedTask };
 }
 

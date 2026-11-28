@@ -379,7 +379,7 @@ export function processDueAuditExports(): { executed: number; failed: number } {
       mkdirSync(exportDir, { recursive: true });
       const filePath = join(exportDir, filename);
 
-      const content = auditExportService.generateAuditExportContent(habitatId, query);
+      const { content, warnings } = auditExportService.generateAuditExport(habitatId, query);
       writeFileSync(filePath, content, "utf-8");
 
       const nextRunAt = calculateNextRun("cron", schedule.schedule, null);
@@ -392,7 +392,13 @@ export function processDueAuditExports(): { executed: number; failed: number } {
         .run();
 
       executed++;
-      logger.info({ scheduleId: schedule.id, filePath }, "Audit export schedule executed");
+      const warningSummary = auditExportService.summarizeExportWarnings(warnings);
+      const details = { scheduleId: schedule.id, filePath, ...warningSummary };
+      if (warningSummary.truncated || warningSummary.partial) {
+        logger.warn(details, "Audit export schedule executed with incomplete results");
+      } else {
+        logger.info(details, "Audit export schedule executed");
+      }
     } catch (err) {
       failed++;
       logger.error({ err, scheduleId: schedule.id }, "Error executing audit export schedule");

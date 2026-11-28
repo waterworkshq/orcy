@@ -28,6 +28,8 @@ export interface AuditQueryInput {
   limit?: number;
   offset?: number;
   referencedEntities?: readonly AuditEntityReferenceFilter[];
+  /** Additional projection-level predicate, applied before warnings, summary, and pagination. */
+  eventFilter?: (event: AuditEvent) => boolean;
 }
 
 /** Result envelope for an audit query containing projected {@link AuditEvent} records, data-quality warnings, and a completeness summary. */

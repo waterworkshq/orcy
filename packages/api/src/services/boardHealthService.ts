@@ -174,7 +174,7 @@ function computeDeliveryScore(habitatId: string): {
   let atRiskTasks = 0;
   try {
     const predictions = predictionService.getPredictions(habitatId);
-    atRiskTasks = predictions.atRiskTasks.length;
+    atRiskTasks = new Set(predictions.atRiskTasks.map((task) => task.taskId)).size;
   } catch (err) {
     console.error("[boardHealth] computeDeliveryScore predictions failed:", err);
   }

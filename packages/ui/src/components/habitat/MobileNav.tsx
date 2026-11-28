@@ -40,6 +40,7 @@ export function MobileNav({
         <button
           type="button"
           onClick={onAddTask}
+          aria-label="Add Task"
           className="flex items-center justify-center rounded-full bg-primary p-3 text-primary-foreground shadow-lg active:scale-95 transition-transform"
         >
           <Plus className="h-6 w-6" />

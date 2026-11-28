@@ -38,6 +38,7 @@ interface CreateTaskFormProps {
   onClose: () => void;
   habitatId?: string;
   missionId?: string;
+  missions?: readonly { id: string; title: string }[];
 }
 
 /**
@@ -84,7 +85,7 @@ function generateAttemptKey(): string {
  * `packages/ui/src/api/domains/taskPublications.ts` for the flag-detection
  * rationale.
  */
-export function CreateTaskForm({ open, onClose, habitatId, missionId }: CreateTaskFormProps) {
+export function CreateTaskForm({ open, onClose, habitatId, missionId, missions = [] }: CreateTaskFormProps) {
   const isSessionActive = useSessionLiveness();
   const qc = useQueryClient();
   const { data: templatesData } = useTemplates(habitatId);
@@ -93,7 +94,9 @@ export function CreateTaskForm({ open, onClose, habitatId, missionId }: CreateTa
   // The legacy fallback reuses `useCreateTaskInMission` so its invalidation
   // hooks (mission task lists + habitat/mission representations) fire on
   // success — same surface the new path invalidates manually below.
-  const createTaskMutation = useCreateTaskInMission(missionId ?? "");
+  const [selectedMissionId, setSelectedMissionId] = useState("");
+  const effectiveMissionId = missionId ?? selectedMissionId;
+  const createTaskMutation = useCreateTaskInMission(effectiveMissionId);
 
   const [selectedTemplateId, setSelectedTemplateId] = useState("");
   const [title, setTitle] = useState("");
@@ -138,6 +141,7 @@ export function CreateTaskForm({ open, onClose, habitatId, missionId }: CreateTa
   useEffect(() => {
     if (open) {
       setSelectedTemplateId("");
+      setSelectedMissionId("");
       setTitle("");
       setDescription("");
       setPriority("medium");
@@ -229,11 +233,11 @@ export function CreateTaskForm({ open, onClose, habitatId, missionId }: CreateTa
   }
 
   function invalidateAfterSuccess() {
-    if (!missionId) return;
-    qc.invalidateQueries({ queryKey: queryKeys.missions.tasks(missionId) });
-    qc.invalidateQueries({ queryKey: queryKeys.missions.details(missionId) });
-    qc.invalidateQueries({ queryKey: queryKeys.missions.progress(missionId) });
-    invalidateMissionRepresentations(qc, missionId);
+    if (!effectiveMissionId) return;
+    qc.invalidateQueries({ queryKey: queryKeys.missions.tasks(effectiveMissionId) });
+    qc.invalidateQueries({ queryKey: queryKeys.missions.details(effectiveMissionId) });
+    qc.invalidateQueries({ queryKey: queryKeys.missions.progress(effectiveMissionId) });
+    invalidateMissionRepresentations(qc, effectiveMissionId);
     if (habitatId) {
       invalidateHabitatRepresentations(qc, habitatId);
     }
@@ -465,7 +469,7 @@ export function CreateTaskForm({ open, onClose, habitatId, missionId }: CreateTa
   }
 
   async function publishViaNewRoute(key: string) {
-    const result = await taskPublicationsApi.publishTask(missionId ?? "", {
+    const result = await taskPublicationsApi.publishTask(effectiveMissionId, {
       attemptKey: key,
       title: title.trim(),
       description: description.trim() || undefined,
@@ -506,7 +510,8 @@ export function CreateTaskForm({ open, onClose, habitatId, missionId }: CreateTa
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (!title.trim() || !missionId) return;
+    if (!title.trim() || !effectiveMissionId ||
+        (!missionId && !attemptKey && !missions.some((m) => m.id === effectiveMissionId))) return;
 
     // Reset transient state so a retry after a previous rejection doesn't
     // show stale errors.
@@ -571,6 +576,27 @@ export function CreateTaskForm({ open, onClose, habitatId, missionId }: CreateTa
 
         <DialogContent>
           <div className="space-y-4">
+            {!missionId && (
+              <div>
+                <label htmlFor="task-mission" className="mb-1 block text-sm font-medium">Mission *</label>
+                <select
+                  id="task-mission"
+                  value={selectedMissionId}
+                  onChange={(e) => setSelectedMissionId(e.target.value)}
+                  disabled={!!attemptKey || submitting || polling || !!assignmentWarning}
+                  className="w-full rounded border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+                >
+                  <option value="">{missions.length ? "Choose a Mission" : "No Missions available"}</option>
+                  {missions.map((mission) => <option key={mission.id} value={mission.id}>{mission.title}</option>)}
+                  {attemptKey && selectedMissionId && !missions.some((m) => m.id === selectedMissionId) && (
+                    <option value={selectedMissionId}>Selected Mission (no longer available)</option>
+                  )}
+                </select>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  {attemptKey ? "The Mission is locked while this publication attempt is unresolved." : missions.length ? "Select a Mission for this task." : "Create a Mission in this Habitat before adding a task."}
+                </p>
+              </div>
+            )}
             {templates.length > 0 && (
               <div>
                 <label className="mb-1 block text-sm font-medium">Template</label>
@@ -819,6 +845,8 @@ export function CreateTaskForm({ open, onClose, habitatId, missionId }: CreateTa
               polling ||
               !!stillSettlingAttemptId ||
               !!assignmentWarning ||
+              !effectiveMissionId ||
+              (!missionId && !attemptKey && !missions.some((m) => m.id === effectiveMissionId)) ||
               !title.trim()
             }
           >

@@ -9,6 +9,7 @@ import {
   MISSION_DISPATCH_TOOL,
 } from "../../tools/index.js";
 import { createMockClient } from "../__fixtures__/mock-client.js";
+import { ApiClientError } from "@orcy/shared";
 
 describe("board_list_features", () => {
   it("returns features from the API client", async () => {
@@ -441,6 +442,27 @@ describe("board_claim_task", () => {
       expect(client.claimTask).toHaveBeenCalledWith("task-1");
     },
   );
+
+  it("returns the committed receipt with its token when the display-name lookup fails", async () => {
+    const client = createMockClient();
+    const mockTask = {
+      id: "task-1",
+      title: "Test",
+      status: "claimed" as const,
+      assignedAgentId: "agent-1",
+      executionToken: "epoch-token-1",
+    };
+    client.claimTask.mockResolvedValue({ success: true, task: mockTask });
+    client.getAgentById.mockRejectedValue(new ApiClientError(503, "lookup unavailable"));
+
+    const raw = await TASK_DISPATCH_HANDLER(client, { action: "claim", taskId: "task-1" });
+
+    expect(raw.isError).toBeFalsy();
+    expect(JSON.parse(raw.content[0].text)).toEqual({
+      success: true,
+      task: { ...mockTask, assignedAgentName: null },
+    });
+  });
 });
 
 describe("board_start_task", () => {

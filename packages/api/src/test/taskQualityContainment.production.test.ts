@@ -9,6 +9,8 @@
  * driver. Results come from RETURNING rows only; no `.run().changes`
  * semantics anywhere. The SEAM below is in-transaction instrumentation
  * (same connection), not overlapping independent-connection concurrency.
+ * The template-authoring block adds the same driver's rollback for a late
+ * item statement fault inside `createTemplate`.
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import fs from "node:fs";
@@ -21,7 +23,11 @@ import * as columnRepo from "../repositories/column.js";
 import * as missionRepo from "../repositories/mission.js";
 import * as taskRepo from "../repositories/taskCrud.js";
 import * as qualityRepo from "../repositories/qualityGate.js";
-import { taskQualityChecklists, taskQualityChecklistItems } from "../db/schema/index.js";
+import {
+  qualityChecklistTemplates,
+  taskQualityChecklists,
+  taskQualityChecklistItems,
+} from "../db/schema/index.js";
 import { AppError } from "../errors.js";
 import { RepositoryError } from "../errors/repository.js";
 
@@ -366,5 +372,83 @@ describe("PRODUCTION DRIVER — triple-scoped aggregate primitives", () => {
     });
     expect(ok!.isCompleted).toBe(true);
     expect(checklistRow(colA.checklist.id)!.status).toBe("in_progress");
+  });
+});
+
+describe("PRODUCTION DRIVER — template authoring aggregate", () => {
+  /** Every template as `Name [item titles]` — the exact state a failed create must leave unchanged. */
+  const templateState = () =>
+    getDb()
+      .select({ id: qualityChecklistTemplates.id, name: qualityChecklistTemplates.name })
+      .from(qualityChecklistTemplates)
+      .all()
+      .map((t) => `${t.name} [${qualityRepo.getTemplateItems(t.id).map((i) => i.title).join(", ")}]`);
+
+  it("an item statement fault AFTER the template and first item were written rolls both back; the replay then persists in order", () => {
+    const input = {
+      name: "tqcp-authoring",
+      category: "testing",
+      items: [{ title: "First" }, { title: "Second" }],
+    };
+    const before = templateState();
+    getDb().run(
+      sql`CREATE TRIGGER tqcp_abort BEFORE INSERT ON quality_checklist_items WHEN NEW.order_index = 1 BEGIN SELECT RAISE(ABORT, 'tqcp template item fault'); END`,
+    );
+    try {
+      expect(() => qualityRepo.createTemplate(input)).toThrow(RepositoryError);
+      expect(templateState()).toEqual(before);
+    } finally {
+      getDb().run(sql`DROP TRIGGER tqcp_abort`);
+    }
+
+    const created = qualityRepo.createTemplate(input);
+    expect(qualityRepo.getTemplateItems(created.id).map((i) => [i.title, i.orderIndex])).toEqual([
+      ["First", 0],
+      ["Second", 1],
+    ]);
+  });
+
+  it("a failed read of the created template rolls the template and its items back", () => {
+    const before = templateState();
+    const failRead = () => {
+      throw new Error("tqcp readback fault");
+    };
+    // SEAM: the read of the created template fails wherever createTemplate
+    // performs it — on the transaction client, or on the ordinary handle
+    // after the commit. Everything else is real SQL.
+    const db = getDb();
+    vi.spyOn(db, "select").mockImplementationOnce(failRead);
+    const orig = db.transaction.bind(db);
+    vi.spyOn(db, "transaction").mockImplementation(
+      ((cb: any, cfg: any) =>
+        orig(
+          (tx: any) =>
+            cb(
+              new Proxy(tx, {
+                get(target, prop) {
+                  if (prop === "select") return failRead;
+                  const value = Reflect.get(target, prop, target);
+                  return typeof value === "function" ? value.bind(target) : value;
+                },
+              }),
+            ),
+          cfg,
+        )) as never,
+    );
+
+    let thrown: unknown;
+    try {
+      qualityRepo.createTemplate({
+        name: "tqcp-readback",
+        category: "testing",
+        items: [{ title: "First" }, { title: "Second" }],
+      });
+    } catch (err) {
+      thrown = err;
+    }
+    vi.restoreAllMocks();
+    // State before error identity: the defect is a template left behind.
+    expect(templateState()).toEqual(before);
+    expect(thrown).toBeInstanceOf(RepositoryError);
   });
 });

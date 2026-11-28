@@ -4,7 +4,7 @@ import {
   WORKTREE_DISPATCH_HANDLER,
 } from '../../tools/index.js';
 import { createMockClient } from '../__fixtures__/mock-client.js';
-import { resetConfig } from '@orcy/shared';
+import { ApiClientError, resetConfig } from '@orcy/shared';
 
 afterEach(() => {
   resetConfig();
@@ -67,14 +67,13 @@ describe('worktree dispatch get-worktree', () => {
     expect(result.worktree).toBeNull();
   });
 
-  it('handles API errors gracefully', async () => {
+  it('surfaces a failed worktree read as an error, not as disabled', async () => {
     const client = createMockClient();
-    client.getWorktree.mockResolvedValue({ worktree: null, enabled: false });
+    client.getWorktree.mockRejectedValue(new ApiClientError(503, 'Service Unavailable'));
 
     const raw = await WORKTREE_DISPATCH_HANDLER(client, { action: 'get-worktree', taskId: 'task-1' });
-    const result = JSON.parse(raw.content[0].text);
 
-    expect(result.worktree).toBeNull();
-    expect(result.enabled).toBe(false);
+    expect(raw.isError).toBe(true);
+    expect(raw.content[0].text).toContain('503');
   });
 });

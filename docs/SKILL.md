@@ -1265,6 +1265,8 @@ Input: { "action": "get-worktree", "taskId": "uuid" }
 Output: { "worktree": { "path": "/repo/worktrees/task-uuid", "branch": "task/fix-login", "repoRoot": "/repo" }, "enabled": true }
 ```
 
+`enabled: false` means worktree integration is genuinely off for the task's habitat. A read that cannot be completed returns an `isError` result — it never degrades into the `enabled: false` shape, so a failed lookup is never mistaken for a disabled configuration. The reported status depends on the failure: an HTTP error response reports its HTTP status (e.g. `503` unavailable, `403` denied), a network failure reports `0`, a timeout reports a synthetic `408`, and a response body that cannot be parsed reports no status at all.
+
 ---
 
 ### Quality Gates & Dependencies — `orcy_habitat_task`
@@ -1844,13 +1846,13 @@ Output: { "skill": { "content": "# Habitat Skill: ...\n\n## Domain Knowledge\n..
 
 #### Refresh Skill
 
-Trigger async regeneration of the skill document from current promoted signals.
+Regenerate the skill document from current promoted signals. Regeneration runs synchronously — the response carries the regenerated skill's signal count.
 
 ```
 orcy_habitat_skill({ action: "refresh", habitatId: "uuid" })
 
 Input: { "action": "refresh", "habitatId": "uuid" }
-Output: { "success": true, "message": "Skill regeneration triggered" }
+Output: { "success": true, "message": "Skill regenerated", "signalCount": 12 }
 ```
 
 #### Contribute Insight
@@ -1868,13 +1870,19 @@ Input:
   "skillCategory": "convention"
 }
 
-Output: { "success": true, "signal": { "id": "...", "clusterKey": "database-queries-drizzle", "strength": 0.5 } }
+Output: { "success": true, "signal": { "id": "...", "clusterKey": "always use drizzle orm for database queries never raw sql#6xw1om", "strength": 0.3 } }
 ```
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
 | `insight` | string | yes | The insight text (1-2000 chars) |
-| `skillCategory` | string | no | `domain_knowledge`, `convention`, `pattern`, `anti_pattern` (default: `domain_knowledge`) |
+| `skillCategory` | string | no | `convention`, `pattern`, `pitfall`, `domain_knowledge`, `agent_insight`, `anti_patterns`, `detected_patterns` (default: `agent_insight`) |
+
+`skillCategory` accepts exactly the shared registry values. The API rejects any supplied value outside the registry with `400`; when the field is omitted and the contribution creates a new signal, its category defaults to `agent_insight`. A contribution that reinforces an existing signal leaves that signal's category unchanged.
+
+`clusterKey` is server-generated: the contributed insight is capped at a 120-character subject, normalized (lowercased, punctuation stripped), and the key shows at most the first 80 normalized characters followed by `#` and a hash of the entire normalized subject.
+
+`strength` in the response is server-assigned, not a value you can set: a newly created signal starts at `0.3`, and an insight that clusters into an existing signal reinforces that signal (its `frequency` increases) instead of creating a new one, so the returned `strength` is whatever the stored signal already carries.
 
 ---
 

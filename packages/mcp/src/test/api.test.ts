@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { KanbanApiClient } from "../api.js";
+import { ApiClientError } from "@orcy/shared";
 
 function createClientWithRequestSpy() {
   const client = new KanbanApiClient("http://localhost:3000");
@@ -140,5 +141,74 @@ describe("KanbanApiClient analytics endpoints", () => {
     expect(request).toHaveBeenNthCalledWith(1, "GET", "/api/sprints/sprint-1/metrics");
     expect(request).toHaveBeenNthCalledWith(2, "GET", "/api/sprints/sprint-1/burndown");
     expect(request).toHaveBeenNthCalledWith(3, "GET", "/api/sprints/sprint-1/carry-over");
+  });
+});
+
+describe("KanbanApiClient.claimTask", () => {
+  it("sends the object body the claim route validates and projects the served task", async () => {
+    const { client, request } = createClientWithRequestSpy();
+    request.mockResolvedValue({ task: { id: "task-1" } });
+
+    await expect(client.claimTask("task-1")).resolves.toEqual({
+      success: true,
+      task: { id: "task-1" },
+    });
+    expect(request).toHaveBeenCalledWith("POST", "/api/tasks/task-1/claim", {});
+  });
+
+  it.each([
+    [
+      403,
+      {
+        error: "Capability mismatch",
+        code: "FORBIDDEN",
+        details: { missingCapabilities: ["postgresql"] },
+      },
+      "capability_mismatch",
+      { message: "Missing capabilities: postgresql", missingCapabilities: ["postgresql"] },
+    ],
+    [403, { error: "Domain mismatch", code: "FORBIDDEN" }, "domain_mismatch", {}],
+    [404, { error: "Task not found", code: "NOT_FOUND" }, "not_found", {}],
+    [409, { error: "already_claimed", code: "CONFLICT" }, "already_claimed", {}],
+    // No documented code for an interceptor veto: the served reason passes through.
+    [
+      403,
+      { error: "Transition blocked by lifecycle interceptor", code: "INTERCEPTOR_VETO" },
+      "Transition blocked by lifecycle interceptor",
+      {},
+    ],
+  ])("types a served HTTP %s refusal", async (status, body, reason, rest) => {
+    const { client, request } = createClientWithRequestSpy();
+    const raw = JSON.stringify(body);
+    request.mockRejectedValue(new ApiClientError(status, raw));
+
+    const result = await client.claimTask("task-1");
+    expect(result).toEqual({ success: false, reason, message: raw, ...rest });
+  });
+
+  it.each([
+    "11111111-1111-4111-8111-111111111111/start?",
+    "..",
+    "%2e%2e%2fagents",
+    "a b",
+  ])("refuses a task ID that could retarget the request (%s) before sending it", async (taskId) => {
+    const { client, request } = createClientWithRequestSpy();
+
+    await expect(client.claimTask(taskId)).resolves.toMatchObject({
+      success: false,
+      reason: "not_found",
+    });
+    expect(request).not.toHaveBeenCalled();
+  });
+
+  it("keeps an unreadable refusal as unknown", async () => {
+    const { client, request } = createClientWithRequestSpy();
+    request.mockRejectedValue(new ApiClientError(502, "Bad Gateway"));
+
+    await expect(client.claimTask("task-1")).resolves.toEqual({
+      success: false,
+      reason: "unknown",
+      message: "Bad Gateway",
+    });
   });
 });

@@ -419,6 +419,39 @@ export function clearDelivery(deliveryId: string): NotificationDelivery | null {
   return db.transaction((tx) => clearDeliveryInTx(deliveryId, tx));
 }
 
+/**
+ * Terminal-guarded transition to `cleared` for the clearance service (admin
+ * action and retention sweep). Applies the same statement-time terminal
+ * predicate the recipient writers use, so a delivery that is already cleared
+ * is never re-transitioned and only one of two racing transitions applies.
+ *
+ * Returns true when THIS call performed the transition — the caller counts
+ * real transitions from it, never from a pre-read snapshot.
+ *
+ * Unlike {@link clearDelivery} (the recipient action) it does NOT cancel
+ * non-terminal channel units: the admin path's channel-unit policy is
+ * unresolved and stays outside this transition.
+ */
+export function transitionDeliveryToCleared(deliveryId: string): boolean {
+  const db = getDb();
+  const now = new Date().toISOString();
+
+  try {
+    const applied = db.update(notificationDeliveries)
+      .set({
+        status: "cleared",
+        clearedAt: now,
+        updatedAt: now,
+      })
+      .where(liveDeliveryPredicate(deliveryId))
+      .returning({ id: notificationDeliveries.id })
+      .all();
+    return applied.length > 0;
+  } catch (err) {
+    throw repositoryUpdateError("notificationDelivery", err as Error, deliveryId);
+  }
+}
+
 function clearDeliveryInTx(
   deliveryId: string,
   tx: ReturnType<typeof getDb>,

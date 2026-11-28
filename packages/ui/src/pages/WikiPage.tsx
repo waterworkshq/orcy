@@ -1,9 +1,10 @@
+import { useEffect, useState } from "react";
 import { useParams, useSearchParams, Link } from "react-router-dom";
 import { ArrowLeft, BookOpen, Signal, FlaskConical, FileText, Radar } from "lucide-react";
 import { useHabitat } from "../lib/useHabitatData.js";
 import { WikiBrowser } from "../components/wiki/WikiBrowser.js";
 import { WikiPageViewer } from "../components/wiki/WikiPageViewer.js";
-import { WikiEditor } from "../components/wiki/WikiEditor.js";
+import { WikiEditor, type CreatedDraft } from "../components/wiki/WikiEditor.js";
 import { CadencePanel } from "../components/wiki/CadencePanel.js";
 import { ExperienceSignalsTab } from "../components/wiki/ExperienceSignalsTab.js";
 import { EngineeringFindingsTab } from "../components/wiki/EngineeringFindingsTab.js";
@@ -19,6 +20,7 @@ const TABS: Array<{ id: Tab; label: string; icon: typeof FileText }> = [
 ];
 
 export function WikiPage() {
+  const [createdDraft, setCreatedDraft] = useState<{ habitatId: string; pageId: string; draft: CreatedDraft } | null>(null);
   const { habitatId } = useParams<{ habitatId: string }>();
   const [searchParams, setSearchParams] = useSearchParams();
   const { data: boardData } = useHabitat(habitatId);
@@ -27,6 +29,11 @@ export function WikiPage() {
   const isEditing = searchParams.get("edit") === "true";
   const isCreateMode = activePageId === "new";
   const tab = (searchParams.get("tab") as Tab | null) ?? "pages";
+
+  // The editor consumes this once on mount; never replay it on a later visit.
+  useEffect(() => {
+    if (createdDraft && activePageId === createdDraft.pageId && isEditing) setCreatedDraft(null);
+  }, [createdDraft, activePageId, isEditing]);
 
   if (!habitatId) {
     return (
@@ -48,6 +55,7 @@ export function WikiPage() {
   };
 
   const closePage = () => {
+    setCreatedDraft(null);
     const params = new URLSearchParams(searchParams);
     params.delete("page");
     params.delete("edit");
@@ -63,6 +71,7 @@ export function WikiPage() {
   };
 
   const openCreate = () => {
+    setCreatedDraft(null);
     const params = new URLSearchParams(searchParams);
     params.set("page", "new");
     params.delete("edit");
@@ -71,6 +80,7 @@ export function WikiPage() {
   };
 
   const viewPage = (pageId: string) => {
+    setCreatedDraft(null);
     const params = new URLSearchParams(searchParams);
     params.set("page", pageId);
     params.delete("edit");
@@ -101,7 +111,12 @@ export function WikiPage() {
           <WikiEditor
             habitatId={habitatId}
             mode="create"
-            onDone={(newId) => viewPage(newId)}
+            onDone={(newId, draft) => {
+              if (draft) {
+                setCreatedDraft({ habitatId, pageId: newId, draft });
+                openEditor(newId);
+              } else viewPage(newId);
+            }}
             onCancel={closePage}
           />
         ) : activePageId && isEditing ? (
@@ -109,6 +124,7 @@ export function WikiPage() {
             habitatId={habitatId}
             mode="edit"
             pageId={activePageId}
+            initialDraft={createdDraft?.habitatId === habitatId && createdDraft.pageId === activePageId ? createdDraft.draft : undefined}
             onDone={(id) => viewPage(id)}
             onCancel={() => viewPage(activePageId)}
           />

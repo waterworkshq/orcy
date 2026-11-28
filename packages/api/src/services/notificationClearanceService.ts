@@ -2,7 +2,11 @@ import * as deliveryRepo from "../repositories/notificationDelivery.js";
 import * as eventRepo from "../repositories/notificationEvent.js";
 import * as retentionRepo from "../repositories/notificationRetentionPolicy.js";
 import * as habitatRepo from "../repositories/habitat.js";
-import type { NotificationDelivery, NotificationDeliveryStatus } from "@orcy/shared";
+import type {
+  NotificationDelivery,
+  NotificationDeliveryStatus,
+  NotificationEvent,
+} from "@orcy/shared";
 
 const STATUS_CLEARABLE_BY_ACKNOWLEDGED = ["acknowledged"] as NotificationDeliveryStatus[];
 
@@ -13,6 +17,21 @@ export interface ClearanceResult {
   habitatId: string;
   cleared: number;
   errors: string[];
+}
+
+/** Outcome of one clearance attempt.
+ *
+ * `transitioned` is the truth about the delivery row — it is true only when
+ * this call performed the transition.
+ *
+ * `error` carries a failure raised around the attempt. It is `undefined` when
+ * there was no failure; an empty message is still a failure and is still
+ * reported, like every other error on these paths. A failure before the
+ * transition leaves the row untouched, so it is reported uncounted; a failure
+ * after it leaves the transition standing, so it is reported counted. */
+interface ClearanceOutcome {
+  transitioned: boolean;
+  error?: string;
 }
 
 /** Clears deliveries across all habitats that have aged past their retention policy thresholds, persisting `cleared` status to the DB. */
@@ -52,8 +71,11 @@ function clearHabitat(habitatId: string): ClearanceResult {
       );
       for (const d of candidates) {
         try {
-          processClearance(d);
-          cleared++;
+          const outcome = processClearance(d);
+          if (outcome.transitioned) cleared++;
+          if (outcome.error !== undefined) {
+            errors.push(`ack-clear ${d.id}: ${outcome.error}`);
+          }
         } catch (err) {
           errors.push(`ack-clear ${d.id}: ${err instanceof Error ? err.message : String(err)}`);
         }
@@ -71,8 +93,11 @@ function clearHabitat(habitatId: string): ClearanceResult {
       );
       for (const d of candidates) {
         try {
-          processClearance(d);
-          cleared++;
+          const outcome = processClearance(d);
+          if (outcome.transitioned) cleared++;
+          if (outcome.error !== undefined) {
+            errors.push(`fail-clear ${d.id}: ${outcome.error}`);
+          }
         } catch (err) {
           errors.push(`fail-clear ${d.id}: ${err instanceof Error ? err.message : String(err)}`);
         }
@@ -98,8 +123,9 @@ export function adminClearDeliveries(deliveryIds: string[]): ClearanceResult {
         errors.push(`Delivery not found: ${id}`);
         continue;
       }
-      processClearance(d);
-      cleared++;
+      const outcome = processClearance(d);
+      if (outcome.transitioned) cleared++;
+      if (outcome.error !== undefined) errors.push(outcome.error);
     } catch (err) {
       errors.push(err instanceof Error ? err.message : String(err));
     }
@@ -108,10 +134,42 @@ export function adminClearDeliveries(deliveryIds: string[]): ClearanceResult {
   return { habitatId, cleared, errors };
 }
 
-function processClearance(delivery: NotificationDelivery): void {
-  if (delivery.status === "cleared") return;
+/**
+ * Clears one delivery and reports what actually happened.
+ *
+ * The count is derived from the guarded write, never from the pre-read row: a
+ * repeat or a concurrent clear of the same delivery transitions nothing and
+ * reports no transition.
+ *
+ * Ordering keeps the two failure kinds apart.
+ *
+ *  - The event lookup stays AHEAD of the transition, as it was before. It is
+ *    a read, and a failed lookup leaves the delivery live with nothing
+ *    written, so a later retry can still clear it and record its history.
+ *  - The history summary is written AFTER the transition. The transition is
+ *    already committed by then, so a failed summary write cannot un-commit
+ *    it: the transition still counts and the failure is still reported.
+ */
+function processClearance(delivery: NotificationDelivery): ClearanceOutcome {
+  // A delivery already in the terminal cleared state transitions nothing.
+  // Skip it entirely, as before, so a repeat stays a silent no-op.
+  if (delivery.status === "cleared") {
+    return { transitioned: false };
+  }
 
-  const event = eventRepo.getNotificationEventById(delivery.eventId);
+  let event: NotificationEvent | null = null;
+  try {
+    event = eventRepo.getNotificationEventById(delivery.eventId);
+  } catch (err) {
+    // Nothing is written yet: the delivery stays live and a retry can still
+    // clear it and record its history.
+    return { transitioned: false, error: err instanceof Error ? err.message : String(err) };
+  }
+
+  if (!deliveryRepo.transitionDeliveryToCleared(delivery.id)) {
+    return { transitioned: false };
+  }
+
   if (event) {
     const summary: Record<string, unknown> = {
       clearedAt: new Date().toISOString(),
@@ -120,12 +178,12 @@ function processClearance(delivery: NotificationDelivery): void {
     };
     try {
       eventRepo.updateEventHistorySummary(delivery.eventId, summary);
-    } catch {
-      // best-effort: event may already be deleted/cleared
+    } catch (err) {
+      // The delivery row is already cleared; the history summary failed. The
+      // transition still counts — the receipt must not contradict the row.
+      return { transitioned: true, error: err instanceof Error ? err.message : String(err) };
     }
   }
 
-  deliveryRepo.batchUpdateDeliveryStatus([delivery.id], "cleared", {
-    clearedAt: new Date().toISOString(),
-  });
+  return { transitioned: true };
 }

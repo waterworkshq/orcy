@@ -56,6 +56,7 @@ export function EditMissionForm({ open, onClose, mission }: EditMissionFormProps
     setReleaseDeadlineVersion,
     baselineVersion,
     baselineMissionId,
+    baselineDueAt,
   } = useMissionAuthoring(open, mission);
   const updateMission = useUpdateMission(mission.id, mission.habitatId);
   const { data: boardData } = useHabitat(mission.habitatId);
@@ -66,7 +67,7 @@ export function EditMissionForm({ open, onClose, mission }: EditMissionFormProps
     e.preventDefault();
     if (!titleReady(draft) || baselineVersion === undefined || baselineMissionId !== mission.id) return;
     try {
-      await updateMission.mutateAsync(updateMissionInputFromDraft(draft, baselineVersion, releaseMode));
+      await updateMission.mutateAsync(updateMissionInputFromDraft(draft, baselineVersion, releaseMode, baselineDueAt));
       notify.success("Mission updated");
       onClose();
     } catch (err) {

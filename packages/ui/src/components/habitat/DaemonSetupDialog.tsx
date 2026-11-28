@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from "react";
+import React, { useState, useCallback, useRef } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "../ui/Dialog.js";
 import { Button } from "../ui/Button.js";
@@ -18,25 +18,44 @@ interface DaemonSetupDialogProps {
 export function DaemonSetupDialog({ open, onClose, habitatIds }: DaemonSetupDialogProps) {
   const [step, setStep] = useState<Step>("detect");
   const [loading, setLoading] = useState(false);
-  const [detectedClis, setDetectedClis] = useState<DetectedCli[]>([]);
+  const [detecting, setDetecting] = useState(false);
+  // null until a detection has completed; an empty array means "none found".
+  const [detectedClis, setDetectedClis] = useState<DetectedCli[] | null>(null);
   const [name, setName] = useState("local-daemon");
   const [maxConcurrent, setMaxConcurrent] = useState("4");
   const [daemonId, setDaemonId] = useState<string | null>(null);
   const [agents, setAgents] = useState<Array<{ id: string; name: string; type: string }>>([]);
   const queryClient = useQueryClient();
+  // Identifies the newest detection request so a superseded response cannot
+  // overwrite a newer one, and a response that lands after close is dropped.
+  const detectRequestId = useRef(0);
 
   const handleDetect = useCallback(async () => {
-    setLoading(true);
+    const requestId = ++detectRequestId.current;
+    setDetecting(true);
     try {
       const result = await api.daemons.detectClis();
+      if (requestId !== detectRequestId.current) return;
       setDetectedClis(result.clis);
-      setStep("configure");
+      // Nothing can be configured or registered without a CLI, so stay on the
+      // detect step: the operator can install a CLI and detect again.
+      if (result.clis.length > 0) setStep("configure");
     } catch (err) {
+      if (requestId !== detectRequestId.current) return;
       notify.error((err as Error).message);
     } finally {
-      setLoading(false);
+      if (requestId === detectRequestId.current) setDetecting(false);
     }
   }, []);
+
+  // Closing retires any in-flight detection so its late response cannot move
+  // the wizard after the operator left. Registration progress is left alone so
+  // a close mid-registration cannot enable a second registration.
+  const handleClose = useCallback(() => {
+    detectRequestId.current += 1;
+    setDetecting(false);
+    onClose();
+  }, [onClose]);
 
   const handleRegister = useCallback(async () => {
     setLoading(true);
@@ -63,9 +82,9 @@ export function DaemonSetupDialog({ open, onClose, habitatIds }: DaemonSetupDial
       await api.daemons.start(daemonId);
       notify.success("Daemon started");
       queryClient.invalidateQueries({ queryKey: queryKeys.daemons.list() });
-      onClose();
+      handleClose();
       setStep("detect");
-      setDetectedClis([]);
+      setDetectedClis(null);
       setDaemonId(null);
       setAgents([]);
     } catch (err) {
@@ -73,10 +92,10 @@ export function DaemonSetupDialog({ open, onClose, habitatIds }: DaemonSetupDial
     } finally {
       setLoading(false);
     }
-  }, [daemonId, queryClient, onClose]);
+  }, [daemonId, queryClient, handleClose]);
 
   return (
-    <Dialog open={open} onClose={onClose}>
+    <Dialog open={open} onClose={handleClose}>
       <DialogHeader>
         <DialogTitle>Set Up Autonomous Mode</DialogTitle>
       </DialogHeader>
@@ -86,7 +105,13 @@ export function DaemonSetupDialog({ open, onClose, habitatIds }: DaemonSetupDial
             <p className="text-sm text-muted-foreground">
               Detect available AI CLI tools on this machine.
             </p>
-            <Button onClick={handleDetect} loading={loading}>
+            {detectedClis?.length === 0 && (
+              <p role="status" className="text-sm text-muted-foreground">
+                No CLIs detected. Install Claude Code, Codex, or other supported tools and try
+                again.
+              </p>
+            )}
+            <Button onClick={handleDetect} loading={detecting}>
               Detect CLIs
             </Button>
           </div>
@@ -96,22 +121,15 @@ export function DaemonSetupDialog({ open, onClose, habitatIds }: DaemonSetupDial
           <div className="space-y-4">
             <div>
               <h4 className="text-sm font-medium mb-2">Detected CLIs</h4>
-              {detectedClis.length === 0 ? (
-                <p className="text-sm text-muted-foreground">
-                  No CLIs detected. Install Claude Code, Codex, or other supported tools and try
-                  again.
-                </p>
-              ) : (
-                <ul className="space-y-1">
-                  {detectedClis.map((cli) => (
-                    <li key={cli.type} className="flex items-center gap-2 text-sm">
-                      <span className="font-medium">{cli.type}</span>
-                      {cli.version && <span className="text-muted-foreground">v{cli.version}</span>}
-                      <span className="text-xs text-muted-foreground">{cli.path}</span>
-                    </li>
-                  ))}
-                </ul>
-              )}
+              <ul className="space-y-1">
+                {detectedClis?.map((cli) => (
+                  <li key={cli.type} className="flex items-center gap-2 text-sm">
+                    <span className="font-medium">{cli.type}</span>
+                    {cli.version && <span className="text-muted-foreground">v{cli.version}</span>}
+                    <span className="text-xs text-muted-foreground">{cli.path}</span>
+                  </li>
+                ))}
+              </ul>
             </div>
             <div>
               <label htmlFor="daemon-name" className="mb-1 block text-sm font-medium">
@@ -139,7 +157,11 @@ export function DaemonSetupDialog({ open, onClose, habitatIds }: DaemonSetupDial
                 className="w-24 rounded border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
               />
             </div>
-            <Button onClick={handleRegister} loading={loading} disabled={detectedClis.length === 0}>
+            <Button
+              onClick={handleRegister}
+              loading={loading}
+              disabled={!detectedClis?.length || detecting}
+            >
               Register Daemon
             </Button>
           </div>
@@ -165,7 +187,7 @@ export function DaemonSetupDialog({ open, onClose, habitatIds }: DaemonSetupDial
         )}
       </DialogContent>
       <DialogFooter>
-        <Button variant="ghost" onClick={onClose}>
+        <Button variant="ghost" onClick={handleClose}>
           Cancel
         </Button>
       </DialogFooter>

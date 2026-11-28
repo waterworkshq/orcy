@@ -1003,6 +1003,8 @@ Update mission fields. Supports optimistic locking via `version`.
 | `releaseGateVersion` | string/null | no | Version pin, or `null` to clear |
 | `version` | integer | no | Optimistic lock version |
 
+Fields left out of the body keep their stored values — an omitted `dueAt` leaves the deadline exactly as stored, down to its precision. The nullable fields (`dueAt`, `slaMinutes`, `releaseGateType`, `releaseGateVersion`, `releaseDeadlineType`, `releaseDeadlineVersion`) take an explicit `null` to clear them; the rest reject `null` — send `""` for `description`, `[]` for `labels`, and a non-empty `title`.
+
 If `version` is provided and doesn't match the current version, returns `409` with version conflict details.
 
 **Response `200`:**
@@ -2882,13 +2884,37 @@ Create a new quality checklist template.
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
 | `name` | string | yes | Template name |
-| `description` | string | no | Template description |
+| `description` | string/null | no | Template description; omitted or `null` stores an empty string |
 | `category` | string | yes | Category grouping (e.g., `code_quality`, `security`, `testing`) |
-| `isRequired` | boolean | no | Whether this checklist is required for approval (default: true) |
+| `isRequired` | boolean/null | no | Whether this checklist is required for approval (default: true, also for `null`) |
 | `items` | array | yes | Checklist items (min 1) |
 | `items[].title` | string | yes | Item title |
-| `items[].description` | string | no | Item description |
-| `items[].required` | boolean | no | Whether this item is required (default: true) |
+| `items[].description` | string/null | no | Item description; omitted or `null` stores an empty string |
+| `items[].required` | boolean/null | no | Whether this item is required (default: true, also for `null`) |
+
+**Errors:** The whole body is validated before anything is written. Any of the following returns `400` `VALIDATION_ERROR`:
+
+- `items` missing, not an array, or empty.
+- `name`, `category`, or `items[].title` missing, empty, or not a string.
+- A `description` or `items[].description` that is neither a string nor `null`.
+- An `isRequired` or `items[].required` that is neither a boolean nor `null`.
+
+A longer `items` list is refused before this validation by the request collection cap (see [Request Collection Cap](#request-collection-cap)), so validation work and error output stay bounded. `details.fieldErrors` is keyed by top-level field, and each message starts with the failing field's full path:
+
+```json
+{
+  "error": "Validation failed",
+  "code": "VALIDATION_ERROR",
+  "details": {
+    "formErrors": [],
+    "fieldErrors": {
+      "items": ["items.1.title: Invalid input: expected string, received undefined"]
+    }
+  }
+}
+```
+
+Unknown fields are ignored, and an omitted or `null` optional field takes its default. The template and its items are saved as one unit: a refused or failed request leaves no template and no items behind, so Tasks started afterwards adopt nothing from it.
 
 **Response `200`:**
 
@@ -4018,13 +4044,15 @@ Templates provide pre-defined mission structures for consistent mission creation
 
 ### GET /habitats/:habitatId/templates
 
-List all templates. Returns global templates (habitatId=null) and habitat-specific templates.
+List all templates for a habitat. Returns global templates (`habitatId = null`) and templates belonging to the requested habitat.
 
-**Query Parameters:**
+**Auth:** Local actor (agent API key or human JWT).
+
+**Path Parameters:**
 
 | Param | Type | Description |
 |-------|------|-------------|
-| `habitatId` | UUID | Filter to habitat-specific templates only |
+| `habitatId` | UUID | Habitat ID to include habitat-specific templates for (always returns global templates as well) |
 
 **Response `200`:**
 
@@ -4116,9 +4144,35 @@ Update a template.
 
 Delete a template.
 
-**Auth:** JWT required (human)
+**Auth:** Human JWT + admin role required — a human JWT whose role is not `admin` is refused with `403` `INSUFFICIENT_PERMISSIONS`.
 
 **Response `204`:** No content.
+
+**Response `403`:** The template is a default template (`Cannot delete default template`) — the default-template restriction applies to admins too.
+
+**Response `404`:** Template not found (`Template not found`) — returned only for an authorized admin request, since the `adminOnly` guard runs before the route handler.
+
+### POST /templates/:id/usage
+
+Increment a template's usage count.
+
+**Auth:** Local actor (agent API key or human JWT).
+
+**Path Parameters:**
+
+| Param | Type | Description |
+|-------|------|-------------|
+| `id` | UUID | Template ID |
+
+**Response `200`:**
+
+```json
+{
+  "success": true
+}
+```
+
+**Response `404`:** Template not found (`Template not found`).
 
 ---
 
@@ -5353,7 +5407,11 @@ Canonical Audit Trail V2 search and export across lifecycle, effort, code eviden
 Query canonical audit events for a habitat.
 
 **Auth:** JWT required (human)
-**Query:** `since?`, `until?`, `entityType?`, `entityId?`, `taskId?`, `missionId?`, `source?`, `provider?`, `preset?`, `includeHealthSnapshots?`, `limit?`, `offset?`, `order?`
+**Query:** `since?`, `until?`, `actions?`, `actorType?`, `actorId?`, `entityTypes?`, `entityType?`, `entityId?`, `taskId?`, `missionId?`, `source?`, `provider?`, `preset?`, `includeHealthSnapshots?`, `limit?`, `offset?`, `order?`
+`limit` is an integer from 1 to 10000 (default 1000); `offset` is a non-negative safe integer (default 0); `order` is `asc` (default) or `desc`. Events are ordered by timestamp, then by ID ascending for ties.
+
+All supported filters apply before pagination. The completeness summary describes all matching events, not just the returned page.
+
 **Response `200`:** `{ "events": AuditEvent[], "warnings": AuditWarning[], "completenessSummary": {...} }`
 
 ### GET /habitats/:id/audit/export
@@ -5364,7 +5422,10 @@ Export canonical audit events.
 **Query:** `format` (csv|json|jsonl), `since?`, `until?`, `actions?`, `actorType?`, `actorId?`, `entityTypes?`, `entityType?`, `entityId?`, `source?`, `provider?`, `preset?`, `includeMetadata?`, `includeProvenance?`, `includeIntegrity?`, `includeHealthSnapshots?`
 **Response `200`:** File download with appropriate Content-Type header.
 
+The `X-Audit-Result-Truncated` response header is `true` when more than 1,000 matching events exist and `false` otherwise. Narrow the time range or filters to retrieve records beyond that limit. `X-Audit-Result-Partial` is `true` when a collector fails or projection warns that source rows were omitted; it is separate from truncation and does not cover every per-event provenance caveat. Scheduled exports retain their cadence and record a bounded warning summary in the structured execution log, at warning level when records are omitted or truncated.
+
 CSV includes stable canonical columns by default. JSON exports an array of canonical `AuditEvent` objects. JSONL emits one canonical event per line.
+CSV quotes fields containing carriage returns and prefixes an apostrophe to fields whose first non-whitespace or control character is `=`, `+`, `-`, or `@`, to reduce spreadsheet formula interpretation. Use JSON or JSONL when exact raw field values are required.
 
 ### GET /tasks/:taskId/audit/bundle
 
@@ -6754,16 +6815,17 @@ Get the current skill document for a habitat. Returns `null` if no skill has bee
 
 ### POST /habitats/:habitatId/skill/refresh
 
-Regenerate the skill document from current promoted signals. Triggers async regeneration.
+Regenerate the skill document from current promoted signals. Regeneration runs synchronously — the response carries the regenerated skill's signal count.
 
-**Auth:** Human auth required (JWT).
+**Auth:** Agent or Human auth required.
 
 **Response `200`:**
 
 ```json
 {
   "success": true,
-  "message": "Skill regeneration triggered"
+  "message": "Skill regenerated",
+  "signalCount": 12
 }
 ```
 
@@ -6785,7 +6847,9 @@ Contribute a direct insight to the skill system. Creates a new signal from human
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
 | `insight` | string | yes | The insight text (1-2000 chars) |
-| `skillCategory` | string | no | One of: `domain_knowledge`, `convention`, `pattern`, `anti_pattern` (default: `domain_knowledge`) |
+| `skillCategory` | string | no | One of: `convention`, `pattern`, `pitfall`, `domain_knowledge`, `agent_insight`, `anti_patterns`, `detected_patterns` (default: `agent_insight`) |
+
+Any other `skillCategory` value is rejected with `400`. When the field is omitted and the contribution creates a new signal, its category defaults to `agent_insight`. A contribution that reinforces an existing signal leaves that signal's category unchanged.
 
 **Response `201`:**
 
@@ -6794,28 +6858,26 @@ Contribute a direct insight to the skill system. Creates a new signal from human
   "success": true,
   "signal": {
     "id": "signal-uuid",
-    "habitatId": "habitat-uuid",
-    "clusterKey": "database-queries-drizzle",
-    "skillCategory": "convention",
-    "subject": "Always use Drizzle ORM for database queries, never raw SQL",
-    "strength": 0.5,
-    "frequency": 1
+    "clusterKey": "always use drizzle orm for database queries never raw sql#6xw1om",
+    "strength": 0.3
   }
 }
 ```
+
+The response carries only the signal's `id`, `clusterKey` and `strength`. `clusterKey` is server-generated: the contributed insight is capped at a 120-character subject, normalized (lowercased, punctuation stripped), and the key shows at most the first 80 normalized characters followed by `#` and a hash of the entire normalized subject. `strength` is server-assigned: a newly created signal starts at `0.3`, and an insight that clusters into an existing signal reinforces that signal (its `frequency` increases) instead of creating a new one — so the returned `strength` is whatever the stored signal already carries, not a guaranteed value.
 
 ### GET /habitats/:habitatId/skill/signals
 
 List skill signals for a habitat with optional filtering.
 
-**Auth:** Agent or Human auth required.
+**Auth:** Human auth required (JWT). Agent API keys are refused on this route.
 
 **Query Parameters:**
 
 | Param | Type | Default | Description |
 |-------|------|---------|-------------|
 | `minStrength` | float | — | Minimum signal strength (0-1) |
-| `skillCategory` | string | — | Filter by category: `domain_knowledge`, `convention`, `pattern`, `anti_pattern` |
+| `skillCategory` | string | — | Filter by category: `convention`, `pattern`, `pitfall`, `domain_knowledge`, `agent_insight`, `anti_patterns`, `detected_patterns` |
 | `limit` | integer | 50 | Results per page (1-200) |
 | `offset` | integer | 0 | Skip results |
 
@@ -6827,7 +6889,7 @@ List skill signals for a habitat with optional filtering.
     {
       "id": "signal-uuid",
       "habitatId": "habitat-uuid",
-      "clusterKey": "auth-jwt-signing",
+      "clusterKey": "jwt tokens use rs256 signing with jsonwebtoken v9#1n0zj8r",
       "skillCategory": "domain_knowledge",
       "subject": "JWT tokens use RS256 signing with jsonwebtoken v9",
       "strength": 0.85,
@@ -7050,6 +7112,12 @@ Recipient actions are state transitions on a live delivery. **Cleared is the ter
 **Subscription PUT/DELETE authority:** both `/api` and `/api/v1` require a human JWT and URL-Habitat access. These two writes recheck current Habitat existence and Team membership in the same immediate transaction as the target lookup and mutation; PUT also reads its updated row inside that transaction. Any current Team member (including a viewer) may use them on that Team's Habitat; authenticated humans may use them on personal Habitats. Target lookup and final mutation bind subscription ID **and** URL Habitat. PUT also binds its result read to both keys; DELETE returns a boolean derived from its scoped delete count. After the applicable validation and authorization checks pass, a foreign or absent subscription returns generic `404` `Subscription not found` for PUT, or `200 {"deleted":false}` for DELETE, with no subscription fields. Missing PUT deliberately changes from the previous repository-error `500` to `404`. An inaccessible URL Habitat remains `403`; a missing Habitat is `404`.
 
 PUT retains body-validation-before-target-lookup ordering and requires the authenticated user's `admin` role for an explicitly supplied `required` field (including `false`). This does not add a stored-required-row policy: same-Habitat callers retain the existing ability to disable a required row or delete it without editing its `required` flag. The trusted legacy preference migration continues to use its existing internal updater.
+
+**Admin clearance:** requires a human admin JWT and access to the requested Habitat. The body is `{ deliveryIds: string[] }` (at least one ID). The response is `{ habitatId, cleared, errors }`, where `cleared` counts the **distinct deliveries that newly transitioned to `cleared` on that request** — a delivery already in the terminal `cleared` state transitions nothing and contributes zero, so repeating the same clear reports `cleared: 0` and leaves the persisted row untouched (no `clearedAt` or `updatedAt` restamp). Duplicate IDs of one initially eligible delivery change at most one row and report one transition. An ID that matches no delivery contributes an `errors` entry (`Delivery not found: <id>`) and no transition; every other error is reported the same way. The terminal-state guard is enforced by the writer's own statement-time predicate, so a racing request cannot re-clear an already-cleared delivery.
+
+A clearance reads the event first, then commits the delivery's `cleared` transition, then writes the event's history summary. Each outcome is reported separately. If reading the event fails, nothing was written: the delivery is left live with no summary recorded, so a later attempt can still clear it and record its history. If the transition fails, the row is untouched and contributes neither a count nor a transition. If the summary write fails, the transition has already been committed: the delivery counts toward `cleared` and the failure still appears in `errors`.
+
+A cleared delivery does not necessarily carry a history summary. The summary is written only when the event row was found, and it can fail after the transition is committed — in that case the delivery is left cleared with no summary recorded for it. The receipt reports the failure but does not roll the transition back.
 
 **Delivery monitor:** requires a human admin JWT and access to the requested Habitat (including current membership for a team-owned Habitat). Returns `{ attempts: NotificationDeliveryAttempt[] }` across all recipient types and IDs in that Habitat only. Attempts are ordered globally by `createdAt` descending, then `id` descending for ties; the limit applies to attempts, including multiple attempts for a single delivery. An empty Habitat or unmatched channel returns `{ attempts: [] }`.
 
@@ -7700,8 +7768,10 @@ List accepted findings for human review/display.
 |-------------|----------|-------------|
 | `findingType` | No | Filter by finding type |
 | `domain` | No | Filter by domain |
-| `maxAgeSeconds` | No | Exclude findings older than this |
-| `limit` | No | Max results (max 100) |
+| `maxAgeSeconds` | No | Exclude findings older than this (positive whole seconds, max 315360000 — ten years) |
+| `limit` | No | Max results (default 25, max 100) |
+
+Numeric query values are parsed as plain decimal integers; a non-numeric, fractional, out-of-range or repeated value is a `400` validation error.
 
 **Response:** `{ findings: ExtractedFindingView[] }`
 

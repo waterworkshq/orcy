@@ -30,7 +30,11 @@ const exportQuerySchema = z.object({
   includeHealthSnapshots: z.string().optional(),
 });
 
-const eventsQuerySchema = exportQuerySchema.omit({ format: true });
+const eventsQuerySchema = exportQuerySchema.omit({ format: true }).extend({
+  limit: z.string().regex(/^\d+$/).transform(Number).pipe(z.number().int().min(1).max(10000)).optional(),
+  offset: z.string().regex(/^\d+$/).transform(Number).pipe(z.number().int().min(0).max(Number.MAX_SAFE_INTEGER)).optional(),
+  order: z.enum(["asc", "desc"]).optional(),
+});
 
 const summaryQuerySchema = z.object({
   since: z.string().optional(),

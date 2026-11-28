@@ -230,29 +230,31 @@ async function overlapCase(f: Fixture, options: OverlapCaseOptions): Promise<{ r
   const saver = forkWorker("saver", [join(dir, "overlap.sqlite"), f.taskId, f.member], order);
   try {
     await Promise.all([holder.ready, saver.ready]);
+    const held = waitFor(holder.child, "HELD", "holder", order);
     holder.child.send({ type: "HOLD" });
-    await waitFor(holder.child, "HELD", "holder", order);
+    await held;
     if (options.shortTimeoutSaver) saver.child.send({ type: "SHORT_TIMEOUT" });
-    saver.child.send({
-      type: "SAVE",
-      input: {
-        expectedVersion: f.expectedVersion,
-        expectedTaskIdentity: f.expectedTaskIdentity,
-        title: options.saverTitle ?? "Saver title",
-      },
-    });
-    await waitFor(saver.child, "SAVING", "saver", order);
-    if (options.releaseAfterResult) {
-      // Hold past the bounded wait: the saver refuses while the reservation is
-      // still held, and only then does the holder release.
-      const msg = await waitFor(saver.child, "RESULT", "saver", order);
+    // Subscribe before SAVE: RESULT can arrive before RELEASED is observed.
+    const result = waitFor(saver.child, "RESULT", "saver", order);
+    const sequence = (async () => {
+      const saving = waitFor(saver.child, "SAVING", "saver", order);
+      saver.child.send({
+        type: "SAVE",
+        input: {
+          expectedVersion: f.expectedVersion,
+          expectedTaskIdentity: f.expectedTaskIdentity,
+          title: options.saverTitle ?? "Saver title",
+        },
+      });
+      await saving;
+      // Case f holds until the saver has refused the bounded wait.
+      if (options.releaseAfterResult) await result;
+      const released = waitFor(holder.child, "RELEASED", "holder", order);
       holder.child.send({ type: "RELEASE", payload: options.payload });
-      await waitFor(holder.child, "RELEASED", "holder", order);
-      return { result: msg.result!, order };
-    }
-    holder.child.send({ type: "RELEASE", payload: options.payload });
-    await waitFor(holder.child, "RELEASED", "holder", order);
-    const msg = await waitFor(saver.child, "RESULT", "saver", order);
+      await released;
+    })();
+    // Observe both promises immediately, including when either worker fails.
+    const [msg] = await Promise.all([result, sequence]);
     return { result: msg.result!, order };
   } finally {
     for (const w of [holder, saver]) {
@@ -293,7 +295,10 @@ afterEach(async () => {
   }
 });
 
-describe("human task metadata save — real cross-process write overlap", () => {
+// Each case includes cold worker startup as well as SQLite overlap. Give the
+// 30s phase-specific IPC deadlines time to report a missing message before
+// Vitest's outer timeout, including on a contended runner.
+describe("human task metadata save — real cross-process write overlap", { timeout: 60_000 }, () => {
   // GROUND: PRD E6/E11 — HELD strictly before SAVING: a held reservation overlapping the launched save (never a READY/GO pair), then the waiting save re-evaluates against committed state and succeeds.
   it("(a) a committed non-Task write under the hold lets the waiting save succeed", async () => {
     const f = setup();
@@ -441,5 +446,5 @@ describe("human task metadata save — real cross-process write overlap", () => 
     } finally {
       if (holder.child.exitCode === null && !holder.child.killed) holder.child.kill("SIGKILL");
     }
-  }, 60_000);
+  });
 });

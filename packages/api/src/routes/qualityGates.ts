@@ -28,6 +28,28 @@ const updateChecklistItemSchema = z
     { message: "At least one of isCompleted, evidenceUrl, or notes is required" },
   );
 
+/**
+ * Route-local POST body contract for checklist templates, validated in full
+ * before any write: one malformed item refuses the whole template instead of
+ * leaving a partial one. Unknown fields are stripped (zod default); an
+ * omitted or null optional field takes its documented default.
+ */
+const createTemplateSchema = z.object({
+  name: z.string().min(1),
+  description: z.string().nullable().optional(),
+  category: z.string().min(1),
+  isRequired: z.boolean().nullable().optional(),
+  items: z
+    .array(
+      z.object({
+        title: z.string().min(1),
+        description: z.string().nullable().optional(),
+        required: z.boolean().nullable().optional(),
+      }),
+    )
+    .min(1),
+});
+
 export async function qualityGateRoutes(fastify: FastifyInstance): Promise<void> {
   applyDeclaredAuthPolicies(fastify);
 
@@ -86,16 +108,22 @@ export async function qualityGateRoutes(fastify: FastifyInstance): Promise<void>
     return { templates: qualityRepo.listTemplates() };
   });
 
-  fastify.post<{ Body: { name: string; description?: string; category: string; isRequired?: boolean; items: { title: string; description?: string; required?: boolean }[] } }>(
+  fastify.post<{ Body: z.infer<typeof createTemplateSchema> }>(
     '/quality/templates',
     { config: { authPolicy: 'human' } },
     async (request, _reply) => {
-      const { name, description, category, isRequired, items } = request.body;
-      if (!name || !category || !items || items.length === 0) {
-        throw badRequest('name, category, and items are required');
+      const parsed = createTemplateSchema.safeParse(request.body);
+      if (!parsed.success) {
+        // zod's flatten keys by top-level field only (`items`); each message
+        // carries its full path so a bad item reads `items.1.title: …`.
+        throw badRequest(
+          'Validation failed',
+          parsed.error.flatten((issue) =>
+            issue.path.length > 0 ? `${issue.path.join('.')}: ${issue.message}` : issue.message,
+          ),
+        );
       }
-      const template = qualityRepo.createTemplate({ name, description, category, isRequired, items });
-      return { template };
+      return { template: qualityRepo.createTemplate(parsed.data) };
     }
   );
 }

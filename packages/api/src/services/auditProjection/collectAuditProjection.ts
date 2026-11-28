@@ -158,7 +158,9 @@ export function collectAuditProjection(input: AuditQueryInput): AuditProjectionS
     allCaveats.push(...result.caveats);
   }
 
-  let filteredEvents = allEvents.filter((event) => matchesFilters(event, query));
+  let filteredEvents = allEvents.filter(
+    (event) => matchesFilters(event, query) && (!query.eventFilter || query.eventFilter(event)),
+  );
 
   if (query.referencedEntities && query.referencedEntities.length > 0) {
     filteredEvents = filteredEvents.filter((event) =>

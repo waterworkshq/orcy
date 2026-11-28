@@ -68,7 +68,7 @@ This document covers the system architecture, design decisions, key flows, and i
 | SSE | `src/sse/` | Event registry (membership-aware projection matrix) |
 | Types | `src/types/` | TypeScript interfaces |
 
-Mission Create/Edit share the Mission-specific `lib/missionAuthoring.ts` rules for draft prefill and field serialization. Create-only Column/acceptance criteria remain local; Create omits empty optional values, while Edit clears regular empty values and release fields only when release authoring is enabled. In feature mode, Edit omits release fields to preserve persisted gates. An Edit session captures its Mission id/version and retains that baseline and input across same-record refetches. Conflict reconciliation remains server-authoritative through the existing mutation hooks; no durable client store or automatic draft rebase is introduced.
+Mission Create/Edit share the Mission-specific `lib/missionAuthoring.ts` rules for draft prefill and field serialization. Create-only Column/acceptance criteria remain local; Create omits empty optional values, while Edit clears regular empty values and release fields only when release authoring is enabled. In feature mode, Edit omits release fields to preserve persisted gates. The Mission deadline is authored in the browser's local time: the draft shows the stored instant as local wall-clock text, and the same text is read back as local time on save, so the display and the saved instant agree. An Edit session captures its Mission id/version and the deadline text the draft was seeded with, and retains that baseline and input across same-record refetches. A deadline the user never touched is omitted from the PATCH, so the server leaves the stored instant byte-for-byte (its own precision included); an edited deadline is sent as the chosen wall clock and a cleared one as an explicit null. Conflict reconciliation remains server-authoritative through the existing mutation hooks; no durable client store or automatic draft rebase is introduced.
 
 ### MCP (`packages/mcp`)
 
@@ -277,7 +277,7 @@ Strength is a composite 0-1 score from four dimensions (`calculateStrength`, `ha
 | Corroboration | 25% | Distinct confirming agents, saturating at 3 (`min(corroboratingAgents / 3, 1)`) |
 | Outcome | 15% | Success ratio of associated tasks (defaults to 0.5 with no outcomes) |
 
-The cross-mission count is **not** a strength input — it feeds category reclassification only (below). Within one `scoreAllSignals` pass, reclassification reads each signal's stored `crossMissionCount` from before the pass; the cross-mission recompute (`recalculateCrossMissionCounts`) runs after the loop, so a freshly broadened cluster influences the *next* pass.
+The cross-mission count is **not** a strength input — it feeds category reclassification only (below). A freshly broadened cluster influences the *next* scoring pass: promotion requires both the previously stored count and the current count to reach the threshold, so evidence removed between passes cannot cause a stale promotion.
 
 ### Skill Categories
 
@@ -296,7 +296,7 @@ Signals carry one of seven categories (`SKILL_CATEGORIES`, `@orcy/shared/types/s
 Initial category comes from signal provenance; `scoreAllSignals` then reclassifies on every scoring pass (`reclassifyCategory`):
 
 - `convention` → `domain_knowledge` when frequency ≥ 3 and corroborating agents ≥ 2 — this check runs **first and returns**, so a `convention` signal meeting both thresholds becomes `domain_knowledge`, never `pattern`, in that pass.
-- Otherwise, any category except `detected_patterns` becomes `pattern` when frequency ≥ 3 and stored `crossMissionCount` ≥ 2 (including `convention` when the first condition was not met).
+- Otherwise, any category except `detected_patterns` becomes `pattern` when frequency ≥ 3 and both stored and current cross-mission counts are ≥ 2 (including `convention` when the first condition was not met).
 - `detected_patterns` is never promoted — plugin-attributed matches must stay categorically distinct from agent-observed knowledge so triage can weight them separately.
 
 ### Promotion & Demotion
@@ -316,7 +316,7 @@ The `orcy_habitat_skill` dispatch tool exposes three actions:
 | Action | Description |
 |--------|-------------|
 | `get` | Retrieve the current skill document for the habitat |
-| `refresh` | Trigger async regeneration of the skill document |
+| `refresh` | Regenerate the skill document from current promoted signals (synchronous) |
 | `contribute` | Submit a direct insight to the skill system |
 
 Skill context is automatically injected into `getMissionContext()` responses, so agents receive habitat knowledge when claiming tasks.
