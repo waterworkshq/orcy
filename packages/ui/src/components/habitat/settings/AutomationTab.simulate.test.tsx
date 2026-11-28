@@ -237,6 +237,13 @@ describe("AutomationTab simulate against the served human simulation route", () 
     localStorage.setItem("orcy_token", humanToken());
 
     let releaseFirstFailure!: () => void;
+    const firstFailureGate = new Promise<void>((resolve) => {
+      releaseFirstFailure = resolve;
+    });
+    let markFirstFailureHeld!: () => void;
+    const firstFailureHeld = new Promise<void>((resolve) => {
+      markFirstFailureHeld = resolve;
+    });
     let firstSimulateSeen = false;
     fetchHook = async (url, init) => {
       if (url.pathname.endsWith(`/automation-rules/${rule.id}/simulate`) && !firstSimulateSeen) {
@@ -245,9 +252,8 @@ describe("AutomationTab simulate against the served human simulation route", () 
           ...init,
           headers: { ...(init?.headers as Record<string, string>), authorization: "" },
         });
-        await new Promise<void>((resolve) => {
-          releaseFirstFailure = resolve;
-        });
+        markFirstFailureHeld();
+        await firstFailureGate;
         return failedResponse;
       }
       return originalFetch(url, init);
@@ -257,7 +263,7 @@ describe("AutomationTab simulate against the served human simulation route", () 
 
     const simButton = await screen.findByTitle("Simulate");
     simButton.click();
-    await waitFor(() => expect(firstSimulateSeen).toBe(true));
+    await firstFailureHeld;
 
     // Second request settles first and succeeds; the earlier 401 failure settles afterward.
     simButton.click();
