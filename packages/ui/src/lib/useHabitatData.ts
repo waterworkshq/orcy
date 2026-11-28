@@ -223,10 +223,10 @@ export function useAgent(agentId: string | undefined) {
   });
 }
 
-export function useDashboardStats() {
+export function useDashboardStats(habitatId?: string, period?: "7d" | "30d" | "90d") {
   return useQuery({
-    queryKey: queryKeys.dashboard.stats(),
-    queryFn: () => api.dashboard.get(),
+    queryKey: queryKeys.dashboard.stats(habitatId, period),
+    queryFn: () => api.dashboard.get({ habitatId, period }),
     staleTime: 2 * 60 * 1000,
   });
 }

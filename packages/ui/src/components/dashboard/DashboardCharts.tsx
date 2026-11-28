@@ -46,7 +46,7 @@ export function DashboardCharts({ stats, period, habitatId }: DashboardChartsPro
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
         <KPICard
           title="Tasks Completed"
-          value={stats.summary.totalTasksCompleted}
+          value={stats.throughput.reduce((total, day) => total + day.count, 0)}
           subtitle={`In last ${period}`}
           icon={<CheckCircle2 className="h-5 w-5 text-[var(--badge-done-text)]" />}
         />

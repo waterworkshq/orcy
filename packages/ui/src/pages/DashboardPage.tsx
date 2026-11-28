@@ -9,10 +9,11 @@ import { useDashboardStats, useHabitatPredictions, useHabitatBurndown } from '..
 
 export function DashboardPage() {
   const [searchParams, setSearchParams] = useSearchParams();
-  const period = (searchParams.get('period') as '7d' | '30d' | '90d') || '30d';
+  const requestedPeriod = searchParams.get('period');
+  const period = requestedPeriod === '7d' || requestedPeriod === '90d' ? requestedPeriod : '30d';
   const habitatId = searchParams.get('habitatId') || undefined;
 
-  const { data: stats, isLoading: loading, error: statsError } = useDashboardStats();
+  const { data: stats, isLoading: loading, error: statsError } = useDashboardStats(habitatId, period);
   const { data: predictions } = useHabitatPredictions(habitatId);
   const { data: burndown } = useHabitatBurndown(habitatId, period === '7d' ? 7 : period === '90d' ? 90 : 30);
 
