@@ -2890,7 +2890,14 @@ Create a new quality checklist template.
 | `items[].description` | string | no | Item description |
 | `items[].required` | boolean | no | Whether this item is required (default: true) |
 
-**Errors:** The whole body is validated before anything is written. A missing, empty, or non-array `items`, a missing or empty `name`, `category`, or `items[].title`, a non-string name, title, or description, or a non-boolean `isRequired` or `items[].required` returns `400` `VALIDATION_ERROR`. `details.fieldErrors` is keyed by top-level field, and each message starts with the failing field's full path:
+**Errors:** The whole body is validated before anything is written. Any of the following returns `400` `VALIDATION_ERROR`:
+
+- `items` missing, not an array, or empty.
+- `name`, `category`, or `items[].title` missing, empty, or not a string.
+- A `description` or `items[].description` that is neither a string nor `null`.
+- An `isRequired` or `items[].required` that is neither a boolean nor `null`.
+
+A longer `items` list is refused before this validation by the request collection cap (see [Request Collection Cap](#request-collection-cap)), so validation work and error output stay bounded. `details.fieldErrors` is keyed by top-level field, and each message starts with the failing field's full path:
 
 ```json
 {

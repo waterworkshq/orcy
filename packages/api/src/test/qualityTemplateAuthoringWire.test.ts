@@ -30,6 +30,7 @@ import * as agentRepo from "../repositories/agent.js";
 import * as pluginManager from "../plugins/pluginManager.js";
 import { qualityChecklistTemplates, qualityChecklistItems } from "../db/schema/index.js";
 import { getJwtSecret } from "../middleware/jwt-verification.js";
+import { DEFAULT_REQUEST_COLLECTION_CAP } from "../middleware/requestCollectionCap.js";
 
 const PREFIXES = ["/api/v1", "/api"] as const;
 type Prefix = (typeof PREFIXES)[number];
@@ -222,6 +223,32 @@ describe.each(PREFIXES)("POST %s/quality/templates", (prefix) => {
       expect.not.arrayContaining(rejected),
     );
     expect(await startTaskOrdinarily("qta-after-invalid")).toEqual(expect.not.arrayContaining(rejected));
+  });
+
+  it("bounds item validation and its error output before the schema runs", async () => {
+    const before = savedTemplates();
+    // The root collection cap answers a larger list first, with one fixed-size body.
+    const oversized = await createTemplate(prefix, {
+      name: `qta-oversized ${++serial}`,
+      category: "testing",
+      items: Array.from({ length: DEFAULT_REQUEST_COLLECTION_CAP + 1 }, () => ({ title: "Only" })),
+    });
+    expect(savedTemplates()).toEqual(before);
+    expect(oversized.status).toBe(400);
+    expect(oversized.body).toEqual({
+      error: `Request contains a collection with more than ${DEFAULT_REQUEST_COLLECTION_CAP} items`,
+      code: "VALIDATION_ERROR",
+    });
+
+    // At the cap the schema runs and reports one message per item.
+    const atCap = await createTemplate(prefix, {
+      name: `qta-at-cap ${++serial}`,
+      category: "testing",
+      items: Array.from({ length: DEFAULT_REQUEST_COLLECTION_CAP }, () => ({})),
+    });
+    expect(atCap.status).toBe(400);
+    expect(atCap.body.details.fieldErrors.items).toHaveLength(DEFAULT_REQUEST_COLLECTION_CAP);
+    expect(savedTemplates()).toEqual(before);
   });
 
   it("leaves no template or items when a later item write fails after earlier writes", async () => {

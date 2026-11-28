@@ -34,10 +34,11 @@ export function createTemplate(input: {
   const now = new Date().toISOString();
 
   // One atomic aggregate: the template and every item commit together or not
-  // at all. A failed item write must not leave a (by default required)
+  // at all, and the returned template is read on the same transaction. A
+  // failed item write or readback must not leave a (by default required)
   // template that later Task starts adopt.
   try {
-    db.transaction(
+    return db.transaction(
       (tx) => {
         try {
           tx.insert(qualityChecklistTemplates)
@@ -72,6 +73,15 @@ export function createTemplate(input: {
             throw repositoryCreateError("qualityChecklistItem", err as Error, id);
           }
         });
+
+        // Read on the transaction client: a failed read rolls the inserts back too.
+        const template = tx
+          .select()
+          .from(qualityChecklistTemplates)
+          .where(eq(qualityChecklistTemplates.id, id))
+          .get() as QualityChecklistTemplate | undefined;
+        if (!template) throw repositoryNotFoundError("qualityChecklistTemplate", id);
+        return template;
       },
       { behavior: "immediate" },
     );
@@ -81,10 +91,6 @@ export function createTemplate(input: {
     if (isAppError(err)) throw err;
     throw repositoryTransactionError("qualityChecklistTemplate", err as Error, id);
   }
-
-  const template = getTemplateById(id);
-  if (!template) throw repositoryNotFoundError("qualityChecklistTemplate", id);
-  return template;
 }
 
 export function getTemplateById(id: string): QualityChecklistTemplate | null {

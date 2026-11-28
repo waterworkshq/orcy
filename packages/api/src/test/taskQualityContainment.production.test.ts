@@ -25,7 +25,6 @@ import * as taskRepo from "../repositories/taskCrud.js";
 import * as qualityRepo from "../repositories/qualityGate.js";
 import {
   qualityChecklistTemplates,
-  qualityChecklistItems,
   taskQualityChecklists,
   taskQualityChecklistItems,
 } from "../db/schema/index.js";
@@ -377,11 +376,13 @@ describe("PRODUCTION DRIVER — triple-scoped aggregate primitives", () => {
 });
 
 describe("PRODUCTION DRIVER — template authoring aggregate", () => {
+  /** Every template as `Name [item titles]` — the exact state a failed create must leave unchanged. */
   const templateState = () =>
-    JSON.stringify([
-      getDb().select().from(qualityChecklistTemplates).all(),
-      getDb().select().from(qualityChecklistItems).all(),
-    ]);
+    getDb()
+      .select({ id: qualityChecklistTemplates.id, name: qualityChecklistTemplates.name })
+      .from(qualityChecklistTemplates)
+      .all()
+      .map((t) => `${t.name} [${qualityRepo.getTemplateItems(t.id).map((i) => i.title).join(", ")}]`);
 
   it("an item statement fault AFTER the template and first item were written rolls both back; the replay then persists in order", () => {
     const input = {
@@ -395,7 +396,7 @@ describe("PRODUCTION DRIVER — template authoring aggregate", () => {
     );
     try {
       expect(() => qualityRepo.createTemplate(input)).toThrow(RepositoryError);
-      expect(templateState()).toBe(before);
+      expect(templateState()).toEqual(before);
     } finally {
       getDb().run(sql`DROP TRIGGER tqcp_abort`);
     }
@@ -405,5 +406,49 @@ describe("PRODUCTION DRIVER — template authoring aggregate", () => {
       ["First", 0],
       ["Second", 1],
     ]);
+  });
+
+  it("a failed read of the created template rolls the template and its items back", () => {
+    const before = templateState();
+    const failRead = () => {
+      throw new Error("tqcp readback fault");
+    };
+    // SEAM: the read of the created template fails wherever createTemplate
+    // performs it — on the transaction client, or on the ordinary handle
+    // after the commit. Everything else is real SQL.
+    const db = getDb();
+    vi.spyOn(db, "select").mockImplementationOnce(failRead);
+    const orig = db.transaction.bind(db);
+    vi.spyOn(db, "transaction").mockImplementation(
+      ((cb: any, cfg: any) =>
+        orig(
+          (tx: any) =>
+            cb(
+              new Proxy(tx, {
+                get(target, prop) {
+                  if (prop === "select") return failRead;
+                  const value = Reflect.get(target, prop, target);
+                  return typeof value === "function" ? value.bind(target) : value;
+                },
+              }),
+            ),
+          cfg,
+        )) as never,
+    );
+
+    let thrown: unknown;
+    try {
+      qualityRepo.createTemplate({
+        name: "tqcp-readback",
+        category: "testing",
+        items: [{ title: "First" }, { title: "Second" }],
+      });
+    } catch (err) {
+      thrown = err;
+    }
+    vi.restoreAllMocks();
+    // State before error identity: the defect is a template left behind.
+    expect(templateState()).toEqual(before);
+    expect(thrown).toBeInstanceOf(RepositoryError);
   });
 });
