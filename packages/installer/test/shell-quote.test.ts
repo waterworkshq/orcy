@@ -10,6 +10,8 @@ import { shellQuote, shellWord } from "../src/shell-quote.js";
 
 function shellEcho(quoted: string): string {
   const r = spawnSync("sh", ["-c", `printf '%s' ${quoted}`], { encoding: "utf8" });
+  // A command that prints the right text but fails is not a pass.
+  expect(r.status).toBe(0);
   expect(r.stderr).toBe("");
   return r.stdout;
 }
@@ -19,7 +21,7 @@ describe("shell quoting", () => {
     "/tmp/plain/dist/index.js",
     "/tmp/my home/.orcy/installer/dist/index.js",
     "/tmp/it's here/index.js",
-    "$(rm -rf /tmp/nothing) `id`",
+    "$(printf injected) `printf backtick`",
     "* ? [a-z] ~user",
     "line1\nline2",
     "",
