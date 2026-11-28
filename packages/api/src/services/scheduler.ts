@@ -20,10 +20,21 @@ import {
 import { getDb } from "../db/index.js";
 import { tasks, missions } from "../db/schema/index.js";
 import { and, or, sql, notInArray, eq } from "drizzle-orm";
-import { nowExpr } from "../db/dialect-helpers.js";
+import type { Column } from "drizzle-orm";
 import { sseBroadcaster } from "../sse/broadcaster.js";
 
 const overdueNotifiedIds = new Set<string>();
+
+/** `julianday` of a stored deadline, NULL when it is not a timestamp. SQLite's date parser reads only `±HH:MM` offsets, so a compact `±HHMM` suffix, which the import routes persist verbatim, gets its colon back before parsing. */
+function deadlineJulianday(column: Column) {
+  return sql`julianday(
+    CASE
+      WHEN substr(${column}, -5, 1) IN ('+', '-') AND substr(${column}, -4) NOT GLOB '*[^0-9]*'
+      THEN substr(${column}, 1, length(${column}) - 2) || ':' || substr(${column}, -2)
+      ELSE ${column}
+    END
+  )`;
+}
 
 /** Publishes `task.overdue` SSE events for tasks newly detected as overdue, tracking already-notified IDs in the supplied set to avoid duplicate notifications. */
 export function checkOverdueTasks(
@@ -32,7 +43,10 @@ export function checkOverdueTasks(
 ): number {
   try {
     const db = getDb();
-    const nowSql = nowExpr();
+    // Deadline columns hold mixed timestamp texts (canonical ISO, explicit
+    // offsets, legacy SQLite), so they are compared as instants. A text
+    // comparison against SQLite's space-separated clock sorts every same-day
+    // ISO value after it, hiding the overdue Task until the date changes.
     const overdueRows = db
       .select({ id: tasks.id, habitatId: missions.habitatId })
       .from(tasks)
@@ -40,7 +54,10 @@ export function checkOverdueTasks(
       .where(
         and(
           notInArray(tasks.status, ["done", "approved", "failed"]),
-          or(sql`${missions.dueAt} < ${nowSql}`, sql`${missions.slaDeadlineAt} < ${nowSql}`),
+          or(
+            sql`${deadlineJulianday(missions.dueAt)} < julianday('now')`,
+            sql`${deadlineJulianday(missions.slaDeadlineAt)} < julianday('now')`,
+          ),
         ),
       )
       .all();
