@@ -295,7 +295,10 @@ afterEach(async () => {
   }
 });
 
-describe("human task metadata save — real cross-process write overlap", () => {
+// Each case includes cold worker startup as well as SQLite overlap. Give the
+// 30s phase-specific IPC deadlines time to report a missing message before
+// Vitest's outer timeout, including on a contended runner.
+describe("human task metadata save — real cross-process write overlap", { timeout: 60_000 }, () => {
   // GROUND: PRD E6/E11 — HELD strictly before SAVING: a held reservation overlapping the launched save (never a READY/GO pair), then the waiting save re-evaluates against committed state and succeeds.
   it("(a) a committed non-Task write under the hold lets the waiting save succeed", async () => {
     const f = setup();
@@ -443,5 +446,5 @@ describe("human task metadata save — real cross-process write overlap", () => 
     } finally {
       if (holder.child.exitCode === null && !holder.child.killed) holder.child.kill("SIGKILL");
     }
-  }, 60_000);
+  });
 });
