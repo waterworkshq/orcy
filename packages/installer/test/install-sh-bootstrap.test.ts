@@ -42,9 +42,10 @@
  *      kept and named when something of the run is still running, and the
  *      installer's exit status becomes the script's. A signal sent to the
  *      script's process stops the installer and every process it started,
- *      before the lock is released, with no process-listing tool; the dead
- *      waiting to be reaped do not count as running; the installer keeps
- *      reading the terminal, and Ctrl-Z and resume are passed on; and an
+ *      before the lock is released, with no process-listing tool where there
+ *      is a /proc to look at; the dead waiting to be reaped do not count as
+ *      running; the installer keeps reading the terminal, and Ctrl-Z and
+ *      resume are passed on; and an
  *      interrupted or cancelled run never exits 0. An installer left moved
  *      aside by an interrupted promotion is restored before anything fallible
  *      runs. A stale backup that cannot be cleared stops promotion with the
@@ -247,7 +248,7 @@ interface InstallerBehavior {
   orphanWorker?: boolean;
   /** Leave a worker behind whose name holds a newline and a parenthesis. */
   namedWorker?: boolean;
-  /** Leave a worker behind that ends on its own after this long. */
+  /** Leave a worker behind that ends on its own this long after the installer's exit. */
   workerMs?: number;
   /** Report the installer's PID, so a test can act on that process. */
   writePid?: boolean;
@@ -409,15 +410,17 @@ if (behavior.orphanWorker) {
   spawn(process.execPath, ["-e", outer, "--", pidFile], { stdio: "ignore" }).unref();
 }
 // Stands in for a build the installer is waiting on: outlives it unless stopped.
-// One that ends on its own counts from the installer's last moment — the event
-// the supervisor's deadline is tied to — which it is handed at its start: by the
-// time it runs, its parent is gone already.
-if (behavior.workerMs) process.env.ORCY_FAKE_EXIT_AT = String(Date.now());
+// One that ends on its own counts from the installer's exit — the event the
+// supervisor's deadline is tied to — which the installer marks on its way out
+// (below): what keeps it from that exit is then no concern of the worker's.
 if (behavior.spawnChild || behavior.namedWorker || behavior.workerMs) {
   const child = spawn(process.execPath, ["-e", behavior.namedWorker
     ? "process.title = 'build\\\\n)orker (1)'; setInterval(() => {}, 1000)"
     : behavior.workerMs
-      ? "const end = Number(process.env.ORCY_FAKE_EXIT_AT) + " + behavior.workerMs + "; setInterval(() => { if (Date.now() >= end) process.exit(0); }, 5)"
+      ? "const fs = require('node:fs'); let end = 0; setInterval(() => {"
+        + " if (end) { if (Date.now() >= end) process.exit(0); }"
+        + " else { try { end = Number(fs.readFileSync(process.env.ORCY_FAKE_EXIT_MARK, 'utf8')) + " + behavior.workerMs + "; } catch {} }"
+        + " }, 1)"
       : "setInterval(() => {}, 1000)"], { stdio: "ignore" });
   writeFileSync(process.env.ORCY_FAKE_CHILD_PID, String(child.pid));
   child.unref();
@@ -445,6 +448,8 @@ if (behavior.readLine) {
   await new Promise(() => {});
 }
 if (behavior.sleepMs) Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, behavior.sleepMs);
+// The installer's last act: the moment a worker that ends on its own counts from.
+if (behavior.workerMs) writeFileSync(process.env.ORCY_FAKE_EXIT_MARK, String(Date.now()));
 process.exit(behavior.exit ?? 0);
 IDXEOF
 printf 'skill\\n' > "$dir/packages/installer/skills/overview.md"
@@ -551,6 +556,7 @@ function installerEnv(s: Scenario): NodeJS.ProcessEnv {
     ORCY_FAKE_SWAP_LOCK: s.swapLockDuringBuild ? "1" : "",
     ORCY_FAKE_CHILD_PID: path.join(s.home, "child.pid"),
     ORCY_FAKE_INSTALLER_PID: path.join(s.home, "installer.pid"),
+    ORCY_FAKE_EXIT_MARK: path.join(s.home, "installer.exit"),
     ORCY_FAKE_INPUT: path.join(s.home, "typed"),
   };
 }
@@ -576,6 +582,13 @@ function readLog(s: Scenario): string[] {
 }
 
 const firstIndex = (lines: string[], re: RegExp): number => lines.findIndex((l) => re.test(l));
+
+/** That a stop needed no process-listing tool. That can only be said where the
+ *  script has a /proc to look at, and there the stub would have logged one.
+ *  Elsewhere `ps` is what the script looks with — the real one, which logs
+ *  nothing — so there is nothing here to hold it to. */
+const noProcessListingTool = (s: Scenario): boolean =>
+  process.platform !== "linux" || !readLog(s).some((l) => l.startsWith("FORBIDDEN-ps"));
 
 describe("install.sh — pin-aware pnpm bootstrap (hermetic)", () => {
   it("corepack branch: resolves the extracted pin and runs install/build through it", () => {
@@ -933,8 +946,8 @@ describe("install.sh — one installer run at a time", () => {
     expect(fs.existsSync(s.lockDir)).toBe(false);
     // The lock is gone, so nothing of this run may still be using the source tree.
     expect(isRunning(build)).toBe(false);
-    // Nothing was looked up to be stopped: no process-listing tool was run.
-    expect(readLog(s).some((l) => l.startsWith("FORBIDDEN-ps"))).toBe(false);
+    // Nothing was looked up to be stopped through a process-listing tool.
+    expect(noProcessListingTool(s)).toBe(true);
   });
 
   it("stops a worker whose parent already exited before the stop, so nothing of the run outlives the lock", async () => {
@@ -960,7 +973,7 @@ describe("install.sh — one installer run at a time", () => {
     expect(child.exitCode).toBe(143);
     expect(fs.existsSync(s.lockDir)).toBe(false);
     expect(isRunning(worker)).toBe(false);
-    expect(readLog(s).some((l) => l.startsWith("FORBIDDEN-ps"))).toBe(false);
+    expect(noProcessListingTool(s)).toBe(true);
   });
 
   it("keeps the lock, and says which one to remove, while a process of the run is still running", async () => {
@@ -985,15 +998,22 @@ describe("install.sh — one installer run at a time", () => {
   }, 15_000);
 
   it("releases the lock when the last process of the run ends at the deadline, not long before", async () => {
-    // The worker outlives the installer for 4,925 ms counted from the installer's
-    // last moment, as the supervisor's deadline is. The last look before that
-    // deadline, 200 ms earlier, still sees it; the first after, 50 ms later,
-    // finds it gone: a group that has just emptied must not cost a lock. Both
-    // clocks start on the same event, so a slow start of the worker's — or of
-    // anything else — does not move the margin.
-    const s = buildScenario({ installer: { workerMs: 4925 } });
+    // The supervisor gives the rest of the run 5,000 ms once the installer has
+    // exited; the worker ends 15 ms after that deadline — both counted from the
+    // installer's exit: the worker from the moment the installer marks on its
+    // way out, the supervisor from its report of that exit. So every look up to
+    // the deadline still sees the worker, and the first one past it finds it
+    // gone: a group that has just emptied must not cost a lock. A worker gone
+    // any earlier could be missed by the last look before the deadline, and the
+    // run would then end well with a supervisor that does not confirm past the
+    // deadline at all. The one margin left is to the look after the deadline,
+    // which is due 50 ms later — and only ever later, each being set once the
+    // one before has looked. Should a look's scan straddle the worker's end, it
+    // finds the worker past the deadline and keeps the lock: that is a failure,
+    // never a hollow pass.
+    const s = buildScenario({ installer: { workerMs: 5015 } });
     const r = runInstallSh(s);
-    expect(r.status).toBe(0);
+    expect(r.status, output(r)).toBe(0);
     expect(fs.existsSync(s.lockDir)).toBe(false);
   }, 15_000);
 
