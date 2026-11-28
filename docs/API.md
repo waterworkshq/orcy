@@ -1003,6 +1003,8 @@ Update mission fields. Supports optimistic locking via `version`.
 | `releaseGateVersion` | string/null | no | Version pin, or `null` to clear |
 | `version` | integer | no | Optimistic lock version |
 
+Fields left out of the body keep their stored values — an omitted `dueAt` leaves the deadline exactly as stored, down to its precision. Send an explicit `null` to clear a field.
+
 If `version` is provided and doesn't match the current version, returns `409` with version conflict details.
 
 **Response `200`:**
