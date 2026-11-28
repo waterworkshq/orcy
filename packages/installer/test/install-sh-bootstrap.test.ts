@@ -134,12 +134,14 @@ interface Scenario {
  * lock with another run's while the build runs.
  */
 
-/** What the fake installer should do once it has started: wait, exit with a status, replace the lock. */
+/** What the fake installer should do once it has started: wait, exit with a status, replace the lock, leave a child behind. */
 interface InstallerBehavior {
   sleepMs?: number;
   exit?: number;
   ignoreSignals?: boolean;
   swapLock?: boolean;
+  /** Leave a child process behind that would outlive the installer. */
+  spawnChild?: boolean;
 }
 
 function buildScenario(opts: {
@@ -183,7 +185,8 @@ function buildScenario(opts: {
       `if [ "$1" = "--version" ]; then echo "${opts.nodeVersion}"; exit 0; fi\nexec "${realNode}" "$@"`,
     );
   }
-  for (const b of ["sed", "mkdir", "rm", "mv", "cp", "cat", "ls", "rmdir"]) {
+  // `ps` too: the supervisor lists the installer's process tree with it when a run is stopped.
+  for (const b of ["sed", "mkdir", "rm", "mv", "cp", "cat", "ls", "rmdir", "ps"]) {
     fs.symlinkSync(resolveBin(b), path.join(stubDir, b));
   }
   // With failPromotion, `mv` refuses to move the staged installer into place
@@ -249,6 +252,7 @@ PKGEOF
 printf 'export const id = "shared";\\n' > "$dir/packages/shared/dist/index.js"
 cat > "$dir/packages/installer/dist/index.js" <<'IDXEOF'
 import { writeFileSync, existsSync, mkdirSync, rmSync, readFileSync } from "node:fs";
+import { spawn } from "node:child_process";
 import { id } from "@orcy/shared";
 const behavior = JSON.parse(process.env.ORCY_FAKE_INSTALLER ?? "{}");
 // Reported as soon as the installer starts: what it was given, and whether
@@ -271,6 +275,12 @@ if (behavior.swapLock) {
   rmSync(process.env.ORCY_INSTALLER_LOCK, { recursive: true, force: true });
   mkdirSync(process.env.ORCY_INSTALLER_LOCK);
   writeFileSync(process.env.ORCY_INSTALLER_LOCK + "/pid", "424242\\n");
+}
+// Stands in for a build the installer is waiting on: outlives it unless stopped.
+if (behavior.spawnChild) {
+  const child = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], { stdio: "ignore" });
+  writeFileSync(process.env.ORCY_FAKE_CHILD_PID, String(child.pid));
+  child.unref();
 }
 // An installer that will not stop when asked: only the supervisor's exit status
 // can then say the run was cancelled.
@@ -373,6 +383,7 @@ function installerEnv(s: Scenario): NodeJS.ProcessEnv {
     ORCY_FAKE_INSTALLER: JSON.stringify(s.installer),
     ORCY_FAKE_BUILD_MS: s.slowBuildMs ? String(s.slowBuildMs) : "",
     ORCY_FAKE_SWAP_LOCK: s.swapLockDuringBuild ? "1" : "",
+    ORCY_FAKE_CHILD_PID: path.join(s.home, "child.pid"),
   };
 }
 
@@ -684,6 +695,31 @@ describe("install.sh — one installer run at a time", () => {
     // 128 + SIGTERM (15), not the installer's own would-be status.
     expect(child.exitCode).toBe(143);
     expect(fs.existsSync(s.lockDir)).toBe(false);
+  });
+
+  it("stops the processes the installer started before the lock is released", async () => {
+    // The wizard runs its build through blocking child processes. Stopping the
+    // installer alone would leave them building in the shared source tree after
+    // the lock is gone.
+    const s = buildScenario({ installer: { spawnChild: true, sleepMs: 10_000 } });
+    const child = spawn(resolveBin("sh"), [INSTALL_SH], {
+      env: installerEnv(s),
+      cwd: s.home,
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    const childPidFile = path.join(s.home, "child.pid");
+    for (let i = 0; i < 100 && !fs.existsSync(childPidFile); i++) {
+      await new Promise<void>((resolve) => setTimeout(resolve, 50));
+    }
+    const build = Number(fs.readFileSync(childPidFile, "utf8"));
+    expect(() => process.kill(build, 0)).not.toThrow(); // it is running
+    const exited = new Promise<void>((resolve) => child.once("exit", () => resolve()));
+    child.kill("SIGTERM");
+    await exited;
+    expect(child.exitCode).toBe(143);
+    expect(fs.existsSync(s.lockDir)).toBe(false);
+    // The lock is gone, so nothing of this run may still be using the source tree.
+    expect(() => process.kill(build, 0)).toThrow();
   });
 
   it("does not report a cancelled run as successful, even when the installer ignores the signal", async () => {

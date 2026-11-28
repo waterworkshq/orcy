@@ -202,15 +202,15 @@ rm -rf "${BACKUP_DIR}" 2>/dev/null ||
   echo "    Note: the previous installer is kept at ${BACKUP_DIR} and can be deleted."
 
 # The supervisor below runs the installer as a child in this process's place.
-# - It passes SIGINT, SIGTERM and SIGHUP on to the installer, so stopping this
-#   process stops the install.
+# - On SIGINT, SIGTERM or SIGHUP it stops the install: first every process below
+#   the installer (its builds run as child processes), then the installer itself.
 # - It releases the lock on its own exit — after the installer has exited — and
 #   only the lock this process created: the directory must still hold this
 #   process's PID, and it goes only once that marker is gone from it.
-# - It exits with the installer's status, or 128 + the signal number when the
-#   installer was killed or when a cancelled run would otherwise report success.
+# - It exits with the installer's status, or 128 + the signal number for a
+#   cancelled run — never 0 for one.
 SUPERVISOR='
-const { spawn } = require("node:child_process");
+const { spawn, execFileSync } = require("node:child_process");
 const fs = require("node:fs");
 const { signals } = require("node:os").constants;
 const [entry, ...args] = process.argv.slice(1);
@@ -225,15 +225,53 @@ process.on("exit", () => {
 });
 const installer = spawn(process.execPath, [entry, ...args], { stdio: "inherit" });
 let cancelled = 0;
+// Everything below a process, deepest first, from one `ps` listing. Zombies are
+// left out: a stopped parent cannot reap them.
+const below = (pid) => {
+  const rows = execFileSync("ps", ["-eo", "pid=,ppid=,stat="], { encoding: "utf8" })
+    .trim()
+    .split("\n")
+    .map((line) => line.trim().split(/\s+/))
+    .filter(([, , state]) => state[0] !== "Z");
+  const out = [];
+  const walk = (parent) => {
+    for (const [child, ppid] of rows) {
+      if (ppid === parent) {
+        walk(child);
+        out.push(Number(child));
+      }
+    }
+  };
+  walk(String(pid));
+  return out;
+};
+const stop = () => {
+  // The installer runs its builds through blocking child processes. Stopping it
+  // alone would leave them working in the shared source tree after the lock is
+  // gone, so the whole tree below it is stopped first. A child dying makes the
+  // installer exit or start another step, but that lands on this event loop,
+  // which this function holds until the tree is gone.
+  try {
+    for (let pass = 0; pass < 10; pass++) {
+      const kids = below(installer.pid);
+      if (!kids.length) break;
+      for (const pid of kids) {
+        try { process.kill(pid, "SIGKILL"); } catch {}
+      }
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 20);
+    }
+  } catch {}
+  installer.kill("SIGKILL");
+};
 for (const name of ["SIGINT", "SIGTERM", "SIGHUP"]) {
   process.on(name, () => {
     cancelled ||= signals[name];
-    installer.kill(name);
+    stop();
   });
 }
 installer.on("exit", (code, signal) => {
   const status = code ?? 128 + (signals[signal] ?? 0);
-  process.exit(cancelled && status < 128 ? 128 + cancelled : status);
+  process.exit(cancelled ? 128 + cancelled : status);
 });
 '
 
