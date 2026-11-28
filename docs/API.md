@@ -4140,9 +4140,11 @@ Update a template.
 
 Delete a template.
 
-**Auth:** JWT required (human)
+**Auth:** Human JWT + admin role required — a human JWT whose role is not `admin` is refused with `403` `INSUFFICIENT_PERMISSIONS`.
 
 **Response `204`:** No content.
+
+**Response `403`:** The template is a default template (`Cannot delete default template`) — the default-template restriction applies to admins too.
 
 ---
 
