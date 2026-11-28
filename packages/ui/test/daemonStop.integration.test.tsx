@@ -139,3 +139,40 @@ it.each([
     client.clear();
   }
 });
+
+it.each([
+  { action: "Start", pending: "Starting...", nextStatus: "Online" },
+  { action: "Retry Stop", pending: "Stopping...", nextStatus: "Offline" },
+])("keeps $pending visible if status changes to $nextStatus", async ({ action, pending, nextStatus }) => {
+  await initTestDb();
+  const daemon = repo.createDaemon({ name: "refresh", hostname: "test", maxConcurrent: 1, daemonVersion: "in-process", plainToken: "synthetic" });
+  repo.beginDaemonStop(daemon.id, "pending-stop");
+  app = Fastify();
+  await app.register(daemonAdminRoutes);
+  await app.ready();
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => { release = resolve; });
+  vi.stubGlobal("fetch", async (url: string, options: RequestInit = {}) => {
+    if (options.method === "POST") {
+      await gate;
+      return { ok: false, status: 409, statusText: "Conflict", json: async () => ({ error: "not available" }) };
+    }
+    const response = await app.inject({ method: "GET", url: url.replace(/^\/api/, "") });
+    return { ok: true, status: response.statusCode, json: async () => response.json() };
+  });
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  render(<QueryClientProvider client={client}><DaemonSection /></QueryClientProvider>);
+  expect(await screen.findByText("Unknown")).toBeTruthy();
+  try {
+    fireEvent.click(screen.getByRole("button", { name: action }));
+    expect(await screen.findByRole("button", { name: pending })).toHaveProperty("disabled", true);
+    if (nextStatus === "Online") repo.updateDaemonHeartbeat(daemon.id);
+    else repo.completeDaemonStop(daemon.id, "pending-stop", "offline");
+    await client.invalidateQueries();
+    expect(await screen.findByText(nextStatus)).toBeTruthy();
+    expect(screen.getByRole("button", { name: pending })).toHaveProperty("disabled", true);
+  } finally {
+    release();
+    client.clear();
+  }
+});

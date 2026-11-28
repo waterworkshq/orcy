@@ -18,7 +18,10 @@ export function DaemonCard({
   isActionDisabled,
 }: DaemonCardProps) {
   const isOnline = daemon.status === "online";
+  const isUnknown = daemon.status === "unknown";
   const disabled = isActionDisabled || loadingAction != null;
+  const showStop = isUnknown || loadingAction === "stop" || (isOnline && loadingAction !== "start");
+  const showStart = isUnknown || loadingAction === "start" || (!isOnline && loadingAction !== "stop");
 
   return (
     <div className="rounded-lg border border-border bg-card p-4 space-y-3">
@@ -30,26 +33,17 @@ export function DaemonCard({
           </Badge>
         </div>
         <div className="flex gap-2">
-          {daemon.status === "unknown" && (
+          {showStop && (
             <button
               type="button"
               onClick={() => onStop?.(daemon.id)}
               disabled={disabled}
               className="rounded px-2 py-1 text-xs font-medium text-muted-foreground hover:bg-muted transition-colors disabled:cursor-not-allowed disabled:opacity-50"
             >
-              {loadingAction === "stop" ? "Stopping..." : "Retry Stop"}
+              {loadingAction === "stop" ? "Stopping..." : isUnknown ? "Retry Stop" : "Stop"}
             </button>
           )}
-          {isOnline ? (
-            <button
-              type="button"
-              onClick={() => onStop?.(daemon.id)}
-              disabled={disabled}
-              className="rounded px-2 py-1 text-xs font-medium text-muted-foreground hover:bg-muted transition-colors disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              {loadingAction === "stop" ? "Stopping..." : "Stop"}
-            </button>
-          ) : (
+          {showStart && (
             <button
               type="button"
               onClick={() => onStart?.(daemon.id)}
