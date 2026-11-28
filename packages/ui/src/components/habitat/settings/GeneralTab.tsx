@@ -34,21 +34,23 @@ export const GeneralTab = forwardRef<GeneralTabHandle, GeneralTabProps>(function
 ) {
   const [name, setName] = useState(boardName);
   const [description, setDescription] = useState(boardDescription);
-  const { saving, saveSettings } = useHabitatSettingsSaver({ habitatId: habitatId, onUpdate });
+  const { saving, error, saveSettings } = useHabitatSettingsSaver({ habitatId: habitatId, onUpdate });
 
   useEffect(() => {
     onSavingChange?.(saving);
   }, [saving, onSavingChange]);
 
   const handleSave = useCallback(async () => {
-    await saveSettings(
+    const saved = await saveSettings(
       {
         name: name.trim() || boardName,
         description: description.trim(),
       },
       "Habitat settings saved",
     );
-    onClose();
+    if (saved) {
+      onClose();
+    }
   }, [saveSettings, name, boardName, description, onClose]);
 
   useImperativeHandle(ref, () => ({ save: handleSave }), [handleSave]);
@@ -56,6 +58,14 @@ export const GeneralTab = forwardRef<GeneralTabHandle, GeneralTabProps>(function
   return (
     <>
       <div className="space-y-4">
+        {error && (
+          <div
+            role="alert"
+            className="rounded border border-destructive/20 bg-destructive/10 p-3 text-sm text-destructive"
+          >
+            {error}
+          </div>
+        )}
         <div>
           <label className="mb-1 block text-sm font-medium">Habitat Name</label>
           <input

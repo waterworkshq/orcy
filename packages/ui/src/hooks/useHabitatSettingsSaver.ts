@@ -1,6 +1,7 @@
 import { useState, useCallback } from "react";
 import { api } from "../api/index.js";
 import { notify } from "../lib/toast.js";
+import { useSessionLiveness } from "../lib/sessionState.js";
 import type { PublicHabitat } from "../types/index.js";
 
 interface UseHabitatSettingsSaverOptions {
@@ -10,6 +11,8 @@ interface UseHabitatSettingsSaverOptions {
 
 export function useHabitatSettingsSaver({ habitatId, onUpdate }: UseHabitatSettingsSaverOptions) {
   const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const isSessionActive = useSessionLiveness();
 
   const saveSettings = useCallback(
     async (
@@ -26,20 +29,28 @@ export function useHabitatSettingsSaver({ habitatId, onUpdate }: UseHabitatSetti
         roadmapSettings?: import("../types/index.js").RoadmapSettings | null;
       },
       successMessage: string,
-    ) => {
+    ): Promise<boolean> => {
       setSaving(true);
+      setError(null);
       try {
         const result = await api.habitats.update(habitatId, data);
+        if (!isSessionActive()) return false;
         onUpdate(result.habitat);
         notify.success(successMessage);
+        return true;
       } catch (err) {
-        notify.error((err as Error).message);
+        if (!isSessionActive()) return false;
+        const message =
+          err instanceof Error && err.message ? err.message : "Failed to save settings";
+        setError(message);
+        notify.error(message);
+        return false;
       } finally {
         setSaving(false);
       }
     },
-    [habitatId, onUpdate],
+    [habitatId, onUpdate, isSessionActive],
   );
 
-  return { saving, saveSettings };
+  return { saving, error, saveSettings };
 }
