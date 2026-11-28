@@ -36,6 +36,7 @@ interface RunningDaemon {
   agents: RegisteredAgent[];
   pollTimer: ReturnType<typeof setInterval> | null;
   heartbeatTimer: ReturnType<typeof setInterval> | null;
+  stopPromise: Promise<void> | null;
   habitatIds: string[];
   maxConcurrent: number;
 }
@@ -166,6 +167,7 @@ export function start(daemonId: string, dataDir: string = "/tmp/orcy-daemon"): v
     agents,
     pollTimer: null,
     heartbeatTimer: null,
+    stopPromise: null,
     habitatIds: [],
     maxConcurrent: daemon.maxConcurrent ?? 4,
   };
@@ -204,6 +206,19 @@ async function tick(running: RunningDaemon): Promise<void> {
 export async function stop(daemonId: string): Promise<void> {
   const running = runningDaemons.get(daemonId);
   if (!running) return;
+  if (running.stopPromise) return running.stopPromise;
+
+  const stopping = stopRunning(running);
+  running.stopPromise = stopping;
+  try {
+    await stopping;
+  } finally {
+    running.stopPromise = null;
+  }
+}
+
+async function stopRunning(running: RunningDaemon): Promise<void> {
+  const { daemonId } = running;
 
   if (running.pollTimer) {
     clearInterval(running.pollTimer);
@@ -212,19 +227,32 @@ export async function stop(daemonId: string): Promise<void> {
     clearInterval(running.heartbeatTimer);
   }
 
-  daemonRepo.setDaemonStatus(daemonId, "offline");
+  let markerFailed = false;
+  let markerError: unknown;
+  try {
+    daemonRepo.setDaemonStatus(daemonId, "offline");
+  } catch (err) {
+    markerFailed = true;
+    markerError = err;
+  }
   try {
     await running.sessionManager.shutdownAll();
   } catch (err) {
-    // A heartbeat received during shutdown is authoritative and already set
-    // the row online. Restore only our own offline marker on failure.
-    if (daemonRepo.getDaemonById(daemonId)?.status === "offline") {
-      daemonRepo.setDaemonStatus(daemonId, "online");
+    try {
+      // A heartbeat received during shutdown is authoritative.
+      if (!markerFailed && daemonRepo.getDaemonById(daemonId)?.status === "offline") {
+        daemonRepo.setDaemonStatus(daemonId, "online");
+      }
+    } finally {
+      running.sessionManager.startTimeoutCheck();
+      running.pollTimer = setInterval(() => tick(running), 30000);
+      running.heartbeatTimer = setInterval(() => daemonRepo.updateDaemonHeartbeat(daemonId), 30000);
     }
     throw err;
   }
   releaseSessionManager(daemonId);
   runningDaemons.delete(daemonId);
+  if (markerFailed) throw markerError;
 }
 
 export { detectClisOnHost };
@@ -241,6 +269,11 @@ export function getRunningDaemon(daemonId: string): RunningDaemon | undefined {
  */
 export function isRunning(daemonId: string): boolean {
   return runningDaemons.has(daemonId);
+}
+
+/** A stopping engine still owns sessions but no longer polls or heartbeats. */
+export function isStopping(daemonId: string): boolean {
+  return runningDaemons.get(daemonId)?.stopPromise != null;
 }
 
 /**

@@ -185,7 +185,7 @@ export async function daemonAdminRoutes(fastify: FastifyInstance): Promise<void>
         const agents = daemonRepo.getDaemonAgentsByDaemonId(d.id);
         const sessions = daemonRepo.getActiveSessionsByDaemonId(d.id);
         const isOnline =
-          daemonEngine.isRunning(d.id) ||
+          (daemonEngine.isRunning(d.id) && !daemonEngine.isStopping(d.id)) ||
           (d.status !== "offline" &&
             d.lastHeartbeatAt &&
             Date.now() - new Date(d.lastHeartbeatAt).getTime() < 60000);
@@ -216,7 +216,7 @@ export async function daemonAdminRoutes(fastify: FastifyInstance): Promise<void>
       const agents = daemonRepo.getDaemonAgentsByDaemonId(daemon.id);
       const sessions = daemonRepo.getActiveSessionsByDaemonId(daemon.id);
       const isOnline =
-        daemonEngine.isRunning(daemon.id) ||
+        (daemonEngine.isRunning(daemon.id) && !daemonEngine.isStopping(daemon.id)) ||
         (daemon.status !== "offline" &&
           daemon.lastHeartbeatAt &&
           Date.now() - new Date(daemon.lastHeartbeatAt).getTime() < 60000);

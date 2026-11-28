@@ -9,9 +9,11 @@ vi.mock("../middleware/auth.js", () => ({
 const wiring = vi.hoisted(() => ({
   shutdownAll: vi.fn(async () => {}),
   release: vi.fn(),
+  timeoutStart: vi.fn(),
+  poll: vi.fn(() => []),
 }));
 vi.mock("../daemon-wiring.js", () => ({
-  getSessionManager: () => ({ activeSessions: [], startTimeoutCheck() {}, shutdownAll: wiring.shutdownAll }),
+  getSessionManager: () => ({ get activeSessions() { return wiring.poll(); }, startTimeoutCheck: wiring.timeoutStart, shutdownAll: wiring.shutdownAll }),
   getClaimStrategy: () => ({}),
   releaseSessionManager: wiring.release,
   detectClisOnHost: () => [],
@@ -28,10 +30,12 @@ let externalId: string;
 
 beforeEach(async () => {
   await initTestDb();
-  vi.useFakeTimers({ toFake: ["Date"] });
+  vi.useFakeTimers({ toFake: ["Date", "setInterval", "clearInterval"] });
   vi.setSystemTime(new Date("2026-11-28T00:00:00.000Z"));
   wiring.shutdownAll.mockReset().mockResolvedValue(undefined);
   wiring.release.mockClear();
+  wiring.timeoutStart.mockClear();
+  wiring.poll.mockClear();
   id = repo.createDaemon({ name: "embedded", hostname: "test", maxConcurrent: 1, daemonVersion: "in-process", plainToken: "embedded" }).id;
   externalId = repo.createDaemon({ name: "external", hostname: "test", maxConcurrent: 1, daemonVersion: "external", plainToken: "external" }).id;
   app = Fastify();
@@ -77,6 +81,21 @@ describe("in-process Stop status", () => {
     expect(engine.isRunning(id)).toBe(true);
     expect(wiring.release).not.toHaveBeenCalled();
     expect(await statuses()).toEqual({ embedded: "online", external: "online", detail: "online" });
+    expect(wiring.timeoutStart).toHaveBeenCalledTimes(2);
+    wiring.poll.mockClear();
+    await vi.advanceTimersByTimeAsync(30000);
+    expect(wiring.poll).toHaveBeenCalled();
+    expect(repo.getDaemonById(id)!.lastHeartbeatAt).toBe(new Date().toISOString());
+  });
+
+  it("still drains sessions when the offline marker write fails", async () => {
+    const spy = vi.spyOn(repo, "setDaemonStatus").mockImplementationOnce(() => { throw new Error("write failed"); });
+    const response = await app.inject({ method: "POST", url: `/daemons/${id}/stop` });
+    expect(response.statusCode).toBe(500);
+    expect(wiring.shutdownAll).toHaveBeenCalledOnce();
+    expect(wiring.release).toHaveBeenCalledWith(id);
+    expect(engine.isRunning(id)).toBe(false);
+    spy.mockRestore();
   });
 
   it("does not erase a heartbeat arriving while shutdown is pending, even in the same millisecond", async () => {
@@ -84,9 +103,18 @@ describe("in-process Stop status", () => {
     wiring.shutdownAll.mockImplementationOnce(() => new Promise<void>((resolve) => { finish = resolve; }));
     const stopping = app.inject({ method: "POST", url: `/daemons/${id}/stop` }).then((response: any) => response);
     await vi.waitFor(() => expect(finish).toBeDefined());
+    expect(await statuses()).toEqual({ embedded: "offline", external: "online", detail: "offline" });
     const heartbeat = await app.inject({ method: "POST", url: "/daemon/heartbeat", headers: { "x-daemon-token": "embedded" }, payload: {} });
     expect(heartbeat.statusCode).toBe(200);
+    expect(await statuses()).toEqual({ embedded: "online", external: "online", detail: "online" });
+    expect(engine.isRunning(id)).toBe(true);
+    let secondSettled = false;
+    const second = engine.stop(id).then(() => { secondSettled = true; });
+    await Promise.resolve();
+    expect(secondSettled).toBe(false);
+    expect(wiring.shutdownAll).toHaveBeenCalledTimes(1);
     finish();
+    await second;
     expect((await stopping).statusCode).toBe(200);
     expect(repo.getDaemonById(id)!.status).toBe("online");
     expect(await statuses()).toEqual({ embedded: "online", external: "online", detail: "online" });
