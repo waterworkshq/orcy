@@ -6,7 +6,7 @@ interface DaemonCardProps {
   daemon: DaemonInfo;
   onStart?: (id: string) => void;
   onStop?: (id: string) => void;
-  isActionLoading?: boolean;
+  loadingAction?: "start" | "stop" | null;
   isActionDisabled?: boolean;
 }
 
@@ -14,11 +14,11 @@ export function DaemonCard({
   daemon,
   onStart,
   onStop,
-  isActionLoading,
+  loadingAction,
   isActionDisabled,
 }: DaemonCardProps) {
   const isOnline = daemon.status === "online";
-  const disabled = isActionDisabled || isActionLoading;
+  const disabled = isActionDisabled || loadingAction != null;
 
   return (
     <div className="rounded-lg border border-border bg-card p-4 space-y-3">
@@ -37,7 +37,7 @@ export function DaemonCard({
               disabled={disabled}
               className="rounded px-2 py-1 text-xs font-medium text-muted-foreground hover:bg-muted transition-colors disabled:cursor-not-allowed disabled:opacity-50"
             >
-              Retry Stop
+              {loadingAction === "stop" ? "Stopping..." : "Retry Stop"}
             </button>
           )}
           {isOnline ? (
@@ -47,7 +47,7 @@ export function DaemonCard({
               disabled={disabled}
               className="rounded px-2 py-1 text-xs font-medium text-muted-foreground hover:bg-muted transition-colors disabled:cursor-not-allowed disabled:opacity-50"
             >
-              {isActionLoading ? "Stopping..." : "Stop"}
+              {loadingAction === "stop" ? "Stopping..." : "Stop"}
             </button>
           ) : (
             <button
@@ -56,7 +56,7 @@ export function DaemonCard({
               disabled={disabled}
               className="rounded px-2 py-1 text-xs font-medium text-primary hover:bg-muted transition-colors disabled:cursor-not-allowed disabled:opacity-50"
             >
-              {isActionLoading && daemon.status !== "unknown" ? "Starting..." : "Start"}
+              {loadingAction === "start" ? "Starting..." : "Start"}
             </button>
           )}
         </div>

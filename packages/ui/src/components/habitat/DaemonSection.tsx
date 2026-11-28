@@ -14,7 +14,7 @@ interface DaemonSectionProps {
 export function DaemonSection({ onSetup }: DaemonSectionProps) {
   const { data, isLoading, error, refetch } = useDaemons();
   const queryClient = useQueryClient();
-  const [actionLoading, setActionLoading] = useState<string | null>(null);
+  const [actionLoading, setActionLoading] = useState<{ id: string; action: "start" | "stop" } | null>(null);
 
   const daemons = data?.daemons ?? [];
 
@@ -24,7 +24,7 @@ export function DaemonSection({ onSetup }: DaemonSectionProps) {
 
   const handleStart = useCallback(
     async (id: string) => {
-      setActionLoading(id);
+      setActionLoading({ id, action: "start" });
       try {
         await api.daemons.start(id);
         notify.success("Daemon started");
@@ -40,7 +40,7 @@ export function DaemonSection({ onSetup }: DaemonSectionProps) {
 
   const handleStop = useCallback(
     async (id: string) => {
-      setActionLoading(id);
+      setActionLoading({ id, action: "stop" });
       try {
         await api.daemons.stop(id);
         notify.success("Daemon stopped");
@@ -117,7 +117,7 @@ export function DaemonSection({ onSetup }: DaemonSectionProps) {
             daemon={daemon}
             onStart={handleStart}
             onStop={handleStop}
-            isActionLoading={actionLoading === daemon.id}
+            loadingAction={actionLoading?.id === daemon.id ? actionLoading.action : null}
             isActionDisabled={actionLoading !== null}
           />
         ))}

@@ -106,3 +106,36 @@ it("offers a Stop retry after a failed final write and refreshes its served stat
   expect(spy).toHaveBeenCalledTimes(2);
   client.clear();
 });
+
+it.each([
+  { action: "Retry Stop", pending: "Stopping...", other: "Start" },
+  { action: "Start", pending: "Starting...", other: "Retry Stop" },
+])("shows $pending only for the pending $action request", async ({ action, pending, other }) => {
+  await initTestDb();
+  const daemon = repo.createDaemon({ name: "pending", hostname: "test", maxConcurrent: 1, daemonVersion: "in-process", plainToken: "synthetic" });
+  repo.beginDaemonStop(daemon.id, "pending-stop");
+  app = Fastify();
+  await app.register(daemonAdminRoutes);
+  await app.ready();
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => { release = resolve; });
+  vi.stubGlobal("fetch", async (url: string, options: RequestInit = {}) => {
+    if (options.method === "POST") {
+      await gate;
+      return { ok: false, status: 409, statusText: "Conflict", json: async () => ({ error: "not available" }) };
+    }
+    const response = await app.inject({ method: "GET", url: url.replace(/^\/api/, "") });
+    return { ok: true, status: response.statusCode, json: async () => response.json() };
+  });
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  render(<QueryClientProvider client={client}><DaemonSection /></QueryClientProvider>);
+  expect(await screen.findByText("Unknown")).toBeTruthy();
+  try {
+    fireEvent.click(screen.getByRole("button", { name: action }));
+    expect(await screen.findByRole("button", { name: pending })).toHaveProperty("disabled", true);
+    expect(screen.getByRole("button", { name: other })).toHaveProperty("disabled", true);
+  } finally {
+    release();
+    client.clear();
+  }
+});
