@@ -8,6 +8,7 @@ import * as eventRepo from "../repositories/events/index.js";
 import * as templateRepo from "../repositories/template.js";
 import * as scheduledTaskRepo from "../repositories/scheduledTask.js";
 import * as scheduledTaskService from "../services/scheduledTaskService.js";
+import { logger } from "../lib/logger.js";
 import {
   missions,
   tasks,
@@ -15,6 +16,8 @@ import {
   habitats,
   missionTemplates,
   scheduledTasks,
+  taskEvents,
+  auditExportSchedules,
 } from "../db/schema/index.js";
 import type { TaskPriority, TaskTemplateEntry } from "../models/index.js";
 import { existsSync, readdirSync, readFileSync, rmSync } from "fs";
@@ -495,6 +498,28 @@ describe("processDueAuditExports", () => {
     const rows = JSON.parse(readOnlyExportFile(".json"));
     expect(rows).toHaveLength(1);
     expect(rows[0]).toMatchObject({ action: "claimed", entity: { type: "task" } });
+  });
+
+  it("records truncation and advances the schedule after writing the bounded artifact", () => {
+    const mission = missionRepo.createMission({ habitatId, columnId, title: "Large audit", createdBy: "human" });
+    const task = taskRepo.createTask({ missionId: mission.id, title: "Task", createdBy: "human" });
+    const timestamp = new Date().toISOString();
+    for (let i = 0; i < 1001; i++) {
+      getDb().insert(taskEvents).values({ id: `scheduled-${i}`, taskId: task.id, actorType: "human", actorId: "schedule-user", action: "updated", metadata: {}, timestamp }).run();
+    }
+    insertAuditExportSchedule("audit-large", "json", JSON.stringify({ actorId: "schedule-user" }));
+    const log = vi.spyOn(logger, "info");
+    try {
+      expect(scheduledTaskService.processDueAuditExports()).toEqual({ executed: 1, failed: 0 });
+      expect(JSON.parse(readOnlyExportFile(".json"))).toHaveLength(1000);
+      expect(log).toHaveBeenCalledWith(expect.objectContaining({ scheduleId: "audit-large", warnings: expect.arrayContaining([expect.objectContaining({ code: "result_truncated" })]) }), "Audit export schedule executed");
+      const schedule = getDb().select().from(auditExportSchedules).all().find((row) => row.id === "audit-large")!;
+      expect(schedule.lastRunAt).toBeTruthy();
+      expect(new Date(schedule.nextRunAt).getTime()).toBeGreaterThan(Date.now());
+      expect(scheduledTaskService.processDueAuditExports()).toEqual({ executed: 0, failed: 0 });
+    } finally {
+      log.mockRestore();
+    }
   });
 
   it("skips audit exports with future nextRunAt", () => {

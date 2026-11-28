@@ -113,6 +113,8 @@ function toAuditQuery(habitatId: string, query: AuditEventQuery): AuditQueryInpu
   const entityType = isAuditEntityType(query.entityType) ? query.entityType : undefined;
   const source = isAuditSource(query.source) ? query.source : undefined;
   const entityTypes = parseEntityTypesCsv(query.entityTypes);
+  const actions = parseCsvFilter(query.actions);
+  const requestedEntityTypes = parseCsvFilter(query.entityTypes);
   return {
     habitatId,
     since: query.since,
@@ -127,6 +129,7 @@ function toAuditQuery(habitatId: string, query: AuditEventQuery): AuditQueryInpu
     source,
     order: "asc",
     includeHealthSnapshots: includeStructuredField(query.includeHealthSnapshots),
+    eventFilter: (event) => eventMatchesExportFilters(event, actions, requestedEntityTypes, query),
   };
 }
 
@@ -162,34 +165,17 @@ function eventMatchesExportFilters(
   }
 }
 
-function collectCanonicalAuditEvents(habitatId: string, query: AuditEventQuery): AuditEvent[] {
-  const result = queryAuditEvents(toAuditQuery(habitatId, query));
-  const actions = parseCsvFilter(query.actions);
-  const entityTypes = parseCsvFilter(query.entityTypes);
-  return result.events.filter((event) => eventMatchesExportFilters(event, actions, entityTypes, query));
-}
-
 /** Returns the canonical {@link CanonicalAuditEventResult} for a habitat after applying export filters, including the events, any warnings, and a completeness summary. */
 export function getCanonicalAuditEvents(
   habitatId: string,
   query: AuditEventQuery,
 ): CanonicalAuditEventResult {
-  const result = queryAuditEvents({
+  return queryAuditEvents({
     ...toAuditQuery(habitatId, query),
     limit: query.limit,
     offset: query.offset,
     order: query.order ?? "asc",
   });
-  const actions = parseCsvFilter(query.actions);
-  const entityTypes = parseCsvFilter(query.entityTypes);
-  const events = result.events.filter((event) =>
-    eventMatchesExportFilters(event, actions, entityTypes, query),
-  );
-  return {
-    events,
-    warnings: result.warnings,
-    completenessSummary: result.completenessSummary,
-  };
 }
 
 function canonicalEventsToCsv(events: AuditEvent[], query: AuditExportQuery): string {
@@ -248,15 +234,19 @@ function canonicalEventsToJsonl(events: AuditEvent[]): string {
 
 /** Renders the audit export payload (CSV, JSON, or JSONL) for the given {@link AuditExportQuery} by serializing the filtered canonical events. */
 export function generateAuditExportContent(habitatId: string, query: AuditExportQuery): string {
-  const events = collectCanonicalAuditEvents(habitatId, query);
+  return generateAuditExport(habitatId, query).content;
+}
+
+export function generateAuditExport(habitatId: string, query: AuditExportQuery): { content: string; warnings: AuditWarning[] } {
+  const { events, warnings } = getCanonicalAuditEvents(habitatId, query);
 
   if (query.format === "csv") {
-    return canonicalEventsToCsv(events, query);
+    return { content: canonicalEventsToCsv(events, query), warnings };
   }
   if (query.format === "jsonl") {
-    return canonicalEventsToJsonl(events);
+    return { content: canonicalEventsToJsonl(events), warnings };
   }
-  return canonicalEventsToJson(events);
+  return { content: canonicalEventsToJson(events), warnings };
 }
 
 /** Returns a date-stamped download filename of the form `audit-<habitatPrefix>-<YYYY-MM-DD>.<format>` for an audit export. */
@@ -292,7 +282,9 @@ export async function streamAuditExport(
     "Content-Disposition",
     `attachment; filename="${getExportFilename(habitatId, format)}"`,
   );
-  const content = generateAuditExportContent(habitatId, query);
+  const { content, warnings } = generateAuditExport(habitatId, query);
+  reply.header("X-Audit-Result-Truncated", String(warnings.some((warning) => warning.code === "result_truncated")));
+  reply.header("Access-Control-Expose-Headers", "X-Audit-Result-Truncated");
   return reply.send(format === "json" ? JSON.parse(content) : content);
 }
 

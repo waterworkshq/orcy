@@ -5380,7 +5380,7 @@ Query canonical audit events for a habitat.
 **Query:** `since?`, `until?`, `actions?`, `actorType?`, `actorId?`, `entityTypes?`, `entityType?`, `entityId?`, `taskId?`, `missionId?`, `source?`, `provider?`, `preset?`, `includeHealthSnapshots?`, `limit?`, `offset?`, `order?`
 `limit` is an integer from 1 to 10000 (default 1000); `offset` is a non-negative safe integer (default 0); `order` is `asc` (default) or `desc`. Events are ordered by timestamp, then by ID ascending for ties.
 
-`actions`, `provider`, and `preset` are applied after pagination. A short or empty page can therefore have matches at later offsets. The completeness summary and truncation warning describe the projection before these filters are applied.
+All supported filters apply before pagination. The completeness summary describes all matching events, not just the returned page.
 
 **Response `200`:** `{ "events": AuditEvent[], "warnings": AuditWarning[], "completenessSummary": {...} }`
 
@@ -5391,6 +5391,8 @@ Export canonical audit events.
 **Auth:** JWT required (human)
 **Query:** `format` (csv|json|jsonl), `since?`, `until?`, `actions?`, `actorType?`, `actorId?`, `entityTypes?`, `entityType?`, `entityId?`, `source?`, `provider?`, `preset?`, `includeMetadata?`, `includeProvenance?`, `includeIntegrity?`, `includeHealthSnapshots?`
 **Response `200`:** File download with appropriate Content-Type header.
+
+The `X-Audit-Result-Truncated` response header is `true` when more than 1,000 matching events exist and `false` otherwise. Narrow the time range or filters to obtain a complete download. Scheduled exports retain their cadence and record the existing `result_truncated` warning in the structured execution log when applicable.
 
 CSV includes stable canonical columns by default. JSON exports an array of canonical `AuditEvent` objects. JSONL emits one canonical event per line.
 
