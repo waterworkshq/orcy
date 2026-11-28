@@ -242,6 +242,20 @@ describe("clearance transition/summary failure boundary", () => {
     expect(deliveryRepo.getNotificationDeliveryById(delivery.id)!.status).toBe("cleared");
   });
 
+  it("still reports a failure whose message is empty", async () => {
+    const { delivery } = seedDelivery();
+    vi.spyOn(eventRepo, "getNotificationEventById").mockImplementationOnce(() => {
+      throw new Error("");
+    });
+
+    const response = await clear("/api/v1", [delivery.id]);
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json().cleared).toBe(1);
+    expect(response.json().errors).toEqual([""]);
+    expect(deliveryRepo.getNotificationDeliveryById(delivery.id)!.status).toBe("cleared");
+  });
+
   it("leaves the row untouched and uncounted when the transition itself fails", async () => {
     const { delivery } = seedDelivery();
     vi.spyOn(deliveryRepo, "transitionDeliveryToCleared").mockImplementationOnce(() => {

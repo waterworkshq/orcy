@@ -19,7 +19,9 @@ export interface ClearanceResult {
  *
  * `transitioned` is the truth about the delivery row. `error` carries a
  * failure that happened AFTER the transition was already committed — the
- * transition still counts, and the failure is still reported. */
+ * transition still counts, and the failure is still reported. It is `undefined`
+ * when there was no such failure; an empty message is still a failure and is
+ * still reported, like every other error on these paths. */
 interface ClearanceOutcome {
   transitioned: boolean;
   error?: string;
@@ -64,7 +66,7 @@ function clearHabitat(habitatId: string): ClearanceResult {
         try {
           const outcome = processClearance(d);
           if (outcome.transitioned) cleared++;
-          if (outcome.error) {
+          if (outcome.error !== undefined) {
             errors.push(`ack-clear ${d.id}: ${outcome.error}`);
           }
         } catch (err) {
@@ -86,7 +88,7 @@ function clearHabitat(habitatId: string): ClearanceResult {
         try {
           const outcome = processClearance(d);
           if (outcome.transitioned) cleared++;
-          if (outcome.error) {
+          if (outcome.error !== undefined) {
             errors.push(`fail-clear ${d.id}: ${outcome.error}`);
           }
         } catch (err) {
@@ -116,7 +118,7 @@ export function adminClearDeliveries(deliveryIds: string[]): ClearanceResult {
       }
       const outcome = processClearance(d);
       if (outcome.transitioned) cleared++;
-      if (outcome.error) errors.push(outcome.error);
+      if (outcome.error !== undefined) errors.push(outcome.error);
     } catch (err) {
       errors.push(err instanceof Error ? err.message : String(err));
     }
