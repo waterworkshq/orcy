@@ -21,10 +21,13 @@ export function ExportHabitatDialog({ habitatId, boardName, open, onClose }: Exp
   const [includeWebhooks, setIncludeWebhooks] = useState(true);
   const [exporting, setExporting] = useState(false);
 
+  const hasSelection = includeColumns || includeTasks || includeComments || includeTemplates || includeWebhooks;
+
   const handleExport = async () => {
+    if (!hasSelection) return;
     const includes = [
       includeColumns && 'columns',
-      includeTasks && 'tasks',
+      includeTasks && 'missions',
       includeComments && 'comments',
       includeTemplates && 'templates',
       includeWebhooks && 'webhooks',
@@ -110,6 +113,7 @@ export function ExportHabitatDialog({ habitatId, boardName, open, onClose }: Exp
             <span className="text-sm">Webhook configurations (secrets will be omitted)</span>
           </label>
         </div>
+        {!hasSelection && <p className="mt-3 text-sm text-muted-foreground">Select at least one section to export.</p>}
         <div className="mt-4 p-3 bg-muted rounded text-xs text-muted-foreground">
           <strong>Note:</strong> Agent API keys, webhook secrets, and audit logs are never exported.
         </div>
@@ -118,7 +122,7 @@ export function ExportHabitatDialog({ habitatId, boardName, open, onClose }: Exp
         <Button variant="ghost" onClick={onClose} disabled={exporting}>
           Cancel
         </Button>
-        <Button onClick={handleExport} loading={exporting}>
+        <Button onClick={handleExport} loading={exporting} disabled={!hasSelection}>
           Download JSON
         </Button>
       </DialogFooter>
