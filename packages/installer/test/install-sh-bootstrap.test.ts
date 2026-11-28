@@ -67,8 +67,18 @@ const INSTALL_SH = path.join(REPO_ROOT, "install.sh");
 const scenarioHomes: string[] = [];
 /** Stops a fixture process, and only once its command line says it is one. */
 function stopFixture(pid: string, isFixture: (args: string) => boolean): void {
-  const args = spawnSync(resolveBin("ps"), ["-o", "args=", "-p", pid], { encoding: "utf8" }).stdout;
+  const args = spawnSync(resolveBin("ps"), ["-ww", "-o", "args=", "-p", pid], { encoding: "utf8" }).stdout;
   if (isFixture(args)) process.kill(Number(pid), "SIGKILL");
+}
+/** Every process and its command line, unabbreviated. A record starts at a line
+ *  that begins with a PID, so a command line that itself holds newlines — which
+ *  a `ps` that prints them raw gives the anchor — stays one record. */
+function processTable(): [pid: string, args: string][] {
+  return spawnSync(resolveBin("ps"), ["-ww", "-eo", "pid=,args="], { encoding: "utf8" }).stdout
+    .split(/\n(?=\s*\d+\s)/)
+    .map((record) => /^\s*(\d+)\s+([\s\S]*)$/.exec(record))
+    .filter((row): row is RegExpExecArray => row !== null)
+    .map((row) => [row[1], row[2]]);
 }
 /** The PID of a scenario's anchor — the process started for its installer's
  *  entry point, recognisable by the program it carries — or 0 when there is none.
@@ -76,10 +86,10 @@ function stopFixture(pid: string, isFixture: (args: string) => boolean): void {
  *  that is what tells the two apart. */
 function anchorOf(home: string): number {
   const entry = path.join(home, ".orcy", "installer", "dist", "index.js");
-  const row = spawnSync(resolveBin("ps"), ["-eo", "pid=,args="], { encoding: "utf8" }).stdout
-    .split("\n")
-    .find((line) => line.includes(entry) && line.includes("1 << 30") && !line.includes("ORCY_INSTALLER_LOCK"));
-  return Number(row?.trim().split(/\s+/)[0] ?? 0);
+  const anchor = processTable().find(
+    ([, args]) => args.includes(entry) && args.includes("1 << 30") && !args.includes("ORCY_INSTALLER_LOCK"),
+  );
+  return Number(anchor?.[0] ?? 0);
 }
 afterAll(() => {
   for (const home of scenarioHomes) {
@@ -439,8 +449,14 @@ printf 'skill\\n' > "$dir/packages/installer/skills/overview.md"
   writeStub(stubDir, "pnpm", `${log("FORBIDDEN-bare-pnpm")}\nexit 1`);
   writeStub(stubDir, "npm", `${log("FORBIDDEN-npm")}\nexit 1`);
   // A process-listing tool that is missing, as far as the script can tell: a
-  // stop has to work without one.
-  writeStub(stubDir, "ps", `${log("FORBIDDEN-ps")}\nexit 127`);
+  // stop has to work without one. Where the script has a /proc to look at
+  // instead — Linux — that is the whole story; elsewhere ps is what it looks
+  // at, so there the real one stands in, or no run would ever end.
+  if (process.platform === "linux") {
+    writeStub(stubDir, "ps", `${log("FORBIDDEN-ps")}\nexit 127`);
+  } else {
+    fs.symlinkSync(resolveBin("ps"), path.join(stubDir, "ps"));
+  }
 
   // Pin-aware runners: record args plus the working directory (single quoted
   // word — an unquoted "$*" would word-split across log lines). A deploy stands

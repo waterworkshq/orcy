@@ -275,6 +275,9 @@ const processes = () => {
   let pids;
   try { pids = fs.readdirSync("/proc"); } catch { return fromPs(); }
   const out = [];
+  // A listing that does not show this very process shows nothing of the install.
+  const self = String(process.pid);
+  let seen = false;
   for (const pid of pids) {
     if (!/^\d+$/.test(pid)) continue;
     let stat;
@@ -294,9 +297,10 @@ const processes = () => {
     const end = stat.lastIndexOf(")");
     const [state, , pgrp] = stat.slice(end + 2).split(" ");
     if (end < 0 || state === undefined || pgrp === undefined) return null;
+    if (pid === self) seen = true;
     out.push([state[0], pgrp, pid]);
   }
-  return out;
+  return seen ? out : null;
 };
 // The BSDs and macOS have no /proc: there ps stands in, for looking only — and
 // bound, so that a listing that hangs cannot hold the stop up.
