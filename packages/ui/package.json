@@ -53,6 +53,7 @@
     "zustand": "^5.1.0"
   },
   "devDependencies": {
+    "@orcy/api": "workspace:*",
     "@playwright/test": "^1.65.1",
     "@testing-library/dom": "^10.4.2",
     "@testing-library/jest-dom": "^7.0.1",
