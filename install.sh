@@ -36,30 +36,38 @@ case "$NODE_MAJOR" in
 esac
 echo "    Node $NODE_VERSION found"
 
-# One bootstrap at a time per ORCY_HOME: two would race on the source tree, the
-# staged installer and its promotion. The lock is the exclusive creation of a
-# file holding this process's PID. One held by a live process stops this run
-# before it touches anything; one left behind by a run that is gone is taken
-# over. It is released before the installer is handed off to.
-LOCK_FILE="${ORCY_HOME}/bootstrap.lock"
+# One installer run at a time per ORCY_HOME: two would race on the source tree,
+# the staged installer, its promotion and the tree the wizard rebuilds. The lock
+# is a directory, because creating it is atomic: whoever creates it runs, and
+# it is kept until the installer has exited — on success, failure, Ctrl-C or a
+# termination request. A lock that is already there stops this run before it
+# touches anything. It is never taken over automatically: a run cannot tell a
+# dead owner's lock from one being created or held, and removing the wrong one
+# would let two runs through. One left by a run that was killed outright is
+# removed by hand; the message below says which.
+LOCK_DIR="${ORCY_HOME}/bootstrap.lock"
 INSTALLER_DIR="${ORCY_HOME}/installer"
 BACKUP_DIR="${INSTALLER_DIR}.old"
-take_lock() { ( set -C; echo $$ > "$LOCK_FILE" ) 2>/dev/null; }
-mkdir -p "$ORCY_HOME"
-if ! take_lock; then
-  LOCK_PID=$(cat "$LOCK_FILE" 2>/dev/null || echo "")
-  if [ -n "$LOCK_PID" ] && kill -0 "$LOCK_PID" 2>/dev/null; then
-    echo "Another orcy installer run is in progress for this user (pid $LOCK_PID)."
-    echo "Wait for it to finish, or - if none is running - remove $LOCK_FILE and retry."
-    exit 1
+LOCK_IDENTITY=""
+release_lock() {
+  # Only the directory this run created, recognised by its inode — never a
+  # lock another run has taken since.
+  if [ -n "$LOCK_IDENTITY" ] && [ "$(ls -id "$LOCK_DIR" 2>/dev/null)" = "$LOCK_IDENTITY" ]; then
+    rmdir "$LOCK_DIR" 2>/dev/null || true
   fi
-  rm -f "$LOCK_FILE"
-  take_lock || {
-    echo "Could not take the installer lock $LOCK_FILE."
-    exit 1
-  }
+}
+mkdir -p "$ORCY_HOME"
+if ! mkdir "$LOCK_DIR" 2>/dev/null; then
+  echo "Another orcy installer run may be in progress for this user: $LOCK_DIR already exists."
+  echo "If no installer is running, that lock was left by an interrupted run."
+  echo "Remove $LOCK_DIR and run this again."
+  exit 1
 fi
-trap 'rm -f "$LOCK_FILE"' EXIT
+LOCK_IDENTITY="$(ls -id "$LOCK_DIR")"
+trap release_lock EXIT
+# A signal received while the installer or a build step runs in the foreground
+# is acted on only once that has exited (POSIX), so the lock outlives it.
+trap 'exit $?' INT TERM HUP
 
 # A run interrupted while promoting the installer leaves no active installer
 # and the previous one moved aside. Put it back before anything fallible
@@ -166,8 +174,15 @@ fi
 # Promotion: the previous installer is moved aside, the staged copy is put in
 # its place, and the previous one is deleted only after that succeeded.
 if [ -d "${INSTALLER_DIR}" ]; then
-  # A backup can only be stale here: the active installer is present.
-  rm -rf "${BACKUP_DIR}"
+  # A backup can only be stale here: the active installer is present. It has to
+  # go before the active installer can take its place — if it will not, stop
+  # with the working installer untouched rather than replace it without a way back.
+  if ! rm -rf "${BACKUP_DIR}" 2>/dev/null || [ -e "${BACKUP_DIR}" ]; then
+    rm -rf "${STAGED_DIR}"
+    echo "Could not remove the previous installer's backup at ${BACKUP_DIR}."
+    echo "The current installer was left untouched. Remove ${BACKUP_DIR} and run this again."
+    exit 1
+  fi
   mv "${INSTALLER_DIR}" "${BACKUP_DIR}"
 fi
 if ! mv "${STAGED_DIR}" "${INSTALLER_DIR}"; then
@@ -178,15 +193,20 @@ if ! mv "${STAGED_DIR}" "${INSTALLER_DIR}"; then
   fi
   exit 1
 fi
-rm -rf "${BACKUP_DIR}"
+# The new installer is active: not managing to delete the old one must not
+# keep it from running.
+rm -rf "${BACKUP_DIR}" 2>/dev/null ||
+  echo "    Note: the previous installer is kept at ${BACKUP_DIR} and can be deleted."
 
-# Run installer (the bootstrap lock no longer applies: promotion is done)
-rm -f "$LOCK_FILE"
+# Run installer. It runs in the foreground rather than through `exec`, so that
+# this script — and with it the lock — stays alive while the wizard rebuilds the
+# source tree, and so that its exit status becomes this script's.
 echo "==> Running installer..."
 # `curl … | bash` leaves the installer a drained pipe as stdin, so the
 # interactive wizard would read end-of-input at its first question and exit.
 # When a terminal is available, hand the installer that instead.
 if [ ! -t 0 ] && ( : < /dev/tty ) 2>/dev/null; then
-  exec node "${INSTALLER_DIR}/dist/index.js" "$@" < /dev/tty
+  node "${INSTALLER_DIR}/dist/index.js" "$@" < /dev/tty
+else
+  node "${INSTALLER_DIR}/dist/index.js" "$@"
 fi
-exec node "${INSTALLER_DIR}/dist/index.js" "$@"

@@ -31,17 +31,22 @@
  *      installer working — including one that an interrupted run left moved
  *      aside, which the next run restores before anything else — and nothing
  *      claims completion before the installer has run.
- *   8. One bootstrap at a time per ORCY_HOME: a lock held by a live run stops
- *      a second run before it touches anything, one left by a run that is
- *      gone is taken over, and it is released at the handoff and on failure.
- *      An installer left moved aside by an interrupted promotion is restored
- *      before anything fallible runs.
  *   7. The documented `curl … | bash` leaves the installer a drained pipe as
  *      stdin; when a terminal exists, the handoff gives the installer that
  *      terminal instead, so the interactive wizard can read its answers.
+ *   8. One installer run at a time per ORCY_HOME. The lock is a directory,
+ *      created atomically; a second run stops before it touches anything
+ *      and is told which lock to remove by hand if no run is active. The
+ *      lock is held until the installer has exited — on success, failure, a
+ *      termination request — is released only by the run that created it,
+ *      and the installer's exit status becomes the script's. An installer
+ *      left moved aside by an interrupted promotion is restored before
+ *      anything fallible runs. A stale backup that cannot be cleared stops
+ *      promotion with the working installer untouched; a backup that cannot
+ *      be deleted after promotion does not stop the handoff.
  */
 import { describe, it, expect, afterAll } from "vitest";
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -101,10 +106,12 @@ interface Scenario {
   stubDir: string;
   /** `<home>/.orcy/installer` — where install.sh stages the handed-off copy. */
   installerDir: string;
-  /** `<home>/.orcy/bootstrap.lock` — held by a run between its start and its handoff. */
-  lockFile: string;
+  /** `<home>/.orcy/bootstrap.lock` — a directory; held by a run until its installer has exited. */
+  lockDir: string;
   /** `<home>/.orcy/src/orcy` — the extracted (built) source tree. */
   srcDir: string;
+  /** What the scenario's fake installer does once it has started. */
+  installer: InstallerBehavior;
 }
 
 /**
@@ -114,12 +121,16 @@ interface Scenario {
  * `failDeploy` makes the runner fail the installer deploy; `built` false seeds
  * a source tree whose installer was never built (no `packages/installer/dist`);
  * `failPromotion` makes the staged installer impossible to move into place;
- * `failDownload` makes the source download fail; `lock` seeds a bootstrap lock.
+ * `failDownload` makes the source download fail; `locked` seeds a bootstrap lock
+ * left by another run; `installer` drives the fake installer; `failBackupRemoval`
+ * makes `rm` refuse to remove the previous installer's backup.
  */
 
-/** The PID of a process that has already exited. */
-function exitedPid(): number {
-  return spawnSync(resolveBin("node"), ["-e", "process.exit(0)"]).pid!;
+/** What the fake installer should do once it has started: wait, exit with a status, replace the lock. */
+interface InstallerBehavior {
+  sleepMs?: number;
+  exit?: number;
+  swapLock?: boolean;
 }
 
 function buildScenario(opts: {
@@ -131,8 +142,9 @@ function buildScenario(opts: {
   built?: boolean;
   failPromotion?: boolean;
   failDownload?: boolean;
-  /** `live`: a lock held by this (running) test process. `stale`: one held by a process that exited. */
-  lock?: "live" | "stale";
+  locked?: boolean;
+  installer?: InstallerBehavior;
+  failBackupRemoval?: boolean;
 }): Scenario {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), "orcy-installsh-"));
   scenarioHomes.push(home);
@@ -160,7 +172,7 @@ function buildScenario(opts: {
       `if [ "$1" = "--version" ]; then echo "${opts.nodeVersion}"; exit 0; fi\nexec "${realNode}" "$@"`,
     );
   }
-  for (const b of ["sed", "mkdir", "rm", "mv", "cp", "cat"]) {
+  for (const b of ["sed", "mkdir", "rm", "mv", "cp", "cat", "ls", "rmdir"]) {
     fs.symlinkSync(resolveBin(b), path.join(stubDir, b));
   }
   // With failPromotion, `mv` refuses to move the staged installer into place
@@ -225,9 +237,27 @@ cat > "$dir/packages/shared/package.json" <<'PKGEOF'
 PKGEOF
 printf 'export const id = "shared";\\n' > "$dir/packages/shared/dist/index.js"
 cat > "$dir/packages/installer/dist/index.js" <<'IDXEOF'
-import { writeFileSync } from "node:fs";
+import { writeFileSync, existsSync, mkdirSync, rmdirSync } from "node:fs";
 import { id } from "@orcy/shared";
-writeFileSync(process.env.ORCY_INSTALLER_EXEC_MARKER, JSON.stringify({ args: process.argv.slice(2), shared: id, stdinIsTTY: process.stdin.isTTY ?? null }));
+const behavior = JSON.parse(process.env.ORCY_FAKE_INSTALLER ?? "{}");
+// Reported as soon as the installer starts: what it was given, and whether
+// the bootstrap was still holding its lock at that point.
+writeFileSync(
+  process.env.ORCY_INSTALLER_EXEC_MARKER,
+  JSON.stringify({
+    args: process.argv.slice(2),
+    shared: id,
+    stdinIsTTY: process.stdin.isTTY ?? null,
+    lockHeld: existsSync(process.env.ORCY_INSTALLER_LOCK),
+  }),
+);
+// Simulates the user removing the bootstrap's lock and another run taking one.
+if (behavior.swapLock) {
+  rmdirSync(process.env.ORCY_INSTALLER_LOCK);
+  mkdirSync(process.env.ORCY_INSTALLER_LOCK);
+}
+if (behavior.sleepMs) Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, behavior.sleepMs);
+process.exit(behavior.exit ?? 0);
 IDXEOF
 printf 'skill\\n' > "$dir/packages/installer/skills/overview.md"
 `,
@@ -269,12 +299,26 @@ exit 0
     );
   }
 
-  // A bootstrap lock from an earlier run, if the scenario starts with one.
-  if (opts.lock) {
-    const lockDir = path.join(home, ".orcy");
-    fs.mkdirSync(lockDir, { recursive: true });
-    fs.writeFileSync(path.join(lockDir, "bootstrap.lock"), `${opts.lock === "live" ? process.pid : exitedPid()}\n`);
+  // With failBackupRemoval, `rm` refuses to remove the previous installer's
+  // backup and passes every other removal to the real binary.
+  if (opts.failBackupRemoval) {
+    fs.rmSync(path.join(stubDir, "rm"));
+    writeStub(
+      stubDir,
+      "rm",
+      `for a in "$@"; do last="$a"; done
+if [ "$last" = "${path.join(home, ".orcy", "installer.old")}" ] && [ -e "$last" ]; then
+  echo "rm: backup refused" >&2
+  exit 1
+fi
+exec "${resolveBin("rm")}" "$@"
+`,
+    );
   }
+
+  const lockDir = path.join(home, ".orcy", "bootstrap.lock");
+  // A bootstrap lock left by another run, if the scenario starts with one.
+  if (opts.locked) fs.mkdirSync(lockDir, { recursive: true });
 
   return {
     logPath,
@@ -282,19 +326,27 @@ exit 0
     home,
     stubDir,
     installerDir: path.join(home, ".orcy", "installer"),
-    lockFile: path.join(home, ".orcy", "bootstrap.lock"),
+    lockDir,
     srcDir: path.join(home, ".orcy", "src", "orcy"),
+    installer: opts.installer ?? {},
+  };
+}
+
+/** The environment install.sh runs in: stub-only PATH, disposable HOME. */
+function installerEnv(s: Scenario): NodeJS.ProcessEnv {
+  return {
+    PATH: s.stubDir,
+    HOME: s.home,
+    ORCY_INSTALLER_EXEC_MARKER: s.markerPath,
+    ORCY_INSTALLER_LOCK: s.lockDir,
+    ORCY_FAKE_INSTALLER: JSON.stringify(s.installer),
   };
 }
 
 function runInstallSh(s: Scenario, args: string[] = []) {
   // Absolute path: the child's PATH is the stub dir only, which has no sh.
   return spawnSync(resolveBin("sh"), [INSTALL_SH, ...args], {
-    env: {
-      PATH: s.stubDir,
-      HOME: s.home,
-      ORCY_INSTALLER_EXEC_MARKER: s.markerPath,
-    },
+    env: installerEnv(s),
     cwd: s.home,
     encoding: "utf8",
     timeout: 60_000,
@@ -529,31 +581,89 @@ describe("install.sh — a failed handoff fails closed", () => {
   });
 });
 
-describe("install.sh — one bootstrap at a time", () => {
-  it("refuses to start while another bootstrap run holds the lock", () => {
-    const s = buildScenario({ lock: "live" }); // held by this running test process
+describe("install.sh — one installer run at a time", () => {
+  const marker = (s: Scenario) =>
+    JSON.parse(fs.readFileSync(s.markerPath, "utf8")) as { lockHeld: boolean; args: string[] };
+
+  it("stops before it touches anything while another run holds the lock, and leaves that lock alone", () => {
+    const s = buildScenario({ locked: true });
     const r = runInstallSh(s);
     expect(r.status).not.toBe(0);
-    expect(output(r)).toMatch(/another orcy installer run is in progress/i);
-    // Nothing was touched: no download, no staging, no handoff, lock left alone.
+    expect(output(r)).toMatch(/another orcy installer run may be in progress/i);
+    // Nothing was downloaded, staged or handed off, and the lock is still there.
     expect(readLog(s)).toEqual([]);
-    expect(fs.readFileSync(s.lockFile, "utf8").trim()).toBe(String(process.pid));
+    expect(fs.existsSync(s.lockDir)).toBe(true);
     expect(fs.existsSync(s.markerPath)).toBe(false);
   });
 
-  it("takes over a lock left by a run that is gone, and releases it at the handoff", () => {
-    const s = buildScenario({ lock: "stale" });
+  it("never takes a lock over: one left by a run that is gone is named for removal by hand", () => {
+    // Taking a lock over cannot be told apart, safely, from removing a lock a
+    // live run has just re-acquired — so it is not attempted.
+    const s = buildScenario({ locked: true });
+    const r = runInstallSh(s);
+    expect(r.status).not.toBe(0);
+    expect(output(r)).toMatch(/left by an interrupted run/i);
+    expect(output(r)).toContain(`Remove ${s.lockDir} and run this again.`);
+    expect(fs.existsSync(s.lockDir)).toBe(true);
+  });
+
+  it("holds the lock while the installer runs and releases it once the installer has exited", () => {
+    // The wizard rebuilds the same source tree, so a second bootstrap must not
+    // be let in before it is finished.
+    const s = buildScenario({});
+    const r = runInstallSh(s, ["--yes", "--components=api"]);
+    expect(r.status).toBe(0);
+    expect(marker(s).lockHeld).toBe(true);
+    expect(marker(s).args).toEqual(["--yes", "--components=api"]);
+    expect(fs.existsSync(s.lockDir)).toBe(false);
+  });
+
+  it("gives the installer's exit status to the script and releases the lock when it fails", () => {
+    const s = buildScenario({ installer: { exit: 3 } });
+    const r = runInstallSh(s);
+    expect(r.status).toBe(3);
+    expect(fs.existsSync(s.lockDir)).toBe(false);
+  });
+
+  it("keeps holding the lock until a signalled installer has exited", async () => {
+    // The signal reaches only the shell: POSIX defers its trap until the
+    // foreground child has exited, so the lock cannot go first.
+    const s = buildScenario({ installer: { sleepMs: 1500, exit: 4 } });
+    const child = spawn(resolveBin("sh"), [INSTALL_SH], {
+      env: installerEnv(s),
+      cwd: s.home,
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    // Wait until the installer has started (it reports that in its marker).
+    for (let i = 0; i < 100 && !fs.existsSync(s.markerPath); i++) {
+      await new Promise<void>((resolve) => setTimeout(resolve, 50));
+    }
+    expect(fs.existsSync(s.markerPath)).toBe(true);
+    const exited = new Promise<void>((resolve) => child.once("exit", () => resolve()));
+    child.kill("SIGTERM");
+    await new Promise<void>((resolve) => setTimeout(resolve, 300));
+    // The installer is still running, so the lock is still held.
+    expect(fs.existsSync(s.lockDir)).toBe(true);
+    await exited;
+    expect(child.exitCode, "the installer's status, not the signal's").toBe(4);
+    expect(fs.existsSync(s.lockDir)).toBe(false);
+  });
+
+  it("never removes a lock another run has taken in the meantime", () => {
+    // Only reachable if the user deletes a live lock by hand — but cleanup
+    // must still not take the next run's lock with it.
+    const s = buildScenario({ installer: { swapLock: true } });
     const r = runInstallSh(s);
     expect(r.status).toBe(0);
-    expect(fs.existsSync(s.markerPath)).toBe(true);
-    expect(fs.existsSync(s.lockFile)).toBe(false);
+    expect(fs.existsSync(s.lockDir)).toBe(true);
+    fs.rmdirSync(s.lockDir);
   });
 
   it("releases the lock when the run fails", () => {
     const s = buildScenario({ failDeploy: true });
     const r = runInstallSh(s);
     expect(r.status).not.toBe(0);
-    expect(fs.existsSync(s.lockFile)).toBe(false);
+    expect(fs.existsSync(s.lockDir)).toBe(false);
   });
 
   it("restores an installer left moved aside even when this run fails before staging", () => {
@@ -568,7 +678,41 @@ describe("install.sh — one bootstrap at a time", () => {
     expect(fs.readFileSync(path.join(s.installerDir, "dist", "index.js"), "utf8")).toBe(
       "previous installer",
     );
-    expect(fs.existsSync(s.lockFile)).toBe(false);
+    expect(fs.existsSync(s.lockDir)).toBe(false);
+  });
+});
+
+describe("install.sh — promotion versus the previous installer's backup", () => {
+  const marker = (s: Scenario) =>
+    JSON.parse(fs.readFileSync(s.markerPath, "utf8")) as { lockHeld: boolean };
+
+  it("stops with the working installer untouched when a stale backup cannot be cleared", () => {
+    // A run interrupted right after promotion leaves the new installer active
+    // and the old one not deleted yet. If that old one will not go, the active
+    // one is not replaced without a way back.
+    const s = buildScenario({ failBackupRemoval: true });
+    const previous = seedPreviousInstaller(s);
+    seedInterruptedPromotion(s);
+    const r = runInstallSh(s);
+    expect(r.status).not.toBe(0);
+    expect(output(r)).toMatch(/could not remove the previous installer's backup/i);
+    expect(output(r)).toContain(`Remove ${s.installerDir}.old and run this again.`);
+    expect(fs.readFileSync(previous, "utf8")).toBe("previous installer");
+    expect(fs.existsSync(s.markerPath)).toBe(false);
+    expect(fs.existsSync(`${s.installerDir}.new`)).toBe(false);
+  });
+
+  it("hands off to the new installer even when the old one cannot be deleted afterwards", () => {
+    const s = buildScenario({ failBackupRemoval: true });
+    seedPreviousInstaller(s);
+    const r = runInstallSh(s);
+    expect(r.status, output(r)).toBe(0);
+    // The new installer ran, and the old one was kept and named.
+    expect(marker(s).lockHeld).toBe(true);
+    expect(output(r)).toMatch(/the previous installer is kept at .*installer\.old and can be deleted/i);
+    expect(fs.readFileSync(path.join(`${s.installerDir}.old`, "dist", "index.js"), "utf8")).toBe(
+      "previous installer",
+    );
   });
 });
 
@@ -587,7 +731,7 @@ describe.skipIf(!SCRIPT)("install.sh — interactive handoff through a terminal"
         "/dev/null",
       ],
       {
-        env: { PATH: s.stubDir, HOME: s.home, ORCY_INSTALLER_EXEC_MARKER: s.markerPath },
+        env: installerEnv(s),
         cwd: s.home,
         encoding: "utf8",
         timeout: 60_000,
