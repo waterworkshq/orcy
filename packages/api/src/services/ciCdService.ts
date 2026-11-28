@@ -253,6 +253,15 @@ function nonEmptyString(value: unknown): string | null {
   return typeof value === "string" && value.trim().length > 0 ? value : null;
 }
 
+const VALID_GITHUB_WORKFLOW_JOB_STATUSES = new Set([
+  "queued",
+  "in_progress",
+  "completed",
+  "waiting",
+  "requested",
+  "pending",
+]);
+
 function workflowJobValidationError(error: string) {
   return { status: "error", statusCode: 400, error };
 }
@@ -300,13 +309,20 @@ export function handleGitHubWorkflowJobEvent(body: GitHubWorkflowJobEvent) {
   }
 
   const jobStatus = nonEmptyString(job.status);
-  if (!jobStatus) {
-    return workflowJobValidationError("Invalid workflow_job payload: missing workflow_job.status");
+  if (!jobStatus || !VALID_GITHUB_WORKFLOW_JOB_STATUSES.has(jobStatus)) {
+    return workflowJobValidationError(
+      "Invalid workflow_job payload: invalid or missing workflow_job.status",
+    );
   }
 
   if (job.conclusion !== undefined && job.conclusion !== null && typeof job.conclusion !== "string") {
     return workflowJobValidationError(
       "Invalid workflow_job payload: invalid workflow_job.conclusion",
+    );
+  }
+  if (jobStatus === "completed" && !nonEmptyString(job.conclusion)) {
+    return workflowJobValidationError(
+      "Invalid workflow_job payload: missing workflow_job.conclusion for completed job",
     );
   }
 

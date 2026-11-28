@@ -319,6 +319,51 @@ describe("GitHub workflow_job webhook (served authenticated Fastify + SQL.js)", 
         },
       }),
     ],
+    [
+      "unrecognized workflow_job.status",
+      (tid: string) => ({
+        action: "completed",
+        repository: { full_name: "waterworkshq/orcy" },
+        workflow_job: {
+          id: 1,
+          run_id: 100,
+          status: "compeleted",
+          conclusion: "success",
+          head_branch: `mission/${tid}`,
+          head_sha: "abc",
+        },
+      }),
+    ],
+    [
+      "missing workflow_job.conclusion on completed job",
+      (tid: string) => ({
+        action: "completed",
+        repository: { full_name: "waterworkshq/orcy" },
+        workflow_job: {
+          id: 1,
+          run_id: 100,
+          status: "completed",
+          conclusion: null,
+          head_branch: `mission/${tid}`,
+          head_sha: "abc",
+        },
+      }),
+    ],
+    [
+      "empty workflow_job.conclusion on completed job",
+      (tid: string) => ({
+        action: "completed",
+        repository: { full_name: "waterworkshq/orcy" },
+        workflow_job: {
+          id: 1,
+          run_id: 100,
+          status: "completed",
+          conclusion: "   ",
+          head_branch: `mission/${tid}`,
+          head_sha: "abc",
+        },
+      }),
+    ],
   ])(
     "returns typed 400 validation rejection before DB effects for %s",
     async (_label, buildPayload) => {
