@@ -104,3 +104,34 @@ it.each(["unchanged", "failed", "retired"] as const)("handles a %s create acknow
   expect(writes).toHaveLength(1);
   client.clear();
 });
+
+it("keeps a transferred draft visible and waits for complete detail after cancel", async () => {
+  let finishCreate!: (response: Response) => void;
+  let finishDetail!: (response: Response) => void;
+  const { links, ...createdPage } = initial;
+  vi.stubGlobal("fetch", vi.fn((input: string, options: RequestInit = {}) => {
+    const url = String(input);
+    if (url.endsWith("/wiki/pages") && options.method === "POST") return new Promise<Response>((resolve) => { finishCreate = resolve; });
+    if (url.endsWith("/wiki/pages/created")) return new Promise<Response>((resolve) => { finishDetail = resolve; });
+    if (url.endsWith("/wiki/pages")) return Promise.resolve(json({ pages: [] }));
+    if (url.endsWith("/links")) return Promise.resolve(json({ links: [] }));
+    if (url.includes("authoring-context")) return Promise.resolve(json({ context: {} }));
+    return Promise.resolve(json({ habitat: { name: "Test" } }));
+  }));
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
+  render(<QueryClientProvider client={client}><MemoryRouter initialEntries={["/habitats/h/wiki?page=new"]}><Routes><Route path="/habitats/:habitatId/wiki" element={<WikiPage />} /></Routes></MemoryRouter></QueryClientProvider>);
+  fireEvent.change(screen.getByPlaceholderText("Page title…"), { target: { value: "A" } });
+  fireEvent.change(screen.getByPlaceholderText("Write page content in markdown…"), { target: { value: "Body A" } });
+  fireEvent.click(screen.getByRole("button", { name: "Create page" }));
+  await waitFor(() => expect(finishCreate).toBeDefined());
+  fireEvent.change(screen.getByPlaceholderText("Write page content in markdown…"), { target: { value: "Body B" } });
+  await act(async () => finishCreate(json({ page: createdPage })));
+  expect(await screen.findByDisplayValue("Body B")).toBeInTheDocument();
+  await waitFor(() => expect(finishDetail).toBeDefined());
+  fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+  expect(screen.queryByText("Body A")).not.toBeInTheDocument();
+  await act(async () => finishDetail(json({ page: { ...createdPage, links } })));
+  expect(await screen.findByText("Body A")).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "Edit" })).toBeInTheDocument();
+  client.clear();
+});

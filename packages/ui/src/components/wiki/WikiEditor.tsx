@@ -45,6 +45,7 @@ function WikiEditorSession({ habitatId, mode, pageId, onDone, onCancel, initialD
     return () => { active.current = false; };
   }, []);
 
+  const [hasInitialDraft] = useState(() => !!initialDraft);
   const [draft, setDraft] = useState(() => {
     const values: DraftValues = { title: "", content: "", parentId: "", tags: [], status: "draft" };
     return { values: initialDraft?.values ?? values, saved: initialDraft?.saved ?? values, conflicts: {} as Partial<Record<keyof DraftValues, boolean>> };
@@ -162,7 +163,6 @@ function WikiEditorSession({ habitatId, mode, pageId, onDone, onCancel, initialD
         if (JSON.stringify(current[field]) === JSON.stringify(submitted[field])) Object.assign(values, { [field]: saved[field] });
       }
       const changed = JSON.stringify(current) !== JSON.stringify(submitted) || !!currentTagInput.current;
-      if (changed) queryClient.setQueryData(queryKeys.wiki.page(habitatId, page.id), (existing: WikiPage | undefined) => existing ?? page);
       if (changed) onDone(page.id, { values, saved, tagInput: currentTagInput.current });
       else onDone(page.id);
     },
@@ -262,7 +262,7 @@ function WikiEditorSession({ habitatId, mode, pageId, onDone, onCancel, initialD
     setField("tags", tags.filter((x) => x !== t));
   }
 
-  if (isEdit && pageLoading) {
+  if (isEdit && pageLoading && !hasInitialDraft) {
     return (
       <div className="flex items-center justify-center py-16">
         <Loader2 className="h-6 w-6 animate-spin text-[var(--on-surface-variant)]" />
