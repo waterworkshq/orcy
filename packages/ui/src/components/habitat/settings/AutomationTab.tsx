@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useImperativeHandle, forwardRef } from "react";
+import React, { useState, useCallback, useImperativeHandle, useRef, forwardRef } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "../../../api/index.js";
 import { queryKeys } from "../../../lib/queryKeys.js";
@@ -71,6 +71,7 @@ export const AutomationTab = forwardRef<AutomationTabHandle, AutomationTabProps>
     const [simulationResult, setSimulationResult] = useState<AutomationSimulationResult | null>(
       null,
     );
+    const simulateRequestIdRef = useRef(0);
 
     const { data: rules, isLoading } = useQuery({
       queryKey: queryKeys.automation.rules(habitatId),
@@ -139,6 +140,7 @@ export const AutomationTab = forwardRef<AutomationTabHandle, AutomationTabProps>
     }
 
     async function handleSimulate(ruleId: string) {
+      const requestId = ++simulateRequestIdRef.current;
       try {
         // The served human simulate contract takes an OPTIONAL trigger-event
         // id, and rejects an explicit null with a typed validation error
@@ -146,9 +148,11 @@ export const AutomationTab = forwardRef<AutomationTabHandle, AutomationTabProps>
         // Simulating the default context therefore sends no trigger context
         // at all — an omitted id, never a null.
         const result = await api.automation.simulate(ruleId, {});
+        if (simulateRequestIdRef.current !== requestId) return;
         setSimulationResult(result);
         setShowSimulation(ruleId);
       } catch (err) {
+        if (simulateRequestIdRef.current !== requestId) return;
         setSimulationResult(null);
         setShowSimulation(null);
         notify.error((err as Error).message);

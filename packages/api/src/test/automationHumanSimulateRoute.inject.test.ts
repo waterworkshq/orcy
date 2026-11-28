@@ -7,6 +7,7 @@
  * human habitat authorization, and zero side-effect persistence.
  */
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { randomBytes } from "node:crypto";
 import Fastify, { type FastifyInstance } from "fastify";
 import { validatorCompiler, serializerCompiler } from "fastify-type-provider-zod";
 import jwt from "jsonwebtoken";
@@ -24,10 +25,10 @@ import { users } from "../db/schema/user.js";
 import { automationRoutes } from "../routes/automationRules.js";
 import type { AutomationCondition } from "@orcy/shared";
 
-const JWT_SECRET = "human-simulate-route-secret";
+let signingKey = "";
 
 function makeToken(payload: { sub: string; username: string; role: string }): string {
-  return jwt.sign(payload, JWT_SECRET, { issuer: "orcy" });
+  return jwt.sign(payload, signingKey, { issuer: "orcy" });
 }
 
 async function buildApp(): Promise<FastifyInstance> {
@@ -70,7 +71,8 @@ describe("POST /automation-rules/:ruleId/simulate (human)", () => {
         { id: "outsider-1", username: "outsider-1", passwordHash: "fixture", role: "editor" },
       ])
       .run();
-    setJwtSecret(JWT_SECRET);
+    signingKey = randomBytes(32).toString("hex");
+    setJwtSecret(signingKey);
   });
 
   afterEach(() => {

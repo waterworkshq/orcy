@@ -1,17 +1,10 @@
 import { request } from "../transport.js";
 import type {
-  AutomationCondition,
   AutomationSimulationResult,
-  AutomationTargetType,
+  SimulateAutomationRuleInput,
 } from "../../types/index.js";
 
-export interface SimulateAutomationRuleInput {
-  overrideCondition?: AutomationCondition;
-  triggerEventId?: string;
-  targetType?: AutomationTargetType | string;
-  targetId?: string;
-  payload?: Record<string, unknown>;
-}
+export type { SimulateAutomationRuleInput };
 
 export const automationApi = {
   listRules: (habitatId: string) => request<unknown>(`/habitats/${habitatId}/automation-rules`),

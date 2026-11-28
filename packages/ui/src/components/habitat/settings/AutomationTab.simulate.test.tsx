@@ -25,12 +25,12 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { existsSync } from "node:fs";
+import { randomBytes } from "node:crypto";
 import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { AutomationTab } from "./AutomationTab.js";
 
-const JWT_SECRET = "automation-simulate-ui-crossing-secret";
 const HUMAN_ID = "automation-simulate-human";
 
 /** The workspace root — the directory that owns pnpm-workspace.yaml. */
@@ -62,6 +62,8 @@ let runRepo: any;
 let pulseRepo: any;
 let baseUrl = "";
 let jwt: any;
+let signingKey = "";
+let fetchHook: ((input: any, init: any) => Promise<Response>) | null = null;
 
 /** Every request the production transport put on the wire. */
 const wire: Array<{ method: string; path: string; body: unknown }> = [];
@@ -69,13 +71,14 @@ const wire: Array<{ method: string; path: string; body: unknown }> = [];
 const originalFetch = globalThis.fetch;
 
 beforeAll(async () => {
-  process.env.JWT_SECRET = JWT_SECRET;
+  signingKey = randomBytes(32).toString("hex");
+  process.env.JWT_SECRET = signingKey;
 
   const Fastify = requireFromApi("fastify");
   jwt = requireFromApi("jsonwebtoken");
 
   const { setJwtSecret } = await apiModule<any>("middleware/jwt-verification.ts");
-  setJwtSecret(JWT_SECRET);
+  setJwtSecret(signingKey);
   const { automationRoutes } = await apiModule<any>("routes/automationRules.ts");
   const { registerErrorHandler } = await apiModule<any>("errors/plugin.ts");
   const db = await apiModule<any>("db/index.ts");
@@ -102,6 +105,9 @@ beforeAll(async () => {
       path: url.pathname,
       body: init?.body ? JSON.parse(String(init.body)) : undefined,
     });
+    if (fetchHook) {
+      return fetchHook(url, init);
+    }
     return originalFetch(url, init);
   }) as typeof fetch;
 });
@@ -115,6 +121,7 @@ afterAll(async () => {
 beforeEach(async () => {
   await initTestDb();
   wire.length = 0;
+  fetchHook = null;
   localStorage.clear();
 });
 
@@ -149,7 +156,7 @@ function seedRule(
 }
 
 function humanToken(): string {
-  return jwt.sign({ sub: HUMAN_ID, username: HUMAN_ID, role: "admin" }, JWT_SECRET, {
+  return jwt.sign({ sub: HUMAN_ID, username: HUMAN_ID, role: "admin" }, signingKey, {
     issuer: "orcy",
   });
 }
@@ -222,6 +229,47 @@ describe("AutomationTab simulate against the served human simulation route", () 
 
     expect(pulseRepo.getPulsesByHabitat(habitat.id, { limit: 100, offset: 0 }).total).toBe(0);
     expect(runRepo.listRunsByRule(rule.id, { limit: 100, offset: 0 }).total).toBe(0);
+  });
+
+  it("ignores stale simulation failures that settle after a newer successful simulation", async () => {
+    const habitat = seedHabitat();
+    const rule = seedRule(habitat.id);
+    localStorage.setItem("orcy_token", humanToken());
+
+    let releaseFirstFailure!: () => void;
+    let firstSimulateSeen = false;
+    fetchHook = async (url, init) => {
+      if (url.pathname.endsWith(`/automation-rules/${rule.id}/simulate`) && !firstSimulateSeen) {
+        firstSimulateSeen = true;
+        const failedResponse = await originalFetch(url, {
+          ...init,
+          headers: { ...(init?.headers as Record<string, string>), authorization: "" },
+        });
+        await new Promise<void>((resolve) => {
+          releaseFirstFailure = resolve;
+        });
+        return failedResponse;
+      }
+      return originalFetch(url, init);
+    };
+
+    renderTab(habitat.id);
+
+    const simButton = await screen.findByTitle("Simulate");
+    simButton.click();
+    await waitFor(() => expect(firstSimulateSeen).toBe(true));
+
+    // Second request settles first and succeeds; the earlier 401 failure settles afterward.
+    simButton.click();
+    const result = await screen.findByTestId("automation-simulation-result");
+    await waitFor(() => expect(result.textContent).toContain('"wouldExecute": true'));
+
+    releaseFirstFailure();
+    await new Promise((resolve) => setTimeout(resolve, 25));
+
+    expect(screen.getByTestId("automation-simulation-result").textContent).toContain(
+      '"wouldExecute": true',
+    );
   });
 
   it("keeps accepting an explicit valid trigger event while rejecting null, typed-invalid, and unauthenticated requests", async () => {

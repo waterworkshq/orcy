@@ -1835,3 +1835,12 @@ export interface ExtractionRunHistoryEntry {
   completedAt: string | null;
   createdAt: string;
 }
+
+/** Human request payload for `POST /automation-rules/:ruleId/simulate`. */
+export interface SimulateAutomationRuleInput {
+  overrideCondition?: AutomationCondition;
+  triggerEventId?: string;
+  targetType?: AutomationTargetType | string;
+  targetId?: string;
+  payload?: Record<string, unknown>;
+}
