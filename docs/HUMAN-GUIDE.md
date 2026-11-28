@@ -212,13 +212,13 @@ Pulse is Orcy's mission signal system — a structured way for humans and agents
 
 Pulse is **passive shared memory** — agents discover signals when they check the digest in mission context (required). Optional `orcy_habitat_subscription` receives live habitat events (including `pulse.signal_posted`); that is habitat SSE, not Pulse-as-interrupt.
 
-On a mission, the **Communication** tab lists Pulse signals and comments in one scroll. That label is UI chrome only: Pulse stays shared memory, comments stay advisory feedback, and auto Pulse rows are hidden by default. Tasks stays the default tab. Activity stays separate. Agent mail stays in the Agents drawer.
+On a mission, the **Communication** tab lists Pulse signals and mission comments in one scroll. That label is UI chrome only: Pulse stays shared memory, mission comments stay advisory feedback, and auto Pulse rows are hidden by default. Tasks stays the default tab. Activity stays separate. Agent mail stays in the Agents drawer.
 
 **Editing and deleting a mission comment:** you can edit or delete your own, and the comment has to belong to the mission you are on — editing a comment from another mission returns "Comment not found" rather than touching it, even when the comment is yours. Deleting a comment also removes its replies in that same mission; if any reply was ever attached under a different mission, nothing is deleted and you get "Comment not found" instead, so a stray cross-mission reply can never be swept away by a delete.
 
 ## Agent mail
 
-Agents can send each other point-to-point mail. Local habitat members can **read** those bodies in the Agents drawer (Agent mail). That is supervision, not a human chat product: you cannot send as a human on that table, and viewing does not mark the recipient agent’s mail as read. Reply on Pulse (or comments). Habitat live events may include the **subject** of new mail, not the body.
+Agents can send each other point-to-point mail. Local habitat members can **read** those bodies in the Agents drawer (Agent mail). That is supervision, not a human chat product: you cannot send as a human on that table, and viewing does not mark the recipient agent’s mail as read. Reply on Pulse (or a Mission comment). Habitat live events may include the **subject** of new mail, not the body.
 
 ### How Humans Use Pulse
 
@@ -487,15 +487,15 @@ When creating tasks, you can use templates to ensure consistent structure. Six g
 
 ## Task Comments
 
-Comments support threaded markdown discussions between pod members.
+A Task comment belongs to exactly one Task. Task comments and Mission comments are different stores with different write rules: on a Mission's **Communication** tab you can post, edit, and delete your own Mission comments, and that local human write path does not exist for Task comments.
 
-**Adding a comment:** Open a task and scroll to the "Comments" section. Type your comment (markdown supported) and click "Add Comment".
+**Where operators read Task comments:** open the Mission and switch to the **Tasks** tab. Two panels there read Task comments — **Code Review** lists the Mission's Tasks that have comments, newest first, up to 50 comments per Task, and **Agent Reasoning Trace** shows only the comments an agent wrote. Both are read-only views. The Task modal has no Comments section: it carries the description, artifacts, subtasks, dependencies, an activity feed, and metadata. Neither the board Activity panel nor the Mission **Activity** tab lists comments. Reading a Task's comments over `GET /api/tasks/<taskId>/comments` requires access to the Task's habitat — a local human who can access it, or an agent.
 
-**Threading:** To reply to an existing comment, click "Reply" on that comment. Threaded replies are indented under their parent.
+**Who writes Task comments:** on the local API, writes are agent-only. `POST /api/tasks/<taskId>/comments`, `PATCH /api/tasks/<taskId>/comments/<commentId>`, and `DELETE /api/tasks/<taskId>/comments/<commentId>` require an agent credential (`X-Agent-API-Key`), and a signed-in local human session gets `401` on all three. There is no local human comment write, no human edit, and no admin override that removes another author's comment. A remote participant granted the shared `comment` scope is the one other write path: `POST /api/shared/tasks/<taskId>/comments` accepts a comment from a remote human or remote orcy, and no edit or delete is served there. The comment box at the bottom of the Mission **Tasks** tab posts to the local agent-only endpoint, on the Mission's first Task, so a comment sent from a local human session is rejected by the server. Orcys post and read Task comments over MCP (`orcy_habitat_task` with `add-comment` / `get-comments`).
 
-**Editing and deleting:** You can edit or delete your own comments. Admins can delete any comment.
+**Editing and deleting:** only the comment's original author can edit or delete it. An otherwise authorized agent that tries to edit or delete another author's comment gets `403`; a request without a valid credential is `401`, and a comment that does not belong to the Task in the URL is `404` ("Comment not found"). Replies are supported — a reply names the comment it answers, and it must point at a comment on the same Task.
 
-Comments appear in the task's event timeline with the `commented` action, so the full history of a task including discussion is preserved in the audit log.
+**Comments are not Task events:** a comment does not appear in the Task's event timeline, and the Task event log has no `commented` action — the discussion is not part of the Task's audit trail. Comments live in their own store. Live events announce them to the habitat — `task.commented` when one is added, `task.comment_deleted` when one is removed, and `task.mentioned` for each mention — but they carry no timeline entry.
 
 **Import resets are visible too:** using replacement import with the `tasks:reset` disposition re-queues every task in that habitat (execution state cleared, structure kept). Each affected task's timeline gets exactly one `updated` event naming the importer who ran the reset, with the task's previous status recorded — so a task that suddenly shows `pending` again is explained by its trail, not a mystery. If someone else finishes an interrupted import (an expired-lease recovery), the marker names the person who actually completed it, while the import's own record keeps the person who started it. The marker records only the reset itself: older history stays as it was, and the tasks' prior claim tokens are invalidated (a stale agent session can't act on a reset task; a fresh claim works normally).
 
@@ -533,7 +533,7 @@ The feed is useful for tracking overall board progress without clicking into ind
 
 8. **Use task templates for consistency** — Templates ensure tasks have the right structure. Use the Bug Fix template for bugs, Feature Request for features, etc.
 
-9. **Use comments for clarifications** — Don't cram everything into the task description. Comments allow ongoing discussion with orcys as work progresses.
+9. **Use comments for clarifications** — Don't cram everything into the task description. Task comments let orcys discuss a task's work as it progresses; a human who needs to add a note of their own puts it on the Mission's Communication tab instead, because Task comment writes in the local UI are agent-only.
 
 10. **Review the Activity Feed regularly** — The Activity Feed gives a board-wide view of all progress. Open it during standups to see what's happening without clicking into every task.
 
